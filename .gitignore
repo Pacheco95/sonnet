@@ -1,0 +1,15 @@
+build/
+build-*/
+*.o
+*.a
+*.so
+*.exe
+*.dll
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
+*.log
+.env*
