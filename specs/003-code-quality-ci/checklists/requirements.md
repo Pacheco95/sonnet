@@ -31,4 +31,4 @@
 
 ## Notes
 
-- All items pass. Specification is ready for `/speckit-plan`.
+- All items pass. Clarification session 2026-05-01 resolved 5 open areas (findings surface, severity threshold, scan scope, CI auto-fix, infrastructure failure handling). Specification is ready for `/speckit-plan`.

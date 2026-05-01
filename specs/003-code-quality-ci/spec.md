@@ -5,6 +5,16 @@
 **Status**: Draft  
 **Input**: User description: "As a project maintainer I want to add a code formatting tool and a SAST tool in order to enforce good future-proof project standards. I want the CI to run the format checker and SAST before anything else, even the tests. Maintainers must be able to run those tools locally and independently. Pull requests that does not satisfy a minimum code quality threshold must be rejected immediately. Prefer free and open-source tools."
 
+## Clarifications
+
+### Session 2026-05-01
+
+- Q: When the format check or SAST job fails on a PR, how should violations be surfaced to the contributor? → A: Inline check annotations on the diff (line-level comments in the PR Files view)
+- Q: What is the minimum SAST finding severity that should block a PR? → A: Warnings and above block the PR; informational/note-level findings are surfaced as non-blocking pipeline warnings so maintainers retain full visibility
+- Q: Should the CI format check and SAST scan cover the entire codebase or only changed files? → A: Entire codebase on every run
+- Q: Should CI auto-fix formatting and commit back, or report only? → A: Report only; contributor fixes locally using the documented fix command
+- Q: Should an infrastructure failure (runner crash, network timeout) block the PR? → A: No; infrastructure failures do not block the PR and must be re-triggered manually to obtain a valid result
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Automated Code Quality Gate on PR (Priority: P1)
@@ -18,8 +28,8 @@ A contributor opens a pull request. Before any tests run, the CI automatically c
 **Acceptance Scenarios**:
 
 1. **Given** a contributor marks a PR as ready for review, **When** the PR targets the main branch, **Then** the format check and SAST run automatically and complete before any test jobs start.
-2. **Given** any formatting violation is detected, **When** the format check completes, **Then** the PR merge is blocked and the contributor sees which files and locations have formatting issues.
-3. **Given** any static analysis finding above the minimum threshold is detected, **When** the SAST run completes, **Then** the PR merge is blocked and the contributor sees a report of the findings.
+2. **Given** any formatting violation is detected, **When** the format check completes, **Then** the PR merge is blocked and violations appear as inline annotations on the affected diff lines in the PR Files view.
+3. **Given** any static analysis finding above the minimum threshold is detected, **When** the SAST run completes, **Then** the PR merge is blocked and findings appear as inline annotations on the affected diff lines in the PR Files view.
 4. **Given** both checks pass, **When** format check and SAST complete, **Then** downstream test jobs are allowed to proceed and the quality gate status is marked passing on the PR.
 
 ---
@@ -61,20 +71,22 @@ A maintainer wants to run static analysis locally on their changes before pushin
 - What happens when a PR modifies only non-source files (e.g., documentation, CI configs)? The quality gate still runs but may report no relevant files to check, exiting successfully.
 - What happens if the SAST tool produces warnings for code in third-party vendor directories? Vendor and generated code directories are excluded from analysis scope.
 - What happens when a new static analysis rule causes previously-passing PRs to fail? The minimum threshold is set at project configuration time; rule additions are a deliberate maintainer action.
+- What happens if a CI quality gate job fails due to infrastructure (runner crash, network timeout)? The failure does not block the PR; the job must be re-triggered manually to obtain a valid result.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: The CI pipeline MUST run the format check and SAST jobs as the first stage, before any build or test jobs begin.
-- **FR-002**: The CI pipeline MUST block PR merging if the format check job fails.
-- **FR-003**: The CI pipeline MUST block PR merging if the SAST job reports any finding at or above the configured minimum severity threshold.
+- **FR-001**: The CI pipeline MUST run the format check and SAST jobs as the first stage, before any build or test jobs begin, scanning the entire codebase on every run.
+- **FR-002**: The CI pipeline MUST block PR merging if the format check job fails; the CI job MUST NOT modify or commit back to the branch (report only).
+- **FR-003**: The CI pipeline MUST block PR merging if the SAST job reports any finding at warning severity or above.
+- **FR-003a**: The CI pipeline MUST surface informational/note-level SAST findings as non-blocking pipeline warnings so maintainers retain full visibility without being blocked.
 - **FR-004**: Maintainers MUST be able to run the format checker locally with a single documented command without CI infrastructure.
 - **FR-005**: Maintainers MUST be able to run the SAST tool locally with a single documented command without CI infrastructure.
 - **FR-006**: The format checker MUST support an auto-fix mode that rewrites source files in-place to conform to the project style.
 - **FR-007**: Both the format checker and SAST tool MUST be free and open-source software.
 - **FR-008**: The SAST tool MUST exclude third-party vendor and generated code directories from its analysis scope.
-- **FR-009**: Failure reports from both tools MUST include at minimum: file path, line number, and a human-readable description of the violation.
+- **FR-009**: Failure reports from both tools MUST be surfaced as inline annotations on the affected diff lines in the PR Files view, including at minimum: file path, line number, and a human-readable description of the violation.
 - **FR-010**: The CI quality gate jobs MUST complete within a time consistent with the overall CI time budget (30-minute ceiling established in spec 002).
 
 ### Key Entities
@@ -100,5 +112,5 @@ A maintainer wants to run static analysis locally on their changes before pushin
 - The project already has a CI pipeline (spec 002); this feature adds new jobs to that pipeline rather than replacing it.
 - The format rule set and SAST configuration will be committed to the repository so all contributors use identical settings.
 - Local tool installation is the maintainer's responsibility; the spec does not require automatic developer environment provisioning (e.g., no mandatory pre-commit hooks or container setup).
-- The minimum SAST severity threshold will default to "warning" level or equivalent, capturing meaningful issues without overwhelming maintainers with noise.
+- The minimum SAST severity threshold is "warning" level: findings at warning or above block the PR; informational/note-level findings are shown as non-blocking warnings.
 - The same tools used in CI are the tools used locally — there is no separate "local-only" vs "CI-only" configuration.
