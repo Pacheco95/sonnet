@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+namespace {
+
 class MockWindow : public sonnet::window::IWindow {
 public:
     bool init() override {
@@ -35,6 +37,8 @@ private:
     bool m_initialized{false};
     bool m_shouldClose{false};
 };
+
+} // namespace
 
 TEST_CASE("IWindow_InitSucceeds_ReturnsTrue") {
     MockWindow win;

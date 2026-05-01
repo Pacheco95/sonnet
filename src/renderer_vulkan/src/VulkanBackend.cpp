@@ -41,6 +41,7 @@ VulkanBackend::debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 VulkanBackend::~VulkanBackend() {
+    // cppcheck-suppress virtualCallInConstructor
     shutdown(); // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
 }
 

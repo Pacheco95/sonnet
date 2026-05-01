@@ -7,6 +7,7 @@ namespace sonnet::renderer {
 
 Renderer::Renderer(std::unique_ptr<IRendererBackend> backend) : m_backend(std::move(backend)) {}
 
+// cppcheck-suppress virtualCallInConstructor
 Renderer::~Renderer() { shutdown(); } // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
 
 bool Renderer::init(sonnet::window::IWindow& window) {

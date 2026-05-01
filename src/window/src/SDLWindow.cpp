@@ -12,6 +12,7 @@ SDLWindow::SDLWindow(int width, int height, // NOLINT(bugprone-easily-swappable-
                      std::string_view title)
     : m_width(width), m_height(height), m_title(title) {}
 
+// cppcheck-suppress virtualCallInConstructor
 SDLWindow::~SDLWindow() { shutdown(); } // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
 
 bool SDLWindow::init() {

@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+namespace {
+
 class MockWindow : public sonnet::window::IWindow {
 public:
     bool init() override { return true; }
@@ -38,6 +40,8 @@ public:
     bool shutdownCalled{false};
     std::string lastCall;
 };
+
+} // namespace
 
 TEST_CASE("IRenderer_InitWithMockBackend_ReturnsTrue") {
     auto* rawBackend = new MockBackend();

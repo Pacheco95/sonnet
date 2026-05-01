@@ -11,6 +11,8 @@
 #include <utility>
 #include <vector>
 
+namespace {
+
 class MockWindow : public sonnet::window::IWindow {
 public:
     bool init() override {
@@ -52,6 +54,8 @@ public:
     bool m_shutdownCalled{false};
     uint64_t m_frameCount{0};
 };
+
+} // namespace
 
 TEST_CASE("AppLifecycle_InitShutdown_NoLeaks") {
     sonnet::logging::init();
