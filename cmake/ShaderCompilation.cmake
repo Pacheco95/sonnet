@@ -5,7 +5,7 @@ function(compile_shader TARGET SHADER_SOURCE)
     add_custom_command(
         OUTPUT  ${SPV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
-        COMMAND Vulkan::glslc ${SHADER_SOURCE} -o ${SPV_OUTPUT}
+        COMMAND "${Vulkan_GLSLC_EXECUTABLE}" ${SHADER_SOURCE} -o ${SPV_OUTPUT}
         DEPENDS ${SHADER_SOURCE}
         COMMENT "Compiling ${SHADER_NAME} -> SPIR-V"
         VERBATIM
