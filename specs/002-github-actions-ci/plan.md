@@ -69,3 +69,8 @@ CMakeLists.txt
 ```
 
 **Structure Decision**: Single new file at `.github/workflows/ci.yml`. No changes to source, tests, or CMake configuration. Branch protection rule configured via GitHub repository settings (documented in `quickstart.md`).
+
+## Design Assumptions & Justified Extensions
+
+- **`reopened` PR trigger**: The workflow includes `types: [reopened]` in addition to the events required by spec.md (FR-001: `ready_for_review`; FR-002: `synchronize`). This handles the case where a previously closed PR is re-opened — a sensible default that does not conflict with any requirement and avoids a stale-check state on re-opened PRs. No spec change required.
+- **`@v4` action tags vs SHA pinning**: GitHub Actions steps use `@v4` floating tags rather than pinned SHAs. This is an accepted risk documented here; SHA pinning can be adopted in a follow-up security hardening feature if required.
