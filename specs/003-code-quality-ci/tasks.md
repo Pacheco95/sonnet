@@ -34,7 +34,7 @@
 - [X] T005 Apply format fix to all existing source files (depends on T002): `find src/ tests/ -name "*.cpp" -o -name "*.h" | xargs clang-format -i` — reformats every file in-place to conform to `.clang-format`
 - [X] T006 [P] Run clang-tidy against all existing source and fix or suppress all findings (depends on T003, T004, T005): `run-clang-tidy -p build src/` — for each finding either fix the code or add `// NOLINT(<check-name>)` inline comment with a brief rationale; see `specs/003-code-quality-ci/contracts/developer-commands.md § SAST — clang-tidy` for command reference
 - [X] T007 [P] Run cppcheck blocking check against all existing source and fix or suppress all findings (depends on T003, T005, can run in parallel with T006): `cppcheck src/ tests/ --enable=warning,performance,portability --error-exitcode=1 --suppress="*:vendor/*" --suppress="*:build*/*"` — for each finding either fix or add `// cppcheck-suppress <rule>` inline comment; see `specs/003-code-quality-ci/contracts/developer-commands.md § SAST — cppcheck (blocking)` for exact flags — **NOTE: cppcheck not installed locally (requires sudo); CI runner installs it automatically and will validate**
-- [ ] T008 Commit all reformatted source files and suppression comments as a single baseline commit (depends on T005, T006, T007): message `chore: apply clang-format and SAST baseline (003-code-quality-ci)`
+- [X] T008 Commit all reformatted source files and suppression comments as a single baseline commit (depends on T005, T006, T007): message `chore: apply clang-format and SAST baseline (003-code-quality-ci)`
 
 **Checkpoint**: All source files pass clang-format, clang-tidy, and cppcheck locally. Safe to activate the CI gate.
 

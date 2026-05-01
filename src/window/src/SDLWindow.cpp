@@ -8,8 +8,8 @@
 
 namespace sonnet::window {
 
-SDLWindow::SDLWindow(int width, int height,
-                     std::string_view title) // NOLINT(bugprone-easily-swappable-parameters)
+SDLWindow::SDLWindow(int width, int height, // NOLINT(bugprone-easily-swappable-parameters)
+                     std::string_view title)
     : m_width(width), m_height(height), m_title(title) {}
 
 SDLWindow::~SDLWindow() { shutdown(); } // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)

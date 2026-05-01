@@ -15,8 +15,8 @@ public:
     void shutdown() override {}
     [[nodiscard]] bool shouldClose() const override { return false; }
     [[nodiscard]] std::pair<int, int> getSize() const override {
-        return {800, 600};
-    } // NOLINT(readability-magic-numbers)
+        return {800, 600}; // NOLINT(readability-magic-numbers)
+    }
     [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override {
         return {};
     }

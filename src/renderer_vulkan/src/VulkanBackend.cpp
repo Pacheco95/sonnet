@@ -41,8 +41,8 @@ VulkanBackend::debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 VulkanBackend::~VulkanBackend() {
-    shutdown();
-} // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
+    shutdown(); // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
+}
 
 bool VulkanBackend::init(sonnet::window::IWindow& window) {
     m_window = &window;

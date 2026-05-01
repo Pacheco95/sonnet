@@ -6,7 +6,109 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
+  code-quality:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install CMake 4.2.1
+        run: pip install cmake==4.2.1 --break-system-packages
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan-dev \
+            glslc \
+            libx11-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxss-dev \
+            libxrender-dev \
+            libxtst-dev \
+            libwayland-dev \
+            wayland-protocols \
+            libxkbcommon-dev \
+            libegl-dev \
+            libgbm-dev \
+            libdrm-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libpipewire-0.3-dev \
+            libdbus-1-dev \
+            libudev-dev \
+            clang-format \
+            clang-tidy \
+            cppcheck
+
+      - name: Cache CMake dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-cmake-deps-${{ hashFiles('cmake/FetchDependencies.cmake', 'CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-deps-
+
+      - name: Configure CMake
+        run: cmake -S . -B build-quality -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Check formatting (clang-format)
+        uses: reviewdog/action-clang-format@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review
+          level: error
+          filter_mode: nofilter
+
+      - name: Static analysis (clang-tidy)
+        uses: reviewdog/action-clang-tidy@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review
+          level: error
+          workdir: build-quality
+          filter_mode: nofilter
+
+      - name: Static analysis — cppcheck (blocking)
+        uses: reviewdog/action-cppcheck@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review
+          level: error
+          filter_mode: nofilter
+          cppcheck_flags: >-
+            --enable=warning,performance,portability
+            --error-exitcode=1
+            --suppress=*:vendor/*
+            --suppress=*:build*/*
+
+      - name: Static analysis — cppcheck (informational)
+        uses: reviewdog/action-cppcheck@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review
+          level: warning
+          fail_on_error: false
+          filter_mode: nofilter
+          cppcheck_flags: >-
+            --enable=information
+            --suppress=*:vendor/*
+            --suppress=*:build*/*
+
   build-and-test:
+    needs: [code-quality]
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 30

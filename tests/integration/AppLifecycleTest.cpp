@@ -20,8 +20,8 @@ public:
     void shutdown() override { m_initialized = false; }
     [[nodiscard]] bool shouldClose() const override { return m_closeRequested; }
     [[nodiscard]] std::pair<int, int> getSize() const override {
-        return {800, 600};
-    } // NOLINT(readability-magic-numbers)
+        return {800, 600}; // NOLINT(readability-magic-numbers)
+    }
     [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override {
         return {};
     }
