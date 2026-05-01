@@ -4,7 +4,14 @@ add_library(SonnetRendererVulkan STATIC
 
 target_include_directories(SonnetRendererVulkan PUBLIC include)
 
-target_include_directories(SonnetRendererVulkan SYSTEM PRIVATE ${vulkanhpp_SOURCE_DIR})
+# Include the bundled Vulkan-Headers BEFORE the system paths so that the
+# vulkan.h version matches what vulkan.hpp was built against (VK_HEADER_VERSION).
+# Without this, environments where VULKAN_SDK is not set (e.g. CLion) pick up
+# the distro vulkan.h (which may be an older version) and get an assertion failure.
+target_include_directories(SonnetRendererVulkan SYSTEM PRIVATE
+    ${vulkanhpp_SOURCE_DIR}/Vulkan-Headers/include
+    ${vulkanhpp_SOURCE_DIR}
+)
 
 target_link_libraries(SonnetRendererVulkan
     PUBLIC

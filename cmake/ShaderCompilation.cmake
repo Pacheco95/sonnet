@@ -1,3 +1,18 @@
+if(NOT Vulkan_GLSLC_EXECUTABLE)
+    # Collect candidate bin dirs from common SDK install locations
+    file(GLOB _glslc_hints
+        "$ENV{VULKAN_SDK}/bin"
+        "$ENV{HOME}/vulkan/*/x86_64/bin"
+        "$ENV{HOME}/VulkanSDK/*/bin"
+        "/usr/local/bin"
+    )
+    find_program(Vulkan_GLSLC_EXECUTABLE
+        NAMES glslc
+        HINTS ${_glslc_hints}
+        REQUIRED
+    )
+endif()
+
 function(compile_shader TARGET SHADER_SOURCE)
     get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
     set(SPV_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shaders/${SHADER_NAME}.spv")
