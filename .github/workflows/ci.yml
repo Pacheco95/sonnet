@@ -65,47 +65,26 @@ jobs:
         run: cmake -S . -B build-quality -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug
 
       - name: Check formatting (clang-format)
-        uses: reviewdog/action-clang-format@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-pr-review
-          level: error
-          filter_mode: nofilter
+        run: find src/ tests/ -name "*.cpp" -o -name "*.h" | xargs clang-format --dry-run --Werror
 
       - name: Static analysis (clang-tidy)
-        uses: reviewdog/action-clang-tidy@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-pr-review
-          level: error
-          workdir: build-quality
-          filter_mode: nofilter
+        run: find src/ tests/ -name "*.cpp" | xargs clang-tidy -p build-quality
 
       - name: Static analysis — cppcheck (blocking)
-        uses: reviewdog/action-cppcheck@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-pr-review
-          level: error
-          filter_mode: nofilter
-          cppcheck_flags: >-
-            --enable=warning,performance,portability
-            --error-exitcode=1
-            --suppress=*:vendor/*
-            --suppress=*:build*/*
+        run: |
+          cppcheck src/ tests/ \
+            --enable=warning,performance,portability \
+            --error-exitcode=1 \
+            --suppress="*:vendor/*" \
+            --suppress="*:build*/*"
 
       - name: Static analysis — cppcheck (informational)
-        uses: reviewdog/action-cppcheck@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-pr-review
-          level: warning
-          fail_on_error: false
-          filter_mode: nofilter
-          cppcheck_flags: >-
-            --enable=information
-            --suppress=*:vendor/*
-            --suppress=*:build*/*
+        if: always()
+        run: |
+          cppcheck src/ tests/ \
+            --enable=information \
+            --suppress="*:vendor/*" \
+            --suppress="*:build*/*" || true
 
   build-and-test:
     needs: [code-quality]
