@@ -4,6 +4,29 @@
 
 ---
 
+## Ubuntu Package Verification
+
+**Result**: Verified on Ubuntu 24.04 (via `/tmp/sdl3-check` configure run).
+
+`libvulkan-dev` provides Vulkan headers at `/usr/include/vulkan/` and the loader at `/usr/lib/x86_64-linux-gnu/libvulkan.so`. `find_package(Vulkan REQUIRED)` resolves successfully with these packages. `glslc` (from the `glslc` apt package or LunarG SDK) is found by `ShaderCompilation.cmake`'s `find_program` search since it lands in PATH. Both packages together are sufficient to configure, build, and link the project on a fresh Ubuntu 24.04 environment.
+
+## SDL3 Build Dependencies
+
+**Verified package list** (identified from SDL3 3.4.4 configure output on Ubuntu 24.04):
+
+```
+libx11-dev libxext-dev        # X11 display backend
+libwayland-dev wayland-protocols  # Wayland display backend
+libxkbcommon-dev              # Keyboard handling (X11 + Wayland)
+libegl-dev                    # EGL (required for Wayland)
+libasound2-dev                # ALSA audio backend
+libpulse-dev                  # PulseAudio audio backend
+```
+
+SDL3 dynamically loads all backend libraries at runtime (`libSDL3.so` links only `libc` and `libm`), so only development headers are required at build time. All six packages above are needed for SDL3 to compile with a complete feature set; missing packages cause SDL3 to build with those subsystems disabled (not a compile error, but a functional regression from local developer builds).
+
+---
+
 ## Runner OS Selection
 
 **Decision**: `ubuntu-latest` (Ubuntu 24.04)  

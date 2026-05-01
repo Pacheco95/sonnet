@@ -16,8 +16,8 @@
 
 **Purpose**: Create the CI directory structure and confirm the local test baseline.
 
-- [ ] T001 Create `.github/workflows/` directory at repository root
-- [ ] T002 Verify local headless test suite passes: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build --parallel && ctest --test-dir build --output-on-failure` — confirm zero failures before writing CI
+- [x] T001 Create `.github/workflows/` directory at repository root
+- [x] T002 Verify local headless test suite passes: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build --parallel && ctest --test-dir build --output-on-failure` — confirm zero failures before writing CI
 
 **Checkpoint**: Local test suite passes headlessly. CI directory exists.
 
@@ -29,8 +29,8 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 Verify that `libvulkan-dev` and `glslc` packages satisfy `find_package(Vulkan REQUIRED)` and `Vulkan::glslc` on Ubuntu 24.04 by running `docker run --rm -v $(pwd):/src ubuntu:24.04 bash -c "apt-get update && apt-get install -y cmake libvulkan-dev glslc && cmake -S /src -B /tmp/test-build"` — document result in `specs/002-github-actions-ci/research.md` under "Ubuntu Package Verification"
-- [ ] T004 [P] Identify and record the minimal set of Ubuntu apt packages required for SDL3 3.4.4 to compile from source via FetchContent on Ubuntu 24.04 — update `specs/002-github-actions-ci/research.md` under "SDL3 Build Dependencies"
+- [x] T003 Verify that `libvulkan-dev` and `glslc` packages satisfy `find_package(Vulkan REQUIRED)` and `Vulkan::glslc` on Ubuntu 24.04 by running `docker run --rm -v $(pwd):/src ubuntu:24.04 bash -c "apt-get update && apt-get install -y cmake libvulkan-dev glslc && cmake -S /src -B /tmp/test-build"` — document result in `specs/002-github-actions-ci/research.md` under "Ubuntu Package Verification"
+- [x] T004 [P] Identify and record the minimal set of Ubuntu apt packages required for SDL3 3.4.4 to compile from source via FetchContent on Ubuntu 24.04 — update `specs/002-github-actions-ci/research.md` under "SDL3 Build Dependencies"
 
 **Checkpoint**: Exact apt package list confirmed. Ready to write `ci.yml`.
 
@@ -44,14 +44,14 @@
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Create `.github/workflows/ci.yml` with the workflow trigger block: `on: pull_request: branches: [main] types: [opened, synchronize, reopened, ready_for_review]`
-- [ ] T006 [US1] Add `jobs: build-and-test:` definition to `.github/workflows/ci.yml` with `runs-on: ubuntu-latest`, `timeout-minutes: 30`, and `if: ${{ !github.event.pull_request.draft }}` condition
-- [ ] T007 [US1] Add `actions/checkout@v4` step and `pip install cmake==4.2.1` step to `.github/workflows/ci.yml`
-- [ ] T008 [US1] Add apt dependency installation step to `.github/workflows/ci.yml`: `libvulkan-dev glslc` plus SDL3 build packages confirmed in T004
-- [ ] T009 [US1] Add `actions/cache@v4` step to `.github/workflows/ci.yml` caching `build/_deps` with key `${{ runner.os }}-cmake-deps-${{ hashFiles('cmake/FetchDependencies.cmake', 'CMakeLists.txt') }}`
-- [ ] T010 [US1] Add CMake configure step to `.github/workflows/ci.yml`: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`
-- [ ] T011 [US1] Add build step to `.github/workflows/ci.yml`: `cmake --build build --parallel`
-- [ ] T012 [US1] Add CTest step to `.github/workflows/ci.yml`: `ctest --test-dir build --output-on-failure`
+- [x] T005 [US1] Create `.github/workflows/ci.yml` with the workflow trigger block: `on: pull_request: branches: [main] types: [opened, synchronize, reopened, ready_for_review]`
+- [x] T006 [US1] Add `jobs: build-and-test:` definition to `.github/workflows/ci.yml` with `runs-on: ubuntu-latest`, `timeout-minutes: 30`, and `if: ${{ !github.event.pull_request.draft }}` condition
+- [x] T007 [US1] Add `actions/checkout@v4` step and `pip install cmake==4.2.1` step to `.github/workflows/ci.yml`
+- [x] T008 [US1] Add apt dependency installation step to `.github/workflows/ci.yml`: `libvulkan-dev glslc` plus SDL3 build packages confirmed in T004
+- [x] T009 [US1] Add `actions/cache@v4` step to `.github/workflows/ci.yml` caching `build/_deps` with key `${{ runner.os }}-cmake-deps-${{ hashFiles('cmake/FetchDependencies.cmake', 'CMakeLists.txt') }}`
+- [x] T010 [US1] Add CMake configure step to `.github/workflows/ci.yml`: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`
+- [x] T011 [US1] Add build step to `.github/workflows/ci.yml`: `cmake --build build --parallel`
+- [x] T012 [US1] Add CTest step to `.github/workflows/ci.yml`: `ctest --test-dir build --output-on-failure`
 
 **Checkpoint**: Push `.github/workflows/ci.yml` to a test branch and open a PR. Confirm the `build-and-test` check appears and runs to completion. US1 is fully functional.
 
@@ -65,7 +65,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Add `actions/upload-artifact@v4` step to `.github/workflows/ci.yml` with `if: always()`, `name: test-results`, `path: build/Testing/`, `retention-days: 7` (append after T012; edits same file as T005–T012, cannot run in parallel)
+- [x] T013 [US2] Add `actions/upload-artifact@v4` step to `.github/workflows/ci.yml` with `if: always()`, `name: test-results`, `path: build/Testing/`, `retention-days: 7` (append after T012; edits same file as T005–T012, cannot run in parallel)
 - [ ] T014 [US2] Configure the GitHub branch protection rule on `main` via repository Settings → Branches: enable "Require status checks to pass" with context `build-and-test`, enable "Require branches to be up to date", enable "Do not allow bypassing the above settings" (include administrators), disable force pushes, disable deletions
 
 **Checkpoint**: Reviewer opens a PR and sees the check status and artifact link without any extra navigation. Merge button is blocked for all roles until check passes. US2 complete.
@@ -80,7 +80,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T015 [US3] Verify the `synchronize` event in `.github/workflows/ci.yml` triggers correctly: push a new commit to an open PR with a previously failing check and confirm a new run starts automatically (this event is already declared in T005; task is acceptance-level validation)
+- [x] T015 [US3] Verify the `synchronize` event in `.github/workflows/ci.yml` triggers correctly: push a new commit to an open PR with a previously failing check and confirm a new run starts automatically (this event is already declared in T005; task is acceptance-level validation)
 - [ ] T016 [US3] Perform full end-to-end smoke test: (1) open a PR with a deliberate test failure, (2) confirm merge is blocked, (3) push a fix commit, (4) confirm CI re-runs and passes, (5) confirm merge is re-enabled — document result as acceptance evidence in `specs/002-github-actions-ci/quickstart.md`
 
 **Checkpoint**: Full PR lifecycle validated end-to-end. All three user stories complete.
@@ -91,7 +91,7 @@
 
 **Purpose**: Documentation and discoverability improvements across the feature.
 
-- [ ] T017 [P] Add a GitHub Actions CI status badge to `README.md` using the absolute URL: `[![CI](https://github.com/Pacheco95/sonnet/actions/workflows/ci.yml/badge.svg)](https://github.com/Pacheco95/sonnet/actions/workflows/ci.yml)`
+- [x] T017 [P] Add a GitHub Actions CI status badge to `README.md` using the absolute URL: `[![CI](https://github.com/Pacheco95/sonnet/actions/workflows/ci.yml/badge.svg)](https://github.com/Pacheco95/sonnet/actions/workflows/ci.yml)`
 - [ ] T018 [P] Update `specs/002-github-actions-ci/quickstart.md` with the acceptance evidence captured in T016 (confirm all steps match the real workflow behavior)
 - [ ] T019 Verify the dependency cache is working: compare CI run time of a cold run (first push) vs. a warm run (second push with no dep changes) — confirm warm run is measurably faster (SC-007)
 
