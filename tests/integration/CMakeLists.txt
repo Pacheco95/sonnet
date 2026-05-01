@@ -1,0 +1,12 @@
+add_executable(AppLifecycleTests
+    AppLifecycleTest.cpp
+)
+target_link_libraries(AppLifecycleTests
+    PRIVATE
+        SonnetRenderer
+        SonnetWindow
+        SonnetLogging
+        Catch2::Catch2WithMain
+)
+sonnet_set_compile_options(AppLifecycleTests)
+catch_discover_tests(AppLifecycleTests)
