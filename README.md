@@ -1,5 +1,7 @@
 # Sonnet Engine
 
+[![CI](https://github.com/Pacheco95/sonnet/actions/workflows/ci.yml/badge.svg)](https://github.com/Pacheco95/sonnet/actions/workflows/ci.yml)
+
 A native desktop game engine rendering a single RGB triangle using Vulkan, driven by SDL3's callback-based main loop. This is the first runnable milestone.
 
 ## Prerequisites
