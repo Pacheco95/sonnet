@@ -1,6 +1,8 @@
 #pragma once
 
-namespace sonnet::window { class IWindow; }
+namespace sonnet::window {
+class IWindow;
+}
 
 namespace sonnet::renderer {
 

@@ -16,28 +16,25 @@ constexpr bool kValidationEnabled = true;
 constexpr bool kValidationEnabled = false;
 #endif
 
-static const std::vector<const char*> kValidationLayers = {
-    "VK_LAYER_KHRONOS_validation"
-};
+static const std::vector<const char*> kValidationLayers = {"VK_LAYER_KHRONOS_validation"};
 
-static const std::vector<const char*> kDeviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME
-};
+static const std::vector<const char*> kDeviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+static constexpr float kClearColorComponent = 0.05F;
 
 namespace sonnet::renderer {
 
 // ─── Debug callback ───────────────────────────────────────────────────────────
 
-VKAPI_ATTR VkBool32 VKAPI_CALL VulkanBackend::debugCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-    VkDebugUtilsMessageTypeFlagsEXT,
-    const VkDebugUtilsMessengerCallbackDataEXT* data,
-    void*)
-{
-    if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+VKAPI_ATTR VkBool32 VKAPI_CALL
+VulkanBackend::debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                             VkDebugUtilsMessageTypeFlagsEXT /*messageType*/,
+                             const VkDebugUtilsMessengerCallbackDataEXT* data, void* /*userData*/) {
+    if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
         SONNET_LOG_ERROR("Vulkan: {}", data->pMessage);
-    else
+    } else {
         SONNET_LOG_WARN("Vulkan: {}", data->pMessage);
+    }
     return VK_FALSE;
 }
 
@@ -45,7 +42,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanBackend::debugCallback(
 
 VulkanBackend::~VulkanBackend() {
     shutdown();
-}
+} // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
 
 bool VulkanBackend::init(sonnet::window::IWindow& window) {
     m_window = &window;
@@ -57,16 +54,36 @@ bool VulkanBackend::init(sonnet::window::IWindow& window) {
     }
 
     auto extensions = window.getRequiredInstanceExtensions();
-    if (!createInstance(extensions)) return false;
-    if (!createSurface(window)) return false;
-    if (!selectPhysicalDevice()) return false;
-    if (!createLogicalDevice()) return false;
-    if (!createSwapchain(window)) return false;
-    if (!createRenderPass()) return false;
-    if (!createPipeline(m_exeDir)) return false;
-    if (!createFramebuffers()) return false;
-    if (!createCommandPool()) return false;
-    if (!createSyncObjects()) return false;
+    if (!createInstance(extensions)) {
+        return false;
+    }
+    if (!createSurface(window)) {
+        return false;
+    }
+    if (!selectPhysicalDevice()) {
+        return false;
+    }
+    if (!createLogicalDevice()) {
+        return false;
+    }
+    if (!createSwapchain(window)) {
+        return false;
+    }
+    if (!createRenderPass()) {
+        return false;
+    }
+    if (!createPipeline(m_exeDir)) {
+        return false;
+    }
+    if (!createFramebuffers()) {
+        return false;
+    }
+    if (!createCommandPool()) {
+        return false;
+    }
+    if (!createSyncObjects()) {
+        return false;
+    }
 
     m_initialized = true;
     SONNET_LOG_INFO("Renderer initialized");
@@ -74,15 +91,23 @@ bool VulkanBackend::init(sonnet::window::IWindow& window) {
 }
 
 void VulkanBackend::shutdown() {
-    if (!m_initialized) return;
+    if (!m_initialized) {
+        return;
+    }
     m_initialized = false;
 
     try {
         m_device.waitIdle();
 
-        for (auto& s : m_imageAvailableSemaphores) m_device.destroySemaphore(s);
-        for (auto& s : m_renderFinishedSemaphores) m_device.destroySemaphore(s);
-        for (auto& f : m_inFlightFences) m_device.destroyFence(f);
+        for (auto& sem : m_imageAvailableSemaphores) {
+            m_device.destroySemaphore(sem);
+        }
+        for (auto& sem : m_renderFinishedSemaphores) {
+            m_device.destroySemaphore(sem);
+        }
+        for (auto& fence : m_inFlightFences) {
+            m_device.destroyFence(fence);
+        }
         m_imageAvailableSemaphores.clear();
         m_renderFinishedSemaphores.clear();
         m_inFlightFences.clear();
@@ -94,26 +119,49 @@ void VulkanBackend::shutdown() {
 
         destroySwapchainResources();
 
-        if (m_pipeline) { m_device.destroyPipeline(m_pipeline); m_pipeline = nullptr; }
-        if (m_pipelineLayout) { m_device.destroyPipelineLayout(m_pipelineLayout); m_pipelineLayout = nullptr; }
-        if (m_renderPass) { m_device.destroyRenderPass(m_renderPass); m_renderPass = nullptr; }
+        if (m_pipeline) {
+            m_device.destroyPipeline(m_pipeline);
+            m_pipeline = nullptr;
+        }
+        if (m_pipelineLayout) {
+            m_device.destroyPipelineLayout(m_pipelineLayout);
+            m_pipelineLayout = nullptr;
+        }
+        if (m_renderPass) {
+            m_device.destroyRenderPass(m_renderPass);
+            m_renderPass = nullptr;
+        }
 
-        if (m_swapchain) { m_device.destroySwapchainKHR(m_swapchain); m_swapchain = nullptr; }
-        if (m_device) { m_device.destroy(); m_device = nullptr; }
-        if (m_surface) { m_instance.destroySurfaceKHR(m_surface); m_surface = nullptr; }
+        if (m_swapchain) {
+            m_device.destroySwapchainKHR(m_swapchain);
+            m_swapchain = nullptr;
+        }
+        if (m_device) {
+            m_device.destroy();
+            m_device = nullptr;
+        }
+        if (m_surface) {
+            m_instance.destroySurfaceKHR(m_surface);
+            m_surface = nullptr;
+        }
 
         if constexpr (kValidationEnabled) {
             if (m_debugMessenger) {
-                auto fn = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                auto destroyFn = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
                     vkGetInstanceProcAddr(m_instance, "vkDestroyDebugUtilsMessengerEXT"));
-                if (fn) fn(m_instance, m_debugMessenger, nullptr);
+                if (destroyFn != nullptr) {
+                    destroyFn(m_instance, m_debugMessenger, nullptr);
+                }
                 m_debugMessenger = nullptr;
             }
         }
 
-        if (m_instance) { m_instance.destroy(); m_instance = nullptr; }
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Error during Vulkan shutdown: {}", e.what());
+        if (m_instance) {
+            m_instance.destroy();
+            m_instance = nullptr;
+        }
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Error during Vulkan shutdown: {}", err.what());
     }
 }
 
@@ -121,25 +169,24 @@ void VulkanBackend::shutdown() {
 
 bool VulkanBackend::createInstance(const std::vector<std::string>& windowExtensions) {
     try {
-        vk::ApplicationInfo appInfo{
-            "Sonnet Engine", VK_MAKE_VERSION(0, 1, 0),
-            "Sonnet", VK_MAKE_VERSION(0, 1, 0),
-            VK_API_VERSION_1_0
-        };
+        vk::ApplicationInfo appInfo{"Sonnet Engine", VK_MAKE_VERSION(0, 1, 0), "Sonnet",
+                                    VK_MAKE_VERSION(0, 1, 0), VK_API_VERSION_1_0};
 
         std::vector<const char*> extensions;
         extensions.reserve(windowExtensions.size() + 1);
-        for (const auto& e : windowExtensions)
-            extensions.push_back(e.c_str());
+        for (const auto& ext : windowExtensions) {
+            extensions.push_back(ext.c_str());
+        }
 
-        if constexpr (kValidationEnabled)
+        if constexpr (kValidationEnabled) {
             extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        }
 
         std::vector<const char*> layers;
         if constexpr (kValidationEnabled) {
             auto available = vk::enumerateInstanceLayerProperties();
-            bool found = std::ranges::any_of(available, [](const auto& p) {
-                return std::string_view(p.layerName.data()) == "VK_LAYER_KHRONOS_validation";
+            bool found = std::ranges::any_of(available, [](const auto& prop) {
+                return std::string_view(prop.layerName.data()) == "VK_LAYER_KHRONOS_validation";
             });
             if (found) {
                 layers = kValidationLayers;
@@ -160,39 +207,38 @@ bool VulkanBackend::createInstance(const std::vector<std::string>& windowExtensi
             if (!layers.empty()) {
                 VkDebugUtilsMessengerCreateInfoEXT dbCI{};
                 dbCI.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-                dbCI.messageSeverity =
-                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-                dbCI.messageType =
-                    VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                    VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                    VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+                dbCI.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+                dbCI.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                   VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
                 dbCI.pfnUserCallback = debugCallback;
 
-                auto fn = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+                auto createFn = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
                     vkGetInstanceProcAddr(m_instance, "vkCreateDebugUtilsMessengerEXT"));
-                if (fn) {
+                if (createFn != nullptr) {
                     VkDebugUtilsMessengerEXT messenger{};
-                    fn(m_instance, &dbCI, nullptr, &messenger);
+                    createFn(m_instance, &dbCI, nullptr, &messenger);
                     m_debugMessenger = vk::DebugUtilsMessengerEXT(messenger);
                 }
             }
         }
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create Vulkan instance: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create Vulkan instance: {}", err.what());
         return false;
     }
     return true;
 }
 
 bool VulkanBackend::createSurface(sonnet::window::IWindow& window) {
-    uint64_t surfaceHandle = window.createSurface(
-        reinterpret_cast<uint64_t>(static_cast<VkInstance>(m_instance)));
-    if (!surfaceHandle) {
+    uint64_t surfaceHandle = window.createSurface(reinterpret_cast<uint64_t>(
+        static_cast<VkInstance>(m_instance))); // NOLINT(performance-no-int-to-ptr)
+    if (surfaceHandle == 0) {
         SONNET_LOG_ERROR("Failed to create Vulkan surface");
         return false;
     }
-    m_surface = vk::SurfaceKHR(reinterpret_cast<VkSurfaceKHR>(surfaceHandle));
+    m_surface = vk::SurfaceKHR(
+        reinterpret_cast<VkSurfaceKHR>(surfaceHandle)); // NOLINT(performance-no-int-to-ptr)
     return true;
 }
 
@@ -206,39 +252,49 @@ bool VulkanBackend::selectPhysicalDevice() {
             return false;
         }
 
-        for (const auto& pd : devices) {
-            auto queueFamilies = pd.getQueueFamilyProperties();
-            int graphicsIdx = -1, presentIdx = -1;
+        for (const auto& dev : devices) {
+            auto queueFamilies = dev.getQueueFamilyProperties();
+            int graphicsIdx = -1;
+            int presentIdx = -1;
 
             for (int i = 0; i < static_cast<int>(queueFamilies.size()); ++i) {
-                if (queueFamilies[i].queueFlags & vk::QueueFlagBits::eGraphics)
+                if (queueFamilies[i].queueFlags & vk::QueueFlagBits::eGraphics) {
                     graphicsIdx = i;
-                if (pd.getSurfaceSupportKHR(static_cast<uint32_t>(i), m_surface))
+                }
+                if (dev.getSurfaceSupportKHR(static_cast<uint32_t>(i), m_surface) != 0U) {
                     presentIdx = i;
-                if (graphicsIdx >= 0 && presentIdx >= 0) break;
+                }
+                if (graphicsIdx >= 0 && presentIdx >= 0) {
+                    break;
+                }
             }
 
-            if (graphicsIdx < 0 || presentIdx < 0) continue;
+            if (graphicsIdx < 0 || presentIdx < 0) {
+                continue;
+            }
 
-            auto exts = pd.enumerateDeviceExtensionProperties();
-            bool swapchainOk = std::ranges::any_of(exts, [](const auto& e) {
-                return std::string_view(e.extensionName.data()) == VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+            auto exts = dev.enumerateDeviceExtensionProperties();
+            bool swapchainOk = std::ranges::any_of(exts, [](const auto& ext) {
+                return std::string_view(ext.extensionName.data()) ==
+                       VK_KHR_SWAPCHAIN_EXTENSION_NAME;
             });
-            if (!swapchainOk) continue;
+            if (!swapchainOk) {
+                continue;
+            }
 
-            m_physicalDevice = pd;
+            m_physicalDevice = dev;
             m_graphicsFamily = static_cast<uint32_t>(graphicsIdx);
             m_presentFamily = static_cast<uint32_t>(presentIdx);
 
-            auto props = pd.getProperties();
+            auto props = dev.getProperties();
             SONNET_LOG_INFO("Selected GPU: {}", props.deviceName.data());
             return true;
         }
 
         SONNET_LOG_ERROR("No suitable GPU found");
         return false;
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Physical device selection failed: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Physical device selection failed: {}", err.what());
         return false;
     }
 }
@@ -246,10 +302,12 @@ bool VulkanBackend::selectPhysicalDevice() {
 bool VulkanBackend::createLogicalDevice() {
     try {
         std::set<uint32_t> uniqueFamilies{m_graphicsFamily, m_presentFamily};
-        float priority = 1.0f;
+        float priority = 1.0F;
         std::vector<vk::DeviceQueueCreateInfo> queueInfos;
-        for (uint32_t f : uniqueFamilies)
-            queueInfos.push_back({{}, f, 1, &priority});
+        queueInfos.reserve(uniqueFamilies.size());
+        for (uint32_t familyId : uniqueFamilies) {
+            queueInfos.push_back({{}, familyId, 1, &priority});
+        }
 
         vk::DeviceCreateInfo createInfo{};
         createInfo.setQueueCreateInfos(queueInfos);
@@ -258,8 +316,8 @@ bool VulkanBackend::createLogicalDevice() {
         m_device = m_physicalDevice.createDevice(createInfo);
         m_graphicsQueue = m_device.getQueue(m_graphicsFamily, 0);
         m_presentQueue = m_device.getQueue(m_presentFamily, 0);
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create logical device: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create logical device: {}", err.what());
         return false;
     }
     return true;
@@ -277,18 +335,21 @@ bool VulkanBackend::createSwapchain(sonnet::window::IWindow& window) {
         }
 
         vk::SurfaceFormatKHR chosenFormat = formats[0];
-        for (const auto& f : formats) {
-            if (f.format == vk::Format::eB8G8R8A8Srgb &&
-                f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
-                chosenFormat = f;
+        for (const auto& fmt : formats) {
+            if (fmt.format == vk::Format::eB8G8R8A8Srgb &&
+                fmt.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
+                chosenFormat = fmt;
                 break;
             }
         }
         m_swapchainFormat = chosenFormat.format;
 
         vk::PresentModeKHR chosenMode = vk::PresentModeKHR::eFifo;
-        for (const auto& m : presentModes) {
-            if (m == vk::PresentModeKHR::eMailbox) { chosenMode = m; break; }
+        for (const auto& mode : presentModes) {
+            if (mode == vk::PresentModeKHR::eMailbox) {
+                chosenMode = mode;
+                break;
+            }
         }
 
         if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
@@ -301,7 +362,8 @@ bool VulkanBackend::createSwapchain(sonnet::window::IWindow& window) {
                 static_cast<uint32_t>(h), caps.minImageExtent.height, caps.maxImageExtent.height);
         }
 
-        uint32_t imageCount = std::min(caps.minImageCount + 1,
+        uint32_t imageCount = std::min(
+            caps.minImageCount + 1,
             caps.maxImageCount > 0 ? caps.maxImageCount : std::numeric_limits<uint32_t>::max());
 
         vk::SwapchainCreateInfoKHR createInfo{};
@@ -339,8 +401,8 @@ bool VulkanBackend::createSwapchain(sonnet::window::IWindow& window) {
             viewInfo.subresourceRange.layerCount = 1;
             m_swapchainImageViews[i] = m_device.createImageView(viewInfo);
         }
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create swapchain: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create swapchain: {}", err.what());
         return false;
     }
     return true;
@@ -379,8 +441,8 @@ bool VulkanBackend::createRenderPass() {
         rpInfo.setDependencies(dep);
 
         m_renderPass = m_device.createRenderPass(rpInfo);
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create render pass: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create render pass: {}", err.what());
         return false;
     }
     return true;
@@ -411,14 +473,17 @@ bool VulkanBackend::createPipeline(const std::string& exeDir) {
 
     auto vertCode = loadSpirvFile((fs::path(exeDir) / "shaders" / "triangle.vert.spv").string());
     auto fragCode = loadSpirvFile((fs::path(exeDir) / "shaders" / "triangle.frag.spv").string());
-    if (vertCode.empty() || fragCode.empty()) return false;
+    if (vertCode.empty() || fragCode.empty()) {
+        return false;
+    }
 
-    vk::ShaderModule vertModule, fragModule;
+    vk::ShaderModule vertModule;
+    vk::ShaderModule fragModule;
     try {
         vertModule = createShaderModule(vertCode);
         fragModule = createShaderModule(fragCode);
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create shader modules: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create shader modules: {}", err.what());
         return false;
     }
 
@@ -438,10 +503,12 @@ bool VulkanBackend::createPipeline(const std::string& exeDir) {
     vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
 
-    vk::Viewport viewport{0, 0,
-        static_cast<float>(m_swapchainExtent.width),
-        static_cast<float>(m_swapchainExtent.height),
-        0.0f, 1.0f};
+    vk::Viewport viewport{0,
+                          0,
+                          static_cast<float>(m_swapchainExtent.width),
+                          static_cast<float>(m_swapchainExtent.height),
+                          0.0F,
+                          1.0F};
     vk::Rect2D scissor{{0, 0}, m_swapchainExtent};
 
     vk::PipelineViewportStateCreateInfo viewportState{};
@@ -450,7 +517,7 @@ bool VulkanBackend::createPipeline(const std::string& exeDir) {
 
     vk::PipelineRasterizationStateCreateInfo rasterizer{};
     rasterizer.polygonMode = vk::PolygonMode::eFill;
-    rasterizer.lineWidth = 1.0f;
+    rasterizer.lineWidth = 1.0F;
     rasterizer.cullMode = vk::CullModeFlagBits::eNone;
     rasterizer.frontFace = vk::FrontFace::eClockwise;
 
@@ -484,8 +551,8 @@ bool VulkanBackend::createPipeline(const std::string& exeDir) {
 
         m_pipeline = m_device.createGraphicsPipeline(nullptr, pipelineInfo).value;
         pipelineOk = true;
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create graphics pipeline: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create graphics pipeline: {}", err.what());
     }
 
     m_device.destroyShaderModule(vertModule);
@@ -507,8 +574,8 @@ bool VulkanBackend::createFramebuffers() {
             fbInfo.layers = 1;
             m_framebuffers[i] = m_device.createFramebuffer(fbInfo);
         }
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create framebuffers: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create framebuffers: {}", err.what());
         return false;
     }
     return true;
@@ -526,8 +593,8 @@ bool VulkanBackend::createCommandPool() {
         allocInfo.level = vk::CommandBufferLevel::ePrimary;
         allocInfo.commandBufferCount = kMaxFramesInFlight;
         m_commandBuffers = m_device.allocateCommandBuffers(allocInfo);
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create command pool: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create command pool: {}", err.what());
         return false;
     }
     return true;
@@ -547,8 +614,8 @@ bool VulkanBackend::createSyncObjects() {
             m_renderFinishedSemaphores[i] = m_device.createSemaphore(semInfo);
             m_inFlightFences[i] = m_device.createFence(fenceInfo);
         }
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("Failed to create sync objects: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create sync objects: {}", err.what());
         return false;
     }
     return true;
@@ -557,9 +624,13 @@ bool VulkanBackend::createSyncObjects() {
 // ─── Part 5: Render loop + Swapchain rebuild ──────────────────────────────────
 
 void VulkanBackend::destroySwapchainResources() {
-    for (auto& fb : m_framebuffers) m_device.destroyFramebuffer(fb);
+    for (auto& framebuf : m_framebuffers) {
+        m_device.destroyFramebuffer(framebuf);
+    }
     m_framebuffers.clear();
-    for (auto& iv : m_swapchainImageViews) m_device.destroyImageView(iv);
+    for (auto& imgView : m_swapchainImageViews) {
+        m_device.destroyImageView(imgView);
+    }
     m_swapchainImageViews.clear();
     m_swapchainImages.clear();
 }
@@ -567,18 +638,21 @@ void VulkanBackend::destroySwapchainResources() {
 bool VulkanBackend::rebuildSwapchain() {
     m_device.waitIdle();
     destroySwapchainResources();
-    if (m_swapchain) { m_device.destroySwapchainKHR(m_swapchain); m_swapchain = nullptr; }
+    if (m_swapchain) {
+        m_device.destroySwapchainKHR(m_swapchain);
+        m_swapchain = nullptr;
+    }
     return createSwapchain(*m_window) && createFramebuffers();
 }
 
 void VulkanBackend::beginFrame() {
     try {
-        static_cast<void>(m_device.waitForFences(
-            m_inFlightFences[m_currentFrame], VK_TRUE, std::numeric_limits<uint64_t>::max()));
+        static_cast<void>(m_device.waitForFences(m_inFlightFences[m_currentFrame], VK_TRUE,
+                                                 std::numeric_limits<uint64_t>::max()));
 
-        auto result = m_device.acquireNextImageKHR(
-            m_swapchain, std::numeric_limits<uint64_t>::max(),
-            m_imageAvailableSemaphores[m_currentFrame], nullptr);
+        auto result =
+            m_device.acquireNextImageKHR(m_swapchain, std::numeric_limits<uint64_t>::max(),
+                                         m_imageAvailableSemaphores[m_currentFrame], nullptr);
 
         if (result.result == vk::Result::eErrorOutOfDateKHR ||
             result.result == vk::Result::eSuboptimalKHR) {
@@ -594,17 +668,20 @@ void VulkanBackend::beginFrame() {
         cmd.reset();
         cmd.begin(vk::CommandBufferBeginInfo{});
         m_frameInProgress = true;
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("beginFrame error: {}", e.what());
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("beginFrame error: {}", err.what());
         m_frameInProgress = false;
     }
 }
 
 void VulkanBackend::drawPrimitive() {
-    if (!m_frameInProgress) return;
+    if (!m_frameInProgress) {
+        return;
+    }
 
     auto& cmd = m_commandBuffers[m_currentFrame];
-    vk::ClearValue clearColor{vk::ClearColorValue{std::array<float, 4>{0.05f, 0.05f, 0.05f, 1.0f}}};
+    vk::ClearValue clearColor{vk::ClearColorValue{std::array<float, 4>{
+        kClearColorComponent, kClearColorComponent, kClearColorComponent, 1.0F}}};
 
     vk::RenderPassBeginInfo rpBegin{};
     rpBegin.renderPass = m_renderPass;
@@ -619,7 +696,9 @@ void VulkanBackend::drawPrimitive() {
 }
 
 void VulkanBackend::endFrame() {
-    if (!m_frameInProgress) return;
+    if (!m_frameInProgress) {
+        return;
+    }
     m_frameInProgress = false;
 
     try {
@@ -641,10 +720,11 @@ void VulkanBackend::endFrame() {
         presentInfo.setImageIndices(m_currentImageIndex);
 
         auto result = m_presentQueue.presentKHR(presentInfo);
-        if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
+        if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
             rebuildSwapchain();
-    } catch (const vk::SystemError& e) {
-        SONNET_LOG_ERROR("endFrame error: {}", e.what());
+        }
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("endFrame error: {}", err.what());
     }
 
     m_currentFrame = (m_currentFrame + 1) % kMaxFramesInFlight;

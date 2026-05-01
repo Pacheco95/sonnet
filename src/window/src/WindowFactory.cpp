@@ -4,8 +4,11 @@
 
 namespace sonnet::window {
 
+static constexpr int kDefaultWidth = 800;
+static constexpr int kDefaultHeight = 600;
+
 std::unique_ptr<IWindow> createDefaultWindow() {
-    return std::make_unique<SDLWindow>(800, 600, "Sonnet Engine");
+    return std::make_unique<SDLWindow>(kDefaultWidth, kDefaultHeight, "Sonnet Engine");
 }
 
 std::unique_ptr<IWindow> createWindow(int width, int height, std::string_view title) {

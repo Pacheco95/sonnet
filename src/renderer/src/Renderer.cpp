@@ -5,12 +5,9 @@
 
 namespace sonnet::renderer {
 
-Renderer::Renderer(std::unique_ptr<IRendererBackend> backend)
-    : m_backend(std::move(backend)) {}
+Renderer::Renderer(std::unique_ptr<IRendererBackend> backend) : m_backend(std::move(backend)) {}
 
-Renderer::~Renderer() {
-    shutdown();
-}
+Renderer::~Renderer() { shutdown(); } // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
 
 bool Renderer::init(sonnet::window::IWindow& window) {
     if (!m_backend->init(window)) {
@@ -22,7 +19,9 @@ bool Renderer::init(sonnet::window::IWindow& window) {
 }
 
 void Renderer::shutdown() {
-    if (!m_initialized) return;
+    if (!m_initialized) {
+        return;
+    }
     m_initialized = false;
     m_backend->shutdown();
 }

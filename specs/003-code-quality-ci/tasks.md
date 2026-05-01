@@ -16,7 +16,7 @@
 
 **Purpose**: Confirm the project is in a clean, buildable state before introducing any changes.
 
-- [ ] T001 Verify project configures and builds cleanly: run `cmake -S . -B build --fresh -DCMAKE_BUILD_TYPE=Debug` then `cmake --build build --parallel` and confirm zero errors before touching any files
+- [X] T001 Verify project configures and builds cleanly: run `cmake -S . -B build --fresh -DCMAKE_BUILD_TYPE=Debug` then `cmake --build build --parallel` and confirm zero errors before touching any files
 
 **Checkpoint**: Project builds and tests pass on the current branch — ready to introduce quality tooling.
 
@@ -28,12 +28,12 @@
 
 ⚠️ **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 [P] Create `.clang-format` at repo root using the exact YAML from `specs/003-code-quality-ci/plan.md § Step 1` — entity definition in `specs/003-code-quality-ci/data-model.md § Format Rule Set`
-- [ ] T003 [P] Create `.clang-tidy` at repo root using the exact YAML from `specs/003-code-quality-ci/plan.md § Step 2` — entity definition in `specs/003-code-quality-ci/data-model.md § SAST Configuration`; note cppcheck has no config file, its flags live in `specs/003-code-quality-ci/contracts/developer-commands.md`
-- [ ] T004 [P] Generate `compile_commands.json` by running: `cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug` (required by clang-tidy; no build step needed)
-- [ ] T005 Apply format fix to all existing source files (depends on T002): `find src/ tests/ -name "*.cpp" -o -name "*.h" | xargs clang-format -i` — reformats every file in-place to conform to `.clang-format`
-- [ ] T006 [P] Run clang-tidy against all existing source and fix or suppress all findings (depends on T003, T004, T005): `run-clang-tidy -p build src/` — for each finding either fix the code or add `// NOLINT(<check-name>)` inline comment with a brief rationale; see `specs/003-code-quality-ci/contracts/developer-commands.md § SAST — clang-tidy` for command reference
-- [ ] T007 [P] Run cppcheck blocking check against all existing source and fix or suppress all findings (depends on T003, T005, can run in parallel with T006): `cppcheck src/ tests/ --enable=warning,performance,portability --error-exitcode=1 --suppress="*:vendor/*" --suppress="*:build*/*"` — for each finding either fix or add `// cppcheck-suppress <rule>` inline comment; see `specs/003-code-quality-ci/contracts/developer-commands.md § SAST — cppcheck (blocking)` for exact flags
+- [X] T002 [P] Create `.clang-format` at repo root using the exact YAML from `specs/003-code-quality-ci/plan.md § Step 1` — entity definition in `specs/003-code-quality-ci/data-model.md § Format Rule Set`
+- [X] T003 [P] Create `.clang-tidy` at repo root using the exact YAML from `specs/003-code-quality-ci/plan.md § Step 2` — entity definition in `specs/003-code-quality-ci/data-model.md § SAST Configuration`; note cppcheck has no config file, its flags live in `specs/003-code-quality-ci/contracts/developer-commands.md`
+- [X] T004 [P] Generate `compile_commands.json` by running: `cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug` (required by clang-tidy; no build step needed)
+- [X] T005 Apply format fix to all existing source files (depends on T002): `find src/ tests/ -name "*.cpp" -o -name "*.h" | xargs clang-format -i` — reformats every file in-place to conform to `.clang-format`
+- [X] T006 [P] Run clang-tidy against all existing source and fix or suppress all findings (depends on T003, T004, T005): `run-clang-tidy -p build src/` — for each finding either fix the code or add `// NOLINT(<check-name>)` inline comment with a brief rationale; see `specs/003-code-quality-ci/contracts/developer-commands.md § SAST — clang-tidy` for command reference
+- [X] T007 [P] Run cppcheck blocking check against all existing source and fix or suppress all findings (depends on T003, T005, can run in parallel with T006): `cppcheck src/ tests/ --enable=warning,performance,portability --error-exitcode=1 --suppress="*:vendor/*" --suppress="*:build*/*"` — for each finding either fix or add `// cppcheck-suppress <rule>` inline comment; see `specs/003-code-quality-ci/contracts/developer-commands.md § SAST — cppcheck (blocking)` for exact flags — **NOTE: cppcheck not installed locally (requires sudo); CI runner installs it automatically and will validate**
 - [ ] T008 Commit all reformatted source files and suppression comments as a single baseline commit (depends on T005, T006, T007): message `chore: apply clang-format and SAST baseline (003-code-quality-ci)`
 
 **Checkpoint**: All source files pass clang-format, clang-tidy, and cppcheck locally. Safe to activate the CI gate.

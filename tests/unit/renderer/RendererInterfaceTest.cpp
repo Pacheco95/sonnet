@@ -14,9 +14,13 @@ public:
     bool init() override { return true; }
     void shutdown() override {}
     [[nodiscard]] bool shouldClose() const override { return false; }
-    [[nodiscard]] std::pair<int, int> getSize() const override { return {800, 600}; }
-    [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override { return {}; }
-    [[nodiscard]] uint64_t createSurface(uint64_t) const override { return 0; }
+    [[nodiscard]] std::pair<int, int> getSize() const override {
+        return {800, 600};
+    } // NOLINT(readability-magic-numbers)
+    [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override {
+        return {};
+    }
+    [[nodiscard]] uint64_t createSurface(uint64_t /*instanceHandle*/) const override { return 0; }
 };
 
 class MockBackend : public sonnet::renderer::IRendererBackend {

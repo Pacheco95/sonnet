@@ -2,9 +2,7 @@
 
 #include <sonnet/logging/Logger.hpp>
 
-TEST_CASE("Logger_Init_DoesNotThrow") {
-    REQUIRE_NOTHROW(sonnet::logging::init());
-}
+TEST_CASE("Logger_Init_DoesNotThrow") { REQUIRE_NOTHROW(sonnet::logging::init()); }
 
 TEST_CASE("Logger_DoubleInit_IsIdempotent") {
     REQUIRE_NOTHROW(sonnet::logging::init());
