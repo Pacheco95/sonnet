@@ -82,12 +82,12 @@ A maintainer wants to run static analysis locally on their changes before pushin
 - **FR-003**: The CI pipeline MUST block PR merging if the SAST job reports any finding at warning severity or above.
 - **FR-003a**: The CI pipeline MUST surface informational/note-level SAST findings as non-blocking pipeline warnings so maintainers retain full visibility without being blocked.
 - **FR-004**: Maintainers MUST be able to run the format checker locally with a single documented command without CI infrastructure.
-- **FR-005**: Maintainers MUST be able to run the SAST tool locally with a single documented command without CI infrastructure.
+- **FR-005**: Maintainers MUST be able to run each SAST tool locally with a single documented command without CI infrastructure.
 - **FR-006**: The format checker MUST support an auto-fix mode that rewrites source files in-place to conform to the project style.
 - **FR-007**: Both the format checker and SAST tool MUST be free and open-source software.
 - **FR-008**: The SAST tool MUST exclude third-party vendor and generated code directories from its analysis scope.
 - **FR-009**: Failure reports from both tools MUST be surfaced as inline annotations on the affected diff lines in the PR Files view, including at minimum: file path, line number, and a human-readable description of the violation.
-- **FR-010**: The CI quality gate jobs MUST complete within a time consistent with the overall CI time budget (30-minute ceiling established in spec 002).
+- **FR-010**: The CI quality gate jobs MUST complete within a time consistent with the overall CI time budget (30-minute ceiling established in spec 002), not exceeding 5 minutes for the quality gate stage alone (see SC-004).
 
 ### Key Entities
 

@@ -27,7 +27,7 @@ Add a `code-quality` GitHub Actions job that runs clang-format (formatting) and 
 |-----------|--------|-------|
 | I. Modularity | ✅ Pass | No new engine modules introduced; CI tooling only |
 | II. Usability | ✅ Pass | README and quickstart.md MUST document tool installation and local commands (see Phase 1) |
-| III. Stability | ✅ Pass | All GitHub Actions action versions pinned to exact tags; no new FetchContent dependencies |
+| III. Stability | ✅ Pass | GitHub Actions follow the project's existing floating semver-tag convention (`@v4`, `@v1`); no new FetchContent dependencies added |
 | IV. Predictability | ✅ Pass | `.clang-format` and `.clang-tidy` configs versioned in repo; same config used locally and in CI |
 | V. Testability | ✅ Pass | No changes to engine interfaces or test infrastructure |
 | VI. Portability | ✅ Pass | Tool installation documented for Linux, macOS, Windows in quickstart.md |
