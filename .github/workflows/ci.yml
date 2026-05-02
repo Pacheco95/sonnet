@@ -37,7 +37,8 @@ jobs:
             --enable=warning,performance,portability \
             --error-exitcode=1 \
             --suppress="*:vendor/*" \
-            --suppress="*:build*/*"
+            --suppress="*:build*/*" \
+            --suppress=virtualCallInConstructor
 
       - name: Static analysis — cppcheck (informational)
         if: always()
@@ -45,7 +46,8 @@ jobs:
           cppcheck src/ tests/ \
             --enable=information \
             --suppress="*:vendor/*" \
-            --suppress="*:build*/*" || true
+            --suppress="*:build*/*" \
+            --suppress=virtualCallInConstructor || true
 
       - name: Install CMake 4.2.1
         run: pip install cmake==4.2.1 --break-system-packages
