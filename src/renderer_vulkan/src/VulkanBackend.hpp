@@ -23,10 +23,8 @@ public:
 
 private:
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-        VkDebugUtilsMessageTypeFlagsEXT types,
-        const VkDebugUtilsMessengerCallbackDataEXT* data,
-        void* userData);
+        VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types,
+        const VkDebugUtilsMessengerCallbackDataEXT* data, void* userData);
 
     bool createInstance(const std::vector<std::string>& windowExtensions);
     bool createSurface(sonnet::window::IWindow& window);
@@ -42,7 +40,7 @@ private:
     void destroySwapchainResources();
     bool rebuildSwapchain();
 
-    std::vector<char> loadSpirvFile(const std::string& path);
+    static std::vector<char> loadSpirvFile(const std::string& path);
     vk::ShaderModule createShaderModule(const std::vector<char>& code);
 
     vk::Instance m_instance;

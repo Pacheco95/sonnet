@@ -9,7 +9,9 @@ namespace sonnet::logging {
 
 void init() {
     static bool initialized = false;
-    if (initialized) return;
+    if (initialized) {
+        return;
+    }
     initialized = true;
 
     constexpr auto kPattern = "[%H:%M:%S.%e] [%^%l%$] [%s:%#] %v";
@@ -22,10 +24,8 @@ void init() {
     stderrSink->set_level(spdlog::level::warn);
     stderrSink->set_pattern(kPattern);
 
-    auto logger = std::make_shared<spdlog::logger>(
-        "sonnet",
-        spdlog::sinks_init_list{stdoutSink, stderrSink}
-    );
+    auto logger =
+        std::make_shared<spdlog::logger>("sonnet", spdlog::sinks_init_list{stdoutSink, stderrSink});
     logger->set_level(spdlog::level::trace);
     spdlog::set_default_logger(logger);
 

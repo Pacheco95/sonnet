@@ -6,7 +6,96 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
+  code-quality:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install code quality tools
+        run: |
+          sudo apt-get update -q -o Acquire::ForceIPv4=true
+          sudo apt-get install -y --no-install-recommends \
+            -o Acquire::ForceIPv4=true \
+            clang-format \
+            cppcheck
+
+      - name: Check formatting (clang-format)
+        run: find src/ tests/ -name "*.cpp" -o -name "*.h" | xargs clang-format --dry-run --Werror
+
+      - name: Static analysis — cppcheck (blocking)
+        run: |
+          cppcheck src/ tests/ \
+            --enable=warning,performance,portability \
+            --error-exitcode=1 \
+            --suppress="*:vendor/*" \
+            --suppress="*:build*/*" \
+            --suppress=virtualCallInConstructor
+
+      - name: Static analysis — cppcheck (informational)
+        if: always()
+        run: |
+          cppcheck src/ tests/ \
+            --enable=information \
+            --suppress="*:vendor/*" \
+            --suppress="*:build*/*" \
+            --suppress=virtualCallInConstructor || true
+
+      - name: Install CMake 4.2.1
+        run: pip install cmake==4.2.1 --break-system-packages
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            -o Acquire::ForceIPv4=true \
+            libvulkan-dev \
+            glslc \
+            libx11-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxss-dev \
+            libxrender-dev \
+            libxtst-dev \
+            libwayland-dev \
+            wayland-protocols \
+            libxkbcommon-dev \
+            libegl-dev \
+            libgbm-dev \
+            libdrm-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libpipewire-0.3-dev \
+            libdbus-1-dev \
+            libudev-dev \
+            clang-tidy
+
+      - name: Cache CMake dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-cmake-deps-${{ hashFiles('cmake/FetchDependencies.cmake', 'CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-deps-
+
+      - name: Configure CMake
+        run: cmake -S . -B build-quality -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Static analysis (clang-tidy)
+        run: find src/ tests/ -name "*.cpp" | xargs clang-tidy -p build-quality
+
   build-and-test:
+    needs: [code-quality]
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -22,8 +111,9 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update -q
+          sudo apt-get update -q -o Acquire::ForceIPv4=true
           sudo apt-get install -y --no-install-recommends \
+            -o Acquire::ForceIPv4=true \
             libvulkan-dev \
             glslc \
             libx11-dev \

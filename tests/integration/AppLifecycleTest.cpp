@@ -11,17 +11,26 @@
 #include <utility>
 #include <vector>
 
+namespace {
+
 class MockWindow : public sonnet::window::IWindow {
 public:
-    bool init() override { m_initialized = true; return true; }
+    bool init() override {
+        m_initialized = true;
+        return true;
+    }
     void shutdown() override { m_initialized = false; }
     [[nodiscard]] bool shouldClose() const override { return m_closeRequested; }
-    [[nodiscard]] std::pair<int, int> getSize() const override { return {800, 600}; }
-    [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override { return {}; }
-    [[nodiscard]] uint64_t createSurface(uint64_t) const override { return 0; }
+    [[nodiscard]] std::pair<int, int> getSize() const override {
+        return {800, 600}; // NOLINT(readability-magic-numbers)
+    }
+    [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override {
+        return {};
+    }
+    [[nodiscard]] uint64_t createSurface(uint64_t /*instanceHandle*/) const override { return 0; }
 
     void requestClose() { m_closeRequested = true; }
-    bool isInitialized() const { return m_initialized; }
+    [[nodiscard]] bool isInitialized() const { return m_initialized; }
 
 private:
     bool m_initialized{false};
@@ -45,6 +54,8 @@ public:
     bool m_shutdownCalled{false};
     uint64_t m_frameCount{0};
 };
+
+} // namespace
 
 TEST_CASE("AppLifecycle_InitShutdown_NoLeaks") {
     sonnet::logging::init();
