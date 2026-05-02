@@ -5,6 +5,16 @@
 **Status**: Draft  
 **Input**: User description: "As a user that is familiar with using 3D game engines like Unreal 5, Unity 3D and Godot, I want to have a beautiful, familiar, intuitive and easy to use UI. The new feature should only create the UI layout with minimum actions such as: rearrangeable layout, save/load layouts, and a logging section."
 
+## Clarifications
+
+### Session 2026-05-02
+
+- Q: Should the editor support grouped tabbed panel containers (multiple panels sharing one area, switched via tabs)? → A: Yes — panels can be grouped into tabbed containers; multiple panels share one area with tab switching.
+- Q: Where should the save/load layout UI be accessed from? → A: Top menu bar — a dedicated "Layout" menu with Save, Load, and Reset to Default entries.
+- Q: What re-enables auto-scroll in the log panel after the user has scrolled up? → A: Automatically re-enables when the user scrolls back to the bottom of the log.
+- Q: Should there be a cap on the number of saved layouts? → A: No hard limit — all saved layouts are listed in a scrollable list in the Load menu.
+- Q: Should a measurable editor launch time target be defined? → A: No target — leave unspecified for now; revisit when performance becomes a concern.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Initial Editor Launch with Familiar Layout (Priority: P1)
@@ -37,6 +47,9 @@ A developer wants to customize the editor layout to better fit their monitor set
 2. **Given** the user has rearranged panels, **When** the user resizes a panel border, **Then** adjacent panels resize proportionally without overlapping.
 3. **Given** the user has rearranged panels, **When** the user detaches a panel, **Then** it becomes a floating, movable window that remains functional.
 4. **Given** a floating panel exists, **When** the user drags it onto a docking target, **Then** it re-docks into the main layout.
+5. **Given** two or more panels exist, **When** the user drags one panel onto another panel's tab bar or title area, **Then** they are grouped into a tabbed container sharing the same screen area.
+6. **Given** a tabbed container exists, **When** the user clicks a tab, **Then** the corresponding panel becomes active and visible within that container.
+7. **Given** a tabbed container has more than one panel, **When** the user drags a tab out of the container, **Then** the panel detaches from the group and becomes independent (floating or re-dockable).
 
 ---
 
@@ -50,8 +63,8 @@ A developer has arranged the editor panels to suit their workflow and wants to p
 
 **Acceptance Scenarios**:
 
-1. **Given** the user has arranged panels, **When** the user saves the current layout, **Then** the layout configuration is persisted to a local file with a user-supplied or auto-generated name.
-2. **Given** one or more saved layouts exist, **When** the user opens the layout manager and selects a saved layout, **Then** the editor panels are rearranged to match the saved configuration.
+1. **Given** the user has arranged panels, **When** the user chooses "Layout > Save Layout…" from the menu bar and provides a name, **Then** the layout configuration is persisted to a local file under that name.
+2. **Given** one or more saved layouts exist, **When** the user chooses "Layout > Load Layout…" from the menu bar and selects a saved layout, **Then** the editor panels are rearranged to match the saved configuration.
 3. **Given** the engine restarts, **When** the engine loads, **Then** the most recently active layout (or the last saved default) is automatically restored.
 4. **Given** no saved layouts exist, **When** the engine loads, **Then** the built-in default layout is used without error.
 5. **Given** a corrupted or missing layout file is detected, **When** the engine attempts to load it, **Then** the engine falls back to the default layout and notifies the user via the log panel.
@@ -69,7 +82,7 @@ A developer wants to monitor what the engine is doing. The log/console panel dis
 **Acceptance Scenarios**:
 
 1. **Given** the engine is running, **When** the engine emits a log message, **Then** the message appears in the log panel within one second, with a timestamp and severity indicator (Info / Warning / Error).
-2. **Given** the log panel contains many messages, **When** the user scrolls upward, **Then** older messages are accessible and the panel does not auto-scroll while the user is reading.
+2. **Given** the log panel contains many messages, **When** the user scrolls upward, **Then** older messages are accessible and the panel does not auto-scroll while the user is reading; **When** the user subsequently scrolls back to the bottom, **Then** auto-scroll resumes automatically.
 3. **Given** the log panel is visible, **When** the user selects a severity filter (e.g., "Errors only"), **Then** only messages matching that severity are displayed.
 4. **Given** the log panel has messages, **When** the user presses the clear button, **Then** all displayed messages are removed from the panel (but not from any underlying log file).
 5. **Given** the engine emits an error-level message, **When** the message appears, **Then** it is visually distinct (e.g., displayed in red or with an error icon).
@@ -93,10 +106,14 @@ A developer wants to monitor what the engine is doing. The log/console panel dis
 - **FR-003**: Users MUST be able to rearrange panels by dragging them to new positions within the editor window.
 - **FR-004**: Users MUST be able to resize panels by dragging panel borders.
 - **FR-005**: Users MUST be able to detach panels into floating windows and re-dock them.
+- **FR-005a**: Users MUST be able to group panels into tabbed containers by dragging one panel onto another; the grouped panels share a single screen area and are switched via tabs.
+- **FR-005b**: Users MUST be able to remove a panel from a tabbed group by dragging its tab out; the panel becomes independent (floating or re-dockable).
+- **FR-005c**: A tabbed container MUST display all grouped panels as clickable tabs; clicking a tab makes that panel active.
 - **FR-006**: The editor MUST enforce minimum panel dimensions so that no panel becomes too small to use.
 - **FR-007**: The viewport panel MUST NOT be closable; it may only be moved or resized.
-- **FR-008**: Users MUST be able to save the current panel layout to a named configuration file stored locally.
-- **FR-009**: Users MUST be able to load a previously saved layout from a list of available saved configurations.
+- **FR-008**: Users MUST be able to save the current panel layout to a named configuration file stored locally via the top menu bar "Layout" menu (e.g., Layout > Save Layout…).
+- **FR-009**: Users MUST be able to load a previously saved layout from a scrollable list of all available saved configurations via the top menu bar "Layout" menu (e.g., Layout > Load Layout…); there is no cap on the number of saved layouts.
+- **FR-009a**: The "Layout" menu MUST include a "Reset to Default" option that restores the built-in default layout without deleting any saved layouts.
 - **FR-010**: The editor MUST automatically restore the most recently active layout on startup; if none exists, the built-in default layout is used.
 - **FR-011**: The editor MUST fall back to the default layout and display a log warning if a saved layout file is missing or unreadable.
 - **FR-012**: The log/console panel MUST display engine-emitted messages with a timestamp and severity level (Info, Warning, Error).
@@ -105,12 +122,13 @@ A developer wants to monitor what the engine is doing. The log/console panel dis
 - **FR-015**: The log panel MUST provide a clear button that removes all currently displayed messages from the panel.
 - **FR-016**: Error-level log messages MUST be visually distinguished from Info and Warning messages.
 - **FR-017**: The log panel MUST remain responsive (no UI freeze) when receiving high volumes of log messages.
+- **FR-017a**: The log panel MUST auto-scroll to the latest message as new messages arrive; auto-scroll MUST pause when the user scrolls upward and MUST resume automatically when the user scrolls back to the bottom.
 - **FR-018**: When saving a layout with a name that already exists, the user MUST be prompted to confirm overwrite or provide a new name.
 
 ### Key Entities
 
 - **Layout Configuration**: Represents a saved arrangement of panels. Attributes: name, creation date, last-modified date, list of panel descriptors (identity, position, size, dock state).
-- **Panel**: A distinct editor section (viewport, log, scene hierarchy, inspector). Attributes: type identifier, current position, current size, dock state (docked/floating), visibility.
+- **Panel**: A distinct editor section (viewport, log, scene hierarchy, inspector). Attributes: type identifier, current position, current size, dock state (docked/floating/tabbed), tab group membership, visibility.
 - **Log Entry**: A single engine message. Attributes: timestamp, severity (Info/Warning/Error), message text.
 
 ## Success Criteria *(mandatory)*
@@ -135,3 +153,4 @@ A developer wants to monitor what the engine is doing. The log/console panel dis
 - The side panels (scene hierarchy, inspector) are placeholder panels at this stage — they display a panel title and placeholder content but have no functional logic yet.
 - A single layout "slot" per session is active at a time; there is no concept of workspaces or multi-monitor spanning in this feature.
 - The editor runs on the same platforms already supported by the engine (assumed: Linux desktop, with Windows/macOS as stretch targets).
+- Initial editor launch time performance is not targeted in this feature; it will be addressed in a dedicated performance pass once the engine matures.

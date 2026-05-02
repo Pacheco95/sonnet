@@ -31,6 +31,9 @@
 
 ## Notes
 
-- All items pass. Specification is ready for `/speckit-clarify` or `/speckit-plan`.
-- Placeholder side panels (scene hierarchy, inspector) are scoped as UI shells only — no functional logic required for this feature.
-- Runtime script log integration is explicitly deferred to a future feature.
+- All items pass. Clarification session (2026-05-02) resolved 5 questions.
+- Tabbed panel grouping added to scope (FR-005a–c).
+- Layout save/load entry point defined as top menu bar "Layout" menu (FR-008, FR-009, FR-009a).
+- Log auto-scroll re-enable behavior defined (FR-017a).
+- No cap on saved layouts (FR-009).
+- Editor launch time target deferred to a future performance pass (documented in Assumptions).
