@@ -21,7 +21,7 @@ bool LayoutManager::isValidName(std::string_view name) {
     if (name.empty()) {
         return false;
     }
-    return std::ranges::all_of(name, [](char ch) { return ch != '/' && ch != '\\'; });
+    return std::ranges::all_of(name, [](char chr) { return chr != '/' && chr != '\\'; });
 }
 
 std::vector<std::string> LayoutManager::listLayouts() const {
