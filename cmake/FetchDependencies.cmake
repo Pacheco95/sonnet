@@ -31,4 +31,12 @@ FetchContent_Declare(
     DOWNLOAD_ONLY  YES
 )
 
-FetchContent_MakeAvailable(spdlog SDL3 Catch2 VulkanHpp)
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.91.9-docking
+    GIT_SHALLOW    TRUE
+    DOWNLOAD_ONLY  YES
+)
+
+FetchContent_MakeAvailable(spdlog SDL3 Catch2 VulkanHpp imgui)

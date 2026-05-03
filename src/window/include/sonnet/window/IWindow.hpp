@@ -19,6 +19,9 @@ public:
 
     [[nodiscard]] virtual std::vector<std::string> getRequiredInstanceExtensions() const = 0;
     [[nodiscard]] virtual uint64_t createSurface(uint64_t instanceHandle) const = 0;
+
+    // Returns the native window handle (e.g. SDL_Window*) for editor UI backend init.
+    [[nodiscard]] virtual void* getWindowHandle() const { return nullptr; }
 };
 
 } // namespace sonnet::window

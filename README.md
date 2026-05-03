@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Pacheco95/sonnet/actions/workflows/ci.yml/badge.svg)](https://github.com/Pacheco95/sonnet/actions/workflows/ci.yml)
 
-A native desktop game engine rendering a single RGB triangle using Vulkan, driven by SDL3's callback-based main loop. This is the first runnable milestone.
+A native desktop game engine with a dockable editor UI. Renders an RGB triangle in the Viewport panel via Vulkan, driven by SDL3's callback-based main loop. The editor provides four resizable panels (Viewport, Log, Scene Hierarchy, Inspector), named layout persistence, and live engine log viewing.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ A native desktop game engine rendering a single RGB triangle using Vulkan, drive
 | CMake | 4.2.1+ | `cmake --version` to verify |
 | Vulkan SDK | 1.3+ | [vulkan.lunarg.com](https://vulkan.lunarg.com/sdk/home) |
 | Git | Any | FetchContent downloads deps at configure time |
-| Internet | — | Required on first configure |
+| Internet | — | Required on first configure (downloads SDL3, spdlog, Catch2, VulkanHpp, Dear ImGui) |
 
 ## Configure
 
@@ -32,7 +32,7 @@ cmake --build build --parallel
 ./build/src/app/Sonnet
 ```
 
-A window titled **"Sonnet Engine"** opens at 800×600 displaying an RGB triangle. Close it via the OS window controls to exit cleanly.
+A window titled **"Sonnet Engine"** opens at 800×600. The editor UI appears with four docked panels: **Viewport** (RGB triangle rendered via Vulkan), **Log** (live engine messages), **Scene Hierarchy**, and **Inspector**. Use **Layout → Save Layout…** / **Load Layout…** to persist panel arrangements. Close the window via OS controls to exit cleanly.
 
 ## Test
 
@@ -48,9 +48,12 @@ All tests run without a display or GPU.
 |---|---|---|
 | `SonnetLogging` | Static library | spdlog wrapper; `SONNET_LOG_*` macros |
 | `SonnetWindow` | Static library | `IWindow` interface; SDL3-backed implementation |
-| `SonnetRenderer` | Static library | Frontend `IRenderer`; delegates to a backend |
-| `SonnetRendererVulkan` | Static library | Vulkan `IRendererBackend` implementation |
+| `SonnetRenderer` | Static library | `IRendererBackend` interface; opaque `RendererNativeHandles` |
+| `SonnetRendererVulkan` | Static library | Vulkan backend; offscreen scene framebuffer; ImGui Vulkan support |
+| `SonnetEditor` | Static library | Dear ImGui editor UI; four panels; layout persistence; log sink |
 | `Sonnet` | Executable | SDL3 callback entry point; wires modules together |
+
+> **Dear ImGui** (docking branch, v1.91.9-docking) is fetched automatically by CMake at configure time — no manual installation required.
 
 ## CMake Options
 

@@ -19,6 +19,7 @@ public:
 
     [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override;
     [[nodiscard]] uint64_t createSurface(uint64_t instanceHandle) const override;
+    [[nodiscard]] void* getWindowHandle() const override { return m_window; }
 
 private:
     int m_width;
