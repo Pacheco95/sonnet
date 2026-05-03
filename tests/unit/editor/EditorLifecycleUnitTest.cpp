@@ -23,6 +23,15 @@ public:
     [[nodiscard]] uint64_t createSurface(uint64_t /*instanceHandle*/) const override { return 0; }
 };
 
+class StubRendererBackend : public sonnet::renderer::IRendererBackend {
+public:
+    bool init(sonnet::window::IWindow& /*window*/) override { return true; }
+    void shutdown() override {}
+    void beginFrame() override {}
+    void drawPrimitive() override {}
+    void endFrame() override {}
+};
+
 class RecordingEditor : public sonnet::editor::IEditor {
 public:
     bool init(sonnet::window::IWindow& /*window*/,
@@ -44,13 +53,10 @@ public:
 TEST_CASE("EditorLifecycle_InitRenderShutdown_CallCounts") {
     RecordingEditor editor;
     MockWindow2 window;
-    sonnet::renderer::IRendererBackend* backend = nullptr; // not used by mock
-
-    // Suppress unused warning — mock backend pointer is not dereferenced
-    (void)backend;
+    StubRendererBackend backend;
 
     REQUIRE(editor.initCount == 0);
-    editor.init(window, *reinterpret_cast<sonnet::renderer::IRendererBackend*>(backend));
+    editor.init(window, backend);
     REQUIRE(editor.initCount == 1);
 
     for (int i = 0; i < 5; ++i) {
