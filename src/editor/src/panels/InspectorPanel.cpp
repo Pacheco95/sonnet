@@ -4,12 +4,8 @@
 
 namespace sonnet::editor {
 
-const char* InspectorPanel::title() const {
-    return "Inspector";
-}
+const char* InspectorPanel::title() const { return "Inspector"; }
 
-void InspectorPanel::draw() {
-    ImGui::Text("(empty)");
-}
+void InspectorPanel::draw() { ImGui::Text("(empty)"); }
 
 } // namespace sonnet::editor

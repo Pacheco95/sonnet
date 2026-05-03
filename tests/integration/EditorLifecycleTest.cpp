@@ -44,7 +44,8 @@ TEST_CASE("EditorLifecycle_ZeroHandles_InitFailsGracefully") {
     HeadlessMockWindow window;
     ZeroHandlesBackend backend;
 
-    auto editor = sonnet::editor::createEditor(std::filesystem::temp_directory_path() / "sonnet_test_layouts");
+    auto editor = sonnet::editor::createEditor(std::filesystem::temp_directory_path() /
+                                               "sonnet_test_layouts");
     bool result = editor->init(window, backend);
     REQUIRE_FALSE(result);
 

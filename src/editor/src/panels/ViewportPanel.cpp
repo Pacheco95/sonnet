@@ -4,12 +4,9 @@
 
 namespace sonnet::editor {
 
-ViewportPanel::ViewportPanel(uint64_t viewportTextureId)
-    : m_viewportTextureId(viewportTextureId) {}
+ViewportPanel::ViewportPanel(uint64_t viewportTextureId) : m_viewportTextureId(viewportTextureId) {}
 
-const char* ViewportPanel::title() const {
-    return "Viewport";
-}
+const char* ViewportPanel::title() const { return "Viewport"; }
 
 void ViewportPanel::draw() {
     ImVec2 size = ImGui::GetContentRegionAvail();

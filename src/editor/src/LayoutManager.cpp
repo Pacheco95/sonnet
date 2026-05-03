@@ -32,8 +32,7 @@ bool LayoutManager::isValidName(std::string_view name) const {
 std::vector<std::string> LayoutManager::listLayouts() const {
     std::vector<std::string> names;
     std::error_code ec;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(m_layoutsDir, ec)) {
+    for (const auto& entry : std::filesystem::directory_iterator(m_layoutsDir, ec)) {
         if (entry.path().extension() == ".ini") {
             names.push_back(entry.path().stem().string());
         }
@@ -122,8 +121,6 @@ void LayoutManager::restoreLastLayout() {
     }
 }
 
-void LayoutManager::resetToDefault() {
-    ImGui::LoadIniSettingsFromMemory("", 0);
-}
+void LayoutManager::resetToDefault() { ImGui::LoadIniSettingsFromMemory("", 0); }
 
 } // namespace sonnet::editor

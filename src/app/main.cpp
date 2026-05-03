@@ -39,7 +39,8 @@ SDL_AppResult SDL_AppInit(void** appstate, int /*argc*/, char* argv[]) {
     try {
         exeDir = std::filesystem::canonical("/proc/self/exe").parent_path();
     } catch (...) {
-        exeDir = std::filesystem::path(argv[0]).parent_path(); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        exeDir = std::filesystem::path(argv[0])
+                     .parent_path(); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     }
 
     auto editor = sonnet::editor::createEditor(exeDir / "layouts");

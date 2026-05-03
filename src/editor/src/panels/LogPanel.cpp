@@ -10,33 +10,31 @@ namespace sonnet::editor {
 
 LogPanel::LogPanel(std::shared_ptr<LogBuffer> buffer) : m_buffer(std::move(buffer)) {}
 
-const char* LogPanel::title() const {
-    return "Log";
-}
+const char* LogPanel::title() const { return "Log"; }
 
 void LogPanel::draw() {
     // Filter toggles
-    ImGui::PushStyleColor(ImGuiCol_Button,
-                          m_filter.showInfo ? ImVec4(0.2F, 0.5F, 0.8F, 1.0F)
-                                            : ImGui::GetStyle().Colors[ImGuiCol_Button]);
+    ImGui::PushStyleColor(ImGuiCol_Button, m_filter.showInfo
+                                               ? ImVec4(0.2F, 0.5F, 0.8F, 1.0F)
+                                               : ImGui::GetStyle().Colors[ImGuiCol_Button]);
     if (ImGui::Button("Info")) {
         m_filter.showInfo = !m_filter.showInfo;
     }
     ImGui::PopStyleColor();
     ImGui::SameLine();
 
-    ImGui::PushStyleColor(ImGuiCol_Button,
-                          m_filter.showWarnings ? ImVec4(0.8F, 0.7F, 0.1F, 1.0F)
-                                                : ImGui::GetStyle().Colors[ImGuiCol_Button]);
+    ImGui::PushStyleColor(ImGuiCol_Button, m_filter.showWarnings
+                                               ? ImVec4(0.8F, 0.7F, 0.1F, 1.0F)
+                                               : ImGui::GetStyle().Colors[ImGuiCol_Button]);
     if (ImGui::Button("Warnings")) {
         m_filter.showWarnings = !m_filter.showWarnings;
     }
     ImGui::PopStyleColor();
     ImGui::SameLine();
 
-    ImGui::PushStyleColor(ImGuiCol_Button,
-                          m_filter.showErrors ? ImVec4(0.8F, 0.2F, 0.2F, 1.0F)
-                                              : ImGui::GetStyle().Colors[ImGuiCol_Button]);
+    ImGui::PushStyleColor(ImGuiCol_Button, m_filter.showErrors
+                                               ? ImVec4(0.8F, 0.2F, 0.2F, 1.0F)
+                                               : ImGui::GetStyle().Colors[ImGuiCol_Button]);
     if (ImGui::Button("Errors")) {
         m_filter.showErrors = !m_filter.showErrors;
     }

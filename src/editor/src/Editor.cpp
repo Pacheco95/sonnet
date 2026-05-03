@@ -137,10 +137,10 @@ void Editor::render() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0F, 0.0F));
 
     constexpr ImGuiWindowFlags kDockspaceHostFlags =
-        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_MenuBar;
+        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+        ImGuiWindowFlags_MenuBar;
 
     ImGui::Begin("##DockspaceHost", nullptr, kDockspaceHostFlags);
     ImGui::PopStyleVar(3);
@@ -257,11 +257,10 @@ void Editor::buildDefaultLayout() {
 
     ImGuiID rightId{};
     ImGuiID leftId{};
-    ImGuiID centreId = ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.75F,
-                                                   nullptr, &rightId);
+    ImGuiID centreId =
+        ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.75F, nullptr, &rightId);
     ImGuiID bottomId{};
-    centreId =
-        ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Up, 0.70F, nullptr, &bottomId);
+    centreId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Up, 0.70F, nullptr, &bottomId);
     leftId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Left, 0.25F, nullptr, &centreId);
 
     ImGui::DockBuilderDockWindow("Viewport", centreId);

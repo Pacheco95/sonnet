@@ -4,12 +4,8 @@
 
 namespace sonnet::editor {
 
-const char* SceneHierarchyPanel::title() const {
-    return "Scene Hierarchy";
-}
+const char* SceneHierarchyPanel::title() const { return "Scene Hierarchy"; }
 
-void SceneHierarchyPanel::draw() {
-    ImGui::Text("(empty)");
-}
+void SceneHierarchyPanel::draw() { ImGui::Text("(empty)"); }
 
 } // namespace sonnet::editor
