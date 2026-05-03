@@ -23,6 +23,10 @@ public:
 
 private:
     void buildDefaultLayout();
+    void renderMenuBar();
+    void renderPanels();
+    void renderSaveDialog();
+    void renderLoadDialog();
 
     std::filesystem::path m_layoutsDir;
     sonnet::renderer::IRendererBackend* m_backend{nullptr};

@@ -40,9 +40,9 @@ bool Editor::init(sonnet::window::IWindow& window, sonnet::renderer::IRendererBa
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.IniFilename = nullptr; // We manage ini ourselves via LayoutManager
+    ImGuiIO& imguiIO = ImGui::GetIO();
+    imguiIO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    imguiIO.IniFilename = nullptr; // We manage ini ourselves via LayoutManager
 
     auto* sdlWindow = static_cast<SDL_Window*>(window.getWindowHandle());
     if (!ImGui_ImplSDL3_InitForVulkan(sdlWindow)) {
@@ -145,7 +145,36 @@ void Editor::render() {
     ImGui::Begin("##DockspaceHost", nullptr, kDockspaceHostFlags);
     ImGui::PopStyleVar(3);
 
-    // Menu bar
+    renderMenuBar();
+
+    // DockSpace
+    ImGuiID dockspaceId = ImGui::GetID("MainDockspace");
+    if (ImGui::DockBuilderGetNode(dockspaceId) == nullptr) {
+        buildDefaultLayout();
+    }
+    ImGui::DockSpace(dockspaceId, ImVec2(0.0F, 0.0F), ImGuiDockNodeFlags_None);
+
+    ImGui::End(); // DockspaceHost
+
+    renderPanels();
+    renderSaveDialog();
+    renderLoadDialog();
+
+    ImGui::Render();
+
+    // Submit draw data to Vulkan swapchain
+    if (m_backend != nullptr) {
+        m_backend->beginEditorRenderPass();
+        auto* cmdBuf = reinterpret_cast<VkCommandBuffer>( // NOLINT(performance-no-int-to-ptr)
+            m_backend->getCurrentCommandBuffer());
+        if (cmdBuf != nullptr) {
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
+        }
+        m_backend->endEditorRenderPass();
+    }
+}
+
+void Editor::renderMenuBar() {
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("Layout")) {
             if (ImGui::MenuItem("Save Layout\xe2\x80\xa6")) {
@@ -164,17 +193,9 @@ void Editor::render() {
         }
         ImGui::EndMenuBar();
     }
+}
 
-    // DockSpace
-    ImGuiID dockspaceId = ImGui::GetID("MainDockspace");
-    if (ImGui::DockBuilderGetNode(dockspaceId) == nullptr) {
-        buildDefaultLayout();
-    }
-    ImGui::DockSpace(dockspaceId, ImVec2(0.0F, 0.0F), ImGuiDockNodeFlags_None);
-
-    ImGui::End(); // DockspaceHost
-
-    // Draw panels
+void Editor::renderPanels() {
     for (auto& panel : m_panels) {
         ImGuiWindowFlags flags = ImGuiWindowFlags_None;
         if (panel->isPermanent()) {
@@ -190,8 +211,9 @@ void Editor::render() {
         }
         ImGui::End();
     }
+}
 
-    // Save Layout dialog
+void Editor::renderSaveDialog() {
     if (m_showSaveDialog) {
         ImGui::OpenPopup("Save Layout");
         m_showSaveDialog = false;
@@ -210,8 +232,9 @@ void Editor::render() {
         }
         ImGui::EndPopup();
     }
+}
 
-    // Load Layout dialog
+void Editor::renderLoadDialog() {
     if (m_showLoadDialog) {
         ImGui::OpenPopup("Load Layout");
         m_showLoadDialog = false;
@@ -233,19 +256,6 @@ void Editor::render() {
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
-    }
-
-    ImGui::Render();
-
-    // Submit draw data to Vulkan swapchain
-    if (m_backend != nullptr) {
-        m_backend->beginEditorRenderPass();
-        auto* cmdBuf = reinterpret_cast<VkCommandBuffer>( // NOLINT(performance-no-int-to-ptr)
-            m_backend->getCurrentCommandBuffer());
-        if (cmdBuf != nullptr) {
-            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
-        }
-        m_backend->endEditorRenderPass();
     }
 }
 
