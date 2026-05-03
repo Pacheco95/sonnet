@@ -2,6 +2,7 @@ add_executable(Sonnet main.cpp)
 
 target_link_libraries(Sonnet
     PRIVATE
+        SonnetEditor
         SonnetRenderer
         SonnetRendererVulkan
         SonnetWindow

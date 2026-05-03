@@ -85,6 +85,12 @@ bool VulkanBackend::init(sonnet::window::IWindow& window) {
     if (!createSyncObjects()) {
         return false;
     }
+    if (!createImguiDescriptorPool()) {
+        return false;
+    }
+    if (!createOffscreenResources()) {
+        return false;
+    }
 
     m_initialized = true;
     SONNET_LOG_INFO("Renderer initialized");
@@ -99,6 +105,13 @@ void VulkanBackend::shutdown() {
 
     try {
         m_device.waitIdle();
+
+        destroyOffscreenResources();
+
+        if (m_imguiDescriptorPool) {
+            m_device.destroyDescriptorPool(m_imguiDescriptorPool);
+            m_imguiDescriptorPool = nullptr;
+        }
 
         for (auto& sem : m_imageAvailableSemaphores) {
             m_device.destroySemaphore(sem);
@@ -731,7 +744,324 @@ void VulkanBackend::endFrame() {
     m_currentFrame = (m_currentFrame + 1) % kMaxFramesInFlight;
 }
 
-// ─── Part 6: Factory ──────────────────────────────────────────────────────────
+// ─── Part 6: Offscreen Resources + Native Handles ────────────────────────────
+
+uint32_t VulkanBackend::findMemoryType(uint32_t typeFilter,
+                                       vk::MemoryPropertyFlags properties) const {
+    auto memProps = m_physicalDevice.getMemoryProperties();
+    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
+        if (((typeFilter & (1U << i)) != 0U) &&
+            (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+    SONNET_LOG_ERROR("Failed to find suitable Vulkan memory type");
+    return 0;
+}
+
+vk::CommandBuffer VulkanBackend::beginOneTimeCommands() const {
+    vk::CommandBufferAllocateInfo allocInfo{};
+    allocInfo.level = vk::CommandBufferLevel::ePrimary;
+    allocInfo.commandPool = m_commandPool;
+    allocInfo.commandBufferCount = 1;
+    auto cmd = m_device.allocateCommandBuffers(allocInfo)[0];
+    cmd.begin(vk::CommandBufferBeginInfo{vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+    return cmd;
+}
+
+void VulkanBackend::endOneTimeCommands(vk::CommandBuffer cmd) const {
+    cmd.end();
+    vk::SubmitInfo submitInfo{};
+    submitInfo.setCommandBuffers(cmd);
+    m_graphicsQueue.submit(submitInfo);
+    m_graphicsQueue.waitIdle();
+    m_device.freeCommandBuffers(m_commandPool, cmd);
+}
+
+bool VulkanBackend::createImguiDescriptorPool() {
+    vk::DescriptorPoolSize poolSize{};
+    poolSize.type = vk::DescriptorType::eCombinedImageSampler;
+    constexpr uint32_t kImguiDescriptorCount = 8; // font atlas + viewport + headroom
+    poolSize.descriptorCount = kImguiDescriptorCount;
+
+    vk::DescriptorPoolCreateInfo poolInfo{};
+    poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
+    poolInfo.maxSets = kImguiDescriptorCount;
+    poolInfo.setPoolSizes(poolSize);
+
+    try {
+        m_imguiDescriptorPool = m_device.createDescriptorPool(poolInfo);
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create ImGui descriptor pool: {}", err.what());
+        return false;
+    }
+    return true;
+}
+
+bool VulkanBackend::createOffscreenResources() {
+    m_offscreenWidth = m_swapchainExtent.width;
+    m_offscreenHeight = m_swapchainExtent.height;
+
+    try {
+        // Image
+        vk::ImageCreateInfo imageInfo{};
+        imageInfo.imageType = vk::ImageType::e2D;
+        imageInfo.format = m_swapchainFormat;
+        imageInfo.extent = vk::Extent3D{m_offscreenWidth, m_offscreenHeight, 1};
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.samples = vk::SampleCountFlagBits::e1;
+        imageInfo.tiling = vk::ImageTiling::eOptimal;
+        imageInfo.usage =
+            vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+        imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+        m_offscreenImage = m_device.createImage(imageInfo);
+
+        auto memReqs = m_device.getImageMemoryRequirements(m_offscreenImage);
+        vk::MemoryAllocateInfo allocInfo{};
+        allocInfo.allocationSize = memReqs.size;
+        allocInfo.memoryTypeIndex =
+            findMemoryType(memReqs.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal);
+        m_offscreenMemory = m_device.allocateMemory(allocInfo);
+        m_device.bindImageMemory(m_offscreenImage, m_offscreenMemory, 0);
+
+        // Image view
+        vk::ImageViewCreateInfo viewInfo{};
+        viewInfo.image = m_offscreenImage;
+        viewInfo.viewType = vk::ImageViewType::e2D;
+        viewInfo.format = m_swapchainFormat;
+        viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.layerCount = 1;
+        m_offscreenImageView = m_device.createImageView(viewInfo);
+
+        // Sampler
+        vk::SamplerCreateInfo samplerInfo{};
+        samplerInfo.magFilter = vk::Filter::eLinear;
+        samplerInfo.minFilter = vk::Filter::eLinear;
+        samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
+        samplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+        samplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+        samplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
+        samplerInfo.maxLod = 0.0F;
+        m_offscreenSampler = m_device.createSampler(samplerInfo);
+
+        // Transition image from UNDEFINED to SHADER_READ_ONLY_OPTIMAL before first use
+        auto cmd = beginOneTimeCommands();
+        vk::ImageMemoryBarrier barrier{};
+        barrier.oldLayout = vk::ImageLayout::eUndefined;
+        barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_offscreenImage;
+        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = {};
+        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
+                            vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {}, barrier);
+        endOneTimeCommands(cmd);
+
+        // Offscreen render pass
+        vk::AttachmentDescription colorAtt{};
+        colorAtt.format = m_swapchainFormat;
+        colorAtt.samples = vk::SampleCountFlagBits::e1;
+        colorAtt.loadOp = vk::AttachmentLoadOp::eClear;
+        colorAtt.storeOp = vk::AttachmentStoreOp::eStore;
+        colorAtt.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+        colorAtt.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+        colorAtt.initialLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        colorAtt.finalLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+        vk::AttachmentReference colorRef{0, vk::ImageLayout::eColorAttachmentOptimal};
+        vk::SubpassDescription subpass{};
+        subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+        subpass.setColorAttachments(colorRef);
+
+        std::array<vk::SubpassDependency, 2> deps{};
+        deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass = 0;
+        deps[0].srcStageMask = vk::PipelineStageFlagBits::eFragmentShader;
+        deps[0].dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        deps[0].srcAccessMask = vk::AccessFlagBits::eShaderRead;
+        deps[0].dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+        deps[0].dependencyFlags = vk::DependencyFlagBits::eByRegion;
+        deps[1].srcSubpass = 0;
+        deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        deps[1].dstStageMask = vk::PipelineStageFlagBits::eFragmentShader;
+        deps[1].srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+        deps[1].dstAccessMask = vk::AccessFlagBits::eShaderRead;
+        deps[1].dependencyFlags = vk::DependencyFlagBits::eByRegion;
+
+        vk::RenderPassCreateInfo rpInfo{};
+        rpInfo.setAttachments(colorAtt);
+        rpInfo.setSubpasses(subpass);
+        rpInfo.setDependencies(deps);
+        m_offscreenRenderPass = m_device.createRenderPass(rpInfo);
+
+        // Offscreen framebuffer
+        vk::FramebufferCreateInfo fbInfo{};
+        fbInfo.renderPass = m_offscreenRenderPass;
+        fbInfo.setAttachments(m_offscreenImageView);
+        fbInfo.width = m_offscreenWidth;
+        fbInfo.height = m_offscreenHeight;
+        fbInfo.layers = 1;
+        m_offscreenFramebuffer = m_device.createFramebuffer(fbInfo);
+
+        // Viewport descriptor set layout: binding 0 = combined image sampler (matches ImGui)
+        vk::DescriptorSetLayoutBinding dslBinding{};
+        dslBinding.binding = 0;
+        dslBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+        dslBinding.descriptorCount = 1;
+        dslBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+        vk::DescriptorSetLayoutCreateInfo dslInfo{};
+        dslInfo.setBindings(dslBinding);
+        m_viewportDescriptorSetLayout = m_device.createDescriptorSetLayout(dslInfo);
+
+        // Allocate viewport descriptor set from the ImGui pool
+        vk::DescriptorSetAllocateInfo dsAllocInfo{};
+        dsAllocInfo.descriptorPool = m_imguiDescriptorPool;
+        dsAllocInfo.setSetLayouts(m_viewportDescriptorSetLayout);
+        m_offscreenDescriptorSet = m_device.allocateDescriptorSets(dsAllocInfo)[0];
+
+        // Update with offscreen image + sampler
+        vk::DescriptorImageInfo imgInfo{};
+        imgInfo.sampler = m_offscreenSampler;
+        imgInfo.imageView = m_offscreenImageView;
+        imgInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+        vk::WriteDescriptorSet write{};
+        write.dstSet = m_offscreenDescriptorSet;
+        write.dstBinding = 0;
+        write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+        write.setImageInfo(imgInfo);
+        m_device.updateDescriptorSets(write, {});
+
+    } catch (const vk::SystemError& err) {
+        SONNET_LOG_ERROR("Failed to create offscreen resources: {}", err.what());
+        return false;
+    }
+    return true;
+}
+
+void VulkanBackend::destroyOffscreenResources() {
+    if (m_offscreenDescriptorSet && m_imguiDescriptorPool) {
+        m_device.freeDescriptorSets(m_imguiDescriptorPool, m_offscreenDescriptorSet);
+        m_offscreenDescriptorSet = nullptr;
+    }
+    if (m_viewportDescriptorSetLayout) {
+        m_device.destroyDescriptorSetLayout(m_viewportDescriptorSetLayout);
+        m_viewportDescriptorSetLayout = nullptr;
+    }
+    if (m_offscreenFramebuffer) {
+        m_device.destroyFramebuffer(m_offscreenFramebuffer);
+        m_offscreenFramebuffer = nullptr;
+    }
+    if (m_offscreenRenderPass) {
+        m_device.destroyRenderPass(m_offscreenRenderPass);
+        m_offscreenRenderPass = nullptr;
+    }
+    if (m_offscreenSampler) {
+        m_device.destroySampler(m_offscreenSampler);
+        m_offscreenSampler = nullptr;
+    }
+    if (m_offscreenImageView) {
+        m_device.destroyImageView(m_offscreenImageView);
+        m_offscreenImageView = nullptr;
+    }
+    if (m_offscreenImage) {
+        m_device.destroyImage(m_offscreenImage);
+        m_offscreenImage = nullptr;
+    }
+    if (m_offscreenMemory) {
+        m_device.freeMemory(m_offscreenMemory);
+        m_offscreenMemory = nullptr;
+    }
+}
+
+RendererNativeHandles VulkanBackend::getNativeHandles() const {
+    RendererNativeHandles handles{};
+    handles.instance = reinterpret_cast<uint64_t>(static_cast<VkInstance>(m_instance));
+    handles.physicalDevice =
+        reinterpret_cast<uint64_t>(static_cast<VkPhysicalDevice>(m_physicalDevice));
+    handles.device = reinterpret_cast<uint64_t>(static_cast<VkDevice>(m_device));
+    handles.graphicsQueue = reinterpret_cast<uint64_t>(static_cast<VkQueue>(m_graphicsQueue));
+    handles.renderPass = reinterpret_cast<uint64_t>(static_cast<VkRenderPass>(m_renderPass));
+    handles.descriptorPool =
+        reinterpret_cast<uint64_t>(static_cast<VkDescriptorPool>(m_imguiDescriptorPool));
+    handles.graphicsQueueFamily = m_graphicsFamily;
+    handles.imageCount = static_cast<uint32_t>(m_swapchainImages.size());
+    return handles;
+}
+
+void VulkanBackend::renderSceneOffscreen() {
+    if (!m_initialized) {
+        return;
+    }
+    // Begin the frame if not already in progress
+    if (!m_frameInProgress) {
+        beginFrame();
+    }
+    if (!m_frameInProgress) {
+        return;
+    }
+
+    auto& cmd = m_commandBuffers[m_currentFrame];
+    vk::ClearValue clearColor{vk::ClearColorValue{std::array<float, 4>{
+        kClearColorComponent, kClearColorComponent, kClearColorComponent, 1.0F}}};
+
+    vk::RenderPassBeginInfo rpBegin{};
+    rpBegin.renderPass = m_offscreenRenderPass;
+    rpBegin.framebuffer = m_offscreenFramebuffer;
+    rpBegin.renderArea.extent = vk::Extent2D{m_offscreenWidth, m_offscreenHeight};
+    rpBegin.setClearValues(clearColor);
+
+    cmd.beginRenderPass(rpBegin, vk::SubpassContents::eInline);
+    cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pipeline);
+    cmd.draw(3, 1, 0, 0);
+    cmd.endRenderPass();
+}
+
+uint64_t VulkanBackend::getViewportTextureId() const {
+    return reinterpret_cast<uint64_t>(static_cast<VkDescriptorSet>(m_offscreenDescriptorSet));
+}
+
+void VulkanBackend::beginEditorRenderPass() {
+    if (!m_frameInProgress) {
+        return;
+    }
+    auto& cmd = m_commandBuffers[m_currentFrame];
+    vk::ClearValue clearColor{vk::ClearColorValue{std::array<float, 4>{0.0F, 0.0F, 0.0F, 1.0F}}};
+
+    vk::RenderPassBeginInfo rpBegin{};
+    rpBegin.renderPass = m_renderPass;
+    rpBegin.framebuffer = m_framebuffers[m_currentImageIndex];
+    rpBegin.renderArea.extent = m_swapchainExtent;
+    rpBegin.setClearValues(clearColor);
+
+    cmd.beginRenderPass(rpBegin, vk::SubpassContents::eInline);
+}
+
+void VulkanBackend::endEditorRenderPass() {
+    if (!m_frameInProgress) {
+        return;
+    }
+    m_commandBuffers[m_currentFrame].endRenderPass();
+    endFrame();
+}
+
+uint64_t VulkanBackend::getCurrentCommandBuffer() const {
+    if (!m_frameInProgress) {
+        return 0;
+    }
+    return reinterpret_cast<uint64_t>(
+        static_cast<VkCommandBuffer>(m_commandBuffers[m_currentFrame]));
+}
+
+// ─── Part 7: Factory ──────────────────────────────────────────────────────────
 
 std::unique_ptr<IRendererBackend> createVulkanBackend() {
     return std::make_unique<VulkanBackend>();

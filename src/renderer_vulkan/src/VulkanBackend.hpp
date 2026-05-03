@@ -21,6 +21,13 @@ public:
     void drawPrimitive() override;
     void endFrame() override;
 
+    [[nodiscard]] RendererNativeHandles getNativeHandles() const override;
+    void renderSceneOffscreen() override;
+    [[nodiscard]] uint64_t getViewportTextureId() const override;
+    void beginEditorRenderPass() override;
+    void endEditorRenderPass() override;
+    [[nodiscard]] uint64_t getCurrentCommandBuffer() const override;
+
 private:
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types,
@@ -39,6 +46,15 @@ private:
 
     void destroySwapchainResources();
     bool rebuildSwapchain();
+
+    bool createOffscreenResources();
+    void destroyOffscreenResources();
+    bool createImguiDescriptorPool();
+    [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
+    [[nodiscard]] vk::CommandBuffer beginOneTimeCommands() const;
+    void endOneTimeCommands(vk::CommandBuffer cmd) const;
+
+    vk::DescriptorSetLayout m_viewportDescriptorSetLayout;
 
     static std::vector<char> loadSpirvFile(const std::string& path);
     vk::ShaderModule createShaderModule(const std::vector<char>& code);
@@ -75,6 +91,18 @@ private:
     uint32_t m_currentFrame{0};
     uint32_t m_currentImageIndex{0};
     bool m_frameInProgress{false};
+
+    // Offscreen scene render target
+    vk::Image m_offscreenImage;
+    vk::DeviceMemory m_offscreenMemory;
+    vk::ImageView m_offscreenImageView;
+    vk::RenderPass m_offscreenRenderPass;
+    vk::Framebuffer m_offscreenFramebuffer;
+    vk::Sampler m_offscreenSampler;
+    vk::DescriptorSet m_offscreenDescriptorSet;
+    vk::DescriptorPool m_imguiDescriptorPool;
+    uint32_t m_offscreenWidth{0};
+    uint32_t m_offscreenHeight{0};
 
     std::string m_exeDir;
     bool m_initialized{false};

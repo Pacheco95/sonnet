@@ -10,3 +10,17 @@ target_link_libraries(AppLifecycleTests
 )
 sonnet_set_compile_options(AppLifecycleTests)
 catch_discover_tests(AppLifecycleTests)
+
+add_executable(SonnetIntegrationTests
+    EditorLifecycleTest.cpp
+)
+target_link_libraries(SonnetIntegrationTests
+    PRIVATE
+        SonnetEditor
+        SonnetRenderer
+        SonnetWindow
+        SonnetLogging
+        Catch2::Catch2WithMain
+)
+sonnet_set_compile_options(SonnetIntegrationTests)
+catch_discover_tests(SonnetIntegrationTests)

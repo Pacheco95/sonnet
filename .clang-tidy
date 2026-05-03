@@ -6,7 +6,8 @@ Checks: >-
   readability-*,
   -readability-identifier-naming,
   -modernize-use-trailing-return-type,
-  -clang-analyzer-optin.core.EnumCastOutOfRange
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -readability-identifier-length
 WarningsAsErrors: "*"
 HeaderFilterRegex: "^((?!/_deps/|/vendor/).)*$"
 FormatStyle: file

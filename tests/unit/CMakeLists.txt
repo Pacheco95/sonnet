@@ -1,3 +1,5 @@
+add_subdirectory(editor)
+
 add_executable(SonnetWindowTests
     window/WindowInterfaceTest.cpp
 )
