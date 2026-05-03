@@ -985,7 +985,8 @@ void VulkanBackend::destroyOffscreenResources() {
 RendererNativeHandles VulkanBackend::getNativeHandles() const {
     RendererNativeHandles handles{};
     handles.instance = reinterpret_cast<uint64_t>(static_cast<VkInstance>(m_instance));
-    handles.physicalDevice = reinterpret_cast<uint64_t>(static_cast<VkPhysicalDevice>(m_physicalDevice));
+    handles.physicalDevice =
+        reinterpret_cast<uint64_t>(static_cast<VkPhysicalDevice>(m_physicalDevice));
     handles.device = reinterpret_cast<uint64_t>(static_cast<VkDevice>(m_device));
     handles.graphicsQueue = reinterpret_cast<uint64_t>(static_cast<VkQueue>(m_graphicsQueue));
     handles.renderPass = reinterpret_cast<uint64_t>(static_cast<VkRenderPass>(m_renderPass));

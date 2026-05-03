@@ -280,8 +280,10 @@ void Editor::buildDefaultLayout() {
     ImGuiID centreId =
         ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, kMainSplitRatio, nullptr, &rightId);
     ImGuiID bottomId{};
-    centreId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Up, kVerticalSplitRatio, nullptr, &bottomId);
-    leftId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Left, kHierarchySplitRatio, nullptr, &centreId);
+    centreId =
+        ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Up, kVerticalSplitRatio, nullptr, &bottomId);
+    leftId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Left, kHierarchySplitRatio, nullptr,
+                                         &centreId);
 
     ImGui::DockBuilderDockWindow("Viewport", centreId);
     ImGui::DockBuilderDockWindow("Scene Hierarchy", leftId);
