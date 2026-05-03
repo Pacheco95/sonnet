@@ -16,7 +16,11 @@ public:
     bool init() override { return true; }
     void shutdown() override {}
     [[nodiscard]] bool shouldClose() const override { return false; }
-    [[nodiscard]] std::pair<int, int> getSize() const override { return {800, 600}; }
+    [[nodiscard]] std::pair<int, int> getSize() const override {
+        constexpr int kWidth = 800;
+        constexpr int kHeight = 600;
+        return {kWidth, kHeight};
+    }
     [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override {
         return {};
     }
@@ -59,7 +63,8 @@ TEST_CASE("EditorLifecycle_InitRenderShutdown_CallCounts") {
     editor.init(window, backend);
     REQUIRE(editor.initCount == 1);
 
-    for (int i = 0; i < 5; ++i) {
+    constexpr int kRenderIterations = 5;
+    for (int i = 0; i < kRenderIterations; ++i) {
         editor.render();
     }
     REQUIRE(editor.renderCount == 5);

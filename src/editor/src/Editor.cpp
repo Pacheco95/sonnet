@@ -196,6 +196,11 @@ void Editor::renderMenuBar() {
 }
 
 void Editor::renderPanels() {
+    constexpr float kPermanentMinW = 300.0F;
+    constexpr float kPermanentMinH = 200.0F;
+    constexpr float kTransientMinW = 200.0F;
+    constexpr float kTransientMinH = 100.0F;
+
     for (auto& panel : m_panels) {
         ImGuiWindowFlags flags = ImGuiWindowFlags_None;
         if (panel->isPermanent()) {
@@ -204,7 +209,8 @@ void Editor::renderPanels() {
         bool open = true;
         bool* pOpen = panel->isPermanent() ? nullptr : &open;
         ImGui::SetNextWindowSizeConstraints(
-            ImVec2(panel->isPermanent() ? 300.0F : 200.0F, panel->isPermanent() ? 200.0F : 100.0F),
+            ImVec2(panel->isPermanent() ? kPermanentMinW : kTransientMinW,
+                   panel->isPermanent() ? kPermanentMinH : kTransientMinH),
             ImVec2(FLT_MAX, FLT_MAX));
         if (ImGui::Begin(panel->title(), pOpen, flags)) {
             panel->draw();
@@ -260,6 +266,10 @@ void Editor::renderLoadDialog() {
 }
 
 void Editor::buildDefaultLayout() {
+    constexpr float kMainSplitRatio = 0.75F;
+    constexpr float kVerticalSplitRatio = 0.70F;
+    constexpr float kHierarchySplitRatio = 0.25F;
+
     ImGuiID dockspaceId = ImGui::GetID("MainDockspace");
     ImGui::DockBuilderRemoveNode(dockspaceId);
     ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
@@ -268,10 +278,10 @@ void Editor::buildDefaultLayout() {
     ImGuiID rightId{};
     ImGuiID leftId{};
     ImGuiID centreId =
-        ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.75F, nullptr, &rightId);
+        ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, kMainSplitRatio, nullptr, &rightId);
     ImGuiID bottomId{};
-    centreId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Up, 0.70F, nullptr, &bottomId);
-    leftId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Left, 0.25F, nullptr, &centreId);
+    centreId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Up, kVerticalSplitRatio, nullptr, &bottomId);
+    leftId = ImGui::DockBuilderSplitNode(centreId, ImGuiDir_Left, kHierarchySplitRatio, nullptr, &centreId);
 
     ImGui::DockBuilderDockWindow("Viewport", centreId);
     ImGui::DockBuilderDockWindow("Scene Hierarchy", leftId);

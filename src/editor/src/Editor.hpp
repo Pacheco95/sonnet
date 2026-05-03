@@ -22,7 +22,7 @@ public:
     void render() override;
 
 private:
-    void buildDefaultLayout();
+    static void buildDefaultLayout();
     void renderMenuBar();
     void renderPanels();
     void renderSaveDialog();

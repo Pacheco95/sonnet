@@ -20,7 +20,7 @@ public:
     void resetToDefault() override;
 
 private:
-    [[nodiscard]] bool isValidName(std::string_view name) const;
+    [[nodiscard]] static bool isValidName(std::string_view name);
 
     std::filesystem::path m_layoutsDir;
 };

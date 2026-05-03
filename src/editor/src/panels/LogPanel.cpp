@@ -8,6 +8,14 @@
 
 namespace sonnet::editor {
 
+namespace {
+constexpr ImVec4 kInfoButtonColor{0.2F, 0.5F, 0.8F, 1.0F};
+constexpr ImVec4 kWarningButtonColor{0.8F, 0.7F, 0.1F, 1.0F};
+constexpr ImVec4 kErrorButtonColor{0.8F, 0.2F, 0.2F, 1.0F};
+constexpr ImVec4 kWarningTextColor{1.0F, 0.85F, 0.0F, 1.0F};
+constexpr ImVec4 kErrorTextColor{1.0F, 0.3F, 0.3F, 1.0F};
+} // namespace
+
 LogPanel::LogPanel(std::shared_ptr<LogBuffer> buffer) : m_buffer(std::move(buffer)) {}
 
 const char* LogPanel::title() const { return "Log"; }
@@ -15,7 +23,7 @@ const char* LogPanel::title() const { return "Log"; }
 void LogPanel::draw() {
     // Filter toggles
     ImGui::PushStyleColor(ImGuiCol_Button, m_filter.showInfo
-                                               ? ImVec4(0.2F, 0.5F, 0.8F, 1.0F)
+                                               ? kInfoButtonColor
                                                : ImGui::GetStyle().Colors[ImGuiCol_Button]);
     if (ImGui::Button("Info")) {
         m_filter.showInfo = !m_filter.showInfo;
@@ -24,7 +32,7 @@ void LogPanel::draw() {
     ImGui::SameLine();
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_filter.showWarnings
-                                               ? ImVec4(0.8F, 0.7F, 0.1F, 1.0F)
+                                               ? kWarningButtonColor
                                                : ImGui::GetStyle().Colors[ImGuiCol_Button]);
     if (ImGui::Button("Warnings")) {
         m_filter.showWarnings = !m_filter.showWarnings;
@@ -33,7 +41,7 @@ void LogPanel::draw() {
     ImGui::SameLine();
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_filter.showErrors
-                                               ? ImVec4(0.8F, 0.2F, 0.2F, 1.0F)
+                                               ? kErrorButtonColor
                                                : ImGui::GetStyle().Colors[ImGuiCol_Button]);
     if (ImGui::Button("Errors")) {
         m_filter.showErrors = !m_filter.showErrors;
@@ -73,10 +81,10 @@ void LogPanel::draw() {
 
             switch (entry.severity) {
             case LogSeverity::Warning:
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 0.85F, 0.0F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_Text, kWarningTextColor);
                 break;
             case LogSeverity::Error:
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 0.3F, 0.3F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_Text, kErrorTextColor);
                 break;
             default:
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_Text]);

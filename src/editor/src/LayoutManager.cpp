@@ -13,26 +13,21 @@ namespace sonnet::editor {
 
 LayoutManager::LayoutManager(std::filesystem::path layoutsDir)
     : m_layoutsDir(std::move(layoutsDir)) {
-    std::error_code ec;
-    std::filesystem::create_directories(m_layoutsDir, ec);
+    std::error_code errCode;
+    std::filesystem::create_directories(m_layoutsDir, errCode);
 }
 
-bool LayoutManager::isValidName(std::string_view name) const {
+bool LayoutManager::isValidName(std::string_view name) {
     if (name.empty()) {
         return false;
     }
-    for (char c : name) {
-        if (c == '/' || c == '\\') {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(name, [](char ch) { return ch != '/' && ch != '\\'; });
 }
 
 std::vector<std::string> LayoutManager::listLayouts() const {
     std::vector<std::string> names;
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(m_layoutsDir, ec)) {
+    std::error_code errCode;
+    for (const auto& entry : std::filesystem::directory_iterator(m_layoutsDir, errCode)) {
         if (entry.path().extension() == ".ini") {
             names.push_back(entry.path().stem().string());
         }
@@ -77,14 +72,14 @@ bool LayoutManager::saveLayout(std::string_view name) {
 
 bool LayoutManager::loadLayout(std::string_view name) {
     auto path = m_layoutsDir / (std::string(name) + ".ini");
-    std::ifstream in(path);
-    if (!in) {
+    std::ifstream inFile(path);
+    if (!inFile) {
         SONNET_LOG_WARN("Layout load failed: '{}' not found", std::string(name));
         return false;
     }
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    std::string content = ss.str();
+    std::ostringstream buf;
+    buf << inFile.rdbuf();
+    std::string content = buf.str();
     if (content.empty()) {
         SONNET_LOG_WARN("Layout load failed: '{}' is empty or corrupt", std::string(name));
         return false;
@@ -103,12 +98,12 @@ bool LayoutManager::loadLayout(std::string_view name) {
 
 std::string LayoutManager::activeLayoutName() const {
     auto activePath = m_layoutsDir / "active.txt";
-    std::ifstream in(activePath);
-    if (!in) {
+    std::ifstream inFile(activePath);
+    if (!inFile) {
         return {};
     }
     std::string name;
-    std::getline(in, name);
+    std::getline(inFile, name);
     return name;
 }
 

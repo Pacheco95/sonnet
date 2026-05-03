@@ -5,7 +5,6 @@
 
 // Pull in LogBuffer, LogEntry, LogSeverity, LogFilter via the sink header.
 // This avoids linking ImGui while still testing the data contracts.
-#include <chrono>
 #include <memory>
 #include <string>
 
@@ -23,7 +22,8 @@ static LogEntry makeEntry(LogSeverity sev, const std::string& msg = "x") {
 
 TEST_CASE("LogPanelTest_LogBuffer_CapsAt10000") {
     auto buffer = std::make_shared<LogBuffer>();
-    for (int i = 0; i < 10'001; ++i) {
+    constexpr int kOverCapacity = static_cast<int>(LogBuffer::kMaxEntries) + 1;
+    for (int i = 0; i < kOverCapacity; ++i) {
         buffer->push(makeEntry(LogSeverity::Info, std::to_string(i)));
     }
     std::lock_guard lock(buffer->mutex);
@@ -49,10 +49,10 @@ TEST_CASE("LogPanelTest_LogBuffer_ClearEmptiesBuffer") {
 }
 
 TEST_CASE("LogPanelTest_LogFilter_DefaultAllTrue") {
-    LogFilter f;
-    REQUIRE(f.showInfo);
-    REQUIRE(f.showWarnings);
-    REQUIRE(f.showErrors);
+    LogFilter logFilter;
+    REQUIRE(logFilter.showInfo);
+    REQUIRE(logFilter.showWarnings);
+    REQUIRE(logFilter.showErrors);
 }
 
 TEST_CASE("LogPanelTest_LogFilter_ShowErrorsFalse_ExcludesErrors") {
@@ -67,11 +67,9 @@ TEST_CASE("LogPanelTest_LogFilter_ShowErrorsFalse_ExcludesErrors") {
     std::lock_guard lock(buffer->mutex);
     int count = 0;
     for (const auto& entry : buffer->entries) {
-        if (entry.severity == LogSeverity::Info && filter.showInfo) {
-            ++count;
-        } else if (entry.severity == LogSeverity::Warning && filter.showWarnings) {
-            ++count;
-        } else if (entry.severity == LogSeverity::Error && filter.showErrors) {
+        if ((entry.severity == LogSeverity::Info && filter.showInfo) ||
+            (entry.severity == LogSeverity::Warning && filter.showWarnings) ||
+            (entry.severity == LogSeverity::Error && filter.showErrors)) {
             ++count;
         }
     }

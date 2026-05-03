@@ -750,7 +750,7 @@ uint32_t VulkanBackend::findMemoryType(uint32_t typeFilter,
                                        vk::MemoryPropertyFlags properties) const {
     auto memProps = m_physicalDevice.getMemoryProperties();
     for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
-        if ((typeFilter & (1u << i)) &&
+        if (((typeFilter & (1U << i)) != 0U) &&
             (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
             return i;
         }
@@ -781,11 +781,12 @@ void VulkanBackend::endOneTimeCommands(vk::CommandBuffer cmd) const {
 bool VulkanBackend::createImguiDescriptorPool() {
     vk::DescriptorPoolSize poolSize{};
     poolSize.type = vk::DescriptorType::eCombinedImageSampler;
-    poolSize.descriptorCount = 8; // font atlas + viewport + headroom
+    constexpr uint32_t kImguiDescriptorCount = 8; // font atlas + viewport + headroom
+    poolSize.descriptorCount = kImguiDescriptorCount;
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    poolInfo.maxSets = 8;
+    poolInfo.maxSets = kImguiDescriptorCount;
     poolInfo.setPoolSizes(poolSize);
 
     try {
@@ -982,17 +983,17 @@ void VulkanBackend::destroyOffscreenResources() {
 }
 
 RendererNativeHandles VulkanBackend::getNativeHandles() const {
-    RendererNativeHandles h{};
-    h.instance = reinterpret_cast<uint64_t>(static_cast<VkInstance>(m_instance));
-    h.physicalDevice = reinterpret_cast<uint64_t>(static_cast<VkPhysicalDevice>(m_physicalDevice));
-    h.device = reinterpret_cast<uint64_t>(static_cast<VkDevice>(m_device));
-    h.graphicsQueue = reinterpret_cast<uint64_t>(static_cast<VkQueue>(m_graphicsQueue));
-    h.renderPass = reinterpret_cast<uint64_t>(static_cast<VkRenderPass>(m_renderPass));
-    h.descriptorPool =
+    RendererNativeHandles handles{};
+    handles.instance = reinterpret_cast<uint64_t>(static_cast<VkInstance>(m_instance));
+    handles.physicalDevice = reinterpret_cast<uint64_t>(static_cast<VkPhysicalDevice>(m_physicalDevice));
+    handles.device = reinterpret_cast<uint64_t>(static_cast<VkDevice>(m_device));
+    handles.graphicsQueue = reinterpret_cast<uint64_t>(static_cast<VkQueue>(m_graphicsQueue));
+    handles.renderPass = reinterpret_cast<uint64_t>(static_cast<VkRenderPass>(m_renderPass));
+    handles.descriptorPool =
         reinterpret_cast<uint64_t>(static_cast<VkDescriptorPool>(m_imguiDescriptorPool));
-    h.graphicsQueueFamily = m_graphicsFamily;
-    h.imageCount = static_cast<uint32_t>(m_swapchainImages.size());
-    return h;
+    handles.graphicsQueueFamily = m_graphicsFamily;
+    handles.imageCount = static_cast<uint32_t>(m_swapchainImages.size());
+    return handles;
 }
 
 void VulkanBackend::renderSceneOffscreen() {

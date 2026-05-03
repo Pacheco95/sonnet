@@ -18,7 +18,11 @@ public:
     bool init() override { return true; }
     void shutdown() override {}
     [[nodiscard]] bool shouldClose() const override { return false; }
-    [[nodiscard]] std::pair<int, int> getSize() const override { return {800, 600}; }
+    [[nodiscard]] std::pair<int, int> getSize() const override {
+        constexpr int kWidth = 800;
+        constexpr int kHeight = 600;
+        return {kWidth, kHeight};
+    }
     [[nodiscard]] std::vector<std::string> getRequiredInstanceExtensions() const override {
         return {};
     }
