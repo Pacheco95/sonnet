@@ -58,6 +58,7 @@ jobs:
             -o Acquire::ForceIPv4=true \
             libvulkan-dev \
             glslc \
+            libglm-dev \
             libx11-dev \
             libxext-dev \
             libxrandr-dev \
@@ -92,7 +93,7 @@ jobs:
         run: cmake -S . -B build-quality -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug
 
       - name: Static analysis (clang-tidy)
-        run: find src/ tests/ -name "*.cpp" | xargs clang-tidy -p build-quality
+        run: find src/ tests/ -name "*.cpp" ! -path "*build*" | xargs clang-tidy -p build-quality
 
   build-and-test:
     needs: [code-quality]
@@ -116,6 +117,7 @@ jobs:
             -o Acquire::ForceIPv4=true \
             libvulkan-dev \
             glslc \
+            libglm-dev \
             libx11-dev \
             libxext-dev \
             libxrandr-dev \

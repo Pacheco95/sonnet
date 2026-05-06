@@ -1,5 +1,8 @@
 #pragma once
 
+#include <sonnet/renderer/CPUMesh.hpp>
+#include <sonnet/renderer/SceneRenderTypes.hpp>
+
 #include <cstdint>
 
 namespace sonnet::window {
@@ -47,6 +50,20 @@ public:
 
     // Returns the current frame's command buffer as uint64_t (VkCommandBuffer).
     [[nodiscard]] virtual uint64_t getCurrentCommandBuffer() const { return 0; }
+
+    // Scene rendering. uploadMesh returns a handle (0 = failure sentinel). releaseMesh frees it.
+    [[nodiscard]] virtual uint64_t uploadMesh(const CPUMesh& /*mesh*/) { return 0; }
+    virtual void releaseMesh(uint64_t /*handle*/) {}
+
+    // Renders all DrawItems with lighting and selection outline to the offscreen render target.
+    virtual void renderScene(const SceneRenderDesc& /*desc*/) {}
+
+    // GPU object picking: renders an ID-color pass and reads back the pixel at the given
+    // viewport coordinate. Returns the 1-based objectId under the cursor, or 0 for a miss.
+    [[nodiscard]] virtual int32_t pick(glm::ivec2 /*pixel*/) { return 0; }
+
+    // Returns the size in pixels of the offscreen render target used by getViewportTextureId().
+    [[nodiscard]] virtual glm::ivec2 getOffscreenSize() const { return {0, 0}; }
 };
 
 } // namespace sonnet::renderer

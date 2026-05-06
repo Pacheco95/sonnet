@@ -1,9 +1,13 @@
 #pragma once
 
+#include "SceneContext.hpp"
+
 #include <sonnet/editor/IEditor.hpp>
 #include <sonnet/editor/ILayoutManager.hpp>
 #include <sonnet/editor/IPanel.hpp>
 
+#include <array>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <vector>
@@ -27,15 +31,18 @@ private:
     void renderPanels();
     void renderSaveDialog();
     void renderLoadDialog();
+    void drawAddMenu();
 
     std::filesystem::path m_layoutsDir;
     sonnet::renderer::IRendererBackend* m_backend{nullptr};
     std::unique_ptr<ILayoutManager> m_layoutManager;
+    std::unique_ptr<SceneContext> m_sceneContext;
     std::vector<std::unique_ptr<IPanel>> m_panels;
     bool m_initialized{false};
+    static constexpr std::size_t kSaveNameBufSize = 256;
     bool m_showSaveDialog{false};
     bool m_showLoadDialog{false};
-    char m_saveNameBuf[256]{};
+    std::array<char, kSaveNameBufSize> m_saveNameBuf{};
     int m_loadSelected{0};
 };
 

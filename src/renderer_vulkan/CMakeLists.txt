@@ -31,3 +31,17 @@ compile_shader(SonnetRendererVulkan
     ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/triangle.vert)
 compile_shader(SonnetRendererVulkan
     ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/triangle.frag)
+compile_shader(SonnetRendererVulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/forward_lit.vert)
+compile_shader(SonnetRendererVulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/forward_lit.frag)
+compile_shader(SonnetRendererVulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/picking.vert)
+compile_shader(SonnetRendererVulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/picking.frag)
+compile_shader(SonnetRendererVulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/outline_mask.frag)
+compile_shader(SonnetRendererVulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/outline_comp.vert)
+compile_shader(SonnetRendererVulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/outline_comp.frag)

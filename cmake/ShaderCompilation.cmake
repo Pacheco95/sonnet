@@ -21,16 +21,12 @@ function(compile_shader TARGET SHADER_SOURCE)
         OUTPUT  ${SPV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
         COMMAND "${Vulkan_GLSLC_EXECUTABLE}" ${SHADER_SOURCE} -o ${SPV_OUTPUT}
-        DEPENDS ${SHADER_SOURCE}
-        COMMENT "Compiling ${SHADER_NAME} -> SPIR-V"
-        VERBATIM
-    )
-
-    add_custom_command(TARGET ${TARGET} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:Sonnet>/shaders"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${SPV_OUTPUT}
             "$<TARGET_FILE_DIR:Sonnet>/shaders/${SHADER_NAME}.spv"
-        COMMENT "Copying ${SHADER_NAME}.spv to output directory"
+        DEPENDS ${SHADER_SOURCE}
+        COMMENT "Compiling ${SHADER_NAME} -> SPIR-V"
         VERBATIM
     )
 

@@ -1,5 +1,20 @@
 add_subdirectory(editor)
 
+add_executable(SonnetSceneTests
+    scene/TransformTests.cpp
+    scene/SceneTests.cpp
+)
+target_link_libraries(SonnetSceneTests PRIVATE SonnetScene Catch2::Catch2WithMain)
+sonnet_set_compile_options(SonnetSceneTests)
+catch_discover_tests(SonnetSceneTests)
+
+add_executable(SonnetPrimitivesTests
+    primitives/MeshPrimitivesTests.cpp
+)
+target_link_libraries(SonnetPrimitivesTests PRIVATE SonnetPrimitives Catch2::Catch2WithMain)
+sonnet_set_compile_options(SonnetPrimitivesTests)
+catch_discover_tests(SonnetPrimitivesTests)
+
 add_executable(SonnetWindowTests
     window/WindowInterfaceTest.cpp
 )

@@ -7,7 +7,10 @@ Checks: >-
   -readability-identifier-naming,
   -modernize-use-trailing-return-type,
   -clang-analyzer-optin.core.EnumCastOutOfRange,
-  -readability-identifier-length
+  -readability-identifier-length,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -readability-convert-member-functions-to-static,
+  -readability-magic-numbers
 WarningsAsErrors: "*"
-HeaderFilterRegex: "^((?!/_deps/|/vendor/).)*$"
+HeaderFilterRegex: "^((?!/_deps/|/vendor/|/[^/]*build[^/]*/).)*$"
 FormatStyle: file

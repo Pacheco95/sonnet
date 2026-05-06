@@ -23,7 +23,9 @@ target_link_libraries(imgui PUBLIC SDL3::SDL3 Vulkan::Vulkan)
 add_library(SonnetEditor STATIC
     src/Editor.cpp
     src/EditorFactory.cpp
+    src/FlyCamera.cpp
     src/LayoutManager.cpp
+    src/SceneContext.cpp
     src/log/EditorLogSink.cpp
     src/panels/ViewportPanel.cpp
     src/panels/SceneHierarchyPanel.cpp
@@ -36,6 +38,8 @@ target_include_directories(SonnetEditor PUBLIC include)
 target_link_libraries(SonnetEditor
     PUBLIC
         SonnetRenderer
+        SonnetScene
+        SonnetPrimitives
         SonnetWindow
         SonnetLogging
     PRIVATE
