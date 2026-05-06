@@ -80,11 +80,15 @@ bool Editor::init(sonnet::window::IWindow& window, sonnet::renderer::IRendererBa
     // Create layout manager
     m_layoutManager = std::make_unique<LayoutManager>(m_layoutsDir);
 
+    // Create scene context (needs backend for mesh upload/release)
+    m_sceneContext = std::make_unique<SceneContext>(*m_backend);
+
     // Build panels
     uint64_t viewportTexId = backend.getViewportTextureId();
-    m_panels.push_back(std::make_unique<ViewportPanel>(viewportTexId));
-    m_panels.push_back(std::make_unique<SceneHierarchyPanel>());
-    m_panels.push_back(std::make_unique<InspectorPanel>());
+    m_panels.push_back(
+        std::make_unique<ViewportPanel>(viewportTexId, *m_sceneContext, *m_backend));
+    m_panels.push_back(std::make_unique<SceneHierarchyPanel>(*m_sceneContext));
+    m_panels.push_back(std::make_unique<InspectorPanel>(*m_sceneContext));
     m_panels.push_back(std::make_unique<LogPanel>(std::move(logBuffer)));
 
     // Restore last layout; if none, build the default docked layout
@@ -102,6 +106,7 @@ void Editor::shutdown() {
     m_initialized = false;
 
     m_panels.clear();
+    m_sceneContext.reset();
     m_layoutManager.reset();
 
     ImGui_ImplVulkan_Shutdown();
@@ -176,6 +181,10 @@ void Editor::render() {
 
 void Editor::renderMenuBar() {
     if (ImGui::BeginMenuBar()) {
+        if (ImGui::BeginMenu("Add")) {
+            drawAddMenu();
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("Layout")) {
             if (ImGui::MenuItem("Save Layout\xe2\x80\xa6")) {
                 m_showSaveDialog = true;
@@ -192,6 +201,41 @@ void Editor::renderMenuBar() {
             ImGui::EndMenu();
         }
         ImGui::EndMenuBar();
+    }
+}
+
+void Editor::drawAddMenu() {
+    if (m_sceneContext == nullptr) {
+        return;
+    }
+    if (ImGui::MenuItem("Cube")) {
+        m_sceneContext->addPrimitive(scene::PrimitiveType::Cube, "Cube");
+    }
+    if (ImGui::MenuItem("Sphere")) {
+        m_sceneContext->addPrimitive(scene::PrimitiveType::Sphere, "Sphere");
+    }
+    if (ImGui::MenuItem("Cylinder")) {
+        m_sceneContext->addPrimitive(scene::PrimitiveType::Cylinder, "Cylinder");
+    }
+    if (ImGui::MenuItem("Plane")) {
+        m_sceneContext->addPrimitive(scene::PrimitiveType::Plane, "Plane");
+    }
+    if (ImGui::MenuItem("Capsule")) {
+        m_sceneContext->addPrimitive(scene::PrimitiveType::Capsule, "Capsule");
+    }
+    ImGui::Separator();
+    const bool hasLight = m_sceneContext->hasDirectionalLight();
+    if (hasLight) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::MenuItem("Directional Light")) {
+        m_sceneContext->addDirectionalLight("Directional Light");
+    }
+    if (hasLight) {
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("Only one directional light is allowed");
+        }
     }
 }
 

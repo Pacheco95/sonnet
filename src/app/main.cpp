@@ -57,7 +57,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int /*argc*/, char* argv[]) {
 
 SDL_AppResult SDL_AppIterate(void* appstate) {
     auto* state = static_cast<AppState*>(appstate);
-    state->backend->renderSceneOffscreen();
     state->editor->render();
     return SDL_APP_CONTINUE;
 }

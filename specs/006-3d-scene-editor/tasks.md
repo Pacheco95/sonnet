@@ -175,9 +175,9 @@
 
 ### Implementation for User Story 6
 
-- [ ] T057 [US6] Extend src/editor/src/panels/InspectorPanel.cpp: after the transform fields, check if selectedObject has a non-null optional<LightData>; if so, render ImGui::Separator, ImGui::ColorEdit3 for LightData::color, ImGui::DragFloat for LightData::intensity (min 0); changes written directly to the LightData struct on the GameObject
-- [ ] T058 [US6] Verify src/editor/src/SceneContext.cpp buildRenderDesc() correctly reads LightData from directionalLightObject (color, intensity, direction derived from Transform::forward()) into SceneRenderDesc::dirLight every frame so lighting changes take effect within one frame
-- [ ] T059 [US6] Implement directional light billboard in src/editor/src/panels/ViewportPanel.cpp: project the directional light's world position (fixed e.g. (0,3,0)) to screen space using the current VP matrix; draw a small sun/star icon (circle + 8 line spokes) via ImDrawList at that screen position; on ImGui::IsMouseClicked(Left) check if mouse is within the billboard rect before GPU picking and if so call sceneContext.selectObject(directionalLightObject)
+- [X] T057 [US6] Extend src/editor/src/panels/InspectorPanel.cpp: after the transform fields, check if selectedObject has a non-null optional<LightData>; if so, render ImGui::Separator, ImGui::ColorEdit3 for LightData::color, ImGui::DragFloat for LightData::intensity (min 0); changes written directly to the LightData struct on the GameObject
+- [X] T058 [US6] Verify src/editor/src/SceneContext.cpp buildRenderDesc() correctly reads LightData from directionalLightObject (color, intensity, direction derived from Transform::forward()) into SceneRenderDesc::dirLight every frame so lighting changes take effect within one frame
+- [X] T059 [US6] Implement directional light billboard in src/editor/src/panels/ViewportPanel.cpp: project the directional light's world position (fixed e.g. (0,3,0)) to screen space using the current VP matrix; draw a small sun/star icon (circle + 8 line spokes) via ImDrawList at that screen position; on ImGui::IsMouseClicked(Left) check if mouse is within the billboard rect before GPU picking and if so call sceneContext.selectObject(directionalLightObject)
 
 **Checkpoint**: Selecting the directional light shows full light config in Inspector; color/intensity changes update scene lighting immediately; billboard clickable in viewport.
 
@@ -187,8 +187,8 @@
 
 **Purpose**: Final validation across all user stories.
 
-- [ ] T060 Build with `cmake --build build` and confirm zero warnings under -Wall -Wextra -Wpedantic -Werror for all new and modified translation units
-- [ ] T061 Run `ctest --test-dir build --output-on-failure` and confirm SonnetSceneTests, SonnetPrimitivesTests, SceneHierarchyPanelTests, and InspectorPanelTests all pass
+- [X] T060 Build with `cmake --build build` and confirm zero warnings under -Wall -Wextra -Wpedantic -Werror for all new and modified translation units
+- [X] T061 Run `ctest --test-dir build --output-on-failure` and confirm SonnetSceneTests, SonnetPrimitivesTests, SceneHierarchyPanelTests, and InspectorPanelTests all pass
 - [ ] T062 Validate the quickstart.md primary workflow end-to-end: open editor → Add → Cube → select by viewport click → move with translate gizmo → Add a second Cube → drag second Cube onto first in hierarchy → world position preserved
 
 ---

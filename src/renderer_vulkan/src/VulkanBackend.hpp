@@ -5,6 +5,7 @@
 #include <vulkan/vulkan.hpp>
 
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 namespace sonnet::renderer {
@@ -28,7 +29,20 @@ public:
     void endEditorRenderPass() override;
     [[nodiscard]] uint64_t getCurrentCommandBuffer() const override;
 
+    [[nodiscard]] uint64_t uploadMesh(const CPUMesh& mesh) override;
+    void releaseMesh(uint64_t handle) override;
+    void renderScene(const SceneRenderDesc& desc) override;
+    [[nodiscard]] int32_t pick(glm::ivec2 pixel) override;
+    [[nodiscard]] glm::ivec2 getOffscreenSize() const override;
+
 private:
+    struct GpuMesh {
+        vk::Buffer       vertexBuffer;
+        vk::DeviceMemory vertexMemory;
+        vk::Buffer       indexBuffer;
+        vk::DeviceMemory indexMemory;
+        uint32_t         indexCount{0};
+    };
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types,
         const VkDebugUtilsMessengerCallbackDataEXT* data, void* userData);
@@ -83,7 +97,7 @@ private:
     vk::CommandPool m_commandPool;
     std::vector<vk::CommandBuffer> m_commandBuffers;
 
-    static constexpr uint32_t kMaxFramesInFlight = 2;
+    static constexpr uint32_t kMaxFramesInFlight = 1;
     std::vector<vk::Semaphore> m_imageAvailableSemaphores;
     std::vector<vk::Semaphore> m_renderFinishedSemaphores;
     std::vector<vk::Fence> m_inFlightFences;
@@ -107,6 +121,74 @@ private:
     std::string m_exeDir;
     bool m_initialized{false};
     sonnet::window::IWindow* m_window{nullptr};
+
+    // Forward lit pipeline
+    bool createForwardPipeline();
+    void destroyForwardResources();
+    vk::Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
+                             vk::MemoryPropertyFlags props, vk::DeviceMemory& outMem);
+
+    vk::RenderPass          m_forwardRenderPass;
+    vk::DescriptorSetLayout m_forwardDescriptorSetLayout;
+    vk::PipelineLayout      m_forwardPipelineLayout;
+    vk::Pipeline            m_forwardPipeline;
+    vk::DescriptorPool      m_forwardDescriptorPool;
+    std::vector<vk::DescriptorSet> m_forwardDescriptorSets;
+
+    vk::Image        m_depthImage;
+    vk::DeviceMemory m_depthMemory;
+    vk::ImageView    m_depthImageView;
+    vk::Framebuffer  m_forwardFramebuffer;
+
+    std::vector<vk::Buffer>       m_cameraUboBuffers;
+    std::vector<vk::DeviceMemory> m_cameraUboMemories;
+    std::vector<void*>            m_cameraUboMapped;
+    std::vector<vk::Buffer>       m_lightsUboBuffers;
+    std::vector<vk::DeviceMemory> m_lightsUboMemories;
+    std::vector<void*>            m_lightsUboMapped;
+
+    std::unordered_map<uint64_t, GpuMesh> m_meshes;
+    uint64_t m_nextMeshHandle{1};
+    std::vector<uint64_t> m_pendingRelease;
+
+    void flushPendingReleases();
+
+    SceneRenderDesc m_lastDesc;
+
+    // GPU picking
+    bool createPickingResources();
+    void destroyPickingResources();
+
+    vk::Image           m_pickImage;
+    vk::DeviceMemory    m_pickMemory;
+    vk::ImageView       m_pickImageView;
+    vk::RenderPass      m_pickRenderPass;
+    vk::Framebuffer     m_pickFramebuffer;
+    vk::Pipeline        m_pickPipeline;
+    vk::CommandPool     m_pickCmdPool;
+    vk::CommandBuffer   m_pickCmdBuffer;
+    vk::Buffer          m_pickStagingBuffer;
+    vk::DeviceMemory    m_pickStagingMemory;
+    void*               m_pickStagingMapped{nullptr};
+
+    // Selection outline
+    bool createOutlineResources();
+    void destroyOutlineResources();
+
+    vk::Image               m_maskImage;
+    vk::DeviceMemory        m_maskMemory;
+    vk::ImageView           m_maskImageView;
+    vk::Sampler             m_maskSampler;
+    vk::RenderPass          m_maskRenderPass;
+    vk::Framebuffer         m_maskFramebuffer;
+    vk::Pipeline            m_maskPipeline;
+    vk::RenderPass          m_compRenderPass;
+    vk::Framebuffer         m_compFramebuffer;
+    vk::Pipeline            m_compPipeline;
+    vk::PipelineLayout      m_compPipelineLayout;
+    vk::DescriptorSetLayout m_compDescLayout;
+    vk::DescriptorPool      m_compDescPool;
+    vk::DescriptorSet       m_compDescSet;
 };
 
 } // namespace sonnet::renderer

@@ -22,6 +22,8 @@ add_subdirectory(src/logging)
 add_subdirectory(src/window)
 add_subdirectory(src/renderer)
 add_subdirectory(src/renderer_vulkan)
+add_subdirectory(src/scene)
+add_subdirectory(src/primitives)
 add_subdirectory(src/editor)
 add_subdirectory(src/app)
 
