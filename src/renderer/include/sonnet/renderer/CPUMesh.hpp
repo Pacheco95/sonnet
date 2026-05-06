@@ -14,7 +14,7 @@ struct Vertex {
 };
 
 struct CPUMesh {
-    std::vector<Vertex>   vertices;
+    std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
 };
 

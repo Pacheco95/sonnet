@@ -8,47 +8,7 @@ SceneHierarchyPanel::SceneHierarchyPanel(SceneContext& sceneCtx) : m_sceneCtx(sc
 
 const char* SceneHierarchyPanel::title() const { return "Scene Hierarchy"; }
 
-static void drawNode(SceneContext& ctx, scene::GameObject* obj) {
-    const uint32_t id       = ctx.idOf(obj);
-    const bool     selected = (ctx.selectedId() == id);
-    const auto&    children = obj->transform.getChildren();
-    const bool     hasChildren = !children.empty();
-
-    ImGuiTreeNodeFlags flags =
-        ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-    if (selected) {
-        flags |= ImGuiTreeNodeFlags_Selected;
-    }
-    if (!hasChildren) {
-        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    }
-
-    const bool open = ImGui::TreeNodeEx(
-        reinterpret_cast<void*>(static_cast<uintptr_t>(id)), flags, "%s", obj->name.c_str());
-
-    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-        ctx.selectObject(id);
-    }
-
-    // Drag source
-    if (ImGui::BeginDragDropSource()) {
-        ImGui::SetDragDropPayload("SCENE_OBJECT", &id, sizeof(id));
-        ImGui::Text("%s", obj->name.c_str());
-        ImGui::EndDragDropSource();
-    }
-
-    // Drop target: reparent dragged object onto this node
-    if (ImGui::BeginDragDropTarget()) {
-        if (const auto* payload = ImGui::AcceptDragDropPayload("SCENE_OBJECT")) {
-            const uint32_t draggedId = *static_cast<const uint32_t*>(payload->Data);
-            if (draggedId != id) {
-                ctx.setParent(draggedId, id);
-            }
-        }
-        ImGui::EndDragDropTarget();
-    }
-
-    // Right-click context menu
+static void drawNodeContextMenu(SceneContext& ctx, scene::GameObject* obj, uint32_t id) {
     if (ImGui::BeginPopupContextItem()) {
         if (obj->transform.getParent() != nullptr) {
             if (ImGui::MenuItem("Unparent")) {
@@ -60,6 +20,45 @@ static void drawNode(SceneContext& ctx, scene::GameObject* obj) {
         }
         ImGui::EndPopup();
     }
+}
+
+static void drawNode(SceneContext& ctx, scene::GameObject* obj) {
+    const uint32_t id = ctx.idOf(obj);
+    const bool selected = (ctx.selectedId() == id);
+    const auto& children = obj->transform.getChildren();
+    const bool hasChildren = !children.empty();
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (selected) {
+        flags |= ImGuiTreeNodeFlags_Selected;
+    }
+    if (!hasChildren) {
+        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    }
+
+    const bool open = ImGui::TreeNodeEx(static_cast<void*>(obj), flags, "%s", obj->name.c_str());
+
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        ctx.selectObject(id);
+    }
+
+    if (ImGui::BeginDragDropSource()) {
+        ImGui::SetDragDropPayload("SCENE_OBJECT", &id, sizeof(id));
+        ImGui::Text("%s", obj->name.c_str());
+        ImGui::EndDragDropSource();
+    }
+
+    if (ImGui::BeginDragDropTarget()) {
+        if (const auto* payload = ImGui::AcceptDragDropPayload("SCENE_OBJECT")) {
+            const uint32_t draggedId = *static_cast<const uint32_t*>(payload->Data);
+            if (draggedId != id) {
+                ctx.setParent(draggedId, id);
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    drawNodeContextMenu(ctx, obj, id);
 
     if (open && hasChildren) {
         for (auto* childTransform : children) {
@@ -79,17 +78,16 @@ void SceneHierarchyPanel::draw() {
         return;
     }
 
-    // Drag-to-root unparenting target: invisible drop zone above the list
-    ImGui::Dummy({ImGui::GetContentRegionAvail().x, 4.0F});
+    constexpr float kDropZoneH = 4.0F;
+    ImGui::Dummy({ImGui::GetContentRegionAvail().x, kDropZoneH});
     if (ImGui::BeginDragDropTarget()) {
         if (const auto* payload = ImGui::AcceptDragDropPayload("SCENE_OBJECT")) {
             const uint32_t draggedId = *static_cast<const uint32_t*>(payload->Data);
-            m_sceneCtx.setParent(draggedId, 0); // 0 = no parent → root
+            m_sceneCtx.setParent(draggedId, 0);
         }
         ImGui::EndDragDropTarget();
     }
 
-    // Render only root objects; drawNode recurses into children
     for (const auto& obj : objs) {
         if (obj->transform.getParent() == nullptr) {
             drawNode(m_sceneCtx, obj.get());

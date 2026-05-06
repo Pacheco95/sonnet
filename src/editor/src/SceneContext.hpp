@@ -33,9 +33,10 @@ public:
 
     void setParent(uint32_t childId, uint32_t parentId);
 
-    [[nodiscard]] renderer::SceneRenderDesc buildRenderDesc(
-        const glm::mat4& view, const glm::mat4& proj,
-        const glm::vec3& cameraPos, glm::ivec2 viewportSize) const;
+    [[nodiscard]] renderer::SceneRenderDesc buildRenderDesc(const glm::mat4& view,
+                                                            const glm::mat4& proj,
+                                                            const glm::vec3& cameraPos,
+                                                            glm::ivec2 viewportSize) const;
 
     [[nodiscard]] scene::Scene& scene() { return m_scene; }
     [[nodiscard]] const scene::Scene& scene() const { return m_scene; }
@@ -47,7 +48,7 @@ private:
     renderer::IRendererBackend& m_backend;
     scene::Scene m_scene;
     std::unordered_map<uint32_t, scene::GameObject*> m_objects;
-    std::unordered_map<uint32_t, uint64_t>           m_meshHandles;
+    std::unordered_map<uint32_t, uint64_t> m_meshHandles;
     uint32_t m_selectedId{0};
     uint32_t m_nextId{1};
 };

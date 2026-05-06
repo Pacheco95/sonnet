@@ -20,10 +20,9 @@ void Scene::destroyObject(GameObject* obj) {
     for (Transform* child : obj->transform.getChildren()) {
         child->setParent(nullptr, true);
     }
-    m_objects.erase(
-        std::remove_if(m_objects.begin(), m_objects.end(),
-                       [obj](const auto& ptr) { return ptr.get() == obj; }),
-        m_objects.end());
+    m_objects.erase(std::remove_if(m_objects.begin(), m_objects.end(),
+                                   [obj](const auto& ptr) { return ptr.get() == obj; }),
+                    m_objects.end());
 }
 
 } // namespace sonnet::scene

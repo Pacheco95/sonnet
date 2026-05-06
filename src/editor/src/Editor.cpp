@@ -85,8 +85,7 @@ bool Editor::init(sonnet::window::IWindow& window, sonnet::renderer::IRendererBa
 
     // Build panels
     uint64_t viewportTexId = backend.getViewportTextureId();
-    m_panels.push_back(
-        std::make_unique<ViewportPanel>(viewportTexId, *m_sceneContext, *m_backend));
+    m_panels.push_back(std::make_unique<ViewportPanel>(viewportTexId, *m_sceneContext, *m_backend));
     m_panels.push_back(std::make_unique<SceneHierarchyPanel>(*m_sceneContext));
     m_panels.push_back(std::make_unique<InspectorPanel>(*m_sceneContext));
     m_panels.push_back(std::make_unique<LogPanel>(std::move(logBuffer)));
@@ -269,10 +268,10 @@ void Editor::renderSaveDialog() {
         m_showSaveDialog = false;
     }
     if (ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::InputText("Name", m_saveNameBuf, sizeof(m_saveNameBuf));
+        ImGui::InputText("Name", m_saveNameBuf.data(), m_saveNameBuf.size());
         if (ImGui::Button("Save")) {
             if (m_saveNameBuf[0] != '\0') {
-                m_layoutManager->saveLayout(m_saveNameBuf);
+                m_layoutManager->saveLayout(m_saveNameBuf.data());
             }
             ImGui::CloseCurrentPopup();
         }

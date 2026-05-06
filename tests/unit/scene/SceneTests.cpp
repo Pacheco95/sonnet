@@ -31,7 +31,7 @@ TEST_CASE("Scene_DestroyObject_RemovesFromCollection") {
 TEST_CASE("Scene_CreateObject_WithParent_SetsHierarchy") {
     sonnet::scene::Scene scene;
     auto& parent = scene.createObject("Parent");
-    auto& child  = scene.createObject("Child", &parent);
+    auto& child = scene.createObject("Child", &parent);
 
     REQUIRE(child.transform.getParent() == &parent.transform);
 }
@@ -39,7 +39,7 @@ TEST_CASE("Scene_CreateObject_WithParent_SetsHierarchy") {
 TEST_CASE("Scene_CircularParentAttempt_HierarchyUnchanged") {
     sonnet::scene::Scene scene;
     auto& parent = scene.createObject("Parent");
-    auto& child  = scene.createObject("Child", &parent);
+    auto& child = scene.createObject("Child", &parent);
 
     // Attempting to make parent a child of child would be circular — must be rejected.
     parent.transform.setParent(&child.transform, false);

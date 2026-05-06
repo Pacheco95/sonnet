@@ -1,8 +1,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <catch2/catch_test_macros.hpp>
 
-#include <sonnet/renderer/IRendererBackend.hpp>
 #include <sonnet/renderer/CPUMesh.hpp>
+#include <sonnet/renderer/IRendererBackend.hpp>
 
 #include "SceneContext.hpp"
 
@@ -25,6 +25,7 @@ public:
         return m_nextHandle++;
     }
     void releaseMesh(uint64_t /*handle*/) override {}
+
 private:
     uint64_t m_nextHandle{1};
 };

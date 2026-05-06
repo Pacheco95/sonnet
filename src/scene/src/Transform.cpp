@@ -86,9 +86,7 @@ void Transform::setWorldPosition(glm::vec3 worldPos) {
     markDirty();
 }
 
-glm::vec3 Transform::getWorldPosition() const {
-    return glm::vec3(getModelMatrix()[3]);
-}
+glm::vec3 Transform::getWorldPosition() const { return glm::vec3{getModelMatrix()[3]}; }
 
 // ── World rotation ─────────────────────────────────────────────────────────────
 
@@ -120,17 +118,11 @@ const glm::mat4& Transform::getModelMatrix() const {
 
 // ── Direction vectors ──────────────────────────────────────────────────────────
 
-glm::vec3 Transform::forward() const {
-    return getWorldRotation() * glm::vec3(0.0F, 0.0F, -1.0F);
-}
+glm::vec3 Transform::forward() const { return getWorldRotation() * glm::vec3(0.0F, 0.0F, -1.0F); }
 
-glm::vec3 Transform::up() const {
-    return getWorldRotation() * glm::vec3(0.0F, 1.0F, 0.0F);
-}
+glm::vec3 Transform::up() const { return getWorldRotation() * glm::vec3(0.0F, 1.0F, 0.0F); }
 
-glm::vec3 Transform::right() const {
-    return getWorldRotation() * glm::vec3(1.0F, 0.0F, 0.0F);
-}
+glm::vec3 Transform::right() const { return getWorldRotation() * glm::vec3(1.0F, 0.0F, 0.0F); }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 

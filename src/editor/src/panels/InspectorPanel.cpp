@@ -11,6 +11,11 @@
 
 namespace sonnet::editor {
 
+static constexpr float kHalf = 0.5F;
+static constexpr float kDragSpeedTranslate = 0.1F;
+static constexpr float kDragSpeedScale = 0.1F;
+static constexpr float kDragSpeedIntensity = 0.01F;
+
 InspectorPanel::InspectorPanel(SceneContext& sceneCtx) : m_sceneCtx(sceneCtx) {}
 
 const char* InspectorPanel::title() const { return "Inspector"; }
@@ -19,9 +24,8 @@ void InspectorPanel::draw() {
     const uint32_t sel = m_sceneCtx.selectedId();
     if (sel == 0) {
         const ImVec2 avail = ImGui::GetContentRegionAvail();
-        ImGui::SetCursorPos(
-            {avail.x * 0.5F - ImGui::CalcTextSize("No object selected").x * 0.5F,
-             avail.y * 0.5F});
+        ImGui::SetCursorPos({avail.x * kHalf - ImGui::CalcTextSize("No object selected").x * kHalf,
+                             avail.y * kHalf});
         ImGui::TextDisabled("No object selected");
         return;
     }
@@ -39,7 +43,7 @@ void InspectorPanel::draw() {
     if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
         // Position (world space)
         glm::vec3 pos = obj->transform.getWorldPosition();
-        if (ImGui::DragFloat3("Position", glm::value_ptr(pos), 0.1F)) {
+        if (ImGui::DragFloat3("Position", glm::value_ptr(pos), kDragSpeedTranslate)) {
             obj->transform.setWorldPosition(pos);
         }
 
@@ -52,7 +56,7 @@ void InspectorPanel::draw() {
 
         // Scale (local space)
         glm::vec3 scale = obj->transform.getLocalScale();
-        if (ImGui::DragFloat3("Scale", glm::value_ptr(scale), 0.1F)) {
+        if (ImGui::DragFloat3("Scale", glm::value_ptr(scale), kDragSpeedScale)) {
             obj->transform.setLocalScale(scale);
         }
     }
@@ -63,7 +67,7 @@ void InspectorPanel::draw() {
         if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto& ld = obj->light.value();
             ImGui::ColorEdit3("Color", glm::value_ptr(ld.color));
-            ImGui::DragFloat("Intensity", &ld.intensity, 0.01F, 0.0F, FLT_MAX);
+            ImGui::DragFloat("Intensity", &ld.intensity, kDragSpeedIntensity, 0.0F, FLT_MAX);
         }
     }
 }

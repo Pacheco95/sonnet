@@ -1,8 +1,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <catch2/catch_test_macros.hpp>
 
-#include <sonnet/renderer/IRendererBackend.hpp>
 #include <sonnet/renderer/CPUMesh.hpp>
+#include <sonnet/renderer/IRendererBackend.hpp>
 
 #include "SceneContext.hpp"
 
@@ -66,9 +66,9 @@ TEST_CASE("SceneHierarchy_SetParent_PreservesWorldPosition") {
     ctx.addPrimitive(sonnet::scene::PrimitiveType::Cube, "Parent");
     ctx.addPrimitive(sonnet::scene::PrimitiveType::Cube, "Child");
 
-    const auto& objs    = ctx.scene().objects();
-    auto*       parentObj = objs[0].get();
-    auto*       childObj  = objs[1].get();
+    const auto& objs = ctx.scene().objects();
+    auto* parentObj = objs[0].get();
+    auto* childObj = objs[1].get();
 
     parentObj->transform.setLocalPosition({10.0F, 0.0F, 0.0F});
     childObj->transform.setLocalPosition({3.0F, 0.0F, 0.0F});
@@ -76,7 +76,7 @@ TEST_CASE("SceneHierarchy_SetParent_PreservesWorldPosition") {
     const glm::vec3 childWorldBefore = childObj->transform.getWorldPosition();
 
     const uint32_t parentId = ctx.idOf(parentObj);
-    const uint32_t childId  = ctx.idOf(childObj);
+    const uint32_t childId = ctx.idOf(childObj);
 
     // setParent(child, parent) with keepWorldTransform=true
     ctx.setParent(childId, parentId);
@@ -92,12 +92,12 @@ TEST_CASE("SceneHierarchy_CircularParent_HierarchyUnchanged") {
     ctx.addPrimitive(sonnet::scene::PrimitiveType::Cube, "Parent");
     ctx.addPrimitive(sonnet::scene::PrimitiveType::Cube, "Child");
 
-    const auto& objs      = ctx.scene().objects();
-    auto*       parentObj = objs[0].get();
-    auto*       childObj  = objs[1].get();
+    const auto& objs = ctx.scene().objects();
+    auto* parentObj = objs[0].get();
+    auto* childObj = objs[1].get();
 
     const uint32_t parentId = ctx.idOf(parentObj);
-    const uint32_t childId  = ctx.idOf(childObj);
+    const uint32_t childId = ctx.idOf(childObj);
 
     // Establish parent→child
     ctx.setParent(childId, parentId);
@@ -105,7 +105,7 @@ TEST_CASE("SceneHierarchy_CircularParent_HierarchyUnchanged") {
 
     // Attempting to make parent a child of child is circular — must be rejected
     ctx.setParent(parentId, childId);
-    REQUIRE(parentObj->transform.getParent() == nullptr); // unchanged
+    REQUIRE(parentObj->transform.getParent() == nullptr);              // unchanged
     REQUIRE(childObj->transform.getParent() == &parentObj->transform); // unchanged
 }
 
@@ -116,14 +116,14 @@ TEST_CASE("SceneHierarchy_Unparent_PreservesWorldPosition") {
     ctx.addPrimitive(sonnet::scene::PrimitiveType::Cube, "Parent");
     ctx.addPrimitive(sonnet::scene::PrimitiveType::Cube, "Child");
 
-    const auto& objs      = ctx.scene().objects();
-    auto*       parentObj = objs[0].get();
-    auto*       childObj  = objs[1].get();
+    const auto& objs = ctx.scene().objects();
+    auto* parentObj = objs[0].get();
+    auto* childObj = objs[1].get();
 
     parentObj->transform.setLocalPosition({100.0F, 0.0F, 0.0F});
 
     const uint32_t parentId = ctx.idOf(parentObj);
-    const uint32_t childId  = ctx.idOf(childObj);
+    const uint32_t childId = ctx.idOf(childObj);
 
     ctx.setParent(childId, parentId);
     childObj->transform.setLocalPosition({5.0F, 0.0F, 0.0F});

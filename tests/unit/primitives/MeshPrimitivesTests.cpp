@@ -7,9 +7,7 @@
 
 static constexpr float kEps = 1e-4F;
 
-static bool isUnitLength(glm::vec3 v) {
-    return std::abs(glm::length(v) - 1.0F) < kEps;
-}
+static bool isUnitLength(glm::vec3 v) { return std::abs(glm::length(v) - 1.0F) < kEps; }
 
 static bool allIndicesValid(const sonnet::renderer::CPUMesh& mesh) {
     const auto vcount = static_cast<uint32_t>(mesh.vertices.size());

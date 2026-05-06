@@ -37,11 +37,11 @@ public:
 
 private:
     struct GpuMesh {
-        vk::Buffer       vertexBuffer;
+        vk::Buffer vertexBuffer;
         vk::DeviceMemory vertexMemory;
-        vk::Buffer       indexBuffer;
+        vk::Buffer indexBuffer;
         vk::DeviceMemory indexMemory;
-        uint32_t         indexCount{0};
+        uint32_t indexCount{0};
     };
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types,
@@ -64,7 +64,8 @@ private:
     bool createOffscreenResources();
     void destroyOffscreenResources();
     bool createImguiDescriptorPool();
-    [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
+    [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter,
+                                          vk::MemoryPropertyFlags properties) const;
     [[nodiscard]] vk::CommandBuffer beginOneTimeCommands() const;
     void endOneTimeCommands(vk::CommandBuffer cmd) const;
 
@@ -87,7 +88,7 @@ private:
     std::vector<vk::Image> m_swapchainImages;
     std::vector<vk::ImageView> m_swapchainImageViews;
     vk::Format m_swapchainFormat{};
-    vk::Extent2D m_swapchainExtent{};
+    vk::Extent2D m_swapchainExtent;
 
     vk::RenderPass m_renderPass;
     vk::PipelineLayout m_pipelineLayout;
@@ -126,26 +127,26 @@ private:
     bool createForwardPipeline();
     void destroyForwardResources();
     vk::Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
-                             vk::MemoryPropertyFlags props, vk::DeviceMemory& outMem);
+                            vk::MemoryPropertyFlags props, vk::DeviceMemory& outMem);
 
-    vk::RenderPass          m_forwardRenderPass;
+    vk::RenderPass m_forwardRenderPass;
     vk::DescriptorSetLayout m_forwardDescriptorSetLayout;
-    vk::PipelineLayout      m_forwardPipelineLayout;
-    vk::Pipeline            m_forwardPipeline;
-    vk::DescriptorPool      m_forwardDescriptorPool;
+    vk::PipelineLayout m_forwardPipelineLayout;
+    vk::Pipeline m_forwardPipeline;
+    vk::DescriptorPool m_forwardDescriptorPool;
     std::vector<vk::DescriptorSet> m_forwardDescriptorSets;
 
-    vk::Image        m_depthImage;
+    vk::Image m_depthImage;
     vk::DeviceMemory m_depthMemory;
-    vk::ImageView    m_depthImageView;
-    vk::Framebuffer  m_forwardFramebuffer;
+    vk::ImageView m_depthImageView;
+    vk::Framebuffer m_forwardFramebuffer;
 
-    std::vector<vk::Buffer>       m_cameraUboBuffers;
+    std::vector<vk::Buffer> m_cameraUboBuffers;
     std::vector<vk::DeviceMemory> m_cameraUboMemories;
-    std::vector<void*>            m_cameraUboMapped;
-    std::vector<vk::Buffer>       m_lightsUboBuffers;
+    std::vector<void*> m_cameraUboMapped;
+    std::vector<vk::Buffer> m_lightsUboBuffers;
     std::vector<vk::DeviceMemory> m_lightsUboMemories;
-    std::vector<void*>            m_lightsUboMapped;
+    std::vector<void*> m_lightsUboMapped;
 
     std::unordered_map<uint64_t, GpuMesh> m_meshes;
     uint64_t m_nextMeshHandle{1};
@@ -159,36 +160,36 @@ private:
     bool createPickingResources();
     void destroyPickingResources();
 
-    vk::Image           m_pickImage;
-    vk::DeviceMemory    m_pickMemory;
-    vk::ImageView       m_pickImageView;
-    vk::RenderPass      m_pickRenderPass;
-    vk::Framebuffer     m_pickFramebuffer;
-    vk::Pipeline        m_pickPipeline;
-    vk::CommandPool     m_pickCmdPool;
-    vk::CommandBuffer   m_pickCmdBuffer;
-    vk::Buffer          m_pickStagingBuffer;
-    vk::DeviceMemory    m_pickStagingMemory;
-    void*               m_pickStagingMapped{nullptr};
+    vk::Image m_pickImage;
+    vk::DeviceMemory m_pickMemory;
+    vk::ImageView m_pickImageView;
+    vk::RenderPass m_pickRenderPass;
+    vk::Framebuffer m_pickFramebuffer;
+    vk::Pipeline m_pickPipeline;
+    vk::CommandPool m_pickCmdPool;
+    vk::CommandBuffer m_pickCmdBuffer;
+    vk::Buffer m_pickStagingBuffer;
+    vk::DeviceMemory m_pickStagingMemory;
+    void* m_pickStagingMapped{nullptr};
 
     // Selection outline
     bool createOutlineResources();
     void destroyOutlineResources();
 
-    vk::Image               m_maskImage;
-    vk::DeviceMemory        m_maskMemory;
-    vk::ImageView           m_maskImageView;
-    vk::Sampler             m_maskSampler;
-    vk::RenderPass          m_maskRenderPass;
-    vk::Framebuffer         m_maskFramebuffer;
-    vk::Pipeline            m_maskPipeline;
-    vk::RenderPass          m_compRenderPass;
-    vk::Framebuffer         m_compFramebuffer;
-    vk::Pipeline            m_compPipeline;
-    vk::PipelineLayout      m_compPipelineLayout;
+    vk::Image m_maskImage;
+    vk::DeviceMemory m_maskMemory;
+    vk::ImageView m_maskImageView;
+    vk::Sampler m_maskSampler;
+    vk::RenderPass m_maskRenderPass;
+    vk::Framebuffer m_maskFramebuffer;
+    vk::Pipeline m_maskPipeline;
+    vk::RenderPass m_compRenderPass;
+    vk::Framebuffer m_compFramebuffer;
+    vk::Pipeline m_compPipeline;
+    vk::PipelineLayout m_compPipelineLayout;
     vk::DescriptorSetLayout m_compDescLayout;
-    vk::DescriptorPool      m_compDescPool;
-    vk::DescriptorSet       m_compDescSet;
+    vk::DescriptorPool m_compDescPool;
+    vk::DescriptorSet m_compDescSet;
 };
 
 } // namespace sonnet::renderer

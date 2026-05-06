@@ -18,16 +18,16 @@ SceneContext::~SceneContext() {
 
 static renderer::CPUMesh makeMeshForType(scene::PrimitiveType type) {
     switch (type) {
-        case scene::PrimitiveType::Cube:
-            return primitives::makeBox({1.0F, 1.0F, 1.0F});
-        case scene::PrimitiveType::Sphere:
-            return primitives::makeUVSphere(24, 16);
-        case scene::PrimitiveType::Cylinder:
-            return primitives::makeCylinder(0.5F, 1.0F, 24);
-        case scene::PrimitiveType::Plane:
-            return primitives::makePlane({2.0F, 2.0F});
-        case scene::PrimitiveType::Capsule:
-            return primitives::makeCapsule(0.5F, 1.0F, 16);
+    case scene::PrimitiveType::Cube:
+        return primitives::makeBox({1.0F, 1.0F, 1.0F});
+    case scene::PrimitiveType::Sphere:
+        return primitives::makeUVSphere(24, 16);
+    case scene::PrimitiveType::Cylinder:
+        return primitives::makeCylinder(0.5F, 1.0F, 24);
+    case scene::PrimitiveType::Plane:
+        return primitives::makePlane({2.0F, 2.0F});
+    case scene::PrimitiveType::Capsule:
+        return primitives::makeCapsule(0.5F, 1.0F, 16);
     }
     return {};
 }
@@ -76,13 +76,9 @@ void SceneContext::removeObject(uint32_t id) {
     }
 }
 
-void SceneContext::selectObject(uint32_t id) {
-    m_selectedId = id;
-}
+void SceneContext::selectObject(uint32_t id) { m_selectedId = id; }
 
-void SceneContext::deselectAll() {
-    m_selectedId = 0;
-}
+void SceneContext::deselectAll() { m_selectedId = 0; }
 
 bool SceneContext::hasDirectionalLight() const {
     for (const auto& [id, ptr] : m_objects) {
@@ -103,7 +99,7 @@ uint32_t SceneContext::directionalLightId() const {
 }
 
 void SceneContext::setParent(uint32_t childId, uint32_t parentId) {
-    auto* child  = findById(childId);
+    auto* child = findById(childId);
     auto* parent = findById(parentId);
     if (child == nullptr) {
         return;
@@ -111,9 +107,10 @@ void SceneContext::setParent(uint32_t childId, uint32_t parentId) {
     child->transform.setParent(parent ? &parent->transform : nullptr, true);
 }
 
-renderer::SceneRenderDesc SceneContext::buildRenderDesc(
-    const glm::mat4& view, const glm::mat4& proj,
-    const glm::vec3& cameraPos, glm::ivec2 viewportSize) const {
+renderer::SceneRenderDesc SceneContext::buildRenderDesc(const glm::mat4& view,
+                                                        const glm::mat4& proj,
+                                                        const glm::vec3& cameraPos,
+                                                        glm::ivec2 viewportSize) const {
 
     renderer::SceneRenderDesc desc;
     desc.viewMatrix = view;

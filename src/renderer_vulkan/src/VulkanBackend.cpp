@@ -1093,29 +1093,35 @@ struct CameraUboData {
     glm::mat4 view{1.0F};
     glm::mat4 proj{1.0F};
     glm::vec3 cameraPos{0.0F, 0.0F, 0.0F};
-    float     _pad{0.0F};
+    float _pad{0.0F};
 };
 
 struct LightsUboData {
     glm::vec3 direction{0.0F, -1.0F, 0.0F};
-    float     intensity{1.0F};
+    float intensity{1.0F};
     glm::vec3 color{1.0F, 1.0F, 1.0F};
-    float     _pad{0.0F};
-    int32_t   hasLight{0};
-    int32_t   _pad2[3]{};
+    float _pad{0.0F};
+    int32_t hasLight{0};
+    std::array<int32_t, 3> _pad2{};
 };
 
 struct ForwardPushConstants {
     glm::mat4 model{1.0F};
-    uint32_t  objectId{0};
-    float     _pad[3]{};
+    uint32_t objectId{0};
+    std::array<float, 3> _pad{};
+};
+
+struct CompPC {
+    static constexpr float kOrangeG = 0.5F;
+    glm::vec3 outlineColor{1.0F, kOrangeG, 0.0F};
+    float _pad{0.0F};
+    glm::vec2 texelSize;
 };
 
 } // namespace
 
 vk::Buffer VulkanBackend::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
-                                        vk::MemoryPropertyFlags props,
-                                        vk::DeviceMemory& outMem) {
+                                       vk::MemoryPropertyFlags props, vk::DeviceMemory& outMem) {
     vk::BufferCreateInfo bufInfo{};
     bufInfo.size = size;
     bufInfo.usage = usage;
@@ -1244,12 +1250,14 @@ bool VulkanBackend::createForwardPipeline() {
             m_cameraUboBuffers[i] =
                 createBuffer(sizeof(CameraUboData), vk::BufferUsageFlagBits::eUniformBuffer,
                              kHostProps, m_cameraUboMemories[i]);
-            m_cameraUboMapped[i] = m_device.mapMemory(m_cameraUboMemories[i], 0, sizeof(CameraUboData));
+            m_cameraUboMapped[i] =
+                m_device.mapMemory(m_cameraUboMemories[i], 0, sizeof(CameraUboData));
 
             m_lightsUboBuffers[i] =
                 createBuffer(sizeof(LightsUboData), vk::BufferUsageFlagBits::eUniformBuffer,
                              kHostProps, m_lightsUboMemories[i]);
-            m_lightsUboMapped[i] = m_device.mapMemory(m_lightsUboMemories[i], 0, sizeof(LightsUboData));
+            m_lightsUboMapped[i] =
+                m_device.mapMemory(m_lightsUboMemories[i], 0, sizeof(LightsUboData));
         }
 
         // Descriptor set layout: binding 0 = CameraUBO, binding 1 = LightsUBO
@@ -1349,7 +1357,7 @@ bool VulkanBackend::createForwardPipeline() {
 
         std::array<vk::VertexInputAttributeDescription, 3> attrDescs{};
         attrDescs[0] = {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, position)};
-        attrDescs[1] = {1, 0, vk::Format::eR32G32Sfloat,    offsetof(Vertex, texCoord)};
+        attrDescs[1] = {1, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, texCoord)};
         attrDescs[2] = {2, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, normal)};
 
         vk::PipelineVertexInputStateCreateInfo vertexInput{};
@@ -1507,10 +1515,10 @@ uint64_t VulkanBackend::uploadMesh(const CPUMesh& mesh) {
 
         // Vertex buffer
         vk::DeviceMemory stagingMem;
-        auto staging = createBuffer(
-            vertSize, vk::BufferUsageFlagBits::eTransferSrc,
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-            stagingMem);
+        auto staging = createBuffer(vertSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                    vk::MemoryPropertyFlagBits::eHostVisible |
+                                        vk::MemoryPropertyFlagBits::eHostCoherent,
+                                    stagingMem);
         auto* mapped = m_device.mapMemory(stagingMem, 0, vertSize);
         std::memcpy(mapped, mesh.vertices.data(), static_cast<size_t>(vertSize));
         m_device.unmapMemory(stagingMem);
@@ -1530,17 +1538,16 @@ uint64_t VulkanBackend::uploadMesh(const CPUMesh& mesh) {
 
         // Index buffer
         vk::DeviceMemory idxStagingMem;
-        auto idxStaging = createBuffer(
-            idxSize, vk::BufferUsageFlagBits::eTransferSrc,
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-            idxStagingMem);
+        auto idxStaging = createBuffer(idxSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                       vk::MemoryPropertyFlagBits::eHostVisible |
+                                           vk::MemoryPropertyFlagBits::eHostCoherent,
+                                       idxStagingMem);
         auto* idxMapped = m_device.mapMemory(idxStagingMem, 0, idxSize);
         std::memcpy(idxMapped, mesh.indices.data(), static_cast<size_t>(idxSize));
         m_device.unmapMemory(idxStagingMem);
 
         gpuMesh.indexBuffer = createBuffer(
-            idxSize,
-            vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst,
+            idxSize, vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst,
             vk::MemoryPropertyFlagBits::eDeviceLocal, gpuMesh.indexMemory);
 
         auto idxCmd = beginOneTimeCommands();
@@ -1669,8 +1676,8 @@ void VulkanBackend::renderScene(const SceneRenderDesc& desc) {
         ForwardPushConstants pc{};
         pc.model = item.modelMatrix;
         pc.objectId = item.objectId;
-        cmd.pushConstants(m_forwardPipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
-                          sizeof(pc), &pc);
+        cmd.pushConstants(m_forwardPipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, sizeof(pc),
+                          &pc);
 
         cmd.bindVertexBuffers(0, gpuMesh.vertexBuffer, vk::DeviceSize{0});
         cmd.bindIndexBuffer(gpuMesh.indexBuffer, 0, vk::IndexType::eUint32);
@@ -1697,48 +1704,43 @@ void VulkanBackend::renderScene(const SceneRenderDesc& desc) {
                 vk::ClearValue maskClear{
                     vk::ClearColorValue{std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.0F}}};
                 vk::RenderPassBeginInfo maskRp{};
-                maskRp.renderPass        = m_maskRenderPass;
-                maskRp.framebuffer       = m_maskFramebuffer;
+                maskRp.renderPass = m_maskRenderPass;
+                maskRp.framebuffer = m_maskFramebuffer;
                 maskRp.renderArea.extent = vk::Extent2D{m_offscreenWidth, m_offscreenHeight};
                 maskRp.setClearValues(maskClear);
                 cmd.beginRenderPass(maskRp, vk::SubpassContents::eInline);
                 cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_maskPipeline);
-                cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                                       m_forwardPipelineLayout, 0,
+                cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_forwardPipelineLayout, 0,
                                        m_forwardDescriptorSets[frameIdx], {});
                 cmd.setViewport(0, viewport);
                 cmd.setScissor(0, scissor);
                 ForwardPushConstants mpc{};
-                mpc.model    = selItem->modelMatrix;
+                mpc.model = selItem->modelMatrix;
                 mpc.objectId = selItem->objectId;
-                cmd.pushConstants(m_forwardPipelineLayout, vk::ShaderStageFlagBits::eVertex,
-                                  0, sizeof(mpc), &mpc);
+                cmd.pushConstants(m_forwardPipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
+                                  sizeof(mpc), &mpc);
                 cmd.bindVertexBuffers(0, gm.vertexBuffer, vk::DeviceSize{0});
                 cmd.bindIndexBuffer(gm.indexBuffer, 0, vk::IndexType::eUint32);
                 cmd.drawIndexed(gm.indexCount, 1, 0, 0, 0);
                 cmd.endRenderPass();
 
                 // 2. Composite pass: edge-detect mask and write orange outline
-                struct CompPC {
-                    glm::vec3 outlineColor{1.0F, 0.5F, 0.0F};
-                    float     _pad{0.0F};
-                    glm::vec2 texelSize;
-                } cpc{};
+                CompPC cpc{};
                 cpc.texelSize = {1.0F / static_cast<float>(m_offscreenWidth),
                                  1.0F / static_cast<float>(m_offscreenHeight)};
 
                 vk::RenderPassBeginInfo compRp{};
-                compRp.renderPass        = m_compRenderPass;
-                compRp.framebuffer       = m_compFramebuffer;
+                compRp.renderPass = m_compRenderPass;
+                compRp.framebuffer = m_compFramebuffer;
                 compRp.renderArea.extent = vk::Extent2D{m_offscreenWidth, m_offscreenHeight};
                 cmd.beginRenderPass(compRp, vk::SubpassContents::eInline);
                 cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_compPipeline);
-                cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                                       m_compPipelineLayout, 0, m_compDescSet, {});
+                cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_compPipelineLayout, 0,
+                                       m_compDescSet, {});
                 cmd.setViewport(0, viewport);
                 cmd.setScissor(0, scissor);
-                cmd.pushConstants(m_compPipelineLayout, vk::ShaderStageFlagBits::eFragment,
-                                  0, sizeof(cpc), &cpc);
+                cmd.pushConstants(m_compPipelineLayout, vk::ShaderStageFlagBits::eFragment, 0,
+                                  sizeof(cpc), &cpc);
                 cmd.draw(3, 1, 0, 0);
                 cmd.endRenderPass();
             }
@@ -1749,12 +1751,15 @@ void VulkanBackend::renderScene(const SceneRenderDesc& desc) {
 // ─── Part 8: GPU Picking ──────────────────────────────────────────────────────
 
 namespace {
+constexpr uint32_t kVertexStride = 32;
+constexpr uint32_t kUVOffset = 12;
+constexpr uint32_t kNormalOffset = 20;
 struct PickVertexInput {
-    vk::VertexInputBindingDescription                 binding{0, 32, vk::VertexInputRate::eVertex};
-    std::array<vk::VertexInputAttributeDescription,3> attrs{{
-        {0, 0, vk::Format::eR32G32B32Sfloat,  0},
-        {1, 0, vk::Format::eR32G32Sfloat,    12},
-        {2, 0, vk::Format::eR32G32B32Sfloat, 20}}};
+    vk::VertexInputBindingDescription binding{0, kVertexStride, vk::VertexInputRate::eVertex};
+    std::array<vk::VertexInputAttributeDescription, 3> attrs{
+        {{0, 0, vk::Format::eR32G32B32Sfloat, 0},
+         {1, 0, vk::Format::eR32G32Sfloat, kUVOffset},
+         {2, 0, vk::Format::eR32G32B32Sfloat, kNormalOffset}}};
 };
 } // namespace
 
@@ -1764,28 +1769,28 @@ bool VulkanBackend::createPickingResources() {
         // R8G8B8A8_UNORM picking image — colour attachment + transfer source for readback
         {
             vk::ImageCreateInfo imgInfo{};
-            imgInfo.imageType   = vk::ImageType::e2D;
-            imgInfo.format      = vk::Format::eR8G8B8A8Unorm;
-            imgInfo.extent      = vk::Extent3D{m_offscreenWidth, m_offscreenHeight, 1};
-            imgInfo.mipLevels   = 1;
+            imgInfo.imageType = vk::ImageType::e2D;
+            imgInfo.format = vk::Format::eR8G8B8A8Unorm;
+            imgInfo.extent = vk::Extent3D{m_offscreenWidth, m_offscreenHeight, 1};
+            imgInfo.mipLevels = 1;
             imgInfo.arrayLayers = 1;
-            imgInfo.samples     = vk::SampleCountFlagBits::e1;
-            imgInfo.tiling      = vk::ImageTiling::eOptimal;
-            imgInfo.usage = vk::ImageUsageFlagBits::eColorAttachment |
-                            vk::ImageUsageFlagBits::eTransferSrc;
-            m_pickImage  = m_device.createImage(imgInfo);
-            auto reqs    = m_device.getImageMemoryRequirements(m_pickImage);
+            imgInfo.samples = vk::SampleCountFlagBits::e1;
+            imgInfo.tiling = vk::ImageTiling::eOptimal;
+            imgInfo.usage =
+                vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc;
+            m_pickImage = m_device.createImage(imgInfo);
+            auto reqs = m_device.getImageMemoryRequirements(m_pickImage);
             vk::MemoryAllocateInfo allocInfo{};
-            allocInfo.allocationSize  = reqs.size;
+            allocInfo.allocationSize = reqs.size;
             allocInfo.memoryTypeIndex =
                 findMemoryType(reqs.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal);
             m_pickMemory = m_device.allocateMemory(allocInfo);
             m_device.bindImageMemory(m_pickImage, m_pickMemory, 0);
 
             vk::ImageViewCreateInfo viewInfo{};
-            viewInfo.image    = m_pickImage;
+            viewInfo.image = m_pickImage;
             viewInfo.viewType = vk::ImageViewType::e2D;
-            viewInfo.format   = vk::Format::eR8G8B8A8Unorm;
+            viewInfo.format = vk::Format::eR8G8B8A8Unorm;
             viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
             viewInfo.subresourceRange.levelCount = 1;
             viewInfo.subresourceRange.layerCount = 1;
@@ -1795,32 +1800,32 @@ bool VulkanBackend::createPickingResources() {
         // Render pass: UNDEFINED → TRANSFER_SRC_OPTIMAL, clear
         {
             vk::AttachmentDescription att{};
-            att.format         = vk::Format::eR8G8B8A8Unorm;
-            att.samples        = vk::SampleCountFlagBits::e1;
-            att.loadOp         = vk::AttachmentLoadOp::eClear;
-            att.storeOp        = vk::AttachmentStoreOp::eStore;
-            att.stencilLoadOp  = vk::AttachmentLoadOp::eDontCare;
+            att.format = vk::Format::eR8G8B8A8Unorm;
+            att.samples = vk::SampleCountFlagBits::e1;
+            att.loadOp = vk::AttachmentLoadOp::eClear;
+            att.storeOp = vk::AttachmentStoreOp::eStore;
+            att.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
             att.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-            att.initialLayout  = vk::ImageLayout::eUndefined;
-            att.finalLayout    = vk::ImageLayout::eTransferSrcOptimal;
+            att.initialLayout = vk::ImageLayout::eUndefined;
+            att.finalLayout = vk::ImageLayout::eTransferSrcOptimal;
 
             vk::AttachmentReference ref{0, vk::ImageLayout::eColorAttachmentOptimal};
-            vk::SubpassDescription  subpass{};
+            vk::SubpassDescription subpass{};
             subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
             subpass.setColorAttachments(ref);
 
             std::array<vk::SubpassDependency, 2> deps{};
-            deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
-            deps[0].dstSubpass    = 0;
-            deps[0].srcStageMask  = vk::PipelineStageFlagBits::eTransfer;
-            deps[0].dstStageMask  = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+            deps[0].dstSubpass = 0;
+            deps[0].srcStageMask = vk::PipelineStageFlagBits::eTransfer;
+            deps[0].dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
             deps[0].srcAccessMask = vk::AccessFlagBits::eTransferRead;
             deps[0].dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
 
-            deps[1].srcSubpass    = 0;
-            deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
-            deps[1].srcStageMask  = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-            deps[1].dstStageMask  = vk::PipelineStageFlagBits::eTransfer;
+            deps[1].srcSubpass = 0;
+            deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+            deps[1].srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            deps[1].dstStageMask = vk::PipelineStageFlagBits::eTransfer;
             deps[1].srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
             deps[1].dstAccessMask = vk::AccessFlagBits::eTransferRead;
 
@@ -1833,7 +1838,7 @@ bool VulkanBackend::createPickingResources() {
             vk::FramebufferCreateInfo fbInfo{};
             fbInfo.renderPass = m_pickRenderPass;
             fbInfo.setAttachments(m_pickImageView);
-            fbInfo.width  = m_offscreenWidth;
+            fbInfo.width = m_offscreenWidth;
             fbInfo.height = m_offscreenHeight;
             fbInfo.layers = 1;
             m_pickFramebuffer = m_device.createFramebuffer(fbInfo);
@@ -1841,10 +1846,10 @@ bool VulkanBackend::createPickingResources() {
 
         // Picking pipeline: picking.vert + picking.frag, reuse m_forwardPipelineLayout
         {
-            auto vertCode = loadSpirvFile(
-                (fs::path(m_exeDir) / "shaders" / "picking.vert.spv").string());
-            auto fragCode = loadSpirvFile(
-                (fs::path(m_exeDir) / "shaders" / "picking.frag.spv").string());
+            auto vertCode =
+                loadSpirvFile((fs::path(m_exeDir) / "shaders" / "picking.vert.spv").string());
+            auto fragCode =
+                loadSpirvFile((fs::path(m_exeDir) / "shaders" / "picking.frag.spv").string());
             auto vertMod = createShaderModule(vertCode);
             auto fragMod = createShaderModule(fragCode);
 
@@ -1864,13 +1869,13 @@ bool VulkanBackend::createPickingResources() {
 
             vk::PipelineViewportStateCreateInfo vpState{};
             vpState.viewportCount = 1;
-            vpState.scissorCount  = 1;
+            vpState.scissorCount = 1;
 
             vk::PipelineRasterizationStateCreateInfo rast{};
             rast.polygonMode = vk::PolygonMode::eFill;
-            rast.cullMode    = vk::CullModeFlagBits::eBack;
-            rast.frontFace   = vk::FrontFace::eCounterClockwise;
-            rast.lineWidth   = 1.0F;
+            rast.cullMode = vk::CullModeFlagBits::eBack;
+            rast.frontFace = vk::FrontFace::eCounterClockwise;
+            rast.lineWidth = 1.0F;
 
             vk::PipelineMultisampleStateCreateInfo ms{};
             ms.rasterizationSamples = vk::SampleCountFlagBits::e1;
@@ -1885,23 +1890,23 @@ bool VulkanBackend::createPickingResources() {
             blend.setAttachments(blendAtt);
 
             std::array<vk::DynamicState, 2> dynStates{vk::DynamicState::eViewport,
-                                                       vk::DynamicState::eScissor};
+                                                      vk::DynamicState::eScissor};
             vk::PipelineDynamicStateCreateInfo dynState{};
             dynState.setDynamicStates(dynStates);
 
             vk::GraphicsPipelineCreateInfo pipeInfo{};
-            pipeInfo.stageCount          = 2;
-            pipeInfo.pStages             = stages.data();
-            pipeInfo.pVertexInputState   = &vi;
+            pipeInfo.stageCount = 2;
+            pipeInfo.pStages = stages.data();
+            pipeInfo.pVertexInputState = &vi;
             pipeInfo.pInputAssemblyState = &ia;
-            pipeInfo.pViewportState      = &vpState;
+            pipeInfo.pViewportState = &vpState;
             pipeInfo.pRasterizationState = &rast;
-            pipeInfo.pMultisampleState   = &ms;
-            pipeInfo.pDepthStencilState  = &ds;
-            pipeInfo.pColorBlendState    = &blend;
-            pipeInfo.pDynamicState       = &dynState;
-            pipeInfo.layout              = m_forwardPipelineLayout;
-            pipeInfo.renderPass          = m_pickRenderPass;
+            pipeInfo.pMultisampleState = &ms;
+            pipeInfo.pDepthStencilState = &ds;
+            pipeInfo.pColorBlendState = &blend;
+            pipeInfo.pDynamicState = &dynState;
+            pipeInfo.layout = m_forwardPipelineLayout;
+            pipeInfo.renderPass = m_pickRenderPass;
             m_pickPipeline = m_device.createGraphicsPipeline(nullptr, pipeInfo).value;
 
             m_device.destroyShaderModule(vertMod);
@@ -1916,19 +1921,18 @@ bool VulkanBackend::createPickingResources() {
             m_pickCmdPool = m_device.createCommandPool(poolInfo);
 
             vk::CommandBufferAllocateInfo allocInfo{};
-            allocInfo.commandPool        = m_pickCmdPool;
-            allocInfo.level              = vk::CommandBufferLevel::ePrimary;
+            allocInfo.commandPool = m_pickCmdPool;
+            allocInfo.level = vk::CommandBufferLevel::ePrimary;
             allocInfo.commandBufferCount = 1;
             m_pickCmdBuffer = m_device.allocateCommandBuffers(allocInfo)[0];
         }
 
         // Host-visible staging buffer: 4 bytes (one RGBA8 pixel)
         {
-            m_pickStagingBuffer = createBuffer(
-                4,
-                vk::BufferUsageFlagBits::eTransferDst,
-                vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-                m_pickStagingMemory);
+            m_pickStagingBuffer = createBuffer(4, vk::BufferUsageFlagBits::eTransferDst,
+                                               vk::MemoryPropertyFlagBits::eHostVisible |
+                                                   vk::MemoryPropertyFlagBits::eHostCoherent,
+                                               m_pickStagingMemory);
             m_pickStagingMapped = m_device.mapMemory(m_pickStagingMemory, 0, 4);
         }
 
@@ -1940,32 +1944,55 @@ bool VulkanBackend::createPickingResources() {
 }
 
 void VulkanBackend::destroyPickingResources() {
-    if (m_pickStagingMapped) {
+    if (m_pickStagingMapped != nullptr) {
         m_device.unmapMemory(m_pickStagingMemory);
         m_pickStagingMapped = nullptr;
     }
-    if (m_pickStagingBuffer)  { m_device.destroyBuffer(m_pickStagingBuffer);  m_pickStagingBuffer  = nullptr; }
-    if (m_pickStagingMemory)  { m_device.freeMemory(m_pickStagingMemory);     m_pickStagingMemory  = nullptr; }
+    if (m_pickStagingBuffer) {
+        m_device.destroyBuffer(m_pickStagingBuffer);
+        m_pickStagingBuffer = nullptr;
+    }
+    if (m_pickStagingMemory) {
+        m_device.freeMemory(m_pickStagingMemory);
+        m_pickStagingMemory = nullptr;
+    }
     if (m_pickCmdPool) {
         m_device.freeCommandBuffers(m_pickCmdPool, m_pickCmdBuffer);
         m_device.destroyCommandPool(m_pickCmdPool);
-        m_pickCmdPool   = nullptr;
+        m_pickCmdPool = nullptr;
         m_pickCmdBuffer = nullptr;
     }
-    if (m_pickPipeline)    { m_device.destroyPipeline(m_pickPipeline);        m_pickPipeline    = nullptr; }
-    if (m_pickFramebuffer) { m_device.destroyFramebuffer(m_pickFramebuffer);  m_pickFramebuffer = nullptr; }
-    if (m_pickRenderPass)  { m_device.destroyRenderPass(m_pickRenderPass);    m_pickRenderPass  = nullptr; }
-    if (m_pickImageView)   { m_device.destroyImageView(m_pickImageView);      m_pickImageView   = nullptr; }
-    if (m_pickImage)       { m_device.destroyImage(m_pickImage);              m_pickImage       = nullptr; }
-    if (m_pickMemory)      { m_device.freeMemory(m_pickMemory);               m_pickMemory      = nullptr; }
+    if (m_pickPipeline) {
+        m_device.destroyPipeline(m_pickPipeline);
+        m_pickPipeline = nullptr;
+    }
+    if (m_pickFramebuffer) {
+        m_device.destroyFramebuffer(m_pickFramebuffer);
+        m_pickFramebuffer = nullptr;
+    }
+    if (m_pickRenderPass) {
+        m_device.destroyRenderPass(m_pickRenderPass);
+        m_pickRenderPass = nullptr;
+    }
+    if (m_pickImageView) {
+        m_device.destroyImageView(m_pickImageView);
+        m_pickImageView = nullptr;
+    }
+    if (m_pickImage) {
+        m_device.destroyImage(m_pickImage);
+        m_pickImage = nullptr;
+    }
+    if (m_pickMemory) {
+        m_device.freeMemory(m_pickMemory);
+        m_pickMemory = nullptr;
+    }
 }
 
 int32_t VulkanBackend::pick(glm::ivec2 pixel) {
     if (!m_initialized || !m_pickPipeline || m_lastDesc.objects.empty()) {
         return 0;
     }
-    if (pixel.x < 0 || pixel.y < 0 ||
-        pixel.x >= static_cast<int32_t>(m_offscreenWidth) ||
+    if (pixel.x < 0 || pixel.y < 0 || pixel.x >= static_cast<int32_t>(m_offscreenWidth) ||
         pixel.y >= static_cast<int32_t>(m_offscreenHeight)) {
         return 0;
     }
@@ -1975,21 +2002,20 @@ int32_t VulkanBackend::pick(glm::ivec2 pixel) {
 
     vk::ClearValue clearValue{vk::ClearColorValue{std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.0F}}};
     vk::RenderPassBeginInfo rpBegin{};
-    rpBegin.renderPass        = m_pickRenderPass;
-    rpBegin.framebuffer       = m_pickFramebuffer;
+    rpBegin.renderPass = m_pickRenderPass;
+    rpBegin.framebuffer = m_pickFramebuffer;
     rpBegin.renderArea.extent = vk::Extent2D{m_offscreenWidth, m_offscreenHeight};
     rpBegin.setClearValues(clearValue);
     m_pickCmdBuffer.beginRenderPass(rpBegin, vk::SubpassContents::eInline);
 
     m_pickCmdBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pickPipeline);
-    m_pickCmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                                       m_forwardPipelineLayout, 0,
+    m_pickCmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_forwardPipelineLayout, 0,
                                        m_forwardDescriptorSets[0], {});
 
     const auto vpW = static_cast<float>(m_offscreenWidth);
     const auto vpH = static_cast<float>(m_offscreenHeight);
     vk::Viewport viewport{0.0F, 0.0F, vpW, vpH, 0.0F, 1.0F};
-    vk::Rect2D   scissor{{0, 0}, {m_offscreenWidth, m_offscreenHeight}};
+    vk::Rect2D scissor{{0, 0}, {m_offscreenWidth, m_offscreenHeight}};
     m_pickCmdBuffer.setViewport(0, viewport);
     m_pickCmdBuffer.setScissor(0, scissor);
 
@@ -2001,10 +2027,10 @@ int32_t VulkanBackend::pick(glm::ivec2 pixel) {
         const auto& gpuMesh = it->second;
 
         ForwardPushConstants pc{};
-        pc.model    = item.modelMatrix;
+        pc.model = item.modelMatrix;
         pc.objectId = item.objectId;
-        m_pickCmdBuffer.pushConstants(m_forwardPipelineLayout,
-                                      vk::ShaderStageFlagBits::eVertex, 0, sizeof(pc), &pc);
+        m_pickCmdBuffer.pushConstants(m_forwardPipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
+                                      sizeof(pc), &pc);
 
         m_pickCmdBuffer.bindVertexBuffers(0, gpuMesh.vertexBuffer, vk::DeviceSize{0});
         m_pickCmdBuffer.bindIndexBuffer(gpuMesh.indexBuffer, 0, vk::IndexType::eUint32);
@@ -2015,13 +2041,13 @@ int32_t VulkanBackend::pick(glm::ivec2 pixel) {
 
     // Copy the single clicked pixel to the staging buffer
     vk::BufferImageCopy region{};
-    region.bufferOffset      = 0;
-    region.bufferRowLength   = 0;
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
     region.bufferImageHeight = 0;
-    region.imageSubresource.aspectMask     = vk::ImageAspectFlagBits::eColor;
-    region.imageSubresource.mipLevel       = 0;
+    region.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+    region.imageSubresource.mipLevel = 0;
     region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount     = 1;
+    region.imageSubresource.layerCount = 1;
     region.imageOffset = vk::Offset3D{pixel.x, pixel.y, 0};
     region.imageExtent = vk::Extent3D{1, 1, 1};
     m_pickCmdBuffer.copyImageToBuffer(m_pickImage, vk::ImageLayout::eTransferSrcOptimal,
@@ -2036,8 +2062,7 @@ int32_t VulkanBackend::pick(glm::ivec2 pixel) {
 
     const auto* rgba = static_cast<const uint8_t*>(m_pickStagingMapped);
     const uint32_t id = (static_cast<uint32_t>(rgba[0]) << 16) |
-                        (static_cast<uint32_t>(rgba[1]) <<  8) |
-                         static_cast<uint32_t>(rgba[2]);
+                        (static_cast<uint32_t>(rgba[1]) << 8) | static_cast<uint32_t>(rgba[2]);
     return static_cast<int32_t>(id);
 }
 
@@ -2049,28 +2074,28 @@ bool VulkanBackend::createOutlineResources() {
         // R8G8B8A8_UNORM mask image (R=1 for selected object pixels)
         {
             vk::ImageCreateInfo imgInfo{};
-            imgInfo.imageType   = vk::ImageType::e2D;
-            imgInfo.format      = vk::Format::eR8G8B8A8Unorm;
-            imgInfo.extent      = vk::Extent3D{m_offscreenWidth, m_offscreenHeight, 1};
-            imgInfo.mipLevels   = 1;
+            imgInfo.imageType = vk::ImageType::e2D;
+            imgInfo.format = vk::Format::eR8G8B8A8Unorm;
+            imgInfo.extent = vk::Extent3D{m_offscreenWidth, m_offscreenHeight, 1};
+            imgInfo.mipLevels = 1;
             imgInfo.arrayLayers = 1;
-            imgInfo.samples     = vk::SampleCountFlagBits::e1;
-            imgInfo.tiling      = vk::ImageTiling::eOptimal;
-            imgInfo.usage = vk::ImageUsageFlagBits::eColorAttachment |
-                            vk::ImageUsageFlagBits::eSampled;
-            m_maskImage  = m_device.createImage(imgInfo);
-            auto reqs    = m_device.getImageMemoryRequirements(m_maskImage);
+            imgInfo.samples = vk::SampleCountFlagBits::e1;
+            imgInfo.tiling = vk::ImageTiling::eOptimal;
+            imgInfo.usage =
+                vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+            m_maskImage = m_device.createImage(imgInfo);
+            auto reqs = m_device.getImageMemoryRequirements(m_maskImage);
             vk::MemoryAllocateInfo allocInfo{};
-            allocInfo.allocationSize  = reqs.size;
+            allocInfo.allocationSize = reqs.size;
             allocInfo.memoryTypeIndex =
                 findMemoryType(reqs.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal);
             m_maskMemory = m_device.allocateMemory(allocInfo);
             m_device.bindImageMemory(m_maskImage, m_maskMemory, 0);
 
             vk::ImageViewCreateInfo viewInfo{};
-            viewInfo.image    = m_maskImage;
+            viewInfo.image = m_maskImage;
             viewInfo.viewType = vk::ImageViewType::e2D;
-            viewInfo.format   = vk::Format::eR8G8B8A8Unorm;
+            viewInfo.format = vk::Format::eR8G8B8A8Unorm;
             viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
             viewInfo.subresourceRange.levelCount = 1;
             viewInfo.subresourceRange.layerCount = 1;
@@ -2079,24 +2104,23 @@ bool VulkanBackend::createOutlineResources() {
             // Transition to SHADER_READ_ONLY for initial sampling
             auto cmd = beginOneTimeCommands();
             vk::ImageMemoryBarrier barrier{};
-            barrier.oldLayout        = vk::ImageLayout::eUndefined;
-            barrier.newLayout        = vk::ImageLayout::eShaderReadOnlyOptimal;
+            barrier.oldLayout = vk::ImageLayout::eUndefined;
+            barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
             barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.image            = m_maskImage;
+            barrier.image = m_maskImage;
             barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
             barrier.subresourceRange.levelCount = 1;
             barrier.subresourceRange.layerCount = 1;
-            barrier.srcAccessMask    = {};
-            barrier.dstAccessMask    = vk::AccessFlagBits::eShaderRead;
+            barrier.srcAccessMask = {};
+            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
             cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
-                                vk::PipelineStageFlagBits::eFragmentShader,
-                                {}, {}, {}, barrier);
+                                vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {}, barrier);
             endOneTimeCommands(cmd);
 
             vk::SamplerCreateInfo samplerInfo{};
-            samplerInfo.magFilter    = vk::Filter::eNearest;
-            samplerInfo.minFilter    = vk::Filter::eNearest;
+            samplerInfo.magFilter = vk::Filter::eNearest;
+            samplerInfo.minFilter = vk::Filter::eNearest;
             samplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
             samplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
             m_maskSampler = m_device.createSampler(samplerInfo);
@@ -2105,34 +2129,34 @@ bool VulkanBackend::createOutlineResources() {
         // Mask render pass: SHADER_READ_ONLY → SHADER_READ_ONLY, clear
         {
             vk::AttachmentDescription att{};
-            att.format         = vk::Format::eR8G8B8A8Unorm;
-            att.samples        = vk::SampleCountFlagBits::e1;
-            att.loadOp         = vk::AttachmentLoadOp::eClear;
-            att.storeOp        = vk::AttachmentStoreOp::eStore;
-            att.stencilLoadOp  = vk::AttachmentLoadOp::eDontCare;
+            att.format = vk::Format::eR8G8B8A8Unorm;
+            att.samples = vk::SampleCountFlagBits::e1;
+            att.loadOp = vk::AttachmentLoadOp::eClear;
+            att.storeOp = vk::AttachmentStoreOp::eStore;
+            att.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
             att.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-            att.initialLayout  = vk::ImageLayout::eShaderReadOnlyOptimal;
-            att.finalLayout    = vk::ImageLayout::eShaderReadOnlyOptimal;
+            att.initialLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+            att.finalLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
             vk::AttachmentReference ref{0, vk::ImageLayout::eColorAttachmentOptimal};
-            vk::SubpassDescription  subpass{};
+            vk::SubpassDescription subpass{};
             subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
             subpass.setColorAttachments(ref);
 
             std::array<vk::SubpassDependency, 2> deps{};
-            deps[0].srcSubpass      = VK_SUBPASS_EXTERNAL;
-            deps[0].dstSubpass      = 0;
-            deps[0].srcStageMask    = vk::PipelineStageFlagBits::eFragmentShader;
-            deps[0].dstStageMask    = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-            deps[0].srcAccessMask   = vk::AccessFlagBits::eShaderRead;
-            deps[0].dstAccessMask   = vk::AccessFlagBits::eColorAttachmentWrite;
+            deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+            deps[0].dstSubpass = 0;
+            deps[0].srcStageMask = vk::PipelineStageFlagBits::eFragmentShader;
+            deps[0].dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            deps[0].srcAccessMask = vk::AccessFlagBits::eShaderRead;
+            deps[0].dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
             deps[0].dependencyFlags = vk::DependencyFlagBits::eByRegion;
-            deps[1].srcSubpass      = 0;
-            deps[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
-            deps[1].srcStageMask    = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-            deps[1].dstStageMask    = vk::PipelineStageFlagBits::eFragmentShader;
-            deps[1].srcAccessMask   = vk::AccessFlagBits::eColorAttachmentWrite;
-            deps[1].dstAccessMask   = vk::AccessFlagBits::eShaderRead;
+            deps[1].srcSubpass = 0;
+            deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+            deps[1].srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            deps[1].dstStageMask = vk::PipelineStageFlagBits::eFragmentShader;
+            deps[1].srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            deps[1].dstAccessMask = vk::AccessFlagBits::eShaderRead;
             deps[1].dependencyFlags = vk::DependencyFlagBits::eByRegion;
 
             vk::RenderPassCreateInfo rpInfo{};
@@ -2144,7 +2168,7 @@ bool VulkanBackend::createOutlineResources() {
             vk::FramebufferCreateInfo fbInfo{};
             fbInfo.renderPass = m_maskRenderPass;
             fbInfo.setAttachments(m_maskImageView);
-            fbInfo.width  = m_offscreenWidth;
+            fbInfo.width = m_offscreenWidth;
             fbInfo.height = m_offscreenHeight;
             fbInfo.layers = 1;
             m_maskFramebuffer = m_device.createFramebuffer(fbInfo);
@@ -2152,10 +2176,10 @@ bool VulkanBackend::createOutlineResources() {
 
         // Mask pipeline: picking.vert + outline_mask.frag, reuse m_forwardPipelineLayout
         {
-            auto vertCode = loadSpirvFile(
-                (fs::path(m_exeDir) / "shaders" / "picking.vert.spv").string());
-            auto fragCode = loadSpirvFile(
-                (fs::path(m_exeDir) / "shaders" / "outline_mask.frag.spv").string());
+            auto vertCode =
+                loadSpirvFile((fs::path(m_exeDir) / "shaders" / "picking.vert.spv").string());
+            auto fragCode =
+                loadSpirvFile((fs::path(m_exeDir) / "shaders" / "outline_mask.frag.spv").string());
             auto vertMod = createShaderModule(vertCode);
             auto fragMod = createShaderModule(fragCode);
 
@@ -2175,13 +2199,13 @@ bool VulkanBackend::createOutlineResources() {
 
             vk::PipelineViewportStateCreateInfo vpState{};
             vpState.viewportCount = 1;
-            vpState.scissorCount  = 1;
+            vpState.scissorCount = 1;
 
             vk::PipelineRasterizationStateCreateInfo rast{};
             rast.polygonMode = vk::PolygonMode::eFill;
-            rast.cullMode    = vk::CullModeFlagBits::eBack;
-            rast.frontFace   = vk::FrontFace::eCounterClockwise;
-            rast.lineWidth   = 1.0F;
+            rast.cullMode = vk::CullModeFlagBits::eBack;
+            rast.frontFace = vk::FrontFace::eCounterClockwise;
+            rast.lineWidth = 1.0F;
 
             vk::PipelineMultisampleStateCreateInfo ms{};
             ms.rasterizationSamples = vk::SampleCountFlagBits::e1;
@@ -2196,23 +2220,23 @@ bool VulkanBackend::createOutlineResources() {
             blend.setAttachments(blendAtt);
 
             std::array<vk::DynamicState, 2> dynStates{vk::DynamicState::eViewport,
-                                                       vk::DynamicState::eScissor};
+                                                      vk::DynamicState::eScissor};
             vk::PipelineDynamicStateCreateInfo dynState{};
             dynState.setDynamicStates(dynStates);
 
             vk::GraphicsPipelineCreateInfo pipeInfo{};
-            pipeInfo.stageCount          = 2;
-            pipeInfo.pStages             = stages.data();
-            pipeInfo.pVertexInputState   = &vi;
+            pipeInfo.stageCount = 2;
+            pipeInfo.pStages = stages.data();
+            pipeInfo.pVertexInputState = &vi;
             pipeInfo.pInputAssemblyState = &ia;
-            pipeInfo.pViewportState      = &vpState;
+            pipeInfo.pViewportState = &vpState;
             pipeInfo.pRasterizationState = &rast;
-            pipeInfo.pMultisampleState   = &ms;
-            pipeInfo.pDepthStencilState  = &ds;
-            pipeInfo.pColorBlendState    = &blend;
-            pipeInfo.pDynamicState       = &dynState;
-            pipeInfo.layout              = m_forwardPipelineLayout;
-            pipeInfo.renderPass          = m_maskRenderPass;
+            pipeInfo.pMultisampleState = &ms;
+            pipeInfo.pDepthStencilState = &ds;
+            pipeInfo.pColorBlendState = &blend;
+            pipeInfo.pDynamicState = &dynState;
+            pipeInfo.layout = m_forwardPipelineLayout;
+            pipeInfo.renderPass = m_maskRenderPass;
             m_maskPipeline = m_device.createGraphicsPipeline(nullptr, pipeInfo).value;
 
             m_device.destroyShaderModule(vertMod);
@@ -2222,19 +2246,18 @@ bool VulkanBackend::createOutlineResources() {
         // Composite descriptor layout: binding 0 = combined image sampler (mask)
         {
             vk::DescriptorSetLayoutBinding b{};
-            b.binding         = 0;
-            b.descriptorType  = vk::DescriptorType::eCombinedImageSampler;
+            b.binding = 0;
+            b.descriptorType = vk::DescriptorType::eCombinedImageSampler;
             b.descriptorCount = 1;
-            b.stageFlags      = vk::ShaderStageFlagBits::eFragment;
+            b.stageFlags = vk::ShaderStageFlagBits::eFragment;
             vk::DescriptorSetLayoutCreateInfo dslInfo{};
             dslInfo.setBindings(b);
             m_compDescLayout = m_device.createDescriptorSetLayout(dslInfo);
 
-            // Push constant: {vec3 outlineColor, float _pad, vec2 texelSize} = 24 bytes
             vk::PushConstantRange pcRange{};
             pcRange.stageFlags = vk::ShaderStageFlagBits::eFragment;
-            pcRange.offset     = 0;
-            pcRange.size       = 24;
+            pcRange.offset = 0;
+            pcRange.size = sizeof(CompPC);
             vk::PipelineLayoutCreateInfo layoutInfo{};
             layoutInfo.setSetLayouts(m_compDescLayout);
             layoutInfo.setPushConstantRanges(pcRange);
@@ -2244,41 +2267,39 @@ bool VulkanBackend::createOutlineResources() {
         // Composite render pass: writes to offscreen image with LOAD op
         {
             vk::AttachmentDescription att{};
-            att.format         = m_swapchainFormat;
-            att.samples        = vk::SampleCountFlagBits::e1;
-            att.loadOp         = vk::AttachmentLoadOp::eLoad;
-            att.storeOp        = vk::AttachmentStoreOp::eStore;
-            att.stencilLoadOp  = vk::AttachmentLoadOp::eDontCare;
+            att.format = m_swapchainFormat;
+            att.samples = vk::SampleCountFlagBits::e1;
+            att.loadOp = vk::AttachmentLoadOp::eLoad;
+            att.storeOp = vk::AttachmentStoreOp::eStore;
+            att.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
             att.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-            att.initialLayout  = vk::ImageLayout::eShaderReadOnlyOptimal;
-            att.finalLayout    = vk::ImageLayout::eShaderReadOnlyOptimal;
+            att.initialLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+            att.finalLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
             vk::AttachmentReference ref{0, vk::ImageLayout::eColorAttachmentOptimal};
-            vk::SubpassDescription  subpass{};
+            vk::SubpassDescription subpass{};
             subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
             subpass.setColorAttachments(ref);
 
             std::array<vk::SubpassDependency, 2> deps{};
-            deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
-            deps[0].dstSubpass    = 0;
-            deps[0].srcStageMask  =
-                vk::PipelineStageFlagBits::eColorAttachmentOutput |
-                vk::PipelineStageFlagBits::eFragmentShader;
-            deps[0].dstStageMask  =
-                vk::PipelineStageFlagBits::eColorAttachmentOutput |
-                vk::PipelineStageFlagBits::eFragmentShader;
-            deps[0].srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite |
-                                    vk::AccessFlagBits::eShaderRead;
+            deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+            deps[0].dstSubpass = 0;
+            deps[0].srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput |
+                                   vk::PipelineStageFlagBits::eFragmentShader;
+            deps[0].dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput |
+                                   vk::PipelineStageFlagBits::eFragmentShader;
+            deps[0].srcAccessMask =
+                vk::AccessFlagBits::eColorAttachmentWrite | vk::AccessFlagBits::eShaderRead;
             deps[0].dstAccessMask = vk::AccessFlagBits::eColorAttachmentRead |
                                     vk::AccessFlagBits::eColorAttachmentWrite |
                                     vk::AccessFlagBits::eShaderRead;
             deps[0].dependencyFlags = vk::DependencyFlagBits::eByRegion;
-            deps[1].srcSubpass      = 0;
-            deps[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
-            deps[1].srcStageMask    = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-            deps[1].dstStageMask    = vk::PipelineStageFlagBits::eFragmentShader;
-            deps[1].srcAccessMask   = vk::AccessFlagBits::eColorAttachmentWrite;
-            deps[1].dstAccessMask   = vk::AccessFlagBits::eShaderRead;
+            deps[1].srcSubpass = 0;
+            deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+            deps[1].srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            deps[1].dstStageMask = vk::PipelineStageFlagBits::eFragmentShader;
+            deps[1].srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            deps[1].dstAccessMask = vk::AccessFlagBits::eShaderRead;
             deps[1].dependencyFlags = vk::DependencyFlagBits::eByRegion;
 
             vk::RenderPassCreateInfo rpInfo{};
@@ -2290,7 +2311,7 @@ bool VulkanBackend::createOutlineResources() {
             vk::FramebufferCreateInfo fbInfo{};
             fbInfo.renderPass = m_compRenderPass;
             fbInfo.setAttachments(m_offscreenImageView);
-            fbInfo.width  = m_offscreenWidth;
+            fbInfo.width = m_offscreenWidth;
             fbInfo.height = m_offscreenHeight;
             fbInfo.layers = 1;
             m_compFramebuffer = m_device.createFramebuffer(fbInfo);
@@ -2298,10 +2319,10 @@ bool VulkanBackend::createOutlineResources() {
 
         // Composite pipeline: outline_comp.vert + outline_comp.frag
         {
-            auto vertCode = loadSpirvFile(
-                (fs::path(m_exeDir) / "shaders" / "outline_comp.vert.spv").string());
-            auto fragCode = loadSpirvFile(
-                (fs::path(m_exeDir) / "shaders" / "outline_comp.frag.spv").string());
+            auto vertCode =
+                loadSpirvFile((fs::path(m_exeDir) / "shaders" / "outline_comp.vert.spv").string());
+            auto fragCode =
+                loadSpirvFile((fs::path(m_exeDir) / "shaders" / "outline_comp.frag.spv").string());
             auto vertMod = createShaderModule(vertCode);
             auto fragMod = createShaderModule(fragCode);
 
@@ -2311,20 +2332,20 @@ bool VulkanBackend::createOutlineResources() {
             stages[1] = {vk::PipelineShaderStageCreateFlags{}, vk::ShaderStageFlagBits::eFragment,
                          fragMod, "main"};
 
-            vk::PipelineVertexInputStateCreateInfo vi{};  // no vertex input
+            vk::PipelineVertexInputStateCreateInfo vi{}; // no vertex input
 
             vk::PipelineInputAssemblyStateCreateInfo ia{};
             ia.topology = vk::PrimitiveTopology::eTriangleList;
 
             vk::PipelineViewportStateCreateInfo vpState{};
             vpState.viewportCount = 1;
-            vpState.scissorCount  = 1;
+            vpState.scissorCount = 1;
 
             vk::PipelineRasterizationStateCreateInfo rast{};
             rast.polygonMode = vk::PolygonMode::eFill;
-            rast.cullMode    = vk::CullModeFlagBits::eNone;
-            rast.frontFace   = vk::FrontFace::eCounterClockwise;
-            rast.lineWidth   = 1.0F;
+            rast.cullMode = vk::CullModeFlagBits::eNone;
+            rast.frontFace = vk::FrontFace::eCounterClockwise;
+            rast.lineWidth = 1.0F;
 
             vk::PipelineMultisampleStateCreateInfo ms{};
             ms.rasterizationSamples = vk::SampleCountFlagBits::e1;
@@ -2339,23 +2360,23 @@ bool VulkanBackend::createOutlineResources() {
             blend.setAttachments(blendAtt);
 
             std::array<vk::DynamicState, 2> dynStates{vk::DynamicState::eViewport,
-                                                       vk::DynamicState::eScissor};
+                                                      vk::DynamicState::eScissor};
             vk::PipelineDynamicStateCreateInfo dynState{};
             dynState.setDynamicStates(dynStates);
 
             vk::GraphicsPipelineCreateInfo pipeInfo{};
-            pipeInfo.stageCount          = 2;
-            pipeInfo.pStages             = stages.data();
-            pipeInfo.pVertexInputState   = &vi;
+            pipeInfo.stageCount = 2;
+            pipeInfo.pStages = stages.data();
+            pipeInfo.pVertexInputState = &vi;
             pipeInfo.pInputAssemblyState = &ia;
-            pipeInfo.pViewportState      = &vpState;
+            pipeInfo.pViewportState = &vpState;
             pipeInfo.pRasterizationState = &rast;
-            pipeInfo.pMultisampleState   = &ms;
-            pipeInfo.pDepthStencilState  = &ds;
-            pipeInfo.pColorBlendState    = &blend;
-            pipeInfo.pDynamicState       = &dynState;
-            pipeInfo.layout              = m_compPipelineLayout;
-            pipeInfo.renderPass          = m_compRenderPass;
+            pipeInfo.pMultisampleState = &ms;
+            pipeInfo.pDepthStencilState = &ds;
+            pipeInfo.pColorBlendState = &blend;
+            pipeInfo.pDynamicState = &dynState;
+            pipeInfo.layout = m_compPipelineLayout;
+            pipeInfo.renderPass = m_compRenderPass;
             m_compPipeline = m_device.createGraphicsPipeline(nullptr, pipeInfo).value;
 
             m_device.destroyShaderModule(vertMod);
@@ -2376,13 +2397,13 @@ bool VulkanBackend::createOutlineResources() {
             m_compDescSet = m_device.allocateDescriptorSets(allocInfo)[0];
 
             vk::DescriptorImageInfo imgInfo{};
-            imgInfo.sampler     = m_maskSampler;
-            imgInfo.imageView   = m_maskImageView;
+            imgInfo.sampler = m_maskSampler;
+            imgInfo.imageView = m_maskImageView;
             imgInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
             vk::WriteDescriptorSet write{};
-            write.dstSet          = m_compDescSet;
-            write.dstBinding      = 0;
-            write.descriptorType  = vk::DescriptorType::eCombinedImageSampler;
+            write.dstSet = m_compDescSet;
+            write.dstBinding = 0;
+            write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
             write.descriptorCount = 1;
             write.setImageInfo(imgInfo);
             m_device.updateDescriptorSets(write, {});
@@ -2396,19 +2417,58 @@ bool VulkanBackend::createOutlineResources() {
 }
 
 void VulkanBackend::destroyOutlineResources() {
-    if (m_compDescPool)      { m_device.destroyDescriptorPool(m_compDescPool);       m_compDescPool      = nullptr; }
-    if (m_compDescLayout)    { m_device.destroyDescriptorSetLayout(m_compDescLayout);m_compDescLayout    = nullptr; }
-    if (m_compPipeline)      { m_device.destroyPipeline(m_compPipeline);             m_compPipeline      = nullptr; }
-    if (m_compPipelineLayout){ m_device.destroyPipelineLayout(m_compPipelineLayout); m_compPipelineLayout= nullptr; }
-    if (m_compFramebuffer)   { m_device.destroyFramebuffer(m_compFramebuffer);       m_compFramebuffer   = nullptr; }
-    if (m_compRenderPass)    { m_device.destroyRenderPass(m_compRenderPass);         m_compRenderPass    = nullptr; }
-    if (m_maskPipeline)      { m_device.destroyPipeline(m_maskPipeline);             m_maskPipeline      = nullptr; }
-    if (m_maskFramebuffer)   { m_device.destroyFramebuffer(m_maskFramebuffer);       m_maskFramebuffer   = nullptr; }
-    if (m_maskRenderPass)    { m_device.destroyRenderPass(m_maskRenderPass);         m_maskRenderPass    = nullptr; }
-    if (m_maskSampler)       { m_device.destroySampler(m_maskSampler);               m_maskSampler       = nullptr; }
-    if (m_maskImageView)     { m_device.destroyImageView(m_maskImageView);           m_maskImageView     = nullptr; }
-    if (m_maskImage)         { m_device.destroyImage(m_maskImage);                   m_maskImage         = nullptr; }
-    if (m_maskMemory)        { m_device.freeMemory(m_maskMemory);                    m_maskMemory        = nullptr; }
+    if (m_compDescPool) {
+        m_device.destroyDescriptorPool(m_compDescPool);
+        m_compDescPool = nullptr;
+    }
+    if (m_compDescLayout) {
+        m_device.destroyDescriptorSetLayout(m_compDescLayout);
+        m_compDescLayout = nullptr;
+    }
+    if (m_compPipeline) {
+        m_device.destroyPipeline(m_compPipeline);
+        m_compPipeline = nullptr;
+    }
+    if (m_compPipelineLayout) {
+        m_device.destroyPipelineLayout(m_compPipelineLayout);
+        m_compPipelineLayout = nullptr;
+    }
+    if (m_compFramebuffer) {
+        m_device.destroyFramebuffer(m_compFramebuffer);
+        m_compFramebuffer = nullptr;
+    }
+    if (m_compRenderPass) {
+        m_device.destroyRenderPass(m_compRenderPass);
+        m_compRenderPass = nullptr;
+    }
+    if (m_maskPipeline) {
+        m_device.destroyPipeline(m_maskPipeline);
+        m_maskPipeline = nullptr;
+    }
+    if (m_maskFramebuffer) {
+        m_device.destroyFramebuffer(m_maskFramebuffer);
+        m_maskFramebuffer = nullptr;
+    }
+    if (m_maskRenderPass) {
+        m_device.destroyRenderPass(m_maskRenderPass);
+        m_maskRenderPass = nullptr;
+    }
+    if (m_maskSampler) {
+        m_device.destroySampler(m_maskSampler);
+        m_maskSampler = nullptr;
+    }
+    if (m_maskImageView) {
+        m_device.destroyImageView(m_maskImageView);
+        m_maskImageView = nullptr;
+    }
+    if (m_maskImage) {
+        m_device.destroyImage(m_maskImage);
+        m_maskImage = nullptr;
+    }
+    if (m_maskMemory) {
+        m_device.freeMemory(m_maskMemory);
+        m_maskMemory = nullptr;
+    }
 }
 
 // ─── Part 10: Factory ─────────────────────────────────────────────────────────
