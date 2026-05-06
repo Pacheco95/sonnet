@@ -12,5 +12,5 @@ Checks: >-
   -readability-convert-member-functions-to-static,
   -readability-magic-numbers
 WarningsAsErrors: "*"
-HeaderFilterRegex: "^((?!/_deps/|/vendor/).)*$"
+HeaderFilterRegex: "^((?!/_deps/|/vendor/|/[^/]*build[^/]*/).)*$"
 FormatStyle: file

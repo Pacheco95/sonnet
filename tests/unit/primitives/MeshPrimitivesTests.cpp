@@ -3,6 +3,7 @@
 
 #include <sonnet/primitives/MeshPrimitives.hpp>
 
+#include <algorithm>
 #include <glm/gtc/epsilon.hpp>
 
 static constexpr float kEps = 1e-4F;
@@ -11,12 +12,7 @@ static bool isUnitLength(glm::vec3 v) { return std::abs(glm::length(v) - 1.0F) <
 
 static bool allIndicesValid(const sonnet::renderer::CPUMesh& mesh) {
     const auto vcount = static_cast<uint32_t>(mesh.vertices.size());
-    for (uint32_t idx : mesh.indices) {
-        if (idx >= vcount) {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(mesh.indices, [vcount](uint32_t idx) { return idx < vcount; });
 }
 
 TEST_CASE("MeshPrimitives_MakeBox_VertexCount") {
@@ -58,11 +54,10 @@ TEST_CASE("MeshPrimitives_MakePlane_FourVertices") {
     auto mesh = sonnet::primitives::makePlane({2.0F, 2.0F});
     REQUIRE(mesh.vertices.size() == 4);
     REQUIRE(mesh.indices.size() == 6);
-    for (const auto& v : mesh.vertices) {
-        REQUIRE(std::abs(v.normal.x) < kEps);
-        REQUIRE(std::abs(v.normal.y - 1.0F) < kEps);
-        REQUIRE(std::abs(v.normal.z) < kEps);
-    }
+    REQUIRE(std::ranges::all_of(mesh.vertices, [](const auto& v) {
+        return std::abs(v.normal.x) < kEps && std::abs(v.normal.y - 1.0F) < kEps &&
+               std::abs(v.normal.z) < kEps;
+    }));
 }
 
 TEST_CASE("MeshPrimitives_MakeCapsule_ValidIndices") {
