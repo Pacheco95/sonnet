@@ -115,7 +115,7 @@ bool ViewportPanel::handleGizmoButtonHitTest(ImVec2 contentMin) {
     constexpr float kPad = 4.0F;
     const std::array<GizmoMode, 3> modes{GizmoMode::Translate, GizmoMode::Rotate, GizmoMode::Scale};
     for (int i = 0; i < 3; ++i) {
-        const ImVec2 bMin = {contentMin.x + kPad + static_cast<float>(i) * (kBtnSize + kPad),
+        const ImVec2 bMin = {contentMin.x + kPad + (static_cast<float>(i) * (kBtnSize + kPad)),
                              contentMin.y + kPad};
         const ImVec2 bMax = {bMin.x + kBtnSize, bMin.y + kBtnSize};
         const ImVec2 mouse = ImGui::GetMousePos();
@@ -172,7 +172,7 @@ void ViewportPanel::updateDragTranslateScale(ImVec2 contentMin, ImVec2 size, con
                 objPos + kAxes[static_cast<std::size_t>(i)] * gScale, vp, contentMin, size);
             float dx = mouse.x - handleScreen.x;
             float dy = mouse.y - handleScreen.y;
-            if (dx * dx + dy * dy <= kGizmoHitRadiusSq) {
+            if ((dx * dx) + (dy * dy) <= kGizmoHitRadiusSq) {
                 const glm::vec3 rayDir =
                     mouseRay(mouse, contentMin, size, vpInv, m_camera.position());
                 m_drag.active = true;
@@ -264,7 +264,7 @@ void ViewportPanel::drawGizmoModeButtons(ImVec2 contentMin) const {
     const std::array<const char*, 3> labels{"T", "R", "S"};
     const std::array<GizmoMode, 3> modes{GizmoMode::Translate, GizmoMode::Rotate, GizmoMode::Scale};
     for (int i = 0; i < 3; ++i) {
-        const ImVec2 bMin = {btnOrigin.x + static_cast<float>(i) * (kBtnSize + kPad), btnOrigin.y};
+        const ImVec2 bMin = {btnOrigin.x + (static_cast<float>(i) * (kBtnSize + kPad)), btnOrigin.y};
         const ImVec2 bMax = {bMin.x + kBtnSize, bMin.y + kBtnSize};
         const bool active = (m_gizmoMode == modes[static_cast<std::size_t>(i)]);
         const ImU32 bgCol = active ? IM_COL32(80, 160, 255, 220) : IM_COL32(40, 40, 40, 160);
@@ -354,7 +354,7 @@ void ViewportPanel::draw() {
             const ImVec2 mouse = ImGui::GetMousePos();
             float dx = mouse.x - screen.x;
             float dy = mouse.y - screen.y;
-            if (dx * dx + dy * dy <= kBillHitRadius * kBillHitRadius) {
+            if ((dx * dx) + (dy * dy) <= (kBillHitRadius * kBillHitRadius)) {
                 m_sceneCtx.selectObject(lightId);
                 clickHandled = true;
             }
@@ -508,9 +508,9 @@ void ViewportPanel::drawLightBillboard(ImVec2 panelMin, ImVec2 size, const glm::
     dl->AddCircle(screen, kRadius, col, kSunCircleSegs, kSunSpokeThick);
     for (int i = 0; i < kSpokes; ++i) {
         float angle = (static_cast<float>(i) / static_cast<float>(kSpokes)) * kTwoPi;
-        ImVec2 inner{screen.x + kRadius * std::cos(angle), screen.y + kRadius * std::sin(angle)};
-        ImVec2 outer{screen.x + kSpokeLen * std::cos(angle),
-                     screen.y + kSpokeLen * std::sin(angle)};
+        ImVec2 inner{screen.x + (kRadius * std::cos(angle)), screen.y + (kRadius * std::sin(angle))};
+        ImVec2 outer{screen.x + (kSpokeLen * std::cos(angle)),
+                     screen.y + (kSpokeLen * std::sin(angle))};
         dl->AddLine(inner, outer, col, kSunSpokeThick);
     }
 
@@ -521,15 +521,15 @@ void ViewportPanel::drawLightBillboard(ImVec2 panelMin, ImVec2 size, const glm::
         dl->AddLine(screen, arrowEnd, kArrowCol, kArrowThick);
         float dx = arrowEnd.x - screen.x;
         float dy = arrowEnd.y - screen.y;
-        float len = std::sqrt(dx * dx + dy * dy);
+        float len = std::sqrt((dx * dx) + (dy * dy));
         if (len > 1.0F) {
             dx /= len;
             dy /= len;
             ImVec2 perp{-dy, dx};
-            ImVec2 b1{arrowEnd.x - dx * kArrowHeadLen + perp.x * kArrowHeadHalfW,
-                      arrowEnd.y - dy * kArrowHeadLen + perp.y * kArrowHeadHalfW};
-            ImVec2 b2{arrowEnd.x - dx * kArrowHeadLen - perp.x * kArrowHeadHalfW,
-                      arrowEnd.y - dy * kArrowHeadLen - perp.y * kArrowHeadHalfW};
+            ImVec2 b1{arrowEnd.x - (dx * kArrowHeadLen) + (perp.x * kArrowHeadHalfW),
+                      arrowEnd.y - (dy * kArrowHeadLen) + (perp.y * kArrowHeadHalfW)};
+            ImVec2 b2{arrowEnd.x - (dx * kArrowHeadLen) - (perp.x * kArrowHeadHalfW),
+                      arrowEnd.y - (dy * kArrowHeadLen) - (perp.y * kArrowHeadHalfW)};
             dl->AddTriangleFilled(arrowEnd, b1, b2, kArrowCol);
         }
     }
@@ -538,7 +538,7 @@ void ViewportPanel::drawLightBillboard(ImVec2 panelMin, ImVec2 size, const glm::
         const ImVec2 mouse = ImGui::GetMousePos();
         float dx = mouse.x - screen.x;
         float dy = mouse.y - screen.y;
-        if (dx * dx + dy * dy <= kSpokeLen * kSpokeLen) {
+        if ((dx * dx) + (dy * dy) <= (kSpokeLen * kSpokeLen)) {
             m_sceneCtx.selectObject(lightId);
             clickHandled = true;
         }
