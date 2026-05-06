@@ -81,9 +81,10 @@ ImVec2 ViewportPanel::worldToScreen(const glm::vec3& world, const glm::mat4& vp,
             panelMin.y + (((ndcY * kNdcHalf) + kNdcHalf) * panelSize.y)};
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 glm::vec3 ViewportPanel::mouseRay(ImVec2 mouse, ImVec2 panelMin, ImVec2 panelSize,
                                   const glm::mat4& vpInv, const glm::vec3& camPos) {
+    // NOLINTEND(bugprone-easily-swappable-parameters)
     float ndcX = (((mouse.x - panelMin.x) / panelSize.x) * kNdcScale) - 1.0F;
     float ndcY = (((mouse.y - panelMin.y) / panelSize.y) * kNdcScale) - 1.0F;
     glm::vec4 worldPos = vpInv * glm::vec4(ndcX, ndcY, kNdcHalf, 1.0F);
