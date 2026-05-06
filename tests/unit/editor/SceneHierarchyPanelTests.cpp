@@ -33,6 +33,7 @@ private:
 
 } // namespace
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static bool vec3Near(glm::vec3 a, glm::vec3 b, float eps = 1e-4F) {
     return glm::all(glm::epsilonEqual(a, b, eps));
 }
@@ -104,6 +105,7 @@ TEST_CASE("SceneHierarchy_CircularParent_HierarchyUnchanged") {
     REQUIRE(childObj->transform.getParent() == &parentObj->transform);
 
     // Attempting to make parent a child of child is circular — must be rejected
+    // NOLINTNEXTLINE(readability-suspicious-call-argument)
     ctx.setParent(parentId, childId);
     REQUIRE(parentObj->transform.getParent() == nullptr);              // unchanged
     REQUIRE(childObj->transform.getParent() == &parentObj->transform); // unchanged

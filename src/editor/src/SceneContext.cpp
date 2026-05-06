@@ -2,12 +2,14 @@
 
 #include <sonnet/primitives/MeshPrimitives.hpp>
 
+#include <algorithm>
 #include <glm/gtc/quaternion.hpp>
 
 namespace sonnet::editor {
 
 SceneContext::SceneContext(renderer::IRendererBackend& backend) : m_backend(backend) {}
 
+// NOLINTNEXTLINE(modernize-use-equals-default)
 SceneContext::~SceneContext() {
     for (auto& [id, handle] : m_meshHandles) {
         if (handle != 0) {
@@ -32,6 +34,7 @@ static renderer::CPUMesh makeMeshForType(scene::PrimitiveType type) {
     return {};
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void SceneContext::addPrimitive(scene::PrimitiveType type, const std::string& name) {
     auto cpuMesh = makeMeshForType(type);
     const uint64_t meshHandle = m_backend.uploadMesh(cpuMesh);
@@ -81,12 +84,8 @@ void SceneContext::selectObject(uint32_t id) { m_selectedId = id; }
 void SceneContext::deselectAll() { m_selectedId = 0; }
 
 bool SceneContext::hasDirectionalLight() const {
-    for (const auto& [id, ptr] : m_objects) {
-        if (ptr->light.has_value()) {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of(m_objects,
+                               [](const auto& pair) { return pair.second->light.has_value(); });
 }
 
 uint32_t SceneContext::directionalLightId() const {
@@ -98,15 +97,17 @@ uint32_t SceneContext::directionalLightId() const {
     return 0;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters,readability-make-member-function-const)
 void SceneContext::setParent(uint32_t childId, uint32_t parentId) {
     auto* child = findById(childId);
     auto* parent = findById(parentId);
     if (child == nullptr) {
         return;
     }
-    child->transform.setParent(parent ? &parent->transform : nullptr, true);
+    child->transform.setParent(parent != nullptr ? &parent->transform : nullptr, true);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 renderer::SceneRenderDesc SceneContext::buildRenderDesc(const glm::mat4& view,
                                                         const glm::mat4& proj,
                                                         const glm::vec3& cameraPos,

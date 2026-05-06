@@ -4,6 +4,7 @@
 
 namespace sonnet::scene {
 
+// NOLINTNEXTLINE(readability-non-const-parameter)
 GameObject& Scene::createObject(const std::string& name, GameObject* parent) {
     auto obj = std::make_unique<GameObject>(name);
     if (parent != nullptr) {
@@ -13,6 +14,7 @@ GameObject& Scene::createObject(const std::string& name, GameObject* parent) {
     return *m_objects.back();
 }
 
+// NOLINTNEXTLINE(readability-non-const-parameter)
 void Scene::destroyObject(GameObject* obj) {
     // Detach from parent so the hierarchy stays consistent.
     obj->transform.setParent(nullptr, false);

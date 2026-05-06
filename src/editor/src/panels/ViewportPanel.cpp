@@ -68,6 +68,7 @@ const char* ViewportPanel::title() const { return "Viewport"; }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 ImVec2 ViewportPanel::worldToScreen(const glm::vec3& world, const glm::mat4& vp, ImVec2 panelMin,
                                     ImVec2 panelSize) {
     glm::vec4 clip = vp * glm::vec4(world, 1.0F);
@@ -76,19 +77,21 @@ ImVec2 ViewportPanel::worldToScreen(const glm::vec3& world, const glm::mat4& vp,
     }
     float ndcX = clip.x / clip.w;
     float ndcY = clip.y / clip.w;
-    return {panelMin.x + ((ndcX * kNdcHalf) + kNdcHalf) * panelSize.x,
-            panelMin.y + ((ndcY * kNdcHalf) + kNdcHalf) * panelSize.y};
+    return {panelMin.x + (((ndcX * kNdcHalf) + kNdcHalf) * panelSize.x),
+            panelMin.y + (((ndcY * kNdcHalf) + kNdcHalf) * panelSize.y)};
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 glm::vec3 ViewportPanel::mouseRay(ImVec2 mouse, ImVec2 panelMin, ImVec2 panelSize,
                                   const glm::mat4& vpInv, const glm::vec3& camPos) {
-    float ndcX = ((mouse.x - panelMin.x) / panelSize.x) * kNdcScale - 1.0F;
-    float ndcY = ((mouse.y - panelMin.y) / panelSize.y) * kNdcScale - 1.0F;
+    float ndcX = (((mouse.x - panelMin.x) / panelSize.x) * kNdcScale) - 1.0F;
+    float ndcY = (((mouse.y - panelMin.y) / panelSize.y) * kNdcScale) - 1.0F;
     glm::vec4 worldPos = vpInv * glm::vec4(ndcX, ndcY, kNdcHalf, 1.0F);
     worldPos /= worldPos.w;
     return glm::normalize(glm::vec3(worldPos) - camPos);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 float ViewportPanel::axisRayParam(const glm::vec3& P, const glm::vec3& A, const glm::vec3& C,
                                   const glm::vec3& D) {
     // Closest point on axis ray (P+s*A) to camera ray (C+t*D); returns s.
@@ -124,6 +127,7 @@ bool ViewportPanel::handleGizmoButtonHitTest(ImVec2 contentMin) {
     return false;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void ViewportPanel::updateDragTranslateScale(ImVec2 contentMin, ImVec2 size, const glm::mat4& vp,
                                              bool& clickHandled, const glm::mat4& vpInv) {
     const uint32_t selId = m_sceneCtx.selectedId();
@@ -184,6 +188,7 @@ void ViewportPanel::updateDragTranslateScale(ImVec2 contentMin, ImVec2 size, con
     }
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void ViewportPanel::updateDragRotate(ImVec2 contentMin, ImVec2 size, const glm::mat4& vpInv,
                                      bool& clickHandled) {
     const uint32_t selId = m_sceneCtx.selectedId();

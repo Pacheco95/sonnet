@@ -32,6 +32,7 @@ private:
 
 } // namespace
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static bool vec3Near(glm::vec3 a, glm::vec3 b, float eps = 1e-3F) {
     return glm::all(glm::epsilonEqual(a, b, eps));
 }

@@ -11,6 +11,7 @@
 
 static constexpr float kEps = 1e-4F;
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static bool vec3Near(glm::vec3 a, glm::vec3 b, float eps = kEps) {
     return glm::all(glm::epsilonEqual(a, b, eps));
 }

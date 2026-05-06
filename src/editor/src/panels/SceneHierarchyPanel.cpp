@@ -8,7 +8,7 @@ SceneHierarchyPanel::SceneHierarchyPanel(SceneContext& sceneCtx) : m_sceneCtx(sc
 
 const char* SceneHierarchyPanel::title() const { return "Scene Hierarchy"; }
 
-static void drawNodeContextMenu(SceneContext& ctx, scene::GameObject* obj, uint32_t id) {
+static void drawNodeContextMenu(SceneContext& ctx, const scene::GameObject* obj, uint32_t id) {
     if (ImGui::BeginPopupContextItem()) {
         if (obj->transform.getParent() != nullptr) {
             if (ImGui::MenuItem("Unparent")) {
