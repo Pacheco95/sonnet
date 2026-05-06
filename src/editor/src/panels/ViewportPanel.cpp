@@ -264,7 +264,8 @@ void ViewportPanel::drawGizmoModeButtons(ImVec2 contentMin) const {
     const std::array<const char*, 3> labels{"T", "R", "S"};
     const std::array<GizmoMode, 3> modes{GizmoMode::Translate, GizmoMode::Rotate, GizmoMode::Scale};
     for (int i = 0; i < 3; ++i) {
-        const ImVec2 bMin = {btnOrigin.x + (static_cast<float>(i) * (kBtnSize + kPad)), btnOrigin.y};
+        const ImVec2 bMin = {btnOrigin.x + (static_cast<float>(i) * (kBtnSize + kPad)),
+                             btnOrigin.y};
         const ImVec2 bMax = {bMin.x + kBtnSize, bMin.y + kBtnSize};
         const bool active = (m_gizmoMode == modes[static_cast<std::size_t>(i)]);
         const ImU32 bgCol = active ? IM_COL32(80, 160, 255, 220) : IM_COL32(40, 40, 40, 160);
@@ -508,7 +509,8 @@ void ViewportPanel::drawLightBillboard(ImVec2 panelMin, ImVec2 size, const glm::
     dl->AddCircle(screen, kRadius, col, kSunCircleSegs, kSunSpokeThick);
     for (int i = 0; i < kSpokes; ++i) {
         float angle = (static_cast<float>(i) / static_cast<float>(kSpokes)) * kTwoPi;
-        ImVec2 inner{screen.x + (kRadius * std::cos(angle)), screen.y + (kRadius * std::sin(angle))};
+        ImVec2 inner{screen.x + (kRadius * std::cos(angle)),
+                     screen.y + (kRadius * std::sin(angle))};
         ImVec2 outer{screen.x + (kSpokeLen * std::cos(angle)),
                      screen.y + (kSpokeLen * std::sin(angle))};
         dl->AddLine(inner, outer, col, kSunSpokeThick);

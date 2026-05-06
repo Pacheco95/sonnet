@@ -91,9 +91,8 @@ glm::vec3 Transform::getWorldPosition() const { return glm::vec3{getModelMatrix(
 // ── World rotation ─────────────────────────────────────────────────────────────
 
 void Transform::setWorldRotation(glm::quat worldRot) {
-    m_localRotation = (m_parent == nullptr)
-                          ? worldRot
-                          : glm::inverse(m_parent->getWorldRotation()) * worldRot;
+    m_localRotation =
+        (m_parent == nullptr) ? worldRot : glm::inverse(m_parent->getWorldRotation()) * worldRot;
     markDirty();
 }
 
