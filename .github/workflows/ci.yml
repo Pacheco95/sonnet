@@ -58,6 +58,7 @@ jobs:
             -o Acquire::ForceIPv4=true \
             libvulkan-dev \
             glslc \
+            libglm-dev \
             libx11-dev \
             libxext-dev \
             libxrandr-dev \
@@ -116,6 +117,7 @@ jobs:
             -o Acquire::ForceIPv4=true \
             libvulkan-dev \
             glslc \
+            libglm-dev \
             libx11-dev \
             libxext-dev \
             libxrandr-dev \
