@@ -62,9 +62,6 @@ jobs:
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
-      # Vulkan tests run on Lavapipe. Tests that need a window run headless through SDL's
-      # offscreen video driver, chosen by the test itself.
-      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
     steps:
       - uses: actions/checkout@v4
 
@@ -88,7 +85,9 @@ jobs:
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
             libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl-dev libdrm-dev libgbm-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
-          vulkaninfo --summary | grep -E 'apiVersion|deviceName' || true
+          # Vulkan tests run on Lavapipe; tests that need a window use SDL's offscreen driver.
+          echo "VK_DRIVER_FILES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)" >> "$GITHUB_ENV"
+          VK_DRIVER_FILES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1) vulkaninfo --summary | grep -E 'apiVersion|deviceName' || true
 
       - name: Install macOS packages
         if: runner.os == 'macOS'

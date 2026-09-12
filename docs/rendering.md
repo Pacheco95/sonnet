@@ -53,6 +53,18 @@ Slang is the only shading language ([ADR-0005](decisions/0005-slang.md)). Engine
 - **Reflection**: Slang's program layout drives descriptor set layouts and validates that a shader conforms to the bindless conventions. There is no separate reflection library.
 - **Conventions**: a shared `sonnet.slang` module declares the bindless resource arrays, the per-frame and per-pass parameter blocks, and the vertex-pulling helpers. Shaders `import` it and never declare their own descriptor sets.
 
+## The rhi module today
+
+Public headers under `sonnet/rhi/`: `Types.h` (handles, formats, usages, layouts, attachments), `Device.h` (`IDevice`, `DeviceDesc`, `createDevice`), `Swapchain.h` (`ISwapchain`) and `CommandList.h` (`ICommandList`). The Vulkan implementation lives in `src/` and is reached only through `createDevice`, the one `#if`-switched site.
+
+- `IDevice` creates buffers, images and swapchains, hands out generation-checked handles, and runs the frame: `beginFrame` waits for the slot's previous submission on the timeline semaphore, frees resources destroyed during that frame, resets the pool and starts recording; `endFrame` submits and presents every swapchain image acquired since. Destroying a resource is always deferred to the frame slot's next reuse, so a handle can be released in the frame that still draws with it.
+- `ISwapchain::acquire` returns the image for this frame or nothing when the window is minimised; it recreates the swapchain when acquire or present reported out of date, or after `requestResize`. Swapchain images are registered as ordinary image handles.
+- `ICommandList` records whole-image layout barriers, dynamic rendering with clear and store operations, and image-to-buffer copies for readback. Stages and accesses are derived from the layouts on both sides; the render graph replaces that derivation in M1.
+- Validation messages are logged with their id and the debug names of the objects involved, and counted; `rhi_tests` fails when the count is non-zero. Loader messages go to `trace`.
+- Host-visible buffers are persistently mapped; `mappedRange` exposes them.
+
+Not there yet, in milestone order: shaders and pipelines (M0 commit 4), depth images, samplers, descriptor sets, the null implementation for upper-module tests (M1, with its first consumer), uploads through a staging ring (M3).
+
 ## Frame structure
 
 Two frames in flight. Each frame owns a command pool, a timeline semaphore value, a descriptor allocator that is reset per frame, and a transient allocator. The swapchain uses mailbox where available and FIFO otherwise.
@@ -93,8 +105,8 @@ ImGui uses its SDL3 and Vulkan backends, initialised in dynamic-rendering mode, 
 ## Testing
 
 - `rhi` interfaces have a null implementation used by unit tests of `renderer`, `assets` and `world`, so those modules are tested without a GPU.
-- The Vulkan implementation is tested on Lavapipe in CI: device creation, resource lifetime, a triangle, and later golden-image comparisons of sample scenes with a tolerance.
-- Validation-layer messages fail tests when they occur.
+- The Vulkan implementation is tested on Lavapipe in CI: device creation, resource lifetime, a triangle, and later golden-image comparisons of sample scenes with a tolerance. Swapchain tests use SDL's offscreen video driver and `VK_EXT_headless_surface`, which Lavapipe supports; on drivers without headless surfaces those tests skip.
+- Validation-layer messages fail tests when they occur: `IDevice::validationMessageCount` is checked by the test fixture.
 
 ## See also
 
