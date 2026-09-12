@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first: the repository currently contains the design documents and no code. The build scaffolding is milestone M0 in `docs/roadmap.md`.
+Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`.
 
 The docs are the source of truth. Read the relevant one before a non-trivial change, and update it in the same change:
 
 | Before touching | Read |
 |---|---|
 | Anything | `docs/architecture.md` (module map, dependency rule), `docs/conventions.md` |
+| `core` | `docs/core.md` |
 | `rhi`, `renderer`, shaders | `docs/rendering.md` |
 | `assets`, file formats | `docs/assets.md` |
 | CMake, vcpkg, CI | `docs/build.md` |
@@ -19,8 +20,6 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 Accepted ADRs are settled. Do not relitigate them in code; a change of direction is a new ADR that supersedes the old one, and an accepted ADR is only ever edited to change its status. ADR-0008 (clustered forward rendering) is still Proposed and has to be decided before M3.
 
 ## Commands
-
-The build does not exist yet. This is the intended workflow from `docs/build.md`; update this section in the M0 commit that creates the presets.
 
 ```bash
 export VCPKG_ROOT=/path/to/vcpkg
@@ -31,6 +30,9 @@ ctest --preset linux-debug -R core_tests            # one module's tests
 # one case or tag: run the <module>_tests binary directly, e.g. core_tests "[handle]"
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic
 python3 tools/check_docs.py            # after editing any Markdown: links, anchors, cross-doc consistency
+python3 tools/check_version.py         # vcpkg.json must mirror project(sonnet VERSION ...)
+git ls-files '*.h' '*.cpp' | xargs clang-format --dry-run --Werror   # CI rejects unformatted code
+sh tools/install_hooks.sh              # once per clone: commit-msg hook for Conventional Commits
 ```
 
 Machine-specific notes (tool locations, checkouts of the previous iterations to adapt patterns from) live in `CLAUDE.local.md`, which is gitignored.

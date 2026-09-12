@@ -10,3 +10,7 @@ cmake-build-*/
 # IDE
 .idea/
 .vscode/
+
+# Editor and tool state
+compile_commands.json
+.clangd/

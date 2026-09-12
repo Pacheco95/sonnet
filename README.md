@@ -2,7 +2,7 @@
 
 Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android and iOS. It is a set of small modules with one-way dependencies, a Vulkan 1.4 renderer behind a thin render-hardware interface, and an editor for authoring, debugging and playing scenes.
 
-**Status: pre-alpha, design phase.** Nothing builds yet. This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
+**Status: pre-alpha, milestone M0 in progress.** This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
 
 ## Goals
 
@@ -126,7 +126,7 @@ sonnet/
 
 ## Building
 
-The build scaffolding is milestone M0 and does not exist yet. The intended workflow, detailed in [docs/build.md](docs/build.md):
+Prerequisites: a C++23 compiler, CMake 3.28+, Ninja and vcpkg with `VCPKG_ROOT` set. Details, presets and options are in [docs/build.md](docs/build.md).
 
 ```bash
 export VCPKG_ROOT=/path/to/vcpkg
@@ -140,6 +140,7 @@ ctest --preset linux-debug
 | Topic | Document |
 |---|---|
 | Architecture: modules, dependency rule, entity model, handles, editor/player | [docs/architecture.md](docs/architecture.md) |
+| `core`: handles, logging, assertions, errors, UUIDs | [docs/core.md](docs/core.md) |
 | Build system, toolchains, dependencies, CI | [docs/build.md](docs/build.md) |
 | Rendering: Vulkan baseline, platform notes, Slang pipeline, frame structure | [docs/rendering.md](docs/rendering.md) |
 | Assets: identity, database, importers, project and scene files, cooking | [docs/assets.md](docs/assets.md) |
