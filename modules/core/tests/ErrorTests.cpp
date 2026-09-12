@@ -32,14 +32,15 @@ TEST_CASE("Result carries values", "[core][error]") {
 }
 
 TEST_CASE("Exception reports the throw site in what()", "[core][error]") {
+  bool caught = false;
   try {
     throw sonnet::core::Exception{"device lost", sonnet::core::ErrorCategory::Graphics};
   } catch (const sonnet::core::Exception &e) {
     REQUIRE(std::string{e.what()}.starts_with("device lost (Graphics, ErrorTests.cpp:"));
     REQUIRE(e.error().category == sonnet::core::ErrorCategory::Graphics);
-    return;
+    caught = true;
   }
-  FAIL("exception was not caught");
+  REQUIRE(caught);
 }
 
 TEST_CASE("Exception is a std::exception", "[core][error]") {

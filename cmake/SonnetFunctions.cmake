@@ -44,7 +44,8 @@ function(sonnet_add_module_test NAME)
   target_link_libraries(${target} PRIVATE sonnet::${NAME} sonnet::warnings Catch2::Catch2WithMain ${ARG_DEPENDS})
   set_target_properties(${target} PROPERTIES FOLDER "Tests" COMPILE_WARNING_AS_ERROR ON)
 
-  add_test(NAME ${target} COMMAND ${target})
+  # A binary whose every case skipped (rhi_tests without a Vulkan device) is a pass, not Catch2's exit code 4.
+  add_test(NAME ${target} COMMAND ${target} --allow-running-no-tests)
   set_tests_properties(${target} PROPERTIES LABELS "${NAME}")
 endfunction()
 

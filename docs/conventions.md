@@ -6,7 +6,7 @@ Rules that apply across modules. Module-specific rules live in that module's doc
 
 Carried over from the first iteration of the engine and extended.
 
-- Format with clang-format using the repository `.clang-format`; CI rejects unformatted code.
+- Format with clang-format using the repository `.clang-format` (LLVM style, 120 columns, no single-line functions or enums); CI rejects unformatted code. The file lists only the differences from LLVM style so it parses with clang-format 18 and newer.
 - `#pragma once` in every header. No include-guard macros.
 - One class per header, `.h` and `.cpp` pairs. Header-only is allowed for templates and small value types.
 - Includes ordered: the matching header, then the module's own headers, then other Sonnet modules, then third party, then the standard library. Sonnet headers use angle brackets with the `sonnet/<module>/` prefix.
