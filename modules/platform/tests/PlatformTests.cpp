@@ -17,7 +17,7 @@ TEST_CASE("base path is an existing directory", "[platform]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const std::filesystem::path base = platform.basePath();
   REQUIRE(std::filesystem::is_directory(base));
-  REQUIRE(std::filesystem::exists(base / "platform_tests"));
+  REQUIRE((std::filesystem::exists(base / "platform_tests") || std::filesystem::exists(base / "platform_tests.exe")));
 }
 
 TEST_CASE("pref path is created and writable", "[platform]") {

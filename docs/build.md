@@ -82,7 +82,7 @@ Per-configuration definitions applied by `sonnet_add_module`: `SONNET_ASSERTS_EN
 `cmake/functions.cmake` provides two functions so every module has the same shape:
 
 - `sonnet_add_module(<name> SOURCES ... DEPENDS ... PUBLIC_DEPENDS ...)` creates the static library `sonnet_<name>` with alias `sonnet::<name>`, sets the include directory to `modules/<name>/include`, applies the shared warning flags, and links the declared dependencies. Dependencies are the only way a module reaches another, which is what enforces the one-way rule.
-- `sonnet_add_module_test(<name> SOURCES ... DEPENDS ...)` creates `<name>_tests` linked against the module and `Catch2::Catch2WithMain`, registers it with CTest under the label `<name>` (so `ctest -L core` runs one module), and allows including the module's `src/` directory for white-box tests.
+- `sonnet_add_module_test(<name> SOURCES ... DEPENDS ...)` creates `<name>_tests` linked against the module and `Catch2::Catch2WithMain`, registers it with CTest under the label `<name>` (so `ctest -L core` runs one module) with a five-minute timeout and `--allow-running-no-tests` (a suite whose every case skipped, such as `rhi_tests` without a Vulkan device, is a pass), compiles in `tests/support/TestSupport.cpp` (which turns Windows crash and assertion dialogs into stderr output and a non-zero exit), and allows including the module's `src/` directory for white-box tests.
 
 The helpers live in `cmake/SonnetFunctions.cmake`; options are in `SonnetOptions.cmake`, warning flags in `SonnetWarnings.cmake` and the coverage target in `SonnetCoverage.cmake`.
 

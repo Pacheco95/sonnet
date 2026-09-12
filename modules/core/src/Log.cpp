@@ -98,7 +98,9 @@ spdlog::logger &Log::get(std::string_view module) {
   auto logger = std::make_shared<spdlog::logger>(std::string{module}, registry.sinks.begin(), registry.sinks.end());
   logger->set_formatter(makeFormatter());
   logger->set_level(registry.level);
-  logger->flush_on(spdlog::level::warn);
+  // Flushing from debug up keeps lifecycle lines visible when the process dies or is killed with
+  // stdout on a pipe, as under CTest. Trace is the only level meant for per-frame volume.
+  logger->flush_on(spdlog::level::debug);
   spdlog::logger &ref = *logger;
   registry.loggers.emplace(std::string{module}, std::move(logger));
   return ref;

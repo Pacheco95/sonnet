@@ -36,7 +36,7 @@ Events are values of the `Event` variant: window resize (pixel size), minimise a
 
 ## Headless
 
-`PlatformDesc::headless` selects SDL's offscreen video driver: windows exist and report sizes, nothing is displayed, and the Vulkan library still loads, so the same code paths run in tests and CI. `platform_tests` uses it for every test that needs the subsystem.
+`PlatformDesc::headless` selects SDL's offscreen video driver: windows exist and report sizes, nothing is displayed, and the Vulkan library still loads, so the same code paths run in tests and CI. SDL assertions abort instead of opening their dialog. `platform_tests` uses it for every test that needs the subsystem.
 
 ## Paths
 

@@ -38,7 +38,9 @@ function(sonnet_add_module_test NAME)
   set(target ${NAME}_tests)
 
   find_package(Catch2 CONFIG REQUIRED)
-  add_executable(${target} ${ARG_SOURCES})
+  # TestSupport.cpp is compiled in rather than linked from a library so its static initialiser
+  # cannot be dropped by the linker.
+  add_executable(${target} ${ARG_SOURCES} "${CMAKE_SOURCE_DIR}/tests/support/TestSupport.cpp")
   target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
   target_compile_definitions(${target} PRIVATE SONNET_MODULE="${target}")
   target_link_libraries(${target} PRIVATE sonnet::${NAME} sonnet::warnings Catch2::Catch2WithMain ${ARG_DEPENDS})
@@ -46,7 +48,8 @@ function(sonnet_add_module_test NAME)
 
   # A binary whose every case skipped (rhi_tests without a Vulkan device) is a pass, not Catch2's exit code 4.
   add_test(NAME ${target} COMMAND ${target} --allow-running-no-tests)
-  set_tests_properties(${target} PROPERTIES LABELS "${NAME}")
+  # A suite takes seconds; a hang (a blocked dialog on Windows, a driver wait) must fail with output.
+  set_tests_properties(${target} PROPERTIES LABELS "${NAME}" TIMEOUT 300)
 endfunction()
 
 # sonnet_add_executable(<name> SOURCES ... DEPENDS ...)

@@ -17,6 +17,8 @@ namespace sonnet::platform {
 Platform::Platform(const PlatformDesc &desc) : m_headless(desc.headless) {
   if (m_headless) {
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+    // Headless means no UI at all: an SDL assertion must not open its dialog and wait.
+    SDL_SetHint(SDL_HINT_ASSERT, "abort");
   }
   // Only the video subsystem for now; audio and gamepads join in their milestones. Subsystems the
   // engine does not use stay off (ADR-0002).
