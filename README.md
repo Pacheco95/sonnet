@@ -7,7 +7,7 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 ## Goals
 
 - **Personal engine, third iteration.** Learning and clarity of architecture come before feature count. Most decisions below come from what worked and what hurt in the two previous iterations.
-- **Modular.** Every module has one job, a public header set under `sonnet/<module>/`, its own tests, and depends only on modules below it. No cycles.
+- **Modular.** Every module has one job, a public header set under `sonnet/<module>/`, its own tests, and depends only on modules earlier in the dependency order. No cycles.
 - **Agnostic where it pays off.** Platform access (window, input, main loop, file paths) and GPU access sit behind interfaces owned by the engine, each with exactly one implementation today: SDL3 and Vulkan. Everything else is a fixed choice: C++23, CMake, GLM, flecs, Slang, Dear ImGui.
 - **Modern Vulkan only.** One rendering code path on Vulkan 1.4: dynamic rendering, synchronization2, bindless descriptors, push descriptors. No legacy render passes and no second backend to keep in parity.
 - **Editor first.** The editor is an engine feature, not a demo. It drives the design of reflection, serialization, undo/redo and play mode.
@@ -71,7 +71,7 @@ Dependency policy: vcpkg manifest mode for everything that has a port; CMake `Fe
 
 ## Architecture
 
-Modules depend only on modules below them. Interfaces live with the layer that owns them, next to their default implementation. Upward communication happens through those interfaces, callbacks and events, never through a dependency.
+A module depends only on modules earlier in the dependency order. Interfaces live with the layer that owns them, next to their default implementation. Upward communication happens through those interfaces, callbacks and events, never through a dependency.
 
 ```mermaid
 flowchart BT

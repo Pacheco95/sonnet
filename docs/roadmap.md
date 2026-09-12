@@ -12,6 +12,13 @@ Build scaffolding and the two lowest modules.
 - `rhi`: instance and device creation with vk-bootstrap adopted into RAII, VMA, swapchain, per-frame resources, a triangle drawn through the render hardware interface, Slang compiled at build time.
 - Tests: `core`, `platform` (headless), `rhi` on Lavapipe.
 
+Landed as four commits, so CI is green from the first one:
+
+1. Scaffolding: presets, manifest, format config, the CI workflow, and `core` with an empty test.
+2. `platform`: the SDL3 window and the callback-based loop.
+3. `rhi`: instance, device, swapchain and per-frame resources.
+4. The triangle, with Slang compiled at build time.
+
 Done when the editor executable opens a window, clears it, draws a triangle on all three desktop platforms in CI, and tests pass.
 
 ## M1: Editor shell

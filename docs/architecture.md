@@ -4,7 +4,7 @@ Sonnet is organised as small modules with strict one-way dependencies. Every mod
 
 ## Module map
 
-Modules are listed in dependency order. A module may depend on any module above it in this table and on nothing below it.
+Modules are listed in dependency order. A module may depend only on modules earlier in that order.
 
 | Module | Responsibility | Depends on |
 |---|---|---|
@@ -28,7 +28,7 @@ Applications live under `apps/`:
 
 ## Dependency rule
 
-Compile-time dependencies point one way: a module includes headers and links targets only from modules above it in the table. CMake enforces this because each module's target only links its declared dependencies; a cycle fails to configure.
+Compile-time dependencies point one way: a module includes headers and links targets only from modules earlier in the dependency order. CMake enforces this because each module's target only links its declared dependencies; a cycle fails to configure.
 
 Upward communication is still needed, for example the platform layer must tell the engine about a resize, and the world must tell the renderer what to draw. It happens without a dependency, through mechanisms owned by the lower layer:
 
