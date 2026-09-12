@@ -112,7 +112,7 @@ GitHub Actions, one workflow with a matrix:
 - `linux-asan` job on every pull request.
 - Android job that builds the player with the NDK, added in M7.
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated.
-- `clang-format --dry-run` and `clang-tidy` on changed files.
+- `clang-format --dry-run` and `clang-tidy` on changed files, and `tools/check_docs.py` on every push.
 
 ## Coverage
 
