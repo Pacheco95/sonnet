@@ -76,6 +76,23 @@ void VulkanCommandList::endRendering() {
   m_dispatcher->vkCmdEndRendering(m_commandBuffer);
 }
 
+void VulkanCommandList::bindPipeline(PipelineHandle pipeline) {
+  const VulkanPipeline *resource = m_device.findPipeline(pipeline);
+  SONNET_ASSERT(resource != nullptr, "binding a stale pipeline handle {}:{}", pipeline.index, pipeline.generation);
+  m_dispatcher->vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *resource->pipeline);
+}
+
+void VulkanCommandList::pushConstants(std::span<const std::byte> data) {
+  SONNET_ASSERT(data.size() <= PushConstantSize && data.size() % 4 == 0, "push constants: {} bytes", data.size());
+  m_dispatcher->vkCmdPushConstants(m_commandBuffer, m_device.pipelineLayout(), VK_SHADER_STAGE_ALL_GRAPHICS, 0,
+                                   static_cast<std::uint32_t>(data.size()), data.data());
+}
+
+void VulkanCommandList::draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex,
+                             std::uint32_t firstInstance) {
+  m_dispatcher->vkCmdDraw(m_commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+}
+
 void VulkanCommandList::copyImageToBuffer(ImageHandle image, BufferHandle buffer) {
   const VulkanImage *src = m_device.findImage(image);
   const VulkanBuffer *dst = m_device.findBuffer(buffer);

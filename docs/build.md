@@ -88,7 +88,7 @@ The helpers live in `cmake/SonnetFunctions.cmake`; options are in `SonnetOptions
 
 ## Shaders in the build
 
-Engine shaders live in `modules/renderer/shaders/*.slang`. A CMake custom command compiles each to SPIR-V with `slangc` at build time so a release build has no runtime compiler dependency. The editor additionally compiles at runtime for hot reload. See [rendering.md](rendering.md#shaders).
+Engine shaders live in `modules/renderer/shaders/*.slang` from M1 on; until then the only shaders are the M0 triangle next to the rhi tests and the editor. `sonnet_add_shaders(<target> SHADERS ...)` compiles each file to SPIR-V with `slangc` from the `shader-slang` port at build time and places the result in `shaders/` next to the target's binary, so a release build has no runtime compiler dependency. The editor additionally compiles at runtime for hot reload from M1. See [rendering.md](rendering.md#shaders).
 
 ## Building and testing
 

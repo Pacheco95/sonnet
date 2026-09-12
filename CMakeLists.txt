@@ -16,6 +16,7 @@ include(SonnetOptions)
 include(SonnetWarnings)
 include(SonnetFunctions)
 include(SonnetCoverage)
+include(SonnetShaders)
 
 enable_testing()
 

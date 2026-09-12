@@ -22,6 +22,10 @@ public:
   void barrier(ImageHandle image, ImageLayout from, ImageLayout to) override;
   void beginRendering(std::span<const ColorAttachment> colors) override;
   void endRendering() override;
+  void bindPipeline(PipelineHandle pipeline) override;
+  void pushConstants(std::span<const std::byte> data) override;
+  void draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex,
+            std::uint32_t firstInstance) override;
   void copyImageToBuffer(ImageHandle image, BufferHandle buffer) override;
 
 private:

@@ -10,6 +10,8 @@
 
 #include <VkBootstrap.h>
 
+#include <array>
+#include <cstring>
 #include <format>
 #include <limits>
 #include <string>
@@ -49,6 +51,7 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
   createInstance(desc);
   selectAndCreateDevice(desc);
   createAllocator();
+  createPipelineLayout();
   createFrames();
   SONNET_LOG_INFO("Vulkan {} device \"{}\"{}", versionString(m_info.apiVersion), m_info.deviceName,
                   m_info.validationEnabled ? ", validation on" : "");
@@ -63,6 +66,8 @@ VulkanDevice::~VulkanDevice() {
     frame.garbage.clear();
   }
   reportLeaks();
+  m_pipelines.clear();
+  m_shaders.clear();
   m_buffers.clear();
   m_images.clear();
 }
@@ -114,6 +119,9 @@ void VulkanDevice::createInstance(const DeviceDesc &desc) {
 void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   // The features in docs/rendering.md, "Vulkan baseline". Extended dynamic state is core in 1.3
   // without a feature bit.
+  VkPhysicalDeviceVulkan11Features features11{};
+  features11.shaderDrawParameters = VK_TRUE; // Slang lowers SV_VertexID through gl_BaseVertex
+
   VkPhysicalDeviceVulkan12Features features12{};
   features12.timelineSemaphore = VK_TRUE;
   features12.bufferDeviceAddress = VK_TRUE;
@@ -148,6 +156,7 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   // Surfaces come later, from windows; selection only needs the swapchain extension.
   vkb::PhysicalDevice physicalDevice = unwrap(selector.set_minimum_version(1, 4)
                                                   .defer_surface_initialization()
+                                                  .set_required_features_11(features11)
                                                   .set_required_features_12(features12)
                                                   .set_required_features_13(features13)
                                                   .set_required_features_14(features14)
@@ -179,6 +188,14 @@ void VulkanDevice::createAllocator() {
   info.vulkanApiVersion = VK_API_VERSION_1_4;
   info.pVulkanFunctions = &functions;
   m_allocator = vma::createAllocatorUnique(info);
+}
+
+void VulkanDevice::createPipelineLayout() {
+  const vk::PushConstantRange range{vk::ShaderStageFlagBits::eAllGraphics, 0, PushConstantSize};
+  m_pipelineLayout = vk::raii::PipelineLayout{m_device, vk::PipelineLayoutCreateInfo{{}, {}, range}};
+  setDebugName(vk::ObjectType::ePipelineLayout,
+               reinterpret_cast<std::uint64_t>(static_cast<VkPipelineLayout>(*m_pipelineLayout)),
+               "shared pipeline layout");
 }
 
 void VulkanDevice::createFrames() {
@@ -310,6 +327,110 @@ void VulkanDevice::destroyImage(ImageHandle handle) {
 
 const ImageDesc &VulkanDevice::imageDesc(ImageHandle handle) const {
   return m_images.get(handle).desc;
+}
+
+ShaderHandle VulkanDevice::createShader(const ShaderDesc &desc) {
+  if (desc.spirv.size() < 4 || desc.spirv.size() % 4 != 0) {
+    throw core::Exception{
+        std::format("shader \"{}\": {} bytes is not a SPIR-V module", desc.debugName, desc.spirv.size()),
+        core::ErrorCategory::Shader};
+  }
+  // Copied into aligned storage; the span may come from a byte buffer.
+  std::vector<std::uint32_t> words(desc.spirv.size() / 4);
+  std::memcpy(words.data(), desc.spirv.data(), desc.spirv.size());
+  if (words[0] != 0x07230203u) {
+    throw core::Exception{std::format("shader \"{}\" has no SPIR-V magic number", desc.debugName),
+                          core::ErrorCategory::Shader};
+  }
+  vk::raii::ShaderModule module{m_device, vk::ShaderModuleCreateInfo{{}, words}};
+  setDebugName(vk::ObjectType::eShaderModule, reinterpret_cast<std::uint64_t>(static_cast<VkShaderModule>(*module)),
+               desc.debugName);
+  return m_shaders.emplace(VulkanShader{desc.debugName, std::move(module)});
+}
+
+void VulkanDevice::destroyShader(ShaderHandle handle) {
+  std::optional<VulkanShader> shader = m_shaders.remove(handle);
+  if (!shader) {
+    SONNET_LOG_WARN("destroyShader: stale handle {}:{}", handle.index, handle.generation);
+    return;
+  }
+  // Modules are not referenced by submitted work; pipelines hold what they need.
+  shader.reset();
+}
+
+PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &desc) {
+  const VulkanShader *shader = m_shaders.find(desc.shader);
+  if (shader == nullptr) {
+    throw core::Exception{std::format("pipeline \"{}\": stale shader handle", desc.debugName),
+                          core::ErrorCategory::Graphics};
+  }
+  const std::array stages{
+      vk::PipelineShaderStageCreateInfo{
+          {}, vk::ShaderStageFlagBits::eVertex, *shader->module, desc.vertexEntry.c_str()},
+      vk::PipelineShaderStageCreateInfo{
+          {}, vk::ShaderStageFlagBits::eFragment, *shader->module, desc.fragmentEntry.c_str()},
+  };
+  // No vertex input: vertex data is pulled from buffers by index (docs/rendering.md).
+  const vk::PipelineVertexInputStateCreateInfo vertexInput{};
+  const vk::PipelineInputAssemblyStateCreateInfo inputAssembly{{}, vk::PrimitiveTopology::eTriangleList, VK_FALSE};
+  const vk::PipelineViewportStateCreateInfo viewport{{}, 1, nullptr, 1, nullptr};
+  vk::CullModeFlags cull = vk::CullModeFlagBits::eNone;
+  switch (desc.cullMode) {
+  case CullMode::None:
+    break;
+  case CullMode::Back:
+    cull = vk::CullModeFlagBits::eBack;
+    break;
+  case CullMode::Front:
+    cull = vk::CullModeFlagBits::eFront;
+    break;
+  }
+  const vk::PipelineRasterizationStateCreateInfo rasterization{
+      {},   VK_FALSE, VK_FALSE, vk::PolygonMode::eFill, cull, vk::FrontFace::eCounterClockwise, VK_FALSE, 0.0f,
+      0.0f, 0.0f,     1.0f};
+  const vk::PipelineMultisampleStateCreateInfo multisample{{}, vk::SampleCountFlagBits::e1};
+  std::vector<vk::PipelineColorBlendAttachmentState> blendAttachments(desc.colorFormats.size());
+  for (auto &attachment : blendAttachments) {
+    attachment.blendEnable = VK_FALSE;
+    attachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+                                vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+  }
+  const vk::PipelineColorBlendStateCreateInfo colorBlend{{}, VK_FALSE, vk::LogicOp::eCopy, blendAttachments};
+  const std::array dynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+  const vk::PipelineDynamicStateCreateInfo dynamicState{{}, dynamicStates};
+  std::vector<vk::Format> colorFormats;
+  colorFormats.reserve(desc.colorFormats.size());
+  for (const Format format : desc.colorFormats) {
+    colorFormats.push_back(toVk(format));
+  }
+  const vk::PipelineRenderingCreateInfo rendering{0, colorFormats};
+
+  const vk::GraphicsPipelineCreateInfo info{
+      {},           stages,  &vertexInput, &inputAssembly, nullptr,           &viewport, &rasterization,
+      &multisample, nullptr, &colorBlend,  &dynamicState,  *m_pipelineLayout, nullptr,   0,
+      nullptr,      0,       &rendering};
+  vk::raii::Pipeline pipeline{m_device, nullptr, info};
+  setDebugName(vk::ObjectType::ePipeline, reinterpret_cast<std::uint64_t>(static_cast<VkPipeline>(*pipeline)),
+               desc.debugName);
+  SONNET_LOG_DEBUG("pipeline \"{}\" from shader \"{}\"", desc.debugName, shader->debugName);
+  return m_pipelines.emplace(VulkanPipeline{desc.debugName, std::move(pipeline)});
+}
+
+void VulkanDevice::destroyPipeline(PipelineHandle handle) {
+  std::optional<VulkanPipeline> pipeline = m_pipelines.remove(handle);
+  if (!pipeline) {
+    SONNET_LOG_WARN("destroyPipeline: stale handle {}:{}", handle.index, handle.generation);
+    return;
+  }
+  deferDestruction([resource = std::make_shared<VulkanPipeline>(std::move(*pipeline))]() mutable { resource.reset(); });
+}
+
+bool VulkanDevice::isValid(ShaderHandle handle) const {
+  return m_shaders.contains(handle);
+}
+
+bool VulkanDevice::isValid(PipelineHandle handle) const {
+  return m_pipelines.contains(handle);
 }
 
 bool VulkanDevice::isValid(BufferHandle handle) const {
@@ -479,6 +600,12 @@ void VulkanDevice::reportLeaks() {
   });
   m_images.forEach([](ImageHandle handle, VulkanImage &image) {
     SONNET_LOG_WARN("leaked image \"{}\" ({}:{})", image.desc.debugName, handle.index, handle.generation);
+  });
+  m_shaders.forEach([](ShaderHandle handle, VulkanShader &shader) {
+    SONNET_LOG_WARN("leaked shader \"{}\" ({}:{})", shader.debugName, handle.index, handle.generation);
+  });
+  m_pipelines.forEach([](PipelineHandle handle, VulkanPipeline &pipeline) {
+    SONNET_LOG_WARN("leaked pipeline \"{}\" ({}:{})", pipeline.debugName, handle.index, handle.generation);
   });
 }
 

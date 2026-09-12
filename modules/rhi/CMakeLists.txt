@@ -39,4 +39,8 @@ sonnet_add_module_test(rhi
     tests/DeviceTests.cpp
     tests/ResourceTests.cpp
     tests/SwapchainTests.cpp
+    tests/TriangleTests.cpp
 )
+if(TARGET rhi_tests)
+  sonnet_add_shaders(rhi_tests SHADERS tests/shaders/triangle.slang)
+endif()

@@ -50,8 +50,18 @@ public:
   virtual void destroyImage(ImageHandle handle) = 0;
   [[nodiscard]] virtual const ImageDesc &imageDesc(ImageHandle handle) const = 0;
 
+  // Throws core::Exception when the SPIR-V is rejected by the driver.
+  [[nodiscard]] virtual ShaderHandle createShader(const ShaderDesc &desc) = 0;
+  virtual void destroyShader(ShaderHandle handle) = 0;
+
+  // The shader may be destroyed once the pipeline exists.
+  [[nodiscard]] virtual PipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc &desc) = 0;
+  virtual void destroyPipeline(PipelineHandle handle) = 0;
+
   [[nodiscard]] virtual bool isValid(BufferHandle handle) const = 0;
   [[nodiscard]] virtual bool isValid(ImageHandle handle) const = 0;
+  [[nodiscard]] virtual bool isValid(ShaderHandle handle) const = 0;
+  [[nodiscard]] virtual bool isValid(PipelineHandle handle) const = 0;
 
   // Waits for the frame slot's previous work, releases resources destroyed during that frame,
   // and starts recording.

@@ -43,8 +43,15 @@ public:
   void destroyImage(ImageHandle handle) override;
   const ImageDesc &imageDesc(ImageHandle handle) const override;
 
+  ShaderHandle createShader(const ShaderDesc &desc) override;
+  void destroyShader(ShaderHandle handle) override;
+  PipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc &desc) override;
+  void destroyPipeline(PipelineHandle handle) override;
+
   bool isValid(BufferHandle handle) const override;
   bool isValid(ImageHandle handle) const override;
+  bool isValid(ShaderHandle handle) const override;
+  bool isValid(PipelineHandle handle) const override;
 
   ICommandList &beginFrame() override;
   void endFrame() override;
@@ -72,6 +79,12 @@ public:
   }
   const VulkanImage *findImage(ImageHandle handle) const noexcept {
     return m_images.find(handle);
+  }
+  const VulkanPipeline *findPipeline(PipelineHandle handle) const noexcept {
+    return m_pipelines.find(handle);
+  }
+  vk::PipelineLayout pipelineLayout() const noexcept {
+    return *m_pipelineLayout;
   }
   // Registers an image the device does not own (swapchain images); release with destroyImage.
   ImageHandle registerExternalImage(vk::Image image, const ImageDesc &desc);
@@ -105,6 +118,7 @@ private:
   void createInstance(const DeviceDesc &desc);
   void selectAndCreateDevice(const DeviceDesc &desc);
   void createAllocator();
+  void createPipelineLayout();
   void createFrames();
   void waitForFrame(Frame &frame);
   void deferDestruction(std::function<void()> destroy);
@@ -122,6 +136,7 @@ private:
   std::uint32_t m_graphicsFamily{0};
   vk::raii::Queue m_graphicsQueue{nullptr};
   vma::UniqueAllocator m_allocator;
+  vk::raii::PipelineLayout m_pipelineLayout{nullptr};
   vk::raii::Semaphore m_timeline{nullptr};
   std::uint64_t m_timelineValue{0};
   std::array<Frame, FramesInFlight> m_frames;
@@ -132,6 +147,8 @@ private:
 
   core::HandlePool<VulkanBuffer, BufferTag> m_buffers;
   core::HandlePool<VulkanImage, ImageTag> m_images;
+  core::HandlePool<VulkanShader, ShaderTag> m_shaders;
+  core::HandlePool<VulkanPipeline, PipelineTag> m_pipelines;
 };
 
 } // namespace sonnet::rhi

@@ -10,6 +10,7 @@ Fundamental types every other module uses. `core` depends on GLM, spdlog and Tra
 | `Assert.h` | `SONNET_ASSERT` and `SONNET_VERIFY` |
 | `Error.h` | `Error`, `Result<T>` (`std::expected<T, Error>`) and `Exception` |
 | `Uuid.h` | 128-bit identifier, random generation, canonical string form |
+| `File.h` | `readFile`: whole-file read returning `Result<std::vector<std::byte>>` |
 | `Math.h` | The single GLM include point; checks that the GLM configuration is present |
 | `Profile.h` | `SONNET_ZONE()`, `SONNET_ZONE_NAMED()`, `SONNET_FRAME_MARK()` over Tracy |
 | `Version.h` | `engineVersion()`, the version from the root `CMakeLists.txt` |

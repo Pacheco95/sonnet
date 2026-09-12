@@ -4,3 +4,4 @@ sonnet_add_executable(editor
   DEPENDS
     sonnet::rhi
 )
+sonnet_add_shaders(sonnet_editor SHADERS shaders/triangle.slang)

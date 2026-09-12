@@ -2,7 +2,7 @@
 
 Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android and iOS. It is a set of small modules with one-way dependencies, a Vulkan 1.4 renderer behind a thin render-hardware interface, and an editor for authoring, debugging and playing scenes.
 
-**Status: pre-alpha, milestone M0 in progress.** This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
+**Status: pre-alpha, milestone M0 (foundation) landed: build, `core`, `platform`, `rhi` and a triangle.** This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
 
 ## Goals
 

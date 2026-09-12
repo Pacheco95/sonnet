@@ -19,7 +19,7 @@ Landed as four commits, so CI is green from the first one:
 3. `rhi`: instance, device, swapchain and per-frame resources.
 4. The triangle, with Slang compiled at build time.
 
-Done when the editor executable opens a window, clears it, draws a triangle on all three desktop platforms in CI, and tests pass.
+Done when the editor executable opens a window, clears it and draws a triangle, all three desktop platforms build and test in CI, and the triangle test passes on Lavapipe. Windows and macOS runners have no Vulkan implementation, so the rhi tests skip there and the triangle is verified on Linux.
 
 ## M1: Editor shell
 

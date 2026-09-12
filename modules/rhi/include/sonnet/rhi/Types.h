@@ -5,14 +5,20 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
+#include <vector>
 
 namespace sonnet::rhi {
 
 struct BufferTag {};
 struct ImageTag {};
+struct ShaderTag {};
+struct PipelineTag {};
 using BufferHandle = core::Handle<BufferTag>;
 using ImageHandle = core::Handle<ImageTag>;
+using ShaderHandle = core::Handle<ShaderTag>;
+using PipelineHandle = core::Handle<PipelineTag>;
 
 enum class Format : std::uint8_t {
   Undefined,
@@ -113,6 +119,33 @@ struct ColorAttachment {
   LoadOp load{LoadOp::Clear};
   StoreOp store{StoreOp::Store};
   glm::vec4 clearColor{0.0f, 0.0f, 0.0f, 1.0f};
+};
+
+// One SPIR-V module holding every entry point of a .slang file, as slangc emits it with
+// -fvk-use-entrypoint-name. The bytes are copied at creation.
+struct ShaderDesc {
+  std::span<const std::byte> spirv;
+  std::string debugName;
+};
+
+enum class CullMode : std::uint8_t {
+  None,
+  Back,
+  Front,
+};
+
+// Every graphics pipeline shares one layout: push constants of PushConstantSize bytes visible to
+// all stages. Descriptor sets join the layout with the renderer in M1. Viewport and scissor are
+// always dynamic; front faces are counter-clockwise (docs/conventions.md, "Math conventions").
+constexpr std::uint32_t PushConstantSize = 128;
+
+struct GraphicsPipelineDesc {
+  ShaderHandle shader;
+  std::string vertexEntry{"vertexMain"};
+  std::string fragmentEntry{"fragmentMain"};
+  std::vector<Format> colorFormats;
+  CullMode cullMode{CullMode::Back};
+  std::string debugName;
 };
 
 } // namespace sonnet::rhi

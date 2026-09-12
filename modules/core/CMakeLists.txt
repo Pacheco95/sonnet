@@ -6,6 +6,7 @@ sonnet_add_module(core
   SOURCES
     src/Assert.cpp
     src/Error.cpp
+    src/File.cpp
     src/Log.cpp
     src/Uuid.cpp
     src/Version.cpp
@@ -32,6 +33,7 @@ target_compile_definitions(sonnet_core PRIVATE
 sonnet_add_module_test(core
   SOURCES
     tests/ErrorTests.cpp
+    tests/FileTests.cpp
     tests/HandlePoolTests.cpp
     tests/HandleTests.cpp
     tests/LogTests.cpp

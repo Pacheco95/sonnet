@@ -6,6 +6,7 @@
 #include <vulkan/vulkan_raii.hpp>
 
 #include <cstddef>
+#include <string>
 
 namespace sonnet::rhi {
 
@@ -25,6 +26,16 @@ struct VulkanImage {
   vma::UniqueImage ownedImage;
   vk::Image image;
   vk::raii::ImageView view{nullptr};
+};
+
+struct VulkanShader {
+  std::string debugName;
+  vk::raii::ShaderModule module{nullptr};
+};
+
+struct VulkanPipeline {
+  std::string debugName;
+  vk::raii::Pipeline pipeline{nullptr};
 };
 
 } // namespace sonnet::rhi
