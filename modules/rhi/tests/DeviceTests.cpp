@@ -14,6 +14,8 @@ TEST_CASE("device reports a Vulkan 1.4 implementation", "[rhi][device]") {
   REQUIRE(!info.deviceName.empty());
   REQUIRE(VK_API_VERSION_MAJOR(info.apiVersion) == 1);
   REQUIRE(VK_API_VERSION_MINOR(info.apiVersion) >= 4);
+  REQUIRE(!info.driverName.empty());
+  REQUIRE(info.loaderVersion >= VK_API_VERSION_1_1);
 }
 
 TEST_CASE("frames can be begun and ended without work", "[rhi][device]") {

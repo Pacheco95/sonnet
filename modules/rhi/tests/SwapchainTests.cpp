@@ -10,6 +10,10 @@ using namespace sonnet::rhi;
 namespace {
 
 std::unique_ptr<ISwapchain> makeSwapchain(test::TestDevice &device, sonnet::platform::IWindow &window) {
+  if (!device.headlessSurfacesUsable()) {
+    SKIP("headless surfaces are not trusted on loader " << device->info().loaderVersion << " with driver "
+                                                        << device->info().driverName);
+  }
   try {
     return device->createSwapchain(window);
   } catch (const sonnet::core::Exception &e) {

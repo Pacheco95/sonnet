@@ -53,7 +53,8 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
   createAllocator();
   createPipelineLayout();
   createFrames();
-  SONNET_LOG_INFO("Vulkan {} device \"{}\"{}", versionString(m_info.apiVersion), m_info.deviceName,
+  SONNET_LOG_INFO("Vulkan {} device \"{}\", driver {} {}, loader {}{}", versionString(m_info.apiVersion),
+                  m_info.deviceName, m_info.driverName, m_info.driverInfo, versionString(m_info.loaderVersion),
                   m_info.validationEnabled ? ", validation on" : "");
 }
 
@@ -84,9 +85,13 @@ void VulkanDevice::createInstance(const DeviceDesc &desc) {
   const bool debugUtils = systemInfo.is_extension_available(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
   vkb::InstanceBuilder builder{loader};
+  // 1.4 is required of the device, not of the loader: distributions ship older loaders (Ubuntu
+  // 24.04 has 1.3) in front of 1.4 drivers, and the engine uses no 1.4 instance-level entry
+  // points. 1.1 gives vkEnumerateInstanceVersion and the properties2 queries the selector needs.
   builder.set_app_name(desc.applicationName.c_str())
       .set_engine_name("Sonnet")
       .require_api_version(1, 4, 0)
+      .set_minimum_instance_version(1, 1, 0)
       .enable_validation_layers(validation);
   for (const char *extension : desc.platform->vulkanInstanceExtensions()) {
     builder.enable_extension(extension);
@@ -114,6 +119,8 @@ void VulkanDevice::createInstance(const DeviceDesc &desc) {
   }
   m_info.validationEnabled = validation;
   m_info.apiVersion = instance.api_version;
+  m_info.loaderVersion = instance.instance_version;
+  SONNET_LOG_DEBUG("Vulkan loader {}", versionString(m_info.loaderVersion));
 }
 
 void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
@@ -171,6 +178,11 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   m_graphicsQueue = vk::raii::Queue{m_device, m_graphicsFamily, 0};
   m_info.deviceName = physicalDevice.name;
   m_info.apiVersion = physicalDevice.properties.apiVersion;
+  const auto properties =
+      m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceDriverProperties>();
+  const auto &driver = properties.get<vk::PhysicalDeviceDriverProperties>();
+  m_info.driverName = driver.driverName.data();
+  m_info.driverInfo = driver.driverInfo.data();
   setDebugName(vk::ObjectType::eDevice, reinterpret_cast<std::uint64_t>(static_cast<VkDevice>(*m_device)),
                "sonnet device");
   setDebugName(vk::ObjectType::eQueue, reinterpret_cast<std::uint64_t>(static_cast<VkQueue>(*m_graphicsQueue)),

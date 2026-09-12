@@ -24,7 +24,10 @@ struct DeviceDesc {
 
 struct DeviceInfo {
   std::string deviceName;
-  std::uint32_t apiVersion{0}; // packed Vulkan version
+  std::string driverName;         // e.g. "NVIDIA", "radv", "llvmpipe"
+  std::string driverInfo;         // driver version string as the driver reports it
+  std::uint32_t apiVersion{0};    // packed Vulkan version of the device
+  std::uint32_t loaderVersion{0}; // packed Vulkan version of the loader in the process
   bool validationEnabled{false};
 };
 

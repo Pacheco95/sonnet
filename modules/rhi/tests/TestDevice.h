@@ -7,6 +7,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <vulkan/vulkan_core.h>
+
 #include <memory>
 
 namespace sonnet::rhi::test {
@@ -34,6 +36,14 @@ struct TestDevice {
 
   TestDevice(const TestDevice &) = delete;
   TestDevice &operator=(const TestDevice &) = delete;
+
+  // Loaders before 1.4 emulate VK_EXT_headless_surface and advertise it for every driver; a
+  // driver without the extension can then crash inside the surface queries (NVIDIA does). Only
+  // Lavapipe is trusted on such loaders; a 1.4 loader fails cleanly where unsupported.
+  [[nodiscard]] bool headlessSurfacesUsable() const {
+    const DeviceInfo &info = device->info();
+    return info.loaderVersion >= VK_API_VERSION_1_4 || info.driverName == "llvmpipe";
+  }
 
   IDevice &operator*() {
     return *device;

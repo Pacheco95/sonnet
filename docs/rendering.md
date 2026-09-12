@@ -30,7 +30,7 @@ Depth uses reversed-Z: `D32_SFLOAT`, cleared to 0, `GREATER` compare, infinite f
 - **Windows, Linux**: current vendor drivers and Mesa ship Vulkan 1.4. Lavapipe (Mesa CPU implementation) is used in CI.
 - **macOS, iOS**: MoltenVK 1.4+ layers Vulkan 1.4 over Metal (macOS 12+, iOS 15+). It is a portability implementation: the instance must enable `VK_KHR_portability_enumeration` and the device must enable `VK_KHR_portability_subset` when present. Geometry shaders, triangle fans and some format and tessellation features are missing; the engine uses none of them. Descriptor indexing on MoltenVK requires Metal argument buffers, which MoltenVK enables by default in recent versions; the device selector verifies the required descriptor-indexing features rather than assuming them.
 - **Android**: devices launching with Android 16 or later must support Vulkan 1.4. Older devices are unsupported, which is accepted in ADR-0001. Mobile GPUs are tile-based: the render graph keeps passes mergeable and uses dynamic rendering local read for G-buffer-style reads instead of round trips to memory. Textures are shipped as KTX2 with ASTC or ETC2.
-- **Loader**: SDL3 loads the Vulkan library. `SDL_Vulkan_GetVkGetInstanceProcAddr` seeds both vk-bootstrap and the Vulkan-HPP dynamic dispatcher so there is one loader in the process.
+- **Loader**: SDL3 loads the Vulkan library. `SDL_Vulkan_GetVkGetInstanceProcAddr` seeds both vk-bootstrap and the Vulkan-HPP dynamic dispatcher so there is one loader in the process. The loader only has to be 1.1: the 1.4 requirement is on the physical device, because distributions ship older loaders in front of current drivers (Ubuntu 24.04 has 1.3) and the engine uses no 1.4 instance-level entry points.
 
 ## Object ownership
 
@@ -107,7 +107,7 @@ ImGui uses its SDL3 and Vulkan backends, initialised in dynamic-rendering mode, 
 ## Testing
 
 - `rhi` interfaces have a null implementation used by unit tests of `renderer`, `assets` and `world`, so those modules are tested without a GPU.
-- The Vulkan implementation is tested on Lavapipe in CI: device creation, resource lifetime, a triangle drawn into an offscreen image and read back, and later golden-image comparisons of sample scenes with a tolerance. Swapchain tests use SDL's offscreen video driver and `VK_EXT_headless_surface`, which Lavapipe supports; on drivers without headless surfaces those tests skip. The test shader is compiled by the same `sonnet_add_shaders` rule the applications use.
+- The Vulkan implementation is tested on Lavapipe in CI: device creation, resource lifetime, a triangle drawn into an offscreen image and read back, and later golden-image comparisons of sample scenes with a tolerance. Swapchain tests use SDL's offscreen video driver and `VK_EXT_headless_surface`, which Lavapipe supports; on drivers without headless surfaces those tests skip. Loaders before 1.4 emulate that extension for every driver and some drivers crash inside the surface queries, so on such loaders the tests run only on Lavapipe; `DeviceInfo` reports loader version and driver name for this. The test shader is compiled by the same `sonnet_add_shaders` rule the applications use.
 - Validation-layer messages fail tests when they occur: `IDevice::validationMessageCount` is checked by the test fixture.
 
 ## See also
