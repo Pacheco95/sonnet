@@ -55,7 +55,9 @@ Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-androi
 | `android-debug` | Chain-loads the NDK toolchain through `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`, player only. Added in M7 |
 | `ios-debug` | Xcode generator, `CMAKE_SYSTEM_NAME=iOS`, player only. Added in M7 |
 
-Binary directories are `build/<preset>/`. In-source builds are rejected. Platform presets carry a `condition` on the host system, so `cmake --list-presets` shows only the ones that apply. Every preset exports `compile_commands.json` for clangd and clang-tidy.
+Binary directories are `build/<preset>/`. In-source builds are rejected. Configuring without a preset still works when `VCPKG_ROOT` is set or a checkout exists at `~/vcpkg`: the root `CMakeLists.txt` picks the toolchain file up itself, and otherwise stops with a message saying so.
+
+IDEs: CLion and Visual Studio read `CMakePresets.json`; in CLion enable the preset profiles under Settings, Build, CMake, and give the profile `VCPKG_ROOT` in its environment field when the IDE was not started from a shell that exports it. `cmake-build-*` directories are ignored by git. Platform presets carry a `condition` on the host system, so `cmake --list-presets` shows only the ones that apply. Every preset exports `compile_commands.json` for clangd and clang-tidy.
 
 ## Options
 
