@@ -19,4 +19,5 @@ else()
   target_compile_options(sonnet_warnings INTERFACE "-ffile-prefix-map=${CMAKE_SOURCE_DIR}/=")
 endif()
 
-set_target_properties(sonnet_warnings PROPERTIES INTERFACE_COMPILE_WARNING_AS_ERROR ON)
+# COMPILE_WARNING_AS_ERROR has no INTERFACE_ form; the module, test and executable helpers set it
+# on every engine target they create.

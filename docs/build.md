@@ -114,7 +114,7 @@ GitHub Actions, one workflow with a matrix:
 - Android job that builds the player with the NDK, added in M7.
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated.
 - A lint job runs `clang-format --dry-run` on every tracked source, `tools/check_docs.py`, `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
-- Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need. Tests run with `SDL_VIDEO_DRIVER=dummy` and `VK_DRIVER_FILES` pointing at Lavapipe.
+- Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe; tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.
 
 Tests that need a Vulkan 1.4 device skip themselves when none is present, which is the case on the Windows and macOS runners.
 

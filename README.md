@@ -141,6 +141,7 @@ ctest --preset linux-debug
 |---|---|
 | Architecture: modules, dependency rule, entity model, handles, editor/player | [docs/architecture.md](docs/architecture.md) |
 | `core`: handles, logging, assertions, errors, UUIDs | [docs/core.md](docs/core.md) |
+| `platform`: window, events, application lifecycle, paths | [docs/platform.md](docs/platform.md) |
 | Build system, toolchains, dependencies, CI | [docs/build.md](docs/build.md) |
 | Rendering: Vulkan baseline, platform notes, Slang pipeline, frame structure | [docs/rendering.md](docs/rendering.md) |
 | Assets: identity, database, importers, project and scene files, cooking | [docs/assets.md](docs/assets.md) |

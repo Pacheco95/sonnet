@@ -9,7 +9,7 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | Module | Responsibility | Depends on |
 |---|---|---|
 | `core` | Fundamental types, `Handle<Tag>`, logging (spdlog), assertions, UUIDs, hashing, GLM configuration macros, Tracy zones | GLM, spdlog, Tracy |
-| `platform` | `IWindow`, input event types, the application callback interface, file-system paths. Contains the SDL3 implementation | `core`, SDL3 |
+| `platform` | `IWindow`, input event types, the application callback interface, file-system paths. Contains the SDL3 implementation | `core`, SDL3, Vulkan headers (surface handle types only) |
 | `rhi` | Render hardware interface: device, swapchain, buffers, images, samplers, pipelines, command recording. Contains the Vulkan 1.4 implementation | `platform`, Vulkan-HPP, vk-bootstrap, VMA, Slang (runtime compile) |
 | `renderer` | Render graph, frame resources, materials, meshes, cameras, lights, the rendering passes, engine shaders | `rhi` |
 | `assets` | Asset identity, database, importers (glTF, images, KTX2, Slang), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
@@ -51,7 +51,7 @@ Backend selection is compile-time. The CMake option `SONNET_RHI` accepts only `V
 
 ## Application lifecycle
 
-The engine does not own `main()`. It implements the SDL3 callback model (`SDL_MAIN_USE_CALLBACKS`): init, iterate, event and quit callbacks. On desktop SDL calls iterate in a loop; on iOS and Android the OS owns the loop and calls back. Designing for callbacks from day one is what makes the mobile milestone a packaging job rather than a rewrite.
+The engine does not own `main()`. It implements the SDL3 callback model (`SDL_MAIN_USE_CALLBACKS`): init, iterate, event and quit callbacks. On desktop SDL calls iterate in a loop; on iOS and Android the OS owns the loop and calls back. Designing for callbacks from day one is what makes the mobile milestone a packaging job rather than a rewrite. An executable includes `sonnet/platform/EntryPoint.h` once and defines `platform::createApplication`; the mechanics are in [platform.md](platform.md#lifecycle).
 
 Per iteration:
 

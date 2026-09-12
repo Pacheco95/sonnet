@@ -29,21 +29,30 @@ public:
 } // namespace sonnet::core
 
 // Every log call goes through these so the record carries the calling file, line and function.
-// Trace and debug compile out of Release builds through SPDLOG_ACTIVE_LEVEL, set by the build.
+// Trace and debug compile out of Release builds through SPDLOG_ACTIVE_LEVEL, set by the build; the
+// compiled-out form keeps the call inside a discarded branch so the arguments stay used and the
+// format string stays checked in every configuration.
 #define SONNET_LOG_AT(lvl, ...)                                                                                        \
   ::sonnet::core::Log::get(SONNET_MODULE)                                                                              \
       .log(::spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, ::spdlog::level::lvl, __VA_ARGS__)
 
+#define SONNET_LOG_COMPILED_OUT(lvl, ...)                                                                              \
+  do {                                                                                                                 \
+    if constexpr (false) {                                                                                             \
+      SONNET_LOG_AT(lvl, __VA_ARGS__);                                                                                 \
+    }                                                                                                                  \
+  } while (false)
+
 #if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_TRACE
 #define SONNET_LOG_TRACE(...) SONNET_LOG_AT(trace, __VA_ARGS__)
 #else
-#define SONNET_LOG_TRACE(...) static_cast<void>(0)
+#define SONNET_LOG_TRACE(...) SONNET_LOG_COMPILED_OUT(trace, __VA_ARGS__)
 #endif
 
 #if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_DEBUG
 #define SONNET_LOG_DEBUG(...) SONNET_LOG_AT(debug, __VA_ARGS__)
 #else
-#define SONNET_LOG_DEBUG(...) static_cast<void>(0)
+#define SONNET_LOG_DEBUG(...) SONNET_LOG_COMPILED_OUT(debug, __VA_ARGS__)
 #endif
 
 #define SONNET_LOG_INFO(...) SONNET_LOG_AT(info, __VA_ARGS__)

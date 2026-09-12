@@ -12,6 +12,7 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 |---|---|
 | Anything | `docs/architecture.md` (module map, dependency rule), `docs/conventions.md` |
 | `core` | `docs/core.md` |
+| `platform` | `docs/platform.md` |
 | `rhi`, `renderer`, shaders | `docs/rendering.md` |
 | `assets`, file formats | `docs/assets.md` |
 | CMake, vcpkg, CI | `docs/build.md` |
