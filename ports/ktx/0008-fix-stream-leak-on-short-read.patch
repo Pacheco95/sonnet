@@ -1,0 +1,17 @@
+--- a/lib/texture2.c
++++ b/lib/texture2.c
+@@ -1097,8 +1097,13 @@
+ 
+     // Read header.
+     result = pStream->read(pStream, &header, KTX2_HEADER_SIZE);
+-    if (result != KTX_SUCCESS)
++    if (result != KTX_SUCCESS) {
++        // Ownership of pStream only transfers to This once ktxTexture_constructFromStream
++        // runs, further down in ktxTexture2_constructFromStreamAndHeader; a failure here
++        // leaves the caller's stream (and, for a memory stream, its heap allocation) orphaned.
++        pStream->destruct(pStream);
+         return result;
++    }
+ 
+ #if IS_BIG_ENDIAN
+     // byte swap the header
