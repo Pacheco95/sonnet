@@ -33,13 +33,14 @@ std::string nameOf(flecs::entity entity) {
 
 Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
                const rhi::ISwapchain &swapchain, bool explorer)
-    : m_window(window), m_device(device), m_imgui({.window = &window,
-                                                   .device = &device,
-                                                   .swapchainFormat = swapchain.format(),
-                                                   .swapchainImageCount = swapchain.imageCount(),
-                                                   .docking = true,
-                                                   // Platform windows need a display; the headless driver has none.
-                                                   .viewports = !platform.isHeadless()}),
+    : m_window(window), m_device(device), m_basePath(platform.basePath()),
+      m_imgui({.window = &window,
+               .device = &device,
+               .swapchainFormat = swapchain.format(),
+               .swapchainImageCount = swapchain.imageCount(),
+               .docking = true,
+               // Platform windows need a display; the headless driver has none.
+               .viewports = !platform.isHeadless()}),
       m_renderer(device, platform.basePath() / "shaders"), m_graph(device), m_picker(device),
       m_world({.explorer = explorer}), m_meshes(m_renderer),
       m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
@@ -635,8 +636,14 @@ void Editor::focusSelection() {
 }
 
 void Editor::openLocation(const std::string &path, int line) {
-  const std::string command = m_preferences.editorCommand(path, line);
-  SONNET_LOG_INFO("opening {}:{} with: {}", path, line, command);
+  const std::optional<std::filesystem::path> file = locateSource(path, m_preferences.sourceRoot, m_basePath);
+  if (!file) {
+    SONNET_LOG_WARN("{} was not found from {}; set sourceRoot in {}", path, m_basePath.string(),
+                    m_preferencesFile.string());
+    return;
+  }
+  const std::string command = m_preferences.editorCommand(*file, line);
+  SONNET_LOG_INFO("opening {}:{} with: {}", file->string(), line, command);
   // Detached so a slow editor start never blocks the frame; the exit code is not interesting.
   std::thread{[command] { static_cast<void>(std::system(command.c_str())); }}.detach();
 }

@@ -132,6 +132,7 @@ private:
 
   platform::IWindow &m_window;
   rhi::IDevice &m_device;
+  std::filesystem::path m_basePath;
   ui::ImGuiLayer m_imgui;
   renderer::Renderer m_renderer;
   renderer::RenderGraph m_graph;

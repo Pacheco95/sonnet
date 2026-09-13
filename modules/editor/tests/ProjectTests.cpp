@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
+#include <fstream>
 
 using namespace sonnet;
 
@@ -62,7 +63,7 @@ TEST_CASE("preferences round-trip and format the external editor command", "[edi
   REQUIRE(preferences.recentProjects.size() == 2);
   REQUIRE(preferences.recentProjects[0] == "/projects/a");
   preferences.sourceRoot = "/src/sonnet";
-  REQUIRE(preferences.editorCommand("modules/rhi/src/VulkanDevice.cpp", 42) ==
+  REQUIRE(preferences.editorCommand("/src/sonnet/modules/rhi/src/VulkanDevice.cpp", 42) ==
           "code --goto /src/sonnet/modules/rhi/src/VulkanDevice.cpp:42");
   REQUIRE(preferences.save(file).has_value());
 
@@ -75,4 +76,21 @@ TEST_CASE("preferences round-trip and format the external editor command", "[edi
   }
   REQUIRE(preferences.recentProjects.size() == editor::Preferences::MaxRecentProjects);
   std::filesystem::remove(file);
+}
+
+TEST_CASE("a repository-relative source path is found upwards from the binary's directory", "[editor][project]") {
+  const std::filesystem::path root = scratch("checkout");
+  std::filesystem::create_directories(root / "modules" / "core" / "src");
+  std::filesystem::create_directories(root / "build" / "preset" / "apps" / "editor");
+  std::ofstream{root / "modules" / "core" / "src" / "Log.cpp"} << "// source\n";
+  const std::filesystem::path basePath = root / "build" / "preset" / "apps" / "editor";
+
+  const auto found = editor::locateSource("modules/core/src/Log.cpp", {}, basePath);
+  REQUIRE(found.has_value());
+  REQUIRE(*found == (root / "modules" / "core" / "src" / "Log.cpp").lexically_normal());
+  REQUIRE(!editor::locateSource("modules/core/src/Missing.cpp", {}, basePath).has_value());
+  // An explicit root wins and is not searched around.
+  REQUIRE(editor::locateSource("modules/core/src/Log.cpp", root, basePath).has_value());
+  REQUIRE(!editor::locateSource("modules/core/src/Log.cpp", root / "build", basePath).has_value());
+  std::filesystem::remove_all(root);
 }
