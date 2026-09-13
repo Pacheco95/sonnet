@@ -1,12 +1,15 @@
 #include <sonnet/rhi/NullDevice.h>
 
+#include <sonnet/core/Error.h>
 #include <sonnet/platform/Platform.h>
+#include <sonnet/platform/Window.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <memory>
 
 using namespace sonnet::rhi;
 
@@ -96,7 +99,13 @@ TEST_CASE("null device transient allocations and timestamps follow the frame slo
 
 TEST_CASE("null swapchain cycles through images of the window's size", "[rhi][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
-  const auto window = platform.createWindow({.title = "null", .size = {64, 48}});
+  std::unique_ptr<sonnet::platform::IWindow> window;
+  try {
+    // Windows are Vulkan-capable, which needs the loader; the Windows and macOS runners have none.
+    window = platform.createWindow({.title = "null", .size = {64, 48}});
+  } catch (const sonnet::core::Exception &e) {
+    SKIP("no window on this machine: " << e.what());
+  }
   const auto device = createNullDevice();
   const auto swapchain = device->createSwapchain(*window);
   REQUIRE(swapchain->extent() == glm::uvec2{64, 48});
