@@ -49,6 +49,9 @@ public:
   [[nodiscard]] renderer::RenderTarget &target() noexcept {
     return m_target;
   }
+  [[nodiscard]] const renderer::RenderTarget &target() const noexcept {
+    return m_target;
+  }
   [[nodiscard]] const FlyCamera &camera() const noexcept {
     return m_camera;
   }

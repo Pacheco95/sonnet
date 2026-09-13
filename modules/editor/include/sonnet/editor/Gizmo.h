@@ -46,9 +46,9 @@ struct GizmoResult {
 };
 
 // Translate, rotate and scale handles over the primary selection (docs/editor.md, "Gizmos").
-// Translation and rotation work along the world axes, scale along the entity's own. The drag
-// resolves the mouse ray against the axis or the rotation plane from the drag's fixed start
-// position, so the handle never chases the object it moves.
+// Translation and rotation work along the world axes, scale along the entity's own. The handles
+// follow the object; the drag resolves the mouse ray against the axis or the rotation plane from
+// the drag's fixed start position, so the maths never chases the object it moves.
 class Gizmo {
 public:
   void setMode(GizmoMode mode) noexcept {
@@ -62,6 +62,10 @@ public:
   }
   [[nodiscard]] GizmoAxis hoveredAxis() const noexcept {
     return m_hover;
+  }
+  // Where the handles were drawn by the last update: the entity's world position.
+  [[nodiscard]] glm::vec3 origin() const noexcept {
+    return m_origin;
   }
 
   // Handles this frame's interaction with `entity`'s transform and draws the handles into
@@ -97,6 +101,7 @@ private:
 
   GizmoMode m_mode{GizmoMode::Translate};
   GizmoAxis m_hover{GizmoAxis::None};
+  glm::vec3 m_origin{0.0f};
   std::optional<Drag> m_drag;
 };
 

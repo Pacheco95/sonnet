@@ -149,14 +149,16 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
     m_drag.reset();
     return result;
   }
-  const world::WorldTransform *worldTransform = entity.try_get<world::WorldTransform>();
-  const glm::mat4 worldMatrix =
-      worldTransform != nullptr ? worldTransform->matrix : entity.get<world::Transform>().matrix();
   const flecs::entity parent = world.parentOf(entity);
   const world::WorldTransform *parentTransform = parent ? parent.try_get<world::WorldTransform>() : nullptr;
   const glm::mat4 parentWorld = parentTransform != nullptr ? parentTransform->matrix : glm::mat4{1.0f};
+  // From the local transform as it is now, not the world matrix of the last transform system
+  // run, so the handles sit on the object even in the frame that moves it.
+  const glm::mat4 worldMatrix = parentWorld * entity.get<world::Transform>().matrix();
 
-  const glm::vec3 origin = m_drag ? m_drag->startPosition : glm::vec3{worldMatrix[3]};
+  // The handles are drawn and hit-tested where the object is; the drag maths below anchors at
+  // the drag's start position instead, so a handle never chases what it moves.
+  glm::vec3 origin{worldMatrix[3]};
   const float length = m_drag ? m_drag->length : glm::distance(view.cameraPosition, origin) * HandleSizeFraction;
   glm::vec3 axes[3];
   for (int i = 0; i < 3; ++i) {
@@ -218,14 +220,16 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
       }
       }
       entity.set<world::Transform>(local);
+      origin = glm::vec3{(drag.parentWorld * local.matrix())[3]}; // the handles follow this frame's move
     } else {
       result.finished = true;
       result.before = m_drag->startLocal;
       m_drag.reset();
-      m_hover = hitTest(view, glm::vec3{worldMatrix[3]}, axes, length);
+      m_hover = hitTest(view, origin, axes, length);
     }
   }
   result.hovered = m_hover != GizmoAxis::None;
+  m_origin = origin;
   if (drawList != nullptr) {
     draw(drawList, view, origin, axes, length, m_drag ? m_drag->axis : m_hover);
   }

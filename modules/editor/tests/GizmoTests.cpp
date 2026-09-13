@@ -79,6 +79,9 @@ TEST_CASE("a translate drag along X moves the entity by the mouse travel on that
   REQUIRE(result.active);
   REQUIRE(entity.get<world::Transform>().position.x == Approx(1.0f).margin(1e-3f));
   REQUIRE(entity.get<world::Transform>().position.y == Approx(0.0f).margin(1e-3f));
+  // The handles follow the object during the drag, in the same frame, before the transform
+  // system has run; the maths stays anchored at the start.
+  REQUIRE(gizmo.origin().x == Approx(1.0f).margin(1e-3f));
   // The same mouse position again leaves it in place: the drag is anchored, not accumulated.
   result = gizmo.update(viewAt(target, true, false), world, entity, nullptr);
   REQUIRE(entity.get<world::Transform>().position.x == Approx(1.0f).margin(1e-3f));

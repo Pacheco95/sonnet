@@ -11,6 +11,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <imgui.h>
+
 #include <filesystem>
 #include <memory>
 
@@ -141,4 +143,65 @@ TEST_CASE("the editor opens a project, edits, plays, stops and saves", "[editor]
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a mouse drag on the gizmo's X handle moves the selected entity", "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    world::World &world = editor.world();
+    flecs::entity box;
+    for (const flecs::entity root : world.roots()) {
+      if (root.get<world::Name>().value == "Box") {
+        box = root;
+      }
+    }
+    REQUIRE(box.is_valid());
+    editor.selection().select(world.uuidOf(box));
+    // Two frames so the dock layout settles and the viewport reports its rectangle.
+    fixture.frame(editor);
+    fixture.frame(editor);
+    const editor::ViewportInput &input = editor.viewport().input();
+    REQUIRE(input.visible);
+    REQUIRE(input.size.x > 100.0f);
+
+    const auto viewOf = [&](glm::vec2 mouse) {
+      const renderer::Camera &camera = editor.viewport().camera().camera();
+      const glm::uvec2 targetSize = editor.viewport().target().size();
+      return editor::GizmoView{
+          .view = camera.view(),
+          .projection = camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(targetSize.y)),
+          .cameraPosition = camera.position,
+          .origin = input.origin,
+          .size = input.size,
+          .mouse = mouse};
+    };
+    const glm::vec3 boxPosition{box.get<world::WorldTransform>().matrix[3]};
+    const float length = glm::distance(viewOf({}).cameraPosition, boxPosition) * 0.18f;
+    const auto handle = editor::Gizmo::project(viewOf({}), boxPosition + glm::vec3{length * 0.6f, 0.0f, 0.0f});
+    const auto target = editor::Gizmo::project(viewOf({}), boxPosition + glm::vec3{length * 0.6f + 1.0f, 0.0f, 0.0f});
+    REQUIRE(handle.has_value());
+    REQUIRE(target.has_value());
+
+    ImGuiIO &io = ImGui::GetIO();
+    io.AddMousePosEvent(handle->x, handle->y);
+    fixture.frame(editor);
+    REQUIRE(editor.gizmo().hoveredAxis() == editor::GizmoAxis::X);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    fixture.frame(editor);
+    REQUIRE(editor.gizmo().isDragging());
+    io.AddMousePosEvent(target->x, target->y);
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE(box.get<world::Transform>().position.x == Approx(1.0f).margin(0.05f));
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    fixture.frame(editor);
+    REQUIRE(!editor.gizmo().isDragging());
+    REQUIRE(editor.commands().canUndo());
+    REQUIRE(editor.commands().undoDescription() == "move Box");
+    REQUIRE(box.get<world::Transform>().position.x == Approx(1.0f).margin(0.05f));
+    REQUIRE(box.get<world::WorldTransform>().matrix[3].x == Approx(1.0f).margin(0.05f));
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
 }
