@@ -30,7 +30,7 @@ The asynchronous-ready form of this API, a request that returns at once with a p
 | `.hdr` | stb_image | Environments, decoded to RGBA16F for the renderer's cubes |
 | KTX2 | KTX-Software | Textures, used directly; Basis Universal data is transcoded on load |
 | `.material.json` | assets | Materials ([Materials](#materials)) |
-| `.slang` | Slang | Shader programs and reflection data |
+| `.slang` | Slang, through `ShaderCompiler` | SPIR-V modules for the editor's shader hot reload ([rendering.md](rendering.md#shaders)) |
 | `.lua` | Scripting | Script assets (M4) |
 | `.scene.json`, `.prefab.json` | world | Scenes and prefabs |
 

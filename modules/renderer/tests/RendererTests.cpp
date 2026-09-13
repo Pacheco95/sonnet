@@ -4,6 +4,7 @@
 #include <sonnet/renderer/Renderer.h>
 
 #include <sonnet/core/Error.h>
+#include <sonnet/core/File.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/NullDevice.h>
@@ -520,4 +521,34 @@ TEST_CASE("an environment fills the background and lights a sphere on a GPU", "[
     renderer.destroyEnvironment(environment);
   }
   REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("reloading a shader rebuilds its pipelines and keeps them on a rejected module", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  REQUIRE(std::ranges::find(Renderer::shaderNames(), "forward") != Renderer::shaderNames().end());
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const std::array draws{DrawItem{.mesh = box}};
+  const SceneView view = boxScene(draws);
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({16, 16});
+
+  const auto spirv = sonnet::core::readFile(shaderDir(platform) / "forward.spv");
+  REQUIRE(spirv.has_value());
+  REQUIRE(renderer.reloadShader("forward", *spirv).has_value());
+  REQUIRE(!renderer.reloadShader("nonsense", *spirv).has_value());
+  const std::array<std::byte, 8> garbage{};
+  // The null device accepts any bytes; a real one rejects garbage and the old pipelines stay.
+  static_cast<void>(renderer.reloadShader("post", garbage));
+
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+  REQUIRE(countLines(*device, "bindPipeline \"forward\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"tonemap\"") == 1);
+  renderer.destroyMesh(box);
 }

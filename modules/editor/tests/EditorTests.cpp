@@ -320,3 +320,20 @@ TEST_CASE("the asset browser lists a project's assets and the inspector edits a 
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("the editor recompiles the engine shaders from the checkout's sources", "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    fixture.frame(editor);
+    // The test binary lives in a build directory inside the checkout, where the sources are found.
+    const auto reloaded = editor.reloadShaders();
+    if (!reloaded) {
+      SKIP("shader sources not found: " << reloaded.error().message);
+    }
+    fixture.frame(editor);
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}

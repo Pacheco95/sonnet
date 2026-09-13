@@ -13,6 +13,7 @@
 #include <sonnet/editor/ViewportPanel.h>
 
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/assets/ShaderCompiler.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
@@ -28,12 +29,15 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 union SDL_Event;
@@ -75,6 +79,12 @@ public:
   [[nodiscard]] core::Result<void> saveSceneAs(const std::filesystem::path &file);
   // The starter scene, unsaved.
   void newScene();
+
+  // Compiles every engine shader from the checkout's sources and rebuilds its pipelines: what
+  // the Tools menu does, and what the source poll does for one changed file (docs/editor.md,
+  // "Shader hot reload"). Fails when the sources are not found or a shader does not compile,
+  // in which case its pipelines stay as they were.
+  [[nodiscard]] core::Result<void> reloadShaders();
 
   // Play mode (docs/architecture.md, "Editor and player"): play snapshots the scene and enables
   // the simulation, stop restores the snapshot and drops the undo history.
@@ -142,6 +152,9 @@ private:
   void focusSelection();
   void openLocation(const std::string &path, int line);
   [[nodiscard]] core::Result<void> loadSceneFile(const std::filesystem::path &file);
+  [[nodiscard]] std::optional<std::filesystem::path> shaderSourceDirectory();
+  [[nodiscard]] core::Result<void> reloadShader(std::string_view name);
+  void pollShaders();
 
   platform::IWindow &m_window;
   rhi::IDevice &m_device;
@@ -166,6 +179,11 @@ private:
   std::filesystem::path m_scenePath;
   std::uint64_t m_savedRevision{0};
   nlohmann::json m_snapshot;
+  std::unique_ptr<assets::ShaderCompiler> m_shaderCompiler;
+  std::filesystem::path m_shaderSources;
+  std::unordered_map<std::string, std::filesystem::file_time_type> m_shaderTimes;
+  std::chrono::steady_clock::time_point m_lastShaderPoll{};
+  bool m_shaderPollDisabled{false};
 
   LogPanel m_logPanel;
   StatisticsPanel m_statisticsPanel;

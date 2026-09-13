@@ -46,6 +46,10 @@ The frame, as `apps/editor/main.cpp` orders it:
 
 The Debug build of the application turns on the flecs explorer through `World`.
 
+## Shader hot reload
+
+The engine's shader sources are found in the checkout the way the log's source links are, `modules/renderer/shaders` under `sourceRoot` or above the executable. Every half second the editor compares their modification times; a changed entry-point file is recompiled with `assets::ShaderCompiler` and its pipelines rebuilt through `Renderer::reloadShader`, and a changed module, `sonnet.slang`, recompiles every entry point ([rendering.md](rendering.md#shaders)). Compile errors go to the log with the `file:line:column` the compiler reports and leave the previous pipelines running. Tools, Reload shaders does the same for every shader at once. Without a checkout around the binary the poll turns itself off.
+
 ## Selection and picking
 
 The selection holds UUIDs, so it survives undo, play mode and reloads; the last selected entity is the primary one, what the inspector shows and the gizmo moves. Clicking in the hierarchy selects, Ctrl toggles, Shift adds. Clicking in the viewport, away from a gizmo handle and with the camera idle, asks the `renderer::Picker` for the id under the cursor; the answer comes two frames later, when the readback of that frame has completed, and the selection changes then, with the same modifiers. Selected entities and their descendants are drawn into the selection mask and outlined from it ([rendering.md](rendering.md#the-renderer-module-today)), so an object in front of a selected one is never outlined itself. Escape clears the selection, F turns the camera towards it.
@@ -86,7 +90,7 @@ A project is a folder with a `project.json` ([assets.md](assets.md#project-file)
 
 Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "editor")`: the recent projects and the external editor command. A `file:line` in the log panel is a link that runs that command with the placeholders filled in (`code --goto {file}:{line}` by default). Log records name repository-relative files and binaries carry no build-machine paths, so the editor finds the file at click time: under `sourceRoot` when set, otherwise in the directories from the executable's upwards, which finds the checkout a build directory lives in. A file found nowhere is a warning, not an empty document in the external editor.
 
-`editor_tests` covers the selection, every command through undo and redo including the material and texture settings commands, the gizmo's maths and headless drags, projects and preferences through the temporary directory, the fly camera, the log buffer, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play and stop, save and reopen, the asset browser and a material in the inspector, with picking and the outline in the frames and validation silent.
+`editor_tests` covers the selection, every command through undo and redo including the material and texture settings commands, the gizmo's maths and headless drags, projects and preferences through the temporary directory, the fly camera, the log buffer, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play and stop, save and reopen, the asset browser and a material in the inspector, the shaders recompiled from the checkout, with picking and the outline in the frames and validation silent.
 
 ## Running it
 
@@ -94,7 +98,7 @@ Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "edit
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic
 ```
 
-Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+P to play and stop. The View menu toggles the panels and the overlay; Ctrl+Q quits.
+Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+P to play and stop. The View menu toggles the panels and the overlay, Tools reloads the shaders; Ctrl+Q quits.
 
 ## See also
 
