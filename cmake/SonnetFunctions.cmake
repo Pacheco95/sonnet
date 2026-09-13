@@ -73,15 +73,18 @@ endfunction()
 
 # sonnet_add_executable(<name> SOURCES ... DEPENDS ...)
 #
-# Creates the executable sonnet_<name> with the shared warning flags and per-configuration
-# definitions of an engine target. SONNET_MODULE is <name>, so an app logs under its own name.
+# Creates the target sonnet_<name>_app, whose binary is named sonnet_<name>, with the shared
+# warning flags and per-configuration definitions of an engine target. The target carries the
+# suffix because an app usually shares its name with the module it fronts (`editor`), and the
+# module owns the plain sonnet_<name> target. SONNET_MODULE is <name>, so an app logs under its
+# own name.
 function(sonnet_add_executable NAME)
   cmake_parse_arguments(ARG "" "" "SOURCES;DEPENDS" ${ARGN})
-  set(target sonnet_${NAME})
+  set(target sonnet_${NAME}_app)
 
   add_executable(${target} ${ARG_SOURCES})
   target_compile_definitions(${target} PRIVATE SONNET_MODULE="${NAME}")
   target_link_libraries(${target} PRIVATE sonnet::warnings ${ARG_DEPENDS})
-  set_target_properties(${target} PROPERTIES FOLDER "Apps" COMPILE_WARNING_AS_ERROR ON)
+  set_target_properties(${target} PROPERTIES FOLDER "Apps" COMPILE_WARNING_AS_ERROR ON OUTPUT_NAME sonnet_${NAME})
   sonnet_copy_tracy_client(${target})
 endfunction()

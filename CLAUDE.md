@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle) is done; M1 (editor shell: `ui`, `renderer` with the render graph, `editor`) is next.
+Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle) and M1 (editor shell: `ui`, `renderer` with the render graph, `editor`) are done; M2 (`world` with flecs, hierarchy and inspector panels, gizmos, undo/redo, play mode, project handling) is next.
 
 The docs are the source of truth. Read the relevant one before a non-trivial change, and update it in the same change:
 
@@ -14,6 +14,7 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 | `core` | `docs/core.md` |
 | `platform` | `docs/platform.md` |
 | `rhi`, `renderer`, shaders | `docs/rendering.md` |
+| `ui`, `editor`, `apps/editor` | `docs/editor.md` |
 | `assets`, file formats | `docs/assets.md` |
 | CMake, vcpkg, CI | `docs/build.md` |
 | A cross-module decision | `docs/decisions/` (ADRs and the template) |
@@ -29,7 +30,7 @@ cmake --build --preset linux-debug
 ctest --preset linux-debug --output-on-failure
 ctest --preset linux-debug -R core_tests            # one module's tests
 # one case or tag: run the <module>_tests binary directly, e.g. core_tests "[handle]"
-./build/linux-debug/apps/editor/sonnet_editor              # a project path argument arrives in M2
+./build/linux-debug/apps/editor/sonnet_editor              # a project path argument arrives in M2; right-drag the viewport, WASD/QE
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset linux-debug -R rhi_tests   # what CI runs: Lavapipe
 python3 tools/check_docs.py            # after editing any Markdown: links, anchors, cross-doc consistency
 python3 tools/check_version.py         # vcpkg.json must mirror project(sonnet VERSION ...)
@@ -43,7 +44,7 @@ Machine-specific notes (tool locations, checkouts of the previous iterations to 
 
 - **Modules in dependency order**: `core → platform → rhi → renderer → assets → world → physics / scripting / audio → ui → editor`. A module links only modules earlier in the dependency order; `modules/CMakeLists.txt` adds them in this order and that order is the canonical statement of the architecture. `apps/editor` and `apps/player` are executables; `apps/samples/*` are project folders.
 - **Interfaces live with their owner.** There is no `api` module. `platform` holds `IWindow` and the SDL3 implementation; `rhi` holds the device interfaces and the Vulkan implementation. Upward communication uses interfaces, callbacks and data handed down, never a dependency.
-- **One `#if`-switched site**: the `rhi` device factory. The documented exception is `ui`, which may include Vulkan implementation headers for Dear ImGui's backend.
+- **One `#if`-switched site**: the `rhi` device factory. The documented exception is `ui`, which links `sonnet::rhi_vulkan` to include the Vulkan implementation headers for Dear ImGui's backend.
 - **The engine does not own `main()`.** It implements SDL3's callback model so desktop and mobile share one lifecycle. Frame ordering lives in the app, not in modules.
 - **ECS**: flecs. Hierarchy is `ChildOf`, prefabs and nested scenes are `IsA`, components are plain structs registered with flecs reflection, which drives the inspector, scene JSON and scripting bindings. flecs types appear unwrapped in `world` headers by decision.
 - **Handles**: `core::Handle<Tag>` is a 32-bit index plus 32-bit generation; components store handles, owners resolve them.
@@ -51,6 +52,8 @@ Machine-specific notes (tool locations, checkouts of the previous iterations to 
 - **Rendering**: vk-bootstrap creates, Vulkan-HPP RAII wrappers own, `vkb::destroy_*` is never called, RAII members are declared in reverse destruction order. The render graph is an engine module. Shaders are Slang only, compiled by `slangc` at build time through `sonnet_add_shaders` and at runtime in the editor for hot reload; Slang reflection is the only shader reflection source. Set 0 is the bindless set, set 1 is push descriptors, push constants carry per-draw indices. Reversed-Z, negative viewport height for the Y flip, counter-clockwise front faces.
 - **rhi per-frame rules**: `beginFrame`/`endFrame` bracket every frame; resource destruction is deferred to the frame slot's next reuse; acquire, submit and present go through raw dispatcher calls so the per-frame path never throws; `rhi_tests` fails on any validation message.
 - **Assets**: UUID in a `.meta` sidecar next to each source file; references are by UUID, never by path. Source assets are imported by the editor, cooked assets are what the player loads.
+- **Render graph**: rebuilt every frame; passes declare attachments and sampled images, the graph emits the barriers, pools transient images and times every pass. Upper-module tests use `rhi::createNullDevice()` and assert on its command trace. CMake app targets are `sonnet_<name>_app` (binary `sonnet_<name>`); `sonnet_add_engine_shaders(<target>)` puts the engine shaders next to a binary.
+- **Patched ports**: `ports/<name>` overlay ports registered by `vcpkg-configuration.json`, each described in `ports/README.md`.
 
 ## Conventions that are easy to get wrong
 

@@ -24,7 +24,7 @@ Carried over from the first iteration of the engine and extended.
 - Sources: `Transform.h`, `Transform.cpp`, `TransformTests.cpp`.
 - Shaders: `<pass>.slang` for entry-point files, `<name>.slang` for modules, all in `modules/renderer/shaders/` or a project's `shaders/` folder.
 - Scenes and prefabs: `<name>.scene.json`, `<name>.prefab.json`. Asset sidecars: `<file>.meta`.
-- CMake targets: `sonnet_<module>` with alias `sonnet::<module>`; tests `<module>_tests`; apps `sonnet_editor`, `sonnet_player`, `sonnet_cook`.
+- CMake targets: `sonnet_<module>` with alias `sonnet::<module>`; tests `<module>_tests`; apps `sonnet_<name>_app` producing the binaries `sonnet_editor`, `sonnet_player`, `sonnet_cook`.
 
 ## Math conventions
 

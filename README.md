@@ -2,7 +2,7 @@
 
 Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android and iOS. It is a set of small modules with one-way dependencies, a Vulkan 1.4 renderer behind a thin render-hardware interface, and an editor for authoring, debugging and playing scenes.
 
-**Status: pre-alpha, milestone M0 (foundation) landed: build, `core`, `platform`, `rhi` and a triangle.** This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
+**Status: pre-alpha, milestone M1 (editor shell) landed: build, `core`, `platform`, `rhi`, `renderer` with the render graph, `ui` and an `editor` that shows a lit primitive scene in a dockable viewport with live statistics.** This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
 
 ## Goals
 
@@ -113,7 +113,7 @@ Details, including the entity model, resource handles and the editor/player spli
 
 ```
 sonnet/
-├── CMakeLists.txt, CMakePresets.json, vcpkg.json
+├── CMakeLists.txt, CMakePresets.json, vcpkg.json, vcpkg-configuration.json
 ├── cmake/                 — options, module and test helpers, toolchain glue
 ├── ports/                 — vcpkg overlay ports carrying local patches
 ├── modules/<name>/        — include/sonnet/<name>/, src/, tests/, shaders/ (renderer only)
@@ -144,7 +144,8 @@ ctest --preset linux-debug
 | `core`: handles, logging, assertions, errors, UUIDs | [docs/core.md](docs/core.md) |
 | `platform`: window, events, application lifecycle, paths | [docs/platform.md](docs/platform.md) |
 | Build system, toolchains, dependencies, CI | [docs/build.md](docs/build.md) |
-| Rendering: Vulkan baseline, platform notes, Slang pipeline, frame structure | [docs/rendering.md](docs/rendering.md) |
+| Rendering: Vulkan baseline, platform notes, Slang pipeline, frame structure, render graph | [docs/rendering.md](docs/rendering.md) |
+| Editor: the Dear ImGui layer, panels, viewport camera, frame order | [docs/editor.md](docs/editor.md) |
 | Assets: identity, database, importers, project and scene files, cooking | [docs/assets.md](docs/assets.md) |
 | Roadmap and milestones | [docs/roadmap.md](docs/roadmap.md) |
 | Conventions: code style, math, error handling, logging, commits, versioning | [docs/conventions.md](docs/conventions.md) |

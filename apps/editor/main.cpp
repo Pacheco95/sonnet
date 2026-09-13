@@ -1,16 +1,15 @@
 #include <sonnet/platform/EntryPoint.h>
 
-#include <sonnet/core/Error.h>
-#include <sonnet/core/File.h>
-#include <sonnet/core/Log.h>
+#include <sonnet/editor/Editor.h>
 #include <sonnet/platform/Application.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/platform/Window.h>
 #include <sonnet/rhi/Device.h>
+#include <sonnet/rhi/Swapchain.h>
 
+#include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -20,58 +19,34 @@ namespace {
 
 using namespace sonnet;
 
-// M0 shell: a window with a triangle drawn every frame through the render hardware interface.
-// The editor module arrives in M1.
+// The frame order lives here (docs/architecture.md, "Application lifecycle"): events, then
+// update, then the render graph into the acquired swapchain image, then present.
 class EditorApp final : public platform::IApplication {
 public:
   explicit EditorApp(platform::Platform &platform)
-      : m_window(platform.createWindow({.title = "Sonnet Editor", .size = {1280, 720}})),
+      : m_window(platform.createWindow({.title = "Sonnet Editor", .size = {1600, 900}})),
         m_device(rhi::createDevice({.platform = &platform, .applicationName = "Sonnet Editor"})),
-        m_swapchain(m_device->createSwapchain(*m_window)) {
-    const auto spirv = core::readFile(platform.basePath() / "shaders" / "triangle.spv");
-    if (!spirv) {
-      throw core::Exception{spirv.error()};
-    }
-    const rhi::ShaderHandle shader = m_device->createShader({.spirv = *spirv, .debugName = "triangle"});
-    m_pipeline = m_device->createGraphicsPipeline(
-        {.shader = shader, .colorFormats = {m_swapchain->format()}, .debugName = "triangle pipeline"});
-    m_device->destroyShader(shader);
+        m_swapchain(m_device->createSwapchain(*m_window)),
+        m_editor(std::make_unique<editor::Editor>(platform, *m_window, *m_device, *m_swapchain)) {
   }
 
   ~EditorApp() override {
     m_device->waitIdle();
-    m_device->destroyPipeline(m_pipeline);
   }
 
   platform::AppResult iterate() override {
+    const auto now = std::chrono::steady_clock::now();
+    // A long stall (a breakpoint, a window drag) must not fling the camera across the scene.
+    const float dt = std::min(std::chrono::duration<float>(now - m_lastFrame).count(), 0.1f);
+    m_lastFrame = now;
+
+    m_editor->update(dt);
     rhi::ICommandList &commands = m_device->beginFrame();
-    if (const auto image = m_swapchain->acquire()) {
-      const rhi::ImageBarrier toColor{.image = image->image,
-                                      .srcStage = rhi::PipelineStage::AllCommands,
-                                      .oldLayout = rhi::ImageLayout::Undefined,
-                                      .dstStage = rhi::PipelineStage::ColorAttachmentOutput,
-                                      .dstAccess = rhi::Access::ColorAttachmentWrite,
-                                      .newLayout = rhi::ImageLayout::ColorAttachment};
-      commands.barrier({&toColor, 1});
-      const rhi::ColorAttachment attachment{.image = image->image, .clearColor = {0.1f, 0.1f, 0.12f, 1.0f}};
-      commands.beginRendering({.colors = {&attachment, 1}});
-      commands.bindPipeline(m_pipeline);
-      const float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_start).count();
-      const float pulse = 0.75f + 0.25f * std::sin(seconds * 2.0f);
-      const glm::vec4 tint{pulse, pulse, pulse, 1.0f};
-      commands.pushConstants(std::as_bytes(std::span{&tint, 1}));
-      commands.draw(3);
-      commands.endRendering();
-      const rhi::ImageBarrier toPresent{.image = image->image,
-                                        .srcStage = rhi::PipelineStage::ColorAttachmentOutput,
-                                        .srcAccess = rhi::Access::ColorAttachmentWrite,
-                                        .oldLayout = rhi::ImageLayout::ColorAttachment,
-                                        .dstStage = rhi::PipelineStage::None,
-                                        .newLayout = rhi::ImageLayout::Present};
-      commands.barrier({&toPresent, 1});
-    }
+    const std::optional<rhi::SwapchainImage> image = m_swapchain->acquire();
+    m_editor->render(commands, image);
     m_device->endFrame();
-    return platform::AppResult::Continue;
+    m_editor->afterPresent();
+    return m_editor->quitRequested() ? platform::AppResult::Success : platform::AppResult::Continue;
   }
 
   platform::AppResult event(const platform::Event &event) override {
@@ -82,20 +57,22 @@ public:
     if (std::holds_alternative<platform::WindowResized>(event)) {
       m_swapchain->requestResize();
     }
+    m_editor->event(event);
     return platform::AppResult::Continue;
   }
 
-  void nativeEvent(const SDL_Event &) override {
-    // Dear ImGui consumes these once the ui module exists.
+  void nativeEvent(const SDL_Event &event) override {
+    m_editor->nativeEvent(event);
   }
 
 private:
-  // Declared in creation order so the swapchain dies before the device, the device before the window.
+  // Declared in creation order: the editor dies before the swapchain, the swapchain before the
+  // device, the device before the window.
   std::unique_ptr<platform::IWindow> m_window;
   std::unique_ptr<rhi::IDevice> m_device;
   std::unique_ptr<rhi::ISwapchain> m_swapchain;
-  rhi::PipelineHandle m_pipeline;
-  std::chrono::steady_clock::time_point m_start{std::chrono::steady_clock::now()};
+  std::unique_ptr<editor::Editor> m_editor;
+  std::chrono::steady_clock::time_point m_lastFrame{std::chrono::steady_clock::now()};
 };
 
 } // namespace

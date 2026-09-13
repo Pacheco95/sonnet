@@ -36,7 +36,7 @@ Upward communication is still needed, for example the platform layer must tell t
 - **Callbacks and events** the lower layer emits. Input events are values pushed into a queue the upper layer drains.
 - **Data** the upper layer hands down. The renderer receives a list of draw items built by `world`; it never queries the ECS.
 
-The ordering of a frame lives in one place, the application loop in `apps/`, so no module has to know who runs before or after it.
+The ordering of a frame lives in one place, the application loop in `apps/`, so no module has to know who runs before or after it. `apps/editor/main.cpp` is that place for the editor: it calls the `editor::Editor` steps in order and owns the window, device and swapchain ([editor.md](editor.md)).
 
 ## What "agnostic" means
 
