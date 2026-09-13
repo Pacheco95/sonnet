@@ -78,9 +78,13 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
     const GraphImage color = graph.importImage(target.color());
     const GraphImage depth = graph.importImage(target.depth());
     const GraphImage ids = graph.createImage(idImageDesc(target.size()));
+    ImageDesc maskDesc = idImageDesc(target.size());
+    maskDesc.debugName = "mask";
+    const GraphImage mask = graph.createImage(maskDesc);
     renderer.addScenePasses(graph, view, color, depth);
     renderer.addIdPass(graph, view, ids, depth);
-    renderer.addOutlinePass(graph, color, ids, selected);
+    renderer.addSelectionMaskPass(graph, view, mask, selected);
+    renderer.addOutlinePass(graph, color, mask);
     picker.addPass(graph, ids, target.size());
     graph.execute(commands);
     device->endFrame();
@@ -90,14 +94,17 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
   REQUIRE(!frame(true).has_value());
   REQUIRE(countLines(*device, "bindPipeline \"forward\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"id\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"selection mask\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"outline\"") == 1);
-  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 4); // two boxes in the forward and the id pass
-  REQUIRE(countLines(*device, "bindImage 2 \"ids\"") == 1);
+  // Two boxes in the forward and the id pass, the selected one in the mask pass.
+  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 5);
+  REQUIRE(countLines(*device, "beginRendering color \"mask\" clear") == 1); // no depth attachment
+  REQUIRE(countLines(*device, "bindImage 2 \"mask\"") == 1);
   REQUIRE(countLines(*device, "draw 3 x1") == 1);
   REQUIRE(countLines(*device, "copyImageToBuffer \"ids\"") == 1);
-  REQUIRE(countLines(*device, "barrier \"ids\" ColorAttachment->ShaderReadOnly") == 1);
-  REQUIRE(renderer.statistics().drawCount == 2); // the id pass is not counted
-  REQUIRE(graph.statistics().passes.size() == 4);
+  REQUIRE(countLines(*device, "barrier \"mask\" ColorAttachment->ShaderReadOnly") == 1);
+  REQUIRE(renderer.statistics().drawCount == 2); // the id and mask passes are not counted
+  REQUIRE(graph.statistics().passes.size() == 5);
 
   // The answer arrives when the slot comes round, FramesInFlight frames later; the null device's
   // memory reads as zero.
@@ -113,20 +120,25 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
   renderer.destroyMesh(box);
 }
 
-TEST_CASE("an empty selection adds no outline pass", "[renderer][picking][null]") {
+TEST_CASE("an empty selection adds no mask or outline pass", "[renderer][picking][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();
   Renderer renderer{*device, shaderDir(platform)};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
   RenderGraph graph{*device};
   RenderTarget target{*device, "viewport"};
   target.resize({8, 8});
   ICommandList &commands = device->beginFrame();
   graph.reset();
-  const GraphImage ids = graph.createImage(idImageDesc(target.size()));
-  renderer.addOutlinePass(graph, graph.importImage(target.color()), ids, {});
+  const GraphImage mask = graph.createImage(idImageDesc(target.size()));
+  const std::array draws{DrawItem{.mesh = box, .id = 1}};
+  const SceneView view = boxScene(draws);
+  renderer.addSelectionMaskPass(graph, view, mask, {});
+  renderer.addOutlinePass(graph, graph.importImage(target.color()), mask);
   graph.execute(commands);
   device->endFrame();
   REQUIRE(graph.statistics().passes.empty());
+  renderer.destroyMesh(box);
 }
 
 TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gpu]") {
@@ -176,9 +188,11 @@ TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gp
       const GraphImage color = graph.importImage(target.color());
       const GraphImage depth = graph.importImage(target.depth());
       const GraphImage ids = graph.createImage(idImageDesc(size));
+      const GraphImage mask = graph.createImage(idImageDesc(size));
       renderer.addScenePasses(graph, view, color, depth, {0.0f, 0.0f, 0.0f, 1.0f});
       renderer.addIdPass(graph, view, ids, depth);
-      renderer.addOutlinePass(graph, color, ids, selected, {1.0f, 0.5f, 0.0f, 1.0f});
+      renderer.addSelectionMaskPass(graph, view, mask, selected);
+      renderer.addOutlinePass(graph, color, mask, {1.0f, 0.5f, 0.0f, 1.0f});
       picker.addPass(graph, ids, size);
       if (frame == 3) { // one readback, after the frames that could still be writing it have passed
         graph.addPass(
@@ -209,6 +223,73 @@ TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gp
     REQUIRE(device->validationMessageCount() == 0);
 
     device->destroyBuffer(readback);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("an occluder in front of a selected surface is not outlined", "[renderer][picking][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device;
+  try {
+    device = createDevice({.platform = &platform, .applicationName = "renderer_tests"});
+  } catch (const sonnet::core::Exception &e) {
+    SKIP("no usable Vulkan 1.4 device: " << e.what());
+  }
+  {
+    Renderer renderer{*device, shaderDir(platform)};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
+    constexpr std::uint32_t PlaneId = 3;
+    // The plane turned to face the camera, one metre behind the box, filling the whole view: its
+    // silhouette has no edge on screen, and the box in front must not carve one into it.
+    const glm::mat4 facing = glm::translate(glm::mat4{1.0f}, {0.0f, 0.0f, -1.0f}) *
+                             glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+    const std::array draws{
+        DrawItem{.mesh = box, .color = {0.2f, 0.2f, 0.2f, 1.0f}, .id = 42},
+        DrawItem{.mesh = plane, .transform = facing, .color = {0.5f, 0.5f, 0.5f, 1.0f}, .id = PlaneId}};
+    const SceneView view = boxScene(draws);
+    constexpr glm::uvec2 size{64, 64};
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize(size);
+    const BufferHandle readback = device->createBuffer({.size = std::uint64_t{size.x} * size.y * 4,
+                                                        .usage = BufferUsage::TransferDst,
+                                                        .memory = MemoryUsage::GpuToCpu,
+                                                        .debugName = "readback"});
+    const std::array selected{PlaneId};
+
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    const GraphImage color = graph.importImage(target.color());
+    const GraphImage depth = graph.importImage(target.depth());
+    const GraphImage mask = graph.createImage(idImageDesc(size));
+    renderer.addScenePasses(graph, view, color, depth, {0.0f, 0.0f, 0.0f, 1.0f});
+    renderer.addSelectionMaskPass(graph, view, mask, selected);
+    renderer.addOutlinePass(graph, color, mask, {1.0f, 0.5f, 0.0f, 1.0f});
+    graph.addPass(
+        "readback", [&](PassBuilder &b) { b.transferSrc(color); },
+        [&](ICommandList &cmd, const PassResources &resources) {
+          cmd.copyImageToBuffer(resources.image(color), readback);
+        });
+    graph.execute(commands);
+    device->endFrame();
+    device->waitIdle();
+
+    const std::span<const std::byte> pixels = device->mappedRange(readback);
+    // Nothing on screen is the outline colour: not the box's edge, not the plane around it.
+    for (unsigned y = 0; y < size.y; ++y) {
+      for (unsigned x = 0; x < size.x; ++x) {
+        const Pixel pixel = pixelAt(pixels, size, x, y);
+        REQUIRE(!(pixel.r == 255 && pixel.b == 0 && pixel.g > 100 && pixel.g < 160));
+      }
+    }
+    const Pixel centre = pixelAt(pixels, size, size.x / 2, size.y / 2);
+    REQUIRE(centre.r < 200); // the box, drawn in front of the plane
+    REQUIRE(device->validationMessageCount() == 0);
+
+    device->destroyBuffer(readback);
+    renderer.destroyMesh(plane);
     renderer.destroyMesh(box);
   }
   REQUIRE(device->validationMessageCount() == 0);

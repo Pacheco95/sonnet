@@ -28,8 +28,8 @@ public:
   static constexpr rhi::Format ColorFormat = rhi::Format::R8G8B8A8Unorm;
   static constexpr rhi::Format DepthFormat = rhi::Format::D32Sfloat;
   static constexpr rhi::Format IdFormat = rhi::Format::R32Uint;
-  // Outlined ids per frame; the push constants hold them (shaders/outline.slang).
-  static constexpr std::size_t MaxOutlineIds = 16;
+  // Selected ids a frame can mask; the rest are ignored.
+  static constexpr std::size_t MaxSelected = 16;
 
   // shaderDir holds the modules compiled by sonnet_add_engine_shaders (`forward.spv`, ...).
   Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir);
@@ -49,9 +49,14 @@ public:
   // Declares the id pass: every item's id into `ids` (IdFormat, cleared to 0), tested against
   // the depth the scene passes wrote so only visible surfaces remain. Same lifetime rule.
   void addIdPass(RenderGraph &graph, const SceneView &view, GraphImage ids, GraphImage depth);
-  // Declares the outline pass over `color`, drawing `outlineColor` next to the silhouettes of
-  // the entities in `ids` whose id is listed, up to MaxOutlineIds (the rest are ignored).
-  void addOutlinePass(RenderGraph &graph, GraphImage color, GraphImage ids, std::span<const std::uint32_t> selected,
+  // Declares the selection mask pass: the items whose id is in `selected` (up to MaxSelected)
+  // drawn into `mask` (IdFormat, cleared to 0) without a depth test, so the mask holds each
+  // selected entity's whole silhouette, occluded or not. Adds nothing when the selection is empty.
+  void addSelectionMaskPass(RenderGraph &graph, const SceneView &view, GraphImage mask,
+                            std::span<const std::uint32_t> selected);
+  // Declares the outline pass over `color`, drawing `outlineColor` next to the silhouettes in
+  // `mask`. Adds nothing when the last mask pass had an empty selection.
+  void addOutlinePass(RenderGraph &graph, GraphImage color, GraphImage mask,
                       glm::vec4 outlineColor = {1.0f, 0.6f, 0.1f, 1.0f});
 
   [[nodiscard]] const RenderStatistics &statistics() const noexcept {
@@ -76,20 +81,23 @@ private:
   [[nodiscard]] rhi::PipelineHandle createPipeline(const std::filesystem::path &shaderDir, const char *name,
                                                    rhi::GraphicsPipelineDesc desc);
   [[nodiscard]] PassBuffers uploadPassBuffers(const SceneView &view, glm::uvec2 targetSize);
+  // `only` non-empty draws just the items whose id it lists.
   void recordDraws(rhi::ICommandList &commands, const SceneView &view, const PassBuffers &buffers,
-                   rhi::PipelineHandle pipeline, bool count);
+                   rhi::PipelineHandle pipeline, bool count, std::span<const std::uint32_t> only = {});
   void recordForward(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
   void recordIds(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
-  void recordOutline(rhi::ICommandList &commands, rhi::ImageHandle ids);
+  void recordSelectionMask(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
+  void recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask);
 
   rhi::IDevice &m_device;
   rhi::PipelineHandle m_forwardPipeline;
   rhi::PipelineHandle m_idPipeline;
+  rhi::PipelineHandle m_maskPipeline;
   rhi::PipelineHandle m_outlinePipeline;
   core::HandlePool<Mesh, MeshTag> m_meshes;
   RenderStatistics m_statistics;
-  std::array<std::uint32_t, MaxOutlineIds> m_outlineIds{};
-  std::uint32_t m_outlineCount{0};
+  std::array<std::uint32_t, MaxSelected> m_selected{};
+  std::uint32_t m_selectedCount{0};
   glm::vec4 m_outlineColor{1.0f, 0.6f, 0.1f, 1.0f};
 };
 
