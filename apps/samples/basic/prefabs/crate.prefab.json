@@ -1,16 +1,39 @@
 {
-  "version": 1,
+  "version": 2,
   "entities": [
     {
       "uuid": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
       "name": "Crate",
       "components": {
         "Transform": {
-          "position": {"x": 0.0, "y": 0.5, "z": 0.0},
-          "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
-          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+          "position": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
         },
-        "MeshRenderer": {"primitive": "Box", "color": {"x": 0.8, "y": 0.5, "z": 0.85, "w": 1.0}, "visible": true}
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.8,
+            "y": 0.5,
+            "z": 0.85,
+            "w": 1.0
+          },
+          "visible": true
+        }
       }
     },
     {
@@ -19,11 +42,34 @@
       "parent": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
       "components": {
         "Transform": {
-          "position": {"x": 0.0, "y": 0.55, "z": 0.0},
-          "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
-          "scale": {"x": 1.2, "y": 1.0, "z": 1.2}
+          "position": {
+            "x": 0.0,
+            "y": 0.55,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.2,
+            "y": 1.0,
+            "z": 1.2
+          }
         },
-        "MeshRenderer": {"primitive": "Plane", "color": {"x": 0.9, "y": 0.8, "z": 0.3, "w": 1.0}, "visible": true}
+        "MeshRenderer": {
+          "mesh": "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.9,
+            "y": 0.8,
+            "z": 0.3,
+            "w": 1.0
+          },
+          "visible": true
+        }
       }
     }
   ]

@@ -433,7 +433,7 @@ struct TransientAllocation {
 };
 
 // Timestamps a frame may write; results come back when the slot is reused (IDevice::timestamps).
-constexpr std::uint32_t MaxTimestamps = 64;
+constexpr std::uint32_t MaxTimestamps = 128;
 
 struct HeapBudget {
   std::uint64_t usage{0};

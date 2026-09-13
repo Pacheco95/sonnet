@@ -2,7 +2,7 @@
 
 Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android and iOS. It is a set of small modules with one-way dependencies, a Vulkan 1.4 renderer behind a thin render-hardware interface, and an editor for authoring, debugging and playing scenes.
 
-**Status: pre-alpha, milestone M2 (world) landed: build, `core`, `platform`, `rhi`, `renderer` with the render graph, `world` on flecs with scenes and prefabs, `ui` and an `editor` that authors scenes with a hierarchy, an inspector, gizmos, picking, undo and play mode, on a sample project.** This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
+**Status: pre-alpha, milestone M3 (assets and PBR) landed: build, `core`, `platform`, `rhi` with a bindless set, `renderer` with a clustered forward pipeline, PBR, cascaded shadows, image-based lighting and post-processing, `assets` with glTF and image import, KTX2 cooking and hot reload, `world` on flecs with scenes and prefabs, `ui` and an `editor` that authors scenes and materials with a hierarchy, an inspector, an asset browser, gizmos, picking, undo, play mode and shader hot reload, on a sample project.** This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
 
 ## Goals
 
@@ -12,7 +12,7 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 - **Modern Vulkan only.** One rendering code path on Vulkan 1.4: dynamic rendering, synchronization2, bindless descriptors, push descriptors. No legacy render passes and no second backend to keep in parity.
 - **Editor first.** The editor is an engine feature, not a demo. It drives the design of reflection, serialization, undo/redo and play mode.
 - **Exportable.** A game is a project folder (scenes, assets, scripts) run by a generic player binary, so exporting never needs a compiler on the target.
-- **Measurable performance.** Proposed targets, to be revisited once M3 lands: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and the same scene in 33 ms on a 2022 flagship phone.
+- **Measurable performance.** Proposed targets: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and the same scene in 33 ms on a 2022 flagship phone. First measured in M3 on an RTX 4090 ([docs/roadmap.md](docs/roadmap.md#m3-assets-and-pbr)): about 1.1 ms of GPU time and, until draws go GPU-driven, far more CPU time.
 
 ## Non-goals (for now)
 

@@ -256,3 +256,11 @@ TEST_CASE("material files round-trip and refuse unknown versions", "[assets][mat
   REQUIRE(!loadMaterial(future).has_value());
   REQUIRE(!loadMaterial(nlohmann::json::array()).has_value());
 }
+
+TEST_CASE("the built-in mesh identities never change, since scene files hold them", "[assets][database]") {
+  REQUIRE(builtin::box().toString() == "a464f023-844b-8938-9df4-75487155e36d");
+  REQUIRE(builtin::sphere().toString() == "fe3d3b79-c4ee-8f48-8944-6b1596b2c621");
+  REQUIRE(builtin::plane().toString() == "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40");
+  REQUIRE(builtin::cylinder().toString() == "4982c24f-bd36-8c92-a2c1-47e047fbe1b6");
+  REQUIRE(builtin::capsule().toString() == "663df5e4-bf07-8eb4-9364-2db2a5a3e28d");
+}

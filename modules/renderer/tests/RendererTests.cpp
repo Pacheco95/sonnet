@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
+#include <format>
 #include <memory>
 #include <string_view>
 
@@ -551,4 +553,69 @@ TEST_CASE("reloading a shader rebuilds its pipelines and keeps them on a rejecte
   REQUIRE(countLines(*device, "bindPipeline \"forward\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"tonemap\"") == 1);
   renderer.destroyMesh(box);
+}
+
+// The README's performance target, measured rather than asserted: hidden from the default run,
+// `renderer_tests "[benchmark]"` prints the GPU time per pass for ten thousand draws and a
+// hundred lights at 1080p on whatever device is present.
+TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform)};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
+    MaterialDesc rough;
+    rough.metallic = 0.0f;
+    rough.roughness = 0.7f;
+    const MaterialHandle material = renderer.createMaterial(rough, "rough");
+    const EnvironmentHandle environment = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
+    std::vector<DrawItem> draws;
+    std::vector<Light> lights;
+    constexpr int Side = 100;
+    for (int z = 0; z < Side; ++z) {
+      for (int x = 0; x < Side; ++x) {
+        const glm::vec3 position{static_cast<float>(x - Side / 2) * 1.5f, 0.5f,
+                                 static_cast<float>(z - Side / 2) * 1.5f};
+        draws.push_back({.mesh = (x + z) % 2 == 0 ? box : sphere,
+                         .material = material,
+                         .transform = glm::translate(glm::mat4{1.0f}, position),
+                         .id = static_cast<std::uint32_t>(draws.size() + 1)});
+      }
+    }
+    for (int i = 0; i < 100; ++i) {
+      const float angle = static_cast<float>(i) * 0.37f;
+      lights.push_back({.type = LightType::Point,
+                        .position = {std::cos(angle) * (5.0f + static_cast<float>(i) * 0.5f), 1.5f,
+                                     std::sin(angle) * (5.0f + static_cast<float>(i) * 0.5f)},
+                        .color = {1.0f, 0.8f, 0.6f},
+                        .intensity = 8.0f,
+                        .range = 6.0f});
+    }
+    SceneView view;
+    view.camera.position = {0.0f, 12.0f, 40.0f};
+    view.camera.rotation = glm::angleAxis(glm::radians(-18.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+    view.draws = draws;
+    view.lights = lights;
+    view.environment = environment;
+    GpuScene scene{*device, renderer, {1920, 1080}};
+    constexpr int Frames = 30;
+    scene.render(view, Frames);
+    // The last frame's timings are those of the frame two before it, complete by now.
+    float total = 0.0f;
+    for (const PassTiming &pass : scene.graph.statistics().passes) {
+      WARN(std::format("{:<20} {:8.3f} ms GPU {:8.3f} ms CPU", pass.name, pass.gpuMilliseconds, pass.cpuMilliseconds));
+      total += pass.gpuMilliseconds;
+    }
+    WARN(std::format("{} draws, {} lights, {} triangles: {:.3f} ms GPU per frame on {}",
+                     renderer.statistics().drawCount, renderer.statistics().lightCount,
+                     renderer.statistics().triangleCount, total, device->info().deviceName));
+    REQUIRE(renderer.statistics().drawCount == Side * Side);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyEnvironment(environment);
+    renderer.destroyMaterial(material);
+    renderer.destroyMesh(sphere);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
 }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle), M1 (editor shell: `ui`, `renderer` with the render graph, `editor`) and M2 (`world` with flecs, scenes and prefabs; the editor's hierarchy and inspector, gizmos, picking, undo/redo, play mode, projects; the basic sample) are done; M3 (`assets` and PBR) is in progress; ADR-0008 (clustered forward) is accepted.
+Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle), M1 (editor shell: `ui`, `renderer` with the render graph, `editor`), M2 (`world` with flecs, scenes and prefabs; the editor's hierarchy and inspector, gizmos, picking, undo/redo, play mode, projects; the basic sample) and M3 (`assets` with the database, glTF and image import, KTX2 cooking and hot reload; the clustered forward renderer with PBR, shadows, IBL and post-processing; the editor's asset browser, material editing and shader hot reload) are done; M4 (physics and scripting) is next.
 
 The docs are the source of truth. Read the relevant one before a non-trivial change, and update it in the same change:
 

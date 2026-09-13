@@ -64,7 +64,19 @@ Done when a scene can be authored from primitives, saved, reopened, and played w
 - `renderer`: clustered forward pipeline with depth pre-pass, PBR materials, directional and punctual lights, cascaded shadow maps, image-based lighting, skybox, bloom, tone mapping, anti-aliasing.
 - `editor`: asset browser, material editing, import settings in the inspector.
 
-Done when a glTF sample scene renders with shadows and IBL and the performance targets in the README are measured for the first time.
+Landed as ten commits, after ADR-0008 was accepted:
+
+1. `fastgltf`, `stb` and `ktx` through vcpkg, with an overlay port for `ktx` whose build applied a Clang-only flag to C sources.
+2. `rhi`: the bindless set, samplers, mipmapped and cube images, HDR and block-compressed formats, uploads through a staging ring, compute pipelines, blend modes.
+3. `renderer`: the clustered forward pipeline: shadow cascades, the depth pre-pass, light clustering in compute, PBR with the sun, the clustered lights and split-sum image-based lighting, the skybox, blended draws, bloom, ACES tone mapping and FXAA; meshes with tangents and submeshes, textures, materials and environments as renderer resources.
+4. `core`: derived UUIDs and `writeFile`; `rhi`: the block-compression capability.
+5. `assets`: the database with sidecars, image, HDR, KTX2 and glTF import, KTX2 cooking into the project's cache, material files and hot reload by polling; then a fix keying glTF sidecars on the file's content.
+6. `world`: mesh renderers by asset identity with the scene format at version 2 and the migration from version 1, punctual lights and environments handed to the renderer, glTF models as prefabs.
+7. `editor`: the asset browser, material editing and import settings in the inspector, asset pickers on identity fields.
+8. `assets` and `renderer`: runtime shader compilation with the Slang library and pipeline rebuilding, so the editor reloads changed shader sources.
+9. `samples`: the basic project gains a generated glTF crate, a checker texture, a gradient sky with a sun and a material file, its scene at version 2 with a model instance, a point light, a spot light and the environment; the version becomes 0.4.0.
+
+Done: the sample renders with shadows and image-based lighting. The README's target was measured for the first time with `renderer_tests "[benchmark]"`, ten thousand draws and a hundred lights at 1080p on an RTX 4090: about 1.1 ms of GPU time per frame, of which the forward pass takes 0.3 ms, but about 95 ms of CPU time recording six passes of ten thousand draws each, which is why GPU-driven culling and indirect draws are next on the rendering side. Deferred to later milestones: BC5 for normal maps and ASTC for mobile, cooked mesh files and the cook tool (M6), the asynchronous form of asset loading (with the job system), transparency in the shadow and depth passes beyond alpha masking, and 2020-era mid-range hardware for the target itself.
 
 ## M4: Physics and scripting
 
