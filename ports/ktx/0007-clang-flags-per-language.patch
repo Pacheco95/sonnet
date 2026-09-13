@@ -1,0 +1,14 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -357,7 +357,9 @@ set(is_msvccl "$<AND:${is_msvc_fe},$<CXX_COMPILER_ID:MSVC>>")
+ # Compiler is Visual Studio clangcl.exe
+ set(is_clangcl "$<AND:${is_msvc_fe},$<CXX_COMPILER_ID:Clang>>")
+ # Compiler is upstream clang with the standard frontend
+-set(is_clang "$<AND:${is_gnu_fe},$<CXX_COMPILER_ID:Clang,AppleClang>>")
++# Decided per language: a GNU-style C compiler paired with Clang for C++ must not receive
++# Clang's -ffp-model, which it does not understand.
++set(is_clang "$<AND:${is_gnu_fe},$<OR:$<COMPILE_LANG_AND_ID:C,Clang,AppleClang>,$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>>>")
+ 
+ add_compile_options(
+     $<$<AND:${is_msvccl},$<VERSION_LESS:$<CXX_COMPILER_VERSION>,19.30>>:/fp:strict>
