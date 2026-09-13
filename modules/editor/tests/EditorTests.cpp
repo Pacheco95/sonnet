@@ -1,58 +1,144 @@
 #include <sonnet/editor/Editor.h>
+#include <sonnet/editor/EntityCommands.h>
 
 #include <sonnet/core/Error.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
+#include <sonnet/world/Components.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <filesystem>
 #include <memory>
 
 using namespace sonnet;
+using Catch::Approx;
 
-TEST_CASE("the editor runs frames headless without validation errors", "[editor][gpu]") {
+namespace {
+
+struct Fixture {
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<platform::IWindow> window;
   std::unique_ptr<rhi::IDevice> device;
   std::unique_ptr<rhi::ISwapchain> swapchain;
-  try {
-    window = platform.createWindow({.title = "editor_tests", .size = {800, 600}});
-    device = rhi::createDevice({.platform = &platform, .applicationName = "editor_tests"});
-  } catch (const core::Exception &e) {
-    SKIP("no usable Vulkan 1.4 device: " << e.what());
-  }
-  const rhi::DeviceInfo &info = device->info();
-  if (info.loaderVersion < VK_API_VERSION_1_4 && info.driverName != "llvmpipe") {
-    SKIP("headless surfaces are not trusted on this loader and driver");
-  }
-  try {
-    swapchain = device->createSwapchain(*window);
-  } catch (const core::Exception &e) {
-    SKIP("headless surfaces are not supported here: " << e.what());
+
+  Fixture() {
+    try {
+      window = platform.createWindow({.title = "editor_tests", .size = {800, 600}});
+      device = rhi::createDevice({.platform = &platform, .applicationName = "editor_tests"});
+    } catch (const core::Exception &e) {
+      SKIP("no usable Vulkan 1.4 device: " << e.what());
+    }
+    const rhi::DeviceInfo &info = device->info();
+    if (info.loaderVersion < VK_API_VERSION_1_4 && info.driverName != "llvmpipe") {
+      SKIP("headless surfaces are not trusted on this loader and driver");
+    }
+    try {
+      swapchain = device->createSwapchain(*window);
+    } catch (const core::Exception &e) {
+      SKIP("headless surfaces are not supported here: " << e.what());
+    }
   }
 
-  {
-    editor::Editor editor{platform, *window, *device, *swapchain};
-    for (int frame = 0; frame < 4; ++frame) {
-      editor.event(platform::MouseMoved{{10.0f, 10.0f}, {1.0f, 0.0f}});
-      editor.update(1.0f / 60.0f);
-      rhi::ICommandList &commands = device->beginFrame();
-      const auto image = swapchain->acquire();
-      REQUIRE(image.has_value());
-      editor.render(commands, image);
-      device->endFrame();
-      editor.afterPresent();
-      REQUIRE(!editor.quitRequested());
-    }
-    // A frame without a swapchain image (minimised window) still records the scene.
+  void frame(editor::Editor &editor, bool withImage = true) {
     editor.update(1.0f / 60.0f);
     rhi::ICommandList &commands = device->beginFrame();
-    editor.render(commands, std::nullopt);
+    const auto image = withImage ? swapchain->acquire() : std::nullopt;
+    if (withImage) {
+      REQUIRE(image.has_value());
+    }
+    editor.render(commands, image);
     device->endFrame();
     editor.afterPresent();
   }
-  device->waitIdle();
-  REQUIRE(device->validationMessageCount() == 0);
+};
+
+std::filesystem::path scratch(const char *name) {
+  const std::filesystem::path path = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / name;
+  std::filesystem::remove_all(path);
+  std::filesystem::create_directories(path.parent_path());
+  return path;
+}
+
+} // namespace
+
+TEST_CASE("the editor runs frames headless without validation errors", "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.world().roots().size() == 4); // the starter scene
+    REQUIRE(!editor.isDirty());
+    for (int frame = 0; frame < 4; ++frame) {
+      editor.event(platform::MouseMoved{{10.0f, 10.0f}, {1.0f, 0.0f}});
+      fixture.frame(editor);
+      REQUIRE(!editor.quitRequested());
+    }
+    // A frame without a swapchain image (minimised window) still records the scene.
+    fixture.frame(editor, false);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the editor opens a project, edits, plays, stops and saves", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("project");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Test").has_value());
+    REQUIRE(editor.project().has_value());
+    REQUIRE(editor.scenePath() == editor.project()->resolve(editor.project()->startScene));
+    REQUIRE(!editor.isDirty());
+    fixture.frame(editor);
+
+    // An edit through the command stack makes the scene dirty; saving clears it.
+    world::World &world = editor.world();
+    const flecs::entity box = world.find([&] {
+      for (const flecs::entity root : world.roots()) {
+        if (root.get<world::Name>().value == "Box") {
+          return world.uuidOf(root);
+        }
+      }
+      return core::Uuid{};
+    }());
+    REQUIRE(box.is_valid());
+    editor.selection().select(world.uuidOf(box));
+    box.set<world::Spin>({.speed = glm::radians(90.0f)});
+    editor.commands().push(
+        editor::componentCommand(world.uuidOf(box), "Spin", std::nullopt, std::make_optional(nlohmann::json{}), "add"),
+        world);
+    REQUIRE(editor.isDirty());
+    fixture.frame(editor); // the selection outline and id pass run with a selection
+    REQUIRE(editor.saveScene().has_value());
+    REQUIRE(!editor.isDirty());
+
+    // Play advances the simulation; stop restores the snapshot, including the rotation.
+    const glm::quat before = box.get<world::Transform>().rotation;
+    editor.play();
+    REQUIRE(editor.isPlaying());
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE(world.find(world.uuidOf(box)).get<world::Transform>().rotation != before);
+    const core::Uuid boxUuid = world.uuidOf(box);
+    editor.stop();
+    REQUIRE(!editor.isPlaying());
+    REQUIRE(world.find(boxUuid).get<world::Transform>().rotation == before);
+    REQUIRE(editor.selection().primary() == boxUuid); // survives by identity
+    REQUIRE(!editor.isDirty());
+    fixture.frame(editor);
+
+    // Reopening the project reloads the saved scene with the added component.
+    REQUIRE(editor.openProject(directory).has_value());
+    REQUIRE(world.find(boxUuid).has<world::Spin>());
+    REQUIRE(!editor.openProject(scratch("nowhere")).has_value());
+    editor.newScene();
+    REQUIRE(editor.scenePath().empty());
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
 }

@@ -1,5 +1,6 @@
 #include <sonnet/platform/EntryPoint.h>
 
+#include <sonnet/core/Log.h>
 #include <sonnet/editor/Editor.h>
 #include <sonnet/platform/Application.h>
 #include <sonnet/platform/Event.h>
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -19,15 +21,28 @@ namespace {
 
 using namespace sonnet;
 
+// The flecs explorer is served by Debug builds of the editor (ADR-0003).
+#ifdef SONNET_ASSERTS_ENABLED
+constexpr bool Explorer = true;
+#else
+constexpr bool Explorer = false;
+#endif
+
 // The frame order lives here (docs/architecture.md, "Application lifecycle"): events, then
 // update, then the render graph into the acquired swapchain image, then present.
 class EditorApp final : public platform::IApplication {
 public:
-  explicit EditorApp(platform::Platform &platform)
+  EditorApp(platform::Platform &platform, std::span<const std::string_view> args)
       : m_window(platform.createWindow({.title = "Sonnet Editor", .size = {1600, 900}})),
         m_device(rhi::createDevice({.platform = &platform, .applicationName = "Sonnet Editor"})),
         m_swapchain(m_device->createSwapchain(*m_window)),
-        m_editor(std::make_unique<editor::Editor>(platform, *m_window, *m_device, *m_swapchain)) {
+        m_editor(std::make_unique<editor::Editor>(platform, *m_window, *m_device, *m_swapchain, Explorer)) {
+    // The one argument is a project folder (docs/build.md, "Building and testing").
+    if (!args.empty()) {
+      if (const auto opened = m_editor->openProject(std::filesystem::path{args[0]}); !opened) {
+        SONNET_LOG_ERROR("{}", opened.error().toString());
+      }
+    }
   }
 
   ~EditorApp() override {
@@ -78,6 +93,6 @@ private:
 } // namespace
 
 std::unique_ptr<platform::IApplication> platform::createApplication(Platform &platform,
-                                                                    std::span<const std::string_view>) {
-  return std::make_unique<EditorApp>(platform);
+                                                                    std::span<const std::string_view> args) {
+  return std::make_unique<EditorApp>(platform, args);
 }
