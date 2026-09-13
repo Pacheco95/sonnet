@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -17,6 +18,7 @@ struct LogEntry {
   std::string time; // HH:MM:SS.mmm
   std::string module;
   std::string file; // base name
+  std::string path; // as recorded: repository-relative for engine sources
   int line{0};
   std::string message;
 };
@@ -56,6 +58,10 @@ public:
   LogPanel &operator=(const LogPanel &) = delete;
 
   void draw(bool &open);
+  // Makes every file:line a link that calls back with the recorded path and line.
+  void setLocationHandler(std::function<void(const std::string &path, int line)> handler) {
+    m_openLocation = std::move(handler);
+  }
 
   [[nodiscard]] const LogBuffer &buffer() const noexcept {
     return *m_buffer;
@@ -63,6 +69,7 @@ public:
 
 private:
   std::shared_ptr<LogBuffer> m_buffer;
+  std::function<void(const std::string &, int)> m_openLocation;
   std::vector<LogEntry> m_entries;
   std::uint64_t m_revision{0};
   int m_minimumLevel{static_cast<int>(spdlog::level::trace)};

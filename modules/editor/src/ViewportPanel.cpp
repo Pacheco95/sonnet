@@ -25,7 +25,9 @@ void ViewportPanel::resizeTarget(glm::uvec2 size) {
   }
 }
 
-bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPanel *overlay) {
+bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPanel *statistics,
+                         const std::function<void(const ViewportInput &)> &overlay) {
+  m_input = {};
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0.0f, 0.0f});
   const bool visible = ImGui::Begin("Viewport", &open);
   ImGui::PopStyleVar();
@@ -48,6 +50,15 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     ImGui::Dummy(available);
   }
   const bool hovered = ImGui::IsItemHovered();
+  const ImVec2 mouse = ImGui::GetMousePos();
+  m_input = ViewportInput{.visible = true,
+                          .hovered = hovered,
+                          .origin = {origin.x, origin.y},
+                          .size = {available.x, available.y},
+                          .mouse = {mouse.x, mouse.y},
+                          .leftClicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                          .leftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                          .drawList = ImGui::GetWindowDrawList()};
 
   // Right mouse over the viewport takes the camera; releasing anywhere gives it back.
   if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
@@ -71,12 +82,29 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
                                          .fast = ImGui::IsKeyDown(ImGuiKey_LeftShift)});
   }
 
-  if (overlay != nullptr) {
+  if (overlay) {
+    overlay(m_input);
+  }
+  if (statistics != nullptr) {
     ImGui::SetCursorScreenPos(ImVec2{origin.x + 8.0f, origin.y + 8.0f});
-    overlay->drawOverlay();
+    statistics->drawOverlay();
   }
   ImGui::End();
   return m_cameraActive;
+}
+
+void ViewportPanel::focus(glm::vec3 target, float radius) {
+  const float distance = std::max(radius, 0.5f) * 2.5f;
+  m_camera.lookAt(target - m_camera.camera().forward() * distance, target);
+}
+
+glm::uvec2 ViewportPanel::targetPixel(glm::vec2 screen) const {
+  if (m_input.size.x <= 0.0f || m_input.size.y <= 0.0f) {
+    return {0, 0};
+  }
+  const glm::vec2 relative = (screen - m_input.origin) / m_input.size;
+  const glm::vec2 pixel = glm::clamp(relative, glm::vec2{0.0f}, glm::vec2{1.0f}) * glm::vec2{m_target.size()};
+  return {static_cast<unsigned>(pixel.x), static_cast<unsigned>(pixel.y)};
 }
 
 } // namespace sonnet::editor

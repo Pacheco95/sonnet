@@ -74,6 +74,7 @@ void LogBuffer::log(const spdlog::details::log_msg &msg) {
       .time = std::format("{:02}:{:02}:{:02}.{:03}", local.tm_hour, local.tm_min, local.tm_sec, milliseconds),
       .module = std::string{msg.logger_name.data(), msg.logger_name.size()},
       .file = msg.source.filename != nullptr ? std::filesystem::path{msg.source.filename}.filename().string() : "",
+      .path = msg.source.filename != nullptr ? msg.source.filename : "",
       .line = msg.source.line,
       .message = std::string{msg.payload.data(), msg.payload.size()},
   };
@@ -133,21 +134,33 @@ void LogPanel::draw(bool &open) {
   }
 
   if (ImGui::BeginChild("entries", ImVec2{0.0f, 0.0f}, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
+    int index = 0;
     for (const LogEntry &entry : m_entries) {
       if (static_cast<int>(entry.level) < m_minimumLevel ||
           !(containsCaseInsensitive(entry.message, m_filter) || containsCaseInsensitive(entry.module, m_filter))) {
         continue;
       }
+      ImGui::PushID(index++);
       ImGui::PushStyleColor(ImGuiCol_Text, levelColor(entry.level));
       ImGui::TextUnformatted(entry.time.c_str());
       ImGui::SameLine();
       ImGui::Text("[%s] [%s]", levelName(entry.level), entry.module.c_str());
       ImGui::SameLine();
-      // The location is a link once the preferences name an external editor (docs/conventions.md).
-      ImGui::TextDisabled("%s:%d", entry.file.c_str(), entry.line);
+      // The location opens the external editor from the preferences (docs/conventions.md).
+      const std::string location = std::format("{}:{}", entry.file, entry.line);
+      if (m_openLocation && !entry.path.empty()) {
+        ImGui::PopStyleColor();
+        if (ImGui::TextLink(location.c_str())) {
+          m_openLocation(entry.path, entry.line);
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, levelColor(entry.level));
+      } else {
+        ImGui::TextDisabled("%s", location.c_str());
+      }
       ImGui::SameLine();
       ImGui::TextUnformatted(entry.message.c_str());
       ImGui::PopStyleColor();
+      ImGui::PopID();
     }
     if (m_autoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f) {
       ImGui::SetScrollHereY(1.0f);

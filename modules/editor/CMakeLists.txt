@@ -1,22 +1,31 @@
 sonnet_add_module(editor
   SOURCES
+    src/CommandStack.cpp
     src/Editor.cpp
+    src/EntityCommands.cpp
     src/FlyCamera.cpp
+    src/Gizmo.cpp
+    src/HierarchyPanel.cpp
+    src/InspectorPanel.cpp
     src/LogPanel.cpp
-    src/PrimitiveScene.cpp
+    src/Preferences.cpp
+    src/Project.cpp
+    src/Selection.cpp
     src/StatisticsPanel.cpp
     src/ViewportPanel.cpp
   PUBLIC_DEPENDS
-    sonnet::renderer
+    sonnet::world
     sonnet::ui
 )
 
 sonnet_add_module_test(editor
   SOURCES
+    tests/CommandTests.cpp
     tests/EditorTests.cpp
     tests/FlyCameraTests.cpp
+    tests/GizmoTests.cpp
     tests/LogPanelTests.cpp
-    tests/PrimitiveSceneTests.cpp
+    tests/ProjectTests.cpp
 )
 if(TARGET editor_tests)
   sonnet_add_engine_shaders(editor_tests)
