@@ -14,6 +14,8 @@ vk::Format toVk(Format format) noexcept {
     return vk::Format::eB8G8R8A8Unorm;
   case Format::B8G8R8A8Srgb:
     return vk::Format::eB8G8R8A8Srgb;
+  case Format::R32Uint:
+    return vk::Format::eR32Uint;
   case Format::D32Sfloat:
     return vk::Format::eD32Sfloat;
   }
@@ -30,6 +32,8 @@ Format fromVk(vk::Format format) noexcept {
     return Format::B8G8R8A8Unorm;
   case vk::Format::eB8G8R8A8Srgb:
     return Format::B8G8R8A8Srgb;
+  case vk::Format::eR32Uint:
+    return Format::R32Uint;
   case vk::Format::eD32Sfloat:
     return Format::D32Sfloat;
   default:

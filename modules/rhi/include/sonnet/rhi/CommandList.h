@@ -30,6 +30,9 @@ public:
   // PassStorageBinding a storage buffer. Offsets follow the device's alignment rules; slices
   // from allocateTransient always do.
   virtual void bindBuffers(std::span<const BufferBinding> bindings) = 0;
+  // Per-pass images pushed into PassDescriptorSet at PassImageBinding. The image must be in
+  // ImageLayout::ShaderReadOnly, which the render graph arranges for a sampled use.
+  virtual void bindImages(std::span<const ImageBinding> bindings) = 0;
   // At most PushConstantSize bytes, visible to every stage of the bound pipeline.
   virtual void pushConstants(std::span<const std::byte> data) = 0;
   virtual void bindIndexBuffer(BufferHandle buffer, IndexType type) = 0;

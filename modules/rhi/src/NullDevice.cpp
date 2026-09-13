@@ -90,6 +90,11 @@ public:
                                              m_device.bufferName(binding.buffer), binding.offset));
     }
   }
+  void bindImages(std::span<const ImageBinding> bindings) override {
+    for (const ImageBinding &binding : bindings) {
+      m_device.m_trace.push_back(std::format("bindImage {} {}", binding.binding, m_device.imageName(binding.image)));
+    }
+  }
   void pushConstants(std::span<const std::byte> data) override {
     SONNET_ASSERT(data.size() <= PushConstantSize && data.size() % 4 == 0, "push constants: {} bytes", data.size());
     m_device.m_trace.push_back(std::format("pushConstants {} bytes", data.size()));

@@ -24,6 +24,7 @@ public:
   void endRendering() override;
   void bindPipeline(PipelineHandle pipeline) override;
   void bindBuffers(std::span<const BufferBinding> bindings) override;
+  void bindImages(std::span<const ImageBinding> bindings) override;
   void pushConstants(std::span<const std::byte> data) override;
   void bindIndexBuffer(BufferHandle buffer, IndexType type) override;
   void draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex,
