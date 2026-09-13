@@ -106,46 +106,13 @@ core::Result<std::vector<std::byte>> ShaderCompiler::compile(const std::filesyst
     return std::unexpected(compileError(file, "the compiler session could not be created", {}));
   }
 
+  // The source goes in as a string: the module keeps its own copy.
   const std::string text{reinterpret_cast<const char *>(source->data()), source->size()};
-  Slang::ComPtr<slang::IBlob> sourceBlob;
-  // A string blob keeps its own copy of the text.
-  struct StringBlob final : public ISlangBlob {
-    std::string data;
-    std::uint32_t references{1};
-    explicit StringBlob(std::string text) : data(std::move(text)) {
-    }
-    SLANG_NO_THROW SlangResult SLANG_MCALL queryInterface(const SlangUUID &uuid, void **out) override {
-      if (uuid == ISlangUnknown::getTypeGuid() || uuid == ISlangBlob::getTypeGuid()) {
-        *out = this;
-        addRef();
-        return SLANG_OK;
-      }
-      return SLANG_E_NO_INTERFACE;
-    }
-    SLANG_NO_THROW uint32_t SLANG_MCALL addRef() override {
-      return ++references;
-    }
-    SLANG_NO_THROW uint32_t SLANG_MCALL release() override {
-      const std::uint32_t remaining = --references;
-      if (remaining == 0) {
-        delete this;
-      }
-      return remaining;
-    }
-    SLANG_NO_THROW const void *SLANG_MCALL getBufferPointer() override {
-      return data.data();
-    }
-    SLANG_NO_THROW size_t SLANG_MCALL getBufferSize() override {
-      return data.size();
-    }
-  };
-  sourceBlob.attach(new StringBlob{text});
-
   const std::string moduleName = file.stem().string();
   const std::string path = file.string();
   Slang::ComPtr<slang::IBlob> diagnostics;
   slang::IModule *module =
-      session->loadModuleFromSource(moduleName.c_str(), path.c_str(), sourceBlob, diagnostics.writeRef());
+      session->loadModuleFromSourceString(moduleName.c_str(), path.c_str(), text.c_str(), diagnostics.writeRef());
   if (module == nullptr) {
     return std::unexpected(compileError(file, "compilation failed", blobText(diagnostics)));
   }
