@@ -174,3 +174,20 @@ TEST_CASE("pass timings are reported per pass with GPU times from the reused slo
   REQUIRE(stats.passes[0].cpuMilliseconds >= 0.0f);
   REQUIRE(stats.passes[0].gpuMilliseconds == 0.0f); // the null device's clock never advances
 }
+
+TEST_CASE("a transient image no pass uses is not allocated", "[renderer][graph]") {
+  const auto device = createNullDevice();
+  RenderGraph graph{*device};
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  const GraphImage unused = graph.createImage({.size = {16, 16}, .format = Format::R32Uint, .debugName = "unused"});
+  const GraphImage used = graph.createImage({.size = {16, 16}, .format = Format::R8G8B8A8Unorm, .debugName = "used"});
+  ImageHandle unusedHandle{0, 0};
+  graph.addPass(
+      "clear", [&](PassBuilder &b) { b.color(used); },
+      [&](ICommandList &, const PassResources &resources) { unusedHandle = resources.image(unused); });
+  graph.execute(commands);
+  device->endFrame();
+  REQUIRE(graph.statistics().transientImageCount == 1);
+  REQUIRE(!unusedHandle.isValid());
+}

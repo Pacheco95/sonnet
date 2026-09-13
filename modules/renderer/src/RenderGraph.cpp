@@ -133,6 +133,10 @@ void RenderGraph::resolveImages() {
       m_handles[i] = image.imported;
       continue;
     }
+    if (image.desc.usage == rhi::ImageUsage::None) {
+      m_handles[i] = {}; // declared, used by no pass this frame: nothing to allocate
+      continue;
+    }
     auto pooled = std::ranges::find_if(
         m_pool, [&](const PooledImage &candidate) { return !candidate.inUse && candidate.desc == image.desc; });
     if (pooled == m_pool.end()) {
