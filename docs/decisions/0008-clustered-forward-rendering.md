@@ -1,13 +1,13 @@
 # ADR-0008: Clustered forward rendering as the main pipeline
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-12
 
 ## Context
 
 The previous iteration used deferred shading with a fat G-buffer, which made transparency, MSAA and material variety awkward, and which is bandwidth-hungry on the tile-based GPUs in the Android and iOS targets. A pipeline decision shapes the render graph, the material model and the shader conventions, so it needs to be made before M3.
 
-## Decision (proposed)
+## Decision
 
 The main pipeline is clustered forward: a depth pre-pass, a compute pass that assigns lights to view-space clusters, a single forward shading pass that reads the cluster list, then post-processing. Transparent objects use the same shading path sorted back to front. A thin G-buffer (normals, roughness) may be written from the pre-pass for screen-space effects, using dynamic rendering local read on mobile.
 
