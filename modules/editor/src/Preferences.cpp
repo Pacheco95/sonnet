@@ -74,12 +74,36 @@ void Preferences::addRecentProject(const std::filesystem::path &project) {
   }
 }
 
-std::string Preferences::editorCommand(const std::string &file, int line) const {
+std::string Preferences::editorCommand(const std::filesystem::path &file, int line) const {
   std::string command = externalEditor;
-  const std::string path = sourceRoot.empty() ? file : (std::filesystem::path{sourceRoot} / file).generic_string();
-  replaceAll(command, "{file}", path);
+  replaceAll(command, "{file}", file.generic_string());
   replaceAll(command, "{line}", std::to_string(line));
   return command;
+}
+
+std::optional<std::filesystem::path> locateSource(const std::filesystem::path &file,
+                                                  const std::filesystem::path &sourceRoot,
+                                                  const std::filesystem::path &basePath) {
+  std::error_code error;
+  if (!sourceRoot.empty()) {
+    const std::filesystem::path candidate = sourceRoot / file;
+    return std::filesystem::is_regular_file(candidate, error) ? std::optional{candidate.lexically_normal()}
+                                                              : std::nullopt;
+  }
+  if (file.is_absolute()) {
+    return std::filesystem::is_regular_file(file, error) ? std::optional{file} : std::nullopt;
+  }
+  for (std::filesystem::path directory = std::filesystem::absolute(basePath, error); !directory.empty();
+       directory = directory.parent_path()) {
+    const std::filesystem::path candidate = directory / file;
+    if (std::filesystem::is_regular_file(candidate, error)) {
+      return candidate.lexically_normal();
+    }
+    if (directory == directory.root_path()) {
+      break;
+    }
+  }
+  return std::nullopt;
 }
 
 } // namespace sonnet::editor
