@@ -15,7 +15,7 @@ Window, input events, the application callback interface and file-system paths, 
 
 The engine does not own `main()`. `EntryPoint.h` defines SDL's `SDL_AppInit`, `SDL_AppIterate`, `SDL_AppEvent` and `SDL_AppQuit` and forwards them to `platform`, which:
 
-1. On init, initialises logging, constructs `Platform` (SDL video subsystem only), converts the arguments and calls the executable's `createApplication`. An exception here is logged at `critical` and ends the process with a failure code.
+1. On init, initialises logging, constructs `Platform` (SDL video subsystem only), converts the arguments (without the program name) and calls the executable's `createApplication`. An exception here is logged at `critical` and ends the process with a failure code.
 2. On iterate, calls `IApplication::iterate` and emits the Tracy frame mark.
 3. On event, hands the raw SDL event to `IApplication::nativeEvent` (Dear ImGui's SDL3 backend consumes it in `ui`), then translates it and calls `IApplication::event` when the engine has a type for it; SDL events without an engine type go no further.
 4. On quit, destroys the application, then `Platform`.

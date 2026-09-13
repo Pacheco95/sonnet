@@ -9,6 +9,7 @@
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_init.h>
 
+#include <algorithm>
 #include <exception>
 #include <memory>
 #include <string_view>
@@ -43,7 +44,8 @@ SDL_AppResult appInit(void **state, int argc, char **argv) {
   SONNET_LOG_INFO("Sonnet {}", core::engineVersion().toString());
   try {
     auto appState = std::make_unique<AppState>();
-    std::vector<std::string_view> args(argv, argv + argc);
+    // The arguments proper: the program name is of no use to an application.
+    std::vector<std::string_view> args(argv + std::min(argc, 1), argv + argc);
     appState->app = createApplication(appState->platform, args);
     // SDL holds the state between callbacks; appQuit takes ownership back.
     *state = appState.release();
