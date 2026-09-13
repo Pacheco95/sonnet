@@ -90,7 +90,7 @@ IDEs: CLion and Visual Studio read `CMakePresets.json`; in CLion enable the pres
 | `SONNET_BUILD_EDITOR` | `ON` on desktop, forced `OFF` on mobile | Builds `ui`, `editor` and `apps/editor` |
 | `SONNET_BUILD_PLAYER` | `ON` | Builds `apps/player`. Added in M6 |
 | `SONNET_BUILD_TESTS` | `ON` | Builds Catch2 tests and registers them with CTest |
-| `SONNET_BUILD_SAMPLES` | `ON` | Copies sample projects next to the binaries. Added in M2 |
+| `SONNET_BUILD_SAMPLES` | `ON` | Copies `apps/samples/` next to the editor binary, so `sonnet_editor samples/basic` works from the build directory |
 | `SONNET_ENABLE_TRACY` | `ON` | Compiles Tracy zones in, and links Tracy, in Debug and RelWithDebInfo; Release never has them |
 | `SONNET_ENABLE_VALIDATION` | `ON` | Requests Vulkan validation layers at instance creation in Debug |
 | `SONNET_SANITIZERS` | `OFF` | Address and undefined-behaviour sanitizers (the `linux-asan` preset) |

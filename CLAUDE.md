@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle) and M1 (editor shell: `ui`, `renderer` with the render graph, `editor`) are done; M2 (`world` with flecs, hierarchy and inspector panels, gizmos, undo/redo, play mode, project handling) is next.
+Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle), M1 (editor shell: `ui`, `renderer` with the render graph, `editor`) and M2 (`world` with flecs, scenes and prefabs; the editor's hierarchy and inspector, gizmos, picking, undo/redo, play mode, projects; the basic sample) are done; M3 (`assets` and PBR) is next, and ADR-0008 has to be decided first.
 
 The docs are the source of truth. Read the relevant one before a non-trivial change, and update it in the same change:
 
@@ -31,7 +31,7 @@ cmake --build --preset linux-debug
 ctest --preset linux-debug --output-on-failure
 ctest --preset linux-debug -R core_tests            # one module's tests
 # one case or tag: run the <module>_tests binary directly, e.g. core_tests "[handle]"
-./build/linux-debug/apps/editor/sonnet_editor              # a project path argument arrives in M2; right-drag the viewport, WASD/QE
+./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic   # right-drag the viewport, WASD/QE; W/E/R gizmos, Ctrl+P play
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset linux-debug -R rhi_tests   # what CI runs: Lavapipe
 python3 tools/check_docs.py            # after editing any Markdown: links, anchors, cross-doc consistency
 python3 tools/check_version.py         # vcpkg.json must mirror project(sonnet VERSION ...)
@@ -47,9 +47,9 @@ Machine-specific notes (tool locations, checkouts of the previous iterations to 
 - **Interfaces live with their owner.** There is no `api` module. `platform` holds `IWindow` and the SDL3 implementation; `rhi` holds the device interfaces and the Vulkan implementation. Upward communication uses interfaces, callbacks and data handed down, never a dependency.
 - **One `#if`-switched site**: the `rhi` device factory. The documented exception is `ui`, which links `sonnet::rhi_vulkan` to include the Vulkan implementation headers for Dear ImGui's backend.
 - **The engine does not own `main()`.** It implements SDL3's callback model so desktop and mobile share one lifecycle. Frame ordering lives in the app, not in modules.
-- **ECS**: flecs. Hierarchy is `ChildOf`, prefabs and nested scenes are `IsA`, components are plain structs registered with flecs reflection, which drives the inspector, scene JSON and scripting bindings. flecs types appear unwrapped in `world` headers by decision.
+- **ECS**: flecs. Hierarchy is `ChildOf`, prefabs and nested scenes are `IsA`, components are plain structs registered with flecs reflection, which drives the inspector, scene JSON and scripting bindings. flecs types appear unwrapped in `world` headers by decision. Scene entities carry a UUID `Identity`; the editor's selection and undo commands refer to entities by it, never by flecs id. `world` links `renderer` until `assets` exists.
 - **Handles**: `core::Handle<Tag>` is a 32-bit index plus 32-bit generation; components store handles, owners resolve them.
-- **Editor versus player**: the player never links `editor`, nor `ui` in release. Play mode snapshots the world on play and restores it on stop.
+- **Editor versus player**: the player never links `editor`, nor `ui` in release. Play mode snapshots the world on play and restores it on stop; every editor edit is an `ICommand` on the `CommandStack`, and the inspector and gizmo edit live and push one command when the widget is released.
 - **Rendering**: vk-bootstrap creates, Vulkan-HPP RAII wrappers own, `vkb::destroy_*` is never called, RAII members are declared in reverse destruction order. The render graph is an engine module. Shaders are Slang only, compiled by `slangc` at build time through `sonnet_add_shaders` and at runtime in the editor for hot reload; Slang reflection is the only shader reflection source. Set 0 is the bindless set, set 1 is push descriptors, push constants carry per-draw indices. Reversed-Z, negative viewport height for the Y flip, counter-clockwise front faces.
 - **rhi per-frame rules**: `beginFrame`/`endFrame` bracket every frame; resource destruction is deferred to the frame slot's next reuse; acquire, submit and present go through raw dispatcher calls so the per-frame path never throws; `rhi_tests` fails on any validation message.
 - **Assets**: UUID in a `.meta` sidecar next to each source file; references are by UUID, never by path. Source assets are imported by the editor, cooked assets are what the player loads.
