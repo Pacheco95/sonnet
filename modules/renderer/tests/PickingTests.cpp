@@ -32,6 +32,15 @@ std::filesystem::path shaderDir(sonnet::platform::Platform &platform) {
   return platform.basePath() / "shaders";
 }
 
+// No shadows, bloom or anti-aliasing: the picking passes are what these tests count.
+RendererSettings pickingSettings() {
+  RendererSettings settings;
+  settings.shadows = false;
+  settings.bloom = false;
+  settings.antialiasing = false;
+  return settings;
+}
+
 SceneView boxScene(std::span<const DrawItem> draws) {
   SceneView view;
   view.camera.position = {0.0f, 0.0f, 3.0f};
@@ -59,7 +68,7 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
           "[renderer][picking][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();
-  Renderer renderer{*device, shaderDir(platform)};
+  Renderer renderer{*device, shaderDir(platform), pickingSettings()};
   Picker picker{*device};
   const MeshHandle box = renderer.createMesh(primitives::box(), "box");
   const std::array draws{DrawItem{.mesh = box, .id = 5}, DrawItem{.mesh = box, .id = 9}};
@@ -97,15 +106,16 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
   REQUIRE(countLines(*device, "bindPipeline \"id\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"selection mask\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"outline\"") == 1);
-  // Two boxes in the forward and the id pass, the selected one in the mask pass.
-  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 5);
+  // Two boxes in the pre-pass, the forward and the id pass, the selected one in the mask pass.
+  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 7);
   REQUIRE(countLines(*device, "beginRendering color \"mask\" clear") == 1); // no depth attachment
   REQUIRE(countLines(*device, "bindImage 2 \"mask\"") == 1);
-  REQUIRE(countLines(*device, "draw 3 x1") == 1);
+  REQUIRE(countLines(*device, "draw 3 x1") == 2); // the tone mapping and the outline
   REQUIRE(countLines(*device, "copyImageToBuffer \"ids\"") == 1);
   REQUIRE(countLines(*device, "barrier \"mask\" ColorAttachment->ShaderReadOnly") == 1);
   REQUIRE(renderer.statistics().drawCount == 2); // the id and mask passes are not counted
-  REQUIRE(graph.statistics().passes.size() == 5);
+  // The lookup table, depth, clustering, forward, tonemap, id, mask, outline and the readback.
+  REQUIRE(graph.statistics().passes.size() == 9);
 
   // The answer arrives when the slot comes round, FramesInFlight frames later; the null device's
   // memory reads as zero.
@@ -124,7 +134,7 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
 TEST_CASE("the selection mask draws every listed item, given in any order with repeats", "[renderer][picking][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();
-  Renderer renderer{*device, shaderDir(platform)};
+  Renderer renderer{*device, shaderDir(platform), pickingSettings()};
   const MeshHandle box = renderer.createMesh(primitives::box(), "box");
   // Forty items, a selected parent's subtree, listed backwards with one id twice.
   std::vector<DrawItem> draws;
@@ -157,7 +167,7 @@ TEST_CASE("the selection mask draws every listed item, given in any order with r
 TEST_CASE("an empty selection adds no mask or outline pass", "[renderer][picking][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();
-  Renderer renderer{*device, shaderDir(platform)};
+  Renderer renderer{*device, shaderDir(platform), pickingSettings()};
   const MeshHandle box = renderer.createMesh(primitives::box(), "box");
   RenderGraph graph{*device};
   RenderTarget target{*device, "viewport"};
@@ -184,7 +194,7 @@ TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gp
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
   {
-    Renderer renderer{*device, shaderDir(platform)};
+    Renderer renderer{*device, shaderDir(platform), pickingSettings()};
     Picker picker{*device};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
     constexpr std::uint32_t BoxId = 42;
@@ -271,7 +281,7 @@ TEST_CASE("an occluder in front of a selected surface is not outlined", "[render
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
   {
-    Renderer renderer{*device, shaderDir(platform)};
+    Renderer renderer{*device, shaderDir(platform), pickingSettings()};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
     const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
     constexpr std::uint32_t PlaneId = 3;

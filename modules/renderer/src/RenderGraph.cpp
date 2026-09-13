@@ -22,8 +22,10 @@ struct Required {
   rhi::ImageUsage usage;
 };
 
-Required requirementFor(ImageAccess access) noexcept {
+// `storageImage` is set for images whose bindless descriptors name the General layout.
+Required requirementFor(ImageAccess access, bool storageImage) noexcept {
   using namespace rhi;
+  const ImageLayout sampledLayout = storageImage ? ImageLayout::General : ImageLayout::ShaderReadOnly;
   switch (access) {
   case ImageAccess::ColorAttachment:
     return {ImageLayout::ColorAttachment, PipelineStage::ColorAttachmentOutput,
@@ -32,7 +34,12 @@ Required requirementFor(ImageAccess access) noexcept {
     return {ImageLayout::DepthAttachment, PipelineStage::EarlyFragmentTests | PipelineStage::LateFragmentTests,
             Access::DepthAttachmentRead | Access::DepthAttachmentWrite, ImageUsage::DepthAttachment};
   case ImageAccess::Sampled:
-    return {ImageLayout::ShaderReadOnly, PipelineStage::FragmentShader, Access::ShaderRead, ImageUsage::Sampled};
+    return {sampledLayout, PipelineStage::FragmentShader, Access::ShaderRead, ImageUsage::Sampled};
+  case ImageAccess::SampledCompute:
+    return {sampledLayout, PipelineStage::ComputeShader, Access::ShaderRead, ImageUsage::Sampled};
+  case ImageAccess::Storage:
+    return {ImageLayout::General, PipelineStage::ComputeShader, Access::ShaderRead | Access::ShaderWrite,
+            ImageUsage::Storage};
   case ImageAccess::TransferSrc:
     return {ImageLayout::TransferSrc, PipelineStage::Transfer, Access::TransferRead, ImageUsage::TransferSrc};
   case ImageAccess::TransferDst:
@@ -65,8 +72,12 @@ void PassBuilder::depth(GraphImage image, rhi::LoadOp load, float clear, rhi::St
   m_pass.hasDepth = true;
 }
 
-void PassBuilder::sample(GraphImage image) {
-  m_pass.uses.push_back({image, ImageAccess::Sampled});
+void PassBuilder::sample(GraphImage image, bool compute) {
+  m_pass.uses.push_back({image, compute ? ImageAccess::SampledCompute : ImageAccess::Sampled});
+}
+
+void PassBuilder::storage(GraphImage image) {
+  m_pass.uses.push_back({image, ImageAccess::Storage});
 }
 
 void PassBuilder::transferSrc(GraphImage image) {
@@ -93,16 +104,30 @@ void RenderGraph::reset() {
   m_passes.clear();
 }
 
-GraphImage RenderGraph::importImage(rhi::ImageHandle image, rhi::ImageLayout finalLayout) {
+GraphImage RenderGraph::importImage(rhi::ImageHandle image, rhi::ImageLayout finalLayout,
+                                    rhi::ImageLayout initialLayout) {
   SONNET_ASSERT(m_device.isValid(image), "importing a stale image handle");
-  m_images.push_back(Image{.desc = {}, .imported = image, .finalLayout = finalLayout, .transient = false});
+  // The description is kept for the usage bits, which decide the layout of sampled reads.
+  m_images.push_back(Image{.desc = m_device.imageDesc(image),
+                           .imported = image,
+                           .initialLayout = initialLayout,
+                           .finalLayout = finalLayout,
+                           .transient = false});
   return GraphImage{static_cast<std::uint32_t>(m_images.size() - 1)};
 }
 
 GraphImage RenderGraph::createImage(const rhi::ImageDesc &desc) {
-  m_images.push_back(
-      Image{.desc = desc, .imported = {}, .finalLayout = rhi::ImageLayout::Undefined, .transient = true});
+  m_images.push_back(Image{.desc = desc,
+                           .imported = {},
+                           .initialLayout = rhi::ImageLayout::Undefined,
+                           .finalLayout = rhi::ImageLayout::Undefined,
+                           .transient = true});
   return GraphImage{static_cast<std::uint32_t>(m_images.size() - 1)};
+}
+
+const rhi::ImageDesc &RenderGraph::imageDesc(GraphImage image) const {
+  SONNET_ASSERT(image.index < m_images.size(), "graph image {} is not part of this frame", image.index);
+  return m_images[image.index].desc;
 }
 
 void RenderGraph::addPass(std::string_view name, const std::function<void(PassBuilder &)> &setup, PassExecute execute) {
@@ -115,7 +140,7 @@ void RenderGraph::addPass(std::string_view name, const std::function<void(PassBu
     SONNET_ASSERT(use.image.index < m_images.size(), "pass \"{}\" uses an image that is not in the graph", pass.name);
     Image &image = m_images[use.image.index];
     if (image.transient) {
-      image.desc.usage |= requirementFor(use.access).usage;
+      image.desc.usage |= requirementFor(use.access, false).usage;
     }
   }
 }
@@ -131,6 +156,7 @@ void RenderGraph::resolveImages() {
     Image &image = m_images[i];
     if (!image.transient) {
       m_handles[i] = image.imported;
+      m_states[i].layout = image.initialLayout;
       continue;
     }
     if (image.desc.usage == rhi::ImageUsage::None) {
@@ -165,8 +191,7 @@ void RenderGraph::releaseImages() {
   m_statistics.transientImageCount = static_cast<std::uint32_t>(m_pool.size());
   m_statistics.transientImageBytes = 0;
   for (const PooledImage &pooled : m_pool) {
-    m_statistics.transientImageBytes +=
-        std::uint64_t{pooled.desc.size.x} * pooled.desc.size.y * rhi::bytesPerPixel(pooled.desc.format);
+    m_statistics.transientImageBytes += pooled.desc.byteSize();
   }
 }
 
@@ -175,7 +200,8 @@ void RenderGraph::emitBarriers(rhi::ICommandList &commands, const std::vector<de
   std::array<rhi::ImageBarrier, 32> barriers;
   std::size_t count = 0;
   for (const detail::ImageUse &use : uses) {
-    const Required required = requirementFor(use.access);
+    const Required required =
+        requirementFor(use.access, rhi::has(m_images[use.image.index].desc.usage, rhi::ImageUsage::Storage));
     State &state = m_states[use.image.index];
     // A read after a read in the same layout needs no barrier; everything else does, including
     // a write after a write in the same layout, which is a hazard between two passes.

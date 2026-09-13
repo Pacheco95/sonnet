@@ -22,11 +22,15 @@ struct GraphImage {
   }
 };
 
-// How a pass uses an image. The graph derives the layout, stage and access from it.
+// How a pass uses an image. The graph derives the layout, stage and access from it. An image
+// with Storage usage is read and written in the General layout whatever the access, since its
+// bindless descriptors name that layout.
 enum class ImageAccess : std::uint8_t {
   ColorAttachment,
   DepthAttachment,
-  Sampled,
+  Sampled,        // in the fragment shader
+  SampledCompute, // in a compute shader
+  Storage,        // written, and possibly read, by a compute shader
   TransferSrc,
   TransferDst,
 };
@@ -71,7 +75,10 @@ public:
              rhi::StoreOp store = rhi::StoreOp::Store);
   void depth(GraphImage image, rhi::LoadOp load = rhi::LoadOp::Clear, float clear = 0.0f,
              rhi::StoreOp store = rhi::StoreOp::Store);
-  void sample(GraphImage image);
+  // Sampled by the fragment shader, or by a compute shader with `compute`.
+  void sample(GraphImage image, bool compute = false);
+  // Written by a compute shader through its storage views.
+  void storage(GraphImage image);
   void transferSrc(GraphImage image);
   void transferDst(GraphImage image);
 
@@ -109,11 +116,15 @@ public:
   // Forgets the previous frame's passes and images; pooled transient images stay allocated.
   void reset();
 
-  // An image the caller owns. Its contents are treated as undefined at the start of the frame:
-  // the first pass must write it. finalLayout Undefined leaves it in the state of its last use.
-  GraphImage importImage(rhi::ImageHandle image, rhi::ImageLayout finalLayout = rhi::ImageLayout::Undefined);
+  // An image the caller owns, in `initialLayout`. Undefined treats the contents as garbage at
+  // the start of the frame, so the first pass must write it; a layout keeps them, for an image
+  // uploaded or computed earlier. finalLayout Undefined leaves it in the state of its last use.
+  GraphImage importImage(rhi::ImageHandle image, rhi::ImageLayout finalLayout = rhi::ImageLayout::Undefined,
+                         rhi::ImageLayout initialLayout = rhi::ImageLayout::Undefined);
   // A transient image for this frame. Usage bits are added from the passes that use it.
   GraphImage createImage(const rhi::ImageDesc &desc);
+  // The description of an image in this frame, imported or transient.
+  [[nodiscard]] const rhi::ImageDesc &imageDesc(GraphImage image) const;
 
   // setup runs immediately and declares the pass's resources; execute runs during execute().
   // The callbacks are std::function: their captures are a few references, within the small
@@ -126,11 +137,16 @@ public:
   [[nodiscard]] const GraphStatistics &statistics() const noexcept {
     return m_statistics;
   }
+  // Counts the frames executed; what a caller keys per-frame state on.
+  [[nodiscard]] std::uint64_t frameIndex() const noexcept {
+    return m_frameCounter;
+  }
 
 private:
   struct Image {
     rhi::ImageDesc desc; // transient only
     rhi::ImageHandle imported;
+    rhi::ImageLayout initialLayout{rhi::ImageLayout::Undefined};
     rhi::ImageLayout finalLayout{rhi::ImageLayout::Undefined};
     bool transient{false};
   };

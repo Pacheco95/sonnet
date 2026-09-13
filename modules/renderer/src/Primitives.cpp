@@ -13,10 +13,10 @@ constexpr float Pi = std::numbers::pi_v<float>;
 
 void addQuad(MeshData &mesh, glm::vec3 origin, glm::vec3 right, glm::vec3 up, glm::vec3 normal) {
   const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
-  mesh.vertices.push_back({origin, normal, {0.0f, 0.0f}});
-  mesh.vertices.push_back({origin + right, normal, {1.0f, 0.0f}});
-  mesh.vertices.push_back({origin + right + up, normal, {1.0f, 1.0f}});
-  mesh.vertices.push_back({origin + up, normal, {0.0f, 1.0f}});
+  mesh.vertices.push_back({.position = origin, .normal = normal, .uv = {0.0f, 0.0f}});
+  mesh.vertices.push_back({.position = origin + right, .normal = normal, .uv = {1.0f, 0.0f}});
+  mesh.vertices.push_back({.position = origin + right + up, .normal = normal, .uv = {1.0f, 1.0f}});
+  mesh.vertices.push_back({.position = origin + up, .normal = normal, .uv = {0.0f, 1.0f}});
   // Counter-clockwise seen from the direction the normal points to.
   mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
 }
@@ -51,7 +51,7 @@ std::uint32_t addRing(MeshData &mesh, float y, float radius, std::uint32_t slice
     const glm::vec3 position{radius * std::cos(angle), y, -radius * std::sin(angle)};
     const glm::vec3 offset = position - normalOrigin;
     const glm::vec3 normal = glm::length(offset) > 0.0f ? glm::normalize(offset) : glm::vec3{0.0f, 1.0f, 0.0f};
-    mesh.vertices.push_back({position, normal, {u, v}});
+    mesh.vertices.push_back({.position = position, .normal = normal, .uv = {u, v}});
   }
   return first;
 }
@@ -59,12 +59,13 @@ std::uint32_t addRing(MeshData &mesh, float y, float radius, std::uint32_t slice
 // A flat disc at height y facing `normal`, as a fan around a centre vertex.
 void addCap(MeshData &mesh, float y, float radius, std::uint32_t slices, glm::vec3 normal) {
   const auto centre = static_cast<std::uint32_t>(mesh.vertices.size());
-  mesh.vertices.push_back({{0.0f, y, 0.0f}, normal, {0.5f, 0.5f}});
+  mesh.vertices.push_back({.position = {0.0f, y, 0.0f}, .normal = normal, .uv = {0.5f, 0.5f}});
   for (std::uint32_t i = 0; i <= slices; ++i) {
     const float angle = static_cast<float>(i) / static_cast<float>(slices) * 2.0f * Pi;
     const float c = std::cos(angle);
     const float s = std::sin(angle);
-    mesh.vertices.push_back({{radius * c, y, -radius * s}, normal, {0.5f + 0.5f * c, 0.5f + 0.5f * s}});
+    mesh.vertices.push_back(
+        {.position = {radius * c, y, -radius * s}, .normal = normal, .uv = {0.5f + 0.5f * c, 0.5f + 0.5f * s}});
   }
   for (std::uint32_t i = 0; i < slices; ++i) {
     const std::uint32_t a = centre + 1 + i;
@@ -102,6 +103,7 @@ MeshData box(glm::vec3 h) {
   addQuad(mesh, {-h.x, -h.y, -h.z}, {0, 0, 2 * h.z}, {0, 2 * h.y, 0}, {-1, 0, 0}); // -X
   addQuad(mesh, {-h.x, h.y, h.z}, {2 * h.x, 0, 0}, {0, 0, -2 * h.z}, {0, 1, 0});   // +Y
   addQuad(mesh, {-h.x, -h.y, -h.z}, {2 * h.x, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0}); // -Y
+  generateTangents(mesh);
   return mesh;
 }
 
@@ -118,12 +120,14 @@ MeshData sphere(float radius, std::uint32_t slices, std::uint32_t stacks) {
   for (std::uint32_t s = 0; s < stacks; ++s) {
     addBand(mesh, s * (slices + 1), (s + 1) * (slices + 1), slices, s == 0, s + 1 == stacks);
   }
+  generateTangents(mesh);
   return mesh;
 }
 
 MeshData plane(glm::vec2 size) {
   MeshData mesh;
   addQuad(mesh, {-size.x * 0.5f, 0.0f, size.y * 0.5f}, {size.x, 0.0f, 0.0f}, {0.0f, 0.0f, -size.y}, {0.0f, 1.0f, 0.0f});
+  generateTangents(mesh);
   return mesh;
 }
 
@@ -137,6 +141,7 @@ MeshData cylinder(float radius, float height, std::uint32_t slices) {
   addBand(mesh, top, bottom, slices);
   addCap(mesh, h, radius, slices, {0.0f, 1.0f, 0.0f});
   addCap(mesh, -h, radius, slices, {0.0f, -1.0f, 0.0f});
+  generateTangents(mesh);
   return mesh;
 }
 
@@ -158,6 +163,7 @@ MeshData capsule(float radius, float height, std::uint32_t slices, std::uint32_t
     addBand(mesh, lowerFirst + r * (slices + 1), lowerFirst + (r + 1) * (slices + 1), slices, false, r + 1 == rings);
   }
   addBand(mesh, upperFirst, lowerFirst, slices);
+  generateTangents(mesh);
   return mesh;
 }
 
