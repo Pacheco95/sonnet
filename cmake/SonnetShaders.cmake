@@ -7,6 +7,9 @@
 # compiler. The depfile makes edits to imported modules rebuild their users.
 find_package(slang CONFIG REQUIRED)
 
+# Engine shader modules import each other by name; every compilation sees this directory.
+set(SONNET_ENGINE_SHADER_DIR "${CMAKE_SOURCE_DIR}/modules/renderer/shaders")
+
 function(sonnet_add_shaders TARGET)
   cmake_parse_arguments(ARG "" "" "SHADERS" ${ARGN})
   set(outputs)
@@ -37,4 +40,18 @@ function(sonnet_add_shaders TARGET)
   endforeach()
   add_custom_target(${TARGET}_shaders DEPENDS ${outputs})
   add_dependencies(${TARGET} ${TARGET}_shaders)
+endfunction()
+
+# sonnet_add_engine_shaders(<target>)
+#
+# Compiles the engine's shaders (modules/renderer/shaders, registered by the renderer module as
+# the SONNET_ENGINE_SHADERS global property) next to <target>'s binary. Every executable and
+# test that renders through the renderer calls it, because a static library has no binary
+# directory of its own for the modules to land in.
+function(sonnet_add_engine_shaders TARGET)
+  get_property(shaders GLOBAL PROPERTY SONNET_ENGINE_SHADERS)
+  if(NOT shaders)
+    message(FATAL_ERROR "sonnet_add_engine_shaders(${TARGET}): the renderer module has not registered its shaders")
+  endif()
+  sonnet_add_shaders(${TARGET} SHADERS ${shaders})
 endfunction()
