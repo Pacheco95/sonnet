@@ -1,5 +1,7 @@
 #include <sonnet/editor/InspectorPanel.h>
 
+#include <sonnet/editor/AssetBrowserPanel.h>
+#include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/EntityCommands.h>
 
 #include <sonnet/core/Log.h>
@@ -7,6 +9,9 @@
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -25,10 +30,55 @@ template <typename T> T &at(void *data, std::size_t offset) {
   return *reinterpret_cast<T *>(static_cast<std::byte *>(data) + offset);
 }
 
+bool containsIgnoringCase(std::string_view text, std::string_view needle) {
+  if (needle.empty()) {
+    return true;
+  }
+  const auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+  return std::ranges::search(text, needle, [&](char a, char b) {
+           return lower(static_cast<unsigned char>(a)) == lower(static_cast<unsigned char>(b));
+         }).begin() != text.end();
+}
+
+constexpr std::array<const char *, 3> AlphaModeNames{"Opaque", "Mask", "Blend"};
+constexpr std::array<const char *, 3> WrapNames{"Repeat", "ClampToEdge", "MirroredRepeat"};
+
+template <typename Enum, std::size_t N>
+bool drawEnumCombo(const char *label, Enum &value, const std::array<const char *, N> &names) {
+  bool changed = false;
+  if (ImGui::BeginCombo(label, names[static_cast<std::size_t>(value)])) {
+    for (std::size_t i = 0; i < N; ++i) {
+      if (ImGui::Selectable(names[i], static_cast<std::size_t>(value) == i)) {
+        value = static_cast<Enum>(i);
+        changed = true;
+      }
+    }
+    ImGui::EndCombo();
+  }
+  return changed;
+}
+
 } // namespace
 
-InspectorPanel::InspectorPanel(world::World &world, Selection &selection, CommandStack &commands)
-    : m_world(world), m_selection(selection), m_commands(commands) {
+InspectorPanel::InspectorPanel(world::World &world, assets::AssetDatabase &assets, Selection &selection,
+                               CommandStack &commands)
+    : m_world(world), m_assets(assets), m_selection(selection), m_commands(commands) {
+}
+
+std::optional<assets::AssetType> InspectorPanel::assetTypeOfMember(std::string_view member) {
+  if (member == "mesh") {
+    return assets::AssetType::Mesh;
+  }
+  if (member == "material") {
+    return assets::AssetType::Material;
+  }
+  if (member == "map") {
+    return assets::AssetType::Environment;
+  }
+  if (member.ends_with("Texture")) {
+    return assets::AssetType::Texture;
+  }
+  return std::nullopt;
 }
 
 void InspectorPanel::track() {
@@ -37,22 +87,221 @@ void InspectorPanel::track() {
   m_deactivated = m_deactivated || ImGui::IsItemDeactivated();
 }
 
-void InspectorPanel::draw(bool &open) {
+void InspectorPanel::draw(bool &open, core::Uuid asset) {
   if (!ImGui::Begin("Inspector", &open)) {
     ImGui::End();
     return;
   }
   const flecs::entity entity = m_world.find(m_selection.primary());
-  if (!entity) {
-    ImGui::TextDisabled(m_selection.empty() ? "Nothing selected" : "The selection no longer exists");
-    m_edit.reset();
-  } else {
+  if (entity) {
     if (m_selection.items().size() > 1) {
       ImGui::TextDisabled("%zu selected, showing the last", m_selection.items().size());
     }
+    m_materialEdit.reset();
     drawEntity(entity);
+  } else if (!m_selection.empty()) {
+    ImGui::TextDisabled("The selection no longer exists");
+    m_edit.reset();
+  } else if (!asset.isNil()) {
+    m_edit.reset();
+    drawAsset(asset);
+  } else {
+    ImGui::TextDisabled("Nothing selected");
+    m_edit.reset();
+    m_materialEdit.reset();
   }
   ImGui::End();
+}
+
+bool InspectorPanel::drawAssetPicker(core::Uuid &value, std::optional<assets::AssetType> type) {
+  bool changed = false;
+  const std::string label = assetLabel(m_assets, value);
+  if (ImGui::Button(label.c_str(), ImVec2{-1.0f, 0.0f})) {
+    ImGui::OpenPopup("pick asset");
+    m_pickerFilter.clear();
+  }
+  if (ImGui::BeginDragDropTarget()) {
+    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(AssetDragPayload)) {
+      core::Uuid::Bytes bytes{};
+      std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
+      const core::Uuid dropped{bytes};
+      const assets::AssetInfo *info = m_assets.find(dropped);
+      if (info != nullptr && (!type || info->type == *type) && dropped != value) {
+        value = dropped;
+        changed = true;
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+  if (ImGui::BeginPopup("pick asset")) {
+    ImGui::SetNextItemWidth(220.0f);
+    ImGui::InputTextWithHint("##filter", "filter", &m_pickerFilter);
+    if (ImGui::Selectable("(none)", value.isNil()) && !value.isNil()) {
+      value = {};
+      changed = true;
+    }
+    for (const assets::AssetInfo *info : m_assets.assets(type)) {
+      if (!containsIgnoringCase(info->name, m_pickerFilter)) {
+        continue;
+      }
+      ImGui::PushID(info->uuid.toString().c_str());
+      if (ImGui::Selectable(info->name.c_str(), info->uuid == value) && info->uuid != value) {
+        value = info->uuid;
+        changed = true;
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndPopup();
+  }
+  return changed;
+}
+
+void InspectorPanel::drawAsset(core::Uuid uuid) {
+  const assets::AssetInfo *info = m_assets.find(uuid);
+  if (info == nullptr) {
+    ImGui::TextDisabled("The asset no longer exists");
+    m_materialEdit.reset();
+    return;
+  }
+  ImGui::Text("%s", info->name.c_str());
+  ImGui::TextDisabled("%s", assets::toString(info->type).data());
+  const std::string source = info->source == "builtin"
+                                 ? std::string{"built-in"}
+                                 : info->source.lexically_relative(m_assets.projectRoot()).generic_string();
+  ImGui::TextDisabled("%s", source.c_str());
+  ImGui::TextDisabled("%s", uuid.toString().c_str());
+  if (info->source != "builtin" && ImGui::Button("Reimport")) {
+    if (const auto result = m_assets.reimport(uuid); !result) {
+      SONNET_LOG_ERROR("{}", result.error().toString());
+    }
+  }
+  ImGui::Separator();
+  switch (info->type) {
+  case assets::AssetType::Material:
+    drawMaterial(*info);
+    break;
+  case assets::AssetType::Texture:
+    drawTexture(*info);
+    break;
+  case assets::AssetType::Mesh: {
+    const renderer::MeshHandle mesh = m_assets.mesh(uuid);
+    if (mesh) {
+      const std::span<const renderer::Submesh> submeshes = m_assets.renderer().submeshes(mesh);
+      ImGui::Text("%zu submeshes", submeshes.size());
+      for (std::size_t i = 0; i < info->materials.size(); ++i) {
+        const std::string label = std::format("slot {}: {}", i, assetLabel(m_assets, info->materials[i]));
+        ImGui::TextUnformatted(label.c_str());
+      }
+    } else {
+      ImGui::TextDisabled("(not loaded)");
+    }
+    break;
+  }
+  case assets::AssetType::Model:
+    for (const assets::AssetInfo *sub : m_assets.assets()) {
+      if (sub->parent == uuid) {
+        const std::string label = std::format("{} ({})", sub->name, assets::toString(sub->type));
+        ImGui::TextUnformatted(label.c_str());
+      }
+    }
+    break;
+  case assets::AssetType::Environment:
+    ImGui::TextDisabled(m_assets.environment(uuid) ? "loaded" : "not loaded");
+    break;
+  }
+}
+
+void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
+  const assets::MaterialSource *current = m_assets.materialSource(info.uuid);
+  if (current == nullptr) {
+    ImGui::TextDisabled("(failed to load)");
+    return;
+  }
+  if (m_materialEdit && m_materialEdit->material != info.uuid) {
+    m_materialEdit.reset();
+  }
+  // Like a component: the value before the first widget is used is what the command restores.
+  const assets::MaterialSource before = m_materialEdit ? m_materialEdit->before : *current;
+  assets::MaterialSource edited = *current;
+  m_activated = m_deactivatedAfterEdit = m_deactivated = false;
+  bool picked = false;
+  ImGui::ColorEdit4("Base colour", &edited.baseColor.x);
+  track();
+  ImGui::ColorEdit3("Emissive", &edited.emissive.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
+  track();
+  ImGui::SliderFloat("Metallic", &edited.metallic, 0.0f, 1.0f);
+  track();
+  ImGui::SliderFloat("Roughness", &edited.roughness, 0.0f, 1.0f);
+  track();
+  ImGui::SliderFloat("Normal scale", &edited.normalScale, 0.0f, 2.0f);
+  track();
+  ImGui::SliderFloat("Occlusion", &edited.occlusionStrength, 0.0f, 1.0f);
+  track();
+  ImGui::SliderFloat("Alpha cutoff", &edited.alphaCutoff, 0.0f, 1.0f);
+  track();
+  picked = drawEnumCombo("Alpha mode", edited.alphaMode, AlphaModeNames) || picked;
+  picked = drawEnumCombo("Wrap", edited.wrap, WrapNames) || picked;
+  if (ImGui::Checkbox("Double sided", &edited.doubleSided)) {
+    picked = true;
+  }
+  const auto texture = [&](const char *label, core::Uuid &value) {
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(150.0f);
+    ImGui::PushID(label);
+    picked = drawAssetPicker(value, assets::AssetType::Texture) || picked;
+    ImGui::PopID();
+  };
+  texture("Base colour map", edited.baseColorTexture);
+  texture("Metallic roughness", edited.metallicRoughnessTexture);
+  texture("Normal map", edited.normalTexture);
+  texture("Occlusion map", edited.occlusionTexture);
+  texture("Emissive map", edited.emissiveTexture);
+
+  if (edited != *current) {
+    m_assets.setMaterialSource(info.uuid, edited);
+  }
+  if (picked) {
+    // A combo, a checkbox or a picker is one edit in itself.
+    m_commands.push(materialEditCommand(m_assets, info.uuid, before, edited), m_world);
+    m_materialEdit.reset();
+  } else {
+    if (m_activated && !m_materialEdit) {
+      m_materialEdit = MaterialEdit{.material = info.uuid, .before = before};
+    }
+    if (m_materialEdit) {
+      if (m_deactivatedAfterEdit) {
+        m_commands.push(materialEditCommand(m_assets, info.uuid, m_materialEdit->before, edited), m_world);
+        m_materialEdit.reset();
+      } else if (m_deactivated) {
+        m_materialEdit.reset();
+      }
+    }
+  }
+  ImGui::Separator();
+  if (info.parent.isNil()) {
+    if (ImGui::Button("Save")) {
+      if (const auto saved = m_assets.saveMaterial(info.uuid); !saved) {
+        SONNET_LOG_ERROR("{}", saved.error().toString());
+      }
+    }
+  } else {
+    ImGui::TextDisabled("A glTF material: edits are not written back to the file");
+  }
+}
+
+void InspectorPanel::drawTexture(const assets::AssetInfo &info) {
+  if (!info.parent.isNil()) {
+    ImGui::TextDisabled("An image inside a glTF file: its colour space follows the materials");
+    return;
+  }
+  const assets::TextureSettings before = m_assets.textureSettings(info.uuid);
+  assets::TextureSettings settings = before;
+  bool changed = ImGui::Checkbox("sRGB", &settings.srgb);
+  changed = ImGui::Checkbox("Mipmaps", &settings.mipmaps) || changed;
+  changed = ImGui::Checkbox("Compress", &settings.compress) || changed;
+  if (changed) {
+    m_commands.push(textureSettingsCommand(m_assets, info.uuid, before, settings), m_world);
+  }
 }
 
 void InspectorPanel::drawEntity(flecs::entity entity) {
@@ -253,9 +502,11 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     }
     track();
   } else if (member.type == ecs.id<core::Uuid>()) {
-    // An asset reference: shown by identity until the asset browser's picker takes over.
-    const std::string text = at<core::Uuid>(field, 0).toString();
-    ImGui::TextDisabled("%s", text.c_str());
+    // An asset reference: a pick is one edit, activated and finished in the same frame.
+    if (drawAssetPicker(at<core::Uuid>(field, 0), assetTypeOfMember(name))) {
+      m_activated = true;
+      m_deactivatedAfterEdit = true;
+    }
   } else if (const flecs::Primitive *primitive = type.try_get<flecs::Primitive>()) {
     // The kinds are not constant expressions, hence no switch.
     const flecs::meta::primitive_kind_t kind = primitive->kind;

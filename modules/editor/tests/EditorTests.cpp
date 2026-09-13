@@ -1,3 +1,4 @@
+#include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/Editor.h>
 #include <sonnet/editor/EntityCommands.h>
 
@@ -278,4 +279,44 @@ TEST_CASE("a mouse drag on the gizmo's X handle moves the selected entity", "[ed
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the asset browser lists a project's assets and the inspector edits a material", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("assets");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Assets").has_value());
+    assets::MaterialSource painted;
+    painted.baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
+    const auto material = editor.assets().createMaterial(directory / "assets" / "painted.material.json", painted);
+    REQUIRE(material.has_value());
+    REQUIRE(editor.assets().find(*material) != nullptr);
+    REQUIRE(editor::assetLabel(editor.assets(), *material) == "painted (Material)");
+    REQUIRE(editor::assetLabel(editor.assets(), {}) == "(none)");
+    REQUIRE(editor::assetLabel(editor.assets(), core::Uuid::generate()) == "(missing)");
+    REQUIRE(editor::InspectorPanel::assetTypeOfMember("mesh") == assets::AssetType::Mesh);
+    REQUIRE(editor::InspectorPanel::assetTypeOfMember("map") == assets::AssetType::Environment);
+    REQUIRE(!editor::InspectorPanel::assetTypeOfMember("speed").has_value());
+
+    // The browser inspects the material; the inspector draws it and the box uses it.
+    editor.selection().clear();
+    editor.assetBrowser().inspect(*material);
+    fixture.frame(editor);
+    world::World &world = editor.world();
+    for (const flecs::entity root : world.roots()) {
+      if (root.has<world::MeshRenderer>()) {
+        root.ensure<world::MeshRenderer>().material = *material;
+      }
+    }
+    fixture.frame(editor);
+    REQUIRE(editor.commands().size() == 0);
+    // Reopening the project keeps the material's identity through its sidecar-less file.
+    REQUIRE(editor.openProject(directory).has_value());
+    REQUIRE(editor.assets().find(*material) != nullptr);
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
 }

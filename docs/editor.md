@@ -26,8 +26,10 @@ Per frame, in this order:
 | `Editor.h` | `Editor`: the world being edited, the panels, the undo history, play mode and the project; `nativeEvent`, `event`, `update`, `render`, `afterPresent` in that order per frame |
 | `ViewportPanel.h` | The dockable scene view: a `renderer::RenderTarget` sized to the panel, displayed with `ImGui::Image`, the fly camera while the right mouse button is held over it, and `ViewportInput`, what the mouse did over the image this frame, for the gizmo and picking |
 | `FlyCamera.h` | Mouse look, W/A/S/D on the camera's plane, Q/E along the world's up, Shift for four times the speed, the wheel to scale it |
-| `HierarchyPanel.h` | The scene tree with selection, drag-and-drop reparenting and the context menu that creates, duplicates and deletes |
-| `InspectorPanel.h` | The primary selection's name and components, with widgets generated from reflection |
+| `HierarchyPanel.h` | The scene tree with selection, drag-and-drop reparenting, a drop target for models from the asset browser, and the context menu that creates, duplicates and deletes |
+| `InspectorPanel.h` | The primary selection's name and components, with widgets generated from reflection; with nothing selected, the asset the browser inspects |
+| `AssetBrowserPanel.h` | The project's assets by type and name, drag sources for the inspector's pickers and the hierarchy |
+| `AssetCommands.h` | The material edit and texture import settings commands |
 | `Gizmo.h` | Translate, rotate and scale handles drawn over the viewport |
 | `Selection.h` | The selected entities by identity; the last one is primary |
 | `CommandStack.h`, `EntityCommands.h` | `ICommand`, the undo history, and the commands every edit goes through |
@@ -38,7 +40,7 @@ Per frame, in this order:
 The frame, as `apps/editor/main.cpp` orders it:
 
 1. Events arrive through `nativeEvent` (to ImGui) and `event` (mouse deltas for the camera; the app itself handles quit and resize).
-2. `update(dt)` opens the ImGui frame, lays out the dockspace (hierarchy left, viewport centre, inspector over statistics right, log bottom, built once with the dock builder), draws the menu bar, the shortcuts and the panels, and closes the ImGui frame. The panels edit the world; then the world's frame runs (`World::progress`: the simulation in play mode, the transform system always), the draw list is built from it ([world.md](world.md#draw-list)), and the outline list from the selection and everything under it.
+2. `update(dt)` opens the ImGui frame, lays out the dockspace (hierarchy left, viewport centre, inspector over statistics right, log and assets bottom, built once with the dock builder), draws the menu bar, the shortcuts and the panels, and closes the ImGui frame. The panels edit the world; then the asset database polls for changed sources ([assets.md](assets.md#hot-reload)), the world's frame runs (`World::progress`: the simulation in play mode, the transform system always), the draw list, the light list and the environment are built from it ([world.md](world.md#draw-list)), and the outline list from the selection and everything under it.
 3. `render(commands, swapchainImage)` first polls the picker, then resets the graph, imports the viewport target and declares the forward pass, the id pass into a transient id image, the selection mask pass into another, the outline pass over the colour and the pick readback, then the ImGui pass into the swapchain image (cleared, with the viewport colour declared sampled) when there is an image, and executes the graph. It then records the frame's statistics.
 4. `afterPresent` renders the platform windows.
 
@@ -58,6 +60,18 @@ The inspector walks the selected entity's registered components ([world.md](worl
 
 Widgets change the world live. The value before the first widget of a component is activated is kept, and when a widget is released after an edit one command with the values before and after is pushed, so a long drag is one undo step. The name field works the same way with a rename command.
 
+A member of type `core::Uuid` is an asset reference and gets a picker: a button naming the asset (`name (Type)`, `(none)`, or `(missing)` for an identity the database does not know) that opens a filtered list of the assets of the member's type, decided by the member's name (`mesh`, `material`, `map`, `...Texture`), and a drop target for rows dragged from the asset browser. A pick is one command.
+
+## Asset browser
+
+The Assets panel lists the open project's assets ([assets.md](assets.md#database)) with a text filter and a type filter: name, type and source file, sub-assets under their glTF file. Clicking a row clears the entity selection and shows the asset in the inspector; rows are drag sources for the inspector's pickers, and a model dropped on the hierarchy becomes an instance of its prefab. "New material" writes a fresh `.material.json` in the project's `assets` folder and inspects it.
+
+The inspector shows an asset's name, type, source and identity, with a Reimport button, and per type:
+
+- A material: its authored values ([assets.md](assets.md#materials)), edited live through the database like a component, one command per widget release or pick; Save writes the file. A glTF material is edited in memory only.
+- A texture file: the import settings of its sidecar (sRGB, mipmaps, compression); a change is a command that re-imports at once. An image inside a glTF file follows its materials.
+- A mesh: its submeshes and default materials. A model: its sub-assets. An environment: whether it is loaded.
+
 ## Undo and redo
 
 Every edit is an `ICommand` with `apply` and `revert`, pushed on the `CommandStack`, which applies it, drops the redo list and keeps the last 256. Commands refer to entities by UUID, never by flecs id, and a deleted subtree comes back with the identities it had, so later commands keep working after undo and redo. The commands: create, delete, duplicate (fresh identities, decided once so redo makes the same copy), reparent (keeping the world transform, restoring the exact local one on undo), rename, a component set, add or remove holding both values, prefab instantiation, and a composite for a multi-selection delete or duplicate. Ctrl+Z and Ctrl+Y (or Ctrl+Shift+Z) and the Edit menu, which names what they would do. The stack's revision compared with the one at the last save is the dirty flag in the window title.
@@ -72,7 +86,7 @@ A project is a folder with a `project.json` ([assets.md](assets.md#project-file)
 
 Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "editor")`: the recent projects and the external editor command. A `file:line` in the log panel is a link that runs that command with the placeholders filled in (`code --goto {file}:{line}` by default). Log records name repository-relative files and binaries carry no build-machine paths, so the editor finds the file at click time: under `sourceRoot` when set, otherwise in the directories from the executable's upwards, which finds the checkout a build directory lives in. A file found nowhere is a warning, not an empty document in the external editor.
 
-`editor_tests` covers the selection, every command through undo and redo, the gizmo's maths and headless drags, projects and preferences through the temporary directory, the fly camera, the log buffer, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play and stop, save and reopen, with picking and the outline in the frames and validation silent.
+`editor_tests` covers the selection, every command through undo and redo including the material and texture settings commands, the gizmo's maths and headless drags, projects and preferences through the temporary directory, the fly camera, the log buffer, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play and stop, save and reopen, the asset browser and a material in the inspector, with picking and the outline in the frames and validation silent.
 
 ## Running it
 

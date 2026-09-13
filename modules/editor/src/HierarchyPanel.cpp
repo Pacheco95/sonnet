@@ -1,5 +1,6 @@
 #include <sonnet/editor/HierarchyPanel.h>
 
+#include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/EntityCommands.h>
 
 #include <sonnet/core/Log.h>
@@ -118,6 +119,14 @@ void HierarchyPanel::selectClicked(flecs::entity entity) {
 void HierarchyPanel::acceptDrop(core::Uuid newParent) {
   if (!ImGui::BeginDragDropTarget()) {
     return;
+  }
+  // A model from the asset browser: an instance of its prefab under the drop target.
+  if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(AssetDragPayload)) {
+    core::Uuid::Bytes bytes{};
+    std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
+    if (const flecs::entity prefab = m_world.find(core::Uuid{bytes}); prefab && prefab.has(flecs::Prefab)) {
+      instantiatePrefab(prefab, newParent);
+    }
   }
   if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(DragPayload)) {
     core::Uuid::Bytes bytes{};

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/Gizmo.h>
 #include <sonnet/editor/HierarchyPanel.h>
@@ -89,6 +90,9 @@ public:
   [[nodiscard]] assets::AssetDatabase &assets() noexcept {
     return m_assets;
   }
+  [[nodiscard]] AssetBrowserPanel &assetBrowser() noexcept {
+    return m_assetBrowserPanel;
+  }
   [[nodiscard]] Selection &selection() noexcept {
     return m_selection;
   }
@@ -168,6 +172,7 @@ private:
   ViewportPanel m_viewportPanel;
   HierarchyPanel m_hierarchyPanel;
   InspectorPanel m_inspectorPanel;
+  AssetBrowserPanel m_assetBrowserPanel;
 
   glm::vec2 m_lookDelta{0.0f, 0.0f};
   std::optional<Selection::Mode> m_pendingPickMode;
@@ -182,6 +187,7 @@ private:
   bool m_showHierarchy{true};
   bool m_showInspector{true};
   bool m_showLog{true};
+  bool m_showAssets{true};
   bool m_showStatistics{true};
   bool m_showOverlay{true};
   bool m_quitRequested{false};
