@@ -59,6 +59,27 @@ Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-androi
 
 Binary directories are `build/<preset>/`. In-source builds are rejected. Configuring without a preset still works when `VCPKG_ROOT` is set or a checkout exists at `~/vcpkg`: the root `CMakeLists.txt` picks the toolchain file up itself, and otherwise stops with a message saying so.
 
+Machine-local presets go in `CMakeUserPresets.json` next to `CMakePresets.json`, which CMake reads automatically and git ignores. It is the place for settings that depend on one machine rather than on the platform. The known case is macOS with Homebrew LLVM instead of Apple Clang: that compiler does not find the SDK by itself, so a local preset inherits `macos-base` and sets `CMAKE_OSX_SYSROOT`:
+
+```json
+{
+  "version": 8,
+  "configurePresets": [
+    {
+      "name": "macos-debug-local",
+      "inherits": "macos-base",
+      "displayName": "macOS Debug (local, Homebrew LLVM)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_SYSROOT": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+      }
+    }
+  ],
+  "buildPresets": [{ "name": "macos-debug-local", "configurePreset": "macos-debug-local" }],
+  "testPresets": [{ "name": "macos-debug-local", "configurePreset": "macos-debug-local", "output": { "outputOnFailure": true } }]
+}
+```
+
 IDEs: CLion and Visual Studio read `CMakePresets.json`; in CLion enable the preset profiles under Settings, Build, CMake, and give the profile `VCPKG_ROOT` in its environment field when the IDE was not started from a shell that exports it. `cmake-build-*` directories are ignored by git. Platform presets carry a `condition` on the host system, so `cmake --list-presets` shows only the ones that apply. Every preset exports `compile_commands.json` for clangd and clang-tidy.
 
 ## Options
