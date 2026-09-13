@@ -30,6 +30,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -107,6 +108,10 @@ public:
   }
   [[nodiscard]] bool quitRequested() const noexcept {
     return m_quitRequested;
+  }
+  // The pick ids the last update queued for the outline: the selection and its descendants.
+  [[nodiscard]] std::span<const std::uint32_t> outlineIds() const noexcept {
+    return m_outlineIds;
   }
 
 private:

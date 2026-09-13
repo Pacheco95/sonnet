@@ -160,9 +160,11 @@ void Renderer::addIdPass(RenderGraph &graph, const SceneView &view, GraphImage i
 
 void Renderer::addSelectionMaskPass(RenderGraph &graph, const SceneView &view, GraphImage mask,
                                     std::span<const std::uint32_t> selected) {
-  m_selectedCount = static_cast<std::uint32_t>(std::min(selected.size(), MaxSelected));
-  std::copy_n(selected.begin(), m_selectedCount, m_selected.begin());
-  if (m_selectedCount == 0) {
+  m_selected.assign(selected.begin(), selected.end());
+  std::ranges::sort(m_selected);
+  const auto duplicates = std::ranges::unique(m_selected);
+  m_selected.erase(duplicates.begin(), duplicates.end());
+  if (m_selected.empty()) {
     return;
   }
   graph.addPass(
@@ -175,7 +177,7 @@ void Renderer::addSelectionMaskPass(RenderGraph &graph, const SceneView &view, G
 
 void Renderer::addOutlinePass(RenderGraph &graph, GraphImage color, GraphImage mask, glm::vec4 outlineColor) {
   m_outlineColor = outlineColor;
-  if (m_selectedCount == 0) {
+  if (m_selected.empty()) {
     return;
   }
   graph.addPass(
@@ -228,7 +230,7 @@ void Renderer::recordDraws(rhi::ICommandList &commands, const SceneView &view, c
   commands.bindBuffers(bindings);
 
   for (std::size_t i = 0; i < view.draws.size(); ++i) {
-    if (!only.empty() && std::ranges::find(only, view.draws[i].id) == only.end()) {
+    if (!only.empty() && !std::ranges::binary_search(only, view.draws[i].id)) {
       continue;
     }
     const Mesh *mesh = m_meshes.find(view.draws[i].mesh);
@@ -277,7 +279,7 @@ void Renderer::recordSelectionMask(rhi::ICommandList &commands, const SceneView 
   }
   const PassBuffers buffers = uploadPassBuffers(view, targetSize);
   if (buffers.valid()) {
-    recordDraws(commands, view, buffers, m_maskPipeline, false, std::span{m_selected.data(), m_selectedCount});
+    recordDraws(commands, view, buffers, m_maskPipeline, false, m_selected);
   }
 }
 

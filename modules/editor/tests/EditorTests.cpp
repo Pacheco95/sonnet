@@ -13,8 +13,11 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <initializer_list>
 #include <memory>
+#include <vector>
 
 using namespace sonnet;
 using Catch::Approx;
@@ -143,6 +146,47 @@ TEST_CASE("the editor opens a project, edits, plays, stops and saves", "[editor]
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("selecting a parent outlines its whole subtree", "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    world::World &world = editor.world();
+    const flecs::entity parent = world.createEntity("Parent");
+    const flecs::entity child = world.createEntity("Child", parent);
+    const flecs::entity grandchild = world.createEntity("Grandchild", child);
+    const flecs::entity other = world.createEntity("Other");
+    const auto outlined = [&] {
+      fixture.frame(editor);
+      std::vector<std::uint32_t> ids(editor.outlineIds().begin(), editor.outlineIds().end());
+      std::ranges::sort(ids);
+      return ids;
+    };
+    const auto sortedIds = [&](std::initializer_list<flecs::entity> entities) {
+      std::vector<std::uint32_t> ids;
+      for (const flecs::entity entity : entities) {
+        ids.push_back(world::World::pickId(entity));
+      }
+      std::ranges::sort(ids);
+      return ids;
+    };
+
+    editor.selection().select(world.uuidOf(parent));
+    REQUIRE(outlined() == sortedIds({parent, child, grandchild}));
+    editor.selection().select(world.uuidOf(child));
+    REQUIRE(outlined() == sortedIds({child, grandchild}));
+    // The sibling is untouched, and a selected descendant of a selected parent is listed twice at
+    // most, which the renderer folds.
+    editor.selection().select(world.uuidOf(other));
+    editor.selection().select(world.uuidOf(parent), editor::Selection::Mode::Add);
+    editor.selection().select(world.uuidOf(child), editor::Selection::Mode::Add);
+    REQUIRE(outlined() == sortedIds({other, parent, child, child, grandchild, grandchild}));
+    editor.selection().clear();
+    REQUIRE(outlined().empty());
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
 TEST_CASE("clicking the menu bar's play button toggles play mode", "[editor][gpu]") {
