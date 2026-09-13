@@ -122,7 +122,11 @@ void RenderGraph::addPass(std::string_view name, const std::function<void(PassBu
 
 void RenderGraph::resolveImages() {
   m_handles.resize(m_images.size());
-  m_states.assign(m_images.size(), State{});
+  // An image's first barrier of the frame orders it after whatever the previous frame did to it:
+  // an imported target is written every frame, and a pooled image may have been anything.
+  m_states.assign(m_images.size(), State{.layout = rhi::ImageLayout::Undefined,
+                                         .stage = rhi::PipelineStage::AllCommands,
+                                         .access = rhi::Access::MemoryRead | rhi::Access::MemoryWrite});
   for (std::size_t i = 0; i < m_images.size(); ++i) {
     Image &image = m_images[i];
     if (!image.transient) {
