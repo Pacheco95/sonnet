@@ -19,7 +19,7 @@ if (@IMGUI_BUILD_SDL3_BINDING@ OR @IMGUI_BUILD_SDL3_RENDERER_BINDING@ OR @IMGUI_
 endif()
 
 if (@IMGUI_BUILD_VULKAN_BINDING@)
-    find_dependency(Vulkan)
+    find_dependency(VulkanHeaders CONFIG)
 endif()
 
 if (@IMGUI_BUILD_WEBGPU_BINDING@)

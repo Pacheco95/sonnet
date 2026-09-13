@@ -76,6 +76,19 @@ ImGuiLayer::ImGuiLayer(const ImGuiLayerDesc &desc) {
   }
   m_backend->sdlInitialised = true;
 
+  // The backend is built without prototypes (ports/imgui) and takes its entry points from the
+  // loader SDL already holds, so the process keeps a single loader (ADR-0006).
+  const bool loaded = ImGui_ImplVulkan_LoadFunctions(
+      VK_API_VERSION_1_4,
+      [](const char *name, void *userData) {
+        const vk::raii::Instance &instance = static_cast<rhi::VulkanDevice *>(userData)->instance();
+        return instance.getDispatcher()->vkGetInstanceProcAddr(*instance, name);
+      },
+      vulkanDevice);
+  if (!loaded) {
+    throw core::Exception{"ImGui_ImplVulkan_LoadFunctions failed", core::ErrorCategory::Graphics};
+  }
+
   m_backend->swapchainFormat = rhi::toVk(desc.swapchainFormat);
   ImGui_ImplVulkan_InitInfo info{};
   info.ApiVersion = VK_API_VERSION_1_4;

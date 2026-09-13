@@ -114,8 +114,11 @@ if(IMGUI_BUILD_SDL3_RENDERER_BINDING)
 endif()
 
 if(IMGUI_BUILD_VULKAN_BINDING)
-    find_package(Vulkan REQUIRED)
-    target_link_libraries(${PROJECT_NAME} PUBLIC Vulkan::Vulkan)
+    # Sonnet overlay: headers only, no loader. The backend resolves its entry points through
+    # ImGui_ImplVulkan_LoadFunctions from the one loader the application already holds.
+    find_package(VulkanHeaders CONFIG REQUIRED)
+    target_link_libraries(${PROJECT_NAME} PUBLIC Vulkan::Headers)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
     target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
 endif()
 

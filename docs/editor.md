@@ -15,7 +15,7 @@ Per frame, in this order:
 
 `registerImage` turns a sampled-capable `rhi::ImageHandle` into an `ImTextureID` for `ImGui::Image`; the image has to be in `ShaderReadOnly` when the draw data is recorded, which the graph guarantees when the ImGui pass declares it sampled. `unregisterImage` releases the descriptor after the frames in flight that may still reference it.
 
-`ui` is the documented exception to the backend rule: it links `sonnet::rhi_vulkan` to reach the Vulkan objects behind the device, the command list and the images. Nothing else above `rhi` sees Vulkan. The vcpkg port compiles the backend against the Vulkan loader's prototypes; SDL loads the same library, so the process still has one loader.
+`ui` is the documented exception to the backend rule: it links `sonnet::rhi_vulkan` to reach the Vulkan objects behind the device, the command list and the images. Nothing else above `rhi` sees Vulkan. The overlay port builds the backend without Vulkan prototypes and without linking a loader; the layer hands it the instance's `vkGetInstanceProcAddr` through `ImGui_ImplVulkan_LoadFunctions`, so the loader SDL opened stays the only one in the process ([ADR-0006](decisions/0006-vulkan-object-ownership.md)). Linking vcpkg's loader instead put it ahead of the system one on Linux, and it is built without X11 or Wayland surface support.
 
 `ui_tests` refuses a non-Vulkan device and, on Lavapipe, draws ImGui frames with a registered image into a headless swapchain and checks that validation stays silent.
 

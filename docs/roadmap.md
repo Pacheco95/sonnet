@@ -28,7 +28,7 @@ Done when the editor executable opens a window, clears it and draws a triangle, 
 - `editor`: docking layout, viewport panel with fly camera (right mouse plus WASD, Q/E), log panel, frame statistics overlay (CPU and GPU times per pass, draw count, VMA budget).
 - Primitives: box, sphere, plane, cylinder, capsule for testing without assets.
 
-Landed as six commits:
+Landed as six commits, plus a fix:
 
 1. Dear ImGui through an overlay port, so its SDL3 binding does not re-enable `sdl3`'s default features.
 2. `platform`: the SDL window handle, raw events and relative mouse mode for the ImGui backends and the camera.
@@ -36,6 +36,7 @@ Landed as six commits:
 4. `renderer`: the render graph, primitives, camera, viewport target and the forward pass over `sonnet.slang`.
 5. `ui`: the ImGui layer.
 6. `editor`: the shell with viewport, log and statistics panels, and the application around it.
+7. A fix: the ImGui overlay port stops linking vcpkg's Vulkan loader, which had no X11 surface support and was found ahead of the system's when the SDK environment was absent.
 
 Done when the editor shows a lit primitive scene in a dockable viewport with live statistics. Two items named in the docs wait for a later milestone: runtime shader compilation for hot reload comes with asset hot reload in M3, and the log panel's `file:line` links need the preferences of M2's project handling.
 
