@@ -99,3 +99,25 @@ TEST_CASE("clearing an image and reading it back yields the clear colour", "[rhi
   device->destroyBuffer(readback);
   device->destroyImage(image);
 }
+
+TEST_CASE("a resource released between frames outlives the frame that was just submitted", "[rhi][resources][gpu]") {
+  test::TestDevice device;
+  const ImageHandle image = device->createImage(
+      {.size = {256, 256}, .format = Format::R8G8B8A8Unorm, .usage = ImageUsage::ColorAttachment, .debugName = "late"});
+  ICommandList &commands = device->beginFrame();
+  test::transition(commands, test::toColorAttachment(image));
+  const ColorAttachment attachment{.image = image};
+  commands.beginRendering({.colors = {&attachment, 1}});
+  commands.endRendering();
+  device->endFrame();
+  // Released after the submit, while the frame that draws it may still be running: it must be
+  // freed only once that frame's slot is reused, not at the next beginFrame of the other slot.
+  device->destroyImage(image);
+  REQUIRE(!device->isValid(image));
+  for (std::uint32_t i = 0; i < FramesInFlight + 1; ++i) {
+    static_cast<void>(device->beginFrame());
+    device->endFrame();
+  }
+  device->waitIdle();
+  // The fixture checks that validation reported no use-after-destroy.
+}

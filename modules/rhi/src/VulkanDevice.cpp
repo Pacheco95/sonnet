@@ -508,9 +508,12 @@ bool VulkanDevice::isValid(ImageHandle handle) const {
 }
 
 void VulkanDevice::deferDestruction(std::function<void()> destroy) {
-  // While recording, the resource may be referenced by this frame's commands. Between frames the
-  // previous frame may still be executing, and the current slot is the one waited on next either way.
-  m_frames[m_frameIndex].garbage.push_back(std::move(destroy));
+  // While recording, this frame's commands may reference the resource: it goes with this slot,
+  // freed when the slot is reused after the wait on this frame. Between frames the frame that was
+  // just submitted may still be running, and it lives in the previous slot; the current slot's
+  // next wait only covers the frame before that.
+  const std::uint32_t slot = m_recording ? m_frameIndex : (m_frameIndex + FramesInFlight - 1) % FramesInFlight;
+  m_frames[slot].garbage.push_back(std::move(destroy));
 }
 
 void VulkanDevice::waitForFrame(Frame &frame) {
