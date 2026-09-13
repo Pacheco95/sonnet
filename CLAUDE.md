@@ -14,6 +14,7 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 | `core` | `docs/core.md` |
 | `platform` | `docs/platform.md` |
 | `rhi`, `renderer`, shaders | `docs/rendering.md` |
+| `world`, scene and prefab files | `docs/world.md` |
 | `ui`, `editor`, `apps/editor` | `docs/editor.md` |
 | `assets`, file formats | `docs/assets.md` |
 | CMake, vcpkg, CI | `docs/build.md` |
