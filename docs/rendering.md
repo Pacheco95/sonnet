@@ -116,7 +116,7 @@ Public headers under `sonnet/renderer/`: `RenderGraph.h`, `Mesh.h` (`Vertex`, `M
 
 The scene renders into an offscreen colour image that the viewport panel displays with `ImGui::Image`. Picking is a small pass that writes entity ids into an image and reads back the pixel under the cursor. The selection outline is a post pass over a mask image.
 
-ImGui uses its SDL3 and Vulkan backends, initialised in dynamic-rendering mode, drawing directly to the swapchain image after the scene. Multi-viewport is enabled on desktop.
+ImGui uses its SDL3 and Vulkan backends, initialised in dynamic-rendering mode, drawing directly to the swapchain image after the scene. Multi-viewport is enabled on desktop. The `ui` module wraps both in `ImGuiLayer` ([editor.md](editor.md#the-ui-module)); the editor declares the ImGui draw as the last graph pass, rendering into the swapchain image and sampling the viewport target, so the graph orders it after the scene.
 
 ## Debugging
 

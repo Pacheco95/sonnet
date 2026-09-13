@@ -91,7 +91,7 @@ Per-configuration definitions applied by `sonnet_add_module`: `SONNET_ASSERTS_EN
 
 The helpers live in `cmake/SonnetFunctions.cmake`; options are in `SonnetOptions.cmake`, warning flags in `SonnetWarnings.cmake` and the coverage target in `SonnetCoverage.cmake`.
 
-`modules/CMakeLists.txt` adds the modules in dependency order, and that order is the canonical statement of the architecture.
+`modules/CMakeLists.txt` adds the modules in dependency order, and that order is the canonical statement of the architecture. `ui` and `editor` are added only when `SONNET_BUILD_EDITOR` is on. `rhi` also exports the interface target `sonnet::rhi_vulkan` (its implementation headers and the Vulkan-HPP configuration), which only `ui` may link, for Dear ImGui's Vulkan backend.
 
 ## Shaders in the build
 
