@@ -718,8 +718,8 @@ void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle
       "release equirect", [](PassBuilder &) {},
       [this, handle, equirectImage](rhi::ICommandList &, const PassResources &) {
         m_device.destroyImage(equirectImage);
-        if (Environment *environment = m_environments.find(handle)) {
-          environment->equirectangular = {};
+        if (Environment *current = m_environments.find(handle)) {
+          current->equirectangular = {};
         }
       });
 }

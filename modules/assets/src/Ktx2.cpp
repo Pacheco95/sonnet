@@ -46,9 +46,14 @@ rhi::Format fromVkFormat(std::uint32_t format) noexcept {
   }
 }
 
+// The library's ktxTexture() macro is a C-style cast to the base struct.
+ktxTexture *asBase(ktxTexture2 *texture) noexcept {
+  return reinterpret_cast<ktxTexture *>(texture);
+}
+
 struct KtxDestroy {
   void operator()(ktxTexture2 *texture) const noexcept {
-    ktxTexture_Destroy(ktxTexture(texture));
+    ktxTexture_Destroy(asBase(texture));
   }
 };
 using KtxTexture = std::unique_ptr<ktxTexture2, KtxDestroy>;
@@ -92,7 +97,7 @@ core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, b
     const std::uint64_t levelBytes = rhi::levelByteSize(format, rhi::mipSize(data.size, level));
     for (std::uint32_t face = 0; face < texture->numFaces; ++face) {
       ktx_size_t offset = 0;
-      result = ktxTexture_GetImageOffset(ktxTexture(texture.get()), level, 0, face, &offset);
+      result = ktxTexture_GetImageOffset(asBase(texture.get()), level, 0, face, &offset);
       if (result != KTX_SUCCESS || offset + levelBytes > texture->dataSize) {
         return std::unexpected(ktxError(std::format("reading level {} of the KTX2 file", level), result));
       }
@@ -131,7 +136,7 @@ core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &sourc
   for (std::uint32_t level = 0; level < source.mipLevels; ++level) {
     for (std::uint32_t face = 0; face < source.layers(); ++face) {
       const std::span<const std::byte> image = source.level(level, face);
-      result = ktxTexture_SetImageFromMemory(ktxTexture(texture.get()), level, 0, face,
+      result = ktxTexture_SetImageFromMemory(asBase(texture.get()), level, 0, face,
                                              reinterpret_cast<const ktx_uint8_t *>(image.data()), image.size());
       if (result != KTX_SUCCESS) {
         return std::unexpected(ktxError(std::format("setting level {} of the KTX2 texture", level), result));
@@ -157,7 +162,7 @@ core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &sourc
   }
   ktx_uint8_t *bytes = nullptr;
   ktx_size_t size = 0;
-  result = ktxTexture_WriteToMemory(ktxTexture(texture.get()), &bytes, &size);
+  result = ktxTexture_WriteToMemory(asBase(texture.get()), &bytes, &size);
   if (result != KTX_SUCCESS) {
     return std::unexpected(ktxError("writing the KTX2 file", result));
   }
