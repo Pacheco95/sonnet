@@ -21,9 +21,10 @@ public:
   [[nodiscard]] std::string_view title() const override;
   void setTitle(std::string_view title) override;
   void show() override;
+  void setRelativeMouseMode(bool enabled) override;
+  [[nodiscard]] bool relativeMouseMode() const override;
   [[nodiscard]] VkSurfaceKHR createVulkanSurface(VkInstance instance) const override;
-
-  [[nodiscard]] SDL_Window *handle() const noexcept {
+  [[nodiscard]] SDL_Window *nativeHandle() const override {
     return m_window;
   }
 

@@ -8,6 +8,10 @@
 #include <string>
 #include <string_view>
 
+// SDL is the only implementation (ADR-0002) and Dear ImGui's SDL3 backend needs the window it
+// wraps, so the interface hands the SDL handle out; declaring it here keeps SDL's headers out.
+struct SDL_Window;
+
 namespace sonnet::platform {
 
 struct WindowDesc {
@@ -27,10 +31,17 @@ public:
   [[nodiscard]] virtual std::string_view title() const = 0;
   virtual void setTitle(std::string_view title) = 0;
   virtual void show() = 0;
+  // Hides the cursor and reports mouse motion as deltas only, for fly-camera style control.
+  virtual void setRelativeMouseMode(bool enabled) = 0;
+  [[nodiscard]] virtual bool relativeMouseMode() const = 0;
 
   // The surface belongs to the caller, who destroys it with vkDestroySurfaceKHR before the window.
   // Throws core::Exception when the surface cannot be created.
   [[nodiscard]] virtual VkSurfaceKHR createVulkanSurface(VkInstance instance) const = 0;
+
+  // The SDL window behind the interface, for Dear ImGui's SDL3 backend in `ui`. Nothing else
+  // reaches SDL through it.
+  [[nodiscard]] virtual SDL_Window *nativeHandle() const = 0;
 };
 
 } // namespace sonnet::platform

@@ -64,6 +64,7 @@ SDL_AppResult appIterate(void *state) {
 
 SDL_AppResult appEvent(void *state, SDL_Event *event) {
   auto *appState = static_cast<AppState *>(state);
+  appState->app->nativeEvent(*event);
   const std::optional<Event> translated = translateEvent(*event);
   if (!translated) {
     return SDL_APP_CONTINUE;

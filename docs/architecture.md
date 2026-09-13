@@ -32,7 +32,7 @@ Compile-time dependencies point one way: a module includes headers and links tar
 
 Upward communication is still needed, for example the platform layer must tell the engine about a resize, and the world must tell the renderer what to draw. It happens without a dependency, through mechanisms owned by the lower layer:
 
-- **Interfaces** the lower layer declares and the upper layer implements. `platform` declares the application callback interface; the engine implements it.
+- **Interfaces** the lower layer declares and the upper layer implements. `platform` declares the application callback interface; the application implements it, receiving translated events and, for Dear ImGui's backend, the raw SDL ones.
 - **Callbacks and events** the lower layer emits. Input events are values pushed into a queue the upper layer drains.
 - **Data** the upper layer hands down. The renderer receives a list of draw items built by `world`; it never queries the ECS.
 

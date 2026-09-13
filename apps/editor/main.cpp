@@ -73,6 +73,10 @@ public:
     return platform::AppResult::Continue;
   }
 
+  void nativeEvent(const SDL_Event &) override {
+    // Dear ImGui consumes these once the ui module exists.
+  }
+
 private:
   // Declared in creation order so the swapchain dies before the device, the device before the window.
   std::unique_ptr<platform::IWindow> m_window;

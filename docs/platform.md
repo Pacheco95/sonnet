@@ -5,10 +5,10 @@ Window, input events, the application callback interface and file-system paths, 
 | Header | Contents |
 |---|---|
 | `Platform.h` | `Platform`: owns the SDL video subsystem, creates windows, exposes paths and the Vulkan loader |
-| `Window.h` | `IWindow` and `WindowDesc` |
+| `Window.h` | `IWindow` and `WindowDesc`; the SDL window handle for Dear ImGui's backend and relative mouse mode |
 | `Input.h` | `Key` (physical positions), `MouseButton`, `Modifiers` |
 | `Event.h` | The event structs and the `Event` variant |
-| `Application.h` | `IApplication`, `AppResult`, the `createApplication` declaration every executable defines |
+| `Application.h` | `IApplication` (`iterate`, `event`, `nativeEvent`), `AppResult`, the `createApplication` declaration every executable defines |
 | `EntryPoint.h` | Included once per executable; provides `main()` through SDL's callbacks |
 
 ## Lifecycle
@@ -17,16 +17,16 @@ The engine does not own `main()`. `EntryPoint.h` defines SDL's `SDL_AppInit`, `S
 
 1. On init, initialises logging, constructs `Platform` (SDL video subsystem only), converts the arguments and calls the executable's `createApplication`. An exception here is logged at `critical` and ends the process with a failure code.
 2. On iterate, calls `IApplication::iterate` and emits the Tracy frame mark.
-3. On event, translates the SDL event and calls `IApplication::event` when the engine has a type for it; unknown SDL events are dropped in `platform`.
+3. On event, hands the raw SDL event to `IApplication::nativeEvent` (Dear ImGui's SDL3 backend consumes it in `ui`), then translates it and calls `IApplication::event` when the engine has a type for it; SDL events without an engine type go no further.
 4. On quit, destroys the application, then `Platform`.
 
 `IApplication::iterate` and `event` return `AppResult`: `Continue`, or `Success` and `Failure` to end the loop. On desktop SDL calls iterate in a loop; on iOS and Android the OS calls it, which is why frame ordering lives in the application and not in a loop the engine writes.
 
-`EntryPoint.h` is the one public header that includes SDL, because `SDL_main.h` has to be compiled into the executable's translation unit. It is the reason `SDL3::SDL3` is a public dependency of the module; no other public header includes SDL.
+`EntryPoint.h` is the one public header that includes SDL, because `SDL_main.h` has to be compiled into the executable's translation unit. It is the reason `SDL3::SDL3` is a public dependency of the module; no other public header includes SDL. `Application.h` and `Window.h` forward-declare `SDL_Event` and `SDL_Window` so that `ui` can hand both to Dear ImGui's SDL3 backend without the headers.
 
 ## Window
 
-`Platform::createWindow` returns an `IWindow`, which reports its logical and pixel sizes, its title and minimised state, and creates a `VkSurfaceKHR` for a given instance. The surface belongs to the caller (`rhi` wraps it in a RAII object) and must be destroyed before the window. Windows are created with `SDL_WINDOW_VULKAN` and `SDL_WINDOW_HIGH_PIXEL_DENSITY`, so the pixel size is what the swapchain has to match.
+`Platform::createWindow` returns an `IWindow`, which reports its logical and pixel sizes, its title and minimised state, toggles relative mouse mode (the cursor hidden and motion reported as deltas, for the editor's fly camera), exposes the `SDL_Window` for Dear ImGui, and creates a `VkSurfaceKHR` for a given instance. The surface belongs to the caller (`rhi` wraps it in a RAII object) and must be destroyed before the window. Windows are created with `SDL_WINDOW_VULKAN` and `SDL_WINDOW_HIGH_PIXEL_DENSITY`, so the pixel size is what the swapchain has to match.
 
 The Vulkan loader is reached through `Platform::vulkanGetInstanceProcAddr` and `Platform::vulkanInstanceExtensions`, which load the library through SDL on first use. `rhi` seeds vk-bootstrap and the Vulkan-HPP dispatcher from that pointer, so one loader is used in the process ([ADR-0006](decisions/0006-vulkan-object-ownership.md)).
 

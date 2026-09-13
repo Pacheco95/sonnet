@@ -4,6 +4,7 @@
 #include <sonnet/core/Log.h>
 
 #include <SDL3/SDL_error.h>
+#include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_vulkan.h>
 
 #include <format>
@@ -60,6 +61,16 @@ void SdlWindow::setTitle(std::string_view title) {
 
 void SdlWindow::show() {
   SDL_ShowWindow(m_window);
+}
+
+void SdlWindow::setRelativeMouseMode(bool enabled) {
+  if (!SDL_SetWindowRelativeMouseMode(m_window, enabled)) {
+    SONNET_LOG_WARN("SDL_SetWindowRelativeMouseMode failed: {}", SDL_GetError());
+  }
+}
+
+bool SdlWindow::relativeMouseMode() const {
+  return SDL_GetWindowRelativeMouseMode(m_window);
 }
 
 VkSurfaceKHR SdlWindow::createVulkanSurface(VkInstance instance) const {
