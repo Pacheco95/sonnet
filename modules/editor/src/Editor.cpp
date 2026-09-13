@@ -112,11 +112,19 @@ void Editor::update(float dt) {
   m_view.camera = m_viewportPanel.camera().camera();
   m_view.draws = m_draws;
   m_view.light = world::sceneLight(m_world).value_or(renderer::DirectionalLight{});
+  // The selection and everything under it: selecting a parent outlines its whole subtree.
   m_outlineIds.clear();
+  std::vector<flecs::entity> pending;
   for (const core::Uuid uuid : m_selection.items()) {
     if (const flecs::entity entity = m_world.find(uuid)) {
-      m_outlineIds.push_back(world::World::pickId(entity));
+      pending.push_back(entity);
     }
+  }
+  while (!pending.empty()) {
+    const flecs::entity entity = pending.back();
+    pending.pop_back();
+    m_outlineIds.push_back(world::World::pickId(entity));
+    std::ranges::copy(m_world.children(entity), std::back_inserter(pending));
   }
   updateTitle();
 }

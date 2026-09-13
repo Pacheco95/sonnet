@@ -38,7 +38,7 @@ Per frame, in this order:
 The frame, as `apps/editor/main.cpp` orders it:
 
 1. Events arrive through `nativeEvent` (to ImGui) and `event` (mouse deltas for the camera; the app itself handles quit and resize).
-2. `update(dt)` opens the ImGui frame, lays out the dockspace (hierarchy left, viewport centre, inspector over statistics right, log bottom, built once with the dock builder), draws the menu bar, the shortcuts and the panels, and closes the ImGui frame. The panels edit the world; then the world's frame runs (`World::progress`: the simulation in play mode, the transform system always), the draw list is built from it ([world.md](world.md#draw-list)), and the outline list from the selection.
+2. `update(dt)` opens the ImGui frame, lays out the dockspace (hierarchy left, viewport centre, inspector over statistics right, log bottom, built once with the dock builder), draws the menu bar, the shortcuts and the panels, and closes the ImGui frame. The panels edit the world; then the world's frame runs (`World::progress`: the simulation in play mode, the transform system always), the draw list is built from it ([world.md](world.md#draw-list)), and the outline list from the selection and everything under it.
 3. `render(commands, swapchainImage)` first polls the picker, then resets the graph, imports the viewport target and declares the forward pass, the id pass into a transient id image, the selection mask pass into another, the outline pass over the colour and the pick readback, then the ImGui pass into the swapchain image (cleared, with the viewport colour declared sampled) when there is an image, and executes the graph. It then records the frame's statistics.
 4. `afterPresent` renders the platform windows.
 
@@ -46,7 +46,7 @@ The Debug build of the application turns on the flecs explorer through `World`.
 
 ## Selection and picking
 
-The selection holds UUIDs, so it survives undo, play mode and reloads; the last selected entity is the primary one, what the inspector shows and the gizmo moves. Clicking in the hierarchy selects, Ctrl toggles, Shift adds. Clicking in the viewport, away from a gizmo handle and with the camera idle, asks the `renderer::Picker` for the id under the cursor; the answer comes two frames later, when the readback of that frame has completed, and the selection changes then, with the same modifiers. Selected entities are drawn into the selection mask and outlined from it ([rendering.md](rendering.md#the-renderer-module-today)), so an object in front of a selected one is never outlined itself. Escape clears the selection, F turns the camera towards it.
+The selection holds UUIDs, so it survives undo, play mode and reloads; the last selected entity is the primary one, what the inspector shows and the gizmo moves. Clicking in the hierarchy selects, Ctrl toggles, Shift adds. Clicking in the viewport, away from a gizmo handle and with the camera idle, asks the `renderer::Picker` for the id under the cursor; the answer comes two frames later, when the readback of that frame has completed, and the selection changes then, with the same modifiers. Selected entities and their descendants are drawn into the selection mask and outlined from it ([rendering.md](rendering.md#the-renderer-module-today)), so an object in front of a selected one is never outlined itself. Escape clears the selection, F turns the camera towards it.
 
 ## Gizmos
 

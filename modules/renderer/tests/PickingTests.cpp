@@ -16,6 +16,7 @@
 #include <cstring>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 using namespace sonnet::renderer;
 using namespace sonnet::rhi;
@@ -117,6 +118,39 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
   REQUIRE(countLines(*device, "copyImageToBuffer") == 0);
   REQUIRE(!frame(false).has_value());
 
+  renderer.destroyMesh(box);
+}
+
+TEST_CASE("the selection mask draws every listed item, given in any order with repeats", "[renderer][picking][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform)};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  // Forty items, a selected parent's subtree, listed backwards with one id twice.
+  std::vector<DrawItem> draws;
+  std::vector<std::uint32_t> selected;
+  for (std::uint32_t id = 1; id <= 40; ++id) {
+    draws.push_back({.mesh = box, .id = id});
+    if (id % 2 == 0) {
+      selected.insert(selected.begin(), id);
+    }
+  }
+  selected.push_back(4);
+  const SceneView view = boxScene(draws);
+  ICommandList &commands = device->beginFrame();
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 32});
+  ImageDesc maskDesc = idImageDesc(target.size());
+  maskDesc.debugName = "mask";
+  const GraphImage mask = graph.createImage(maskDesc);
+  renderer.addSelectionMaskPass(graph, view, mask, selected);
+  renderer.addOutlinePass(graph, graph.importImage(target.color()), mask);
+  graph.execute(commands);
+  device->endFrame();
+  REQUIRE(countLines(*device, "bindPipeline \"selection mask\"") == 1);
+  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 20); // each even id once, the odd ones never
+  REQUIRE(countLines(*device, "bindPipeline \"outline\"") == 1);
   renderer.destroyMesh(box);
 }
 

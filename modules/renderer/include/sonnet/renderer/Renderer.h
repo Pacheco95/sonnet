@@ -7,11 +7,11 @@
 #include <sonnet/core/HandlePool.h>
 #include <sonnet/rhi/Device.h>
 
-#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace sonnet::renderer {
 
@@ -28,8 +28,6 @@ public:
   static constexpr rhi::Format ColorFormat = rhi::Format::R8G8B8A8Unorm;
   static constexpr rhi::Format DepthFormat = rhi::Format::D32Sfloat;
   static constexpr rhi::Format IdFormat = rhi::Format::R32Uint;
-  // Selected ids a frame can mask; the rest are ignored.
-  static constexpr std::size_t MaxSelected = 16;
 
   // shaderDir holds the modules compiled by sonnet_add_engine_shaders (`forward.spv`, ...).
   Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir);
@@ -49,9 +47,9 @@ public:
   // Declares the id pass: every item's id into `ids` (IdFormat, cleared to 0), tested against
   // the depth the scene passes wrote so only visible surfaces remain. Same lifetime rule.
   void addIdPass(RenderGraph &graph, const SceneView &view, GraphImage ids, GraphImage depth);
-  // Declares the selection mask pass: the items whose id is in `selected` (up to MaxSelected)
-  // drawn into `mask` (IdFormat, cleared to 0) without a depth test, so the mask holds each
-  // selected entity's whole silhouette, occluded or not. Adds nothing when the selection is empty.
+  // Declares the selection mask pass: the items whose id is in `selected` drawn into `mask`
+  // (IdFormat, cleared to 0) without a depth test, so the mask holds each selected entity's
+  // whole silhouette, occluded or not. `selected` is copied. Adds nothing when it is empty.
   void addSelectionMaskPass(RenderGraph &graph, const SceneView &view, GraphImage mask,
                             std::span<const std::uint32_t> selected);
   // Declares the outline pass over `color`, drawing `outlineColor` next to the silhouettes in
@@ -81,7 +79,7 @@ private:
   [[nodiscard]] rhi::PipelineHandle createPipeline(const std::filesystem::path &shaderDir, const char *name,
                                                    rhi::GraphicsPipelineDesc desc);
   [[nodiscard]] PassBuffers uploadPassBuffers(const SceneView &view, glm::uvec2 targetSize);
-  // `only` non-empty draws just the items whose id it lists.
+  // `only` non-empty draws just the items whose id it lists; it must be sorted.
   void recordDraws(rhi::ICommandList &commands, const SceneView &view, const PassBuffers &buffers,
                    rhi::PipelineHandle pipeline, bool count, std::span<const std::uint32_t> only = {});
   void recordForward(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
@@ -96,8 +94,7 @@ private:
   rhi::PipelineHandle m_outlinePipeline;
   core::HandlePool<Mesh, MeshTag> m_meshes;
   RenderStatistics m_statistics;
-  std::array<std::uint32_t, MaxSelected> m_selected{};
-  std::uint32_t m_selectedCount{0};
+  std::vector<std::uint32_t> m_selected; // sorted and unique, for the binary search per draw
   glm::vec4 m_outlineColor{1.0f, 0.6f, 0.1f, 1.0f};
 };
 
