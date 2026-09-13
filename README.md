@@ -115,6 +115,7 @@ Details, including the entity model, resource handles and the editor/player spli
 sonnet/
 ├── CMakeLists.txt, CMakePresets.json, vcpkg.json
 ├── cmake/                 — options, module and test helpers, toolchain glue
+├── ports/                 — vcpkg overlay ports carrying local patches
 ├── modules/<name>/        — include/sonnet/<name>/, src/, tests/, shaders/ (renderer only)
 ├── apps/
 │   ├── editor/            — the editor executable (desktop)

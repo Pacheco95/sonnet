@@ -39,6 +39,8 @@ vcpkg manifest mode is the default for every dependency. `FetchContent` is allow
 
 Versions are pinned through the `builtin-baseline` in the manifest (and `overrides` when a port has to stay behind the baseline), so every machine and CI job resolves the same set. CI checks out vcpkg at that baseline rather than using the runner's copy.
 
+Patched ports live under `ports/` as overlay ports, registered by `vcpkg-configuration.json` next to the manifest so no preset or environment variable has to name them. Each one is a copy of the registry port with the change described in `ports/README.md`. The first is `imgui`: the registry port's SDL3 bindings depend on `sdl3` with its default features, which on Linux re-enables `ibus` and through it `dbus[systemd]` and `libsystemd` for every consumer, undoing the top-level manifest's choice; the overlay turns the defaults off.
+
 Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M7.
 
 ## Presets
