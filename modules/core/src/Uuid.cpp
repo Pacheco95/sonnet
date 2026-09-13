@@ -46,6 +46,35 @@ Uuid Uuid::generate() {
   return Uuid{bytes};
 }
 
+Uuid Uuid::derive(const Uuid &parent, std::string_view name) noexcept {
+  // Two 64-bit FNV-1a streams over the parent's bytes and the name, seeded differently, give
+  // the 128 bits; no cryptographic strength is needed, only stability and spread.
+  const auto hash = [&](std::uint64_t seed) {
+    std::uint64_t h = seed;
+    const auto mix = [&](std::uint8_t byte) {
+      h ^= byte;
+      h *= 0x100000001B3ull;
+    };
+    for (const std::uint8_t byte : parent.bytes()) {
+      mix(byte);
+    }
+    mix(0);
+    for (const char c : name) {
+      mix(static_cast<std::uint8_t>(c));
+    }
+    return h;
+  };
+  const std::uint64_t words[2] = {hash(0xCBF29CE484222325ull), hash(0x84222325CBF29CE4ull)};
+  Bytes bytes;
+  for (std::size_t i = 0; i < 8; ++i) {
+    bytes[i] = static_cast<std::uint8_t>(words[0] >> (8 * i));
+    bytes[i + 8] = static_cast<std::uint8_t>(words[1] >> (8 * i));
+  }
+  bytes[6] = static_cast<std::uint8_t>((bytes[6] & 0x0F) | 0x80); // version 8: custom name-based
+  bytes[8] = static_cast<std::uint8_t>((bytes[8] & 0x3F) | 0x80); // RFC 9562 variant
+  return Uuid{bytes};
+}
+
 std::optional<Uuid> Uuid::parse(std::string_view text) noexcept {
   if (text.size() == 38 && text.front() == '{' && text.back() == '}') {
     text = text.substr(1, 36);

@@ -23,4 +23,28 @@ Result<std::vector<std::byte>> readFile(const std::filesystem::path &path) {
   return bytes;
 }
 
+Result<void> writeFile(const std::filesystem::path &path, std::span<const std::byte> bytes) {
+  std::error_code error;
+  if (path.has_parent_path()) {
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+      return std::unexpected(
+          Error{std::format("cannot create {}: {}", path.parent_path().string(), error.message()), ErrorCategory::Io});
+    }
+  }
+  std::ofstream stream{path, std::ios::binary};
+  if (!stream) {
+    return std::unexpected(Error{std::format("cannot open {} for writing", path.string()), ErrorCategory::Io});
+  }
+  if (!bytes.empty() &&
+      !stream.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) {
+    return std::unexpected(Error{std::format("cannot write {}", path.string()), ErrorCategory::Io});
+  }
+  return {};
+}
+
+Result<void> writeFile(const std::filesystem::path &path, std::string_view text) {
+  return writeFile(path, std::as_bytes(std::span{text}));
+}
+
 } // namespace sonnet::core
