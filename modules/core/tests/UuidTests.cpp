@@ -43,3 +43,15 @@ TEST_CASE("Uuid parse accepts case and braces and rejects garbage", "[core][uuid
   REQUIRE(!sonnet::core::Uuid::parse("123e4567-e89b-12d3-a456-42661417400g").has_value());
   REQUIRE(!sonnet::core::Uuid::parse("123e4567+e89b-12d3-a456-426614174000").has_value());
 }
+
+TEST_CASE("derived Uuids are stable for a parent and name and distinct otherwise", "[core][uuid]") {
+  const auto parent = sonnet::core::Uuid::parse("123e4567-e89b-12d3-a456-426614174000").value();
+  const auto mesh = sonnet::core::Uuid::derive(parent, "mesh/0");
+  REQUIRE(!mesh.isNil());
+  REQUIRE(mesh == sonnet::core::Uuid::derive(parent, "mesh/0"));
+  REQUIRE(mesh != sonnet::core::Uuid::derive(parent, "mesh/1"));
+  REQUIRE(mesh != sonnet::core::Uuid::derive(sonnet::core::Uuid::generate(), "mesh/0"));
+  REQUIRE((mesh.bytes()[6] & 0xF0) == 0x80);
+  REQUIRE((mesh.bytes()[8] & 0xC0) == 0x80);
+  REQUIRE(sonnet::core::Uuid::parse(mesh.toString()) == mesh);
+}

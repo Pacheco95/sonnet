@@ -30,3 +30,20 @@ TEST_CASE("readFile reports a missing file as an Io error", "[core][file]") {
   REQUIRE(bytes.error().category == sonnet::core::ErrorCategory::Io);
   REQUIRE(bytes.error().message.contains("file.bin"));
 }
+
+TEST_CASE("writeFile creates the directories and readFile gets the bytes back", "[core][file]") {
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_core_write_test";
+  std::filesystem::remove_all(directory);
+  const std::filesystem::path path = directory / "nested" / "file.txt";
+  REQUIRE(sonnet::core::writeFile(path, std::string_view{"hello"}).has_value());
+  const auto bytes = sonnet::core::readFile(path);
+  REQUIRE(bytes.has_value());
+  REQUIRE(bytes->size() == 5);
+  REQUIRE(std::to_integer<char>((*bytes)[0]) == 'h');
+  REQUIRE(sonnet::core::writeFile(path, std::string_view{}).has_value()); // truncates
+  REQUIRE(sonnet::core::readFile(path)->empty());
+  std::filesystem::remove_all(directory);
+  const auto failed = sonnet::core::writeFile("/nonexistent-root-dir/sonnet/file.txt", std::string_view{"x"});
+  REQUIRE(!failed.has_value());
+  REQUIRE(failed.error().category == sonnet::core::ErrorCategory::Io);
+}

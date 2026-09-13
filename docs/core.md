@@ -9,8 +9,8 @@ Fundamental types every other module uses. `core` depends on GLM, spdlog and Tra
 | `Log.h` | `Log` and the `SONNET_LOG_*` macros |
 | `Assert.h` | `SONNET_ASSERT` and `SONNET_VERIFY` |
 | `Error.h` | `Error`, `Result<T>` (`std::expected<T, Error>`) and `Exception` |
-| `Uuid.h` | 128-bit identifier, random generation, canonical string form |
-| `File.h` | `readFile`: whole-file read returning `Result<std::vector<std::byte>>` |
+| `Uuid.h` | 128-bit identifier, random generation, name-based derivation for sub-assets, canonical string form |
+| `File.h` | `readFile`: whole-file read returning `Result<std::vector<std::byte>>`; `writeFile`: whole-file write that creates the directories |
 | `Math.h` | The single GLM include point; checks that the GLM configuration is present |
 | `Profile.h` | `SONNET_ZONE()`, `SONNET_ZONE_NAMED()`, `SONNET_FRAME_MARK()` over Tracy |
 | `Version.h` | `engineVersion()`, the version from the root `CMakeLists.txt` |
@@ -35,4 +35,4 @@ The four GLM configuration macros are `PUBLIC` compile definitions of `sonnet::c
 
 ## Tests
 
-`core_tests` covers handles and the pool, logging through a captured sink, error locations, UUID generation and parsing, and the version. Run one tag with `core_tests "[handle]"`.
+`core_tests` covers handles and the pool, logging through a captured sink, error locations, UUID generation, derivation and parsing, file reads and writes, and the version. Run one tag with `core_tests "[handle]"`.

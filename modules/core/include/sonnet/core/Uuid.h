@@ -22,6 +22,9 @@ public:
   }
 
   [[nodiscard]] static Uuid generate();
+  // A name-based identifier (RFC 9562 version 8) that is the same for the same parent and name
+  // every time: what a sub-asset such as a glTF file's mesh keeps across imports.
+  [[nodiscard]] static Uuid derive(const Uuid &parent, std::string_view name) noexcept;
   // Accepts the canonical 8-4-4-4-12 hexadecimal form, either case, with or without braces.
   [[nodiscard]] static std::optional<Uuid> parse(std::string_view text) noexcept;
 
