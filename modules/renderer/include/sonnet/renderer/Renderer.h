@@ -118,6 +118,10 @@ public:
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
   }
+  // Whether cooked textures can be uploaded in the BC formats (docs/assets.md, "Textures").
+  [[nodiscard]] bool blockCompressionSupported() const noexcept {
+    return m_device.info().blockCompressionSupported;
+  }
   void setSettings(const RendererSettings &settings) {
     m_settings = settings;
   }

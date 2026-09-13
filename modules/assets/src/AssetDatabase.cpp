@@ -1,0 +1,876 @@
+#include <sonnet/assets/AssetDatabase.h>
+
+#include <sonnet/core/File.h>
+#include <sonnet/core/Log.h>
+#include <sonnet/core/Profile.h>
+#include <sonnet/renderer/Primitives.h>
+
+#include <algorithm>
+#include <format>
+#include <system_error>
+
+namespace sonnet::assets {
+
+namespace {
+
+using nlohmann::json;
+
+constexpr int SidecarVersion = 1;
+constexpr std::chrono::milliseconds PollInterval{500};
+
+enum class SourceKind {
+  Unknown,
+  Image,
+  Ktx2,
+  Hdr,
+  Gltf,
+  Material,
+};
+
+// Lower-cased extension, with the double extension of material files.
+SourceKind kindOf(const std::filesystem::path &file) {
+  std::string extension = file.extension().string();
+  std::ranges::transform(extension, extension.begin(),
+                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  const std::string filename = file.filename().string();
+  if (filename.ends_with(".material.json")) {
+    return SourceKind::Material;
+  }
+  if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".tga" ||
+      extension == ".bmp") {
+    return SourceKind::Image;
+  }
+  if (extension == ".ktx2") {
+    return SourceKind::Ktx2;
+  }
+  if (extension == ".hdr") {
+    return SourceKind::Hdr;
+  }
+  if (extension == ".gltf" || extension == ".glb") {
+    return SourceKind::Gltf;
+  }
+  return SourceKind::Unknown;
+}
+
+AssetType typeOf(SourceKind kind) {
+  switch (kind) {
+  case SourceKind::Image:
+  case SourceKind::Ktx2:
+    return AssetType::Texture;
+  case SourceKind::Hdr:
+    return AssetType::Environment;
+  case SourceKind::Gltf:
+    return AssetType::Model;
+  case SourceKind::Material:
+    return AssetType::Material;
+  case SourceKind::Unknown:
+    break;
+  }
+  return AssetType::Texture;
+}
+
+std::string stemOf(const std::filesystem::path &file) {
+  std::string name = file.filename().string();
+  if (name.ends_with(".material.json")) {
+    return name.substr(0, name.size() - std::string_view{".material.json"}.size());
+  }
+  return file.stem().string();
+}
+
+std::filesystem::file_time_type modificationTime(const std::filesystem::path &file) {
+  std::error_code error;
+  const auto time = std::filesystem::last_write_time(file, error);
+  return error ? std::filesystem::file_time_type{} : time;
+}
+
+std::int64_t timeToInteger(std::filesystem::file_time_type time) {
+  return time.time_since_epoch().count();
+}
+
+core::Result<json> readJsonFile(const std::filesystem::path &path) {
+  const auto bytes = core::readFile(path);
+  if (!bytes) {
+    return std::unexpected(bytes.error());
+  }
+  json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  if (document.is_discarded()) {
+    return std::unexpected(core::Error{std::format("{}: not valid JSON", path.string()), core::ErrorCategory::Io});
+  }
+  return document;
+}
+
+} // namespace
+
+AssetDatabase::AssetDatabase(renderer::Renderer &renderer) : m_renderer(renderer) {
+  registerBuiltins();
+}
+
+AssetDatabase::~AssetDatabase() {
+  close();
+  // The built-in meshes outlive projects.
+  for (auto &[uuid, handle] : m_meshes) {
+    m_renderer.destroyMesh(handle);
+  }
+}
+
+void AssetDatabase::registerBuiltins() {
+  const std::array<std::pair<core::Uuid, const char *>, 5> builtins{{{builtin::box(), "Box"},
+                                                                     {builtin::sphere(), "Sphere"},
+                                                                     {builtin::plane(), "Plane"},
+                                                                     {builtin::cylinder(), "Cylinder"},
+                                                                     {builtin::capsule(), "Capsule"}}};
+  for (const auto &[uuid, name] : builtins) {
+    m_assets[uuid] = AssetInfo{
+        .uuid = uuid, .type = AssetType::Mesh, .source = "builtin", .name = name, .parent = {}, .materials = {}};
+  }
+}
+
+void AssetDatabase::open(const std::filesystem::path &projectRoot, std::span<const std::string> roots) {
+  SONNET_ZONE();
+  close();
+  m_projectRoot = std::filesystem::absolute(projectRoot).lexically_normal();
+  m_roots.assign(roots.begin(), roots.end());
+  std::vector<std::filesystem::path> files;
+  for (const std::string &root : m_roots) {
+    const std::filesystem::path directory = m_projectRoot / root;
+    std::error_code error;
+    if (!std::filesystem::is_directory(directory, error)) {
+      continue;
+    }
+    for (const auto &entry : std::filesystem::recursive_directory_iterator{directory, error}) {
+      if (entry.is_regular_file() && kindOf(entry.path()) != SourceKind::Unknown) {
+        files.push_back(entry.path());
+      }
+    }
+  }
+  std::ranges::sort(files);
+  for (const std::filesystem::path &file : files) {
+    scanFile(file);
+  }
+  SONNET_LOG_INFO("asset database: {} assets in {}", m_assets.size() - 5, m_projectRoot.string());
+}
+
+void AssetDatabase::close() {
+  std::vector<core::Uuid> files;
+  for (const auto &[uuid, record] : m_files) {
+    files.push_back(uuid);
+  }
+  for (const core::Uuid &uuid : files) {
+    unloadFile(uuid);
+  }
+  std::erase_if(m_assets, [](const auto &entry) { return entry.second.source != "builtin"; });
+  m_files.clear();
+  m_projectRoot.clear();
+  m_roots.clear();
+}
+
+core::Result<json> AssetDatabase::readSidecar(const std::filesystem::path &sidecar) const {
+  auto document = readJsonFile(sidecar);
+  if (!document) {
+    return document;
+  }
+  if (!document->is_object() || !document->contains("uuid") || !(*document)["uuid"].is_string() ||
+      !core::Uuid::parse((*document)["uuid"].get_ref<const std::string &>())) {
+    return std::unexpected(
+        core::Error{std::format("{}: not a sidecar with a uuid", sidecar.string()), core::ErrorCategory::Io});
+  }
+  return document;
+}
+
+core::Result<void> AssetDatabase::writeSidecar(const core::Uuid &uuid) {
+  const AssetInfo &info = m_assets.at(uuid);
+  const FileRecord &record = m_files.at(uuid);
+  json document{
+      {"version", SidecarVersion},
+      {"uuid", uuid.toString()},
+      {"type", std::string{toString(info.type)}},
+      {"sourceTime", timeToInteger(record.sourceTime)},
+      {"settings", record.settings},
+  };
+  if (info.type == AssetType::Model) {
+    json subAssets = json::array();
+    for (const auto &[subUuid, sub] : m_assets) {
+      if (sub.parent == uuid) {
+        json materials = json::array();
+        for (const core::Uuid &material : sub.materials) {
+          materials.push_back(material.toString());
+        }
+        subAssets.push_back(json{{"uuid", subUuid.toString()},
+                                 {"type", std::string{toString(sub.type)}},
+                                 {"name", sub.name},
+                                 {"materials", std::move(materials)}});
+      }
+    }
+    document["subAssets"] = std::move(subAssets);
+  }
+  return core::writeFile(record.sidecar, document.dump(2) + "\n");
+}
+
+void AssetDatabase::registerGltfSubAssets(const core::Uuid &uuid, const json &subAssets) {
+  const AssetInfo &parent = m_assets.at(uuid);
+  for (const json &entry : subAssets) {
+    if (!entry.is_object() || !entry.contains("uuid") || !entry.contains("type")) {
+      continue;
+    }
+    const auto subUuid = core::Uuid::parse(entry["uuid"].get<std::string>());
+    if (!subUuid) {
+      continue;
+    }
+    const std::string type = entry["type"].get<std::string>();
+    AssetInfo info{.uuid = *subUuid,
+                   .type = type == "Mesh"       ? AssetType::Mesh
+                           : type == "Material" ? AssetType::Material
+                                                : AssetType::Texture,
+                   .source = parent.source,
+                   .name = entry.value("name", std::string{}),
+                   .parent = uuid,
+                   .materials = {}};
+    if (entry.contains("materials") && entry["materials"].is_array()) {
+      for (const json &material : entry["materials"]) {
+        info.materials.push_back(material.is_string()
+                                     ? core::Uuid::parse(material.get<std::string>()).value_or(core::Uuid{})
+                                     : core::Uuid{});
+      }
+    }
+    m_assets[*subUuid] = std::move(info);
+  }
+}
+
+core::Result<json> AssetDatabase::listGltfSubAssets(const core::Uuid &uuid, const std::filesystem::path &file) {
+  auto import = importGltf(file);
+  if (!import) {
+    return std::unexpected(import.error());
+  }
+  json subAssets = json::array();
+  const auto add = [&](const char *kind, std::size_t index, std::string name, const char *type, json materials) {
+    subAssets.push_back(json{{"uuid", core::Uuid::derive(uuid, std::format("{}/{}", kind, index)).toString()},
+                             {"type", type},
+                             {"name", std::move(name)},
+                             {"materials", std::move(materials)}});
+  };
+  for (std::size_t i = 0; i < import->meshes.size(); ++i) {
+    json materials = json::array();
+    for (const std::int32_t material : import->meshes[i].materials) {
+      materials.push_back(material >= 0 ? core::Uuid::derive(uuid, std::format("material/{}", material)).toString()
+                                        : core::Uuid{}.toString());
+    }
+    add("mesh", i, import->meshes[i].name, "Mesh", std::move(materials));
+  }
+  for (std::size_t i = 0; i < import->materials.size(); ++i) {
+    add("material", i, import->materials[i].name, "Material", json::array());
+  }
+  for (std::size_t i = 0; i < import->images.size(); ++i) {
+    add("image", i, import->images[i].name, "Texture", json::array());
+  }
+  return subAssets;
+}
+
+void AssetDatabase::scanFile(const std::filesystem::path &file) {
+  const SourceKind kind = kindOf(file);
+  const std::filesystem::path sidecar = file.string() + ".meta";
+  const std::filesystem::file_time_type sourceTime = modificationTime(file);
+  json document;
+  bool rewrite = false;
+  if (auto existing = readSidecar(sidecar)) {
+    document = std::move(*existing);
+  } else {
+    document = json{{"version", SidecarVersion},
+                    {"uuid", core::Uuid::generate().toString()},
+                    {"settings", kind == SourceKind::Image ? TextureSettings{}.toJson() : json::object()}};
+    rewrite = true;
+  }
+  const core::Uuid uuid = core::Uuid::parse(document["uuid"].get<std::string>()).value();
+  if (m_assets.contains(uuid)) {
+    SONNET_LOG_ERROR("{}: identity {} is already used by {}, skipped", file.string(), uuid.toString(),
+                     m_assets[uuid].source.string());
+    return;
+  }
+  m_assets[uuid] = AssetInfo{
+      .uuid = uuid, .type = typeOf(kind), .source = file, .name = stemOf(file), .parent = {}, .materials = {}};
+  m_files[uuid] = FileRecord{.sidecar = sidecar,
+                             .sourceTime = sourceTime,
+                             .settings = document.contains("settings") ? document["settings"] : json::object()};
+  if (kind == SourceKind::Gltf) {
+    // The sub-asset list is kept in the sidecar so a scan does not parse every glTF file; it is
+    // rebuilt when the source changed since.
+    const bool stale =
+        !document.contains("subAssets") || document.value("sourceTime", std::int64_t{0}) != timeToInteger(sourceTime);
+    if (stale) {
+      if (auto subAssets = listGltfSubAssets(uuid, file)) {
+        document["subAssets"] = std::move(*subAssets);
+        rewrite = true;
+      } else {
+        SONNET_LOG_ERROR("{}", subAssets.error().toString());
+      }
+    }
+    if (document.contains("subAssets")) {
+      registerGltfSubAssets(uuid, document["subAssets"]);
+    }
+  }
+  if (rewrite) {
+    if (const auto written = writeSidecar(uuid); !written) {
+      SONNET_LOG_ERROR("{}", written.error().toString());
+    } else {
+      SONNET_LOG_DEBUG("wrote {}", sidecar.string());
+    }
+  }
+}
+
+const AssetInfo *AssetDatabase::find(const core::Uuid &uuid) const {
+  const auto it = m_assets.find(uuid);
+  return it != m_assets.end() ? &it->second : nullptr;
+}
+
+const AssetInfo *AssetDatabase::findByPath(const std::filesystem::path &source) const {
+  const std::filesystem::path normalised = std::filesystem::absolute(source).lexically_normal();
+  for (const auto &[uuid, info] : m_assets) {
+    if (info.parent.isNil() && info.source == normalised) {
+      return &info;
+    }
+  }
+  return nullptr;
+}
+
+std::vector<const AssetInfo *> AssetDatabase::assets(std::optional<AssetType> type) const {
+  std::vector<const AssetInfo *> result;
+  for (const auto &[uuid, info] : m_assets) {
+    if (!type || info.type == *type) {
+      result.push_back(&info);
+    }
+  }
+  std::ranges::sort(result, [](const AssetInfo *a, const AssetInfo *b) {
+    return a->name != b->name ? a->name < b->name : a->uuid < b->uuid;
+  });
+  return result;
+}
+
+// ---- Loading ----
+
+renderer::TextureHandle AssetDatabase::uploadTexture(const core::Uuid &uuid, const renderer::TextureData &data,
+                                                     const std::string &name) {
+  const renderer::TextureHandle handle = m_renderer.createTexture(data, name);
+  if (handle) {
+    m_textures[uuid] = LoadedTexture{handle};
+  }
+  return handle;
+}
+
+renderer::TextureHandle AssetDatabase::loadFileTexture(const core::Uuid &uuid, const AssetInfo &info) {
+  const FileRecord &record = m_files.at(uuid);
+  const bool blockCompression = m_renderer.blockCompressionSupported();
+  if (kindOf(info.source) == SourceKind::Ktx2) {
+    const auto bytes = core::readFile(info.source);
+    if (!bytes) {
+      SONNET_LOG_ERROR("{}", bytes.error().toString());
+      return {};
+    }
+    const auto data = readKtx2(*bytes, blockCompression);
+    if (!data) {
+      SONNET_LOG_ERROR("{}: {}", info.source.string(), data.error().toString());
+      return {};
+    }
+    return uploadTexture(uuid, *data, info.name);
+  }
+  // Cooked on demand into the cache, keyed by identity; stale when the source or its settings
+  // are newer (docs/assets.md, "Source and cooked").
+  const std::filesystem::path cooked = cacheDirectory() / (uuid.toString() + ".ktx2");
+  const auto cookedTime = modificationTime(cooked);
+  const bool fresh = cookedTime != std::filesystem::file_time_type{} && cookedTime >= record.sourceTime &&
+                     cookedTime >= modificationTime(record.sidecar);
+  if (!fresh) {
+    const auto bytes = core::readFile(info.source);
+    if (!bytes) {
+      SONNET_LOG_ERROR("{}", bytes.error().toString());
+      return {};
+    }
+    const TextureSettings settings = TextureSettings::fromJson(record.settings);
+    const auto imported = importImage(*bytes, settings);
+    if (!imported) {
+      SONNET_LOG_ERROR("{}: {}", info.source.string(), imported.error().toString());
+      return {};
+    }
+    const auto ktx = cookKtx2(*imported, settings.compress);
+    if (!ktx) {
+      SONNET_LOG_ERROR("{}: {}", info.source.string(), ktx.error().toString());
+      return {};
+    }
+    if (const auto written = core::writeFile(cooked, *ktx); !written) {
+      SONNET_LOG_ERROR("{}", written.error().toString());
+      return {};
+    }
+    SONNET_LOG_INFO("cooked {} into {}", info.source.filename().string(), cooked.filename().string());
+  }
+  const auto bytes = core::readFile(cooked);
+  if (!bytes) {
+    SONNET_LOG_ERROR("{}", bytes.error().toString());
+    return {};
+  }
+  const auto data = readKtx2(*bytes, blockCompression);
+  if (!data) {
+    SONNET_LOG_ERROR("{}: {}", cooked.string(), data.error().toString());
+    return {};
+  }
+  return uploadTexture(uuid, *data, info.name);
+}
+
+renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
+  renderer::MaterialDesc desc;
+  desc.baseColor = source.baseColor;
+  desc.emissive = source.emissive;
+  desc.metallic = source.metallic;
+  desc.roughness = source.roughness;
+  desc.normalScale = source.normalScale;
+  desc.occlusionStrength = source.occlusionStrength;
+  desc.alphaCutoff = source.alphaCutoff;
+  desc.baseColorTexture = texture(source.baseColorTexture);
+  desc.metallicRoughnessTexture = texture(source.metallicRoughnessTexture);
+  desc.normalTexture = texture(source.normalTexture);
+  desc.occlusionTexture = texture(source.occlusionTexture);
+  desc.emissiveTexture = texture(source.emissiveTexture);
+  desc.alphaMode = source.alphaMode;
+  desc.wrap = source.wrap;
+  desc.doubleSided = source.doubleSided;
+  return desc;
+}
+
+bool AssetDatabase::loadGltf(const core::Uuid &uuid) {
+  SONNET_ZONE();
+  if (m_gltfLoaded.contains(uuid)) {
+    return m_gltfLoaded[uuid];
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Model) {
+    return false;
+  }
+  m_gltfLoaded[uuid] = false;
+  auto import = importGltf(info->source);
+  if (!import) {
+    SONNET_LOG_ERROR("{}", import.error().toString());
+    return false;
+  }
+  const bool blockCompression = m_renderer.blockCompressionSupported();
+  // Images first, cooked into the cache like file textures, so materials can resolve them.
+  std::vector<core::Uuid> imageUuids;
+  for (std::size_t i = 0; i < import->images.size(); ++i) {
+    const core::Uuid imageUuid = core::Uuid::derive(uuid, std::format("image/{}", i));
+    imageUuids.push_back(imageUuid);
+    const GltfImage &image = import->images[i];
+    if (image.bytes.empty()) {
+      continue;
+    }
+    const std::filesystem::path cooked = cacheDirectory() / (imageUuid.toString() + ".ktx2");
+    const auto cookedTime = modificationTime(cooked);
+    if (cookedTime == std::filesystem::file_time_type{} || cookedTime < m_files.at(uuid).sourceTime) {
+      const auto imported = importImage(image.bytes, TextureSettings{.srgb = image.srgb});
+      if (!imported) {
+        SONNET_LOG_ERROR("{}: image \"{}\": {}", info->source.string(), image.name, imported.error().toString());
+        continue;
+      }
+      const auto ktx = cookKtx2(*imported, true);
+      if (!ktx || !core::writeFile(cooked, *ktx)) {
+        SONNET_LOG_ERROR("{}: image \"{}\": cooking failed", info->source.string(), image.name);
+        continue;
+      }
+    }
+    const auto bytes = core::readFile(cooked);
+    const auto data = bytes ? readKtx2(*bytes, blockCompression) : std::unexpected(bytes.error());
+    if (!data) {
+      SONNET_LOG_ERROR("{}: image \"{}\": {}", info->source.string(), image.name, data.error().toString());
+      continue;
+    }
+    static_cast<void>(uploadTexture(imageUuid, *data, std::format("{}/{}", info->name, image.name)));
+  }
+  const auto imageUuid = [&](std::int32_t index) {
+    return index >= 0 && static_cast<std::size_t>(index) < imageUuids.size()
+               ? imageUuids[static_cast<std::size_t>(index)]
+               : core::Uuid{};
+  };
+  for (std::size_t i = 0; i < import->materials.size(); ++i) {
+    const core::Uuid materialUuid = core::Uuid::derive(uuid, std::format("material/{}", i));
+    GltfMaterial &material = import->materials[i];
+    material.source.baseColorTexture = imageUuid(material.baseColorImage);
+    material.source.metallicRoughnessTexture = imageUuid(material.metallicRoughnessImage);
+    material.source.normalTexture = imageUuid(material.normalImage);
+    material.source.occlusionTexture = imageUuid(material.occlusionImage);
+    material.source.emissiveTexture = imageUuid(material.emissiveImage);
+    auto existing = m_materials.find(materialUuid);
+    if (existing != m_materials.end()) {
+      existing->second.source = material.source;
+      m_renderer.updateMaterial(existing->second.handle, resolve(material.source));
+    } else {
+      const renderer::MaterialHandle handle =
+          m_renderer.createMaterial(resolve(material.source), std::format("{}/{}", info->name, material.name));
+      m_materials[materialUuid] = LoadedMaterial{handle, material.source};
+    }
+  }
+  for (std::size_t i = 0; i < import->meshes.size(); ++i) {
+    const core::Uuid meshUuid = core::Uuid::derive(uuid, std::format("mesh/{}", i));
+    const GltfMesh &mesh = import->meshes[i];
+    if (mesh.data.vertices.empty() || mesh.data.indices.empty()) {
+      continue;
+    }
+    m_meshes[meshUuid] = m_renderer.createMesh(mesh.data, std::format("{}/{}", info->name, mesh.name));
+  }
+  Model model = std::move(import->model);
+  for (std::size_t n = 0; n < model.nodes.size(); ++n) {
+    const std::int32_t meshIndex = import->meshIndices[n];
+    model.nodes[n].mesh = meshIndex >= 0 ? core::Uuid::derive(uuid, std::format("mesh/{}", meshIndex)) : core::Uuid{};
+  }
+  m_models[uuid] = std::move(model);
+  m_gltfLoaded[uuid] = true;
+  return true;
+}
+
+renderer::MeshHandle AssetDatabase::mesh(const core::Uuid &uuid) {
+  if (const auto it = m_meshes.find(uuid); it != m_meshes.end()) {
+    return it->second;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Mesh || m_failed.contains(uuid)) {
+    return {};
+  }
+  if (info->source == "builtin") {
+    renderer::MeshData data;
+    if (uuid == builtin::box()) {
+      data = renderer::primitives::box();
+    } else if (uuid == builtin::sphere()) {
+      data = renderer::primitives::sphere();
+    } else if (uuid == builtin::plane()) {
+      data = renderer::primitives::plane();
+    } else if (uuid == builtin::cylinder()) {
+      data = renderer::primitives::cylinder();
+    } else {
+      data = renderer::primitives::capsule();
+    }
+    m_meshes[uuid] = m_renderer.createMesh(data, info->name);
+    return m_meshes[uuid];
+  }
+  if (!info->parent.isNil() && loadGltf(info->parent)) {
+    if (const auto it = m_meshes.find(uuid); it != m_meshes.end()) {
+      return it->second;
+    }
+  }
+  m_failed[uuid] = true;
+  return {};
+}
+
+renderer::TextureHandle AssetDatabase::texture(const core::Uuid &uuid) {
+  if (uuid.isNil()) {
+    return {};
+  }
+  if (const auto it = m_textures.find(uuid); it != m_textures.end()) {
+    return it->second.handle;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Texture || m_failed.contains(uuid)) {
+    return {};
+  }
+  renderer::TextureHandle handle;
+  if (!info->parent.isNil()) {
+    if (loadGltf(info->parent)) {
+      if (const auto it = m_textures.find(uuid); it != m_textures.end()) {
+        handle = it->second.handle;
+      }
+    }
+  } else {
+    handle = loadFileTexture(uuid, *info);
+  }
+  if (!handle) {
+    m_failed[uuid] = true;
+  }
+  return handle;
+}
+
+renderer::MaterialHandle AssetDatabase::material(const core::Uuid &uuid) {
+  if (const auto it = m_materials.find(uuid); it != m_materials.end()) {
+    return it->second.handle;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Material || m_failed.contains(uuid)) {
+    return {};
+  }
+  if (!info->parent.isNil()) {
+    if (loadGltf(info->parent)) {
+      if (const auto it = m_materials.find(uuid); it != m_materials.end()) {
+        return it->second.handle;
+      }
+    }
+    m_failed[uuid] = true;
+    return {};
+  }
+  const auto document = readJsonFile(info->source);
+  const auto source = document ? loadMaterial(*document) : std::unexpected(document.error());
+  if (!source) {
+    SONNET_LOG_ERROR("{}: {}", info->source.string(), source.error().toString());
+    m_failed[uuid] = true;
+    return {};
+  }
+  const renderer::MaterialHandle handle = m_renderer.createMaterial(resolve(*source), info->name);
+  m_materials[uuid] = LoadedMaterial{handle, *source};
+  return handle;
+}
+
+renderer::EnvironmentHandle AssetDatabase::environment(const core::Uuid &uuid) {
+  if (const auto it = m_environments.find(uuid); it != m_environments.end()) {
+    return it->second;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Environment || m_failed.contains(uuid)) {
+    return {};
+  }
+  const auto bytes = core::readFile(info->source);
+  const auto data = bytes ? importHdr(*bytes) : std::unexpected(bytes.error());
+  if (!data) {
+    SONNET_LOG_ERROR("{}: {}", info->source.string(), data.error().toString());
+    m_failed[uuid] = true;
+    return {};
+  }
+  const renderer::EnvironmentHandle handle = m_renderer.createEnvironment(*data, info->name);
+  if (!handle) {
+    m_failed[uuid] = true;
+    return {};
+  }
+  m_environments[uuid] = handle;
+  return handle;
+}
+
+const Model *AssetDatabase::model(const core::Uuid &uuid) {
+  if (const auto it = m_models.find(uuid); it != m_models.end()) {
+    return &it->second;
+  }
+  if (loadGltf(uuid)) {
+    return &m_models[uuid];
+  }
+  return nullptr;
+}
+
+// ---- Materials ----
+
+const MaterialSource *AssetDatabase::materialSource(const core::Uuid &uuid) {
+  if (!material(uuid)) {
+    return nullptr;
+  }
+  return &m_materials.at(uuid).source;
+}
+
+void AssetDatabase::setMaterialSource(const core::Uuid &uuid, const MaterialSource &source) {
+  if (!material(uuid)) {
+    return;
+  }
+  LoadedMaterial &loaded = m_materials.at(uuid);
+  loaded.source = source;
+  m_renderer.updateMaterial(loaded.handle, resolve(source));
+}
+
+core::Result<void> AssetDatabase::saveMaterial(const core::Uuid &uuid) {
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Material || !info->parent.isNil()) {
+    return std::unexpected(core::Error{"not a material file", core::ErrorCategory::Io});
+  }
+  const MaterialSource *source = materialSource(uuid);
+  if (source == nullptr) {
+    return std::unexpected(
+        core::Error{std::format("{} is not loaded", info->source.string()), core::ErrorCategory::Io});
+  }
+  const auto written = core::writeFile(info->source, assets::saveMaterial(*source).dump(2) + "\n");
+  if (written) {
+    m_files.at(uuid).sourceTime = modificationTime(info->source); // not a change to reload
+  }
+  return written;
+}
+
+core::Result<core::Uuid> AssetDatabase::createMaterial(const std::filesystem::path &file,
+                                                       const MaterialSource &source) {
+  if (!isOpen()) {
+    return std::unexpected(core::Error{"no project is open", core::ErrorCategory::Io});
+  }
+  const std::filesystem::path path = std::filesystem::absolute(file).lexically_normal();
+  if (kindOf(path) != SourceKind::Material) {
+    return std::unexpected(
+        core::Error{std::format("{}: a material file ends in .material.json", path.string()), core::ErrorCategory::Io});
+  }
+  if (const auto written = core::writeFile(path, assets::saveMaterial(source).dump(2) + "\n"); !written) {
+    return std::unexpected(written.error());
+  }
+  scanFile(path);
+  const AssetInfo *info = findByPath(path);
+  if (info == nullptr) {
+    return std::unexpected(core::Error{std::format("{}: not registered", path.string()), core::ErrorCategory::Io});
+  }
+  return info->uuid;
+}
+
+// ---- Settings and reload ----
+
+TextureSettings AssetDatabase::textureSettings(const core::Uuid &uuid) const {
+  const auto it = m_files.find(uuid);
+  return it != m_files.end() ? TextureSettings::fromJson(it->second.settings) : TextureSettings{};
+}
+
+core::Result<void> AssetDatabase::setTextureSettings(const core::Uuid &uuid, const TextureSettings &settings) {
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Texture || !m_files.contains(uuid)) {
+    return std::unexpected(core::Error{"not a texture file", core::ErrorCategory::Io});
+  }
+  m_files.at(uuid).settings = settings.toJson();
+  if (const auto written = writeSidecar(uuid); !written) {
+    return written;
+  }
+  return reimport(uuid);
+}
+
+void AssetDatabase::unloadTexture(const core::Uuid &uuid) {
+  if (const auto it = m_textures.find(uuid); it != m_textures.end()) {
+    m_renderer.destroyTexture(it->second.handle);
+    m_textures.erase(it);
+  }
+}
+
+void AssetDatabase::unloadFile(const core::Uuid &uuid) {
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr) {
+    return;
+  }
+  m_failed.erase(uuid);
+  switch (info->type) {
+  case AssetType::Texture:
+    unloadTexture(uuid);
+    break;
+  case AssetType::Environment:
+    if (const auto it = m_environments.find(uuid); it != m_environments.end()) {
+      m_renderer.destroyEnvironment(it->second);
+      m_environments.erase(it);
+    }
+    break;
+  case AssetType::Material:
+    // File materials keep their handle across reloads, so scenes and draw lists stay valid.
+    break;
+  case AssetType::Model: {
+    std::vector<core::Uuid> subAssets;
+    for (const auto &[subUuid, sub] : m_assets) {
+      if (sub.parent == uuid) {
+        subAssets.push_back(subUuid);
+      }
+    }
+    for (const core::Uuid &subUuid : subAssets) {
+      m_failed.erase(subUuid);
+      unloadTexture(subUuid);
+      if (const auto it = m_meshes.find(subUuid); it != m_meshes.end()) {
+        m_renderer.destroyMesh(it->second);
+        m_meshes.erase(it);
+      }
+    }
+    m_models.erase(uuid);
+    m_gltfLoaded.erase(uuid);
+    break;
+  }
+  case AssetType::Mesh:
+    break;
+  }
+}
+
+void AssetDatabase::refreshMaterials(const core::Uuid &textureUuid) {
+  for (auto &[uuid, loaded] : m_materials) {
+    const MaterialSource &s = loaded.source;
+    if (s.baseColorTexture == textureUuid || s.metallicRoughnessTexture == textureUuid ||
+        s.normalTexture == textureUuid || s.occlusionTexture == textureUuid || s.emissiveTexture == textureUuid) {
+      m_renderer.updateMaterial(loaded.handle, resolve(s));
+    }
+  }
+}
+
+core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
+  SONNET_ZONE();
+  const AssetInfo *info = find(requested);
+  if (info == nullptr) {
+    return std::unexpected(core::Error{std::format("unknown asset {}", requested.toString()), core::ErrorCategory::Io});
+  }
+  const core::Uuid uuid = info->parent.isNil() ? requested : info->parent;
+  info = find(uuid);
+  const auto record = m_files.find(uuid);
+  if (record == m_files.end()) {
+    return std::unexpected(core::Error{std::format("{} has no source file", info->name), core::ErrorCategory::Io});
+  }
+  record->second.sourceTime = modificationTime(info->source);
+  const AssetType type = info->type;
+  const bool wasLoaded = m_textures.contains(uuid) || m_environments.contains(uuid) || m_gltfLoaded.contains(uuid) ||
+                         m_materials.contains(uuid);
+  unloadFile(uuid);
+  if (type == AssetType::Model) {
+    // The sub-asset list may have changed with the file.
+    if (auto subAssets = listGltfSubAssets(uuid, info->source)) {
+      registerGltfSubAssets(uuid, *subAssets);
+    } else {
+      return std::unexpected(subAssets.error());
+    }
+    if (const auto written = writeSidecar(uuid); !written) {
+      SONNET_LOG_WARN("{}", written.error().toString());
+    }
+  }
+  if (!wasLoaded) {
+    return {};
+  }
+  switch (type) {
+  case AssetType::Texture:
+    if (!texture(uuid)) {
+      return std::unexpected(
+          core::Error{std::format("{}: re-import failed", info->source.string()), core::ErrorCategory::Io});
+    }
+    refreshMaterials(uuid);
+    break;
+  case AssetType::Environment:
+    if (!environment(uuid)) {
+      return std::unexpected(
+          core::Error{std::format("{}: re-import failed", info->source.string()), core::ErrorCategory::Io});
+    }
+    break;
+  case AssetType::Material: {
+    const auto document = readJsonFile(info->source);
+    const auto source = document ? loadMaterial(*document) : std::unexpected(document.error());
+    if (!source) {
+      return std::unexpected(source.error());
+    }
+    setMaterialSource(uuid, *source);
+    break;
+  }
+  case AssetType::Model:
+    if (!loadGltf(uuid)) {
+      return std::unexpected(
+          core::Error{std::format("{}: re-import failed", info->source.string()), core::ErrorCategory::Io});
+    }
+    for (const auto &[subUuid, sub] : m_assets) {
+      if (sub.parent == uuid && sub.type == AssetType::Texture) {
+        refreshMaterials(subUuid);
+      }
+    }
+    break;
+  case AssetType::Mesh:
+    break;
+  }
+  SONNET_LOG_INFO("re-imported {}", info->source.filename().string());
+  return {};
+}
+
+std::vector<core::Uuid> AssetDatabase::pollChanges() {
+  std::vector<core::Uuid> changed;
+  const auto now = std::chrono::steady_clock::now();
+  if (now - m_lastPoll < PollInterval) {
+    return changed;
+  }
+  m_lastPoll = now;
+  for (const auto &[uuid, record] : m_files) {
+    const AssetInfo &info = m_assets.at(uuid);
+    const auto time = modificationTime(info.source);
+    if (time != std::filesystem::file_time_type{} && time != record.sourceTime) {
+      changed.push_back(uuid);
+    }
+  }
+  for (const core::Uuid &uuid : changed) {
+    if (const auto result = reimport(uuid); !result) {
+      SONNET_LOG_ERROR("{}", result.error().toString());
+    }
+  }
+  return changed;
+}
+
+} // namespace sonnet::assets
