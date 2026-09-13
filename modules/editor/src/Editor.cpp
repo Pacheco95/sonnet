@@ -44,7 +44,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_renderer(device, platform.basePath() / "shaders"), m_graph(device), m_picker(device), m_assets(m_renderer),
       m_world({.explorer = explorer}), m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
-      m_hierarchyPanel(m_world, m_selection, m_commands), m_inspectorPanel(m_world, m_selection, m_commands) {
+      m_hierarchyPanel(m_world, m_selection, m_commands), m_inspectorPanel(m_world, m_assets, m_selection, m_commands),
+      m_assetBrowserPanel(m_assets, m_selection) {
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
   newScene();
   SONNET_LOG_INFO("editor ready");
@@ -83,7 +84,10 @@ void Editor::update(float dt) {
     m_hierarchyPanel.draw(m_showHierarchy);
   }
   if (m_showInspector) {
-    m_inspectorPanel.draw(m_showInspector);
+    m_inspectorPanel.draw(m_showInspector, m_assetBrowserPanel.inspected());
+  }
+  if (m_showAssets) {
+    m_assetBrowserPanel.draw(m_showAssets);
   }
   if (m_showViewport) {
     const bool wantsRelativeMouse =
@@ -323,6 +327,7 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Hierarchy", nullptr, &m_showHierarchy);
     ImGui::MenuItem("Inspector", nullptr, &m_showInspector);
     ImGui::MenuItem("Log", nullptr, &m_showLog);
+    ImGui::MenuItem("Assets", nullptr, &m_showAssets);
     ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
     ImGui::MenuItem("Statistics overlay", nullptr, &m_showOverlay);
     ImGui::EndMenu();
@@ -427,6 +432,7 @@ void Editor::buildDefaultLayout(unsigned dockspace) {
   ImGui::DockBuilderDockWindow("Inspector", right);
   ImGui::DockBuilderDockWindow("Statistics", rightBottom);
   ImGui::DockBuilderDockWindow("Log", bottom);
+  ImGui::DockBuilderDockWindow("Assets", bottom);
   ImGui::DockBuilderFinish(dockspace);
 }
 
@@ -488,6 +494,7 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
     stop();
   }
   m_project = std::move(*project);
+  m_assetBrowserPanel.inspect({});
   m_preferences.addRecentProject(m_project->root);
   if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
     SONNET_LOG_WARN("{}", saved.error().toString());

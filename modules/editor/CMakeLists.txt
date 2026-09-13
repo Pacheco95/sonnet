@@ -1,5 +1,7 @@
 sonnet_add_module(editor
   SOURCES
+    src/AssetBrowserPanel.cpp
+    src/AssetCommands.cpp
     src/CommandStack.cpp
     src/Editor.cpp
     src/EntityCommands.cpp

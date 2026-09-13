@@ -1,7 +1,13 @@
+#include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Selection.h>
 
+#include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/core/File.h>
+#include <sonnet/platform/Platform.h>
+#include <sonnet/renderer/Renderer.h>
+#include <sonnet/rhi/NullDevice.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/World.h>
 
@@ -158,4 +164,48 @@ TEST_CASE("reparent and component commands restore exactly what they changed", "
   commands.undo(world);
   REQUIRE(!world.find(instance).is_valid());
   REQUIRE(world.find(uuid).is_valid());
+}
+
+TEST_CASE("material and texture settings commands act on the database and undo", "[editor][commands][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  assets::AssetDatabase assets{renderer};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_asset_commands";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  world::World world;
+  editor::CommandStack commands;
+
+  assets::MaterialSource before;
+  before.roughness = 0.2f;
+  const auto material = assets.createMaterial(root / "assets" / "steel.material.json", before);
+  REQUIRE(material.has_value());
+  assets::MaterialSource after = before;
+  after.roughness = 0.9f;
+  after.alphaMode = renderer::AlphaMode::Mask;
+  commands.push(editor::materialEditCommand(assets, *material, before, after), world);
+  REQUIRE(commands.undoDescription() == "edit material steel");
+  REQUIRE(assets.materialSource(*material)->roughness == Catch::Approx(0.9f));
+  REQUIRE(renderer.material(assets.material(*material)).alphaMode == renderer::AlphaMode::Mask);
+  REQUIRE(commands.undo(world));
+  REQUIRE(assets.materialSource(*material)->roughness == Catch::Approx(0.2f));
+  REQUIRE(commands.redo(world));
+  REQUIRE(assets.materialSource(*material)->roughness == Catch::Approx(0.9f));
+
+  // A texture's settings: the command rewrites the sidecar through the database. Without a
+  // real image the re-import fails and is logged, but the settings still round-trip.
+  REQUIRE(core::writeFile(root / "assets" / "noise.png", std::string_view{"not a png"}).has_value());
+  assets.open(root, roots);
+  const assets::AssetInfo *noise = assets.findByPath(root / "assets" / "noise.png");
+  REQUIRE(noise != nullptr);
+  const assets::TextureSettings defaults = assets.textureSettings(noise->uuid);
+  const assets::TextureSettings linear{.srgb = false, .mipmaps = false, .compress = false};
+  commands.push(editor::textureSettingsCommand(assets, noise->uuid, defaults, linear), world);
+  REQUIRE(assets.textureSettings(noise->uuid) == linear);
+  REQUIRE(commands.undo(world));
+  REQUIRE(assets.textureSettings(noise->uuid) == defaults);
+  std::filesystem::remove_all(root);
 }
