@@ -30,6 +30,7 @@ struct DeviceInfo {
   std::uint32_t loaderVersion{0}; // packed Vulkan version of the loader in the process
   bool validationEnabled{false};
   bool timestampsSupported{false};
+  bool blockCompressionSupported{false}; // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
 };
 
 constexpr std::uint32_t FramesInFlight = 2;

@@ -219,6 +219,12 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
                                               "selecting a Vulkan 1.4 device");
   physicalDevice.enable_extension_if_present(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 
+  // Block compression is what cooked textures use on desktop; mobile GPUs bring ASTC instead
+  // (docs/assets.md, "Textures"), so it is enabled where present rather than required.
+  VkPhysicalDeviceFeatures optional{};
+  optional.textureCompressionBC = VK_TRUE;
+  m_info.blockCompressionSupported = physicalDevice.enable_features_if_present(optional);
+
   const vkb::Device device = unwrap(vkb::DeviceBuilder{physicalDevice}.build(), "creating the Vulkan device");
   m_physicalDevice = vk::raii::PhysicalDevice{m_instance, physicalDevice.physical_device};
   m_device = vk::raii::Device{m_physicalDevice, device.device};
