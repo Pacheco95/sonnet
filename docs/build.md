@@ -75,7 +75,7 @@ IDEs: CLion and Visual Studio read `CMakePresets.json`; in CLion enable the pres
 | `SONNET_SANITIZERS` | `OFF` | Address and undefined-behaviour sanitizers (the `linux-asan` preset) |
 | `SONNET_COVERAGE` | `OFF` | gcov instrumentation for engine modules only |
 
-Global flags: `CMAKE_CXX_STANDARD 23`, extensions off. Warnings are an interface target, `sonnet::warnings`, that `sonnet_add_module` links privately with `COMPILE_WARNING_AS_ERROR`; vcpkg include directories are `SYSTEM`, so third-party headers never trip them. On GCC and Clang, `-ffile-prefix-map` makes `__FILE__` and `std::source_location` repository-relative.
+Global flags: `CMAKE_CXX_STANDARD 23`, extensions off. Warnings are an interface target, `sonnet::warnings`, that `sonnet_add_module` links privately with `COMPILE_WARNING_AS_ERROR`; vcpkg include directories are `SYSTEM`, so third-party headers never trip them. On GCC and Clang, `-fmacro-prefix-map` makes `__FILE__` and `std::source_location` repository-relative while debug info keeps absolute paths, so debuggers find the sources; `-ffile-prefix-map` would rewrite those too and breakpoints set from an IDE would never bind.
 
 Per-configuration definitions applied by `sonnet_add_module`: `SONNET_ASSERTS_ENABLED` in Debug and RelWithDebInfo, `SPDLOG_ACTIVE_LEVEL` at `TRACE` there and `INFO` in Release, `SONNET_ENABLE_TRACY` together with the Tracy link. `SONNET_MODULE` is defined per target to its name and feeds the logging macros ([core.md](core.md#logging)).
 

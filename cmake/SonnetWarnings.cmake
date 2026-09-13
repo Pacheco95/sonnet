@@ -14,9 +14,11 @@ else()
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast
     -Woverloaded-virtual -Wnull-dereference -Wdouble-promotion -Wimplicit-fallthrough -Wcast-align -Wunused
     -Wformat=2)
-  # Repository-relative file names in __FILE__, std::source_location and debug info, so log lines read
-  # the same on every machine and no build-machine paths end up in shipped binaries.
-  target_compile_options(sonnet_warnings INTERFACE "-ffile-prefix-map=${CMAKE_SOURCE_DIR}/=")
+  # Repository-relative file names in __FILE__ and std::source_location, so log lines read the same
+  # on every machine. Debug info keeps absolute paths: -ffile-prefix-map would also rewrite DWARF's
+  # DW_AT_name and DW_AT_comp_dir to relative paths, and debuggers then cannot bind breakpoints to
+  # the source files.
+  target_compile_options(sonnet_warnings INTERFACE "-fmacro-prefix-map=${CMAKE_SOURCE_DIR}/=")
 endif()
 
 # COMPILE_WARNING_AS_ERROR has no INTERFACE_ form; the module, test and executable helpers set it
