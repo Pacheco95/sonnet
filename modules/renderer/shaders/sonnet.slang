@@ -22,6 +22,10 @@ public struct ObjectData {
   public float4x4 model;
   public float4x4 normalMatrix;
   public float4 color;
+  public uint id; // entity id for picking and the selection outline, 0 for none
+  public uint padding0;
+  public uint padding1;
+  public uint padding2;
 };
 
 // Vertices are pulled through the mesh's buffer device address; the object index selects the

@@ -5,6 +5,7 @@
 
 #include <sonnet/core/Math.h>
 
+#include <cstdint>
 #include <span>
 
 namespace sonnet::renderer {
@@ -15,6 +16,7 @@ struct DrawItem {
   MeshHandle mesh;
   glm::mat4 transform{1.0f};
   glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+  std::uint32_t id{0}; // written by the id pass for picking and the outline; 0 means none
 };
 
 struct DirectionalLight {

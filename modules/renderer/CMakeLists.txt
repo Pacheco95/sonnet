@@ -1,6 +1,7 @@
 sonnet_add_module(renderer
   SOURCES
     src/Camera.cpp
+    src/Picker.cpp
     src/Primitives.cpp
     src/RenderGraph.cpp
     src/Renderer.cpp
@@ -13,11 +14,14 @@ sonnet_add_module(renderer
 # are compiled, and sonnet_add_engine_shaders(<target>) places the result next to a binary.
 set_property(GLOBAL PROPERTY SONNET_ENGINE_SHADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/forward.slang"
+  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/id.slang"
+  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.slang"
 )
 
 sonnet_add_module_test(renderer
   SOURCES
     tests/CameraTests.cpp
+    tests/PickingTests.cpp
     tests/PrimitivesTests.cpp
     tests/RenderGraphTests.cpp
     tests/RendererTests.cpp
