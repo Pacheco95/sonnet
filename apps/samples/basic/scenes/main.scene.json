@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "entities": [
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000001",
+      "name": "Ground",
+      "components": {
+        "Transform": {
+          "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+          "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+          "scale": {"x": 12.0, "y": 1.0, "z": 12.0}
+        },
+        "MeshRenderer": {"primitive": "Plane", "color": {"x": 0.45, "y": 0.47, "z": 0.5, "w": 1.0}, "visible": true},
+        "Static": null
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000002",
+      "name": "Spinning box",
+      "components": {
+        "Transform": {
+          "position": {"x": 0.0, "y": 0.5, "z": 0.0},
+          "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+        },
+        "MeshRenderer": {"primitive": "Box", "color": {"x": 0.9, "y": 0.35, "z": 0.25, "w": 1.0}, "visible": true},
+        "Spin": {"axis": {"x": 0.0, "y": 1.0, "z": 0.0}, "speed": 0.8}
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000003",
+      "name": "Sphere",
+      "components": {
+        "Transform": {
+          "position": {"x": 2.0, "y": 0.5, "z": 0.0},
+          "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+        },
+        "MeshRenderer": {"primitive": "Sphere", "color": {"x": 0.25, "y": 0.55, "z": 0.9, "w": 1.0}, "visible": true}
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000004",
+      "name": "Cylinder",
+      "components": {
+        "Transform": {
+          "position": {"x": -2.0, "y": 0.5, "z": 0.0},
+          "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+        },
+        "MeshRenderer": {"primitive": "Cylinder", "color": {"x": 0.3, "y": 0.8, "z": 0.4, "w": 1.0}, "visible": true}
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000005",
+      "name": "Capsule",
+      "components": {
+        "Transform": {
+          "position": {"x": 0.0, "y": 0.5, "z": 2.0},
+          "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+        },
+        "MeshRenderer": {"primitive": "Capsule", "color": {"x": 0.9, "y": 0.8, "z": 0.3, "w": 1.0}, "visible": true}
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000006",
+      "name": "Crate 1",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
+      "components": {
+        "Transform": {
+          "position": {"x": 0.0, "y": 1.0, "z": -2.5},
+          "rotation": {"x": 0.0, "y": 0.3826834, "z": 0.0, "w": 0.9238795},
+          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+        }
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000007",
+      "name": "Crate 2",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
+      "components": {
+        "Transform": {
+          "position": {"x": 3.0, "y": 0.5, "z": -2.5},
+          "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+        },
+        "MeshRenderer": {"primitive": "Box", "color": {"x": 0.35, "y": 0.7, "z": 0.7, "w": 1.0}, "visible": true}
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000008",
+      "name": "Sun",
+      "components": {
+        "Transform": {
+          "position": {"x": 0.0, "y": 5.0, "z": 0.0},
+          "rotation": {"x": -0.4285, "y": -0.1626, "z": -0.0797, "w": 0.8851},
+          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+        },
+        "DirectionalLight": {"color": {"x": 1.0, "y": 0.96, "z": 0.9}, "intensity": 3.0}
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000009",
+      "name": "Camera",
+      "components": {
+        "Transform": {
+          "position": {"x": 5.0, "y": 3.5, "z": 7.0},
+          "rotation": {"x": -0.1442, "y": 0.2870, "z": 0.0437, "w": 0.9459},
+          "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+        },
+        "Camera": {"fovY": 1.0471976, "nearPlane": 0.1}
+      }
+    }
+  ]
+}

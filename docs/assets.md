@@ -49,7 +49,7 @@ A project is a folder with a `project.json` at its root:
 ```json
 {
   "name": "Basic",
-  "engineVersion": "0.1.0",
+  "engineVersion": "0.3.0",
   "startScene": "scenes/main.scene.json",
   "assetRoots": ["assets", "shaders", "scripts"]
 }
@@ -59,7 +59,7 @@ Everything in the project is referenced relative to this folder so projects are 
 
 ## Scene file
 
-Scenes are JSON produced by the `world` serializer: a list of entities with their UUID, name, parent, components with reflected fields, and prefab references. Prefab instances store only overrides. The format is versioned with a top-level `version` field; migrations are applied on load and old versions are never written.
+Scenes are JSON produced by the `world` serializer: a list of entities with their UUID, name, parent, components with reflected fields, and prefab references. Prefab instances store only overrides. The format is versioned with a top-level `version` field; migrations are applied on load and old versions are never written. The format as built, with an example, is in [world.md](world.md#scenes).
 
 ## Cooking and export
 

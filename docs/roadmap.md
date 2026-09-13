@@ -46,7 +46,17 @@ Done when the editor shows a lit primitive scene in a dockable viewport with liv
 - `editor`: hierarchy panel, inspector generated from reflection, translate/rotate/scale gizmos, picking, selection outline, undo/redo command stack, play/stop with snapshot restore, project open and create.
 - `apps/samples/basic` project.
 
-Done when a scene can be authored from primitives, saved, reopened, and played with a script-free rotating object driven by a system.
+Landed as six commits, plus a fix:
+
+1. flecs and nlohmann-json through vcpkg.
+2. `rhi`: the `R32Uint` format for entity ids and a sampled image in the pass set, which the outline pass reads through.
+3. `renderer`: ids on draw items, the id pass, the outline pass and the picker with its deferred readback.
+4. `world`: the flecs world with the components registered by reflection, identities, hierarchy and world transforms, the phases and the play-mode switch, the scene and prefab format, and the draw list.
+5. A fix: `platform` hands applications their arguments without the program name.
+6. `editor`: hierarchy, inspector, selection, gizmos, picking, the outline, undo and redo, play mode, projects, preferences and the log panel's links.
+7. `samples`: the basic project, copied next to the binaries by `SONNET_BUILD_SAMPLES`.
+
+Done when a scene can be authored from primitives, saved, reopened, and played with a script-free rotating object driven by a system. The sample's spinning box is that object. Two refinements wait for later: native file dialogs instead of the path modal, and the fixed timestep, which arrives with physics in M4.
 
 ## M3: Assets and PBR
 
