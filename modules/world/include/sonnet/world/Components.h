@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sonnet/assets/Asset.h>
 #include <sonnet/core/Math.h>
 #include <sonnet/core/Uuid.h>
 
@@ -38,18 +39,12 @@ struct WorldTransform {
   glm::mat4 matrix{1.0f};
 };
 
-// Until assets arrive in M3 a mesh is one of the renderer's primitives.
-enum class Primitive : std::int32_t {
-  Box,
-  Sphere,
-  Plane,
-  Cylinder,
-  Capsule,
-};
-
+// A mesh by asset identity (docs/assets.md, "Identity"): a built-in primitive or a glTF mesh.
+// `material` overrides every slot of the mesh; nil keeps the mesh's own materials.
 struct MeshRenderer {
-  Primitive primitive{Primitive::Box};
-  glm::vec4 color{0.8f, 0.8f, 0.8f, 1.0f};
+  core::Uuid mesh{assets::builtin::box()};
+  core::Uuid material{};
+  glm::vec4 color{0.8f, 0.8f, 0.8f, 1.0f}; // multiplies the material's base colour
   bool visible{true};
 };
 
@@ -65,19 +60,28 @@ struct DirectionalLight {
   float intensity{3.0f};
 };
 
-// Rendered from M3, authored and saved from M2.
+// Punctual lights at their entity's position; intensity is radiance at one metre.
 struct PointLight {
   glm::vec3 color{1.0f, 1.0f, 1.0f};
   float intensity{10.0f};
   float range{10.0f};
 };
 
+// Shines along the entity's -Z.
 struct SpotLight {
   glm::vec3 color{1.0f, 1.0f, 1.0f};
   float intensity{10.0f};
   float range{10.0f};
   float innerAngle{glm::radians(20.0f)};
   float outerAngle{glm::radians(30.0f)};
+};
+
+// The scene's image-based lighting and skybox, by environment asset; the first entity that has
+// one wins. Without one the renderer lights with its flat ambient term.
+struct Environment {
+  core::Uuid map{};
+  float intensity{1.0f};
+  float exposure{1.0f};
 };
 
 // Turns the entity about `axis` in play mode: the script-free behaviour of M2.

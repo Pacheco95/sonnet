@@ -79,6 +79,10 @@ public:
   [[nodiscard]] std::filesystem::path cacheDirectory() const {
     return m_projectRoot / ".sonnet" / "cache";
   }
+  // The renderer the loaded objects belong to.
+  [[nodiscard]] renderer::Renderer &renderer() noexcept {
+    return m_renderer;
+  }
 
 private:
   struct FileRecord {

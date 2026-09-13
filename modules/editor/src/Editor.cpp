@@ -41,9 +41,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                .docking = true,
                // Platform windows need a display; the headless driver has none.
                .viewports = !platform.isHeadless()}),
-      m_renderer(device, platform.basePath() / "shaders"), m_graph(device), m_picker(device),
-      m_world({.explorer = explorer}), m_meshes(m_renderer),
-      m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
+      m_renderer(device, platform.basePath() / "shaders"), m_graph(device), m_picker(device), m_assets(m_renderer),
+      m_world({.explorer = explorer}), m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_hierarchyPanel(m_world, m_selection, m_commands), m_inspectorPanel(m_world, m_selection, m_commands) {
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
@@ -106,14 +105,22 @@ void Editor::update(float dt) {
   }
   m_imgui.endFrame();
 
+  // Changed source files are re-imported before the draw list resolves them.
+  static_cast<void>(m_assets.pollChanges());
   // The world's frame after the UI edited it: systems, then what the renderer draws.
   m_world.progress(dt);
-  world::buildDrawList(m_world, m_meshes, m_draws);
+  world::buildDrawList(m_world, m_assets, m_draws);
+  world::buildLightList(m_world, m_lights);
   m_view.camera = m_viewportPanel.camera().camera();
   m_view.draws = m_draws;
+  m_view.lights = m_lights;
   const std::optional<renderer::DirectionalLight> sun = world::sceneLight(m_world);
   m_view.hasSun = sun.has_value();
   m_view.sun = sun.value_or(renderer::DirectionalLight{});
+  const std::optional<world::SceneEnvironment> environment = world::sceneEnvironment(m_world, m_assets);
+  m_view.environment = environment ? environment->environment : renderer::EnvironmentHandle{};
+  m_view.environmentIntensity = environment ? environment->intensity : 1.0f;
+  m_view.exposure = environment ? environment->exposure : 1.0f;
   // The selection and everything under it: selecting a parent outlines its whole subtree.
   m_outlineIds.clear();
   std::vector<flecs::entity> pending;
@@ -487,6 +494,7 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   }
   m_world.clearScene();
   m_world.clearPrefabs();
+  m_assets.open(m_project->root, m_project->assetRoots);
   loadPrefabs();
   const std::filesystem::path scene = m_project->resolve(m_project->startScene);
   if (const auto opened = openScene(scene); !opened) {
@@ -511,6 +519,12 @@ void Editor::loadPrefabs() {
   for (const std::filesystem::path &file : m_project->files(".prefab.json")) {
     if (const auto loaded = world::loadPrefabFile(m_world, file); !loaded) {
       SONNET_LOG_ERROR("{}", loaded.error().toString());
+    }
+  }
+  // Every glTF file is a prefab too, under the model's identity, so scenes can place it.
+  for (const assets::AssetInfo *info : m_assets.assets(assets::AssetType::Model)) {
+    if (const assets::Model *model = m_assets.model(info->uuid)) {
+      static_cast<void>(world::loadModelPrefab(m_world, *model, info->uuid, info->name));
     }
   }
 }

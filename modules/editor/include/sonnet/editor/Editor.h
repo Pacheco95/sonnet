@@ -11,6 +11,7 @@
 #include <sonnet/editor/StatisticsPanel.h>
 #include <sonnet/editor/ViewportPanel.h>
 
+#include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
@@ -85,6 +86,9 @@ public:
   [[nodiscard]] world::World &world() noexcept {
     return m_world;
   }
+  [[nodiscard]] assets::AssetDatabase &assets() noexcept {
+    return m_assets;
+  }
   [[nodiscard]] Selection &selection() noexcept {
     return m_selection;
   }
@@ -142,9 +146,10 @@ private:
   renderer::Renderer m_renderer;
   renderer::RenderGraph m_graph;
   renderer::Picker m_picker;
+  assets::AssetDatabase m_assets;
   world::World m_world;
-  world::PrimitiveMeshes m_meshes;
   std::vector<renderer::DrawItem> m_draws;
+  std::vector<renderer::Light> m_lights;
   renderer::SceneView m_view;
   std::vector<std::uint32_t> m_outlineIds;
 

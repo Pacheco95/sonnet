@@ -40,12 +40,14 @@ TEST_CASE("create, delete and duplicate commands undo and redo with stable ident
   world::World world;
   editor::CommandStack commands;
   const core::Uuid uuid = core::Uuid::generate();
-  commands.push(editor::createEntityCommand("Box", {}, {{"MeshRenderer", {{"primitive", "Sphere"}}}}, uuid), world);
+  commands.push(editor::createEntityCommand("Box", {},
+                                            {{"MeshRenderer", {{"mesh", assets::builtin::sphere().toString()}}}}, uuid),
+                world);
   REQUIRE(commands.canUndo());
   REQUIRE(commands.undoDescription() == "create Box");
   flecs::entity box = world.find(uuid);
   REQUIRE(box.is_valid());
-  REQUIRE(box.get<world::MeshRenderer>().primitive == world::Primitive::Sphere);
+  REQUIRE(box.get<world::MeshRenderer>().mesh == assets::builtin::sphere());
   const core::Uuid child = core::Uuid::generate();
   commands.push(editor::createEntityCommand("Child", uuid, {}, child), world);
   REQUIRE(world.parentOf(world.find(child)) == box);
@@ -65,7 +67,7 @@ TEST_CASE("create, delete and duplicate commands undo and redo with stable ident
   REQUIRE(commands.undo(world));
   box = world.find(uuid);
   REQUIRE(box.is_valid());
-  REQUIRE(box.get<world::MeshRenderer>().primitive == world::Primitive::Sphere);
+  REQUIRE(box.get<world::MeshRenderer>().mesh == assets::builtin::sphere());
   REQUIRE(world.parentOf(world.find(child)) == box);
 
   const core::Uuid copy = core::Uuid::generate();

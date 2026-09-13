@@ -133,11 +133,25 @@ void World::registerComponents() {
   m_world.component<WorldTransform>("WorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<Name>("Name").add(flecs::OnInstantiate, flecs::Inherit);
 
-  m_world.component<Primitive>("Primitive");
+  // Asset references serialize as their canonical string; an unparsable string is nil.
+  m_world.component<core::Uuid>("Uuid")
+      .opaque(flecs::String)
+      .serialize([](const flecs::serializer *serializer, const core::Uuid *uuid) {
+        const std::string text = uuid->toString();
+        const char *chars = text.c_str();
+        return serializer->value(flecs::String, &chars);
+      })
+      .assign_string([](core::Uuid *uuid, const char *value) {
+        *uuid = core::Uuid::parse(value != nullptr ? value : "").value_or(core::Uuid{});
+      });
   registerComponent<Transform>("Transform");
   m_world.component<Transform>().member<glm::vec3>("position").member<glm::quat>("rotation").member<glm::vec3>("scale");
   registerComponent<MeshRenderer>("MeshRenderer");
-  m_world.component<MeshRenderer>().member<Primitive>("primitive").member<glm::vec4>("color").member<bool>("visible");
+  m_world.component<MeshRenderer>()
+      .member<core::Uuid>("mesh")
+      .member<core::Uuid>("material")
+      .member<glm::vec4>("color")
+      .member<bool>("visible");
   registerComponent<Camera>("Camera");
   m_world.component<Camera>().member<float, Radians>("fovY").member<float>("nearPlane");
   registerComponent<DirectionalLight>("DirectionalLight");
@@ -151,6 +165,8 @@ void World::registerComponents() {
       .member<float>("range")
       .member<float, Radians>("innerAngle")
       .member<float, Radians>("outerAngle");
+  registerComponent<Environment>("Environment");
+  m_world.component<Environment>().member<core::Uuid>("map").member<float>("intensity").member<float>("exposure");
   registerComponent<Spin>("Spin");
   m_world.component<Spin>().member<glm::vec3>("axis").member<float>("speed");
   registerComponent<Static>("Static", true);

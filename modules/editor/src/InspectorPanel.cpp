@@ -252,6 +252,10 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
       value = glm::normalize(glm::quat{glm::radians(degrees)});
     }
     track();
+  } else if (member.type == ecs.id<core::Uuid>()) {
+    // An asset reference: shown by identity until the asset browser's picker takes over.
+    const std::string text = at<core::Uuid>(field, 0).toString();
+    ImGui::TextDisabled("%s", text.c_str());
   } else if (const flecs::Primitive *primitive = type.try_get<flecs::Primitive>()) {
     // The kinds are not constant expressions, hence no switch.
     const flecs::meta::primitive_kind_t kind = primitive->kind;

@@ -18,19 +18,14 @@ namespace {
 constexpr const char *DragPayload = "sonnet_entity";
 
 struct PrimitiveEntry {
-  world::Primitive primitive;
+  core::Uuid (*mesh)() noexcept;
   const char *name;
 };
-constexpr std::array<PrimitiveEntry, 5> Primitives{{{world::Primitive::Box, "Box"},
-                                                    {world::Primitive::Sphere, "Sphere"},
-                                                    {world::Primitive::Plane, "Plane"},
-                                                    {world::Primitive::Cylinder, "Cylinder"},
-                                                    {world::Primitive::Capsule, "Capsule"}}};
-
-const char *primitiveName(world::Primitive primitive) {
-  const auto it = std::ranges::find(Primitives, primitive, &PrimitiveEntry::primitive);
-  return it != Primitives.end() ? it->name : "Mesh";
-}
+constexpr std::array<PrimitiveEntry, 5> Primitives{{{assets::builtin::box, "Box"},
+                                                    {assets::builtin::sphere, "Sphere"},
+                                                    {assets::builtin::plane, "Plane"},
+                                                    {assets::builtin::cylinder, "Cylinder"},
+                                                    {assets::builtin::capsule, "Capsule"}}};
 
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity.try_get<world::Name>();
@@ -147,7 +142,7 @@ void HierarchyPanel::drawCreateMenu(core::Uuid parent) {
   }
   for (const PrimitiveEntry &entry : Primitives) {
     if (ImGui::MenuItem(entry.name)) {
-      createPrimitive(entry.primitive, parent);
+      createMeshEntity(entry.name, entry.mesh(), parent);
     }
   }
   ImGui::Separator();
@@ -199,9 +194,8 @@ void HierarchyPanel::createEntity(std::string_view name, core::Uuid parent, nloh
   m_selection.select(uuid);
 }
 
-void HierarchyPanel::createPrimitive(world::Primitive primitive, core::Uuid parent) {
-  const char *name = primitiveName(primitive);
-  createEntity(name, parent, {{"MeshRenderer", {{"primitive", name}}}});
+void HierarchyPanel::createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent) {
+  createEntity(name, parent, {{"MeshRenderer", {{"mesh", mesh.toString()}}}});
 }
 
 void HierarchyPanel::instantiatePrefab(flecs::entity prefab, core::Uuid parent) {
