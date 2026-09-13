@@ -111,7 +111,6 @@ std::unique_ptr<IDevice> gpuDevice(sonnet::platform::Platform &platform) {
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
-  return {};
 }
 
 // Draws the view into a target for `frames` frames and reads the last one back.
