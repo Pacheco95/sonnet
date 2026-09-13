@@ -30,7 +30,7 @@ Preferences Preferences::load(const std::filesystem::path &file) {
   if (!bytes) {
     return preferences; // first run
   }
-  const json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  const json document = json::parse(std::string_view{reinterpret_cast<const char*>(bytes->data()), bytes->size()}, nullptr, false);
   if (document.is_discarded() || !document.is_object()) {
     SONNET_LOG_WARN("{}: not valid JSON, using defaults", file.string());
     return preferences;

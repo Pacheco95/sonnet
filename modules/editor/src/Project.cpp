@@ -38,7 +38,7 @@ core::Result<Project> Project::open(const std::filesystem::path &directory) {
   if (!bytes) {
     return std::unexpected(bytes.error());
   }
-  const json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  const json document = json::parse(std::string_view{reinterpret_cast<const char*>(bytes->data()), bytes->size()}, nullptr, false);
   if (document.is_discarded() || !document.is_object()) {
     return std::unexpected(
         core::Error{std::format("{}: not valid JSON", project.file().string()), core::ErrorCategory::Io});

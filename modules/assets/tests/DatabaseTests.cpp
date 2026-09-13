@@ -229,7 +229,7 @@ TEST_CASE("materials are created, edited and saved as files", "[assets][database
   REQUIRE(database.saveMaterial(*created).has_value());
   const auto bytes = core::readFile(fixture.root / "assets" / "metal.material.json");
   REQUIRE(bytes.has_value());
-  const auto reloaded = loadMaterial(nlohmann::json::parse(bytes->begin(), bytes->end()));
+  const auto reloaded = loadMaterial(nlohmann::json::parse(std::string_view{reinterpret_cast<const char*>(bytes->data()), bytes->size()}));
   REQUIRE(reloaded.has_value());
   REQUIRE(reloaded->roughness == Approx(0.9f));
   REQUIRE(!database.createMaterial(fixture.root / "assets" / "wrong.json", metal).has_value());

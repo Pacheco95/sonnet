@@ -103,7 +103,7 @@ core::Result<json> readJsonFile(const std::filesystem::path &path) {
   if (!bytes) {
     return std::unexpected(bytes.error());
   }
-  json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  json document = json::parse(std::string_view{reinterpret_cast<const char*>(bytes->data()), bytes->size()}, nullptr, false);
   if (document.is_discarded()) {
     return std::unexpected(core::Error{std::format("{}: not valid JSON", path.string()), core::ErrorCategory::Io});
   }
