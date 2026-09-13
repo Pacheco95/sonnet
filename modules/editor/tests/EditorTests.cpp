@@ -145,6 +145,36 @@ TEST_CASE("the editor opens a project, edits, plays, stops and saves", "[editor]
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("clicking the menu bar's play button toggles play mode", "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE(!editor.isPlaying());
+    // The button is centred on the main menu bar, which is one frame height tall.
+    const ImGuiStyle &style = ImGui::GetStyle();
+    const float x = static_cast<float>(fixture.window->size().x) * 0.5f + style.FramePadding.x;
+    const float y = ImGui::GetFrameHeight() * 0.5f;
+    ImGuiIO &io = ImGui::GetIO();
+    const auto click = [&] {
+      io.AddMousePosEvent(x, y);
+      fixture.frame(editor);
+      io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+      fixture.frame(editor);
+      io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+      fixture.frame(editor); // the click lands, and the state flips mid-frame
+      fixture.frame(editor);
+    };
+    click();
+    REQUIRE(editor.isPlaying());
+    click();
+    REQUIRE(!editor.isPlaying());
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("a mouse drag on the gizmo's X handle moves the selected entity", "[editor][gpu]") {
   Fixture fixture;
   {

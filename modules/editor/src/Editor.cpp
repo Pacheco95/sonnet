@@ -315,15 +315,17 @@ void Editor::drawMenuBar() {
     ImGui::EndMenu();
   }
   // The play control sits on the bar itself, where it is always in view.
-  const char *label = isPlaying() ? "  Stop  " : "  Play  ";
+  // Sampled once: the click below toggles the state, and the pop has to match the push.
+  const bool playing = isPlaying();
+  const char *label = playing ? "  Stop  " : "  Play  ";
   ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.5f - ImGui::CalcTextSize(label).x * 0.5f);
-  if (isPlaying()) {
+  if (playing) {
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.7f, 0.25f, 0.2f, 1.0f});
   }
   if (ImGui::SmallButton(label)) {
-    isPlaying() ? stop() : play();
+    playing ? stop() : play();
   }
-  if (isPlaying()) {
+  if (playing) {
     ImGui::PopStyleColor();
   }
   ImGui::EndMainMenuBar();
