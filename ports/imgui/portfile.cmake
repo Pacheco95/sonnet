@@ -8,6 +8,7 @@ if ("docking-experimental" IN_LIST FEATURES)
         REF "v${VERSION}b-docking"
         SHA512 7eddcdb475f1db1fc8242d918533b955c964d2267abe713bdf23f8e2444770946d3c79c7855e360bab6168e36231b95bd05a84106c08f876dcd53daac9caccac
         HEAD_REF docking
+        PATCHES viewport-images-start-undefined.patch
     )
 else()
     vcpkg_from_github(
@@ -16,6 +17,7 @@ else()
         REF "v${VERSION}b"
         SHA512 1a8fc7e4d7fe8926289ed9598f39dd5b601baffa3b2a7a0889ed0f9a8f252c85710f4ba65b2a6801bb5b46a17d1fd30b5542e11f67b8989c6640b498ef68bb2d
         HEAD_REF master
+        PATCHES viewport-images-start-undefined.patch
     )
 endif()
 
