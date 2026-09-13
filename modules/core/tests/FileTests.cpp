@@ -43,7 +43,12 @@ TEST_CASE("writeFile creates the directories and readFile gets the bytes back", 
   REQUIRE(sonnet::core::writeFile(path, std::string_view{}).has_value()); // truncates
   REQUIRE(sonnet::core::readFile(path)->empty());
   std::filesystem::remove_all(directory);
-  const auto failed = sonnet::core::writeFile("/nonexistent-root-dir/sonnet/file.txt", std::string_view{"x"});
+  // A regular file can never be created as a directory, on every platform; unlike a path such as
+  // "/nonexistent-root-dir/...", which Windows resolves under the current drive's writable root.
+  const std::filesystem::path blocker = std::filesystem::temp_directory_path() / "sonnet_core_write_blocker.bin";
+  REQUIRE(sonnet::core::writeFile(blocker, std::string_view{"x"}).has_value());
+  const auto failed = sonnet::core::writeFile(blocker / "sonnet" / "file.txt", std::string_view{"x"});
+  std::filesystem::remove(blocker);
   REQUIRE(!failed.has_value());
   REQUIRE(failed.error().category == sonnet::core::ErrorCategory::Io);
 }
