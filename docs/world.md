@@ -1,23 +1,23 @@
 # world
 
-The entity component system: a flecs world with the engine's components, phases and systems, the scene and prefab files, and the draw list handed to the renderer. flecs types appear unwrapped in the public headers by decision ([ADR-0003](decisions/0003-ecs-library.md)). Depends on `renderer`, flecs and nlohmann-json; the `assets` module slots in between in M3.
+The entity component system: a flecs world with the engine's components, phases and systems, the scene and prefab files, and the draw list handed to the renderer. flecs types appear unwrapped in the public headers by decision ([ADR-0003](decisions/0003-ecs-library.md)). Depends on `assets`, flecs and nlohmann-json.
 
 | Header | Contents |
 |---|---|
-| `Components.h` | The core components as plain structs: `Identity`, `Name`, `Transform`, `WorldTransform`, `MeshRenderer`, `Camera`, the three lights, `Spin`, and the tags `Static`, `EditorOnly`, `Disabled` |
+| `Components.h` | The core components as plain structs: `Identity`, `Name`, `Transform`, `WorldTransform`, `MeshRenderer`, `Camera`, the three lights, `Environment`, `Spin`, and the tags `Static`, `EditorOnly`, `Disabled` |
 | `World.h` | `World`: the flecs world with everything registered, entity creation with identities, hierarchy helpers, prefab instantiation, the component registry, JSON per component, play mode and `progress` |
-| `Scene.h` | The scene and prefab file format: `saveScene`, `loadScene`, `savePrefab`, `loadPrefab` and their file variants |
-| `DrawList.h` | `PrimitiveMeshes`, `buildDrawList`, `sceneLight`, `sceneCamera`: what the world hands the renderer |
+| `Scene.h` | The scene and prefab file format: `saveScene`, `loadScene`, `savePrefab`, `loadPrefab` and their file variants, and `loadModelPrefab` for a glTF file's hierarchy |
+| `DrawList.h` | `buildDrawList`, `buildLightList`, `sceneLight`, `sceneCamera`, `sceneEnvironment`: what the world hands the renderer |
 
 ## Components
 
-Every component is registered with flecs reflection in `World`, under the name scene files use, so the inspector, the serializer and later the scripting bindings enumerate fields through one system. GLM's `vec3`, `vec4` and `quat` are registered as structs; `Primitive` is an enum whose constants serialize by name; angles carry the flecs `Radians` unit, which the inspector reads to show degrees ([conventions.md](conventions.md#math-conventions)).
+Every component is registered with flecs reflection in `World`, under the name scene files use, so the inspector, the serializer and later the scripting bindings enumerate fields through one system. GLM's `vec3`, `vec4` and `quat` are registered as structs; `core::Uuid` is an opaque type that serializes as its canonical string, which is how asset references appear in files; angles carry the flecs `Radians` unit, which the inspector reads to show degrees ([conventions.md](conventions.md#math-conventions)).
 
 Three components are structural and are not in the registry: `Identity` holds the UUID that scenes, prefab references and undo refer to; `WorldTransform` is derived; `Name` is written as the file envelope's `name`. `World::createEntity` gives every scene entity all three plus a `Transform`.
 
 `Transform` is local. The transform system, in the `PreRender` phase, computes `WorldTransform` as parent times local, parents first through the flecs `cascade` ordering over `ChildOf`. `World::setParent` keeps the world transform when reparenting, so an entity stays where it is on screen. `Transform::fromMatrix` decomposes a matrix back, discarding shear.
 
-Until assets arrive in M3, `MeshRenderer` names one of the renderer's primitives and a colour. `Spin` turns its entity about an axis in play mode and is the script-free behaviour M2's sample uses. `PointLight` and `SpotLight` are authored and saved now and rendered from M3.
+`MeshRenderer` references a mesh asset by identity ([assets.md](assets.md#identity)), a built-in primitive or a glTF mesh, with an optional material that overrides every slot of the mesh (nil keeps the mesh's own materials) and a colour that multiplies the material's base colour. `PointLight` and `SpotLight` are punctual lights at their entity's position, the spot shining along its -Z. `Environment` names the equirectangular map that lights the scene and fills its background; the first entity that has one wins. `Spin` turns its entity about an axis in play mode and is the script-free behaviour M2's sample uses.
 
 ## Phases and play mode
 
@@ -58,11 +58,13 @@ Scenes and prefabs share one JSON format ([assets.md](assets.md#scene-file)), an
 
 Entities are written parents first, tags as `null`, and editor-only entities not at all. Loading creates every entity, then resolves parents, so the order in the file does not matter; a load that fails part way removes what it created and reports why, with the UUID of a missing prefab or parent. A prefab an instance refers to has to be loaded first, which the editor does for every `.prefab.json` in the project. Unknown component names are logged and skipped.
 
-`version` is the schema version, independent of the engine version ([conventions.md](conventions.md#versioning)). A newer version than the engine knows is refused; older ones are migrated on load, oldest first, and never written back. Version 1 is the first, so no migration exists yet.
+`version` is the schema version, independent of the engine version ([conventions.md](conventions.md#versioning)). A newer version than the engine knows is refused; older ones are migrated on load, oldest first, logging the file and both versions, and never written back. Version 2 references meshes by asset identity; version 1 named a primitive (`"primitive": "Box"`), which the migration turns into the built-in mesh of the same shape.
+
+A glTF file is a prefab too: `loadModelPrefab` builds one from the file's `assets::Model`, the root under the model's identity and name, every node a prefab child with its transform and, for a node with geometry, a `MeshRenderer` of its mesh, with identities derived from the model's so an instance saves and loads the same way after a re-import. The editor loads one for every model in the project alongside the `.prefab.json` files.
 
 ## Draw list
 
-`buildDrawList` fills `renderer::DrawItem`s from every entity with a `WorldTransform` and a visible, enabled `MeshRenderer`, with the entity's pick id. `sceneLight` is the first directional light, shining along its entity's -Z; `sceneCamera` the first camera, placed by its entity's world transform. The editor draws through its own camera and uses the scene's light; the player uses both.
+`buildDrawList` fills `renderer::DrawItem`s from every entity with a `WorldTransform` and a visible, enabled `MeshRenderer`: one item per submesh, the mesh and materials resolved through the `AssetDatabase` every frame so a re-imported asset shows on the next one, and an entity whose mesh is missing or failed to import draws nothing. `buildLightList` collects the enabled point and spot lights; `sceneLight` is the first directional light, shining along its entity's -Z; `sceneCamera` the first camera, placed by its entity's world transform; `sceneEnvironment` the first `Environment` whose map loads. The editor draws through its own camera and uses the scene's lights and environment; the player uses the camera too.
 
 ## Debugging
 
@@ -70,4 +72,4 @@ Entities are written parents first, tags as `null`, and editor-only entities not
 
 ## Tests
 
-`world_tests` covers the transform decomposition, JSON round trips by reflection including enums, units and tags, the hierarchy and world transforms, reparenting, play mode gating, prefab instantiation and overrides, scene and prefab files through the temporary directory including the failure paths, and the draw list on the null device.
+`world_tests` covers the transform decomposition, JSON round trips by reflection including identities, units and tags, the hierarchy and world transforms, reparenting, play mode gating, prefab instantiation and overrides, scene and prefab files through the temporary directory including the failure paths, the version 1 migration, model prefabs, and the draw and light lists on the null device.

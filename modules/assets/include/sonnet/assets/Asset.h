@@ -56,11 +56,11 @@ struct MaterialSource {
   float normalScale{1.0f};
   float occlusionStrength{1.0f};
   float alphaCutoff{0.5f};
-  core::Uuid baseColorTexture;
-  core::Uuid metallicRoughnessTexture;
-  core::Uuid normalTexture;
-  core::Uuid occlusionTexture;
-  core::Uuid emissiveTexture;
+  core::Uuid baseColorTexture{};
+  core::Uuid metallicRoughnessTexture{};
+  core::Uuid normalTexture{};
+  core::Uuid occlusionTexture{};
+  core::Uuid emissiveTexture{};
   renderer::AlphaMode alphaMode{renderer::AlphaMode::Opaque};
   renderer::TextureWrap wrap{renderer::TextureWrap::Repeat};
   bool doubleSided{false};
@@ -80,7 +80,7 @@ struct ModelNode {
   glm::vec3 position{0.0f};
   glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
   glm::vec3 scale{1.0f};
-  core::Uuid mesh; // nil for a node without geometry
+  core::Uuid mesh{}; // nil for a node without geometry
 };
 
 struct Model {

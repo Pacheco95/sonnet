@@ -111,11 +111,11 @@ TEST_CASE("a prefab instance shares components until it overrides them", "[world
   world::World world;
   const flecs::entity prefab = world.createEntity("Crate");
   prefab.add(flecs::Prefab);
-  prefab.set<world::MeshRenderer>({.primitive = world::Primitive::Box, .color = {1.0f, 0.0f, 0.0f, 1.0f}});
+  prefab.set<world::MeshRenderer>({.mesh = assets::builtin::box(), .color = {1.0f, 0.0f, 0.0f, 1.0f}});
   prefab.set<world::Transform>({.position = {0.0f, 3.0f, 0.0f}});
   const flecs::entity lid = world.createEntity("Lid", prefab);
   lid.add(flecs::Prefab);
-  lid.set<world::MeshRenderer>({.primitive = world::Primitive::Plane});
+  lid.set<world::MeshRenderer>({.mesh = assets::builtin::plane()});
   lid.set<world::Transform>({.position = {0.0f, 0.5f, 0.0f}});
 
   const flecs::entity instance = world.instantiate(prefab, "Crate 1");

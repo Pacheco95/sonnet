@@ -1,8 +1,10 @@
 #include <sonnet/world/Scene.h>
 
+#include <sonnet/core/Assert.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 
+#include <array>
 #include <format>
 #include <fstream>
 #include <utility>
@@ -53,11 +55,45 @@ void saveSubtree(const World &world, flecs::entity entity, flecs::entity parent,
   }
 }
 
-core::Result<void> checkVersion(const json &document) {
-  if (!document.is_object() || !document.contains("version") || !document["version"].is_number_integer()) {
+// Version 1 named one of the renderer's primitives; version 2 references the built-in mesh of
+// the same shape by identity.
+void migrateVersion1(json &document) {
+  static const std::array<std::pair<const char *, core::Uuid>, 5> primitives{{{"Box", assets::builtin::box()},
+                                                                              {"Sphere", assets::builtin::sphere()},
+                                                                              {"Plane", assets::builtin::plane()},
+                                                                              {"Cylinder", assets::builtin::cylinder()},
+                                                                              {"Capsule", assets::builtin::capsule()}}};
+  if (!document.contains("entities") || !document["entities"].is_array()) {
+    return;
+  }
+  for (json &entry : document["entities"]) {
+    if (!entry.is_object() || !entry.contains("components") || !entry["components"].is_object()) {
+      continue;
+    }
+    json &components = entry["components"];
+    if (!components.contains("MeshRenderer") || !components["MeshRenderer"].is_object()) {
+      continue;
+    }
+    json &meshRenderer = components["MeshRenderer"];
+    const std::string primitive = meshRenderer.value("primitive", std::string{"Box"});
+    meshRenderer.erase("primitive");
+    core::Uuid mesh = assets::builtin::box();
+    for (const auto &[name, uuid] : primitives) {
+      if (primitive == name) {
+        mesh = uuid;
+      }
+    }
+    meshRenderer["mesh"] = mesh.toString();
+  }
+}
+
+// Checks the version and brings an older document up to date, oldest step first, logging the
+// source and both versions (docs/conventions.md, "Logging").
+core::Result<json> migrate(const json &input, std::string_view source) {
+  if (!input.is_object() || !input.contains("version") || !input["version"].is_number_integer()) {
     return std::unexpected(core::Error{"not a scene: no version field", core::ErrorCategory::Io});
   }
-  const int version = document["version"].get<int>();
+  const int version = input["version"].get<int>();
   if (version > SceneVersion) {
     return std::unexpected(
         core::Error{std::format("scene version {} is newer than this engine's {}", version, SceneVersion),
@@ -66,15 +102,22 @@ core::Result<void> checkVersion(const json &document) {
   if (version < 1) {
     return std::unexpected(core::Error{std::format("scene version {} is not valid", version), core::ErrorCategory::Io});
   }
-  // Migrations from older versions run here, oldest first, each logging the file and both
-  // versions (docs/conventions.md, "Logging"). None exist yet: version 1 is the first.
-  return {};
+  json document = input;
+  if (version < 2) {
+    migrateVersion1(document);
+    SONNET_LOG_INFO("{}: migrated scene version 1 to 2", source);
+  }
+  document["version"] = SceneVersion;
+  return document;
 }
 
-core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &document, bool asPrefab) {
-  if (auto version = checkVersion(document); !version) {
-    return std::unexpected(version.error());
+core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &input, bool asPrefab,
+                                                      std::string_view source) {
+  auto migrated = migrate(input, source);
+  if (!migrated) {
+    return std::unexpected(migrated.error());
   }
+  const json &document = *migrated;
   if (!document.contains("entities") || !document["entities"].is_array()) {
     return std::unexpected(core::Error{"scene has no entities array", core::ErrorCategory::Io});
   }
@@ -177,6 +220,8 @@ core::Result<void> writeJson(const json &document, const std::filesystem::path &
 
 } // namespace
 
+core::Result<flecs::entity> loadPrefabFrom(World &world, const json &prefab, std::string_view source);
+
 json saveScene(const World &world) {
   json scene;
   scene["version"] = SceneVersion;
@@ -189,7 +234,7 @@ json saveScene(const World &world) {
 }
 
 core::Result<std::vector<flecs::entity>> loadScene(World &world, const json &scene) {
-  return loadEntities(world, scene, false);
+  return loadEntities(world, scene, false, "scene");
 }
 
 core::Result<void> saveSceneFile(const World &world, const std::filesystem::path &path) {
@@ -201,7 +246,7 @@ core::Result<std::vector<flecs::entity>> loadSceneFile(World &world, const std::
   if (!document) {
     return std::unexpected(document.error());
   }
-  auto loaded = loadScene(world, *document);
+  auto loaded = loadEntities(world, *document, false, path.string());
   if (!loaded) {
     return std::unexpected(core::Error{std::format("{}: {}", path.string(), loaded.error().message),
                                        core::ErrorCategory::Io, loaded.error().location});
@@ -224,7 +269,11 @@ json savePrefab(const World &world, flecs::entity root) {
 }
 
 core::Result<flecs::entity> loadPrefab(World &world, const json &prefab) {
-  auto loaded = loadEntities(world, prefab, true);
+  return loadPrefabFrom(world, prefab, "prefab");
+}
+
+core::Result<flecs::entity> loadPrefabFrom(World &world, const json &prefab, std::string_view source) {
+  auto loaded = loadEntities(world, prefab, true, source);
   if (!loaded) {
     return std::unexpected(loaded.error());
   }
@@ -255,12 +304,32 @@ core::Result<flecs::entity> loadPrefabFile(World &world, const std::filesystem::
   if (!document) {
     return std::unexpected(document.error());
   }
-  auto root = loadPrefab(world, *document);
+  auto root = loadPrefabFrom(world, *document, path.string());
   if (!root) {
     return std::unexpected(core::Error{std::format("{}: {}", path.string(), root.error().message),
                                        core::ErrorCategory::Io, root.error().location});
   }
   SONNET_LOG_INFO("loaded prefab {} from {}", world.uuidOf(*root).toString(), path.string());
+  return root;
+}
+
+flecs::entity loadModelPrefab(World &world, const assets::Model &model, const core::Uuid &uuid, std::string_view name) {
+  SONNET_ASSERT(!world.find(uuid), "model prefab {} is already loaded", uuid.toString());
+  flecs::entity root = world.createEntity(name, {}, uuid);
+  root.add(flecs::Prefab);
+  std::vector<flecs::entity> entities;
+  entities.reserve(model.nodes.size());
+  for (std::size_t n = 0; n < model.nodes.size(); ++n) {
+    const assets::ModelNode &node = model.nodes[n];
+    const flecs::entity parent = node.parent >= 0 ? entities[static_cast<std::size_t>(node.parent)] : root;
+    flecs::entity entity = world.createEntity(node.name, parent, core::Uuid::derive(uuid, std::format("node/{}", n)));
+    entity.add(flecs::Prefab);
+    entity.set<Transform>({.position = node.position, .rotation = node.rotation, .scale = node.scale});
+    if (!node.mesh.isNil()) {
+      entity.set<MeshRenderer>({.mesh = node.mesh, .material = {}, .color = {1.0f, 1.0f, 1.0f, 1.0f}, .visible = true});
+    }
+    entities.push_back(entity);
+  }
   return root;
 }
 

@@ -22,7 +22,8 @@ public:
 
   // The context menu's creations, also used by the Edit menu. `parent` nil creates a root.
   void createEntity(std::string_view name, core::Uuid parent, nlohmann::json components = nlohmann::json::object());
-  void createPrimitive(world::Primitive primitive, core::Uuid parent);
+  // An entity with a MeshRenderer of the given mesh asset, named after it.
+  void createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent);
   void instantiatePrefab(flecs::entity prefab, core::Uuid parent);
   void deleteSelection();
   void duplicateSelection();

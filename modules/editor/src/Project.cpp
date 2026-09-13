@@ -115,11 +115,11 @@ json starterScene() {
   world::World world;
   const flecs::entity ground = world.createEntity("Ground");
   ground.set<world::Transform>({.scale = {12.0f, 1.0f, 12.0f}});
-  ground.set<world::MeshRenderer>({.primitive = world::Primitive::Plane, .color = {0.45f, 0.47f, 0.5f, 1.0f}});
+  ground.set<world::MeshRenderer>({.mesh = assets::builtin::plane(), .color = {0.45f, 0.47f, 0.5f, 1.0f}});
   ground.add<world::Static>();
   const flecs::entity box = world.createEntity("Box");
   box.set<world::Transform>({.position = {0.0f, 0.5f, 0.0f}});
-  box.set<world::MeshRenderer>({.primitive = world::Primitive::Box, .color = {0.9f, 0.35f, 0.25f, 1.0f}});
+  box.set<world::MeshRenderer>({.mesh = assets::builtin::box(), .color = {0.9f, 0.35f, 0.25f, 1.0f}});
   const flecs::entity sun = world.createEntity("Sun");
   sun.set<world::Transform>(
       {.position = {0.0f, 5.0f, 0.0f},

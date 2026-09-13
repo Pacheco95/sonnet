@@ -44,7 +44,7 @@ TEST_CASE("components round-trip through flecs JSON by reflection", "[world][com
                                 .rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3{0.0f, 1.0f, 0.0f}),
                                 .scale = {1.0f, 2.0f, 1.0f}});
   entity.set<world::MeshRenderer>(
-      {.primitive = world::Primitive::Sphere, .color = {0.1f, 0.2f, 0.3f, 1.0f}, .visible = false});
+      {.mesh = assets::builtin::sphere(), .color = {0.1f, 0.2f, 0.3f, 1.0f}, .visible = false});
   entity.set<world::Camera>({.fovY = glm::radians(45.0f), .nearPlane = 0.25f});
   entity.add<world::Static>();
 
@@ -65,7 +65,8 @@ TEST_CASE("components round-trip through flecs JSON by reflection", "[world][com
   REQUIRE(transformJson["rotation"]["w"].get<float>() == Approx(std::cos(glm::radians(45.0f))));
   REQUIRE(transformJson["rotation"]["y"].get<float>() == Approx(std::sin(glm::radians(45.0f))));
   const nlohmann::json meshJson = world.componentToJson(entity, mesh->id);
-  REQUIRE(meshJson["primitive"] == "Sphere"); // enum constants by name
+  REQUIRE(meshJson["mesh"] == assets::builtin::sphere().toString()); // identities as strings
+  REQUIRE(meshJson["material"] == core::Uuid{}.toString());
   REQUIRE(meshJson["visible"] == false);
   REQUIRE(world.componentToJson(entity, isStatic->id).is_null());
   const world::Transform detached{.position = {9.0f, 8.0f, 7.0f}};
@@ -80,7 +81,8 @@ TEST_CASE("components round-trip through flecs JSON by reflection", "[world][com
   REQUIRE(other.get<world::Transform>().position == glm::vec3{1.0f, 2.0f, 3.0f});
   REQUIRE(other.get<world::Transform>().scale.y == Approx(2.0f));
   REQUIRE(other.get<world::Transform>().rotation.w == Approx(entity.get<world::Transform>().rotation.w));
-  REQUIRE(other.get<world::MeshRenderer>().primitive == world::Primitive::Sphere);
+  REQUIRE(other.get<world::MeshRenderer>().mesh == assets::builtin::sphere());
+  REQUIRE(other.get<world::MeshRenderer>().material.isNil());
   REQUIRE(other.get<world::MeshRenderer>().color.b == Approx(0.3f));
   REQUIRE(!other.get<world::MeshRenderer>().visible);
   REQUIRE(other.get<world::Camera>().fovY == Approx(glm::radians(45.0f)));
@@ -89,7 +91,8 @@ TEST_CASE("components round-trip through flecs JSON by reflection", "[world][com
   // A partial value assigns the listed fields and keeps the rest.
   world.componentFromJson(other, mesh->id, nlohmann::json::parse(R"({"visible": true})"));
   REQUIRE(other.get<world::MeshRenderer>().visible);
-  REQUIRE(other.get<world::MeshRenderer>().primitive == world::Primitive::Sphere);
+  REQUIRE(other.get<world::MeshRenderer>().mesh == assets::builtin::sphere());
+  REQUIRE(other.get<world::MeshRenderer>().material.isNil());
 }
 
 TEST_CASE("angle members carry the radians unit for the inspector", "[world][components]") {

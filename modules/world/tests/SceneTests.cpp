@@ -23,7 +23,7 @@ std::filesystem::path temporaryDirectory() {
 TEST_CASE("a scene saves and loads with the same identities, hierarchy and components", "[world][scene]") {
   world::World source;
   const flecs::entity ground = source.createEntity("Ground");
-  ground.set<world::MeshRenderer>({.primitive = world::Primitive::Plane, .color = {0.4f, 0.4f, 0.4f, 1.0f}});
+  ground.set<world::MeshRenderer>({.mesh = assets::builtin::plane(), .color = {0.4f, 0.4f, 0.4f, 1.0f}});
   ground.add<world::Static>();
   const flecs::entity box = source.createEntity("Box", ground);
   box.set<world::Transform>({.position = {0.0f, 0.5f, 0.0f}});
@@ -40,7 +40,7 @@ TEST_CASE("a scene saves and loads with the same identities, hierarchy and compo
   REQUIRE(scene["entities"][1]["name"] == "Box"); // parents come before children
   REQUIRE(scene["entities"][1]["parent"] == source.uuidOf(ground).toString());
   REQUIRE(scene["entities"][0]["components"]["Static"].is_null());
-  REQUIRE(scene["entities"][0]["components"]["MeshRenderer"]["primitive"] == "Plane");
+  REQUIRE(scene["entities"][0]["components"]["MeshRenderer"]["mesh"] == assets::builtin::plane().toString());
   REQUIRE(!scene["entities"][0].contains("prefab"));
 
   world::World target;
@@ -97,9 +97,9 @@ TEST_CASE("a prefab instance saves its overrides only and comes back as an insta
   {
     world::World authoring;
     const flecs::entity crate = authoring.createEntity("Crate");
-    crate.set<world::MeshRenderer>({.primitive = world::Primitive::Box, .color = {1.0f, 0.0f, 0.0f, 1.0f}});
+    crate.set<world::MeshRenderer>({.mesh = assets::builtin::box(), .color = {1.0f, 0.0f, 0.0f, 1.0f}});
     const flecs::entity lid = authoring.createEntity("Lid", crate);
-    lid.set<world::MeshRenderer>({.primitive = world::Primitive::Plane});
+    lid.set<world::MeshRenderer>({.mesh = assets::builtin::plane()});
     lid.set<world::Transform>({.position = {0.0f, 0.5f, 0.0f}});
     prefabUuid = authoring.uuidOf(crate);
     REQUIRE(world::savePrefabFile(authoring, crate, prefabPath).has_value());
@@ -147,9 +147,73 @@ TEST_CASE("a prefab instance saves its overrides only and comes back as an insta
     REQUIRE(instance.has<world::Static>());
     const std::vector<flecs::entity> children = playing.children(instance);
     REQUIRE(children.size() == 1);
-    REQUIRE(children[0].get<world::MeshRenderer>().primitive == world::Primitive::Plane);
+    REQUIRE(children[0].get<world::MeshRenderer>().mesh == assets::builtin::plane());
     REQUIRE(playing.roots().size() == 1);
   }
   std::filesystem::remove(prefabPath);
   std::filesystem::remove(scenePath);
+}
+
+TEST_CASE("a version 1 scene migrates its primitives to built-in mesh identities", "[world][scene][migration]") {
+  const nlohmann::json old = nlohmann::json::parse(R"({
+    "version": 1,
+    "entities": [
+      {"uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000001", "name": "Ground",
+       "components": {"MeshRenderer": {"primitive": "Plane", "color": {"x": 0.5, "y": 0.5, "z": 0.5, "w": 1.0}, "visible": true}}},
+      {"uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000002", "name": "Thing",
+       "components": {"MeshRenderer": {"primitive": "Capsule", "color": {"x": 1, "y": 1, "z": 1, "w": 1}, "visible": false}}}
+    ]
+  })");
+  world::World world;
+  const auto loaded = world::loadScene(world, old);
+  REQUIRE(loaded.has_value());
+  const flecs::entity ground = world.find(core::Uuid::parse("1b6e0c1a-0001-4a5b-8c9d-000000000001").value());
+  REQUIRE(ground.get<world::MeshRenderer>().mesh == assets::builtin::plane());
+  REQUIRE(ground.get<world::MeshRenderer>().color.r == Approx(0.5f));
+  const flecs::entity thing = world.find(core::Uuid::parse("1b6e0c1a-0001-4a5b-8c9d-000000000002").value());
+  REQUIRE(thing.get<world::MeshRenderer>().mesh == assets::builtin::capsule());
+  REQUIRE(!thing.get<world::MeshRenderer>().visible);
+  // Saved again, the scene is at the current version and names meshes by identity.
+  const nlohmann::json saved = world::saveScene(world);
+  REQUIRE(saved["version"] == world::SceneVersion);
+  REQUIRE(saved["entities"][0]["components"]["MeshRenderer"]["mesh"] == assets::builtin::plane().toString());
+  REQUIRE(!saved["entities"][0]["components"]["MeshRenderer"].contains("primitive"));
+  nlohmann::json future = old;
+  future["version"] = world::SceneVersion + 1;
+  REQUIRE(!world::loadScene(world, future).has_value());
+}
+
+TEST_CASE("a model becomes a prefab with its node hierarchy and meshes", "[world][scene][prefab]") {
+  const core::Uuid modelUuid = core::Uuid::generate();
+  const core::Uuid meshUuid = core::Uuid::derive(modelUuid, "mesh/0");
+  assets::Model model;
+  model.nodes.push_back({.name = "Body", .parent = -1, .position = {1.0f, 0.0f, 0.0f}, .mesh = meshUuid});
+  model.nodes.push_back({.name = "Wheel", .parent = 0, .position = {0.0f, -0.5f, 0.0f}, .mesh = meshUuid});
+  model.nodes.push_back({.name = "Pivot", .parent = -1});
+  world::World world;
+  const flecs::entity prefab = world::loadModelPrefab(world, model, modelUuid, "Car");
+  REQUIRE(prefab.has(flecs::Prefab));
+  REQUIRE(world.uuidOf(prefab) == modelUuid);
+  REQUIRE(prefab.get<world::Name>().value == "Car");
+  const std::vector<flecs::entity> roots = world.children(prefab);
+  REQUIRE(roots.size() == 2);
+  REQUIRE(roots[0].get<world::Name>().value == "Body");
+  REQUIRE(roots[0].get<world::MeshRenderer>().mesh == meshUuid);
+  REQUIRE(roots[0].get<world::Transform>().position.x == Approx(1.0f));
+  REQUIRE(world.uuidOf(roots[0]) == core::Uuid::derive(modelUuid, "node/0"));
+  REQUIRE(world.children(roots[0]).size() == 1);
+  REQUIRE(world.children(roots[0])[0].get<world::Name>().value == "Wheel");
+  REQUIRE(!roots[1].has<world::MeshRenderer>());
+  REQUIRE(world.prefabs().size() == 1);
+  REQUIRE(world.roots().empty());
+
+  // Instances place the whole hierarchy and save as a reference to the model's identity.
+  const flecs::entity instance = world.instantiate(prefab, "Car 1");
+  world.progress(0.016f);
+  REQUIRE(world.children(instance).size() == 2);
+  const flecs::entity wheel = world.children(world.children(instance)[0])[0];
+  REQUIRE(glm::vec3{wheel.get<world::WorldTransform>().matrix[3]}.y == Approx(-0.5f));
+  const nlohmann::json scene = world::saveScene(world);
+  REQUIRE(scene["entities"].size() == 1);
+  REQUIRE(scene["entities"][0]["prefab"] == modelUuid.toString());
 }
