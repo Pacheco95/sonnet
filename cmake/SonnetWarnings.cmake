@@ -13,7 +13,10 @@ else()
   target_compile_options(sonnet_warnings INTERFACE
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast
     -Woverloaded-virtual -Wnull-dereference -Wdouble-promotion -Wimplicit-fallthrough -Wcast-align -Wunused
-    -Wformat=2)
+    -Wformat=2
+    # Clang 22+ warns that __COUNTER__ is a C2y extension under -Wpedantic; Catch2 relies on it
+    # in TEST_CASE macros that expand in our source files, so we cannot suppress it via -isystem.
+    -Wno-c2y-extensions)
   # Repository-relative file names in __FILE__ and std::source_location, so log lines read the same
   # on every machine. Debug info keeps absolute paths: -ffile-prefix-map would also rewrite DWARF's
   # DW_AT_name and DW_AT_comp_dir to relative paths, and debuggers then cannot bind breakpoints to
