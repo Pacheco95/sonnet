@@ -49,6 +49,7 @@ target_precompile_headers(sonnet_rhi PRIVATE <vulkan/vulkan_raii.hpp>)
 
 sonnet_add_module_test(rhi
   SOURCES
+    tests/BindlessTests.cpp
     tests/DeviceTests.cpp
     tests/IdImageTests.cpp
     tests/MeshTests.cpp
@@ -59,5 +60,6 @@ sonnet_add_module_test(rhi
 )
 if(TARGET rhi_tests)
   sonnet_add_shaders(rhi_tests SHADERS
-    tests/shaders/triangle.slang tests/shaders/mesh.slang tests/shaders/id.slang tests/shaders/readid.slang)
+    tests/shaders/triangle.slang tests/shaders/mesh.slang tests/shaders/id.slang tests/shaders/readid.slang
+    tests/shaders/texture.slang tests/shaders/fill.slang)
 endif()

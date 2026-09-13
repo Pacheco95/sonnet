@@ -78,10 +78,11 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
                           core::ErrorCategory::Graphics};
   }
   for (std::size_t i = 0; i < images.value().size(); ++i) {
-    m_images.push_back(m_device.registerExternalImage(vk::Image{images.value()[i]},
-                                                      ImageDesc{m_extent, m_format,
-                                                                ImageUsage::ColorAttachment | ImageUsage::TransferDst,
-                                                                std::format("swapchain image {}", i)}));
+    m_images.push_back(m_device.registerExternalImage(
+        vk::Image{images.value()[i]}, ImageDesc{.size = m_extent,
+                                                .format = m_format,
+                                                .usage = ImageUsage::ColorAttachment | ImageUsage::TransferDst,
+                                                .debugName = std::format("swapchain image {}", i)}));
     m_renderFinished.emplace_back(m_device.device(), vk::SemaphoreCreateInfo{});
     m_device.setDebugName(vk::ObjectType::eSemaphore,
                           reinterpret_cast<std::uint64_t>(static_cast<VkSemaphore>(*m_renderFinished.back())),

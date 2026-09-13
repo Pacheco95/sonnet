@@ -62,6 +62,9 @@ public:
                                              toString(barrier.oldLayout), toString(barrier.newLayout)));
     }
   }
+  void memoryBarrier(const MemoryBarrier &) override {
+    m_device.m_trace.emplace_back("memoryBarrier");
+  }
   void beginRendering(const RenderingDesc &desc) override {
     SONNET_ASSERT(!m_rendering, "beginRendering while rendering");
     m_rendering = true;
@@ -82,7 +85,8 @@ public:
   void bindPipeline(PipelineHandle pipeline) override {
     const NullDevice::Pipeline *resource = m_device.m_pipelines.find(pipeline);
     SONNET_ASSERT(resource != nullptr, "binding a stale pipeline handle");
-    m_device.m_trace.push_back(std::format("bindPipeline \"{}\"", resource->desc.debugName));
+    m_compute = resource->compute;
+    m_device.m_trace.push_back(std::format("bindPipeline \"{}\"", resource->debugName));
   }
   void bindBuffers(std::span<const BufferBinding> bindings) override {
     for (const BufferBinding &binding : bindings) {
@@ -111,6 +115,10 @@ public:
     SONNET_ASSERT(m_rendering, "drawIndexed outside beginRendering/endRendering");
     m_device.m_trace.push_back(std::format("drawIndexed {} x{}", indexCount, instanceCount));
   }
+  void dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) override {
+    SONNET_ASSERT(m_compute && !m_rendering, "dispatch needs a compute pipeline outside rendering");
+    m_device.m_trace.push_back(std::format("dispatch {} {} {}", groupsX, groupsY, groupsZ));
+  }
   void copyImageToBuffer(ImageHandle image, BufferHandle buffer) override {
     m_device.m_trace.push_back(
         std::format("copyImageToBuffer {} -> {}", m_device.imageName(image), m_device.bufferName(buffer)));
@@ -129,6 +137,7 @@ public:
 private:
   NullDevice &m_device;
   bool m_rendering{false};
+  bool m_compute{false};
 };
 
 namespace {
@@ -262,7 +271,83 @@ std::uint64_t NullDevice::bufferAddress(BufferHandle handle) const {
 
 ImageHandle NullDevice::createImage(const ImageDesc &desc) {
   SONNET_ASSERT(desc.size.x > 0 && desc.size.y > 0, "image \"{}\" has no size", desc.debugName);
-  return m_images.emplace(Image{desc});
+  SONNET_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size), "image \"{}\": {} mip levels",
+                desc.debugName, desc.mipLevels);
+  Image image{desc, InvalidBindlessIndex, {}};
+  if (has(desc.usage, ImageUsage::Sampled)) {
+    image.sampledIndex = desc.cube ? m_nextCubeIndex++ : m_nextSampledIndex++;
+  }
+  return m_images.emplace(std::move(image));
+}
+
+std::uint32_t NullDevice::sampledImageIndex(ImageHandle handle) const {
+  const Image *image = m_images.find(handle);
+  return image != nullptr ? image->sampledIndex : InvalidBindlessIndex;
+}
+
+std::uint32_t NullDevice::storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) {
+  Image *image = m_images.find(handle);
+  if (image == nullptr || !has(image->desc.usage, ImageUsage::Storage) || mipLevel >= image->desc.mipLevels) {
+    return InvalidBindlessIndex;
+  }
+  if (image->storageIndices.empty()) {
+    image->storageIndices.assign(image->desc.mipLevels, InvalidBindlessIndex);
+  }
+  if (image->storageIndices[mipLevel] == InvalidBindlessIndex) {
+    image->storageIndices[mipLevel] = m_nextStorageIndex++;
+  }
+  return image->storageIndices[mipLevel];
+}
+
+SamplerHandle NullDevice::createSampler(const SamplerDesc &desc) {
+  const std::uint32_t index = desc.compare ? m_nextComparisonSamplerIndex++ : m_nextSamplerIndex++;
+  return m_samplers.emplace(Sampler{desc, index});
+}
+
+void NullDevice::destroySampler(SamplerHandle handle) {
+  if (!m_samplers.remove(handle)) {
+    SONNET_LOG_WARN("destroySampler: stale handle {}:{}", handle.index, handle.generation);
+  }
+}
+
+std::uint32_t NullDevice::samplerIndex(SamplerHandle handle) const {
+  const Sampler *sampler = m_samplers.find(handle);
+  return sampler != nullptr ? sampler->index : InvalidBindlessIndex;
+}
+
+void NullDevice::uploadBuffer(BufferHandle handle, std::uint64_t offset, std::span<const std::byte> data) {
+  Buffer *buffer = m_buffers.find(handle);
+  if (buffer == nullptr) {
+    SONNET_LOG_WARN("uploadBuffer: stale handle {}:{}", handle.index, handle.generation);
+    return;
+  }
+  SONNET_ASSERT(has(buffer->desc.usage, BufferUsage::TransferDst), "buffer \"{}\" is not a transfer destination",
+                buffer->desc.debugName);
+  SONNET_ASSERT(offset + data.size() <= buffer->desc.size, "upload of {} bytes at {} overflows buffer \"{}\"",
+                data.size(), offset, buffer->desc.debugName);
+  if (!buffer->memory.empty()) {
+    std::ranges::copy(data, buffer->memory.begin() + static_cast<std::ptrdiff_t>(offset));
+  }
+  m_trace.push_back(std::format("uploadBuffer \"{}\" {} bytes at {}", buffer->desc.debugName, data.size(), offset));
+}
+
+void NullDevice::uploadImage(ImageHandle handle, std::span<const ImageUpload> uploads) {
+  const Image *image = m_images.find(handle);
+  if (image == nullptr) {
+    SONNET_LOG_WARN("uploadImage: stale handle {}:{}", handle.index, handle.generation);
+    return;
+  }
+  SONNET_ASSERT(has(image->desc.usage, ImageUsage::TransferDst), "image \"{}\" is not a transfer destination",
+                image->desc.debugName);
+  for (const ImageUpload &upload : uploads) {
+    SONNET_ASSERT(upload.mipLevel < image->desc.mipLevels && upload.layer < image->desc.layers(),
+                  "upload to level {} layer {} of image \"{}\"", upload.mipLevel, upload.layer, image->desc.debugName);
+    SONNET_ASSERT(upload.data.size() == levelByteSize(image->desc.format, mipSize(image->desc.size, upload.mipLevel)),
+                  "level {} of image \"{}\" takes {} bytes, {} given", upload.mipLevel, image->desc.debugName,
+                  levelByteSize(image->desc.format, mipSize(image->desc.size, upload.mipLevel)), upload.data.size());
+    m_trace.push_back(std::format("uploadImage \"{}\" level {} layer {} {} bytes", image->desc.debugName,
+                                  upload.mipLevel, upload.layer, upload.data.size()));
+  }
 }
 
 void NullDevice::destroyImage(ImageHandle handle) {
@@ -287,7 +372,12 @@ void NullDevice::destroyShader(ShaderHandle handle) {
 
 PipelineHandle NullDevice::createGraphicsPipeline(const GraphicsPipelineDesc &desc) {
   SONNET_ASSERT(m_shaders.contains(desc.shader), "pipeline \"{}\": stale shader handle", desc.debugName);
-  return m_pipelines.emplace(Pipeline{desc});
+  return m_pipelines.emplace(Pipeline{desc.debugName, false});
+}
+
+PipelineHandle NullDevice::createComputePipeline(const ComputePipelineDesc &desc) {
+  SONNET_ASSERT(m_shaders.contains(desc.shader), "compute pipeline \"{}\": stale shader handle", desc.debugName);
+  return m_pipelines.emplace(Pipeline{desc.debugName, true});
 }
 
 void NullDevice::destroyPipeline(PipelineHandle handle) {
@@ -301,6 +391,9 @@ bool NullDevice::isValid(BufferHandle handle) const {
 }
 bool NullDevice::isValid(ImageHandle handle) const {
   return m_images.contains(handle);
+}
+bool NullDevice::isValid(SamplerHandle handle) const {
+  return m_samplers.contains(handle);
 }
 bool NullDevice::isValid(ShaderHandle handle) const {
   return m_shaders.contains(handle);
@@ -353,9 +446,7 @@ MemoryBudget NullDevice::memoryBudget() const {
   budget.heapCount = 1;
   std::uint64_t usage = 0;
   m_buffers.forEach([&](BufferHandle, const Buffer &buffer) { usage += buffer.desc.size; });
-  m_images.forEach([&](ImageHandle, const Image &image) {
-    usage += std::uint64_t{image.desc.size.x} * image.desc.size.y * bytesPerPixel(image.desc.format);
-  });
+  m_images.forEach([&](ImageHandle, const Image &image) { usage += image.desc.byteSize(); });
   budget.heaps[0] = HeapBudget{usage, 1u << 30, true};
   return budget;
 }

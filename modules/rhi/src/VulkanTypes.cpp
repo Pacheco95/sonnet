@@ -6,6 +6,8 @@ vk::Format toVk(Format format) noexcept {
   switch (format) {
   case Format::Undefined:
     return vk::Format::eUndefined;
+  case Format::R8Unorm:
+    return vk::Format::eR8Unorm;
   case Format::R8G8B8A8Unorm:
     return vk::Format::eR8G8B8A8Unorm;
   case Format::R8G8B8A8Srgb:
@@ -14,8 +16,20 @@ vk::Format toVk(Format format) noexcept {
     return vk::Format::eB8G8R8A8Unorm;
   case Format::B8G8R8A8Srgb:
     return vk::Format::eB8G8R8A8Srgb;
+  case Format::R16G16Sfloat:
+    return vk::Format::eR16G16Sfloat;
+  case Format::R16G16B16A16Sfloat:
+    return vk::Format::eR16G16B16A16Sfloat;
   case Format::R32Uint:
     return vk::Format::eR32Uint;
+  case Format::BC4Unorm:
+    return vk::Format::eBc4UnormBlock;
+  case Format::BC5Unorm:
+    return vk::Format::eBc5UnormBlock;
+  case Format::BC7Unorm:
+    return vk::Format::eBc7UnormBlock;
+  case Format::BC7Srgb:
+    return vk::Format::eBc7SrgbBlock;
   case Format::D32Sfloat:
     return vk::Format::eD32Sfloat;
   }
@@ -24,6 +38,8 @@ vk::Format toVk(Format format) noexcept {
 
 Format fromVk(vk::Format format) noexcept {
   switch (format) {
+  case vk::Format::eR8Unorm:
+    return Format::R8Unorm;
   case vk::Format::eR8G8B8A8Unorm:
     return Format::R8G8B8A8Unorm;
   case vk::Format::eR8G8B8A8Srgb:
@@ -32,8 +48,20 @@ Format fromVk(vk::Format format) noexcept {
     return Format::B8G8R8A8Unorm;
   case vk::Format::eB8G8R8A8Srgb:
     return Format::B8G8R8A8Srgb;
+  case vk::Format::eR16G16Sfloat:
+    return Format::R16G16Sfloat;
+  case vk::Format::eR16G16B16A16Sfloat:
+    return Format::R16G16B16A16Sfloat;
   case vk::Format::eR32Uint:
     return Format::R32Uint;
+  case vk::Format::eBc4UnormBlock:
+    return Format::BC4Unorm;
+  case vk::Format::eBc5UnormBlock:
+    return Format::BC5Unorm;
+  case vk::Format::eBc7UnormBlock:
+    return Format::BC7Unorm;
+  case vk::Format::eBc7SrgbBlock:
+    return Format::BC7Srgb;
   case vk::Format::eD32Sfloat:
     return Format::D32Sfloat;
   default:
@@ -77,6 +105,9 @@ vk::ImageUsageFlags toVk(ImageUsage usage) noexcept {
   }
   if (has(usage, ImageUsage::DepthAttachment)) {
     flags |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
+  }
+  if (has(usage, ImageUsage::Storage)) {
+    flags |= vk::ImageUsageFlagBits::eStorage;
   }
   return flags;
 }
@@ -212,8 +243,62 @@ vk::IndexType toVk(IndexType type) noexcept {
   return type == IndexType::Uint16 ? vk::IndexType::eUint16 : vk::IndexType::eUint32;
 }
 
+vk::Filter toVk(Filter filter) noexcept {
+  return filter == Filter::Nearest ? vk::Filter::eNearest : vk::Filter::eLinear;
+}
+
+vk::SamplerMipmapMode toVkMipmapMode(Filter filter) noexcept {
+  return filter == Filter::Nearest ? vk::SamplerMipmapMode::eNearest : vk::SamplerMipmapMode::eLinear;
+}
+
+vk::SamplerAddressMode toVk(AddressMode mode) noexcept {
+  switch (mode) {
+  case AddressMode::Repeat:
+    return vk::SamplerAddressMode::eRepeat;
+  case AddressMode::ClampToEdge:
+    return vk::SamplerAddressMode::eClampToEdge;
+  case AddressMode::MirroredRepeat:
+    return vk::SamplerAddressMode::eMirroredRepeat;
+  }
+  return vk::SamplerAddressMode::eRepeat;
+}
+
+vk::PipelineColorBlendAttachmentState toVk(BlendMode mode) noexcept {
+  vk::PipelineColorBlendAttachmentState state;
+  state.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+                         vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+  switch (mode) {
+  case BlendMode::None:
+    state.blendEnable = VK_FALSE;
+    break;
+  case BlendMode::Alpha:
+    state.blendEnable = VK_TRUE;
+    state.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha;
+    state.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
+    state.colorBlendOp = vk::BlendOp::eAdd;
+    state.srcAlphaBlendFactor = vk::BlendFactor::eOne;
+    state.dstAlphaBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
+    state.alphaBlendOp = vk::BlendOp::eAdd;
+    break;
+  case BlendMode::Additive:
+    state.blendEnable = VK_TRUE;
+    state.srcColorBlendFactor = vk::BlendFactor::eOne;
+    state.dstColorBlendFactor = vk::BlendFactor::eOne;
+    state.colorBlendOp = vk::BlendOp::eAdd;
+    state.srcAlphaBlendFactor = vk::BlendFactor::eOne;
+    state.dstAlphaBlendFactor = vk::BlendFactor::eOne;
+    state.alphaBlendOp = vk::BlendOp::eAdd;
+    break;
+  }
+  return state;
+}
+
 vk::ImageAspectFlags aspectOf(Format format) noexcept {
   return isDepthFormat(format) ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor;
+}
+
+vk::ImageSubresourceRange wholeImage(Format format) noexcept {
+  return vk::ImageSubresourceRange{aspectOf(format), 0, vk::RemainingMipLevels, 0, vk::RemainingArrayLayers};
 }
 
 } // namespace sonnet::rhi

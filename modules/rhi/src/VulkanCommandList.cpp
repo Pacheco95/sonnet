@@ -33,6 +33,7 @@ vk::ClearColorValue clearValueFor(Format format, const glm::vec4 &c) noexcept {
 void VulkanCommandList::begin(const vk::raii::CommandBuffer &commandBuffer) {
   m_commandBuffer = *commandBuffer;
   m_dispatcher = commandBuffer.getDispatcher();
+  m_bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
   const vk::CommandBufferBeginInfo info{vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
   m_dispatcher->vkBeginCommandBuffer(m_commandBuffer, reinterpret_cast<const VkCommandBufferBeginInfo *>(&info));
 }
@@ -50,16 +51,21 @@ void VulkanCommandList::barrier(std::span<const ImageBarrier> barriers) {
     SONNET_ASSERT(resource != nullptr, "barrier on a stale image handle {}:{}", barrier.image.index,
                   barrier.image.generation);
     vkBarriers[count++] = vk::ImageMemoryBarrier2{
-        toVk(barrier.srcStage),  toVk(barrier.srcAccess),
-        toVk(barrier.dstStage),  toVk(barrier.dstAccess),
-        toVk(barrier.oldLayout), toVk(barrier.newLayout),
-        vk::QueueFamilyIgnored,  vk::QueueFamilyIgnored,
-        resource->image,         vk::ImageSubresourceRange{aspectOf(resource->desc.format), 0, 1, 0, 1}};
+        toVk(barrier.srcStage),  toVk(barrier.srcAccess),          toVk(barrier.dstStage), toVk(barrier.dstAccess),
+        toVk(barrier.oldLayout), toVk(barrier.newLayout),          vk::QueueFamilyIgnored, vk::QueueFamilyIgnored,
+        resource->image,         wholeImage(resource->desc.format)};
   }
   if (count == 0) {
     return;
   }
   const vk::DependencyInfo dependency{{}, 0, nullptr, 0, nullptr, count, vkBarriers.data()};
+  m_dispatcher->vkCmdPipelineBarrier2(m_commandBuffer, reinterpret_cast<const VkDependencyInfo *>(&dependency));
+}
+
+void VulkanCommandList::memoryBarrier(const MemoryBarrier &barrier) {
+  const vk::MemoryBarrier2 vkBarrier{toVk(barrier.srcStage), toVk(barrier.srcAccess), toVk(barrier.dstStage),
+                                     toVk(barrier.dstAccess)};
+  const vk::DependencyInfo dependency{{}, 1, &vkBarrier};
   m_dispatcher->vkCmdPipelineBarrier2(m_commandBuffer, reinterpret_cast<const VkDependencyInfo *>(&dependency));
 }
 
@@ -124,7 +130,22 @@ void VulkanCommandList::endRendering() {
 void VulkanCommandList::bindPipeline(PipelineHandle pipeline) {
   const VulkanPipeline *resource = m_device.findPipeline(pipeline);
   SONNET_ASSERT(resource != nullptr, "binding a stale pipeline handle {}:{}", pipeline.index, pipeline.generation);
-  m_dispatcher->vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *resource->pipeline);
+  m_bindPoint = resource->compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
+  m_dispatcher->vkCmdBindPipeline(m_commandBuffer, m_bindPoint, *resource->pipeline);
+  // Bound with every pipeline rather than once per frame: a foreign pipeline layout (Dear
+  // ImGui's) may have replaced set 0 in between.
+  const VkDescriptorSet set = m_device.bindlessSet();
+  m_dispatcher->vkCmdBindDescriptorSets(m_commandBuffer, m_bindPoint, m_device.pipelineLayout(), BindlessDescriptorSet,
+                                        1, &set, 0, nullptr);
+}
+
+void VulkanCommandList::pushDescriptors(std::span<const vk::WriteDescriptorSet> writes) {
+  if (writes.empty()) {
+    return;
+  }
+  m_dispatcher->vkCmdPushDescriptorSet(m_commandBuffer, m_bindPoint, m_device.pipelineLayout(), PassDescriptorSet,
+                                       static_cast<std::uint32_t>(writes.size()),
+                                       reinterpret_cast<const VkWriteDescriptorSet *>(writes.data()));
 }
 
 void VulkanCommandList::bindBuffers(std::span<const BufferBinding> bindings) {
@@ -145,12 +166,7 @@ void VulkanCommandList::bindBuffers(std::span<const BufferBinding> bindings) {
     writes[count] = vk::WriteDescriptorSet{{}, binding.binding, 0, 1, type, nullptr, &infos[count]};
     ++count;
   }
-  if (count == 0) {
-    return;
-  }
-  m_dispatcher->vkCmdPushDescriptorSet(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_device.pipelineLayout(),
-                                       PassDescriptorSet, count,
-                                       reinterpret_cast<const VkWriteDescriptorSet *>(writes.data()));
+  pushDescriptors({writes.data(), count});
 }
 
 void VulkanCommandList::bindImages(std::span<const ImageBinding> bindings) {
@@ -168,17 +184,12 @@ void VulkanCommandList::bindImages(std::span<const ImageBinding> bindings) {
     writes[count] = vk::WriteDescriptorSet{{}, binding.binding, 0, 1, vk::DescriptorType::eSampledImage, &infos[count]};
     ++count;
   }
-  if (count == 0) {
-    return;
-  }
-  m_dispatcher->vkCmdPushDescriptorSet(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_device.pipelineLayout(),
-                                       PassDescriptorSet, count,
-                                       reinterpret_cast<const VkWriteDescriptorSet *>(writes.data()));
+  pushDescriptors({writes.data(), count});
 }
 
 void VulkanCommandList::pushConstants(std::span<const std::byte> data) {
   SONNET_ASSERT(data.size() <= PushConstantSize && data.size() % 4 == 0, "push constants: {} bytes", data.size());
-  m_dispatcher->vkCmdPushConstants(m_commandBuffer, m_device.pipelineLayout(), VK_SHADER_STAGE_ALL_GRAPHICS, 0,
+  m_dispatcher->vkCmdPushConstants(m_commandBuffer, m_device.pipelineLayout(), VK_SHADER_STAGE_ALL, 0,
                                    static_cast<std::uint32_t>(data.size()), data.data());
 }
 
@@ -198,11 +209,16 @@ void VulkanCommandList::drawIndexed(std::uint32_t indexCount, std::uint32_t inst
   m_dispatcher->vkCmdDrawIndexed(m_commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
+void VulkanCommandList::dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) {
+  SONNET_ASSERT(m_bindPoint == VK_PIPELINE_BIND_POINT_COMPUTE, "dispatch without a compute pipeline");
+  m_dispatcher->vkCmdDispatch(m_commandBuffer, groupsX, groupsY, groupsZ);
+}
+
 void VulkanCommandList::copyImageToBuffer(ImageHandle image, BufferHandle buffer) {
   const VulkanImage *src = m_device.findImage(image);
   const VulkanBuffer *dst = m_device.findBuffer(buffer);
   SONNET_ASSERT(src != nullptr && dst != nullptr, "copyImageToBuffer with a stale handle");
-  SONNET_ASSERT(dst->desc.size >= std::uint64_t{src->desc.size.x} * src->desc.size.y * bytesPerPixel(src->desc.format),
+  SONNET_ASSERT(dst->desc.size >= levelByteSize(src->desc.format, src->desc.size),
                 "readback buffer \"{}\" is too small for \"{}\"", dst->desc.debugName, src->desc.debugName);
   const vk::BufferImageCopy region{0,
                                    0,

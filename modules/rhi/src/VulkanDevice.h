@@ -43,14 +43,25 @@ public:
   ImageHandle createImage(const ImageDesc &desc) override;
   void destroyImage(ImageHandle handle) override;
   const ImageDesc &imageDesc(ImageHandle handle) const override;
+  std::uint32_t sampledImageIndex(ImageHandle handle) const override;
+  std::uint32_t storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) override;
+
+  SamplerHandle createSampler(const SamplerDesc &desc) override;
+  void destroySampler(SamplerHandle handle) override;
+  std::uint32_t samplerIndex(SamplerHandle handle) const override;
+
+  void uploadBuffer(BufferHandle handle, std::uint64_t offset, std::span<const std::byte> data) override;
+  void uploadImage(ImageHandle handle, std::span<const ImageUpload> uploads) override;
 
   ShaderHandle createShader(const ShaderDesc &desc) override;
   void destroyShader(ShaderHandle handle) override;
   PipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc &desc) override;
+  PipelineHandle createComputePipeline(const ComputePipelineDesc &desc) override;
   void destroyPipeline(PipelineHandle handle) override;
 
   bool isValid(BufferHandle handle) const override;
   bool isValid(ImageHandle handle) const override;
+  bool isValid(SamplerHandle handle) const override;
   bool isValid(ShaderHandle handle) const override;
   bool isValid(PipelineHandle handle) const override;
 
@@ -94,6 +105,9 @@ public:
   vk::PipelineLayout pipelineLayout() const noexcept {
     return *m_pipelineLayout;
   }
+  vk::DescriptorSet bindlessSet() const noexcept {
+    return *m_bindlessSet;
+  }
   // Registers an image the device does not own (swapchain images); release with destroyImage.
   ImageHandle registerExternalImage(vk::Image image, const ImageDesc &desc);
   // The swapchain acquired an image this frame: wait on its semaphore, present it at endFrame.
@@ -113,9 +127,24 @@ public:
                       const vk::DebugUtilsMessengerCallbackDataEXT &data);
 
 private:
+  // Free-list allocator for one bindless array.
+  struct IndexAllocator {
+    explicit IndexAllocator(std::uint32_t size) : capacity(size) {
+    }
+    std::uint32_t capacity{0};
+    std::uint32_t next{0};
+    std::vector<std::uint32_t> free;
+
+    [[nodiscard]] std::uint32_t allocate(std::string_view what);
+    void release(std::uint32_t index);
+  };
+
   struct Frame {
     vk::raii::CommandPool commandPool{nullptr};
     vk::raii::CommandBuffer commandBuffer{nullptr};
+    // Uploads recorded for this slot run before the frame's commands, in the same submission.
+    vk::raii::CommandPool uploadPool{nullptr};
+    vk::raii::CommandBuffer uploadCommandBuffer{nullptr};
     vk::raii::Semaphore imageAvailable{nullptr};
     vk::raii::QueryPool queryPool{nullptr};
     std::uint64_t submittedValue{0};
@@ -124,6 +153,10 @@ private:
     BufferHandle transientBuffer;
     std::uint64_t transientOffset{0};
     bool transientExhausted{false};
+    BufferHandle stagingBuffer;
+    std::uint64_t stagingOffset{0};
+    bool uploadsRecorded{false};
+    bool prepared{false};            // waited for, garbage freed, pools reset: ready for this slot's use
     std::uint32_t timestampCount{0}; // highest index written plus one
     std::vector<std::uint64_t> timestampResults;
   };
@@ -134,11 +167,25 @@ private:
     vk::Semaphore imageAvailable;
   };
 
+  // A slice of staging memory for one upload: the slot's ring, or a dedicated buffer when the
+  // data does not fit, released with the slot.
+  struct Staging {
+    vk::Buffer buffer;
+    std::uint64_t offset{0};
+    std::byte *mapped{nullptr};
+  };
+
   void createInstance(const DeviceDesc &desc);
   void selectAndCreateDevice(const DeviceDesc &desc);
   void createAllocator();
   void createPipelineLayout();
+  void createBindlessSet();
   void createFrames();
+  void prepareSlot();
+  vk::CommandBuffer uploadCommands();
+  Staging stage(std::uint64_t size, std::string_view what);
+  void writeSampledDescriptor(std::uint32_t binding, std::uint32_t index, vk::ImageView view, vk::ImageLayout layout);
+  void writeSamplerDescriptor(std::uint32_t binding, std::uint32_t index, vk::Sampler sampler);
   void waitForFrame(Frame &frame);
   void readTimestamps(Frame &frame);
   void deferDestruction(std::function<void()> destroy);
@@ -159,10 +206,18 @@ private:
   vk::raii::DescriptorSetLayout m_bindlessLayout{nullptr};
   vk::raii::DescriptorSetLayout m_passLayout{nullptr};
   vk::raii::PipelineLayout m_pipelineLayout{nullptr};
+  vk::raii::DescriptorPool m_bindlessPool{nullptr};
+  vk::raii::DescriptorSet m_bindlessSet{nullptr};
+  IndexAllocator m_sampledIndices{MaxBindlessSampledImages};
+  IndexAllocator m_samplerIndices{MaxBindlessSamplers};
+  IndexAllocator m_storageIndices{MaxBindlessStorageImages};
+  IndexAllocator m_cubeIndices{MaxBindlessCubeImages};
+  IndexAllocator m_comparisonSamplerIndices{MaxBindlessComparisonSamplers};
   vk::raii::Semaphore m_timeline{nullptr};
   std::uint64_t m_timelineValue{0};
   std::uint64_t m_transientAlignment{256};
   float m_timestampPeriod{1.0f};
+  float m_maxAnisotropy{1.0f};
   std::array<Frame, FramesInFlight> m_frames;
   std::uint32_t m_frameIndex{0};
   bool m_recording{false};
@@ -171,6 +226,7 @@ private:
 
   core::HandlePool<VulkanBuffer, BufferTag> m_buffers;
   core::HandlePool<VulkanImage, ImageTag> m_images;
+  core::HandlePool<VulkanSampler, SamplerTag> m_samplers;
   core::HandlePool<VulkanShader, ShaderTag> m_shaders;
   core::HandlePool<VulkanPipeline, PipelineTag> m_pipelines;
 };
