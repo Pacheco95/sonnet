@@ -29,11 +29,17 @@ enum class Format : std::uint8_t {
   R8G8B8A8Srgb,
   B8G8R8A8Unorm,
   B8G8R8A8Srgb,
+  R32Uint, // entity ids for picking and the selection outline
   D32Sfloat,
 };
 
 [[nodiscard]] constexpr bool isDepthFormat(Format format) noexcept {
   return format == Format::D32Sfloat;
+}
+
+// Integer formats take their clear colour as integers, not normalised floats.
+[[nodiscard]] constexpr bool isUintFormat(Format format) noexcept {
+  return format == Format::R32Uint;
 }
 
 [[nodiscard]] constexpr std::uint32_t bytesPerPixel(Format format) noexcept {
@@ -44,6 +50,7 @@ enum class Format : std::uint8_t {
   case Format::R8G8B8A8Srgb:
   case Format::B8G8R8A8Unorm:
   case Format::B8G8R8A8Srgb:
+  case Format::R32Uint:
   case Format::D32Sfloat:
     return 4;
   }
@@ -189,6 +196,7 @@ struct ColorAttachment {
   ImageHandle image{};
   LoadOp load{LoadOp::Clear};
   StoreOp store{StoreOp::Store};
+  // Integer formats (isUintFormat) truncate each component to an integer clear value.
   glm::vec4 clearColor{0.0f, 0.0f, 0.0f, 1.0f};
 };
 
@@ -248,12 +256,19 @@ constexpr std::uint32_t PushConstantSize = 128;
 constexpr std::uint32_t PassDescriptorSet = 1;
 constexpr std::uint32_t PassUniformBinding = 0; // a uniform buffer
 constexpr std::uint32_t PassStorageBinding = 1; // a storage buffer
+constexpr std::uint32_t PassImageBinding = 2;   // a sampled image, read with Load (no sampler until M3)
 
 struct BufferBinding {
   std::uint32_t binding{PassUniformBinding};
   BufferHandle buffer{};
   std::uint64_t offset{0};
   std::uint64_t size{0}; // 0 binds to the end of the buffer
+};
+
+// A sampled-capable image in ImageLayout::ShaderReadOnly for the pass's fragment shader.
+struct ImageBinding {
+  std::uint32_t binding{PassImageBinding};
+  ImageHandle image{};
 };
 
 struct GraphicsPipelineDesc {

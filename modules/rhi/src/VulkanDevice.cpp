@@ -158,6 +158,8 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   VkPhysicalDeviceVulkan13Features features13{};
   features13.dynamicRendering = VK_TRUE;
   features13.synchronization2 = VK_TRUE;
+  // Slang lowers a fragment shader's discard to OpDemoteToHelperInvocation.
+  features13.shaderDemoteToHelperInvocation = VK_TRUE;
 
   VkPhysicalDeviceVulkan14Features features14{};
   features14.pushDescriptor = VK_TRUE;
@@ -220,13 +222,15 @@ void VulkanDevice::createAllocator() {
 
 void VulkanDevice::createPipelineLayout() {
   // Set 0 is the bindless set, empty until textures arrive in M3; set 1 takes the per-pass
-  // buffers as push descriptors (docs/rendering.md, "Frame structure").
+  // buffers and one sampled image as push descriptors (docs/rendering.md, "Frame structure").
   m_bindlessLayout = vk::raii::DescriptorSetLayout{m_device, vk::DescriptorSetLayoutCreateInfo{}};
   const std::array passBindings{
       vk::DescriptorSetLayoutBinding{PassUniformBinding, vk::DescriptorType::eUniformBuffer, 1,
                                      vk::ShaderStageFlagBits::eAllGraphics},
       vk::DescriptorSetLayoutBinding{PassStorageBinding, vk::DescriptorType::eStorageBuffer, 1,
                                      vk::ShaderStageFlagBits::eAllGraphics},
+      vk::DescriptorSetLayoutBinding{PassImageBinding, vk::DescriptorType::eSampledImage, 1,
+                                     vk::ShaderStageFlagBits::eFragment},
   };
   m_passLayout = vk::raii::DescriptorSetLayout{
       m_device,

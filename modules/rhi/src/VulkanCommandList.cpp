@@ -16,6 +16,17 @@ namespace {
 constexpr std::size_t MaxColorAttachments = 8;
 constexpr std::size_t MaxBarriers = 32;
 constexpr std::size_t MaxBufferBindings = 2;
+constexpr std::size_t MaxImageBindings = 1;
+
+// Integer attachments read the integer members of the clear union; float ones the float members.
+vk::ClearColorValue clearValueFor(Format format, const glm::vec4 &c) noexcept {
+  if (isUintFormat(format)) {
+    return vk::ClearColorValue{
+        std::array<std::uint32_t, 4>{static_cast<std::uint32_t>(c.r), static_cast<std::uint32_t>(c.g),
+                                     static_cast<std::uint32_t>(c.b), static_cast<std::uint32_t>(c.a)}};
+  }
+  return vk::ClearColorValue{c.r, c.g, c.b, c.a};
+}
 
 } // namespace
 
@@ -63,15 +74,15 @@ void VulkanCommandList::beginRendering(const RenderingDesc &desc) {
     if (i == 0) {
       extent = image->desc.size;
     }
-    const glm::vec4 &c = desc.colors[i].clearColor;
-    colors[i] = vk::RenderingAttachmentInfo{*image->view,
-                                            vk::ImageLayout::eColorAttachmentOptimal,
-                                            vk::ResolveModeFlagBits::eNone,
-                                            {},
-                                            vk::ImageLayout::eUndefined,
-                                            toVk(desc.colors[i].load),
-                                            toVk(desc.colors[i].store),
-                                            vk::ClearValue{vk::ClearColorValue{c.r, c.g, c.b, c.a}}};
+    colors[i] =
+        vk::RenderingAttachmentInfo{*image->view,
+                                    vk::ImageLayout::eColorAttachmentOptimal,
+                                    vk::ResolveModeFlagBits::eNone,
+                                    {},
+                                    vk::ImageLayout::eUndefined,
+                                    toVk(desc.colors[i].load),
+                                    toVk(desc.colors[i].store),
+                                    vk::ClearValue{clearValueFor(image->desc.format, desc.colors[i].clearColor)}};
   }
   vk::RenderingAttachmentInfo depth;
   if (desc.depth != nullptr) {
@@ -132,6 +143,29 @@ void VulkanCommandList::bindBuffers(std::span<const BufferBinding> bindings) {
     infos[count] =
         vk::DescriptorBufferInfo{*buffer->buffer, binding.offset, binding.size != 0 ? binding.size : vk::WholeSize};
     writes[count] = vk::WriteDescriptorSet{{}, binding.binding, 0, 1, type, nullptr, &infos[count]};
+    ++count;
+  }
+  if (count == 0) {
+    return;
+  }
+  m_dispatcher->vkCmdPushDescriptorSet(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_device.pipelineLayout(),
+                                       PassDescriptorSet, count,
+                                       reinterpret_cast<const VkWriteDescriptorSet *>(writes.data()));
+}
+
+void VulkanCommandList::bindImages(std::span<const ImageBinding> bindings) {
+  SONNET_ASSERT(bindings.size() <= MaxImageBindings, "{} image bindings in one call", bindings.size());
+  std::array<vk::DescriptorImageInfo, MaxImageBindings> infos;
+  std::array<vk::WriteDescriptorSet, MaxImageBindings> writes;
+  std::uint32_t count = 0;
+  for (const ImageBinding &binding : bindings) {
+    const VulkanImage *image = m_device.findImage(binding.image);
+    SONNET_ASSERT(image != nullptr, "binding a stale image handle {}:{}", binding.image.index,
+                  binding.image.generation);
+    SONNET_ASSERT(binding.binding == PassImageBinding, "binding {} is not an image binding of the pass set",
+                  binding.binding);
+    infos[count] = vk::DescriptorImageInfo{nullptr, *image->view, vk::ImageLayout::eShaderReadOnlyOptimal};
+    writes[count] = vk::WriteDescriptorSet{{}, binding.binding, 0, 1, vk::DescriptorType::eSampledImage, &infos[count]};
     ++count;
   }
   if (count == 0) {

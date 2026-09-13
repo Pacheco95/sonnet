@@ -57,12 +57,15 @@ TEST_CASE("null device records a readable trace per frame", "[rhi][null]") {
   const ColorAttachment attachment{.image = color};
   commands.beginRendering({.colors = {&attachment, 1}});
   commands.bindPipeline(pipeline);
+  const ImageBinding imageBinding{.binding = PassImageBinding, .image = color};
+  commands.bindImages({&imageBinding, 1});
   commands.draw(3);
   commands.endRendering();
   commands.writeTimestamp(1);
   REQUIRE(traceContains(*device, "barrier \"scene\" Undefined->ColorAttachment"));
   REQUIRE(traceContains(*device, "beginRendering color \"scene\" clear"));
   REQUIRE(traceContains(*device, "bindPipeline \"lit\""));
+  REQUIRE(traceContains(*device, "bindImage 2 \"scene\""));
   REQUIRE(traceContains(*device, "draw 3 x1"));
   device->endFrame();
 
