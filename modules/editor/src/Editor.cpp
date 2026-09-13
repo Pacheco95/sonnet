@@ -56,8 +56,11 @@ void Editor::update(float dt) {
   if (m_showViewport) {
     const bool wantsRelativeMouse =
         m_viewportPanel.draw(m_showViewport, dt, m_lookDelta, m_showOverlay ? &m_statisticsPanel : nullptr);
-    if (wantsRelativeMouse != m_window.relativeMouseMode()) {
-      m_window.setRelativeMouseMode(wantsRelativeMouse);
+    // Requested on change, not by comparing with the window's state: a platform that refuses the
+    // mode would otherwise be asked, and would warn, every frame.
+    if (wantsRelativeMouse != m_relativeMouseRequested) {
+      m_relativeMouseRequested = wantsRelativeMouse;
+      static_cast<void>(m_window.setRelativeMouseMode(wantsRelativeMouse));
     }
   }
   m_lookDelta = {0.0f, 0.0f};

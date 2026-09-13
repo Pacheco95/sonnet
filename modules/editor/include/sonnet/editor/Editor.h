@@ -64,6 +64,7 @@ private:
   renderer::SceneView m_view;
 
   glm::vec2 m_lookDelta{0.0f, 0.0f};
+  bool m_relativeMouseRequested{false};
   bool m_layoutBuilt{false};
   bool m_showViewport{true};
   bool m_showLog{true};

@@ -32,7 +32,8 @@ public:
   virtual void setTitle(std::string_view title) = 0;
   virtual void show() = 0;
   // Hides the cursor and reports mouse motion as deltas only, for fly-camera style control.
-  virtual void setRelativeMouseMode(bool enabled) = 0;
+  // False when the platform cannot (SDL's X11 driver without XInput2, the offscreen driver).
+  virtual bool setRelativeMouseMode(bool enabled) = 0;
   [[nodiscard]] virtual bool relativeMouseMode() const = 0;
 
   // The surface belongs to the caller, who destroys it with vkDestroySurfaceKHR before the window.

@@ -63,10 +63,12 @@ void SdlWindow::show() {
   SDL_ShowWindow(m_window);
 }
 
-void SdlWindow::setRelativeMouseMode(bool enabled) {
+bool SdlWindow::setRelativeMouseMode(bool enabled) {
   if (!SDL_SetWindowRelativeMouseMode(m_window, enabled)) {
     SONNET_LOG_WARN("SDL_SetWindowRelativeMouseMode failed: {}", SDL_GetError());
+    return false;
   }
+  return true;
 }
 
 bool SdlWindow::relativeMouseMode() const {
