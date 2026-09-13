@@ -38,6 +38,7 @@ public:
   BufferHandle createBuffer(const BufferDesc &desc) override;
   void destroyBuffer(BufferHandle handle) override;
   std::span<std::byte> mappedRange(BufferHandle handle) override;
+  std::uint64_t bufferAddress(BufferHandle handle) const override;
 
   ImageHandle createImage(const ImageDesc &desc) override;
   void destroyImage(ImageHandle handle) override;
@@ -57,11 +58,15 @@ public:
   void endFrame() override;
   void waitIdle() override;
 
+  TransientAllocation allocateTransient(std::uint64_t size) override;
+  std::span<const std::uint64_t> timestamps() const override;
+  MemoryBudget memoryBudget() const override;
+
   std::uint32_t validationMessageCount() const override {
     return m_validationMessages.load();
   }
 
-  // Internal API for the swapchain and command list.
+  // Internal API for the swapchain, the command list and the ui module's ImGui backend.
   const vk::raii::Instance &instance() const noexcept {
     return m_instance;
   }
@@ -73,6 +78,9 @@ public:
   }
   std::uint32_t graphicsFamily() const noexcept {
     return m_graphicsFamily;
+  }
+  const vk::raii::Queue &graphicsQueue() const noexcept {
+    return m_graphicsQueue;
   }
   const VulkanBuffer *findBuffer(BufferHandle handle) const noexcept {
     return m_buffers.find(handle);
@@ -94,6 +102,11 @@ public:
   vk::Semaphore currentImageAvailableSemaphore() const noexcept {
     return *m_frames[m_frameIndex].imageAvailable;
   }
+  // The recording frame's timestamp pool, or null when timestamps are unsupported.
+  vk::QueryPool currentQueryPool() const noexcept {
+    return m_info.timestampsSupported ? *m_frames[m_frameIndex].queryPool : vk::QueryPool{};
+  }
+  void noteTimestamp(std::uint32_t index) noexcept;
   void setDebugName(vk::ObjectType type, std::uint64_t handle, std::string_view name) const;
 
   void onDebugMessage(vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type,
@@ -104,9 +117,15 @@ private:
     vk::raii::CommandPool commandPool{nullptr};
     vk::raii::CommandBuffer commandBuffer{nullptr};
     vk::raii::Semaphore imageAvailable{nullptr};
+    vk::raii::QueryPool queryPool{nullptr};
     std::uint64_t submittedValue{0};
     // Resources released while this frame was recording; freed once the GPU is past it.
     std::vector<std::function<void()>> garbage;
+    BufferHandle transientBuffer;
+    std::uint64_t transientOffset{0};
+    bool transientExhausted{false};
+    std::uint32_t timestampCount{0}; // highest index written plus one
+    std::vector<std::uint64_t> timestampResults;
   };
 
   struct PendingPresent {
@@ -121,6 +140,7 @@ private:
   void createPipelineLayout();
   void createFrames();
   void waitForFrame(Frame &frame);
+  void readTimestamps(Frame &frame);
   void deferDestruction(std::function<void()> destroy);
   void reportLeaks();
 
@@ -136,9 +156,13 @@ private:
   std::uint32_t m_graphicsFamily{0};
   vk::raii::Queue m_graphicsQueue{nullptr};
   vma::UniqueAllocator m_allocator;
+  vk::raii::DescriptorSetLayout m_bindlessLayout{nullptr};
+  vk::raii::DescriptorSetLayout m_passLayout{nullptr};
   vk::raii::PipelineLayout m_pipelineLayout{nullptr};
   vk::raii::Semaphore m_timeline{nullptr};
   std::uint64_t m_timelineValue{0};
+  std::uint64_t m_transientAlignment{256};
+  float m_timestampPeriod{1.0f};
   std::array<Frame, FramesInFlight> m_frames;
   std::uint32_t m_frameIndex{0};
   bool m_recording{false};

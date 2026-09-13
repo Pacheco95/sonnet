@@ -40,9 +40,9 @@ vk-bootstrap selects the physical device and creates the instance, debug messeng
 
 All GPU memory goes through VMA. `rhi` exposes:
 
-- Device-local buffers and images with a staging ring for uploads.
-- Per-frame linear allocators for transient uniform and storage data.
-- Budget queries through `VK_EXT_memory_budget` for the resource overlay.
+- Device-local buffers and images with a staging ring for uploads (M3; until then mesh data lives in host-visible buffers).
+- Per-frame linear allocators for transient uniform and storage data: `IDevice::allocateTransient` hands out slices of one host-visible buffer per frame slot, aligned for both binding types, valid until the slot is reused.
+- Budget queries through `VK_EXT_memory_budget` for the resource overlay: `IDevice::memoryBudget` reports usage and budget per heap.
 - Leak detection: every allocation carries a debug name, and the device reports live allocations at shutdown in Debug builds.
 
 ## Shaders
@@ -58,24 +58,27 @@ Slang is the only shading language ([ADR-0005](decisions/0005-slang.md)). Engine
 
 Public headers under `sonnet/rhi/`: `Types.h` (handles, formats, usages, layouts, attachments), `Device.h` (`IDevice`, `DeviceDesc`, `createDevice`), `Swapchain.h` (`ISwapchain`) and `CommandList.h` (`ICommandList`). The Vulkan implementation lives in `src/` and is reached only through `createDevice`, the one `#if`-switched site.
 
-- `IDevice` creates buffers, images and swapchains, hands out generation-checked handles, and runs the frame: `beginFrame` waits for the slot's previous submission on the timeline semaphore, frees resources destroyed during that frame, resets the pool and starts recording; `endFrame` submits and presents every swapchain image acquired since. Destroying a resource is always deferred to the frame slot's next reuse, so a handle can be released in the frame that still draws with it.
-- `ISwapchain::acquire` returns the image for this frame or nothing when the window is minimised; it recreates the swapchain when acquire or present reported out of date, or after `requestResize`. Swapchain images are registered as ordinary image handles.
-- `ICommandList` records whole-image layout barriers, dynamic rendering with clear and store operations, pipeline binds, push constants, draws, and image-to-buffer copies for readback. Stages and accesses are derived from the layouts on both sides; the render graph replaces that derivation in M1.
-- Shaders are SPIR-V modules from `ShaderDesc`; a `GraphicsPipelineDesc` names the vertex and fragment entry points in one module, the colour formats it renders to and the cull mode. Every pipeline uses one shared layout with `PushConstantSize` bytes of push constants and, until the renderer arrives, no descriptor sets. Viewport and scissor are dynamic, front faces are counter-clockwise, and there is no vertex input state: vertices are pulled by index.
-- Validation messages are logged with their id and the debug names of the objects involved, and counted; `rhi_tests` fails when the count is non-zero. Loader messages go to `trace`.
+- `IDevice` creates buffers, images and swapchains, hands out generation-checked handles, and runs the frame: `beginFrame` waits for the slot's previous submission on the timeline semaphore, reads that submission's timestamps, frees the resources parked in the slot, resets the pool and the transient allocator and starts recording; `endFrame` submits and presents every swapchain image acquired since. Destroying a resource is always deferred: while recording it is parked in the current slot, between frames in the slot of the frame that was just submitted, so a handle can be released at any point of the frame that still draws with it.
+- Colour formats are 8-bit UNORM and sRGB; the one depth format is `D32Sfloat`, cleared to 0 for reversed-Z. `GraphicsPipelineDesc` names the colour and depth formats, the depth test (`GreaterOrEqual` by default) and the cull mode. Storage buffers get a device address (`bufferAddress`) for vertex pulling; index buffers bind with `bindIndexBuffer` and draw with `drawIndexed`.
+- `ISwapchain::acquire` returns the image for this frame or nothing when the window is minimised; it recreates the swapchain when acquire or present reported out of date, or after `requestResize`. Swapchain images are registered as ordinary image handles. The swapchain prefers a UNORM format: what reaches it is already display-encoded, by the scene's output pass and by Dear ImGui's vertex colours, so an sRGB view would encode twice.
+- `ICommandList` records whole-image barriers with explicit stages, accesses and layouts on both sides (`ImageBarrier`), dynamic rendering with colour and depth attachments, pipeline binds, the per-pass buffers as push descriptors (`bindBuffers`), push constants, draws, image-to-buffer copies for readback, and timestamps. The render graph derives the barriers from how passes use their images; only tests spell them out.
+- Every pipeline uses one shared layout: an empty set 0 reserved for the bindless arrays, set 1 with a uniform buffer at binding 0 and a storage buffer at binding 1 as push descriptors, and `PushConstantSize` bytes of push constants. Viewport and scissor are dynamic, front faces are counter-clockwise, and there is no vertex input state.
+- `writeTimestamp` records the GPU clock into one of `MaxTimestamps` slots per frame; `timestamps` returns, in nanoseconds, what the frame that last used the slot wrote, so results are `FramesInFlight` frames old and never stall.
+- Validation messages are logged with their id and the debug names of the objects involved, and counted; the tests of every module fail when the count is non-zero. Loader messages go to `trace`.
 - Host-visible buffers are persistently mapped; `mappedRange` exposes them.
+- `NullDevice` implements the same interface without a GPU: handles, descriptions, mapped memory, transient allocations and timestamp bookkeeping behave as on the Vulkan device, and recording produces a readable trace (`barrier "scene" ColorAttachment->ShaderReadOnly`, `drawIndexed 36 x1`) that the tests of the modules above assert on.
 
-Not there yet, in milestone order: depth images, samplers, descriptor sets and the bindless layout, the null implementation for upper-module tests (M1, with the render graph as first consumer), uploads through a staging ring (M3).
+Not there yet, in milestone order: samplers and the bindless set 0 (M3, with textures), uploads through a staging ring (M3), pass merging and transient aliasing in the graph.
 
 ## Frame structure
 
-Two frames in flight. Each frame owns a command pool, a timeline semaphore value, a descriptor allocator that is reset per frame, and a transient allocator. The swapchain uses mailbox where available and FIFO otherwise.
+Two frames in flight. Each frame owns a command pool, a timeline semaphore value, a timestamp query pool and a transient allocator; the descriptor allocator joins with the bindless set. The swapchain uses mailbox where available and FIFO otherwise.
 
 Descriptor layout:
 
-- Set 0, bound once per frame: the bindless arrays (sampled images, storage images, storage buffers, samplers) and the per-frame constants.
-- Set 1, push descriptors: per-pass buffers.
-- Push constants: per-draw indices into the bindless arrays and the draw's transform index.
+- Set 0, bound once per frame: the bindless arrays (sampled images, storage images, storage buffers, samplers) and the per-frame constants. Empty until M3.
+- Set 1, push descriptors: per-pass buffers. Today the frame constants at binding 0 and the object array at binding 1.
+- Push constants: per-draw indices into the bindless arrays and the draw's transform index. Today the mesh's vertex buffer address and the object index.
 
 Per-object data lives in storage buffers addressed by index, so the draw loop is `bind pipeline, push constants, draw` and is ready for indirect submission.
 
@@ -106,8 +109,8 @@ ImGui uses its SDL3 and Vulkan backends, initialised in dynamic-rendering mode, 
 
 ## Testing
 
-- `rhi` interfaces have a null implementation used by unit tests of `renderer`, `assets` and `world`, so those modules are tested without a GPU.
-- The Vulkan implementation is tested on Lavapipe in CI: device creation, resource lifetime, a triangle drawn into an offscreen image and read back, and later golden-image comparisons of sample scenes with a tolerance. Swapchain tests use SDL's offscreen video driver and `VK_EXT_headless_surface`, which Lavapipe supports; on drivers without headless surfaces those tests skip. Loaders before 1.4 emulate that extension for every driver and some drivers crash inside the surface queries, so on such loaders the tests run only on Lavapipe; `DeviceInfo` reports loader version and driver name for this. The test shader is compiled by the same `sonnet_add_shaders` rule the applications use.
+- `rhi` interfaces have a null implementation used by unit tests of `renderer`, `assets` and `world`, so those modules are tested without a GPU. `renderer_tests` checks the graph's barriers, pooling and timings and the renderer's draw recording against the null device's trace.
+- The Vulkan implementation is tested on Lavapipe in CI: device creation, resource lifetime including deferred destruction, a triangle drawn into an offscreen image and read back, vertex pulling with the per-pass buffers and the reversed-Z depth test, timestamps and the transient allocator, and later golden-image comparisons of sample scenes with a tolerance. `renderer_tests`, `ui_tests` and `editor_tests` each also run one GPU case on Lavapipe: a lit box read back from the viewport target, ImGui frames drawn into a headless swapchain, and whole editor frames. Swapchain tests use SDL's offscreen video driver and `VK_EXT_headless_surface`, which Lavapipe supports; on drivers without headless surfaces those tests skip. Loaders before 1.4 emulate that extension for every driver and some drivers crash inside the surface queries, so on such loaders the tests run only on Lavapipe; `DeviceInfo` reports loader version and driver name for this. The test shader is compiled by the same `sonnet_add_shaders` rule the applications use.
 - Validation-layer messages fail tests when they occur: `IDevice::validationMessageCount` is checked by the test fixture.
 
 ## See also

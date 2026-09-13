@@ -14,12 +14,10 @@ namespace sonnet::rhi {
 [[nodiscard]] vk::ImageLayout toVk(ImageLayout layout) noexcept;
 [[nodiscard]] vk::AttachmentLoadOp toVk(LoadOp op) noexcept;
 [[nodiscard]] vk::AttachmentStoreOp toVk(StoreOp op) noexcept;
-
-struct LayoutSync {
-  vk::PipelineStageFlags2 stage;
-  vk::AccessFlags2 access;
-};
-// The stages and accesses a layout implies as the source or destination of a barrier.
-[[nodiscard]] LayoutSync syncFor(ImageLayout layout, bool asSource) noexcept;
+[[nodiscard]] vk::PipelineStageFlags2 toVk(PipelineStage stage) noexcept;
+[[nodiscard]] vk::AccessFlags2 toVk(Access access) noexcept;
+[[nodiscard]] vk::CompareOp toVk(CompareOp op) noexcept;
+[[nodiscard]] vk::IndexType toVk(IndexType type) noexcept;
+[[nodiscard]] vk::ImageAspectFlags aspectOf(Format format) noexcept;
 
 } // namespace sonnet::rhi

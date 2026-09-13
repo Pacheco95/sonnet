@@ -17,7 +17,7 @@ Fundamental types every other module uses. `core` depends on GLM, spdlog and Tra
 
 ## Handles
 
-A handle is a value type components store and owners resolve ([architecture.md](architecture.md#resource-handles)). `HandlePool` is the reference owner: `emplace` returns a handle, `remove` returns the removed object so the caller decides when it is destroyed (for GPU objects, after the device is idle), and a handle whose slot was reused never resolves again because the generation moved on. `get` asserts on a stale handle; `find` returns null instead for callers that expect staleness.
+A handle is a value type components store and owners resolve ([architecture.md](architecture.md#resource-handles)). `HandlePool` is the reference owner: `emplace` returns a handle, `remove` returns the removed object so the caller decides when it is destroyed (for GPU objects, after the device is idle), and a handle whose slot was reused never resolves again because the generation moved on. `get` asserts on a stale handle; `find` returns null instead for callers that expect staleness. `forEach` visits the live objects, for leak reports and statistics.
 
 ## Logging
 

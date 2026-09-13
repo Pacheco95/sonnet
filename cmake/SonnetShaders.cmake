@@ -2,8 +2,9 @@
 #
 # Compiles each .slang file with slangc at build time into <target's output directory>/shaders/
 # <name>.spv, one SPIR-V 1.6 module per file holding every [shader("...")] entry point under its
-# own name (-fvk-use-entrypoint-name). Release builds therefore carry no shader compiler. The
-# depfile makes edits to imported modules rebuild their users.
+# own name (-fvk-use-entrypoint-name). Buffers use scalar block layout so structs are shared with
+# C++ unchanged (docs/rendering.md, "Vulkan baseline"). Release builds therefore carry no shader
+# compiler. The depfile makes edits to imported modules rebuild their users.
 find_package(slang CONFIG REQUIRED)
 
 function(sonnet_add_shaders TARGET)
@@ -21,8 +22,9 @@ function(sonnet_add_shaders TARGET)
       OUTPUT "${rule_output}"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:${TARGET}>/shaders"
       COMMAND "${SLANGC_EXECUTABLE}" "${absolute}"
-              -target spirv -profile spirv_1_6 -fvk-use-entrypoint-name -matrix-layout-column-major
-              -I "${source_dir}"
+              -target spirv -profile spirv_1_6 -fvk-use-entrypoint-name -fvk-use-scalar-layout
+              -matrix-layout-column-major
+              -I "${source_dir}" -I "${SONNET_ENGINE_SHADER_DIR}"
               $<IF:$<CONFIG:Debug>,-g2,-O2>
               -depfile "${rule_output}.d"
               -o "${rule_output}"

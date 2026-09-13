@@ -9,6 +9,16 @@
 
 namespace sonnet::rhi {
 
+namespace {
+
+// Eight is the Vulkan minimum for maxColorAttachments; the engine never exceeds it. Barriers
+// and buffer bindings are bounded by what one pass declares.
+constexpr std::size_t MaxColorAttachments = 8;
+constexpr std::size_t MaxBarriers = 32;
+constexpr std::size_t MaxBufferBindings = 2;
+
+} // namespace
+
 void VulkanCommandList::begin(const vk::raii::CommandBuffer &commandBuffer) {
   m_commandBuffer = *commandBuffer;
   m_dispatcher = commandBuffer.getDispatcher();
@@ -20,49 +30,73 @@ void VulkanCommandList::end() {
   m_dispatcher->vkEndCommandBuffer(m_commandBuffer);
 }
 
-void VulkanCommandList::barrier(ImageHandle image, ImageLayout from, ImageLayout to) {
-  const VulkanImage *resource = m_device.findImage(image);
-  SONNET_ASSERT(resource != nullptr, "barrier on a stale image handle {}:{}", image.index, image.generation);
-  const LayoutSync src = syncFor(from, true);
-  const LayoutSync dst = syncFor(to, false);
-  const vk::ImageMemoryBarrier2 barrier{src.stage,
-                                        src.access,
-                                        dst.stage,
-                                        dst.access,
-                                        toVk(from),
-                                        toVk(to),
-                                        vk::QueueFamilyIgnored,
-                                        vk::QueueFamilyIgnored,
-                                        resource->image,
-                                        vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
-  const vk::DependencyInfo dependency{{}, {}, {}, barrier};
+void VulkanCommandList::barrier(std::span<const ImageBarrier> barriers) {
+  SONNET_ASSERT(barriers.size() <= MaxBarriers, "{} barriers in one call", barriers.size());
+  std::array<vk::ImageMemoryBarrier2, MaxBarriers> vkBarriers;
+  std::uint32_t count = 0;
+  for (const ImageBarrier &barrier : barriers) {
+    const VulkanImage *resource = m_device.findImage(barrier.image);
+    SONNET_ASSERT(resource != nullptr, "barrier on a stale image handle {}:{}", barrier.image.index,
+                  barrier.image.generation);
+    vkBarriers[count++] = vk::ImageMemoryBarrier2{
+        toVk(barrier.srcStage),  toVk(barrier.srcAccess),
+        toVk(barrier.dstStage),  toVk(barrier.dstAccess),
+        toVk(barrier.oldLayout), toVk(barrier.newLayout),
+        vk::QueueFamilyIgnored,  vk::QueueFamilyIgnored,
+        resource->image,         vk::ImageSubresourceRange{aspectOf(resource->desc.format), 0, 1, 0, 1}};
+  }
+  if (count == 0) {
+    return;
+  }
+  const vk::DependencyInfo dependency{{}, 0, nullptr, 0, nullptr, count, vkBarriers.data()};
   m_dispatcher->vkCmdPipelineBarrier2(m_commandBuffer, reinterpret_cast<const VkDependencyInfo *>(&dependency));
 }
 
-void VulkanCommandList::beginRendering(std::span<const ColorAttachment> colors) {
-  SONNET_ASSERT(!colors.empty(), "beginRendering needs at least one colour attachment");
-  // Eight is the Vulkan minimum for maxColorAttachments; the engine never exceeds it.
-  std::array<vk::RenderingAttachmentInfo, 8> attachments;
-  SONNET_ASSERT(colors.size() <= attachments.size(), "too many colour attachments");
+void VulkanCommandList::beginRendering(const RenderingDesc &desc) {
+  SONNET_ASSERT(!desc.colors.empty() || desc.depth != nullptr, "beginRendering needs an attachment");
+  SONNET_ASSERT(desc.colors.size() <= MaxColorAttachments, "too many colour attachments");
+  std::array<vk::RenderingAttachmentInfo, MaxColorAttachments> colors;
   glm::uvec2 extent{0, 0};
-  for (std::size_t i = 0; i < colors.size(); ++i) {
-    const VulkanImage *image = m_device.findImage(colors[i].image);
+  for (std::size_t i = 0; i < desc.colors.size(); ++i) {
+    const VulkanImage *image = m_device.findImage(desc.colors[i].image);
     SONNET_ASSERT(image != nullptr, "rendering to a stale image handle");
     if (i == 0) {
       extent = image->desc.size;
     }
-    const glm::vec4 &c = colors[i].clearColor;
-    attachments[i] = vk::RenderingAttachmentInfo{*image->view,
-                                                 vk::ImageLayout::eColorAttachmentOptimal,
-                                                 vk::ResolveModeFlagBits::eNone,
-                                                 {},
-                                                 vk::ImageLayout::eUndefined,
-                                                 toVk(colors[i].load),
-                                                 toVk(colors[i].store),
-                                                 vk::ClearValue{vk::ClearColorValue{c.r, c.g, c.b, c.a}}};
+    const glm::vec4 &c = desc.colors[i].clearColor;
+    colors[i] = vk::RenderingAttachmentInfo{*image->view,
+                                            vk::ImageLayout::eColorAttachmentOptimal,
+                                            vk::ResolveModeFlagBits::eNone,
+                                            {},
+                                            vk::ImageLayout::eUndefined,
+                                            toVk(desc.colors[i].load),
+                                            toVk(desc.colors[i].store),
+                                            vk::ClearValue{vk::ClearColorValue{c.r, c.g, c.b, c.a}}};
+  }
+  vk::RenderingAttachmentInfo depth;
+  if (desc.depth != nullptr) {
+    const VulkanImage *image = m_device.findImage(desc.depth->image);
+    SONNET_ASSERT(image != nullptr, "rendering to a stale depth image handle");
+    if (desc.colors.empty()) {
+      extent = image->desc.size;
+    }
+    depth = vk::RenderingAttachmentInfo{*image->view,
+                                        vk::ImageLayout::eDepthAttachmentOptimal,
+                                        vk::ResolveModeFlagBits::eNone,
+                                        {},
+                                        vk::ImageLayout::eUndefined,
+                                        toVk(desc.depth->load),
+                                        toVk(desc.depth->store),
+                                        vk::ClearValue{vk::ClearDepthStencilValue{desc.depth->clearDepth, 0}}};
   }
   const vk::Rect2D area{{0, 0}, {extent.x, extent.y}};
-  const vk::RenderingInfo info{{}, area, 1, 0, static_cast<std::uint32_t>(colors.size()), attachments.data()};
+  const vk::RenderingInfo info{{},
+                               area,
+                               1,
+                               0,
+                               static_cast<std::uint32_t>(desc.colors.size()),
+                               colors.data(),
+                               desc.depth != nullptr ? &depth : nullptr};
   m_dispatcher->vkCmdBeginRendering(m_commandBuffer, reinterpret_cast<const VkRenderingInfo *>(&info));
 
   // Negative height flips clip-space Y so front faces stay counter-clockwise (docs/rendering.md).
@@ -82,15 +116,52 @@ void VulkanCommandList::bindPipeline(PipelineHandle pipeline) {
   m_dispatcher->vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *resource->pipeline);
 }
 
+void VulkanCommandList::bindBuffers(std::span<const BufferBinding> bindings) {
+  SONNET_ASSERT(bindings.size() <= MaxBufferBindings, "{} buffer bindings in one call", bindings.size());
+  std::array<vk::DescriptorBufferInfo, MaxBufferBindings> infos;
+  std::array<vk::WriteDescriptorSet, MaxBufferBindings> writes;
+  std::uint32_t count = 0;
+  for (const BufferBinding &binding : bindings) {
+    const VulkanBuffer *buffer = m_device.findBuffer(binding.buffer);
+    SONNET_ASSERT(buffer != nullptr, "binding a stale buffer handle {}:{}", binding.buffer.index,
+                  binding.buffer.generation);
+    SONNET_ASSERT(binding.binding == PassUniformBinding || binding.binding == PassStorageBinding,
+                  "binding {} is not in the pass set layout", binding.binding);
+    const vk::DescriptorType type =
+        binding.binding == PassUniformBinding ? vk::DescriptorType::eUniformBuffer : vk::DescriptorType::eStorageBuffer;
+    infos[count] =
+        vk::DescriptorBufferInfo{*buffer->buffer, binding.offset, binding.size != 0 ? binding.size : vk::WholeSize};
+    writes[count] = vk::WriteDescriptorSet{{}, binding.binding, 0, 1, type, nullptr, &infos[count]};
+    ++count;
+  }
+  if (count == 0) {
+    return;
+  }
+  m_dispatcher->vkCmdPushDescriptorSet(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_device.pipelineLayout(),
+                                       PassDescriptorSet, count,
+                                       reinterpret_cast<const VkWriteDescriptorSet *>(writes.data()));
+}
+
 void VulkanCommandList::pushConstants(std::span<const std::byte> data) {
   SONNET_ASSERT(data.size() <= PushConstantSize && data.size() % 4 == 0, "push constants: {} bytes", data.size());
   m_dispatcher->vkCmdPushConstants(m_commandBuffer, m_device.pipelineLayout(), VK_SHADER_STAGE_ALL_GRAPHICS, 0,
                                    static_cast<std::uint32_t>(data.size()), data.data());
 }
 
+void VulkanCommandList::bindIndexBuffer(BufferHandle buffer, IndexType type) {
+  const VulkanBuffer *resource = m_device.findBuffer(buffer);
+  SONNET_ASSERT(resource != nullptr, "binding a stale index buffer handle {}:{}", buffer.index, buffer.generation);
+  m_dispatcher->vkCmdBindIndexBuffer(m_commandBuffer, *resource->buffer, 0, static_cast<VkIndexType>(toVk(type)));
+}
+
 void VulkanCommandList::draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex,
                              std::uint32_t firstInstance) {
   m_dispatcher->vkCmdDraw(m_commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+}
+
+void VulkanCommandList::drawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex,
+                                    std::int32_t vertexOffset, std::uint32_t firstInstance) {
+  m_dispatcher->vkCmdDrawIndexed(m_commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
 void VulkanCommandList::copyImageToBuffer(ImageHandle image, BufferHandle buffer) {
@@ -102,11 +173,21 @@ void VulkanCommandList::copyImageToBuffer(ImageHandle image, BufferHandle buffer
   const vk::BufferImageCopy region{0,
                                    0,
                                    0,
-                                   vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+                                   vk::ImageSubresourceLayers{aspectOf(src->desc.format), 0, 0, 1},
                                    vk::Offset3D{0, 0, 0},
                                    vk::Extent3D{src->desc.size.x, src->desc.size.y, 1}};
   m_dispatcher->vkCmdCopyImageToBuffer(m_commandBuffer, src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *dst->buffer,
                                        1, reinterpret_cast<const VkBufferImageCopy *>(&region));
+}
+
+void VulkanCommandList::writeTimestamp(std::uint32_t index) {
+  SONNET_ASSERT(index < MaxTimestamps, "timestamp index {} out of range", index);
+  const vk::QueryPool pool = m_device.currentQueryPool();
+  if (pool == nullptr) {
+    return;
+  }
+  m_device.noteTimestamp(index);
+  m_dispatcher->vkCmdWriteTimestamp2(m_commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, pool, index);
 }
 
 } // namespace sonnet::rhi

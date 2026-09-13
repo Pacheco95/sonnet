@@ -38,10 +38,12 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
   vkb::SwapchainBuilder builder{static_cast<VkPhysicalDevice>(*m_device.physicalDevice()),
                                 static_cast<VkDevice>(*m_device.device()), static_cast<VkSurfaceKHR>(*m_surface),
                                 m_device.graphicsFamily(), m_device.graphicsFamily()};
-  builder.set_desired_format({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-      .add_fallback_format({VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-      .add_fallback_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+  // UNORM: what reaches the swapchain is already display-encoded, by the scene's output pass and
+  // by Dear ImGui's vertex colours, so an sRGB view would encode it twice (docs/rendering.md).
+  builder.set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
       .add_fallback_format({VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+      .add_fallback_format({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+      .add_fallback_format({VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
       .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
       .add_fallback_present_mode(VK_PRESENT_MODE_FIFO_KHR)
       .set_desired_extent(size.x, size.y)

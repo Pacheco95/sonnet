@@ -77,6 +77,13 @@ public:
       }
     }
   }
+  template <typename Fn> void forEach(Fn &&fn) const {
+    for (std::uint32_t i = 0; i < m_slots.size(); ++i) {
+      if (m_slots[i].value) {
+        fn(HandleType{i, m_slots[i].generation}, *m_slots[i].value);
+      }
+    }
+  }
 
   [[nodiscard]] std::size_t size() const noexcept {
     return m_liveCount;

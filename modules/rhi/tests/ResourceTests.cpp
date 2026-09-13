@@ -54,7 +54,7 @@ TEST_CASE("images are created and destroyed, deferred across frames", "[rhi][res
   REQUIRE(device->imageDesc(image).size == glm::uvec2{64, 32});
 
   ICommandList &commands = device->beginFrame();
-  commands.barrier(image, ImageLayout::Undefined, ImageLayout::ColorAttachment);
+  test::transition(commands, test::toColorAttachment(image));
   device->destroyImage(image); // still referenced by this frame's commands: released later
   REQUIRE(!device->isValid(image));
   device->endFrame();
@@ -77,11 +77,11 @@ TEST_CASE("clearing an image and reading it back yields the clear colour", "[rhi
       {.size = byteCount, .usage = BufferUsage::TransferDst, .memory = MemoryUsage::GpuToCpu, .debugName = "readback"});
 
   ICommandList &commands = device->beginFrame();
-  commands.barrier(image, ImageLayout::Undefined, ImageLayout::ColorAttachment);
+  test::transition(commands, test::toColorAttachment(image));
   const ColorAttachment attachment{.image = image, .clearColor = {1.0f, 0.2f, 0.0f, 1.0f}};
-  commands.beginRendering({&attachment, 1});
+  commands.beginRendering({.colors = {&attachment, 1}});
   commands.endRendering();
-  commands.barrier(image, ImageLayout::ColorAttachment, ImageLayout::TransferSrc);
+  test::transition(commands, test::colorToTransferSrc(image));
   commands.copyImageToBuffer(image, readback);
   device->endFrame();
   device->waitIdle();

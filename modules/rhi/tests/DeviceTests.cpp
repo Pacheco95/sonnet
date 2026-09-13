@@ -34,3 +34,16 @@ TEST_CASE("two devices can coexist in one process", "[rhi][device]") {
   const auto second = createDevice({.platform = &platform, .applicationName = "rhi_tests_second"});
   REQUIRE(second->info().deviceName == first->info().deviceName);
 }
+
+TEST_CASE("memory budget lists the device heaps", "[rhi][device]") {
+  test::TestDevice device;
+  const MemoryBudget budget = device->memoryBudget();
+  REQUIRE(budget.heapCount > 0);
+  REQUIRE(budget.heapCount <= MemoryBudget::MaxHeaps);
+  bool deviceLocal = false;
+  for (std::uint32_t i = 0; i < budget.heapCount; ++i) {
+    REQUIRE(budget.heaps[i].budget > 0);
+    deviceLocal = deviceLocal || budget.heaps[i].deviceLocal;
+  }
+  REQUIRE(deviceLocal);
+}

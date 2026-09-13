@@ -53,4 +53,46 @@ struct TestDevice {
   }
 };
 
+// The transitions the tests spell out; the render graph derives the same ones from pass usage.
+inline ImageBarrier toColorAttachment(ImageHandle image) {
+  return {.image = image,
+          .srcStage = PipelineStage::AllCommands,
+          .srcAccess = Access::None,
+          .oldLayout = ImageLayout::Undefined,
+          .dstStage = PipelineStage::ColorAttachmentOutput,
+          .dstAccess = Access::ColorAttachmentWrite,
+          .newLayout = ImageLayout::ColorAttachment};
+}
+inline ImageBarrier toDepthAttachment(ImageHandle image) {
+  return {.image = image,
+          .srcStage = PipelineStage::AllCommands,
+          .srcAccess = Access::None,
+          .oldLayout = ImageLayout::Undefined,
+          .dstStage = PipelineStage::EarlyFragmentTests | PipelineStage::LateFragmentTests,
+          .dstAccess = Access::DepthAttachmentRead | Access::DepthAttachmentWrite,
+          .newLayout = ImageLayout::DepthAttachment};
+}
+inline ImageBarrier colorToTransferSrc(ImageHandle image) {
+  return {.image = image,
+          .srcStage = PipelineStage::ColorAttachmentOutput,
+          .srcAccess = Access::ColorAttachmentWrite,
+          .oldLayout = ImageLayout::ColorAttachment,
+          .dstStage = PipelineStage::Transfer,
+          .dstAccess = Access::TransferRead,
+          .newLayout = ImageLayout::TransferSrc};
+}
+inline ImageBarrier toPresent(ImageHandle image, ImageLayout from) {
+  return {.image = image,
+          .srcStage =
+              from == ImageLayout::Undefined ? PipelineStage::AllCommands : PipelineStage::ColorAttachmentOutput,
+          .srcAccess = from == ImageLayout::Undefined ? Access::None : Access::ColorAttachmentWrite,
+          .oldLayout = from,
+          .dstStage = PipelineStage::AllCommands,
+          .dstAccess = Access::None,
+          .newLayout = ImageLayout::Present};
+}
+inline void transition(ICommandList &commands, const ImageBarrier &barrier) {
+  commands.barrier({&barrier, 1});
+}
+
 } // namespace sonnet::rhi::test

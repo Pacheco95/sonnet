@@ -75,15 +75,15 @@ TEST_CASE("a triangle drawn through the rhi covers the centre and not the corner
       {.size = byteCount, .usage = BufferUsage::TransferDst, .memory = MemoryUsage::GpuToCpu, .debugName = "readback"});
 
   ICommandList &commands = device->beginFrame();
-  commands.barrier(target, ImageLayout::Undefined, ImageLayout::ColorAttachment);
+  test::transition(commands, test::toColorAttachment(target));
   const ColorAttachment attachment{.image = target, .clearColor = {0.0f, 0.0f, 0.0f, 1.0f}};
-  commands.beginRendering({&attachment, 1});
+  commands.beginRendering({.colors = {&attachment, 1}});
   commands.bindPipeline(pipeline);
   const glm::vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
   commands.pushConstants(std::as_bytes(std::span{&tint, 1}));
   commands.draw(3);
   commands.endRendering();
-  commands.barrier(target, ImageLayout::ColorAttachment, ImageLayout::TransferSrc);
+  test::transition(commands, test::colorToTransferSrc(target));
   commands.copyImageToBuffer(target, readback);
   device->endFrame();
   device->waitIdle();
@@ -131,15 +131,15 @@ TEST_CASE("the tint push constant scales the triangle colour", "[rhi][pipeline][
       {.size = byteCount, .usage = BufferUsage::TransferDst, .memory = MemoryUsage::GpuToCpu, .debugName = "readback"});
 
   ICommandList &commands = device->beginFrame();
-  commands.barrier(target, ImageLayout::Undefined, ImageLayout::ColorAttachment);
+  test::transition(commands, test::toColorAttachment(target));
   const ColorAttachment attachment{.image = target, .clearColor = {0.0f, 0.0f, 0.0f, 1.0f}};
-  commands.beginRendering({&attachment, 1});
+  commands.beginRendering({.colors = {&attachment, 1}});
   commands.bindPipeline(pipeline);
   const glm::vec4 tint{0.0f, 0.0f, 0.0f, 1.0f};
   commands.pushConstants(std::as_bytes(std::span{&tint, 1}));
   commands.draw(3);
   commands.endRendering();
-  commands.barrier(target, ImageLayout::ColorAttachment, ImageLayout::TransferSrc);
+  test::transition(commands, test::colorToTransferSrc(target));
   commands.copyImageToBuffer(target, readback);
   device->endFrame();
   device->waitIdle();

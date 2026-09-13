@@ -46,9 +46,15 @@ public:
   platform::AppResult iterate() override {
     rhi::ICommandList &commands = m_device->beginFrame();
     if (const auto image = m_swapchain->acquire()) {
-      commands.barrier(image->image, rhi::ImageLayout::Undefined, rhi::ImageLayout::ColorAttachment);
+      const rhi::ImageBarrier toColor{.image = image->image,
+                                      .srcStage = rhi::PipelineStage::AllCommands,
+                                      .oldLayout = rhi::ImageLayout::Undefined,
+                                      .dstStage = rhi::PipelineStage::ColorAttachmentOutput,
+                                      .dstAccess = rhi::Access::ColorAttachmentWrite,
+                                      .newLayout = rhi::ImageLayout::ColorAttachment};
+      commands.barrier({&toColor, 1});
       const rhi::ColorAttachment attachment{.image = image->image, .clearColor = {0.1f, 0.1f, 0.12f, 1.0f}};
-      commands.beginRendering({&attachment, 1});
+      commands.beginRendering({.colors = {&attachment, 1}});
       commands.bindPipeline(m_pipeline);
       const float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_start).count();
       const float pulse = 0.75f + 0.25f * std::sin(seconds * 2.0f);
@@ -56,7 +62,13 @@ public:
       commands.pushConstants(std::as_bytes(std::span{&tint, 1}));
       commands.draw(3);
       commands.endRendering();
-      commands.barrier(image->image, rhi::ImageLayout::ColorAttachment, rhi::ImageLayout::Present);
+      const rhi::ImageBarrier toPresent{.image = image->image,
+                                        .srcStage = rhi::PipelineStage::ColorAttachmentOutput,
+                                        .srcAccess = rhi::Access::ColorAttachmentWrite,
+                                        .oldLayout = rhi::ImageLayout::ColorAttachment,
+                                        .dstStage = rhi::PipelineStage::None,
+                                        .newLayout = rhi::ImageLayout::Present};
+      commands.barrier({&toPresent, 1});
     }
     m_device->endFrame();
     return platform::AppResult::Continue;

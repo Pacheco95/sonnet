@@ -29,6 +29,7 @@ struct DeviceInfo {
   std::uint32_t apiVersion{0};    // packed Vulkan version of the device
   std::uint32_t loaderVersion{0}; // packed Vulkan version of the loader in the process
   bool validationEnabled{false};
+  bool timestampsSupported{false};
 };
 
 constexpr std::uint32_t FramesInFlight = 2;
@@ -48,6 +49,8 @@ public:
   virtual void destroyBuffer(BufferHandle handle) = 0;
   // Persistently mapped range of a CpuToGpu or GpuToCpu buffer; empty for GpuOnly.
   [[nodiscard]] virtual std::span<std::byte> mappedRange(BufferHandle handle) = 0;
+  // Device address of a Storage buffer, for vertex pulling through push constants; 0 otherwise.
+  [[nodiscard]] virtual std::uint64_t bufferAddress(BufferHandle handle) const = 0;
 
   [[nodiscard]] virtual ImageHandle createImage(const ImageDesc &desc) = 0;
   virtual void destroyImage(ImageHandle handle) = 0;
@@ -72,6 +75,18 @@ public:
   // Submits the frame and presents every swapchain image acquired since beginFrame.
   virtual void endFrame() = 0;
   virtual void waitIdle() = 0;
+
+  // Between beginFrame and endFrame: a slice of the frame's host-visible linear allocator, aligned
+  // for uniform and storage binding, valid until the slot is reused. An exhausted allocator logs
+  // an error and returns an empty span; the caller skips the work.
+  [[nodiscard]] virtual TransientAllocation allocateTransient(std::uint64_t size) = 0;
+
+  // Between beginFrame and endFrame: the timestamps written by the frame that last used this
+  // slot, FramesInFlight frames ago, in nanoseconds. Slots never written read as zero; empty when
+  // the previous frame in the slot wrote none or timestamps are unsupported.
+  [[nodiscard]] virtual std::span<const std::uint64_t> timestamps() const = 0;
+
+  [[nodiscard]] virtual MemoryBudget memoryBudget() const = 0;
 
   // Validation errors and warnings seen since creation. Tests require zero.
   [[nodiscard]] virtual std::uint32_t validationMessageCount() const = 0;

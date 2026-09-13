@@ -14,6 +14,8 @@ vk::Format toVk(Format format) noexcept {
     return vk::Format::eB8G8R8A8Unorm;
   case Format::B8G8R8A8Srgb:
     return vk::Format::eB8G8R8A8Srgb;
+  case Format::D32Sfloat:
+    return vk::Format::eD32Sfloat;
   }
   return vk::Format::eUndefined;
 }
@@ -28,6 +30,8 @@ Format fromVk(vk::Format format) noexcept {
     return Format::B8G8R8A8Unorm;
   case vk::Format::eB8G8R8A8Srgb:
     return Format::B8G8R8A8Srgb;
+  case vk::Format::eD32Sfloat:
+    return Format::D32Sfloat;
   default:
     return Format::Undefined;
   }
@@ -47,6 +51,9 @@ vk::BufferUsageFlags toVk(BufferUsage usage) noexcept {
   if (has(usage, BufferUsage::Storage)) {
     flags |= vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress;
   }
+  if (has(usage, BufferUsage::Index)) {
+    flags |= vk::BufferUsageFlagBits::eIndexBuffer;
+  }
   return flags;
 }
 
@@ -64,6 +71,9 @@ vk::ImageUsageFlags toVk(ImageUsage usage) noexcept {
   if (has(usage, ImageUsage::ColorAttachment)) {
     flags |= vk::ImageUsageFlagBits::eColorAttachment;
   }
+  if (has(usage, ImageUsage::DepthAttachment)) {
+    flags |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
+  }
   return flags;
 }
 
@@ -75,6 +85,8 @@ vk::ImageLayout toVk(ImageLayout layout) noexcept {
     return vk::ImageLayout::eGeneral;
   case ImageLayout::ColorAttachment:
     return vk::ImageLayout::eColorAttachmentOptimal;
+  case ImageLayout::DepthAttachment:
+    return vk::ImageLayout::eDepthAttachmentOptimal;
   case ImageLayout::ShaderReadOnly:
     return vk::ImageLayout::eShaderReadOnlyOptimal;
   case ImageLayout::TransferSrc:
@@ -103,30 +115,101 @@ vk::AttachmentStoreOp toVk(StoreOp op) noexcept {
   return op == StoreOp::Store ? vk::AttachmentStoreOp::eStore : vk::AttachmentStoreOp::eDontCare;
 }
 
-LayoutSync syncFor(ImageLayout layout, bool asSource) noexcept {
-  using Stage = vk::PipelineStageFlagBits2;
-  using Access = vk::AccessFlagBits2;
-  switch (layout) {
-  case ImageLayout::Undefined:
-    // As a source, wait for everything before: for a swapchain image that is the acquire
-    // semaphore's stage, and synchronization validation checks that the transition is ordered
-    // after it. Fresh images have nothing to wait for, so the cost is nil.
-    return {asSource ? Stage::eAllCommands : Stage::eNone, Access::eNone};
-  case ImageLayout::General:
-    return {Stage::eAllCommands, Access::eMemoryRead | Access::eMemoryWrite};
-  case ImageLayout::ColorAttachment:
-    return {Stage::eColorAttachmentOutput, Access::eColorAttachmentRead | Access::eColorAttachmentWrite};
-  case ImageLayout::ShaderReadOnly:
-    return {Stage::eFragmentShader | Stage::eComputeShader, Access::eShaderSampledRead};
-  case ImageLayout::TransferSrc:
-    return {Stage::eCopy | Stage::eBlit, Access::eTransferRead};
-  case ImageLayout::TransferDst:
-    return {Stage::eCopy | Stage::eBlit | Stage::eClear, Access::eTransferWrite};
-  case ImageLayout::Present:
-    // Presentation is synchronised by the semaphore, not by memory accesses.
-    return {asSource ? Stage::eColorAttachmentOutput : Stage::eBottomOfPipe, Access::eNone};
+vk::PipelineStageFlags2 toVk(PipelineStage stage) noexcept {
+  using Bits = vk::PipelineStageFlagBits2;
+  vk::PipelineStageFlags2 flags;
+  if (has(stage, PipelineStage::VertexShader)) {
+    flags |= Bits::eVertexShader;
   }
-  return {Stage::eAllCommands, Access::eMemoryRead | Access::eMemoryWrite};
+  if (has(stage, PipelineStage::FragmentShader)) {
+    flags |= Bits::eFragmentShader;
+  }
+  if (has(stage, PipelineStage::EarlyFragmentTests)) {
+    flags |= Bits::eEarlyFragmentTests;
+  }
+  if (has(stage, PipelineStage::LateFragmentTests)) {
+    flags |= Bits::eLateFragmentTests;
+  }
+  if (has(stage, PipelineStage::ColorAttachmentOutput)) {
+    flags |= Bits::eColorAttachmentOutput;
+  }
+  if (has(stage, PipelineStage::ComputeShader)) {
+    flags |= Bits::eComputeShader;
+  }
+  if (has(stage, PipelineStage::Transfer)) {
+    flags |= Bits::eAllTransfer;
+  }
+  if (has(stage, PipelineStage::AllGraphics)) {
+    flags |= Bits::eAllGraphics;
+  }
+  if (has(stage, PipelineStage::AllCommands)) {
+    flags |= Bits::eAllCommands;
+  }
+  return flags;
+}
+
+vk::AccessFlags2 toVk(Access access) noexcept {
+  using Bits = vk::AccessFlagBits2;
+  vk::AccessFlags2 flags;
+  if (has(access, Access::ShaderRead)) {
+    flags |= Bits::eShaderRead;
+  }
+  if (has(access, Access::ShaderWrite)) {
+    flags |= Bits::eShaderWrite;
+  }
+  if (has(access, Access::ColorAttachmentRead)) {
+    flags |= Bits::eColorAttachmentRead;
+  }
+  if (has(access, Access::ColorAttachmentWrite)) {
+    flags |= Bits::eColorAttachmentWrite;
+  }
+  if (has(access, Access::DepthAttachmentRead)) {
+    flags |= Bits::eDepthStencilAttachmentRead;
+  }
+  if (has(access, Access::DepthAttachmentWrite)) {
+    flags |= Bits::eDepthStencilAttachmentWrite;
+  }
+  if (has(access, Access::TransferRead)) {
+    flags |= Bits::eTransferRead;
+  }
+  if (has(access, Access::TransferWrite)) {
+    flags |= Bits::eTransferWrite;
+  }
+  if (has(access, Access::MemoryRead)) {
+    flags |= Bits::eMemoryRead;
+  }
+  if (has(access, Access::MemoryWrite)) {
+    flags |= Bits::eMemoryWrite;
+  }
+  return flags;
+}
+
+vk::CompareOp toVk(CompareOp op) noexcept {
+  switch (op) {
+  case CompareOp::Never:
+    return vk::CompareOp::eNever;
+  case CompareOp::Less:
+    return vk::CompareOp::eLess;
+  case CompareOp::Equal:
+    return vk::CompareOp::eEqual;
+  case CompareOp::LessOrEqual:
+    return vk::CompareOp::eLessOrEqual;
+  case CompareOp::Greater:
+    return vk::CompareOp::eGreater;
+  case CompareOp::GreaterOrEqual:
+    return vk::CompareOp::eGreaterOrEqual;
+  case CompareOp::Always:
+    return vk::CompareOp::eAlways;
+  }
+  return vk::CompareOp::eAlways;
+}
+
+vk::IndexType toVk(IndexType type) noexcept {
+  return type == IndexType::Uint16 ? vk::IndexType::eUint16 : vk::IndexType::eUint32;
+}
+
+vk::ImageAspectFlags aspectOf(Format format) noexcept {
+  return isDepthFormat(format) ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor;
 }
 
 } // namespace sonnet::rhi

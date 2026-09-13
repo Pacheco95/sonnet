@@ -6,6 +6,7 @@
 #include <vulkan/vulkan_raii.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace sonnet::rhi {
@@ -17,6 +18,7 @@ struct VulkanBuffer {
   vma::UniqueAllocation allocation;
   vma::UniqueBuffer buffer;
   std::byte *mapped{nullptr};
+  std::uint64_t address{0};
 };
 
 struct VulkanImage {

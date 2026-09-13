@@ -10,6 +10,7 @@
 
 #include <VkBootstrap.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <format>
@@ -20,6 +21,10 @@
 namespace sonnet::rhi {
 
 namespace {
+
+// Per-frame host-visible memory for uniform and storage data. Sized for the editor's scenes
+// until the renderer measures a real need; exhaustion is logged, never fatal.
+constexpr std::uint64_t TransientBufferSize = 8u << 20;
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                              VkDebugUtilsMessageTypeFlagsEXT type,
@@ -41,6 +46,10 @@ template <typename T> [[nodiscard]] T unwrap(vkb::Result<T> result, std::string_
     throw core::Exception{std::format("{}: {}", what, result.error().message()), core::ErrorCategory::Graphics};
   }
   return std::move(result.value());
+}
+
+template <typename T> std::uint64_t objectHandle(T object) {
+  return reinterpret_cast<std::uint64_t>(static_cast<typename T::NativeType>(object));
 }
 
 } // namespace
@@ -65,6 +74,9 @@ VulkanDevice::~VulkanDevice() {
       destroy();
     }
     frame.garbage.clear();
+    if (frame.transientBuffer) {
+      m_buffers.remove(frame.transientBuffer);
+    }
   }
   reportLeaks();
   m_pipelines.clear();
@@ -183,10 +195,14 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   const auto &driver = properties.get<vk::PhysicalDeviceDriverProperties>();
   m_info.driverName = driver.driverName.data();
   m_info.driverInfo = driver.driverInfo.data();
-  setDebugName(vk::ObjectType::eDevice, reinterpret_cast<std::uint64_t>(static_cast<VkDevice>(*m_device)),
-               "sonnet device");
-  setDebugName(vk::ObjectType::eQueue, reinterpret_cast<std::uint64_t>(static_cast<VkQueue>(*m_graphicsQueue)),
-               "graphics queue");
+  const vk::PhysicalDeviceLimits &limits = properties.get<vk::PhysicalDeviceProperties2>().properties.limits;
+  m_transientAlignment =
+      std::max<std::uint64_t>({limits.minUniformBufferOffsetAlignment, limits.minStorageBufferOffsetAlignment, 16});
+  m_timestampPeriod = limits.timestampPeriod;
+  const std::vector<vk::QueueFamilyProperties> families = m_physicalDevice.getQueueFamilyProperties();
+  m_info.timestampsSupported = families[m_graphicsFamily].timestampValidBits > 0 && m_timestampPeriod > 0.0f;
+  setDebugName(vk::ObjectType::eDevice, objectHandle(*m_device), "sonnet device");
+  setDebugName(vk::ObjectType::eQueue, objectHandle(*m_graphicsQueue), "graphics queue");
 }
 
 void VulkanDevice::createAllocator() {
@@ -203,18 +219,30 @@ void VulkanDevice::createAllocator() {
 }
 
 void VulkanDevice::createPipelineLayout() {
+  // Set 0 is the bindless set, empty until textures arrive in M3; set 1 takes the per-pass
+  // buffers as push descriptors (docs/rendering.md, "Frame structure").
+  m_bindlessLayout = vk::raii::DescriptorSetLayout{m_device, vk::DescriptorSetLayoutCreateInfo{}};
+  const std::array passBindings{
+      vk::DescriptorSetLayoutBinding{PassUniformBinding, vk::DescriptorType::eUniformBuffer, 1,
+                                     vk::ShaderStageFlagBits::eAllGraphics},
+      vk::DescriptorSetLayoutBinding{PassStorageBinding, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eAllGraphics},
+  };
+  m_passLayout = vk::raii::DescriptorSetLayout{
+      m_device,
+      vk::DescriptorSetLayoutCreateInfo{vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptor, passBindings}};
+  const std::array layouts{*m_bindlessLayout, *m_passLayout};
   const vk::PushConstantRange range{vk::ShaderStageFlagBits::eAllGraphics, 0, PushConstantSize};
-  m_pipelineLayout = vk::raii::PipelineLayout{m_device, vk::PipelineLayoutCreateInfo{{}, {}, range}};
-  setDebugName(vk::ObjectType::ePipelineLayout,
-               reinterpret_cast<std::uint64_t>(static_cast<VkPipelineLayout>(*m_pipelineLayout)),
-               "shared pipeline layout");
+  m_pipelineLayout = vk::raii::PipelineLayout{m_device, vk::PipelineLayoutCreateInfo{{}, layouts, range}};
+  setDebugName(vk::ObjectType::eDescriptorSetLayout, objectHandle(*m_bindlessLayout), "bindless set layout");
+  setDebugName(vk::ObjectType::eDescriptorSetLayout, objectHandle(*m_passLayout), "pass set layout");
+  setDebugName(vk::ObjectType::ePipelineLayout, objectHandle(*m_pipelineLayout), "shared pipeline layout");
 }
 
 void VulkanDevice::createFrames() {
   vk::SemaphoreTypeCreateInfo timelineType{vk::SemaphoreType::eTimeline, 0};
   m_timeline = vk::raii::Semaphore{m_device, vk::SemaphoreCreateInfo{{}, &timelineType}};
-  setDebugName(vk::ObjectType::eSemaphore, reinterpret_cast<std::uint64_t>(static_cast<VkSemaphore>(*m_timeline)),
-               "frame timeline");
+  setDebugName(vk::ObjectType::eSemaphore, objectHandle(*m_timeline), "frame timeline");
 
   for (std::uint32_t i = 0; i < FramesInFlight; ++i) {
     Frame &frame = m_frames[i];
@@ -223,12 +251,19 @@ void VulkanDevice::createFrames() {
         m_device, vk::CommandBufferAllocateInfo{*frame.commandPool, vk::CommandBufferLevel::ePrimary, 1}};
     frame.commandBuffer = std::move(buffers.front());
     frame.imageAvailable = vk::raii::Semaphore{m_device, vk::SemaphoreCreateInfo{}};
-    setDebugName(vk::ObjectType::eCommandPool,
-                 reinterpret_cast<std::uint64_t>(static_cast<VkCommandPool>(*frame.commandPool)),
+    setDebugName(vk::ObjectType::eCommandPool, objectHandle(*frame.commandPool),
                  std::format("frame {} command pool", i));
-    setDebugName(vk::ObjectType::eSemaphore,
-                 reinterpret_cast<std::uint64_t>(static_cast<VkSemaphore>(*frame.imageAvailable)),
+    setDebugName(vk::ObjectType::eSemaphore, objectHandle(*frame.imageAvailable),
                  std::format("frame {} image available", i));
+    if (m_info.timestampsSupported) {
+      frame.queryPool =
+          vk::raii::QueryPool{m_device, vk::QueryPoolCreateInfo{{}, vk::QueryType::eTimestamp, MaxTimestamps}};
+      setDebugName(vk::ObjectType::eQueryPool, objectHandle(*frame.queryPool), std::format("frame {} timestamps", i));
+    }
+    frame.transientBuffer = createBuffer({.size = TransientBufferSize,
+                                          .usage = BufferUsage::Uniform | BufferUsage::Storage,
+                                          .memory = MemoryUsage::CpuToGpu,
+                                          .debugName = std::format("frame {} transient", i)});
   }
 }
 
@@ -254,10 +289,13 @@ BufferHandle VulkanDevice::createBuffer(const BufferDesc &desc) {
   }
   vma::AllocationInfo result{};
   auto [allocation, buffer] = m_allocator->createBufferUnique(bufferInfo, allocationInfo, result);
-  setDebugName(vk::ObjectType::eBuffer, reinterpret_cast<std::uint64_t>(static_cast<VkBuffer>(*buffer)),
-               desc.debugName);
-  const BufferHandle handle = m_buffers.emplace(
-      VulkanBuffer{desc, std::move(allocation), std::move(buffer), static_cast<std::byte *>(result.pMappedData)});
+  setDebugName(vk::ObjectType::eBuffer, objectHandle(*buffer), desc.debugName);
+  std::uint64_t address = 0;
+  if (has(desc.usage, BufferUsage::Storage)) {
+    address = m_device.getBufferAddress(vk::BufferDeviceAddressInfo{*buffer});
+  }
+  const BufferHandle handle = m_buffers.emplace(VulkanBuffer{desc, std::move(allocation), std::move(buffer),
+                                                             static_cast<std::byte *>(result.pMappedData), address});
   SONNET_LOG_TRACE("buffer \"{}\" {} bytes -> {}:{}", desc.debugName, desc.size, handle.index, handle.generation);
   return handle;
 }
@@ -279,6 +317,11 @@ std::span<std::byte> VulkanDevice::mappedRange(BufferHandle handle) {
   return {buffer->mapped, static_cast<std::size_t>(buffer->desc.size)};
 }
 
+std::uint64_t VulkanDevice::bufferAddress(BufferHandle handle) const {
+  const VulkanBuffer *buffer = m_buffers.find(handle);
+  return buffer != nullptr ? buffer->address : 0;
+}
+
 ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
   SONNET_ASSERT(desc.size.x > 0 && desc.size.y > 0, "image \"{}\" has no size", desc.debugName);
   vk::ImageCreateInfo imageInfo{{},
@@ -294,17 +337,16 @@ ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
   vma::AllocationCreateInfo allocationInfo{};
   allocationInfo.usage = vma::MemoryUsage::eAuto;
   auto [allocation, image] = m_allocator->createImageUnique(imageInfo, allocationInfo);
-  setDebugName(vk::ObjectType::eImage, reinterpret_cast<std::uint64_t>(static_cast<VkImage>(*image)), desc.debugName);
+  setDebugName(vk::ObjectType::eImage, objectHandle(*image), desc.debugName);
 
   vk::ImageViewCreateInfo viewInfo{{},
                                    *image,
                                    vk::ImageViewType::e2D,
                                    toVk(desc.format),
                                    {},
-                                   vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+                                   vk::ImageSubresourceRange{aspectOf(desc.format), 0, 1, 0, 1}};
   vk::raii::ImageView view{m_device, viewInfo};
-  setDebugName(vk::ObjectType::eImageView, reinterpret_cast<std::uint64_t>(static_cast<VkImageView>(*view)),
-               std::format("{} view", desc.debugName));
+  setDebugName(vk::ObjectType::eImageView, objectHandle(*view), std::format("{} view", desc.debugName));
 
   const vk::Image imageHandle = *image;
   const ImageHandle handle =
@@ -320,11 +362,10 @@ ImageHandle VulkanDevice::registerExternalImage(vk::Image image, const ImageDesc
                                    vk::ImageViewType::e2D,
                                    toVk(desc.format),
                                    {},
-                                   vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+                                   vk::ImageSubresourceRange{aspectOf(desc.format), 0, 1, 0, 1}};
   vk::raii::ImageView view{m_device, viewInfo};
-  setDebugName(vk::ObjectType::eImage, reinterpret_cast<std::uint64_t>(static_cast<VkImage>(image)), desc.debugName);
-  setDebugName(vk::ObjectType::eImageView, reinterpret_cast<std::uint64_t>(static_cast<VkImageView>(*view)),
-               std::format("{} view", desc.debugName));
+  setDebugName(vk::ObjectType::eImage, objectHandle(image), desc.debugName);
+  setDebugName(vk::ObjectType::eImageView, objectHandle(*view), std::format("{} view", desc.debugName));
   return m_images.emplace(VulkanImage{desc, {}, {}, image, std::move(view)});
 }
 
@@ -355,8 +396,7 @@ ShaderHandle VulkanDevice::createShader(const ShaderDesc &desc) {
                           core::ErrorCategory::Shader};
   }
   vk::raii::ShaderModule module{m_device, vk::ShaderModuleCreateInfo{{}, words}};
-  setDebugName(vk::ObjectType::eShaderModule, reinterpret_cast<std::uint64_t>(static_cast<VkShaderModule>(*module)),
-               desc.debugName);
+  setDebugName(vk::ObjectType::eShaderModule, objectHandle(*module), desc.debugName);
   return m_shaders.emplace(VulkanShader{desc.debugName, std::move(module)});
 }
 
@@ -401,6 +441,8 @@ PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &
       {},   VK_FALSE, VK_FALSE, vk::PolygonMode::eFill, cull, vk::FrontFace::eCounterClockwise, VK_FALSE, 0.0f,
       0.0f, 0.0f,     1.0f};
   const vk::PipelineMultisampleStateCreateInfo multisample{{}, vk::SampleCountFlagBits::e1};
+  const vk::PipelineDepthStencilStateCreateInfo depthStencil{
+      {}, desc.depth.test ? VK_TRUE : VK_FALSE, desc.depth.write ? VK_TRUE : VK_FALSE, toVk(desc.depth.compare)};
   std::vector<vk::PipelineColorBlendAttachmentState> blendAttachments(desc.colorFormats.size());
   for (auto &attachment : blendAttachments) {
     attachment.blendEnable = VK_FALSE;
@@ -415,15 +457,27 @@ PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &
   for (const Format format : desc.colorFormats) {
     colorFormats.push_back(toVk(format));
   }
-  const vk::PipelineRenderingCreateInfo rendering{0, colorFormats};
+  const vk::PipelineRenderingCreateInfo rendering{0, colorFormats, toVk(desc.depthFormat)};
 
-  const vk::GraphicsPipelineCreateInfo info{
-      {},           stages,  &vertexInput, &inputAssembly, nullptr,           &viewport, &rasterization,
-      &multisample, nullptr, &colorBlend,  &dynamicState,  *m_pipelineLayout, nullptr,   0,
-      nullptr,      0,       &rendering};
+  const vk::GraphicsPipelineCreateInfo info{{},
+                                            stages,
+                                            &vertexInput,
+                                            &inputAssembly,
+                                            nullptr,
+                                            &viewport,
+                                            &rasterization,
+                                            &multisample,
+                                            &depthStencil,
+                                            &colorBlend,
+                                            &dynamicState,
+                                            *m_pipelineLayout,
+                                            nullptr,
+                                            0,
+                                            nullptr,
+                                            0,
+                                            &rendering};
   vk::raii::Pipeline pipeline{m_device, nullptr, info};
-  setDebugName(vk::ObjectType::ePipeline, reinterpret_cast<std::uint64_t>(static_cast<VkPipeline>(*pipeline)),
-               desc.debugName);
+  setDebugName(vk::ObjectType::ePipeline, objectHandle(*pipeline), desc.debugName);
   SONNET_LOG_DEBUG("pipeline \"{}\" from shader \"{}\"", desc.debugName, shader->debugName);
   return m_pipelines.emplace(VulkanPipeline{desc.debugName, std::move(pipeline)});
 }
@@ -454,12 +508,8 @@ bool VulkanDevice::isValid(ImageHandle handle) const {
 }
 
 void VulkanDevice::deferDestruction(std::function<void()> destroy) {
-  if (m_recording) {
-    m_frames[m_frameIndex].garbage.push_back(std::move(destroy));
-    return;
-  }
-  // Between frames the previous frame may still be executing: park the resource in the slot
-  // that is waited on next.
+  // While recording, the resource may be referenced by this frame's commands. Between frames the
+  // previous frame may still be executing, and the current slot is the one waited on next either way.
   m_frames[m_frameIndex].garbage.push_back(std::move(destroy));
 }
 
@@ -477,19 +527,92 @@ void VulkanDevice::waitForFrame(Frame &frame) {
   }
 }
 
+void VulkanDevice::readTimestamps(Frame &frame) {
+  frame.timestampResults.clear();
+  if (frame.timestampCount == 0 || frame.submittedValue == 0) {
+    return;
+  }
+  // The frame has completed (waitForFrame), so every written query is available. Unwritten
+  // slots below the highest index come back with availability 0 and read as zero.
+  std::array<std::uint64_t, MaxTimestamps * 2> raw{};
+  const VkResult result = m_device.getDispatcher()->vkGetQueryPoolResults(
+      *m_device, *frame.queryPool, 0, frame.timestampCount, sizeof(raw), raw.data(), 2 * sizeof(std::uint64_t),
+      VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+  if (result != VK_SUCCESS && result != VK_NOT_READY) {
+    SONNET_LOG_ERROR("vkGetQueryPoolResults failed: {}", vk::to_string(static_cast<vk::Result>(result)));
+    return;
+  }
+  frame.timestampResults.resize(frame.timestampCount);
+  for (std::uint32_t i = 0; i < frame.timestampCount; ++i) {
+    const bool available = raw[2 * i + 1] != 0;
+    frame.timestampResults[i] =
+        available ? static_cast<std::uint64_t>(static_cast<double>(raw[2 * i]) * static_cast<double>(m_timestampPeriod))
+                  : 0;
+  }
+}
+
 ICommandList &VulkanDevice::beginFrame() {
   SONNET_ZONE();
   SONNET_ASSERT(!m_recording, "beginFrame called twice without endFrame");
   Frame &frame = m_frames[m_frameIndex];
   waitForFrame(frame);
+  readTimestamps(frame);
   for (auto &destroy : frame.garbage) {
     destroy();
   }
   frame.garbage.clear();
   frame.commandPool.reset();
+  frame.transientOffset = 0;
+  frame.transientExhausted = false;
+  frame.timestampCount = 0;
   m_commandList.begin(frame.commandBuffer);
+  if (m_info.timestampsSupported) {
+    // Reset in the command buffer rather than on the host so no extra device feature is needed.
+    m_device.getDispatcher()->vkCmdResetQueryPool(*frame.commandBuffer, *frame.queryPool, 0, MaxTimestamps);
+  }
   m_recording = true;
   return m_commandList;
+}
+
+void VulkanDevice::noteTimestamp(std::uint32_t index) noexcept {
+  Frame &frame = m_frames[m_frameIndex];
+  frame.timestampCount = std::max(frame.timestampCount, index + 1);
+}
+
+TransientAllocation VulkanDevice::allocateTransient(std::uint64_t size) {
+  SONNET_ASSERT(m_recording, "allocateTransient outside beginFrame/endFrame");
+  Frame &frame = m_frames[m_frameIndex];
+  const std::uint64_t offset =
+      (frame.transientOffset + m_transientAlignment - 1) / m_transientAlignment * m_transientAlignment;
+  if (size == 0 || offset + size > TransientBufferSize) {
+    if (!frame.transientExhausted) {
+      SONNET_LOG_ERROR("transient allocator exhausted: {} bytes requested at offset {} of {}", size, offset,
+                       TransientBufferSize);
+      frame.transientExhausted = true;
+    }
+    return {};
+  }
+  frame.transientOffset = offset + size;
+  const std::span<std::byte> mapped = mappedRange(frame.transientBuffer);
+  return TransientAllocation{frame.transientBuffer, offset, mapped.subspan(offset, size)};
+}
+
+std::span<const std::uint64_t> VulkanDevice::timestamps() const {
+  return m_frames[m_frameIndex].timestampResults;
+}
+
+MemoryBudget VulkanDevice::memoryBudget() const {
+  MemoryBudget budget;
+  const vk::PhysicalDeviceMemoryProperties properties = m_physicalDevice.getMemoryProperties();
+  std::array<vma::Budget, MemoryBudget::MaxHeaps> heaps{};
+  m_allocator->getHeapBudgets(heaps.data());
+  budget.heapCount = std::min(properties.memoryHeapCount, MemoryBudget::MaxHeaps);
+  for (std::uint32_t i = 0; i < budget.heapCount; ++i) {
+    budget.heaps[i] =
+        HeapBudget{heaps[i].usage, heaps[i].budget,
+                   static_cast<bool>(properties.memoryHeaps[i].flags & vk::MemoryHeapFlagBits::eDeviceLocal)};
+  }
+  return budget;
 }
 
 void VulkanDevice::addPendingPresent(VulkanSwapchain &swapchain, std::uint32_t imageIndex,

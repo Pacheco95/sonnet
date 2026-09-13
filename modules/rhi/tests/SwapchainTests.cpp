@@ -43,11 +43,11 @@ TEST_CASE("acquired images are cleared and presented over several frames", "[rhi
     REQUIRE(image.has_value());
     REQUIRE(device->isValid(image->image));
     REQUIRE(image->extent == swapchain->extent());
-    commands.barrier(image->image, ImageLayout::Undefined, ImageLayout::ColorAttachment);
+    test::transition(commands, test::toColorAttachment(image->image));
     const ColorAttachment attachment{.image = image->image, .clearColor = {0.1f, 0.2f, 0.3f, 1.0f}};
-    commands.beginRendering({&attachment, 1});
+    commands.beginRendering({.colors = {&attachment, 1}});
     commands.endRendering();
-    commands.barrier(image->image, ImageLayout::ColorAttachment, ImageLayout::Present);
+    test::transition(commands, test::toPresent(image->image, ImageLayout::ColorAttachment));
     device->endFrame();
   }
   device->waitIdle();
@@ -64,7 +64,7 @@ TEST_CASE("a resize request recreates the swapchain at the next acquire", "[rhi]
   const std::optional<SwapchainImage> image = swapchain->acquire();
   REQUIRE(image.has_value());
   REQUIRE(swapchain->imageCount() == before);
-  commands.barrier(image->image, ImageLayout::Undefined, ImageLayout::Present);
+  test::transition(commands, test::toPresent(image->image, ImageLayout::Undefined));
   device->endFrame();
   device->waitIdle();
 }
