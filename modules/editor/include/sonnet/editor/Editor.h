@@ -102,6 +102,9 @@ public:
   [[nodiscard]] Gizmo &gizmo() noexcept {
     return m_gizmo;
   }
+  [[nodiscard]] const ViewportPanel &viewport() const noexcept {
+    return m_viewportPanel;
+  }
   [[nodiscard]] bool quitRequested() const noexcept {
     return m_quitRequested;
   }

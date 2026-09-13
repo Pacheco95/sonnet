@@ -50,7 +50,7 @@ The selection holds UUIDs, so it survives undo, play mode and reloads; the last 
 
 ## Gizmos
 
-W, E and R over the viewport choose translate, rotate and scale (the same keys fly the camera while the right button is held). Translation and rotation work along the world axes, scale along the entity's own. A drag starts on the handle under the cursor and resolves every mouse position against the axis line or the rotation plane from the drag's fixed start position, never from the object's current one, so the handle never chases what it moves. The live edit writes the local transform directly; when the button is released, one command with the transform before and after goes on the stack. The maths (`project`, `rayDirection`, `axisRayParam`, `planeRayHit`) is public for the tests, which drive drags through `GizmoView` without Dear ImGui.
+W, E and R over the viewport choose translate, rotate and scale (the same keys fly the camera while the right button is held). Translation and rotation work along the world axes, scale along the entity's own. A drag starts on the handle under the cursor and resolves every mouse position against the axis line or the rotation plane from the drag's fixed start position, never from the object's current one, so the maths never chases what it moves; the handles themselves are drawn at the object's current position, taken from its local transform in the same frame, so they follow it as it moves. The live edit writes the local transform directly; when the button is released, one command with the transform before and after goes on the stack. The maths (`project`, `rayDirection`, `axisRayParam`, `planeRayHit`) is public for the tests, which drive drags through `GizmoView` without Dear ImGui.
 
 ## Inspector
 
