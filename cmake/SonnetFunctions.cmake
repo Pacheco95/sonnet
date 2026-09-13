@@ -26,6 +26,24 @@ function(sonnet_add_module NAME)
   sonnet_apply_coverage(${target})
 endfunction()
 
+# sonnet_copy_tracy_client(<target>)
+#
+# vcpkg's tracy port installs the Debug TracyClient.dll under debug/bin/Debug instead of
+# debug/bin, which VCPKG_APPLOCAL_DEPS's copy step does not look in; a target that actually
+# references Tracy symbols then fails to start with STATUS_DLL_NOT_FOUND. Tracy::TracyClient's
+# IMPORTED_LOCATION is correct even though the convention-based copy step gets confused by it, so
+# copying from the target's own TARGET_FILE side-steps the wrong assumption instead of hardcoding
+# vcpkg's layout.
+function(sonnet_copy_tracy_client TARGET)
+  if(NOT WIN32)
+    return()
+  endif()
+  set(tracy_enabled "$<AND:$<BOOL:${SONNET_ENABLE_TRACY}>,${SONNET_DEBUGGABLE_CONFIG}>")
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND "$<${tracy_enabled}:${CMAKE_COMMAND};-E;copy_if_different;$<TARGET_FILE:Tracy::TracyClient>;$<TARGET_FILE_DIR:${TARGET}>>"
+    COMMAND_EXPAND_LISTS VERBATIM)
+endfunction()
+
 # sonnet_add_module_test(<name> SOURCES ... DEPENDS ...)
 #
 # Creates <name>_tests linked against sonnet::<name> and Catch2, registers it with CTest under the
@@ -45,6 +63,7 @@ function(sonnet_add_module_test NAME)
   target_compile_definitions(${target} PRIVATE SONNET_MODULE="${target}")
   target_link_libraries(${target} PRIVATE sonnet::${NAME} sonnet::warnings Catch2::Catch2WithMain ${ARG_DEPENDS})
   set_target_properties(${target} PROPERTIES FOLDER "Tests" COMPILE_WARNING_AS_ERROR ON)
+  sonnet_copy_tracy_client(${target})
 
   # A binary whose every case skipped (rhi_tests without a Vulkan device) is a pass, not Catch2's exit code 4.
   add_test(NAME ${target} COMMAND ${target} --allow-running-no-tests)
@@ -64,4 +83,5 @@ function(sonnet_add_executable NAME)
   target_compile_definitions(${target} PRIVATE SONNET_MODULE="${NAME}")
   target_link_libraries(${target} PRIVATE sonnet::warnings ${ARG_DEPENDS})
   set_target_properties(${target} PROPERTIES FOLDER "Apps" COMPILE_WARNING_AS_ERROR ON)
+  sonnet_copy_tracy_client(${target})
 endfunction()

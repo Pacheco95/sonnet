@@ -1,6 +1,8 @@
 find_package(glm CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
-find_package(Tracy CONFIG REQUIRED)
+# GLOBAL: sonnet_copy_tracy_client (cmake/SonnetFunctions.cmake) references Tracy::TracyClient
+# from every module and app directory, not just core's.
+find_package(Tracy CONFIG REQUIRED GLOBAL)
 
 sonnet_add_module(core
   SOURCES
