@@ -13,7 +13,7 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | `rhi` | Render hardware interface: device, swapchain, buffers, images, samplers, pipelines, command recording. Contains the Vulkan 1.4 implementation | `platform`, Vulkan-HPP, vk-bootstrap, VMA, Slang (runtime compile) |
 | `renderer` | Render graph, frame resources, materials, meshes, cameras, lights, the rendering passes, engine shaders | `rhi` |
 | `assets` | Asset identity, database, importers (glTF, images, KTX2, Slang), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
-| `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save | `assets`, flecs |
+| `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save ([world.md](world.md)) | `assets`, flecs, nlohmann-json (until `assets` exists in M3, `renderer`) |
 | `physics` | Rigid bodies and queries behind `IPhysicsWorld`. Jolt implementation (M4) | `world`, Jolt |
 | `scripting` | `IScriptRuntime`. Lua/sol2 implementation (M4) | `world`, Lua, sol2 |
 | `audio` | `IAudioDevice`, sources and listeners. miniaudio or SDL3 audio implementation (M5) | `world` |
@@ -76,7 +76,7 @@ Core components, all in `world`:
 
 Hierarchy uses flecs `ChildOf` relationships, prefabs use `IsA`, so nested scene instances (a scene placed inside another scene) become prefab instantiation rather than a custom feature. Systems are flecs systems grouped in pipeline phases: `Input`, `FixedUpdate`, `Update`, `PostUpdate`, `PreRender`.
 
-The decision, and EnTT as the alternative, is recorded in [ADR-0003](decisions/0003-ecs-library.md).
+The decision, and EnTT as the alternative, is recorded in [ADR-0003](decisions/0003-ecs-library.md); the module as built is described in [world.md](world.md).
 
 ## Resource handles
 
@@ -103,5 +103,6 @@ Initialization and resource creation may throw; the hot loop never throws; recov
 
 - [Build system](build.md)
 - [Rendering](rendering.md)
+- [World](world.md)
 - [Assets](assets.md)
 - [Roadmap](roadmap.md)
