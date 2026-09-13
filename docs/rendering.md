@@ -94,7 +94,7 @@ The render graph is an engine feature this time; the previous iteration kept it 
 
 Topological ordering and pass merging are not there yet: passes run in the order they are added, which the renderer controls.
 
-The main pipeline is clustered forward ([ADR-0008](decisions/0008-clustered-forward-rendering.md), proposed): depth pre-pass, light clustering in compute, one forward shading pass, then post-processing. Planned passes in milestone order: depth pre-pass, forward PBR, skybox, cascaded shadow maps, light clustering, image-based lighting, bloom, tone mapping, FXAA or TAA, editor outline and picking.
+The main pipeline is clustered forward ([ADR-0008](decisions/0008-clustered-forward-rendering.md)): depth pre-pass, light clustering in compute, one forward shading pass, then post-processing. Planned passes in milestone order: depth pre-pass, forward PBR, skybox, cascaded shadow maps, light clustering, image-based lighting, bloom, tone mapping, FXAA or TAA, editor outline and picking.
 
 ## The renderer module today
 
