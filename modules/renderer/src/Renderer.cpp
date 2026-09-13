@@ -11,6 +11,8 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <type_traits>
+#include <utility>
 
 namespace sonnet::renderer {
 
@@ -158,97 +160,83 @@ glm::mat4 orthoReversedZ(float left, float right, float bottom, float top, float
 
 Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir, const RendererSettings &settings)
     : m_device(device), m_settings(settings) {
-  const rhi::ShaderHandle depth = loadShader(shaderDir, "depth");
-  const rhi::ShaderHandle forward = loadShader(shaderDir, "forward");
-  const rhi::ShaderHandle id = loadShader(shaderDir, "id");
-  const rhi::ShaderHandle skybox = loadShader(shaderDir, "skybox");
-  const rhi::ShaderHandle post = loadShader(shaderDir, "post");
-  const rhi::ShaderHandle outline = loadShader(shaderDir, "outline");
-  const rhi::ShaderHandle cluster = loadShader(shaderDir, "cluster");
-  const rhi::ShaderHandle ibl = loadShader(shaderDir, "ibl");
-
   const std::array cullModes{rhi::CullMode::Back, rhi::CullMode::None};
   for (std::size_t i = 0; i < 2; ++i) {
     const char *side = i == 0 ? "" : " double sided";
-    m_depthPipelines[i] = createPipeline({.shader = depth,
-                                          .colorFormats = {},
-                                          .depthFormat = DepthFormat,
-                                          .depth = {.test = true, .write = true},
-                                          .cullMode = cullModes[i],
-                                          .debugName = std::format("depth{}", side)});
+    defineGraphics(m_depthPipelines[i], "depth",
+                   {.colorFormats = {},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = true},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("depth{}", side)});
     // Shadows cull nothing: a single-sided ground plane has to cast its shadow too.
-    m_shadowPipelines[i] = createPipeline({.shader = depth,
-                                           .vertexEntry = "shadowVertexMain",
-                                           .colorFormats = {},
-                                           .depthFormat = DepthFormat,
-                                           .depth = {.test = true, .write = true},
-                                           .cullMode = rhi::CullMode::None,
-                                           .debugName = "shadow"});
+    defineGraphics(m_shadowPipelines[i], "depth",
+                   {.vertexEntry = "shadowVertexMain",
+                    .colorFormats = {},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = true},
+                    .cullMode = rhi::CullMode::None,
+                    .debugName = "shadow"});
     // Equal against the pre-pass's depth: exactly the visible surface is shaded once.
-    m_forwardPipelines[i] = createPipeline({.shader = forward,
-                                            .colorFormats = {HdrFormat},
-                                            .depthFormat = DepthFormat,
-                                            .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
-                                            .cullMode = cullModes[i],
-                                            .debugName = std::format("forward{}", side)});
-    m_blendPipelines[i] = createPipeline({.shader = forward,
-                                          .colorFormats = {HdrFormat},
-                                          .depthFormat = DepthFormat,
-                                          .depth = {.test = true, .write = false},
-                                          .cullMode = cullModes[i],
-                                          .blend = rhi::BlendMode::Alpha,
-                                          .debugName = std::format("forward blend{}", side)});
+    defineGraphics(m_forwardPipelines[i], "forward",
+                   {.colorFormats = {HdrFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("forward{}", side)});
+    defineGraphics(m_blendPipelines[i], "forward",
+                   {.colorFormats = {HdrFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = false},
+                    .cullMode = cullModes[i],
+                    .blend = rhi::BlendMode::Alpha,
+                    .debugName = std::format("forward blend{}", side)});
     // Reversed-Z GreaterOrEqual against the scene's depth keeps exactly the visible surface.
-    m_idPipelines[i] = createPipeline({.shader = id,
-                                       .colorFormats = {IdFormat},
-                                       .depthFormat = DepthFormat,
-                                       .depth = {.test = true, .write = false},
-                                       .cullMode = cullModes[i],
-                                       .debugName = std::format("id{}", side)});
+    defineGraphics(m_idPipelines[i], "id",
+                   {.colorFormats = {IdFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = false},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("id{}", side)});
     // The same id shader without a depth attachment: every selected surface, occluded or not.
-    m_maskPipelines[i] = createPipeline({.shader = id,
-                                         .colorFormats = {IdFormat},
-                                         .cullMode = cullModes[i],
-                                         .debugName = std::format("selection mask{}", side)});
+    defineGraphics(
+        m_maskPipelines[i], "id",
+        {.colorFormats = {IdFormat}, .cullMode = cullModes[i], .debugName = std::format("selection mask{}", side)});
   }
   // The skybox covers the pixels the pre-pass left at the far plane, depth 0.
-  m_skyboxPipeline = createPipeline({.shader = skybox,
-                                     .colorFormats = {HdrFormat},
-                                     .depthFormat = DepthFormat,
-                                     .depth = {.test = true, .write = false},
-                                     .cullMode = rhi::CullMode::None,
-                                     .debugName = "skybox"});
-  m_bloomDownPipeline = createPipeline({.shader = post,
-                                        .fragmentEntry = "bloomDownsample",
-                                        .colorFormats = {HdrFormat},
-                                        .cullMode = rhi::CullMode::None,
-                                        .debugName = "bloom downsample"});
-  m_bloomUpPipeline = createPipeline({.shader = post,
-                                      .fragmentEntry = "bloomUpsample",
-                                      .colorFormats = {HdrFormat},
-                                      .cullMode = rhi::CullMode::None,
-                                      .debugName = "bloom upsample"});
-  m_tonemapPipeline = createPipeline({.shader = post,
-                                      .fragmentEntry = "tonemap",
-                                      .colorFormats = {ColorFormat},
-                                      .cullMode = rhi::CullMode::None,
-                                      .debugName = "tonemap"});
-  m_fxaaPipeline = createPipeline({.shader = post,
-                                   .fragmentEntry = "fxaa",
-                                   .colorFormats = {ColorFormat},
-                                   .cullMode = rhi::CullMode::None,
-                                   .debugName = "fxaa"});
-  m_outlinePipeline = createPipeline(
-      {.shader = outline, .colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "outline"});
-  m_clusterPipeline = createComputePipeline(cluster, "computeMain", "light clustering");
-  m_equirectPipeline = createComputePipeline(ibl, "equirectToCube", "equirect to cube");
-  m_cubeMipPipeline = createComputePipeline(ibl, "cubeMip", "cube mip");
-  m_irradiancePipeline = createComputePipeline(ibl, "irradiance", "irradiance");
-  m_prefilterPipeline = createComputePipeline(ibl, "prefilter", "prefilter");
-  m_brdfLutPipeline = createComputePipeline(ibl, "brdfLut", "brdf lut");
-  for (const rhi::ShaderHandle shader : {depth, forward, id, skybox, post, outline, cluster, ibl}) {
-    m_device.destroyShader(shader);
-  }
+  defineGraphics(m_skyboxPipeline, "skybox",
+                 {.colorFormats = {HdrFormat},
+                  .depthFormat = DepthFormat,
+                  .depth = {.test = true, .write = false},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "skybox"});
+  defineGraphics(m_bloomDownPipeline, "post",
+                 {.fragmentEntry = "bloomDownsample",
+                  .colorFormats = {HdrFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "bloom downsample"});
+  defineGraphics(m_bloomUpPipeline, "post",
+                 {.fragmentEntry = "bloomUpsample",
+                  .colorFormats = {HdrFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "bloom upsample"});
+  defineGraphics(m_tonemapPipeline, "post",
+                 {.fragmentEntry = "tonemap",
+                  .colorFormats = {ColorFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "tonemap"});
+  defineGraphics(
+      m_fxaaPipeline, "post",
+      {.fragmentEntry = "fxaa", .colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "fxaa"});
+  defineGraphics(m_outlinePipeline, "outline",
+                 {.colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "outline"});
+  defineCompute(m_clusterPipeline, "cluster", "computeMain", "light clustering");
+  defineCompute(m_equirectPipeline, "ibl", "equirectToCube", "equirect to cube");
+  defineCompute(m_cubeMipPipeline, "ibl", "cubeMip", "cube mip");
+  defineCompute(m_irradiancePipeline, "ibl", "irradiance", "irradiance");
+  defineCompute(m_prefilterPipeline, "ibl", "prefilter", "prefilter");
+  defineCompute(m_brdfLutPipeline, "ibl", "brdfLut", "brdf lut");
+  createPipelines(shaderDir);
   createDefaults();
   SONNET_LOG_DEBUG("renderer ready, shaders from {}", shaderDir.string());
 }
@@ -289,21 +277,82 @@ Renderer::~Renderer() {
   }
 }
 
-rhi::ShaderHandle Renderer::loadShader(const std::filesystem::path &shaderDir, const char *name) {
-  const std::filesystem::path path = shaderDir / std::format("{}.spv", name);
-  const auto spirv = core::readFile(path);
-  if (!spirv) {
-    throw core::Exception{spirv.error()};
+std::span<const std::string_view> Renderer::shaderNames() noexcept {
+  static constexpr std::array<std::string_view, 8> names{"cluster", "depth",   "forward", "ibl",
+                                                         "id",      "outline", "post",    "skybox"};
+  return names;
+}
+
+void Renderer::defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc) {
+  m_pipelineSlots.push_back(PipelineSlot{std::move(shader), std::move(desc), &target});
+}
+
+void Renderer::defineCompute(rhi::PipelineHandle &target, std::string shader, const char *entry, const char *name) {
+  m_pipelineSlots.push_back(
+      PipelineSlot{std::move(shader), rhi::ComputePipelineDesc{.entry = entry, .debugName = name}, &target});
+}
+
+rhi::PipelineHandle Renderer::createPipeline(const PipelineSlot &slot, rhi::ShaderHandle shader) {
+  return std::visit(
+      [&](auto desc) {
+        desc.shader = shader;
+        if constexpr (std::is_same_v<decltype(desc), rhi::GraphicsPipelineDesc>) {
+          return m_device.createGraphicsPipeline(desc);
+        } else {
+          return m_device.createComputePipeline(desc);
+        }
+      },
+      slot.desc);
+}
+
+void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
+  for (const std::string_view name : shaderNames()) {
+    const std::filesystem::path path = shaderDir / std::format("{}.spv", name);
+    const auto spirv = core::readFile(path);
+    if (!spirv) {
+      throw core::Exception{spirv.error()};
+    }
+    const rhi::ShaderHandle shader = m_device.createShader({.spirv = *spirv, .debugName = std::string{name}});
+    for (const PipelineSlot &slot : m_pipelineSlots) {
+      if (slot.shader == name) {
+        *slot.target = createPipeline(slot, shader);
+      }
+    }
+    m_device.destroyShader(shader);
   }
-  return m_device.createShader({.spirv = *spirv, .debugName = name});
 }
 
-rhi::PipelineHandle Renderer::createPipeline(rhi::GraphicsPipelineDesc desc) {
-  return m_device.createGraphicsPipeline(desc);
-}
-
-rhi::PipelineHandle Renderer::createComputePipeline(rhi::ShaderHandle shader, const char *entry, const char *name) {
-  return m_device.createComputePipeline({.shader = shader, .entry = entry, .debugName = name});
+core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const std::byte> spirv) {
+  if (std::ranges::find(shaderNames(), name) == shaderNames().end()) {
+    return std::unexpected(core::Error{std::format("{} is not an engine shader", name), core::ErrorCategory::Shader});
+  }
+  // Everything new is built before anything old goes, so a rejected module or pipeline changes
+  // nothing; the old pipelines are destroyed deferred, past the frames that still bind them.
+  std::vector<std::pair<PipelineSlot *, rhi::PipelineHandle>> rebuilt;
+  rhi::ShaderHandle shader;
+  try {
+    shader = m_device.createShader({.spirv = spirv, .debugName = std::string{name}});
+    for (PipelineSlot &slot : m_pipelineSlots) {
+      if (slot.shader == name) {
+        rebuilt.emplace_back(&slot, createPipeline(slot, shader));
+      }
+    }
+  } catch (const core::Exception &exception) {
+    for (const auto &[slot, pipeline] : rebuilt) {
+      m_device.destroyPipeline(pipeline);
+    }
+    if (shader) {
+      m_device.destroyShader(shader);
+    }
+    return std::unexpected(exception.error());
+  }
+  m_device.destroyShader(shader);
+  for (const auto &[slot, pipeline] : rebuilt) {
+    m_device.destroyPipeline(*slot->target);
+    *slot->target = pipeline;
+  }
+  SONNET_LOG_INFO("reloaded shader {}: {} pipelines rebuilt", name, rebuilt.size());
+  return {};
 }
 
 void Renderer::createDefaults() {

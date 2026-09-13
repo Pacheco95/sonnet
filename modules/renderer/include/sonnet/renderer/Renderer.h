@@ -6,6 +6,7 @@
 #include <sonnet/renderer/SceneView.h>
 #include <sonnet/renderer/Texture.h>
 
+#include <sonnet/core/Error.h>
 #include <sonnet/core/HandlePool.h>
 #include <sonnet/rhi/Device.h>
 
@@ -14,6 +15,8 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 namespace sonnet::renderer {
@@ -126,6 +129,13 @@ public:
     m_settings = settings;
   }
 
+  // The entry-point files the engine pipelines are built from, without the extension.
+  [[nodiscard]] static std::span<const std::string_view> shaderNames() noexcept;
+  // Rebuilds every pipeline built from the named module with new SPIR-V: the editor's hot
+  // reload (docs/rendering.md, "Shaders"). A module or pipeline the driver rejects is reported
+  // and leaves the old pipelines in place.
+  [[nodiscard]] core::Result<void> reloadShader(std::string_view name, std::span<const std::byte> spirv);
+
 private:
   struct Mesh {
     std::string debugName;
@@ -181,10 +191,17 @@ private:
     GraphImage prefiltered;
   };
 
-  [[nodiscard]] rhi::ShaderHandle loadShader(const std::filesystem::path &shaderDir, const char *name);
-  [[nodiscard]] rhi::PipelineHandle createPipeline(rhi::GraphicsPipelineDesc desc);
-  [[nodiscard]] rhi::PipelineHandle createComputePipeline(rhi::ShaderHandle shader, const char *entry,
-                                                          const char *name);
+  // Every pipeline is recorded with the module it comes from, so a reload rebuilds it.
+  struct PipelineSlot {
+    std::string shader;
+    std::variant<rhi::GraphicsPipelineDesc, rhi::ComputePipelineDesc> desc;
+    rhi::PipelineHandle *target;
+  };
+
+  void defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc);
+  void defineCompute(rhi::PipelineHandle &target, std::string shader, const char *entry, const char *name);
+  [[nodiscard]] rhi::PipelineHandle createPipeline(const PipelineSlot &slot, rhi::ShaderHandle shader);
+  void createPipelines(const std::filesystem::path &shaderDir);
   void createDefaults();
   [[nodiscard]] std::uint32_t materialIndex(MaterialHandle handle) const;
   [[nodiscard]] std::uint32_t sampledIndex(rhi::ImageHandle image) const;
@@ -209,6 +226,7 @@ private:
 
   rhi::IDevice &m_device;
   RendererSettings m_settings;
+  std::vector<PipelineSlot> m_pipelineSlots;
 
   std::array<rhi::PipelineHandle, 2> m_depthPipelines;   // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_shadowPipelines;  // both cull nothing; kept as a pair for recordDraws

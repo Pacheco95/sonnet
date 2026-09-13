@@ -109,8 +109,10 @@ void Editor::update(float dt) {
   }
   m_imgui.endFrame();
 
-  // Changed source files are re-imported before the draw list resolves them.
+  // Changed source files are re-imported before the draw list resolves them, and changed
+  // shader sources rebuild their pipelines.
   static_cast<void>(m_assets.pollChanges());
+  pollShaders();
   // The world's frame after the UI edited it: systems, then what the renderer draws.
   m_world.progress(dt);
   world::buildDrawList(m_world, m_assets, m_draws);
@@ -319,6 +321,14 @@ void Editor::drawMenuBar() {
   if (ImGui::BeginMenu("Play")) {
     if (ImGui::MenuItem(isPlaying() ? "Stop" : "Play", "Ctrl+P")) {
       isPlaying() ? stop() : play();
+    }
+    ImGui::EndMenu();
+  }
+  if (ImGui::BeginMenu("Tools")) {
+    if (ImGui::MenuItem("Reload shaders")) {
+      if (const auto reloaded = reloadShaders(); !reloaded) {
+        SONNET_LOG_ERROR("{}", reloaded.error().message);
+      }
     }
     ImGui::EndMenu();
   }
@@ -666,6 +676,95 @@ void Editor::focusSelection() {
   const world::Transform placed = world::Transform::fromMatrix(matrix);
   const float radius = std::max({std::abs(placed.scale.x), std::abs(placed.scale.y), std::abs(placed.scale.z)}) * 0.7f;
   m_viewportPanel.focus(placed.position, radius);
+}
+
+std::optional<std::filesystem::path> Editor::shaderSourceDirectory() {
+  if (!m_shaderSources.empty()) {
+    return m_shaderSources;
+  }
+  // The engine's shader sources live in the checkout, found like the log's source links.
+  const std::optional<std::filesystem::path> module =
+      locateSource("modules/renderer/shaders/sonnet.slang", m_preferences.sourceRoot, m_basePath);
+  if (!module) {
+    return std::nullopt;
+  }
+  m_shaderSources = module->parent_path();
+  return m_shaderSources;
+}
+
+core::Result<void> Editor::reloadShader(std::string_view name) {
+  const std::optional<std::filesystem::path> directory = shaderSourceDirectory();
+  if (!directory) {
+    return std::unexpected(core::Error{std::format("the shader sources were not found from {}; set sourceRoot in {}",
+                                                   m_basePath.string(), m_preferencesFile.string()),
+                                       core::ErrorCategory::Shader});
+  }
+  if (!m_shaderCompiler) {
+    m_shaderCompiler = std::make_unique<assets::ShaderCompiler>(std::vector<std::filesystem::path>{*directory});
+  }
+#ifdef SONNET_ASSERTS_ENABLED
+  constexpr bool debug = true;
+#else
+  constexpr bool debug = false;
+#endif
+  const auto spirv = m_shaderCompiler->compile(*directory / std::format("{}.slang", name), debug);
+  if (!spirv) {
+    return std::unexpected(spirv.error());
+  }
+  return m_renderer.reloadShader(name, *spirv);
+}
+
+core::Result<void> Editor::reloadShaders() {
+  core::Result<void> outcome;
+  for (const std::string_view name : renderer::Renderer::shaderNames()) {
+    if (const auto reloaded = reloadShader(name); !reloaded) {
+      SONNET_LOG_ERROR("{}", reloaded.error().message);
+      if (outcome) {
+        outcome = std::unexpected(reloaded.error());
+      }
+    }
+  }
+  return outcome;
+}
+
+void Editor::pollShaders() {
+  const auto now = std::chrono::steady_clock::now();
+  if (m_shaderPollDisabled || now - m_lastShaderPoll < std::chrono::milliseconds{500}) {
+    return;
+  }
+  m_lastShaderPoll = now;
+  const std::optional<std::filesystem::path> directory = shaderSourceDirectory();
+  if (!directory) {
+    // No checkout around the binary: a shipped editor has nothing to watch.
+    m_shaderPollDisabled = true;
+    SONNET_LOG_DEBUG("shader hot reload off: no sources found from {}", m_basePath.string());
+    return;
+  }
+  std::vector<std::string> changed;
+  std::error_code error;
+  for (const auto &entry : std::filesystem::directory_iterator{*directory, error}) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".slang") {
+      continue;
+    }
+    const std::string name = entry.path().stem().string();
+    const auto time = std::filesystem::last_write_time(entry.path(), error);
+    const auto known = m_shaderTimes.find(name);
+    if (known == m_shaderTimes.end()) {
+      m_shaderTimes[name] = time; // the state at start; only later edits reload
+    } else if (known->second != time) {
+      known->second = time;
+      changed.push_back(name);
+    }
+  }
+  for (const std::string &name : changed) {
+    const bool entryPoint =
+        std::ranges::find(renderer::Renderer::shaderNames(), name) != renderer::Renderer::shaderNames().end();
+    // A module such as sonnet.slang is imported by every entry point: all of them are rebuilt.
+    const core::Result<void> reloaded = entryPoint ? reloadShader(name) : reloadShaders();
+    if (!reloaded) {
+      SONNET_LOG_ERROR("{}", reloaded.error().message);
+    }
+  }
 }
 
 void Editor::openLocation(const std::string &path, int line) {
