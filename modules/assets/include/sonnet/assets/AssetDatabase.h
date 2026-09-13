@@ -87,8 +87,9 @@ public:
 private:
   struct FileRecord {
     std::filesystem::path sidecar;
-    std::filesystem::file_time_type sourceTime;
-    nlohmann::json settings; // the sidecar's "settings"
+    std::filesystem::file_time_type sourceTime; // what the change poll compares
+    std::string sourceHash;                     // glTF files: what the sidecar's sub-asset list is keyed on
+    nlohmann::json settings;                    // the sidecar's "settings"
   };
   struct LoadedTexture {
     renderer::TextureHandle handle;

@@ -8,7 +8,7 @@ Every asset has a UUID assigned at import and stored in a sidecar file next to t
 
 An asset may produce sub-assets: a glTF file yields meshes, materials, textures and animation clips, each with its own stable UUID derived from the parent's UUID and the sub-asset name (`core::Uuid::derive`, `mesh/0`, `material/2`, `image/1`) so re-import keeps them. The five built-in primitive meshes have fixed identities of the same kind (`assets::builtin::box()` and the others), so a scene made of primitives references them like any other mesh.
 
-The sidecar is JSON: a `version`, the `uuid`, the asset `type`, the source's modification time, the import `settings`, and for a glTF file the list of its sub-assets with their names and, for a mesh, its default material per slot, so opening a project does not parse every model.
+The sidecar is JSON: a `version`, the `uuid`, the asset `type`, the import `settings`, and for a glTF file a hash of the file's content and the list of its sub-assets with their names and, for a mesh, its default material per slot, so opening a project does not parse every model and a sidecar committed with the project stays valid in every checkout. Sidecars belong in version control next to their sources.
 
 ## Source and cooked
 

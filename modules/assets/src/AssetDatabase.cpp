@@ -83,8 +83,19 @@ std::filesystem::file_time_type modificationTime(const std::filesystem::path &fi
   return error ? std::filesystem::file_time_type{} : time;
 }
 
-std::int64_t timeToInteger(std::filesystem::file_time_type time) {
-  return time.time_since_epoch().count();
+// A glTF sidecar's sub-asset list is keyed on the file's content rather than its modification
+// time, so a sidecar committed with a project stays valid in every checkout.
+std::string contentHash(const std::filesystem::path &file) {
+  const auto bytes = core::readFile(file);
+  if (!bytes) {
+    return {};
+  }
+  std::uint64_t hash = 0xCBF29CE484222325ull;
+  for (const std::byte byte : *bytes) {
+    hash ^= std::to_integer<std::uint64_t>(byte);
+    hash *= 0x100000001B3ull;
+  }
+  return std::format("{:016x}", hash);
 }
 
 core::Result<json> readJsonFile(const std::filesystem::path &path) {
@@ -184,10 +195,10 @@ core::Result<void> AssetDatabase::writeSidecar(const core::Uuid &uuid) {
       {"version", SidecarVersion},
       {"uuid", uuid.toString()},
       {"type", std::string{toString(info.type)}},
-      {"sourceTime", timeToInteger(record.sourceTime)},
       {"settings", record.settings},
   };
   if (info.type == AssetType::Model) {
+    document["sourceHash"] = record.sourceHash;
     json subAssets = json::array();
     for (const auto &[subUuid, sub] : m_assets) {
       if (sub.parent == uuid) {
@@ -289,12 +300,14 @@ void AssetDatabase::scanFile(const std::filesystem::path &file) {
       .uuid = uuid, .type = typeOf(kind), .source = file, .name = stemOf(file), .parent = {}, .materials = {}};
   m_files[uuid] = FileRecord{.sidecar = sidecar,
                              .sourceTime = sourceTime,
+                             .sourceHash = {},
                              .settings = document.contains("settings") ? document["settings"] : json::object()};
   if (kind == SourceKind::Gltf) {
     // The sub-asset list is kept in the sidecar so a scan does not parse every glTF file; it is
-    // rebuilt when the source changed since.
+    // rebuilt when the file's content changed since.
+    m_files[uuid].sourceHash = contentHash(file);
     const bool stale =
-        !document.contains("subAssets") || document.value("sourceTime", std::int64_t{0}) != timeToInteger(sourceTime);
+        !document.contains("subAssets") || document.value("sourceHash", std::string{}) != m_files[uuid].sourceHash;
     if (stale) {
       if (auto subAssets = listGltfSubAssets(uuid, file)) {
         document["subAssets"] = std::move(*subAssets);
@@ -792,6 +805,9 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
     return std::unexpected(core::Error{std::format("{} has no source file", info->name), core::ErrorCategory::Io});
   }
   record->second.sourceTime = modificationTime(info->source);
+  if (info->type == AssetType::Model) {
+    record->second.sourceHash = contentHash(info->source);
+  }
   const AssetType type = info->type;
   const bool wasLoaded = m_textures.contains(uuid) || m_environments.contains(uuid) || m_gltfLoaded.contains(uuid) ||
                          m_materials.contains(uuid);
