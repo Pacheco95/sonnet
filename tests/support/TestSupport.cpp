@@ -12,10 +12,14 @@ struct DisableDialogs {
   DisableDialogs() {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
-    for (const int type : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT}) {
+#if defined(_DEBUG)
+    // The report functions are no-op macros in the release CRT.
+    constexpr int reportTypes[] = {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT};
+    for (const int type : reportTypes) {
       _CrtSetReportMode(type, _CRTDBG_MODE_FILE);
       _CrtSetReportFile(type, _CRTDBG_FILE_STDERR);
     }
+#endif
   }
 };
 
