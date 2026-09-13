@@ -28,6 +28,8 @@
     "spdlog",
     "tracy",
     "catch2",
+    "flecs",
+    "nlohmann-json",
     {
       "name": "imgui",
       "features": [
