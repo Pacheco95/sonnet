@@ -1,0 +1,49 @@
+{
+  "settings": {},
+  "sourceHash": "f8b9386264f68488",
+  "subAssets": [
+    {
+      "materials": [
+        "244e0d0f-9a19-8fbf-b381-9705233865f3"
+      ],
+      "name": "CrateMesh",
+      "type": "Mesh",
+      "uuid": "1009e003-4b8e-8f34-b768-bb558a449584"
+    },
+    {
+      "materials": [],
+      "name": "Planks",
+      "type": "Material",
+      "uuid": "244e0d0f-9a19-8fbf-b381-9705233865f3"
+    },
+    {
+      "materials": [],
+      "name": "image 1",
+      "type": "Texture",
+      "uuid": "67ede512-8761-8864-8628-8aa6e8cc5715"
+    },
+    {
+      "materials": [],
+      "name": "image 0",
+      "type": "Texture",
+      "uuid": "b4ebe512-8760-8864-b92a-8aa6e8cd5715"
+    },
+    {
+      "materials": [
+        "d74f0d0f-9a1a-8fbf-8080-9705233765f3"
+      ],
+      "name": "BallMesh",
+      "type": "Mesh",
+      "uuid": "c30ae003-4b8f-8f34-8467-bb558a439584"
+    },
+    {
+      "materials": [],
+      "name": "Brass",
+      "type": "Material",
+      "uuid": "d74f0d0f-9a1a-8fbf-8080-9705233765f3"
+    }
+  ],
+  "type": "Model",
+  "uuid": "41a43566-fe88-48a1-ad06-6847f9237406",
+  "version": 1
+}

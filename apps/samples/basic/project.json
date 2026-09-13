@@ -1,6 +1,6 @@
 {
   "name": "Basic",
-  "engineVersion": "0.3.0",
+  "engineVersion": "0.4.0",
   "startScene": "scenes/main.scene.json",
   "assetRoots": ["assets", "shaders", "scripts"]
 }
