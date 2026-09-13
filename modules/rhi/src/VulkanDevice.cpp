@@ -25,6 +25,11 @@ namespace {
 // Per-frame host-visible memory for uniform and storage data. Sized for the editor's scenes
 // until the renderer measures a real need; exhaustion is logged, never fatal.
 constexpr std::uint64_t TransientBufferSize = 8u << 20;
+// Per-frame staging ring for uploads; larger uploads get a dedicated buffer for the frame.
+constexpr std::uint64_t StagingBufferSize = 32u << 20;
+// Buffer-to-image copies need offsets that are multiples of 4 and of the texel block size, which
+// is at most 16 bytes for the engine's formats.
+constexpr std::uint64_t StagingAlignment = 16;
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                              VkDebugUtilsMessageTypeFlagsEXT type,
@@ -54,6 +59,25 @@ template <typename T> std::uint64_t objectHandle(T object) {
 
 } // namespace
 
+std::uint32_t VulkanDevice::IndexAllocator::allocate(std::string_view what) {
+  if (!free.empty()) {
+    const std::uint32_t index = free.back();
+    free.pop_back();
+    return index;
+  }
+  if (next >= capacity) {
+    SONNET_LOG_ERROR("bindless {} array exhausted at {} entries", what, capacity);
+    return InvalidBindlessIndex;
+  }
+  return next++;
+}
+
+void VulkanDevice::IndexAllocator::release(std::uint32_t index) {
+  if (index != InvalidBindlessIndex) {
+    free.push_back(index);
+  }
+}
+
 VulkanDevice::VulkanDevice(const DeviceDesc &desc)
     : m_context(desc.platform->vulkanGetInstanceProcAddr()), m_commandList(*this) {
   SONNET_ASSERT(desc.platform != nullptr, "a device needs the platform for the Vulkan loader and surfaces");
@@ -61,6 +85,7 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
   selectAndCreateDevice(desc);
   createAllocator();
   createPipelineLayout();
+  createBindlessSet();
   createFrames();
   SONNET_LOG_INFO("Vulkan {} device \"{}\", driver {} {}, loader {}{}", versionString(m_info.apiVersion),
                   m_info.deviceName, m_info.driverName, m_info.driverInfo, versionString(m_info.loaderVersion),
@@ -77,10 +102,14 @@ VulkanDevice::~VulkanDevice() {
     if (frame.transientBuffer) {
       m_buffers.remove(frame.transientBuffer);
     }
+    if (frame.stagingBuffer) {
+      m_buffers.remove(frame.stagingBuffer);
+    }
   }
   reportLeaks();
   m_pipelines.clear();
   m_shaders.clear();
+  m_samplers.clear();
   m_buffers.clear();
   m_images.clear();
 }
@@ -138,6 +167,9 @@ void VulkanDevice::createInstance(const DeviceDesc &desc) {
 void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   // The features in docs/rendering.md, "Vulkan baseline". Extended dynamic state is core in 1.3
   // without a feature bit.
+  VkPhysicalDeviceFeatures features{};
+  features.samplerAnisotropy = VK_TRUE;
+
   VkPhysicalDeviceVulkan11Features features11{};
   features11.shaderDrawParameters = VK_TRUE; // Slang lowers SV_VertexID through gl_BaseVertex
 
@@ -147,6 +179,7 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   features12.scalarBlockLayout = VK_TRUE;
   features12.descriptorIndexing = VK_TRUE;
   features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+  features12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
   features12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
   features12.descriptorBindingPartiallyBound = VK_TRUE;
   features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
@@ -177,6 +210,7 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   // Surfaces come later, from windows; selection only needs the swapchain extension.
   vkb::PhysicalDevice physicalDevice = unwrap(selector.set_minimum_version(1, 4)
                                                   .defer_surface_initialization()
+                                                  .set_required_features(features)
                                                   .set_required_features_11(features11)
                                                   .set_required_features_12(features12)
                                                   .set_required_features_13(features13)
@@ -201,6 +235,7 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   m_transientAlignment =
       std::max<std::uint64_t>({limits.minUniformBufferOffsetAlignment, limits.minStorageBufferOffsetAlignment, 16});
   m_timestampPeriod = limits.timestampPeriod;
+  m_maxAnisotropy = limits.maxSamplerAnisotropy;
   const std::vector<vk::QueueFamilyProperties> families = m_physicalDevice.getQueueFamilyProperties();
   m_info.timestampsSupported = families[m_graphicsFamily].timestampValidBits > 0 && m_timestampPeriod > 0.0f;
   setDebugName(vk::ObjectType::eDevice, objectHandle(*m_device), "sonnet device");
@@ -221,26 +256,66 @@ void VulkanDevice::createAllocator() {
 }
 
 void VulkanDevice::createPipelineLayout() {
-  // Set 0 is the bindless set, empty until textures arrive in M3; set 1 takes the per-pass
-  // buffers and one sampled image as push descriptors (docs/rendering.md, "Frame structure").
-  m_bindlessLayout = vk::raii::DescriptorSetLayout{m_device, vk::DescriptorSetLayoutCreateInfo{}};
+  // Set 0 is the bindless set: runtime arrays that are partially bound and updated after bind,
+  // so a resource created mid-frame is written into a free slot at once. Set 1 takes the
+  // per-pass buffers and one sampled image as push descriptors (docs/rendering.md, "Frame
+  // structure"). Both sets and the push constants are visible to every stage, since compute
+  // passes share the layout.
+  const std::array bindlessBindings{
+      vk::DescriptorSetLayoutBinding{BindlessSampledImageBinding, vk::DescriptorType::eSampledImage,
+                                     MaxBindlessSampledImages, vk::ShaderStageFlagBits::eAll},
+      vk::DescriptorSetLayoutBinding{BindlessSamplerBinding, vk::DescriptorType::eSampler, MaxBindlessSamplers,
+                                     vk::ShaderStageFlagBits::eAll},
+      vk::DescriptorSetLayoutBinding{BindlessStorageImageBinding, vk::DescriptorType::eStorageImage,
+                                     MaxBindlessStorageImages, vk::ShaderStageFlagBits::eAll},
+      vk::DescriptorSetLayoutBinding{BindlessCubeImageBinding, vk::DescriptorType::eSampledImage, MaxBindlessCubeImages,
+                                     vk::ShaderStageFlagBits::eAll},
+      vk::DescriptorSetLayoutBinding{BindlessComparisonSamplerBinding, vk::DescriptorType::eSampler,
+                                     MaxBindlessComparisonSamplers, vk::ShaderStageFlagBits::eAll},
+  };
+  constexpr vk::DescriptorBindingFlags bindingFlags =
+      vk::DescriptorBindingFlagBits::ePartiallyBound | vk::DescriptorBindingFlagBits::eUpdateAfterBind;
+  std::array<vk::DescriptorBindingFlags, bindlessBindings.size()> flags;
+  flags.fill(bindingFlags);
+  const vk::DescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{flags};
+  m_bindlessLayout = vk::raii::DescriptorSetLayout{
+      m_device, vk::DescriptorSetLayoutCreateInfo{vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool,
+                                                  bindlessBindings, &flagsInfo}};
+
   const std::array passBindings{
       vk::DescriptorSetLayoutBinding{PassUniformBinding, vk::DescriptorType::eUniformBuffer, 1,
-                                     vk::ShaderStageFlagBits::eAllGraphics},
+                                     vk::ShaderStageFlagBits::eAll},
       vk::DescriptorSetLayoutBinding{PassStorageBinding, vk::DescriptorType::eStorageBuffer, 1,
-                                     vk::ShaderStageFlagBits::eAllGraphics},
+                                     vk::ShaderStageFlagBits::eAll},
       vk::DescriptorSetLayoutBinding{PassImageBinding, vk::DescriptorType::eSampledImage, 1,
-                                     vk::ShaderStageFlagBits::eFragment},
+                                     vk::ShaderStageFlagBits::eAll},
   };
   m_passLayout = vk::raii::DescriptorSetLayout{
       m_device,
       vk::DescriptorSetLayoutCreateInfo{vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptor, passBindings}};
   const std::array layouts{*m_bindlessLayout, *m_passLayout};
-  const vk::PushConstantRange range{vk::ShaderStageFlagBits::eAllGraphics, 0, PushConstantSize};
+  const vk::PushConstantRange range{vk::ShaderStageFlagBits::eAll, 0, PushConstantSize};
   m_pipelineLayout = vk::raii::PipelineLayout{m_device, vk::PipelineLayoutCreateInfo{{}, layouts, range}};
   setDebugName(vk::ObjectType::eDescriptorSetLayout, objectHandle(*m_bindlessLayout), "bindless set layout");
   setDebugName(vk::ObjectType::eDescriptorSetLayout, objectHandle(*m_passLayout), "pass set layout");
   setDebugName(vk::ObjectType::ePipelineLayout, objectHandle(*m_pipelineLayout), "shared pipeline layout");
+}
+
+void VulkanDevice::createBindlessSet() {
+  const std::array sizes{
+      vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, MaxBindlessSampledImages + MaxBindlessCubeImages},
+      vk::DescriptorPoolSize{vk::DescriptorType::eSampler, MaxBindlessSamplers + MaxBindlessComparisonSamplers},
+      vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, MaxBindlessStorageImages},
+  };
+  // The set is a RAII object that frees itself, which the pool has to allow.
+  m_bindlessPool = vk::raii::DescriptorPool{
+      m_device, vk::DescriptorPoolCreateInfo{vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind |
+                                                 vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+                                             1, sizes}};
+  vk::raii::DescriptorSets sets{m_device, vk::DescriptorSetAllocateInfo{*m_bindlessPool, 1, &*m_bindlessLayout}};
+  m_bindlessSet = std::move(sets.front());
+  setDebugName(vk::ObjectType::eDescriptorPool, objectHandle(*m_bindlessPool), "bindless pool");
+  setDebugName(vk::ObjectType::eDescriptorSet, objectHandle(*m_bindlessSet), "bindless set");
 }
 
 void VulkanDevice::createFrames() {
@@ -254,9 +329,14 @@ void VulkanDevice::createFrames() {
     vk::raii::CommandBuffers buffers{
         m_device, vk::CommandBufferAllocateInfo{*frame.commandPool, vk::CommandBufferLevel::ePrimary, 1}};
     frame.commandBuffer = std::move(buffers.front());
+    frame.uploadPool = vk::raii::CommandPool{m_device, vk::CommandPoolCreateInfo{{}, m_graphicsFamily}};
+    vk::raii::CommandBuffers uploadBuffers{
+        m_device, vk::CommandBufferAllocateInfo{*frame.uploadPool, vk::CommandBufferLevel::ePrimary, 1}};
+    frame.uploadCommandBuffer = std::move(uploadBuffers.front());
     frame.imageAvailable = vk::raii::Semaphore{m_device, vk::SemaphoreCreateInfo{}};
     setDebugName(vk::ObjectType::eCommandPool, objectHandle(*frame.commandPool),
                  std::format("frame {} command pool", i));
+    setDebugName(vk::ObjectType::eCommandPool, objectHandle(*frame.uploadPool), std::format("frame {} upload pool", i));
     setDebugName(vk::ObjectType::eSemaphore, objectHandle(*frame.imageAvailable),
                  std::format("frame {} image available", i));
     if (m_info.timestampsSupported) {
@@ -268,6 +348,10 @@ void VulkanDevice::createFrames() {
                                           .usage = BufferUsage::Uniform | BufferUsage::Storage,
                                           .memory = MemoryUsage::CpuToGpu,
                                           .debugName = std::format("frame {} transient", i)});
+    frame.stagingBuffer = createBuffer({.size = StagingBufferSize,
+                                        .usage = BufferUsage::TransferSrc,
+                                        .memory = MemoryUsage::CpuToGpu,
+                                        .debugName = std::format("frame {} staging", i)});
   }
 }
 
@@ -326,14 +410,37 @@ std::uint64_t VulkanDevice::bufferAddress(BufferHandle handle) const {
   return buffer != nullptr ? buffer->address : 0;
 }
 
+void VulkanDevice::writeSampledDescriptor(std::uint32_t binding, std::uint32_t index, vk::ImageView view,
+                                          vk::ImageLayout layout) {
+  if (index == InvalidBindlessIndex) {
+    return;
+  }
+  const vk::DescriptorImageInfo info{nullptr, view, layout};
+  const vk::DescriptorType type =
+      binding == BindlessStorageImageBinding ? vk::DescriptorType::eStorageImage : vk::DescriptorType::eSampledImage;
+  m_device.updateDescriptorSets(vk::WriteDescriptorSet{*m_bindlessSet, binding, index, 1, type, &info}, {});
+}
+
+void VulkanDevice::writeSamplerDescriptor(std::uint32_t binding, std::uint32_t index, vk::Sampler sampler) {
+  if (index == InvalidBindlessIndex) {
+    return;
+  }
+  const vk::DescriptorImageInfo info{sampler, nullptr, vk::ImageLayout::eUndefined};
+  m_device.updateDescriptorSets(
+      vk::WriteDescriptorSet{*m_bindlessSet, binding, index, 1, vk::DescriptorType::eSampler, &info}, {});
+}
+
 ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
   SONNET_ASSERT(desc.size.x > 0 && desc.size.y > 0, "image \"{}\" has no size", desc.debugName);
-  vk::ImageCreateInfo imageInfo{{},
+  SONNET_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size), "image \"{}\": {} mip levels",
+                desc.debugName, desc.mipLevels);
+  SONNET_ASSERT(!desc.cube || desc.size.x == desc.size.y, "cube image \"{}\" is not square", desc.debugName);
+  vk::ImageCreateInfo imageInfo{desc.cube ? vk::ImageCreateFlagBits::eCubeCompatible : vk::ImageCreateFlags{},
                                 vk::ImageType::e2D,
                                 toVk(desc.format),
                                 vk::Extent3D{desc.size.x, desc.size.y, 1},
-                                1,
-                                1,
+                                desc.mipLevels,
+                                desc.layers(),
                                 vk::SampleCountFlagBits::e1,
                                 vk::ImageTiling::eOptimal,
                                 toVk(desc.usage),
@@ -345,32 +452,33 @@ ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
 
   vk::ImageViewCreateInfo viewInfo{{},
                                    *image,
-                                   vk::ImageViewType::e2D,
+                                   desc.cube ? vk::ImageViewType::eCube : vk::ImageViewType::e2D,
                                    toVk(desc.format),
                                    {},
-                                   vk::ImageSubresourceRange{aspectOf(desc.format), 0, 1, 0, 1}};
+                                   wholeImage(desc.format)};
   vk::raii::ImageView view{m_device, viewInfo};
   setDebugName(vk::ObjectType::eImageView, objectHandle(*view), std::format("{} view", desc.debugName));
 
   const vk::Image imageHandle = *image;
-  const ImageHandle handle =
-      m_images.emplace(VulkanImage{desc, std::move(allocation), std::move(image), imageHandle, std::move(view)});
+  const ImageHandle handle = m_images.emplace(
+      VulkanImage{desc, std::move(allocation), std::move(image), imageHandle, std::move(view), {}, {}});
+  VulkanImage &resource = m_images.get(handle);
+  if (has(desc.usage, ImageUsage::Sampled)) {
+    resource.sampledIndex = desc.cube ? m_cubeIndices.allocate("cube image") : m_sampledIndices.allocate("image");
+    writeSampledDescriptor(desc.cube ? BindlessCubeImageBinding : BindlessSampledImageBinding, resource.sampledIndex,
+                           *resource.view, vk::ImageLayout::eShaderReadOnlyOptimal);
+  }
   SONNET_LOG_TRACE("image \"{}\" {}x{} -> {}:{}", desc.debugName, desc.size.x, desc.size.y, handle.index,
                    handle.generation);
   return handle;
 }
 
 ImageHandle VulkanDevice::registerExternalImage(vk::Image image, const ImageDesc &desc) {
-  vk::ImageViewCreateInfo viewInfo{{},
-                                   image,
-                                   vk::ImageViewType::e2D,
-                                   toVk(desc.format),
-                                   {},
-                                   vk::ImageSubresourceRange{aspectOf(desc.format), 0, 1, 0, 1}};
+  vk::ImageViewCreateInfo viewInfo{{}, image, vk::ImageViewType::e2D, toVk(desc.format), {}, wholeImage(desc.format)};
   vk::raii::ImageView view{m_device, viewInfo};
   setDebugName(vk::ObjectType::eImage, objectHandle(image), desc.debugName);
   setDebugName(vk::ObjectType::eImageView, objectHandle(*view), std::format("{} view", desc.debugName));
-  return m_images.emplace(VulkanImage{desc, {}, {}, image, std::move(view)});
+  return m_images.emplace(VulkanImage{desc, {}, {}, image, std::move(view), {}, {}});
 }
 
 void VulkanDevice::destroyImage(ImageHandle handle) {
@@ -379,11 +487,252 @@ void VulkanDevice::destroyImage(ImageHandle handle) {
     SONNET_LOG_WARN("destroyImage: stale handle {}:{}", handle.index, handle.generation);
     return;
   }
-  deferDestruction([resource = std::make_shared<VulkanImage>(std::move(*image))]() mutable { resource.reset(); });
+  // The bindless slots are reused only once the GPU is past every frame that could read them.
+  deferDestruction([this, resource = std::make_shared<VulkanImage>(std::move(*image))]() mutable {
+    if (resource->desc.cube) {
+      m_cubeIndices.release(resource->sampledIndex);
+    } else {
+      m_sampledIndices.release(resource->sampledIndex);
+    }
+    for (const std::uint32_t index : resource->storageIndices) {
+      m_storageIndices.release(index);
+    }
+    resource.reset();
+  });
 }
 
 const ImageDesc &VulkanDevice::imageDesc(ImageHandle handle) const {
   return m_images.get(handle).desc;
+}
+
+std::uint32_t VulkanDevice::sampledImageIndex(ImageHandle handle) const {
+  const VulkanImage *image = m_images.find(handle);
+  return image != nullptr ? image->sampledIndex : InvalidBindlessIndex;
+}
+
+std::uint32_t VulkanDevice::storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) {
+  VulkanImage *image = m_images.find(handle);
+  if (image == nullptr || !has(image->desc.usage, ImageUsage::Storage) || mipLevel >= image->desc.mipLevels) {
+    SONNET_LOG_WARN("storageImageIndex: no storage view for level {} of image {}:{}", mipLevel, handle.index,
+                    handle.generation);
+    return InvalidBindlessIndex;
+  }
+  if (image->storageViews.empty()) {
+    image->storageViews.reserve(image->desc.mipLevels);
+    for (std::uint32_t level = 0; level < image->desc.mipLevels; ++level) {
+      image->storageViews.emplace_back(nullptr);
+    }
+    image->storageIndices.assign(image->desc.mipLevels, InvalidBindlessIndex);
+  }
+  if (image->storageIndices[mipLevel] == InvalidBindlessIndex) {
+    // Storage views are 2D arrays whatever the image, so one shader declaration covers plain
+    // images (one layer) and cube maps (six).
+    vk::ImageViewCreateInfo viewInfo{
+        {},
+        image->image,
+        vk::ImageViewType::e2DArray,
+        toVk(image->desc.format),
+        {},
+        vk::ImageSubresourceRange{aspectOf(image->desc.format), mipLevel, 1, 0, image->desc.layers()}};
+    image->storageViews[mipLevel] = vk::raii::ImageView{m_device, viewInfo};
+    setDebugName(vk::ObjectType::eImageView, objectHandle(*image->storageViews[mipLevel]),
+                 std::format("{} storage view {}", image->desc.debugName, mipLevel));
+    image->storageIndices[mipLevel] = m_storageIndices.allocate("storage image");
+    writeSampledDescriptor(BindlessStorageImageBinding, image->storageIndices[mipLevel], *image->storageViews[mipLevel],
+                           vk::ImageLayout::eGeneral);
+  }
+  return image->storageIndices[mipLevel];
+}
+
+SamplerHandle VulkanDevice::createSampler(const SamplerDesc &desc) {
+  const bool anisotropic = desc.anisotropy > 1.0f;
+  const vk::SamplerCreateInfo info{{},
+                                   toVk(desc.filter),
+                                   toVk(desc.filter),
+                                   toVkMipmapMode(desc.mipFilter),
+                                   toVk(desc.addressMode),
+                                   toVk(desc.addressMode),
+                                   toVk(desc.addressMode),
+                                   0.0f,
+                                   anisotropic ? VK_TRUE : VK_FALSE,
+                                   std::min(desc.anisotropy, m_maxAnisotropy),
+                                   desc.compare ? VK_TRUE : VK_FALSE,
+                                   vk::CompareOp::eGreaterOrEqual,
+                                   0.0f,
+                                   vk::LodClampNone,
+                                   vk::BorderColor::eFloatOpaqueWhite,
+                                   VK_FALSE};
+  vk::raii::Sampler sampler{m_device, info};
+  setDebugName(vk::ObjectType::eSampler, objectHandle(*sampler), desc.debugName);
+  const std::uint32_t index =
+      desc.compare ? m_comparisonSamplerIndices.allocate("comparison sampler") : m_samplerIndices.allocate("sampler");
+  writeSamplerDescriptor(desc.compare ? BindlessComparisonSamplerBinding : BindlessSamplerBinding, index, *sampler);
+  const SamplerHandle handle = m_samplers.emplace(VulkanSampler{desc, std::move(sampler), index});
+  SONNET_LOG_TRACE("sampler \"{}\" -> {}:{} at index {}", desc.debugName, handle.index, handle.generation, index);
+  return handle;
+}
+
+void VulkanDevice::destroySampler(SamplerHandle handle) {
+  std::optional<VulkanSampler> sampler = m_samplers.remove(handle);
+  if (!sampler) {
+    SONNET_LOG_WARN("destroySampler: stale handle {}:{}", handle.index, handle.generation);
+    return;
+  }
+  deferDestruction([this, resource = std::make_shared<VulkanSampler>(std::move(*sampler))]() mutable {
+    if (resource->desc.compare) {
+      m_comparisonSamplerIndices.release(resource->index);
+    } else {
+      m_samplerIndices.release(resource->index);
+    }
+    resource.reset();
+  });
+}
+
+std::uint32_t VulkanDevice::samplerIndex(SamplerHandle handle) const {
+  const VulkanSampler *sampler = m_samplers.find(handle);
+  return sampler != nullptr ? sampler->index : InvalidBindlessIndex;
+}
+
+void VulkanDevice::prepareSlot() {
+  Frame &frame = m_frames[m_frameIndex];
+  if (frame.prepared) {
+    return;
+  }
+  waitForFrame(frame);
+  readTimestamps(frame);
+  for (auto &destroy : frame.garbage) {
+    destroy();
+  }
+  frame.garbage.clear();
+  frame.commandPool.reset();
+  frame.uploadPool.reset();
+  frame.transientOffset = 0;
+  frame.transientExhausted = false;
+  frame.stagingOffset = 0;
+  frame.uploadsRecorded = false;
+  frame.timestampCount = 0;
+  frame.prepared = true;
+}
+
+vk::CommandBuffer VulkanDevice::uploadCommands() {
+  prepareSlot();
+  Frame &frame = m_frames[m_frameIndex];
+  const vk::CommandBuffer commands = *frame.uploadCommandBuffer;
+  if (!frame.uploadsRecorded) {
+    const vk::CommandBufferBeginInfo begin{vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+    m_device.getDispatcher()->vkBeginCommandBuffer(commands,
+                                                   reinterpret_cast<const VkCommandBufferBeginInfo *>(&begin));
+    // The previous frame may still read a buffer this upload overwrites.
+    const vk::MemoryBarrier2 before{vk::PipelineStageFlagBits2::eAllCommands,
+                                    vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+                                    vk::PipelineStageFlagBits2::eAllTransfer, vk::AccessFlagBits2::eTransferWrite};
+    const vk::DependencyInfo dependency{{}, 1, &before};
+    m_device.getDispatcher()->vkCmdPipelineBarrier2(commands, reinterpret_cast<const VkDependencyInfo *>(&dependency));
+    frame.uploadsRecorded = true;
+  }
+  return commands;
+}
+
+VulkanDevice::Staging VulkanDevice::stage(std::uint64_t size, std::string_view what) {
+  Frame &frame = m_frames[m_frameIndex];
+  const std::uint64_t offset = (frame.stagingOffset + StagingAlignment - 1) / StagingAlignment * StagingAlignment;
+  if (offset + size <= StagingBufferSize) {
+    frame.stagingOffset = offset + size;
+    const VulkanBuffer &ring = m_buffers.get(frame.stagingBuffer);
+    return Staging{*ring.buffer, offset, ring.mapped + offset};
+  }
+  // Too large for the ring: a buffer of its own, released with the slot's garbage after the
+  // frame that carries the upload has completed.
+  SONNET_LOG_DEBUG("upload of {} bytes for \"{}\" exceeds the staging ring, using a dedicated buffer", size, what);
+  vk::BufferCreateInfo bufferInfo{{}, size, vk::BufferUsageFlagBits::eTransferSrc, vk::SharingMode::eExclusive};
+  vma::AllocationCreateInfo allocationInfo{};
+  allocationInfo.usage = vma::MemoryUsage::eAuto;
+  allocationInfo.flags =
+      vma::AllocationCreateFlagBits::eMapped | vma::AllocationCreateFlagBits::eHostAccessSequentialWrite;
+  vma::AllocationInfo result{};
+  auto [allocation, buffer] = m_allocator->createBufferUnique(bufferInfo, allocationInfo, result);
+  setDebugName(vk::ObjectType::eBuffer, objectHandle(*buffer), std::format("{} staging", what));
+  const Staging staging{*buffer, 0, static_cast<std::byte *>(result.pMappedData)};
+  frame.garbage.push_back(
+      [dedicated = std::make_shared<VulkanBuffer>(
+           VulkanBuffer{{}, std::move(allocation), std::move(buffer), nullptr, 0})]() mutable { dedicated.reset(); });
+  return staging;
+}
+
+void VulkanDevice::uploadBuffer(BufferHandle handle, std::uint64_t offset, std::span<const std::byte> data) {
+  const VulkanBuffer *buffer = m_buffers.find(handle);
+  if (buffer == nullptr) {
+    SONNET_LOG_WARN("uploadBuffer: stale handle {}:{}", handle.index, handle.generation);
+    return;
+  }
+  SONNET_ASSERT(has(buffer->desc.usage, BufferUsage::TransferDst), "buffer \"{}\" is not a transfer destination",
+                buffer->desc.debugName);
+  SONNET_ASSERT(offset + data.size() <= buffer->desc.size, "upload of {} bytes at {} overflows buffer \"{}\"",
+                data.size(), offset, buffer->desc.debugName);
+  if (data.empty()) {
+    return;
+  }
+  const vk::CommandBuffer commands = uploadCommands();
+  const Staging staging = stage(data.size(), buffer->desc.debugName);
+  std::memcpy(staging.mapped, data.data(), data.size());
+  const vk::BufferCopy region{staging.offset, offset, data.size()};
+  m_device.getDispatcher()->vkCmdCopyBuffer(commands, staging.buffer, *buffer->buffer, 1,
+                                            reinterpret_cast<const VkBufferCopy *>(&region));
+}
+
+void VulkanDevice::uploadImage(ImageHandle handle, std::span<const ImageUpload> uploads) {
+  const VulkanImage *image = m_images.find(handle);
+  if (image == nullptr) {
+    SONNET_LOG_WARN("uploadImage: stale handle {}:{}", handle.index, handle.generation);
+    return;
+  }
+  const ImageDesc &desc = image->desc;
+  SONNET_ASSERT(has(desc.usage, ImageUsage::TransferDst), "image \"{}\" is not a transfer destination", desc.debugName);
+  const vk::CommandBuffer commands = uploadCommands();
+  const vk::ImageMemoryBarrier2 toTransfer{vk::PipelineStageFlagBits2::eAllCommands,
+                                           vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+                                           vk::PipelineStageFlagBits2::eAllTransfer,
+                                           vk::AccessFlagBits2::eTransferWrite,
+                                           vk::ImageLayout::eUndefined,
+                                           vk::ImageLayout::eTransferDstOptimal,
+                                           vk::QueueFamilyIgnored,
+                                           vk::QueueFamilyIgnored,
+                                           image->image,
+                                           wholeImage(desc.format)};
+  const vk::DependencyInfo before{{}, 0, nullptr, 0, nullptr, 1, &toTransfer};
+  m_device.getDispatcher()->vkCmdPipelineBarrier2(commands, reinterpret_cast<const VkDependencyInfo *>(&before));
+  for (const ImageUpload &upload : uploads) {
+    SONNET_ASSERT(upload.mipLevel < desc.mipLevels && upload.layer < desc.layers(),
+                  "upload to level {} layer {} of image \"{}\"", upload.mipLevel, upload.layer, desc.debugName);
+    const glm::uvec2 size = mipSize(desc.size, upload.mipLevel);
+    const std::uint64_t expected = levelByteSize(desc.format, size);
+    SONNET_ASSERT(upload.data.size() == expected, "level {} of image \"{}\" takes {} bytes, {} given", upload.mipLevel,
+                  desc.debugName, expected, upload.data.size());
+    const Staging staging = stage(upload.data.size(), desc.debugName);
+    std::memcpy(staging.mapped, upload.data.data(), upload.data.size());
+    const vk::BufferImageCopy region{
+        staging.offset,
+        0,
+        0,
+        vk::ImageSubresourceLayers{aspectOf(desc.format), upload.mipLevel, upload.layer, 1},
+        vk::Offset3D{0, 0, 0},
+        vk::Extent3D{size.x, size.y, 1}};
+    m_device.getDispatcher()->vkCmdCopyBufferToImage(commands, staging.buffer, image->image,
+                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                                                     reinterpret_cast<const VkBufferImageCopy *>(&region));
+  }
+  const vk::ImageMemoryBarrier2 toRead{vk::PipelineStageFlagBits2::eAllTransfer,
+                                       vk::AccessFlagBits2::eTransferWrite,
+                                       vk::PipelineStageFlagBits2::eAllCommands,
+                                       vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eMemoryRead,
+                                       vk::ImageLayout::eTransferDstOptimal,
+                                       vk::ImageLayout::eShaderReadOnlyOptimal,
+                                       vk::QueueFamilyIgnored,
+                                       vk::QueueFamilyIgnored,
+                                       image->image,
+                                       wholeImage(desc.format)};
+  const vk::DependencyInfo after{{}, 0, nullptr, 0, nullptr, 1, &toRead};
+  m_device.getDispatcher()->vkCmdPipelineBarrier2(commands, reinterpret_cast<const VkDependencyInfo *>(&after));
 }
 
 ShaderHandle VulkanDevice::createShader(const ShaderDesc &desc) {
@@ -420,12 +769,13 @@ PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &
     throw core::Exception{std::format("pipeline \"{}\": stale shader handle", desc.debugName),
                           core::ErrorCategory::Graphics};
   }
-  const std::array stages{
-      vk::PipelineShaderStageCreateInfo{
-          {}, vk::ShaderStageFlagBits::eVertex, *shader->module, desc.vertexEntry.c_str()},
-      vk::PipelineShaderStageCreateInfo{
-          {}, vk::ShaderStageFlagBits::eFragment, *shader->module, desc.fragmentEntry.c_str()},
-  };
+  std::vector<vk::PipelineShaderStageCreateInfo> stages;
+  stages.emplace_back(vk::PipelineShaderStageCreateFlags{}, vk::ShaderStageFlagBits::eVertex, *shader->module,
+                      desc.vertexEntry.c_str());
+  if (!desc.fragmentEntry.empty()) {
+    stages.emplace_back(vk::PipelineShaderStageCreateFlags{}, vk::ShaderStageFlagBits::eFragment, *shader->module,
+                        desc.fragmentEntry.c_str());
+  }
   // No vertex input: vertex data is pulled from buffers by index (docs/rendering.md).
   const vk::PipelineVertexInputStateCreateInfo vertexInput{};
   const vk::PipelineInputAssemblyStateCreateInfo inputAssembly{{}, vk::PrimitiveTopology::eTriangleList, VK_FALSE};
@@ -447,12 +797,7 @@ PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &
   const vk::PipelineMultisampleStateCreateInfo multisample{{}, vk::SampleCountFlagBits::e1};
   const vk::PipelineDepthStencilStateCreateInfo depthStencil{
       {}, desc.depth.test ? VK_TRUE : VK_FALSE, desc.depth.write ? VK_TRUE : VK_FALSE, toVk(desc.depth.compare)};
-  std::vector<vk::PipelineColorBlendAttachmentState> blendAttachments(desc.colorFormats.size());
-  for (auto &attachment : blendAttachments) {
-    attachment.blendEnable = VK_FALSE;
-    attachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-                                vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
-  }
+  const std::vector<vk::PipelineColorBlendAttachmentState> blendAttachments(desc.colorFormats.size(), toVk(desc.blend));
   const vk::PipelineColorBlendStateCreateInfo colorBlend{{}, VK_FALSE, vk::LogicOp::eCopy, blendAttachments};
   const std::array dynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
   const vk::PipelineDynamicStateCreateInfo dynamicState{{}, dynamicStates};
@@ -483,7 +828,22 @@ PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &
   vk::raii::Pipeline pipeline{m_device, nullptr, info};
   setDebugName(vk::ObjectType::ePipeline, objectHandle(*pipeline), desc.debugName);
   SONNET_LOG_DEBUG("pipeline \"{}\" from shader \"{}\"", desc.debugName, shader->debugName);
-  return m_pipelines.emplace(VulkanPipeline{desc.debugName, std::move(pipeline)});
+  return m_pipelines.emplace(VulkanPipeline{desc.debugName, std::move(pipeline), false});
+}
+
+PipelineHandle VulkanDevice::createComputePipeline(const ComputePipelineDesc &desc) {
+  const VulkanShader *shader = m_shaders.find(desc.shader);
+  if (shader == nullptr) {
+    throw core::Exception{std::format("compute pipeline \"{}\": stale shader handle", desc.debugName),
+                          core::ErrorCategory::Graphics};
+  }
+  const vk::PipelineShaderStageCreateInfo stage{
+      {}, vk::ShaderStageFlagBits::eCompute, *shader->module, desc.entry.c_str()};
+  const vk::ComputePipelineCreateInfo info{{}, stage, *m_pipelineLayout};
+  vk::raii::Pipeline pipeline{m_device, nullptr, info};
+  setDebugName(vk::ObjectType::ePipeline, objectHandle(*pipeline), desc.debugName);
+  SONNET_LOG_DEBUG("compute pipeline \"{}\" from shader \"{}\"", desc.debugName, shader->debugName);
+  return m_pipelines.emplace(VulkanPipeline{desc.debugName, std::move(pipeline), true});
 }
 
 void VulkanDevice::destroyPipeline(PipelineHandle handle) {
@@ -509,6 +869,10 @@ bool VulkanDevice::isValid(BufferHandle handle) const {
 
 bool VulkanDevice::isValid(ImageHandle handle) const {
   return m_images.contains(handle);
+}
+
+bool VulkanDevice::isValid(SamplerHandle handle) const {
+  return m_samplers.contains(handle);
 }
 
 void VulkanDevice::deferDestruction(std::function<void()> destroy) {
@@ -561,17 +925,8 @@ void VulkanDevice::readTimestamps(Frame &frame) {
 ICommandList &VulkanDevice::beginFrame() {
   SONNET_ZONE();
   SONNET_ASSERT(!m_recording, "beginFrame called twice without endFrame");
+  prepareSlot();
   Frame &frame = m_frames[m_frameIndex];
-  waitForFrame(frame);
-  readTimestamps(frame);
-  for (auto &destroy : frame.garbage) {
-    destroy();
-  }
-  frame.garbage.clear();
-  frame.commandPool.reset();
-  frame.transientOffset = 0;
-  frame.transientExhausted = false;
-  frame.timestampCount = 0;
   m_commandList.begin(frame.commandBuffer);
   if (m_info.timestampsSupported) {
     // Reset in the command buffer rather than on the host so no extra device feature is needed.
@@ -634,9 +989,25 @@ void VulkanDevice::endFrame() {
   m_commandList.end();
   m_recording = false;
 
-  const std::uint64_t signalValue = ++m_timelineValue;
   // Small fixed-capacity arrays: one swapchain per window, and the frame never allocates here
   // for the common single-window case.
+  std::vector<vk::CommandBufferSubmitInfo> commandInfos;
+  commandInfos.reserve(2);
+  if (frame.uploadsRecorded) {
+    // Buffer uploads become visible to everything after the copies; image uploads carry their
+    // own transitions.
+    const vk::CommandBuffer uploads = *frame.uploadCommandBuffer;
+    const vk::MemoryBarrier2 after{vk::PipelineStageFlagBits2::eAllTransfer, vk::AccessFlagBits2::eTransferWrite,
+                                   vk::PipelineStageFlagBits2::eAllCommands,
+                                   vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
+    const vk::DependencyInfo dependency{{}, 1, &after};
+    m_device.getDispatcher()->vkCmdPipelineBarrier2(uploads, reinterpret_cast<const VkDependencyInfo *>(&dependency));
+    m_device.getDispatcher()->vkEndCommandBuffer(uploads);
+    commandInfos.emplace_back(uploads);
+  }
+  commandInfos.emplace_back(*frame.commandBuffer);
+
+  const std::uint64_t signalValue = ++m_timelineValue;
   std::vector<vk::SemaphoreSubmitInfo> waits;
   std::vector<vk::SemaphoreSubmitInfo> signals;
   waits.reserve(m_pendingPresents.size());
@@ -650,14 +1021,14 @@ void VulkanDevice::endFrame() {
   }
   signals.emplace_back(*m_timeline, signalValue, vk::PipelineStageFlagBits2::eAllCommands);
 
-  const vk::CommandBufferSubmitInfo commandInfo{*frame.commandBuffer};
-  const vk::SubmitInfo2 submit{{}, waits, commandInfo, signals};
+  const vk::SubmitInfo2 submit{{}, waits, commandInfos, signals};
   const VkResult submitResult = m_device.getDispatcher()->vkQueueSubmit2(
       *m_graphicsQueue, 1, reinterpret_cast<const VkSubmitInfo2 *>(&submit), VK_NULL_HANDLE);
   if (submitResult != VK_SUCCESS) {
     SONNET_LOG_CRITICAL("vkQueueSubmit2 failed: {}", vk::to_string(static_cast<vk::Result>(submitResult)));
   }
   frame.submittedValue = signalValue;
+  frame.prepared = false;
 
   for (const PendingPresent &present : m_pendingPresents) {
     const vk::Semaphore wait = present.swapchain->renderFinished(present.imageIndex);
@@ -742,6 +1113,9 @@ void VulkanDevice::reportLeaks() {
   });
   m_images.forEach([](ImageHandle handle, VulkanImage &image) {
     SONNET_LOG_WARN("leaked image \"{}\" ({}:{})", image.desc.debugName, handle.index, handle.generation);
+  });
+  m_samplers.forEach([](SamplerHandle handle, VulkanSampler &sampler) {
+    SONNET_LOG_WARN("leaked sampler \"{}\" ({}:{})", sampler.desc.debugName, handle.index, handle.generation);
   });
   m_shaders.forEach([](ShaderHandle handle, VulkanShader &shader) {
     SONNET_LOG_WARN("leaked shader \"{}\" ({}:{})", shader.debugName, handle.index, handle.generation);

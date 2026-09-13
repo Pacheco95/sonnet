@@ -55,6 +55,27 @@ public:
   [[nodiscard]] virtual ImageHandle createImage(const ImageDesc &desc) = 0;
   virtual void destroyImage(ImageHandle handle) = 0;
   [[nodiscard]] virtual const ImageDesc &imageDesc(ImageHandle handle) const = 0;
+  // The image's slot in the bindless sampled-image array, or in the cube array for a cube image
+  // (docs/rendering.md, "Frame structure"); InvalidBindlessIndex without Sampled usage.
+  [[nodiscard]] virtual std::uint32_t sampledImageIndex(ImageHandle handle) const = 0;
+  // The slot of one mip level in the bindless storage-image array, for compute shaders to write;
+  // the view is created on first request. InvalidBindlessIndex without Storage usage.
+  [[nodiscard]] virtual std::uint32_t storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) = 0;
+
+  [[nodiscard]] virtual SamplerHandle createSampler(const SamplerDesc &desc) = 0;
+  virtual void destroySampler(SamplerHandle handle) = 0;
+  // The sampler's slot in the bindless sampler array, or in the comparison-sampler array for a
+  // sampler with `compare`.
+  [[nodiscard]] virtual std::uint32_t samplerIndex(SamplerHandle handle) const = 0;
+
+  // Uploads through the staging ring, at any point of a frame or between frames. The data is
+  // copied now; the copy runs on the GPU before the next frame's commands, so a resource
+  // uploaded during a frame is complete for that frame's draws. The buffer needs TransferDst
+  // usage. An image is uploaded once, right after creation, one ImageUpload per level and
+  // layer, and is left in ImageLayout::ShaderReadOnly; the render graph imports it with that
+  // initial layout. Oversized data falls back to a dedicated staging buffer.
+  virtual void uploadBuffer(BufferHandle handle, std::uint64_t offset, std::span<const std::byte> data) = 0;
+  virtual void uploadImage(ImageHandle handle, std::span<const ImageUpload> uploads) = 0;
 
   // Throws core::Exception when the SPIR-V is rejected by the driver.
   [[nodiscard]] virtual ShaderHandle createShader(const ShaderDesc &desc) = 0;
@@ -62,10 +83,12 @@ public:
 
   // The shader may be destroyed once the pipeline exists.
   [[nodiscard]] virtual PipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc &desc) = 0;
+  [[nodiscard]] virtual PipelineHandle createComputePipeline(const ComputePipelineDesc &desc) = 0;
   virtual void destroyPipeline(PipelineHandle handle) = 0;
 
   [[nodiscard]] virtual bool isValid(BufferHandle handle) const = 0;
   [[nodiscard]] virtual bool isValid(ImageHandle handle) const = 0;
+  [[nodiscard]] virtual bool isValid(SamplerHandle handle) const = 0;
   [[nodiscard]] virtual bool isValid(ShaderHandle handle) const = 0;
   [[nodiscard]] virtual bool isValid(PipelineHandle handle) const = 0;
 

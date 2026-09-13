@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace sonnet::rhi {
 
@@ -27,7 +28,17 @@ struct VulkanImage {
   vma::UniqueAllocation allocation;
   vma::UniqueImage ownedImage;
   vk::Image image;
-  vk::raii::ImageView view{nullptr};
+  vk::raii::ImageView view{nullptr}; // the whole image: 2D, or cube for a cube map
+  // One 2D-array view per mip level for the bindless storage array, created on first request.
+  std::vector<vk::raii::ImageView> storageViews;
+  std::vector<std::uint32_t> storageIndices;
+  std::uint32_t sampledIndex{InvalidBindlessIndex};
+};
+
+struct VulkanSampler {
+  SamplerDesc desc;
+  vk::raii::Sampler sampler{nullptr};
+  std::uint32_t index{InvalidBindlessIndex};
 };
 
 struct VulkanShader {
@@ -38,6 +49,7 @@ struct VulkanShader {
 struct VulkanPipeline {
   std::string debugName;
   vk::raii::Pipeline pipeline{nullptr};
+  bool compute{false};
 };
 
 } // namespace sonnet::rhi

@@ -20,6 +20,7 @@ public:
   }
 
   void barrier(std::span<const ImageBarrier> barriers) override;
+  void memoryBarrier(const MemoryBarrier &barrier) override;
   void beginRendering(const RenderingDesc &desc) override;
   void endRendering() override;
   void bindPipeline(PipelineHandle pipeline) override;
@@ -31,13 +32,18 @@ public:
             std::uint32_t firstInstance) override;
   void drawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex,
                    std::int32_t vertexOffset, std::uint32_t firstInstance) override;
+  void dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) override;
   void copyImageToBuffer(ImageHandle image, BufferHandle buffer) override;
   void writeTimestamp(std::uint32_t index) override;
 
 private:
+  void pushDescriptors(std::span<const vk::WriteDescriptorSet> writes);
+
   VulkanDevice &m_device;
   vk::CommandBuffer m_commandBuffer;
   const vk::raii::detail::DeviceDispatcher *m_dispatcher{nullptr};
+  // The bind point of the last bound pipeline: push descriptors go to the same one.
+  VkPipelineBindPoint m_bindPoint{VK_PIPELINE_BIND_POINT_GRAPHICS};
 };
 
 } // namespace sonnet::rhi

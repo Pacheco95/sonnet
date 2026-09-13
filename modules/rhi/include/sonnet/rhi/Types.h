@@ -3,6 +3,7 @@
 #include <sonnet/core/Handle.h>
 #include <sonnet/core/Math.h>
 
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -16,20 +17,29 @@ namespace sonnet::rhi {
 
 struct BufferTag {};
 struct ImageTag {};
+struct SamplerTag {};
 struct ShaderTag {};
 struct PipelineTag {};
 using BufferHandle = core::Handle<BufferTag>;
 using ImageHandle = core::Handle<ImageTag>;
+using SamplerHandle = core::Handle<SamplerTag>;
 using ShaderHandle = core::Handle<ShaderTag>;
 using PipelineHandle = core::Handle<PipelineTag>;
 
 enum class Format : std::uint8_t {
   Undefined,
+  R8Unorm,
   R8G8B8A8Unorm,
   R8G8B8A8Srgb,
   B8G8R8A8Unorm,
   B8G8R8A8Srgb,
-  R32Uint, // entity ids for picking and the selection outline
+  R16G16Sfloat,       // the BRDF lookup table
+  R16G16B16A16Sfloat, // HDR scene colour and environment maps
+  R32Uint,            // entity ids for picking and the selection outline
+  BC4Unorm,           // one channel, cooked textures
+  BC5Unorm,           // two channels, cooked normal maps
+  BC7Unorm,           // colour, cooked textures
+  BC7Srgb,
   D32Sfloat,
 };
 
@@ -42,19 +52,67 @@ enum class Format : std::uint8_t {
   return format == Format::R32Uint;
 }
 
-[[nodiscard]] constexpr std::uint32_t bytesPerPixel(Format format) noexcept {
+// Texel block dimensions and size: 1x1 blocks for plain formats, 4x4 for the compressed ones.
+struct FormatInfo {
+  std::uint32_t blockWidth{1};
+  std::uint32_t blockHeight{1};
+  std::uint32_t bytesPerBlock{0};
+};
+
+[[nodiscard]] constexpr FormatInfo formatInfo(Format format) noexcept {
   switch (format) {
   case Format::Undefined:
-    return 0;
+    return {1, 1, 0};
+  case Format::R8Unorm:
+    return {1, 1, 1};
   case Format::R8G8B8A8Unorm:
   case Format::R8G8B8A8Srgb:
   case Format::B8G8R8A8Unorm:
   case Format::B8G8R8A8Srgb:
+  case Format::R16G16Sfloat:
   case Format::R32Uint:
   case Format::D32Sfloat:
-    return 4;
+    return {1, 1, 4};
+  case Format::R16G16B16A16Sfloat:
+    return {1, 1, 8};
+  case Format::BC4Unorm:
+    return {4, 4, 8};
+  case Format::BC5Unorm:
+  case Format::BC7Unorm:
+  case Format::BC7Srgb:
+    return {4, 4, 16};
   }
-  return 0;
+  return {1, 1, 0};
+}
+
+[[nodiscard]] constexpr bool isCompressedFormat(Format format) noexcept {
+  return formatInfo(format).blockWidth > 1;
+}
+
+// Bytes of one uncompressed pixel; 0 for compressed formats, which have no per-pixel size.
+[[nodiscard]] constexpr std::uint32_t bytesPerPixel(Format format) noexcept {
+  return isCompressedFormat(format) ? 0 : formatInfo(format).bytesPerBlock;
+}
+
+// Bytes of one tightly packed mip level of `size` pixels.
+[[nodiscard]] constexpr std::uint64_t levelByteSize(Format format, glm::uvec2 size) noexcept {
+  const FormatInfo info = formatInfo(format);
+  const std::uint64_t blocksX = (size.x + info.blockWidth - 1) / info.blockWidth;
+  const std::uint64_t blocksY = (size.y + info.blockHeight - 1) / info.blockHeight;
+  return blocksX * blocksY * info.bytesPerBlock;
+}
+
+// Levels in a full mip chain down to 1x1.
+[[nodiscard]] constexpr std::uint32_t fullMipCount(glm::uvec2 size) noexcept {
+  std::uint32_t levels = 1;
+  for (std::uint32_t extent = std::max(size.x, size.y); extent > 1; extent /= 2) {
+    ++levels;
+  }
+  return levels;
+}
+
+[[nodiscard]] constexpr glm::uvec2 mipSize(glm::uvec2 size, std::uint32_t level) noexcept {
+  return {std::max(size.x >> level, 1u), std::max(size.y >> level, 1u)};
 }
 
 enum class BufferUsage : std::uint8_t {
@@ -71,9 +129,12 @@ enum class ImageUsage : std::uint8_t {
   None = 0,
   TransferSrc = 1 << 0,
   TransferDst = 1 << 1,
+  // Registered in the bindless sampled-image array (IDevice::sampledImageIndex).
   Sampled = 1 << 2,
   ColorAttachment = 1 << 3,
   DepthAttachment = 1 << 4,
+  // Written by compute shaders through per-level storage views (IDevice::storageImageIndex).
+  Storage = 1 << 5,
 };
 
 // Synchronization2 vocabulary, reduced to what the engine emits. Barriers name stages and
@@ -149,13 +210,59 @@ struct BufferDesc {
   bool operator==(const BufferDesc &) const = default;
 };
 
+// A 2D image, optionally with a mip chain, or a cube map of six layers. Every barrier and
+// upload addresses the whole image or one level and layer; there are no partial views.
 struct ImageDesc {
   glm::uvec2 size{1, 1};
   Format format{Format::R8G8B8A8Unorm};
   ImageUsage usage{ImageUsage::None};
+  std::uint32_t mipLevels{1};
+  bool cube{false};
   std::string debugName;
 
+  [[nodiscard]] constexpr std::uint32_t layers() const noexcept {
+    return cube ? 6u : 1u;
+  }
+  [[nodiscard]] constexpr std::uint64_t byteSize() const noexcept {
+    std::uint64_t bytes = 0;
+    for (std::uint32_t level = 0; level < mipLevels; ++level) {
+      bytes += levelByteSize(format, mipSize(size, level));
+    }
+    return bytes * layers();
+  }
+
   bool operator==(const ImageDesc &) const = default;
+};
+
+// One level and layer of an image, tightly packed, for IDevice::uploadImage.
+struct ImageUpload {
+  std::uint32_t mipLevel{0};
+  std::uint32_t layer{0};
+  std::span<const std::byte> data{};
+};
+
+enum class Filter : std::uint8_t {
+  Nearest,
+  Linear,
+};
+
+enum class AddressMode : std::uint8_t {
+  Repeat,
+  ClampToEdge,
+  MirroredRepeat,
+};
+
+// Samplers live in the bindless set: plain ones in the sampler array, ones with `compare` in the
+// comparison-sampler array, each with its own index space (IDevice::samplerIndex).
+struct SamplerDesc {
+  Filter filter{Filter::Linear};
+  Filter mipFilter{Filter::Linear};
+  AddressMode addressMode{AddressMode::Repeat};
+  float anisotropy{1.0f}; // 1 disables anisotropic filtering
+  bool compare{false};    // depth comparison with CompareOp::GreaterOrEqual, for reversed-Z shadows
+  std::string debugName;
+
+  bool operator==(const SamplerDesc &) const = default;
 };
 
 enum class ImageLayout : std::uint8_t {
@@ -167,6 +274,14 @@ enum class ImageLayout : std::uint8_t {
   TransferSrc,
   TransferDst,
   Present,
+};
+
+// A global memory dependency, for buffers written by one pass and read by another.
+struct MemoryBarrier {
+  PipelineStage srcStage{PipelineStage::None};
+  Access srcAccess{Access::None};
+  PipelineStage dstStage{PipelineStage::None};
+  Access dstAccess{Access::None};
 };
 
 // Whole-image transition with explicit synchronization on both sides. An Undefined old layout
@@ -248,15 +363,36 @@ struct DepthState {
   CompareOp compare{CompareOp::GreaterOrEqual};
 };
 
-// Every graphics pipeline shares one layout (docs/rendering.md, "Frame structure"): set 0 is
-// the bindless set, empty until textures arrive; set 1 holds the per-pass push descriptors
-// below; push constants of PushConstantSize bytes are visible to all stages. Viewport and
-// scissor are always dynamic; front faces are counter-clockwise (docs/conventions.md).
+enum class BlendMode : std::uint8_t {
+  None,
+  Alpha,    // source alpha, one minus source alpha
+  Additive, // one, one
+};
+
+// Every pipeline, graphics or compute, shares one layout (docs/rendering.md, "Frame
+// structure"). Set 0 is the bindless set, bound by bindPipeline: runtime arrays indexed by the
+// values the device hands out for images and samplers. Set 1 holds the per-pass push
+// descriptors below. Push constants of PushConstantSize bytes are visible to all stages.
+// Viewport and scissor are always dynamic; front faces are counter-clockwise
+// (docs/conventions.md).
 constexpr std::uint32_t PushConstantSize = 128;
+constexpr std::uint32_t BindlessDescriptorSet = 0;
+constexpr std::uint32_t BindlessSampledImageBinding = 0;      // Texture2D[]
+constexpr std::uint32_t BindlessSamplerBinding = 1;           // SamplerState[]
+constexpr std::uint32_t BindlessStorageImageBinding = 2;      // RWTexture2DArray[], one view per mip level
+constexpr std::uint32_t BindlessCubeImageBinding = 3;         // TextureCube[]
+constexpr std::uint32_t BindlessComparisonSamplerBinding = 4; // SamplerComparisonState[]
+constexpr std::uint32_t MaxBindlessSampledImages = 4096;
+constexpr std::uint32_t MaxBindlessSamplers = 64;
+constexpr std::uint32_t MaxBindlessStorageImages = 512;
+constexpr std::uint32_t MaxBindlessCubeImages = 64;
+constexpr std::uint32_t MaxBindlessComparisonSamplers = 8;
+// Index of a resource that is not in an array; shaders never read it.
+constexpr std::uint32_t InvalidBindlessIndex = 0xFFFFFFFFu;
 constexpr std::uint32_t PassDescriptorSet = 1;
 constexpr std::uint32_t PassUniformBinding = 0; // a uniform buffer
 constexpr std::uint32_t PassStorageBinding = 1; // a storage buffer
-constexpr std::uint32_t PassImageBinding = 2;   // a sampled image, read with Load (no sampler until M3)
+constexpr std::uint32_t PassImageBinding = 2;   // a sampled image read with Load, for post passes over one image
 
 struct BufferBinding {
   std::uint32_t binding{PassUniformBinding};
@@ -274,11 +410,18 @@ struct ImageBinding {
 struct GraphicsPipelineDesc {
   ShaderHandle shader{};
   std::string vertexEntry{"vertexMain"};
-  std::string fragmentEntry{"fragmentMain"};
+  std::string fragmentEntry{"fragmentMain"}; // empty for a depth-only pipeline without a fragment stage
   std::vector<Format> colorFormats;
   Format depthFormat{Format::Undefined};
   DepthState depth{};
   CullMode cullMode{CullMode::Back};
+  BlendMode blend{BlendMode::None}; // applies to every colour attachment
+  std::string debugName;
+};
+
+struct ComputePipelineDesc {
+  ShaderHandle shader{};
+  std::string entry{"computeMain"};
   std::string debugName;
 };
 

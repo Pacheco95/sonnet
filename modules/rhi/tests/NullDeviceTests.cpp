@@ -135,3 +135,58 @@ TEST_CASE("null device reports a memory budget from its live resources", "[rhi][
   REQUIRE(after.heaps[0].usage == before.heaps[0].usage + 64 * 64 * 4);
   device->destroyImage(image);
 }
+
+TEST_CASE("null device traces uploads, compute dispatches and bindless slots", "[rhi][null]") {
+  const auto device = createNullDevice();
+  const BufferHandle vertices = device->createBuffer(
+      {.size = 64, .usage = BufferUsage::Storage | BufferUsage::TransferDst, .debugName = "vertices"});
+  const ImageHandle texture = device->createImage({.size = {2, 2},
+                                                   .format = Format::R8G8B8A8Unorm,
+                                                   .usage = ImageUsage::Sampled | ImageUsage::TransferDst,
+                                                   .mipLevels = 2,
+                                                   .debugName = "texture"});
+  const ImageHandle storage = device->createImage({.size = {8, 8},
+                                                   .format = Format::R16G16B16A16Sfloat,
+                                                   .usage = ImageUsage::Sampled | ImageUsage::Storage,
+                                                   .debugName = "storage"});
+  const SamplerHandle sampler = device->createSampler({.debugName = "linear"});
+  const SamplerHandle shadow = device->createSampler({.compare = true, .debugName = "shadow"});
+  REQUIRE(device->sampledImageIndex(texture) == 0);
+  REQUIRE(device->sampledImageIndex(storage) == 1);
+  REQUIRE(device->storageImageIndex(storage, 0) == 0);
+  REQUIRE(device->storageImageIndex(texture, 0) == InvalidBindlessIndex);
+  REQUIRE(device->samplerIndex(sampler) == 0);
+  REQUIRE(device->samplerIndex(shadow) == 0);
+
+  const ShaderHandle shader = device->createShader({.spirv = {}, .debugName = "shader"});
+  const PipelineHandle fill = device->createComputePipeline({.shader = shader, .debugName = "fill"});
+
+  ICommandList &commands = device->beginFrame();
+  const std::array<std::byte, 16> data{};
+  device->uploadBuffer(vertices, 32, data);
+  const std::array<std::byte, 16> level0{};
+  const std::array<std::byte, 4> level1{};
+  const std::array uploads{ImageUpload{.mipLevel = 0, .data = level0}, ImageUpload{.mipLevel = 1, .data = level1}};
+  device->uploadImage(texture, uploads);
+  commands.bindPipeline(fill);
+  commands.dispatch(4, 2, 1);
+  commands.memoryBarrier({.srcStage = PipelineStage::ComputeShader,
+                          .srcAccess = Access::ShaderWrite,
+                          .dstStage = PipelineStage::FragmentShader,
+                          .dstAccess = Access::ShaderRead});
+  REQUIRE(traceContains(*device, "uploadBuffer \"vertices\" 16 bytes at 32"));
+  REQUIRE(traceContains(*device, "uploadImage \"texture\" level 0 layer 0 16 bytes"));
+  REQUIRE(traceContains(*device, "uploadImage \"texture\" level 1 layer 0 4 bytes"));
+  REQUIRE(traceContains(*device, "bindPipeline \"fill\""));
+  REQUIRE(traceContains(*device, "dispatch 4 2 1"));
+  REQUIRE(traceContains(*device, "memoryBarrier"));
+  device->endFrame();
+
+  device->destroyPipeline(fill);
+  device->destroyShader(shader);
+  device->destroySampler(shadow);
+  device->destroySampler(sampler);
+  device->destroyImage(storage);
+  device->destroyImage(texture);
+  device->destroyBuffer(vertices);
+}

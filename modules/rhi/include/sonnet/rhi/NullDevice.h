@@ -44,14 +44,27 @@ public:
   ImageHandle createImage(const ImageDesc &desc) override;
   void destroyImage(ImageHandle handle) override;
   const ImageDesc &imageDesc(ImageHandle handle) const override;
+  std::uint32_t sampledImageIndex(ImageHandle handle) const override;
+  std::uint32_t storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) override;
+
+  SamplerHandle createSampler(const SamplerDesc &desc) override;
+  void destroySampler(SamplerHandle handle) override;
+  std::uint32_t samplerIndex(SamplerHandle handle) const override;
+
+  // Traced as `uploadBuffer "name" N bytes at offset` and `uploadImage "name" level L layer K N
+  // bytes`; a host-visible buffer also receives the data.
+  void uploadBuffer(BufferHandle handle, std::uint64_t offset, std::span<const std::byte> data) override;
+  void uploadImage(ImageHandle handle, std::span<const ImageUpload> uploads) override;
 
   ShaderHandle createShader(const ShaderDesc &desc) override;
   void destroyShader(ShaderHandle handle) override;
   PipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc &desc) override;
+  PipelineHandle createComputePipeline(const ComputePipelineDesc &desc) override;
   void destroyPipeline(PipelineHandle handle) override;
 
   bool isValid(BufferHandle handle) const override;
   bool isValid(ImageHandle handle) const override;
+  bool isValid(SamplerHandle handle) const override;
   bool isValid(ShaderHandle handle) const override;
   bool isValid(PipelineHandle handle) const override;
 
@@ -77,12 +90,19 @@ private:
   };
   struct Image {
     ImageDesc desc;
+    std::uint32_t sampledIndex{InvalidBindlessIndex};
+    std::vector<std::uint32_t> storageIndices;
+  };
+  struct Sampler {
+    SamplerDesc desc;
+    std::uint32_t index{InvalidBindlessIndex};
   };
   struct Shader {
     std::string debugName;
   };
   struct Pipeline {
-    GraphicsPipelineDesc desc;
+    std::string debugName;
+    bool compute{false};
   };
   struct Frame {
     BufferHandle transientBuffer;
@@ -101,8 +121,15 @@ private:
   std::uint32_t m_frameIndex{0};
   bool m_recording{false};
   std::uint64_t m_nextAddress{0x1000};
+  // Bindless slots are handed out in creation order and never reused, which keeps traces stable.
+  std::uint32_t m_nextSampledIndex{0};
+  std::uint32_t m_nextCubeIndex{0};
+  std::uint32_t m_nextStorageIndex{0};
+  std::uint32_t m_nextSamplerIndex{0};
+  std::uint32_t m_nextComparisonSamplerIndex{0};
   core::HandlePool<Buffer, BufferTag> m_buffers;
   core::HandlePool<Image, ImageTag> m_images;
+  core::HandlePool<Sampler, SamplerTag> m_samplers;
   core::HandlePool<Shader, ShaderTag> m_shaders;
   core::HandlePool<Pipeline, PipelineTag> m_pipelines;
 };

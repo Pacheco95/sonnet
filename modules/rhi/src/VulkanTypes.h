@@ -18,6 +18,12 @@ namespace sonnet::rhi {
 [[nodiscard]] vk::AccessFlags2 toVk(Access access) noexcept;
 [[nodiscard]] vk::CompareOp toVk(CompareOp op) noexcept;
 [[nodiscard]] vk::IndexType toVk(IndexType type) noexcept;
+[[nodiscard]] vk::Filter toVk(Filter filter) noexcept;
+[[nodiscard]] vk::SamplerMipmapMode toVkMipmapMode(Filter filter) noexcept;
+[[nodiscard]] vk::SamplerAddressMode toVk(AddressMode mode) noexcept;
+[[nodiscard]] vk::PipelineColorBlendAttachmentState toVk(BlendMode mode) noexcept;
 [[nodiscard]] vk::ImageAspectFlags aspectOf(Format format) noexcept;
+// Every level and layer of an image.
+[[nodiscard]] vk::ImageSubresourceRange wholeImage(Format format) noexcept;
 
 } // namespace sonnet::rhi
