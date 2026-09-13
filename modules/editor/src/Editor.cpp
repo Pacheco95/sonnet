@@ -421,13 +421,18 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
   if (target.isValid()) {
     sceneColor = m_graph.importImage(target.color());
     const renderer::GraphImage depth = m_graph.importImage(target.depth());
-    const renderer::GraphImage ids = m_graph.createImage({.size = target.size(),
-                                                          .format = renderer::Renderer::IdFormat,
-                                                          .usage = rhi::ImageUsage::None,
-                                                          .debugName = "ids"});
+    const rhi::ImageDesc idDesc{.size = target.size(),
+                                .format = renderer::Renderer::IdFormat,
+                                .usage = rhi::ImageUsage::None,
+                                .debugName = "ids"};
+    const renderer::GraphImage ids = m_graph.createImage(idDesc);
+    rhi::ImageDesc maskDesc = idDesc;
+    maskDesc.debugName = "selection mask";
+    const renderer::GraphImage mask = m_graph.createImage(maskDesc);
     m_renderer.addScenePasses(m_graph, m_view, sceneColor, depth);
     m_renderer.addIdPass(m_graph, m_view, ids, depth);
-    m_renderer.addOutlinePass(m_graph, sceneColor, ids, m_outlineIds);
+    m_renderer.addSelectionMaskPass(m_graph, m_view, mask, m_outlineIds);
+    m_renderer.addOutlinePass(m_graph, sceneColor, mask);
     m_picker.addPass(m_graph, ids, target.size());
   }
   if (swapchainImage) {

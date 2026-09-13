@@ -44,10 +44,8 @@ static_assert(sizeof(DrawConstants) == 16);
 // Mirror of shaders/outline.slang.
 struct OutlineConstants {
   glm::vec4 color;
-  std::array<glm::uvec4, Renderer::MaxOutlineIds / 4> ids;
-  std::uint32_t count;
 };
-static_assert(sizeof(OutlineConstants) == 84 && sizeof(OutlineConstants) <= rhi::PushConstantSize);
+static_assert(sizeof(OutlineConstants) == 16);
 
 } // namespace
 
@@ -65,6 +63,9 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir)
                                  .depth = {.test = true, .write = false},
                                  .cullMode = rhi::CullMode::Back,
                                  .debugName = "id"});
+  // The same id shader without a depth attachment: every selected surface, occluded or not.
+  m_maskPipeline = createPipeline(
+      shaderDir, "id", {.colorFormats = {IdFormat}, .cullMode = rhi::CullMode::Back, .debugName = "selection mask"});
   m_outlinePipeline = createPipeline(
       shaderDir, "outline", {.colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "outline"});
   SONNET_LOG_DEBUG("renderer ready, shaders from {}", shaderDir.string());
@@ -77,6 +78,7 @@ Renderer::~Renderer() {
     m_device.destroyBuffer(mesh.indices);
   });
   m_device.destroyPipeline(m_outlinePipeline);
+  m_device.destroyPipeline(m_maskPipeline);
   m_device.destroyPipeline(m_idPipeline);
   m_device.destroyPipeline(m_forwardPipeline);
 }
@@ -156,22 +158,34 @@ void Renderer::addIdPass(RenderGraph &graph, const SceneView &view, GraphImage i
       });
 }
 
-void Renderer::addOutlinePass(RenderGraph &graph, GraphImage color, GraphImage ids,
-                              std::span<const std::uint32_t> selected, glm::vec4 outlineColor) {
-  m_outlineCount = static_cast<std::uint32_t>(std::min(selected.size(), MaxOutlineIds));
-  std::copy_n(selected.begin(), m_outlineCount, m_outlineIds.begin());
+void Renderer::addSelectionMaskPass(RenderGraph &graph, const SceneView &view, GraphImage mask,
+                                    std::span<const std::uint32_t> selected) {
+  m_selectedCount = static_cast<std::uint32_t>(std::min(selected.size(), MaxSelected));
+  std::copy_n(selected.begin(), m_selectedCount, m_selected.begin());
+  if (m_selectedCount == 0) {
+    return;
+  }
+  graph.addPass(
+      "selection mask",
+      [&](PassBuilder &builder) { builder.color(mask, rhi::LoadOp::Clear, {0.0f, 0.0f, 0.0f, 0.0f}); },
+      [this, &view, mask](rhi::ICommandList &commands, const PassResources &resources) {
+        recordSelectionMask(commands, view, m_device.imageDesc(resources.image(mask)).size);
+      });
+}
+
+void Renderer::addOutlinePass(RenderGraph &graph, GraphImage color, GraphImage mask, glm::vec4 outlineColor) {
   m_outlineColor = outlineColor;
-  if (m_outlineCount == 0) {
+  if (m_selectedCount == 0) {
     return;
   }
   graph.addPass(
       "outline",
       [&](PassBuilder &builder) {
         builder.color(color, rhi::LoadOp::Load);
-        builder.sample(ids);
+        builder.sample(mask);
       },
-      [this, ids](rhi::ICommandList &commands, const PassResources &resources) {
-        recordOutline(commands, resources.image(ids));
+      [this, mask](rhi::ICommandList &commands, const PassResources &resources) {
+        recordOutline(commands, resources.image(mask));
       });
 }
 
@@ -199,7 +213,7 @@ Renderer::PassBuffers Renderer::uploadPassBuffers(const SceneView &view, glm::uv
 }
 
 void Renderer::recordDraws(rhi::ICommandList &commands, const SceneView &view, const PassBuffers &buffers,
-                           rhi::PipelineHandle pipeline, bool count) {
+                           rhi::PipelineHandle pipeline, bool count, std::span<const std::uint32_t> only) {
   commands.bindPipeline(pipeline);
   const std::array bindings{
       rhi::BufferBinding{.binding = rhi::PassUniformBinding,
@@ -214,6 +228,9 @@ void Renderer::recordDraws(rhi::ICommandList &commands, const SceneView &view, c
   commands.bindBuffers(bindings);
 
   for (std::size_t i = 0; i < view.draws.size(); ++i) {
+    if (!only.empty() && std::ranges::find(only, view.draws[i].id) == only.end()) {
+      continue;
+    }
     const Mesh *mesh = m_meshes.find(view.draws[i].mesh);
     if (mesh == nullptr) {
       continue; // a stale handle draws nothing; the owner is expected to notice
@@ -253,14 +270,22 @@ void Renderer::recordIds(rhi::ICommandList &commands, const SceneView &view, glm
   }
 }
 
-void Renderer::recordOutline(rhi::ICommandList &commands, rhi::ImageHandle ids) {
+void Renderer::recordSelectionMask(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize) {
   SONNET_ZONE();
-  OutlineConstants constants{.color = m_outlineColor, .ids = {}, .count = m_outlineCount};
-  for (std::uint32_t i = 0; i < m_outlineCount; ++i) {
-    constants.ids[i / 4][i % 4] = m_outlineIds[i];
+  if (view.draws.empty() || targetSize.x == 0 || targetSize.y == 0) {
+    return;
   }
+  const PassBuffers buffers = uploadPassBuffers(view, targetSize);
+  if (buffers.valid()) {
+    recordDraws(commands, view, buffers, m_maskPipeline, false, std::span{m_selected.data(), m_selectedCount});
+  }
+}
+
+void Renderer::recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask) {
+  SONNET_ZONE();
+  const OutlineConstants constants{.color = m_outlineColor};
   commands.bindPipeline(m_outlinePipeline);
-  const rhi::ImageBinding binding{.binding = rhi::PassImageBinding, .image = ids};
+  const rhi::ImageBinding binding{.binding = rhi::PassImageBinding, .image = mask};
   commands.bindImages({&binding, 1});
   commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   commands.draw(3);
