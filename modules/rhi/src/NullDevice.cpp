@@ -213,6 +213,7 @@ NullDevice::NullDevice() : m_commandList(std::make_unique<NullCommandList>(*this
   m_info.driverName = "null";
   m_info.apiVersion = 0;
   m_info.timestampsSupported = true;
+  m_info.blockCompressionSupported = true;
   for (std::uint32_t i = 0; i < FramesInFlight; ++i) {
     m_frames[i].transientBuffer = createBuffer({.size = TransientBufferSize,
                                                 .usage = BufferUsage::Uniform | BufferUsage::Storage,
