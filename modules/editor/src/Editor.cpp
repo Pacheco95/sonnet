@@ -111,7 +111,9 @@ void Editor::update(float dt) {
   world::buildDrawList(m_world, m_meshes, m_draws);
   m_view.camera = m_viewportPanel.camera().camera();
   m_view.draws = m_draws;
-  m_view.light = world::sceneLight(m_world).value_or(renderer::DirectionalLight{});
+  const std::optional<renderer::DirectionalLight> sun = world::sceneLight(m_world);
+  m_view.hasSun = sun.has_value();
+  m_view.sun = sun.value_or(renderer::DirectionalLight{});
   // The selection and everything under it: selecting a parent outlines its whole subtree.
   m_outlineIds.clear();
   std::vector<flecs::entity> pending;
