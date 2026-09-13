@@ -115,13 +115,15 @@ private:
   void registerSystems();
   template <typename T> void registerComponent(const char *name, bool tag = false);
 
+  // Declared before m_world: its OnRemove observer runs while the world is torn down
+  // (World::~World()), so the index must still be alive when the world is destroyed first.
+  std::unordered_map<core::Uuid, flecs::entity_t> m_byUuid;
   flecs::world m_world;
   std::array<flecs::entity, 5> m_phases;
   flecs::entity m_editPipeline;
   flecs::entity m_playPipeline;
   flecs::entity m_transformSystem;
   std::vector<ComponentInfo> m_components;
-  std::unordered_map<core::Uuid, flecs::entity_t> m_byUuid;
   bool m_playing{false};
 };
 
