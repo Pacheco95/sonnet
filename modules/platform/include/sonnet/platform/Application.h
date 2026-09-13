@@ -32,7 +32,8 @@ public:
 };
 
 // Defined by the executable, which includes <sonnet/platform/EntryPoint.h> exactly once. Called
-// after the platform is up; may throw, which terminates with the message logged.
+// after the platform is up with the command-line arguments after the program name; may throw,
+// which terminates with the message logged.
 std::unique_ptr<IApplication> createApplication(Platform &platform, std::span<const std::string_view> args);
 
 } // namespace sonnet::platform
