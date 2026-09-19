@@ -42,7 +42,7 @@ Import decodes to RGBA8, generates mipmaps, and cooks to KTX2 in the project's c
 
 ## Meshes
 
-Meshes are uploaded in the vertex layout the renderer pulls from (position, normal, tangent, one UV set) with a 32-bit index buffer, bounds and a material slot list, straight from the glTF file. The database keeps the CPU copy of every loaded mesh, built-in or imported, which `meshData` returns for collision shapes; a cooked binary form of the same layout arrives with the cook tool in M6, together with welding and vertex-cache optimisation.
+Meshes are uploaded in the vertex layout the renderer pulls from (position, normal, tangent, one UV set) with a 32-bit index buffer, bounds and a material slot list, straight from the glTF file. The database keeps the CPU copy of every loaded mesh, built-in or imported, which `meshData` returns for physics to build mesh colliders from ([physics.md](physics.md#components)); a cooked binary form of the same layout arrives with the cook tool in M6, together with welding and vertex-cache optimisation.
 
 ## Materials
 

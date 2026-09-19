@@ -14,7 +14,7 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | `renderer` | Render graph, frame resources, materials, meshes, cameras, lights, the rendering passes, engine shaders | `rhi` |
 | `assets` | Asset identity, database, importers (glTF, images, KTX2, Slang), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
 | `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save ([world.md](world.md)) | `assets`, flecs, nlohmann-json |
-| `physics` | Rigid bodies and queries behind `IPhysicsWorld`. Jolt implementation (M4) | `world`, Jolt |
+| `physics` | Rigid bodies, colliders, raycasts and debug outlines behind `IPhysicsWorld`, with the Jolt implementation ([physics.md](physics.md)) | `world`, Jolt |
 | `scripting` | `IScriptRuntime`. Lua/sol2 implementation (M4) | `world`, Lua, sol2 |
 | `audio` | `IAudioDevice`, sources and listeners. miniaudio or SDL3 audio implementation (M5) | `world` |
 | `ui` | Dear ImGui layer: context, SDL3 and Vulkan backends, texture display, fonts. Editor and debug builds only | `rhi`, `platform`, ImGui |
@@ -105,4 +105,5 @@ Initialization and resource creation may throw; the hot loop never throws; recov
 - [Rendering](rendering.md)
 - [World](world.md)
 - [Assets](assets.md)
+- [Physics](physics.md)
 - [Roadmap](roadmap.md)
