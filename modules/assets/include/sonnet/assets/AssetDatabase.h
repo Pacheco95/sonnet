@@ -44,6 +44,10 @@ public:
   [[nodiscard]] const std::filesystem::path &projectRoot() const noexcept {
     return m_projectRoot;
   }
+  // The asset roots the project was opened with, relative to its root.
+  [[nodiscard]] std::span<const std::string> roots() const noexcept {
+    return m_roots;
+  }
 
   [[nodiscard]] const AssetInfo *find(const core::Uuid &uuid) const;
   [[nodiscard]] const AssetInfo *findByPath(const std::filesystem::path &source) const;
@@ -55,6 +59,12 @@ public:
   [[nodiscard]] renderer::MaterialHandle material(const core::Uuid &uuid);
   [[nodiscard]] renderer::EnvironmentHandle environment(const core::Uuid &uuid);
   [[nodiscard]] const Model *model(const core::Uuid &uuid);
+  // A mesh's vertices and indices on the CPU, kept once the mesh is loaded, for collision shapes.
+  [[nodiscard]] const renderer::MeshData *meshData(const core::Uuid &uuid);
+  // A script's source, read on first use and again when the file changes.
+  [[nodiscard]] const ScriptSource *script(const core::Uuid &uuid);
+  // A new .lua file under the project, registered at once.
+  [[nodiscard]] core::Result<core::Uuid> createScript(const std::filesystem::path &file, std::string_view code);
 
   // A material's authored values; editing them updates the renderer's material at once, and
   // saving writes the .material.json of a file material.
@@ -121,6 +131,9 @@ private:
   std::map<core::Uuid, AssetInfo> m_assets;
   std::unordered_map<core::Uuid, FileRecord> m_files;
   std::unordered_map<core::Uuid, renderer::MeshHandle> m_meshes;
+  std::unordered_map<core::Uuid, renderer::MeshData> m_meshData;
+  std::unordered_map<core::Uuid, ScriptSource> m_scripts;
+  std::uint64_t m_scriptRevision{0};
   std::unordered_map<core::Uuid, LoadedTexture> m_textures;
   std::unordered_map<core::Uuid, LoadedMaterial> m_materials;
   std::unordered_map<core::Uuid, renderer::EnvironmentHandle> m_environments;

@@ -21,6 +21,7 @@ enum class AssetType : std::uint8_t {
   Material,    // a .material.json file, or a glTF material
   Model,       // a glTF file: the node hierarchy over its meshes and materials
   Environment, // an equirectangular .hdr map
+  Script,      // a .lua file, run by the scripting module
 };
 
 [[nodiscard]] std::string_view toString(AssetType type) noexcept;
@@ -72,6 +73,13 @@ struct MaterialSource {
 constexpr int MaterialFileVersion = 1;
 [[nodiscard]] nlohmann::json saveMaterial(const MaterialSource &material);
 [[nodiscard]] core::Result<MaterialSource> loadMaterial(const nlohmann::json &document);
+
+// A script's source as last read; the revision changes with every read, so a runtime that
+// compiled an older one knows to reload (docs/assets.md, "Hot reload").
+struct ScriptSource {
+  std::string code;
+  std::uint64_t revision{0};
+};
 
 // The node hierarchy of a glTF file, which `world` turns into a prefab.
 struct ModelNode {

@@ -25,6 +25,7 @@ enum class SourceKind {
   Hdr,
   Gltf,
   Material,
+  Script,
 };
 
 // Lower-cased extension, with the double extension of material files.
@@ -49,6 +50,9 @@ SourceKind kindOf(const std::filesystem::path &file) {
   if (extension == ".gltf" || extension == ".glb") {
     return SourceKind::Gltf;
   }
+  if (extension == ".lua") {
+    return SourceKind::Script;
+  }
   return SourceKind::Unknown;
 }
 
@@ -63,6 +67,8 @@ AssetType typeOf(SourceKind kind) {
     return AssetType::Model;
   case SourceKind::Material:
     return AssetType::Material;
+  case SourceKind::Script:
+    return AssetType::Script;
   case SourceKind::Unknown:
     break;
   }
@@ -523,6 +529,7 @@ bool AssetDatabase::loadGltf(const core::Uuid &uuid) {
       continue;
     }
     m_meshes[meshUuid] = m_renderer.createMesh(mesh.data, std::format("{}/{}", info->name, mesh.name));
+    m_meshData[meshUuid] = std::move(import->meshes[i].data);
   }
   Model model = std::move(import->model);
   for (std::size_t n = 0; n < model.nodes.size(); ++n) {
@@ -556,6 +563,7 @@ renderer::MeshHandle AssetDatabase::mesh(const core::Uuid &uuid) {
       data = renderer::primitives::capsule();
     }
     m_meshes[uuid] = m_renderer.createMesh(data, info->name);
+    m_meshData[uuid] = std::move(data);
     return m_meshes[uuid];
   }
   if (!info->parent.isNil() && loadGltf(info->parent)) {
@@ -657,6 +665,34 @@ const Model *AssetDatabase::model(const core::Uuid &uuid) {
   return nullptr;
 }
 
+const renderer::MeshData *AssetDatabase::meshData(const core::Uuid &uuid) {
+  if (!mesh(uuid)) {
+    return nullptr;
+  }
+  const auto it = m_meshData.find(uuid);
+  return it != m_meshData.end() ? &it->second : nullptr;
+}
+
+const ScriptSource *AssetDatabase::script(const core::Uuid &uuid) {
+  if (const auto it = m_scripts.find(uuid); it != m_scripts.end()) {
+    return &it->second;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Script || m_failed.contains(uuid)) {
+    return nullptr;
+  }
+  const auto bytes = core::readFile(info->source);
+  if (!bytes) {
+    SONNET_LOG_ERROR("{}", bytes.error().toString());
+    m_failed[uuid] = true;
+    return nullptr;
+  }
+  ScriptSource &source = m_scripts[uuid];
+  source.code.assign(reinterpret_cast<const char *>(bytes->data()), bytes->size());
+  source.revision = ++m_scriptRevision;
+  return &source;
+}
+
 // ---- Materials ----
 
 const MaterialSource *AssetDatabase::materialSource(const core::Uuid &uuid) {
@@ -703,6 +739,26 @@ core::Result<core::Uuid> AssetDatabase::createMaterial(const std::filesystem::pa
         core::Error{std::format("{}: a material file ends in .material.json", path.string()), core::ErrorCategory::Io});
   }
   if (const auto written = core::writeFile(path, assets::saveMaterial(source).dump(2) + "\n"); !written) {
+    return std::unexpected(written.error());
+  }
+  scanFile(path);
+  const AssetInfo *info = findByPath(path);
+  if (info == nullptr) {
+    return std::unexpected(core::Error{std::format("{}: not registered", path.string()), core::ErrorCategory::Io});
+  }
+  return info->uuid;
+}
+
+core::Result<core::Uuid> AssetDatabase::createScript(const std::filesystem::path &file, std::string_view code) {
+  if (!isOpen()) {
+    return std::unexpected(core::Error{"no project is open", core::ErrorCategory::Io});
+  }
+  const std::filesystem::path path = std::filesystem::absolute(file).lexically_normal();
+  if (kindOf(path) != SourceKind::Script) {
+    return std::unexpected(
+        core::Error{std::format("{}: a script file ends in .lua", path.string()), core::ErrorCategory::Io});
+  }
+  if (const auto written = core::writeFile(path, code); !written) {
     return std::unexpected(written.error());
   }
   scanFile(path);
@@ -772,12 +828,16 @@ void AssetDatabase::unloadFile(const core::Uuid &uuid) {
         m_renderer.destroyMesh(it->second);
         m_meshes.erase(it);
       }
+      m_meshData.erase(subUuid);
     }
     m_models.erase(uuid);
     m_gltfLoaded.erase(uuid);
     break;
   }
   case AssetType::Mesh:
+    break;
+  case AssetType::Script:
+    m_scripts.erase(uuid);
     break;
   }
 }
@@ -810,7 +870,7 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
   }
   const AssetType type = info->type;
   const bool wasLoaded = m_textures.contains(uuid) || m_environments.contains(uuid) || m_gltfLoaded.contains(uuid) ||
-                         m_materials.contains(uuid);
+                         m_materials.contains(uuid) || m_scripts.contains(uuid);
   unloadFile(uuid);
   if (type == AssetType::Model) {
     // The sub-asset list may have changed with the file.
@@ -861,6 +921,12 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
     }
     break;
   case AssetType::Mesh:
+    break;
+  case AssetType::Script:
+    if (script(uuid) == nullptr) {
+      return std::unexpected(
+          core::Error{std::format("{}: re-import failed", info->source.string()), core::ErrorCategory::Io});
+    }
     break;
   }
   SONNET_LOG_INFO("re-imported {}", info->source.filename().string());

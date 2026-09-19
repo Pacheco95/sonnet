@@ -218,6 +218,9 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
   case assets::AssetType::Texture:
     drawTexture(*info);
     break;
+  case assets::AssetType::Script:
+    // Nothing to show until the editor runs scripts.
+    break;
   case assets::AssetType::Mesh: {
     const renderer::MeshHandle mesh = m_assets.mesh(uuid);
     if (mesh) {

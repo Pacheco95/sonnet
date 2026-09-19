@@ -79,6 +79,8 @@ std::string_view toString(AssetType type) noexcept {
     return "Model";
   case AssetType::Environment:
     return "Environment";
+  case AssetType::Script:
+    return "Script";
   }
   return "?";
 }
