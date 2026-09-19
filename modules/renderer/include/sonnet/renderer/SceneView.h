@@ -51,6 +51,13 @@ struct Light {
   float outerAngle{glm::radians(30.0f)};  // spot lights: nothing outside
 };
 
+// A world-space segment for debug drawing, such as a physics collider's outline.
+struct DebugLine {
+  glm::vec3 from{0.0f};
+  glm::vec3 to{0.0f};
+  glm::vec4 color{1.0f};
+};
+
 struct SceneView {
   Camera camera;
   DirectionalLight sun;
@@ -63,6 +70,7 @@ struct SceneView {
   float exposure{1.0f};
   float bloomStrength{0.04f};
   std::span<const DrawItem> draws;
+  std::span<const DebugLine> debugLines; // drawn by addDebugLinePass
 };
 
 } // namespace sonnet::renderer

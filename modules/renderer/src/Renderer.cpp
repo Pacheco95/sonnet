@@ -147,6 +147,18 @@ struct OutlineConstants {
 };
 static_assert(sizeof(OutlineConstants) == 16);
 
+// Matches debug.slang.
+struct DebugVertex {
+  glm::vec4 position;
+  glm::vec4 color;
+};
+static_assert(sizeof(DebugVertex) == 32);
+
+struct DebugConstants {
+  glm::mat4 viewProjection;
+};
+static_assert(sizeof(DebugConstants) <= rhi::PushConstantSize);
+
 std::uint32_t groups(std::uint32_t size, std::uint32_t threads) {
   return (size + threads - 1) / threads;
 }
@@ -230,6 +242,13 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
       {.fragmentEntry = "fxaa", .colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "fxaa"});
   defineGraphics(m_outlinePipeline, "outline",
                  {.colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "outline"});
+  defineGraphics(m_debugLinePipeline, "debug",
+                 {.colorFormats = {ColorFormat},
+                  .depthFormat = DepthFormat,
+                  .depth = {.test = true, .write = false},
+                  .cullMode = rhi::CullMode::None,
+                  .topology = rhi::Topology::LineList,
+                  .debugName = "debug lines"});
   defineCompute(m_clusterPipeline, "cluster", "computeMain", "light clustering");
   defineCompute(m_equirectPipeline, "ibl", "equirectToCube", "equirect to cube");
   defineCompute(m_cubeMipPipeline, "ibl", "cubeMip", "cube mip");
@@ -266,8 +285,8 @@ Renderer::~Renderer() {
   }
   for (const rhi::PipelineHandle pipeline :
        {m_brdfLutPipeline, m_prefilterPipeline, m_irradiancePipeline, m_cubeMipPipeline, m_equirectPipeline,
-        m_clusterPipeline, m_outlinePipeline, m_fxaaPipeline, m_tonemapPipeline, m_bloomUpPipeline, m_bloomDownPipeline,
-        m_skyboxPipeline}) {
+        m_clusterPipeline, m_debugLinePipeline, m_outlinePipeline, m_fxaaPipeline, m_tonemapPipeline, m_bloomUpPipeline,
+        m_bloomDownPipeline, m_skyboxPipeline}) {
     m_device.destroyPipeline(pipeline);
   }
   for (const auto &pair :
@@ -278,8 +297,8 @@ Renderer::~Renderer() {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 8> names{"cluster", "depth",   "forward", "ibl",
-                                                         "id",      "outline", "post",    "skybox"};
+  static constexpr std::array<std::string_view, 9> names{"cluster", "debug",   "depth", "forward", "ibl",
+                                                         "id",      "outline", "post",  "skybox"};
   return names;
 }
 
@@ -1243,6 +1262,45 @@ void Renderer::recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask)
   commands.bindImages({&binding, 1});
   commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   commands.draw(3);
+}
+
+void Renderer::addDebugLinePass(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth) {
+  if (view.debugLines.empty()) {
+    return;
+  }
+  const glm::uvec2 size = graph.imageDesc(color).size;
+  graph.addPass(
+      "debug lines",
+      [&](PassBuilder &builder) {
+        builder.color(color, rhi::LoadOp::Load);
+        builder.depth(depth, rhi::LoadOp::Load);
+      },
+      [this, &view, size](rhi::ICommandList &commands, const PassResources &) {
+        recordDebugLines(commands, view, size);
+      });
+}
+
+void Renderer::recordDebugLines(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize) {
+  SONNET_ZONE();
+  const std::uint64_t bytes = view.debugLines.size() * 2 * sizeof(DebugVertex);
+  const rhi::TransientAllocation allocation = m_device.allocateTransient(bytes);
+  if (allocation.data.empty()) {
+    SONNET_LOG_WARN("{} debug lines do not fit the frame's transient memory", view.debugLines.size());
+    return;
+  }
+  auto *vertices = reinterpret_cast<DebugVertex *>(allocation.data.data());
+  for (const DebugLine &line : view.debugLines) {
+    *vertices++ = {.position = glm::vec4{line.from, 1.0f}, .color = line.color};
+    *vertices++ = {.position = glm::vec4{line.to, 1.0f}, .color = line.color};
+  }
+  const float aspect = static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u));
+  const DebugConstants constants{.viewProjection = view.camera.projection(aspect) * view.camera.view()};
+  commands.bindPipeline(m_debugLinePipeline);
+  const rhi::BufferBinding binding{
+      .binding = rhi::PassStorageBinding, .buffer = allocation.buffer, .offset = allocation.offset, .size = bytes};
+  commands.bindBuffers({&binding, 1});
+  commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+  commands.draw(static_cast<std::uint32_t>(view.debugLines.size() * 2));
 }
 
 } // namespace sonnet::renderer
