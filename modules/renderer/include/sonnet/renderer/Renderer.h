@@ -115,6 +115,11 @@ public:
   void addOutlinePass(RenderGraph &graph, GraphImage color, GraphImage mask,
                       glm::vec4 outlineColor = {1.0f, 0.6f, 0.1f, 1.0f});
 
+  // Declares the debug line pass: the view's debug lines over `color`, depth-tested against
+  // `depth` without writing it, so it has to come before a pass that discards the depth. Adds
+  // nothing when there are no lines. Same lifetime rule as addScenePasses.
+  void addDebugLinePass(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth);
+
   [[nodiscard]] const RenderStatistics &statistics() const noexcept {
     return m_statistics;
   }
@@ -223,6 +228,7 @@ private:
   void addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment, bool viewed);
   void addBloomPasses(RenderGraph &graph, GraphImage hdr, glm::uvec2 size, GraphImage &result);
   void recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask);
+  void recordDebugLines(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
 
   rhi::IDevice &m_device;
   RendererSettings m_settings;
@@ -240,6 +246,7 @@ private:
   rhi::PipelineHandle m_tonemapPipeline;
   rhi::PipelineHandle m_fxaaPipeline;
   rhi::PipelineHandle m_outlinePipeline;
+  rhi::PipelineHandle m_debugLinePipeline;
   rhi::PipelineHandle m_clusterPipeline;
   rhi::PipelineHandle m_equirectPipeline;
   rhi::PipelineHandle m_cubeMipPipeline;

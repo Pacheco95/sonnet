@@ -142,7 +142,9 @@ struct GpuScene {
       ICommandList &commands = device.beginFrame();
       graph.reset();
       const GraphImage color = graph.importImage(target.color());
-      renderer.addScenePasses(graph, view, color, graph.importImage(target.depth()), {0.0f, 0.0f, 0.0f, 1.0f});
+      const GraphImage depth = graph.importImage(target.depth());
+      renderer.addScenePasses(graph, view, color, depth, {0.0f, 0.0f, 0.0f, 1.0f});
+      renderer.addDebugLinePass(graph, view, color, depth);
       if (frame == frames - 1) {
         graph.addPass(
             "readback", [&](PassBuilder &b) { b.transferSrc(color); },
@@ -423,6 +425,82 @@ TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu
     REQUIRE(device->validationMessageCount() == 0);
 
     renderer.destroyMaterial(material);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the renderer destroys every pipeline it creates", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    REQUIRE(device->pipelineCount() > 0);
+  }
+  REQUIRE(device->pipelineCount() == 0);
+}
+
+TEST_CASE("debug lines draw over the scene where nothing hides them", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const std::array lines{DebugLine{.from = {0.0f, 0.0f, 0.0f}, .to = {1.0f, 0.0f, 0.0f}, .color = {1, 0, 0, 1}},
+                         DebugLine{.from = {0.0f, 0.0f, 0.0f}, .to = {0.0f, 1.0f, 0.0f}, .color = {0, 1, 0, 1}}};
+  SceneView view = boxScene({});
+  const auto frame = [&] {
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    const GraphImage color = graph.importImage(target.color());
+    const GraphImage depth = graph.importImage(target.depth());
+    renderer.addScenePasses(graph, view, color, depth);
+    renderer.addDebugLinePass(graph, view, color, depth);
+    graph.execute(commands);
+    device->endFrame();
+  };
+
+  frame();
+  REQUIRE_FALSE(hasPass(graph, "debug lines"));
+
+  view.debugLines = lines;
+  frame();
+  REQUIRE(hasPass(graph, "debug lines"));
+  REQUIRE(countLines(*device, "bindPipeline \"debug lines\"") == 1);
+  REQUIRE(countLines(*device, "draw 4 x1") == 1);
+  REQUIRE(graph.statistics().passes.back().name == "debug lines");
+}
+
+TEST_CASE("debug lines are depth-tested against the scene on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const std::array draws{DrawItem{.mesh = box}};
+    // The camera is 3 m back with a 60 degree field of view over 64 pixels: 5 m away a pixel is
+    // 2.887 / 32 m high, 2 m away 1.155 / 32 m. Each line sits on a pixel row's centre, row 31
+    // behind the box and row 40 in front of it.
+    const std::array lines{
+        DebugLine{.from = {-2.0f, 0.045f, -2.0f}, .to = {2.0f, 0.045f, -2.0f}, .color = {0.0f, 1.0f, 0.0f, 1.0f}},
+        DebugLine{.from = {-0.6f, -0.3067f, 1.0f}, .to = {0.6f, -0.3067f, 1.0f}, .color = {1.0f, 0.0f, 0.0f, 1.0f}}};
+    SceneView view = boxScene(draws);
+    view.debugLines = lines;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view);
+
+    const auto near = [&](unsigned x, unsigned y, auto predicate) {
+      return predicate(scene.pixel(x, y - 1)) || predicate(scene.pixel(x, y)) || predicate(scene.pixel(x, y + 1));
+    };
+    const auto green = [](Pixel p) { return p.g > 200 && p.r < 60 && p.b < 60; };
+    const auto red = [](Pixel p) { return p.r > 200 && p.g < 60 && p.b < 60; };
+    // Beside the box the far line shows, behind it the box hides it.
+    REQUIRE(near(14, 31, green));
+    REQUIRE_FALSE(near(32, 31, green));
+    // The near line crosses in front of the box.
+    REQUIRE(near(32, 40, red));
+    REQUIRE(device->validationMessageCount() == 0);
     renderer.destroyMesh(box);
   }
   REQUIRE(device->validationMessageCount() == 0);
