@@ -9,19 +9,39 @@
 #include <array>
 #include <cctype>
 #include <format>
+#include <span>
+#include <string>
+#include <string_view>
 
 namespace sonnet::editor {
 
 namespace {
 
-constexpr std::array<std::pair<const char *, std::optional<assets::AssetType>>, 6> TypeFilters{{
+constexpr std::array<std::pair<const char *, std::optional<assets::AssetType>>, 7> TypeFilters{{
     {"All", std::nullopt},
     {"Textures", assets::AssetType::Texture},
     {"Meshes", assets::AssetType::Mesh},
     {"Materials", assets::AssetType::Material},
     {"Models", assets::AssetType::Model},
     {"Environments", assets::AssetType::Environment},
+    {"Scripts", assets::AssetType::Script},
 }};
+
+// What "New script" writes: every hook, empty, and the shape a script has to return.
+constexpr std::string_view ScriptTemplate = R"lua(-- Runs on its entity in play mode; see docs/scripting.md.
+local Script = {}
+
+function Script:start()
+end
+
+function Script:update(dt)
+end
+
+function Script:fixedUpdate(dt)
+end
+
+return Script
+)lua";
 
 bool containsIgnoringCase(std::string_view text, std::string_view needle) {
   if (needle.empty()) {
@@ -82,6 +102,10 @@ void AssetBrowserPanel::draw(bool &open) {
   if (ImGui::Button("New material")) {
     createMaterial();
   }
+  ImGui::SameLine();
+  if (ImGui::Button("New script")) {
+    createScript();
+  }
 
   const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
   if (ImGui::BeginTable("assets", 3, flags)) {
@@ -133,6 +157,29 @@ void AssetBrowserPanel::createMaterial() {
     }
   }
   const auto created = m_assets.createMaterial(file, assets::MaterialSource{});
+  if (!created) {
+    SONNET_LOG_ERROR("{}", created.error().toString());
+    return;
+  }
+  m_inspected = *created;
+  m_selection.clear();
+  SONNET_LOG_INFO("created {}", file.string());
+}
+
+void AssetBrowserPanel::createScript() {
+  // The project's scripts folder when it has one, otherwise its first asset root.
+  const std::span<const std::string> roots = m_assets.roots();
+  const bool scriptsRoot = std::ranges::find(roots, std::string{"scripts"}) != roots.end();
+  const std::filesystem::path root =
+      m_assets.projectRoot() / (scriptsRoot || roots.empty() ? std::string{"scripts"} : roots.front());
+  std::filesystem::path file;
+  for (int i = 1; i < 1000; ++i) {
+    file = root / (i == 1 ? std::string{"new.lua"} : std::format("new {}.lua", i));
+    if (!std::filesystem::exists(file)) {
+      break;
+    }
+  }
+  const auto created = m_assets.createScript(file, ScriptTemplate);
   if (!created) {
     SONNET_LOG_ERROR("{}", created.error().toString());
     return;

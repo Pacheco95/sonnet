@@ -75,6 +75,9 @@ std::optional<assets::AssetType> InspectorPanel::assetTypeOfMember(std::string_v
   if (member == "map") {
     return assets::AssetType::Environment;
   }
+  if (member == "script") {
+    return assets::AssetType::Script;
+  }
   if (member.ends_with("Texture")) {
     return assets::AssetType::Texture;
   }
@@ -114,6 +117,20 @@ InspectorPanel::ScalarWidget InspectorPanel::scalarWidget(const flecs::world &wo
     return ScalarWidget::Entity;
   }
   return ScalarWidget::Unsupported;
+}
+
+void InspectorPanel::drawScript(const assets::AssetInfo &info) {
+  const assets::ScriptSource *source = m_assets.script(info.uuid);
+  if (source == nullptr) {
+    ImGui::TextDisabled("(unreadable)");
+    return;
+  }
+  const auto lines = std::ranges::count(source->code, '\n');
+  ImGui::Text("Lua, %td lines", lines);
+  ImGui::TextDisabled("Changes reload into the running game.");
+  if (m_open && ImGui::Button("Edit")) {
+    m_open(info.source.string(), 1);
+  }
 }
 
 void InspectorPanel::track() {
@@ -219,7 +236,7 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
     drawTexture(*info);
     break;
   case assets::AssetType::Script:
-    // Nothing to show until the editor runs scripts.
+    drawScript(*info);
     break;
   case assets::AssetType::Mesh: {
     const renderer::MeshHandle mesh = m_assets.mesh(uuid);

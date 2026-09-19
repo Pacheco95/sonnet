@@ -20,8 +20,8 @@ constexpr const char *AssetDragPayload = "SONNET_ASSET";
 [[nodiscard]] std::string assetLabel(const assets::AssetDatabase &assets, const core::Uuid &uuid);
 
 // The project's assets by type and name (docs/editor.md, "Asset browser"): a filter, a type
-// filter, one row per asset. Clicking inspects the asset; rows are drag sources; the button
-// creates a material file in the first asset root.
+// filter, one row per asset. Clicking inspects the asset; rows are drag sources; the buttons
+// create a material file in the assets folder and a script in the scripts folder.
 class AssetBrowserPanel {
 public:
   AssetBrowserPanel(assets::AssetDatabase &assets, Selection &selection);
@@ -38,6 +38,7 @@ public:
 
 private:
   void createMaterial();
+  void createScript();
 
   assets::AssetDatabase &m_assets;
   Selection &m_selection;

@@ -42,11 +42,15 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                // Platform windows need a display; the headless driver has none.
                .viewports = !platform.isHeadless()}),
       m_renderer(device, platform.basePath() / "shaders"), m_graph(device), m_picker(device), m_assets(m_renderer),
-      m_world({.explorer = explorer}), m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
+      m_world({.explorer = explorer}), m_physics(physics::createPhysicsWorld(m_world, m_assets)),
+      m_scripts(scripting::createScriptRuntime(
+          {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
+      m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_hierarchyPanel(m_world, m_selection, m_commands), m_inspectorPanel(m_world, m_assets, m_selection, m_commands),
       m_assetBrowserPanel(m_assets, m_selection) {
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   newScene();
   SONNET_LOG_INFO("editor ready");
 }
@@ -63,6 +67,30 @@ void Editor::event(const platform::Event &event) {
   if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
     m_lookDelta += moved->delta;
   }
+  if (!gameInputActive()) {
+    return;
+  }
+  // Pointer positions become relative to the viewport image, as the player's are to its window.
+  // Events are in window coordinates, ImGui's in the main viewport's screen space.
+  const glm::vec2 offset = m_mainViewportOrigin - m_viewportPanel.input().origin;
+  if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
+    m_input.handle(platform::MouseMoved{.position = moved->position + offset, .delta = moved->delta});
+  } else if (const auto *pressed = std::get_if<platform::MouseButtonPressed>(&event)) {
+    // A click elsewhere in the editor is not the game's.
+    if (m_viewportPanel.input().hovered) {
+      m_input.handle(platform::MouseButtonPressed{
+          .button = pressed->button, .position = pressed->position + offset, .clicks = pressed->clicks});
+    }
+  } else if (const auto *released = std::get_if<platform::MouseButtonReleased>(&event)) {
+    m_input.handle(platform::MouseButtonReleased{.button = released->button, .position = released->position + offset});
+  } else {
+    m_input.handle(event);
+  }
+}
+
+bool Editor::gameInputActive() const {
+  const ViewportInput &input = m_viewportPanel.input();
+  return isPlaying() && input.visible && input.focused && !m_viewportPanel.cameraActive();
 }
 
 void Editor::update(float dt) {
@@ -71,6 +99,7 @@ void Editor::update(float dt) {
   m_selection.prune(m_world);
 
   m_imgui.beginFrame();
+  m_mainViewportOrigin = {ImGui::GetMainViewport()->Pos.x, ImGui::GetMainViewport()->Pos.y};
   const ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
   if (!m_layoutBuilt) {
     buildDefaultLayout(dockspace);
@@ -113,8 +142,16 @@ void Editor::update(float dt) {
   // shader sources rebuild their pipelines.
   static_cast<void>(m_assets.pollChanges());
   pollShaders();
-  // The world's frame after the UI edited it: systems, then what the renderer draws.
+  // Keys held when the viewport loses the focus, or the camera takes it, are let go.
+  const bool gameInput = gameInputActive();
+  if (m_gameInputWasActive && !gameInput) {
+    m_input.releaseAll();
+  }
+  m_gameInputWasActive = gameInput;
+  // The world's frame after the UI edited it: systems, then what the renderer draws. The game
+  // input's presses and releases last one frame.
   m_world.progress(dt);
+  m_input.beginFrame();
   world::buildDrawList(m_world, m_assets, m_draws);
   world::buildLightList(m_world, m_lights);
   m_view.camera = m_viewportPanel.camera().camera();
@@ -127,6 +164,11 @@ void Editor::update(float dt) {
   m_view.environment = environment ? environment->environment : renderer::EnvironmentHandle{};
   m_view.environmentIntensity = environment ? environment->intensity : 1.0f;
   m_view.exposure = environment ? environment->exposure : 1.0f;
+  m_debugLines.clear();
+  if (m_showColliders) {
+    m_physics->debugLines(m_debugLines);
+  }
+  m_view.debugLines = m_debugLines;
   // The selection and everything under it: selecting a parent outlines its whole subtree.
   m_outlineIds.clear();
   std::vector<flecs::entity> pending;
@@ -221,7 +263,8 @@ void Editor::handleShortcuts() {
   if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
     m_selection.clear();
   }
-  if (m_viewportPanel.input().hovered && !m_viewportPanel.cameraActive()) {
+  // While the game has the keyboard, W, E, R and F are its keys, not the gizmo's.
+  if (m_viewportPanel.input().hovered && !m_viewportPanel.cameraActive() && !gameInputActive()) {
     if (ImGui::IsKeyPressed(ImGuiKey_W, false)) {
       m_gizmo.setMode(GizmoMode::Translate);
     }
@@ -340,6 +383,7 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Assets", nullptr, &m_showAssets);
     ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
     ImGui::MenuItem("Statistics overlay", nullptr, &m_showOverlay);
+    ImGui::MenuItem("Physics colliders", nullptr, &m_showColliders);
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("Help")) {
@@ -466,6 +510,8 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     maskDesc.debugName = "selection mask";
     const renderer::GraphImage mask = m_graph.createImage(maskDesc);
     m_renderer.addScenePasses(m_graph, m_view, sceneColor, depth);
+    // Before the id pass, which leaves the depth undefined.
+    m_renderer.addDebugLinePass(m_graph, m_view, sceneColor, depth);
     m_renderer.addIdPass(m_graph, m_view, ids, depth);
     m_renderer.addSelectionMaskPass(m_graph, m_view, mask, m_outlineIds);
     m_renderer.addOutlinePass(m_graph, sceneColor, mask);
@@ -632,6 +678,9 @@ void Editor::stop() {
   const bool wasDirty = isDirty();
   m_world.setPlaying(false);
   m_world.clearScene();
+  // The scripts' instances and globals go with the running scene; the next play loads them fresh.
+  m_scripts->reset();
+  m_input = {};
   if (const auto restored = world::loadScene(m_world, m_snapshot); !restored) {
     SONNET_LOG_ERROR("restoring the scene after play: {}", restored.error().toString());
   }

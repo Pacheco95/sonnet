@@ -16,7 +16,7 @@ sonnet_add_module(editor
     src/StatisticsPanel.cpp
     src/ViewportPanel.cpp
   PUBLIC_DEPENDS
-    sonnet::world
+    sonnet::scripting
     sonnet::ui
 )
 
@@ -24,6 +24,7 @@ sonnet_add_module_test(editor
   SOURCES
     tests/CommandTests.cpp
     tests/EditorTests.cpp
+    tests/EditorPlayTests.cpp
     tests/FlyCameraTests.cpp
     tests/GizmoTests.cpp
     tests/InspectorTests.cpp

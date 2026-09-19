@@ -53,6 +53,7 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
   const ImVec2 mouse = ImGui::GetMousePos();
   m_input = ViewportInput{.visible = true,
                           .hovered = hovered,
+                          .focused = ImGui::IsWindowFocused(),
                           .origin = {origin.x, origin.y},
                           .size = {available.x, available.y},
                           .mouse = {mouse.x, mouse.y},
