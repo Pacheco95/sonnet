@@ -6,7 +6,8 @@ Window, input events, the application callback interface and file-system paths, 
 |---|---|
 | `Platform.h` | `Platform`: owns the SDL video subsystem, creates windows, exposes paths and the Vulkan loader |
 | `Window.h` | `IWindow` and `WindowDesc`; the SDL window handle for Dear ImGui's backend and relative mouse mode |
-| `Input.h` | `Key` (physical positions), `MouseButton`, `Modifiers` |
+| `Input.h` | `Key` (physical positions), `MouseButton`, `Modifiers`, and their names both ways |
+| `InputState.h` | `InputState`: the keyboard and mouse as state, fed from events |
 | `Event.h` | The event structs and the `Event` variant |
 | `Application.h` | `IApplication` (`iterate`, `event`, `nativeEvent`), `AppResult`, the `createApplication` declaration every executable defines |
 | `EntryPoint.h` | Included once per executable; provides `main()` through SDL's callbacks |
@@ -34,6 +35,10 @@ The Vulkan loader is reached through `Platform::vulkanGetInstanceProcAddr` and `
 
 Events are values of the `Event` variant: window resize (pixel size), minimise and restore, focus, close request, quit request, key press and release with modifiers and repeat, UTF-8 text input, mouse motion with delta, mouse buttons with click count, and wheel. `Key` names physical positions with US-layout names, so game bindings survive keyboard layouts; text input carries the layout-aware characters. There is no window id on events until the engine has more than one window that receives input.
 
+## Input state
+
+`InputState` turns the event stream into what a game asks for: which keys and buttons are held, which went down or up this frame, where the pointer is and how far it and the wheel moved this frame. The application hands it the events the game should see and calls `beginFrame` once its frame has consumed them; a key's repeats are not new presses, and losing the window's focus, or `releaseAll`, releases everything held, since those releases would never arrive. `toString` and `keyFromName` convert keys to and from their enumerator names (`"A"`, `"Digit1"`, `"LeftShift"`), and likewise for mouse buttons.
+
 ## Headless
 
 `PlatformDesc::headless` selects SDL's offscreen video driver: windows exist and report sizes, nothing is displayed, and the Vulkan library still loads, so the same code paths run in tests and CI. SDL assertions abort instead of opening their dialog. `platform_tests` uses it for every test that needs the subsystem.
@@ -44,4 +49,4 @@ Events are values of the `Event` variant: window resize (pixel size), minimise a
 
 ## Tests
 
-`platform_tests` covers the headless platform, window creation and sizes, paths, the Vulkan loader hook (skipped where no loader is installed) and, white-box through `src/SdlEvents.h`, the scancode and modifier mapping and the translation of every event type.
+`platform_tests` covers the input state's held keys and one-frame edges, motion and wheel, the release on focus loss and the key names, the headless platform, window creation and sizes, paths, the Vulkan loader hook (skipped where no loader is installed) and, white-box through `src/SdlEvents.h`, the scancode and modifier mapping and the translation of every event type.
