@@ -17,7 +17,7 @@ The sidecar is JSON: a `version`, the `uuid`, the asset `type`, the import `sett
 
 ## Database
 
-`AssetDatabase` maps UUIDs to metadata (`AssetInfo`: type, source path, name, parent, default materials) and to loaded renderer objects and data. `open` scans the project's asset roots, writes the sidecars that are missing and registers every file whose extension has an importer; `assets` lists them by type for the editor's browser. Loading runs on the main thread, on first use: `mesh`, `texture`, `material`, `environment` and `model` import what they are asked for and return the renderer's handle, or an invalid handle when the import failed, which is logged once and not retried until a re-import. `script` returns a script's source text with a revision that changes on every read, so the scripting runtime knows when to reload; `createScript` writes a new `.lua` file and registers it, as `createMaterial` does for materials. A glTF file's sub-assets are imported together the first time any of them is asked for. The draw list resolves mesh identities through the database every frame, so a swap under an identity reaches the next frame without anyone holding a stale handle.
+`AssetDatabase` maps UUIDs to metadata (`AssetInfo`: type, source path, name, parent, default materials) and to loaded renderer objects and data. `open` scans the project's asset roots, writes the sidecars that are missing and registers every file whose extension has an importer; `assets` lists them by type for the editor's browser. Loading runs on the main thread, on first use: `mesh`, `texture`, `material`, `environment` and `model` import what they are asked for and return the renderer's handle, or an invalid handle when the import failed, which is logged once and not retried until a re-import. `script` returns a script's source text with a revision that changes on every read, so the scripting runtime knows when to reload ([scripting.md](scripting.md#errors-and-hot-reload)); `createScript` writes a new `.lua` file and registers it, as `createMaterial` does for materials. A glTF file's sub-assets are imported together the first time any of them is asked for. The draw list resolves mesh identities through the database every frame, so a swap under an identity reaches the next frame without anyone holding a stale handle.
 
 The asynchronous-ready form of this API, a request that returns at once with a placeholder until a job finishes, arrives with the job system.
 
@@ -31,7 +31,7 @@ The asynchronous-ready form of this API, a request that returns at once with a p
 | KTX2 | KTX-Software | Textures, used directly; Basis Universal data is transcoded on load |
 | `.material.json` | assets | Materials ([Materials](#materials)) |
 | `.slang` | Slang, through `ShaderCompiler` | SPIR-V modules for the editor's shader hot reload ([rendering.md](rendering.md#shaders)) |
-| `.lua` | assets | Script assets: the source text, for the scripting runtime |
+| `.lua` | assets | Script assets: the source text, run by `scripting` ([scripting.md](scripting.md)) |
 | `.scene.json`, `.prefab.json` | world | Scenes and prefabs |
 
 Import settings live in the sidecar file and are edited in the inspector. A texture's are `TextureSettings`: sRGB or linear, mipmaps, compression; changing them rewrites the sidecar and re-imports at once. The importers are also plain functions in `Importers.h` (`importImage`, `importHdr`, `importGltf`, `readKtx2`, `cookKtx2`) for tools and tests.

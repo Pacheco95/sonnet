@@ -37,7 +37,7 @@ Events are values of the `Event` variant: window resize (pixel size), minimise a
 
 ## Input state
 
-`InputState` turns the event stream into what a game asks for: which keys and buttons are held, which went down or up this frame, where the pointer is and how far it and the wheel moved this frame. The application hands it the events the game should see and calls `beginFrame` once its frame has consumed them; a key's repeats are not new presses, and losing the window's focus, or `releaseAll`, releases everything held, since those releases would never arrive. `toString` and `keyFromName` convert keys to and from their enumerator names (`"A"`, `"Digit1"`, `"LeftShift"`), and likewise for mouse buttons.
+`InputState` turns the event stream into what a game asks for: which keys and buttons are held, which went down or up this frame, where the pointer is and how far it and the wheel moved this frame. The application hands it the events the game should see and calls `beginFrame` once its frame has consumed them; a key's repeats are not new presses, and losing the window's focus, or `releaseAll`, releases everything held, since those releases would never arrive. `toString` and `keyFromName` convert keys to and from their enumerator names (`"A"`, `"Digit1"`, `"LeftShift"`), and likewise for mouse buttons, which is how scripts name them ([scripting.md](scripting.md#input)).
 
 ## Headless
 
