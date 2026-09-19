@@ -95,7 +95,7 @@ A project is a folder with a `project.json` ([assets.md](assets.md#project-file)
 
 Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "editor")`: the recent projects and the external editor command. A `file:line` in the log panel is a link that runs that command with the placeholders filled in (`code --goto {file}:{line}` by default). Log records name repository-relative files and binaries carry no build-machine paths, so the editor finds the file at click time: under `sourceRoot` when set, otherwise in the directories from the executable's upwards, which finds the checkout a build directory lives in. A file found nowhere is a warning, not an empty document in the external editor.
 
-`editor_tests` covers the selection, every command through undo and redo including the material and texture settings commands, the gizmo's maths and headless drags, projects and preferences through the temporary directory, the fly camera, the log buffer, the inspector's widget for each scalar kind, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play and stop, save and reopen, a scripted dynamic body launched in play mode and put back by stop, twice, with the colliders drawn, the asset browser and a material in the inspector, the shaders recompiled from the checkout, with picking and the outline in the frames and validation silent.
+`editor_tests` covers the selection, every command through undo and redo including the material and texture settings commands, the gizmo's maths and headless drags, projects and preferences through the temporary directory, the fly camera, the log buffer, the inspector's widget for each scalar kind, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play and stop, save and reopen, a scripted dynamic body launched in play mode and put back by stop, twice, with the colliders drawn, the basic sample's playground played without a warning and reset, the asset browser and a material in the inspector, the shaders recompiled from the checkout, with picking and the outline in the frames and validation silent.
 
 ## Running it
 
@@ -104,6 +104,8 @@ Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "edit
 ```
 
 Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+P to play and stop. The View menu toggles the panels, the overlay and the collider outlines, Tools reloads the shaders; Ctrl+Q quits.
+
+File, Open scene, `scenes/playground.scene.json` is the physics and scripting sample: play it, click into the viewport, and roll the ball with W/A/S/D and Space while a sweeper, an elevator and a spawner run their scripts.
 
 ## See also
 

@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a",
+      "name": "Physics crate",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.75,
+            "y": 0.55,
+            "z": 0.35,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "RigidBody": {
+          "type": "Dynamic",
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1.0
+        },
+        "BoxCollider": {
+          "halfExtents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      }
+    }
+  ]
+}
