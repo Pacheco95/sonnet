@@ -34,7 +34,7 @@ vcpkg manifest mode is the default for every dependency. `FetchContent` is allow
 | M1 | `imgui` with `docking-experimental`, `sdl3-binding`, `vulkan-binding` |
 | M2 | `flecs`, `nlohmann-json` |
 | M3 | `fastgltf`, `stb`, `ktx` |
-| M4 | `joltphysics`, `lua`, `sol2` |
+| M4 | `joltphysics`, `lua` (feature `cpp`), `sol2` |
 | M5 | `miniaudio` |
 
 Versions are pinned through the `builtin-baseline` in the manifest (and `overrides` when a port has to stay behind the baseline), so every machine and CI job resolves the same set. CI checks out vcpkg at that baseline rather than using the runner's copy.
