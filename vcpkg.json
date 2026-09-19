@@ -33,6 +33,14 @@
     "fastgltf",
     "stb",
     "ktx",
+    "joltphysics",
+    {
+      "name": "lua",
+      "features": [
+        "cpp"
+      ]
+    },
+    "sol2",
     {
       "name": "imgui",
       "features": [
