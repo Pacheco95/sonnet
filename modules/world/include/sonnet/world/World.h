@@ -7,6 +7,7 @@
 #include <flecs.h>
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -16,8 +17,9 @@
 
 namespace sonnet::world {
 
-// Pipeline phases in execution order (docs/architecture.md, "Entity model"). Simulation systems
-// (FixedUpdate and Update) run only in play mode; the rest run every frame.
+// Pipeline phases in execution order (docs/architecture.md, "Entity model"). Systems tagged as
+// simulation run only in play mode; FixedUpdate runs at the fixed timestep, zero or more times
+// per frame, and only in play mode.
 enum class Phase : std::uint8_t {
   Input,
   FixedUpdate,
@@ -37,12 +39,17 @@ struct ComponentInfo {
 struct WorldDesc {
   // Serves the flecs explorer on its default port; Debug builds of the editor turn it on.
   bool explorer{false};
+  // The FixedUpdate step, and how many steps one frame may run before the simulation falls
+  // behind instead of spiralling (ADR-0009).
+  float fixedDelta{1.0f / 60.0f};
+  std::uint32_t maxFixedSteps{4};
 };
 
 // The flecs world with the engine's components, phases and systems registered. flecs types
 // appear unwrapped by decision (ADR-0003): callers use flecs::entity directly and World adds
-// what the engine needs on top: identities, the hierarchy helpers, prefab instantiation and the
-// play-mode switch.
+// what the engine needs on top: identities, the hierarchy helpers, prefab instantiation, the
+// play-mode switch and the fixed timestep. Subsystems such as physics and scripting register
+// their components and systems here (ADR-0009).
 class World {
 public:
   explicit World(const WorldDesc &desc = {});
@@ -71,6 +78,9 @@ public:
   [[nodiscard]] std::vector<flecs::entity> roots() const;
   [[nodiscard]] std::vector<flecs::entity> children(flecs::entity entity) const;
   [[nodiscard]] bool isDescendant(flecs::entity entity, flecs::entity ancestor) const;
+  // The world matrix from the hierarchy's local transforms, current even between runs of the
+  // transform system.
+  [[nodiscard]] static glm::mat4 worldMatrix(flecs::entity entity);
   // Deletes every scene entity; prefabs and editor-only entities stay.
   void clearScene();
   // Deletes every prefab, for switching projects. Instances lose their base first: clear the
@@ -90,6 +100,18 @@ public:
   [[nodiscard]] flecs::entity prefabOf(flecs::entity entity) const;
   [[nodiscard]] bool isInstance(flecs::entity entity) const;
 
+  // Registers a component with reflection under the name scene files use, inherited by prefab
+  // instances; the caller adds the members on the returned component. `tag` for a component
+  // without data.
+  template <typename T> flecs::component<T> registerComponent(const char *name, bool tag = false) {
+    flecs::component<T> component = m_world.component<T>(name);
+    component.add(flecs::OnInstantiate, flecs::Inherit);
+    m_components.push_back({name, component.id(), tag});
+    return component;
+  }
+  // Marks a system as simulation: it runs in play mode only.
+  void addToSimulation(flecs::entity system);
+
   [[nodiscard]] std::span<const ComponentInfo> components() const noexcept {
     return m_components;
   }
@@ -107,23 +129,37 @@ public:
   [[nodiscard]] bool isPlaying() const noexcept {
     return m_playing;
   }
-  // Runs the frame's phases; world transforms are up to date afterwards.
+  // Runs the frame's phases, with as many fixed steps as the accumulated time holds in play
+  // mode; world transforms are up to date afterwards.
   void progress(float dt);
+  [[nodiscard]] float fixedDelta() const noexcept {
+    return m_fixedDelta;
+  }
+  // How far the accumulator is into the next fixed step, in [0, 1): what rendering interpolates
+  // simulated poses by.
+  [[nodiscard]] float fixedAlpha() const noexcept {
+    return m_accumulator / m_fixedDelta;
+  }
 
 private:
   void registerComponents();
   void registerSystems();
-  template <typename T> void registerComponent(const char *name, bool tag = false);
 
   // Declared before m_world: its OnRemove observer runs while the world is torn down
   // (World::~World()), so the index must still be alive when the world is destroyed first.
   std::unordered_map<core::Uuid, flecs::entity_t> m_byUuid;
   flecs::world m_world;
   std::array<flecs::entity, 5> m_phases;
-  flecs::entity m_editPipeline;
-  flecs::entity m_playPipeline;
+  // Input, then the fixed steps, then the rest of the frame: one pipeline each, the first and
+  // last in an edit and a play variant, indexed by m_playing.
+  std::array<flecs::entity, 2> m_inputPipelines;
+  std::array<flecs::entity, 2> m_framePipelines;
+  flecs::entity m_fixedPipeline;
   flecs::entity m_transformSystem;
   std::vector<ComponentInfo> m_components;
+  float m_fixedDelta;
+  std::uint32_t m_maxFixedSteps;
+  float m_accumulator{0.0f};
   bool m_playing{false};
 };
 

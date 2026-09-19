@@ -35,20 +35,10 @@ void adoptInstantiatedChildren(World &world, flecs::entity node) {
   }
 }
 
-// The world matrix from the hierarchy, independent of the transform system's schedule.
-glm::mat4 worldMatrixOf(flecs::entity entity) {
-  glm::mat4 matrix{1.0f};
-  for (flecs::entity current = entity; current; current = current.parent()) {
-    if (const Transform *transform = current.try_get<Transform>()) {
-      matrix = transform->matrix() * matrix;
-    }
-  }
-  return matrix;
-}
-
 } // namespace
 
-World::World(const WorldDesc &desc) {
+World::World(const WorldDesc &desc) : m_fixedDelta(desc.fixedDelta), m_maxFixedSteps(desc.maxFixedSteps) {
+  SONNET_ASSERT(m_fixedDelta > 0.0f && m_maxFixedSteps > 0, "the fixed timestep needs a positive step and count");
   m_world.import <flecs::units>();
   if (desc.explorer) {
     m_world.import <flecs::stats>();
@@ -66,23 +56,42 @@ World::World(const WorldDesc &desc) {
     previous = m_phases[i];
   }
   m_world.component<Simulation>("Simulation");
-  const auto pipeline = [&](bool simulation) {
-    auto builder = m_world.pipeline()
-                       .with(flecs::System)
-                       .with(flecs::Phase)
-                       .cascade(flecs::DependsOn)
-                       .without(flecs::Disabled)
-                       .up(flecs::DependsOn)
-                       .without(flecs::Disabled)
-                       .up(flecs::ChildOf);
+  const flecs::entity input = phase(Phase::Input);
+  const flecs::entity fixed = phase(Phase::FixedUpdate);
+  // Every pipeline runs enabled systems of enabled phases; they differ in which phases they
+  // take and whether simulation systems are among them. Builders are built in place: they
+  // point into their own descriptors and are not safe to copy.
+  enum class Stage : std::uint8_t {
+    Input,
+    Fixed,
+    Frame
+  };
+  const auto pipeline = [&](Stage stage, bool simulation) {
+    auto builder = m_world.pipeline();
+    builder.with(flecs::System)
+        .with(flecs::Phase)
+        .cascade(flecs::DependsOn)
+        .without(flecs::Disabled)
+        .up(flecs::DependsOn)
+        .without(flecs::Disabled)
+        .up(flecs::ChildOf);
+    if (stage == Stage::Input) {
+      builder.with(flecs::DependsOn, input);
+    } else if (stage == Stage::Fixed) {
+      builder.with(flecs::DependsOn, fixed);
+    } else {
+      builder.without(flecs::DependsOn, input).without(flecs::DependsOn, fixed);
+    }
     if (!simulation) {
       builder.without<Simulation>();
     }
     return builder.build();
   };
-  m_playPipeline = pipeline(true);
-  m_editPipeline = pipeline(false);
-  m_world.set_pipeline(m_editPipeline);
+  for (const bool playing : {false, true}) {
+    m_inputPipelines[playing ? 1 : 0] = pipeline(Stage::Input, playing);
+    m_framePipelines[playing ? 1 : 0] = pipeline(Stage::Frame, playing);
+  }
+  m_fixedPipeline = pipeline(Stage::Fixed, true);
   registerSystems();
 
   m_world.observer<const Identity>("IdentityIndex")
@@ -97,12 +106,6 @@ World::World(const WorldDesc &desc) {
 World::~World() {
   // The remove observers run while the flecs world is torn down and touch the index, which is
   // declared before the world so it is still alive; the world is destroyed first.
-}
-
-template <typename T> void World::registerComponent(const char *name, bool tag) {
-  flecs::entity component = m_world.component<T>(name);
-  component.add(flecs::OnInstantiate, flecs::Inherit);
-  m_components.push_back({name, component.id(), tag});
 }
 
 void World::registerComponents() {
@@ -196,6 +199,10 @@ void World::registerSystems() {
       .add<Simulation>();
 }
 
+void World::addToSimulation(flecs::entity system) {
+  system.add<Simulation>();
+}
+
 flecs::entity World::createEntity(std::string_view name, flecs::entity parent, core::Uuid uuid) {
   flecs::entity entity = m_world.entity();
   entity.set<Identity>({uuid.isNil() ? core::Uuid::generate() : uuid});
@@ -216,12 +223,12 @@ void World::destroyEntity(flecs::entity entity) {
 
 void World::setParent(flecs::entity entity, flecs::entity parent) {
   SONNET_ASSERT(!parent || !isDescendant(parent, entity), "reparenting an entity under its own descendant");
-  const glm::mat4 world = worldMatrixOf(entity);
+  const glm::mat4 world = worldMatrix(entity);
   entity.remove(flecs::ChildOf, flecs::Wildcard);
   glm::mat4 local = world;
   if (parent) {
     entity.child_of(parent);
-    local = glm::inverse(worldMatrixOf(parent)) * world;
+    local = glm::inverse(worldMatrix(parent)) * world;
   }
   entity.set<Transform>(Transform::fromMatrix(local));
 }
@@ -246,6 +253,16 @@ std::vector<flecs::entity> World::children(flecs::entity entity) const {
   entity.children([&](flecs::entity child) { result.push_back(child); });
   std::ranges::sort(result, [](flecs::entity a, flecs::entity b) { return pickId(a) < pickId(b); });
   return result;
+}
+
+glm::mat4 World::worldMatrix(flecs::entity entity) {
+  glm::mat4 matrix{1.0f};
+  for (flecs::entity current = entity; current; current = current.parent()) {
+    if (const Transform *transform = current.try_get<Transform>()) {
+      matrix = transform->matrix() * matrix;
+    }
+  }
+  return matrix;
 }
 
 bool World::isDescendant(flecs::entity entity, flecs::entity ancestor) const {
@@ -388,12 +405,29 @@ void World::setPlaying(bool playing) {
     return;
   }
   m_playing = playing;
-  m_world.set_pipeline(playing ? m_playPipeline : m_editPipeline);
+  // A new run starts from a whole step, not from what was left when the last one stopped.
+  m_accumulator = 0.0f;
 }
 
 void World::progress(float dt) {
   SONNET_ZONE();
-  m_world.progress(dt);
+  const std::size_t mode = m_playing ? 1 : 0;
+  const float frameDelta = m_world.frame_begin(dt);
+  m_world.run_pipeline(m_inputPipelines[mode], frameDelta);
+  if (m_playing) {
+    m_accumulator += frameDelta;
+    std::uint32_t steps = 0;
+    while (m_accumulator >= m_fixedDelta && steps < m_maxFixedSteps) {
+      m_world.run_pipeline(m_fixedPipeline, m_fixedDelta);
+      m_accumulator -= m_fixedDelta;
+      ++steps;
+    }
+    // A frame too long to catch up with drops the backlog: the simulation slows down instead
+    // of running ever more steps per frame.
+    m_accumulator = std::min(m_accumulator, m_fixedDelta * 0.999f);
+  }
+  m_world.run_pipeline(m_framePipelines[mode], frameDelta);
+  m_world.frame_end();
 }
 
 } // namespace sonnet::world

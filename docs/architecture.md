@@ -56,7 +56,7 @@ The engine does not own `main()`. It implements the SDL3 callback model (`SDL_MA
 Per iteration:
 
 1. Drain platform events into the input state and the editor.
-2. Run the simulation with a fixed timestep, catching up if the frame was long. Simulation systems live in `world` and the subsystems.
+2. Run the simulation with a fixed timestep, catching up if the frame was long, up to a limit. Simulation systems live in `world` and the subsystems, which register them in the world's phases ([world.md](world.md#phases-and-play-mode), [ADR-0009](decisions/0009-physics-and-scripting.md)).
 3. Interpolate transforms for rendering, build the frame's draw list and light list.
 4. Execute the render graph and present.
 
