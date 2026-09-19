@@ -103,7 +103,8 @@ flowchart BT
 | `renderer` | Render graph, materials, meshes, cameras, lights, passes. Talks only to `rhi` interfaces |
 | `assets` | Asset database, importers, cooking, hot reload |
 | `world` | ECS world, core components (Transform, hierarchy, Name), scene load and save |
-| `physics`, `scripting`, `audio` | Later milestones, each behind an interface |
+| `physics` | Rigid bodies, colliders and raycasts behind `IPhysicsWorld`, on Jolt |
+| `scripting`, `audio` | Later milestones, each behind an interface |
 | `ui` | Dear ImGui layer. Editor and debug builds only |
 | `editor` | Panels, selection, undo/redo, gizmos, play mode. Desktop only |
 
@@ -148,6 +149,7 @@ ctest --preset linux-debug
 | Editor: the Dear ImGui layer, panels, viewport camera, frame order | [docs/editor.md](docs/editor.md) |
 | Assets: identity, database, importers, project and scene files, cooking | [docs/assets.md](docs/assets.md) |
 | World: components, phases and the fixed timestep, scenes and prefabs | [docs/world.md](docs/world.md) |
+| Physics: bodies, colliders, the simulation, queries | [docs/physics.md](docs/physics.md) |
 | Roadmap and milestones | [docs/roadmap.md](docs/roadmap.md) |
 | Conventions: code style, math, error handling, logging, commits, versioning | [docs/conventions.md](docs/conventions.md) |
 | Decision records | [docs/decisions/](docs/decisions/) |
