@@ -784,7 +784,10 @@ PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &
   }
   // No vertex input: vertex data is pulled from buffers by index (docs/rendering.md).
   const vk::PipelineVertexInputStateCreateInfo vertexInput{};
-  const vk::PipelineInputAssemblyStateCreateInfo inputAssembly{{}, vk::PrimitiveTopology::eTriangleList, VK_FALSE};
+  const vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
+      {},
+      desc.topology == Topology::LineList ? vk::PrimitiveTopology::eLineList : vk::PrimitiveTopology::eTriangleList,
+      VK_FALSE};
   const vk::PipelineViewportStateCreateInfo viewport{{}, 1, nullptr, 1, nullptr};
   vk::CullModeFlags cull = vk::CullModeFlagBits::eNone;
   switch (desc.cullMode) {
