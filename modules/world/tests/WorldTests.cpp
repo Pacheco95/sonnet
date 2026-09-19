@@ -4,6 +4,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <string>
+#include <vector>
 
 using namespace sonnet;
 using Catch::Approx;
@@ -105,6 +107,70 @@ TEST_CASE("simulation systems run only in play mode", "[world][play]") {
   spinner.remove<world::Disabled>();
   world.progress(1.0f);
   REQUIRE(spinner.get<world::Transform>().rotation == turned);
+}
+
+TEST_CASE("fixed-update systems step at the fixed timestep in play mode only", "[world][play][fixed]") {
+  world::World world({.fixedDelta = 0.25f, .maxFixedSteps = 3});
+  std::vector<float> steps;
+  std::vector<std::string> order;
+  const flecs::entity fixedSystem =
+      world.ecs().system("FixedProbe").kind(world.phase(world::Phase::FixedUpdate)).run([&](flecs::iter &it) {
+        steps.push_back(it.delta_time());
+        order.emplace_back("fixed");
+      });
+  world.addToSimulation(fixedSystem);
+  world.ecs().system("InputProbe").kind(world.phase(world::Phase::Input)).run([&](flecs::iter &) {
+    order.emplace_back("input");
+  });
+  world.ecs().system("UpdateProbe").kind(world.phase(world::Phase::Update)).run([&](flecs::iter &) {
+    order.emplace_back("update");
+  });
+
+  world.progress(1.0f);
+  REQUIRE(steps.empty());
+  REQUIRE(order == std::vector<std::string>{"input", "update"});
+
+  world.setPlaying(true);
+  order.clear();
+  world.progress(0.625f);
+  REQUIRE(steps == std::vector<float>{0.25f, 0.25f});
+  REQUIRE(order == std::vector<std::string>{"input", "fixed", "fixed", "update"});
+  REQUIRE(world.fixedAlpha() == 0.5f);
+
+  // The remainder carries into the next frame.
+  world.progress(0.125f);
+  REQUIRE(steps.size() == 3);
+  REQUIRE(world.fixedAlpha() == Approx(0.0f).margin(1e-4f));
+
+  // A long frame runs at most maxFixedSteps and drops the rest of the backlog.
+  steps.clear();
+  world.progress(10.0f);
+  REQUIRE(steps.size() == 3);
+  REQUIRE(world.fixedAlpha() < 1.0f);
+  steps.clear();
+  world.progress(0.0001f);
+  REQUIRE(steps.size() <= 1);
+
+  // Stopping and playing again starts from an empty accumulator.
+  world.setPlaying(false);
+  world.setPlaying(true);
+  REQUIRE(world.fixedAlpha() == 0.0f);
+}
+
+TEST_CASE("components registered from outside the world reach the registry and scene JSON", "[world][components]") {
+  struct Probe {
+    float value{0.0f};
+  };
+  world::World world;
+  world.registerComponent<Probe>("Probe").member<float>("value");
+  const world::ComponentInfo *info = world.findComponent("Probe");
+  REQUIRE(info != nullptr);
+  REQUIRE_FALSE(info->tag);
+
+  const flecs::entity entity = world.createEntity("Probe");
+  world.componentFromJson(entity, info->id, nlohmann::json{{"value", 2.5f}});
+  REQUIRE(entity.get<Probe>().value == 2.5f);
+  REQUIRE(world.componentToJson(entity, info->id) == nlohmann::json{{"value", 2.5f}});
 }
 
 TEST_CASE("a prefab instance shares components until it overrides them", "[world][prefab]") {

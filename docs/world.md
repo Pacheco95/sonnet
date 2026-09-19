@@ -5,23 +5,25 @@ The entity component system: a flecs world with the engine's components, phases 
 | Header | Contents |
 |---|---|
 | `Components.h` | The core components as plain structs: `Identity`, `Name`, `Transform`, `WorldTransform`, `MeshRenderer`, `Camera`, the three lights, `Environment`, `Spin`, and the tags `Static`, `EditorOnly`, `Disabled` |
-| `World.h` | `World`: the flecs world with everything registered, entity creation with identities, hierarchy helpers, prefab instantiation, the component registry, JSON per component, play mode and `progress` |
+| `World.h` | `World`: the flecs world with everything registered, entity creation with identities, hierarchy helpers and world matrices, prefab instantiation, the component registry open to subsystems, JSON per component, play mode, the fixed timestep and `progress` |
 | `Scene.h` | The scene and prefab file format: `saveScene`, `loadScene`, `savePrefab`, `loadPrefab` and their file variants, and `loadModelPrefab` for a glTF file's hierarchy |
 | `DrawList.h` | `buildDrawList`, `buildLightList`, `sceneLight`, `sceneCamera`, `sceneEnvironment`: what the world hands the renderer |
 
 ## Components
 
-Every component is registered with flecs reflection in `World`, under the name scene files use, so the inspector, the serializer and later the scripting bindings enumerate fields through one system. GLM's `vec3`, `vec4` and `quat` are registered as structs; `core::Uuid` is an opaque type that serializes as its canonical string, which is how asset references appear in files; angles carry the flecs `Radians` unit, which the inspector reads to show degrees ([conventions.md](conventions.md#math-conventions)).
+Every component is registered with flecs reflection in `World`, under the name scene files use, so the inspector, the serializer and later the scripting bindings enumerate fields through one system. Subsystems register theirs the same way through `World::registerComponent`, which returns the flecs component to add members to and makes it inheritable by prefab instances (ADR-0009). GLM's `vec3`, `vec4` and `quat` are registered as structs; `core::Uuid` is an opaque type that serializes as its canonical string, which is how asset references appear in files; angles carry the flecs `Radians` unit, which the inspector reads to show degrees ([conventions.md](conventions.md#math-conventions)).
 
 Three components are structural and are not in the registry: `Identity` holds the UUID that scenes, prefab references and undo refer to; `WorldTransform` is derived; `Name` is written as the file envelope's `name`. `World::createEntity` gives every scene entity all three plus a `Transform`.
 
-`Transform` is local. The transform system, in the `PreRender` phase, computes `WorldTransform` as parent times local, parents first through the flecs `cascade` ordering over `ChildOf`. `World::setParent` keeps the world transform when reparenting, so an entity stays where it is on screen. `Transform::fromMatrix` decomposes a matrix back, discarding shear.
+`Transform` is local. The transform system, in the `PreRender` phase, computes `WorldTransform` as parent times local, parents first through the flecs `cascade` ordering over `ChildOf`; `World::worldMatrix` computes one entity's from the hierarchy directly, for code that runs before the transform system in a frame. `World::setParent` keeps the world transform when reparenting, so an entity stays where it is on screen. `Transform::fromMatrix` decomposes a matrix back, discarding shear.
 
 `MeshRenderer` references a mesh asset by identity ([assets.md](assets.md#identity)), a built-in primitive or a glTF mesh, with an optional material that overrides every slot of the mesh (nil keeps the mesh's own materials) and a colour that multiplies the material's base colour. `PointLight` and `SpotLight` are punctual lights at their entity's position, the spot shining along its -Z. `Environment` names the equirectangular map that lights the scene and fills its background; the first entity that has one wins. `Spin` turns its entity about an axis in play mode and is the script-free behaviour M2's sample uses.
 
 ## Phases and play mode
 
-The phases `Input`, `FixedUpdate`, `Update`, `PostUpdate` and `PreRender` are flecs phase entities in a dependency chain; systems name theirs with `kind(world.phase(...))`. Systems tagged `Simulation` (the spin system today, physics and scripts later) belong to play mode: `World` keeps two pipelines, one without that tag, and `setPlaying` switches between them, so `progress(dt)` runs the simulation only while playing and the transform system always. The fixed timestep of the architecture's frame description arrives with physics in M4, when something needs it.
+The phases `Input`, `FixedUpdate`, `Update`, `PostUpdate` and `PreRender` are flecs phase entities in a dependency chain; systems name theirs with `kind(world.phase(...))`. Systems marked with `addToSimulation` (the spin system) belong to play mode; the transform system runs always.
+
+`progress(dt)` runs the phases as three flecs pipelines inside one flecs frame: `Input`, then `FixedUpdate` as many times as the accumulated time holds whole fixed steps, then `Update`, `PostUpdate` and `PreRender`. The first and last pipelines come in an edit and a play variant, the play one with the simulation systems, and `setPlaying` picks between them; the fixed pipeline runs only in play mode. The fixed step is `WorldDesc::fixedDelta`, 1/60 s by default, and systems in `FixedUpdate` see it as their delta time. A frame runs at most `maxFixedSteps` steps, four by default, and drops the rest of its backlog, so a long frame slows the simulation down instead of making the next frame longer still. `fixedAlpha` is the fraction of a step left in the accumulator, for interpolating what is drawn; starting play resets the accumulator.
 
 `Disabled` is the engine's tag, not flecs' built-in one, so a disabled entity still appears in the hierarchy; the draw list and the simulation systems skip it.
 
@@ -72,4 +74,4 @@ A glTF file is a prefab too: `loadModelPrefab` builds one from the file's `asset
 
 ## Tests
 
-`world_tests` covers the transform decomposition, JSON round trips by reflection including identities, units and tags, the hierarchy and world transforms, reparenting, play mode gating, prefab instantiation and overrides, scene and prefab files through the temporary directory including the failure paths, the version 1 migration, model prefabs, and the draw and light lists on the null device.
+`world_tests` covers the fixed timestep's step count, order, remainder and backlog limit, components registered from outside the world, the transform decomposition, JSON round trips by reflection including identities, units and tags, the hierarchy and world transforms, reparenting, play mode gating, prefab instantiation and overrides, scene and prefab files through the temporary directory including the failure paths, the version 1 migration, model prefabs, and the draw and light lists on the null device.

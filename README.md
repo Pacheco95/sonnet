@@ -147,6 +147,7 @@ ctest --preset linux-debug
 | Rendering: Vulkan baseline, platform notes, Slang pipeline, frame structure, render graph | [docs/rendering.md](docs/rendering.md) |
 | Editor: the Dear ImGui layer, panels, viewport camera, frame order | [docs/editor.md](docs/editor.md) |
 | Assets: identity, database, importers, project and scene files, cooking | [docs/assets.md](docs/assets.md) |
+| World: components, phases and the fixed timestep, scenes and prefabs | [docs/world.md](docs/world.md) |
 | Roadmap and milestones | [docs/roadmap.md](docs/roadmap.md) |
 | Conventions: code style, math, error handling, logging, commits, versioning | [docs/conventions.md](docs/conventions.md) |
 | Decision records | [docs/decisions/](docs/decisions/) |
