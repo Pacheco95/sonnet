@@ -211,6 +211,60 @@ TEST_CASE("a changed source is re-imported by polling and materials follow their
   }
 }
 
+TEST_CASE("a script is read on first use and again, with a new revision, when it changes", "[assets][database]") {
+  Fixture fixture;
+  const std::string first = "return { speed = 1 }\n";
+  REQUIRE(core::writeFile(fixture.root / "assets" / "mover.lua", std::as_bytes(std::span{first.data(), first.size()}))
+              .has_value());
+  AssetDatabase database{fixture.renderer};
+  database.open(fixture.root, fixture.roots);
+  const AssetInfo *info = byName(database, "mover", AssetType::Script);
+  REQUIRE(info != nullptr);
+  REQUIRE(toString(info->type) == "Script");
+  const core::Uuid uuid = info->uuid;
+  const ScriptSource *loaded = database.script(uuid);
+  REQUIRE(loaded != nullptr);
+  REQUIRE(loaded->code == first);
+  const std::uint64_t revision = loaded->revision;
+  REQUIRE(database.script(uuid)->revision == revision);
+  REQUIRE(database.script(core::Uuid::generate()) == nullptr);
+
+  const std::string second = "return { speed = 2 }\n";
+  Fixture::touchLater(fixture.root / "assets" / "mover.lua", std::as_bytes(std::span{second.data(), second.size()}));
+  std::this_thread::sleep_for(std::chrono::milliseconds{600});
+  REQUIRE(database.pollChanges() == std::vector<core::Uuid>{uuid});
+  REQUIRE(database.script(uuid)->code == second);
+  REQUIRE(database.script(uuid)->revision > revision);
+
+  const auto created = database.createScript(fixture.root / "assets" / "scripts" / "new.lua", "return {}\n");
+  REQUIRE(created.has_value());
+  REQUIRE(database.find(*created)->type == AssetType::Script);
+  REQUIRE(database.script(*created)->code == "return {}\n");
+  REQUIRE(std::filesystem::exists(fixture.root / "assets" / "scripts" / "new.lua.meta"));
+  REQUIRE(!database.createScript(fixture.root / "assets" / "new.txt", "").has_value());
+  REQUIRE(std::ranges::equal(database.roots(), fixture.roots));
+}
+
+TEST_CASE("mesh data stays on the CPU for built-in and glTF meshes", "[assets][database]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer};
+  database.open(fixture.root, fixture.roots);
+  const renderer::MeshData *box = database.meshData(builtin::box());
+  REQUIRE(box != nullptr);
+  REQUIRE(box->triangleCount() == 12);
+  const AssetInfo *crateMesh = nullptr;
+  for (const AssetInfo *mesh : database.assets(AssetType::Mesh)) {
+    if (mesh->source != "builtin") {
+      crateMesh = mesh;
+    }
+  }
+  REQUIRE(crateMesh != nullptr);
+  const renderer::MeshData *crate = database.meshData(crateMesh->uuid);
+  REQUIRE(crate != nullptr);
+  REQUIRE(!crate->indices.empty());
+  REQUIRE(database.meshData(core::Uuid::generate()) == nullptr);
+}
+
 TEST_CASE("materials are created, edited and saved as files", "[assets][database]") {
   Fixture fixture;
   AssetDatabase database{fixture.renderer};
