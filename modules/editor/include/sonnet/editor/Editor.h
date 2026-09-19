@@ -15,7 +15,9 @@
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/assets/ShaderCompiler.h>
 #include <sonnet/core/Error.h>
+#include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/Event.h>
+#include <sonnet/platform/InputState.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/platform/Window.h>
 #include <sonnet/renderer/Picker.h>
@@ -23,6 +25,7 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
+#include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/ui/ImGuiLayer.h>
 #include <sonnet/world/DrawList.h>
 #include <sonnet/world/World.h>
@@ -87,7 +90,8 @@ public:
   [[nodiscard]] core::Result<void> reloadShaders();
 
   // Play mode (docs/architecture.md, "Editor and player"): play snapshots the scene and enables
-  // the simulation, stop restores the snapshot and drops the undo history.
+  // the simulation, physics and scripts; stop restores the snapshot, drops the undo history and
+  // the scripts' state.
   void play();
   void stop();
   [[nodiscard]] bool isPlaying() const noexcept {
@@ -96,6 +100,21 @@ public:
 
   [[nodiscard]] world::World &world() noexcept {
     return m_world;
+  }
+  [[nodiscard]] physics::IPhysicsWorld &physics() noexcept {
+    return *m_physics;
+  }
+  [[nodiscard]] scripting::IScriptRuntime &scripts() noexcept {
+    return *m_scripts;
+  }
+  // What the game's scripts see: fed while playing with the viewport focused (docs/editor.md,
+  // "Play mode").
+  [[nodiscard]] const platform::InputState &gameInput() const noexcept {
+    return m_input;
+  }
+  // The physics colliders' outlines over the scene, from the View menu.
+  void setShowColliders(bool show) noexcept {
+    m_showColliders = show;
   }
   [[nodiscard]] assets::AssetDatabase &assets() noexcept {
     return m_assets;
@@ -155,6 +174,8 @@ private:
   [[nodiscard]] std::optional<std::filesystem::path> shaderSourceDirectory();
   [[nodiscard]] core::Result<void> reloadShader(std::string_view name);
   void pollShaders();
+  // Whether game input goes to the scripts: playing, with the viewport focused and the camera idle.
+  [[nodiscard]] bool gameInputActive() const;
 
   platform::IWindow &m_window;
   rhi::IDevice &m_device;
@@ -165,7 +186,13 @@ private:
   renderer::Picker m_picker;
   assets::AssetDatabase m_assets;
   world::World m_world;
+  // After the world, which they register into and have to be destroyed before; scripts after
+  // physics so their fixed update follows the physics step (ADR-0009).
+  platform::InputState m_input;
+  std::unique_ptr<physics::IPhysicsWorld> m_physics;
+  std::unique_ptr<scripting::IScriptRuntime> m_scripts;
   std::vector<renderer::DrawItem> m_draws;
+  std::vector<renderer::DebugLine> m_debugLines;
   std::vector<renderer::Light> m_lights;
   renderer::SceneView m_view;
   std::vector<std::uint32_t> m_outlineIds;
@@ -208,6 +235,9 @@ private:
   bool m_showAssets{true};
   bool m_showStatistics{true};
   bool m_showOverlay{true};
+  bool m_showColliders{false};
+  bool m_gameInputWasActive{false};
+  glm::vec2 m_mainViewportOrigin{0.0f, 0.0f};
   bool m_quitRequested{false};
   float m_frameMilliseconds{0.0f};
 };

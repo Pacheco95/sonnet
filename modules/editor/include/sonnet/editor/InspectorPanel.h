@@ -9,9 +9,11 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace sonnet::editor {
 
@@ -26,6 +28,10 @@ public:
 
   // `asset` is what to show when no entity is selected; nil for nothing.
   void draw(bool &open, core::Uuid asset = {});
+  // Opens a file at a line in the external editor; the script asset view's Edit button uses it.
+  void setOpenHandler(std::function<void(const std::string &, int)> handler) {
+    m_open = std::move(handler);
+  }
 
   // How a member of a primitive type is edited, by its reflected kind and unit.
   enum class ScalarWidget : std::uint8_t {
@@ -70,6 +76,7 @@ private:
   void drawAsset(core::Uuid uuid);
   void drawMaterial(const assets::AssetInfo &info);
   void drawTexture(const assets::AssetInfo &info);
+  void drawScript(const assets::AssetInfo &info);
   // Records activation and edits of the last widget for the pending command.
   void track();
 
@@ -85,6 +92,7 @@ private:
   std::string m_nameBuffer;
   core::Uuid m_nameEntity;
   std::string m_pickerFilter;
+  std::function<void(const std::string &, int)> m_open;
 };
 
 } // namespace sonnet::editor

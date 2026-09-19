@@ -18,6 +18,7 @@ namespace sonnet::editor {
 struct ViewportInput {
   bool visible{false};
   bool hovered{false};
+  bool focused{false};    // the viewport window has the keyboard focus
   glm::vec2 origin{0.0f}; // top-left of the image
   glm::vec2 size{0.0f};
   glm::vec2 mouse{0.0f};
