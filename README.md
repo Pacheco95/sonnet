@@ -163,6 +163,7 @@ ctest --preset linux-debug
 | [0006](docs/decisions/0006-vulkan-object-ownership.md) | vk-bootstrap creates, Vulkan-HPP RAII owns | Accepted |
 | [0007](docs/decisions/0007-data-driven-game-structure.md) | Games are data-driven projects run by a generic player | Accepted |
 | [0008](docs/decisions/0008-clustered-forward-rendering.md) | Clustered forward rendering as the main pipeline | Accepted |
+| [0009](docs/decisions/0009-physics-and-scripting.md) | Physics and scripting as world subsystems | Accepted |
 
 ## License
 
