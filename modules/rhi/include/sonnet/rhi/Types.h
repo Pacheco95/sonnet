@@ -363,6 +363,11 @@ struct DepthState {
   CompareOp compare{CompareOp::GreaterOrEqual};
 };
 
+enum class Topology : std::uint8_t {
+  TriangleList,
+  LineList, // debug drawing; lines are one pixel wide
+};
+
 enum class BlendMode : std::uint8_t {
   None,
   Alpha,    // source alpha, one minus source alpha
@@ -416,6 +421,7 @@ struct GraphicsPipelineDesc {
   DepthState depth{};
   CullMode cullMode{CullMode::Back};
   BlendMode blend{BlendMode::None}; // applies to every colour attachment
+  Topology topology{Topology::TriangleList};
   std::string debugName;
 };
 
