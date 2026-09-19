@@ -3,6 +3,8 @@ find_package(VulkanHeaders CONFIG REQUIRED)
 
 sonnet_add_module(platform
   SOURCES
+    src/Input.cpp
+    src/InputState.cpp
     src/Platform.cpp
     src/SdlEntryPoint.cpp
     src/SdlEvents.cpp
@@ -19,6 +21,7 @@ sonnet_add_module(platform
 sonnet_add_module_test(platform
   SOURCES
     tests/EventTests.cpp
+    tests/InputStateTests.cpp
     tests/PlatformTests.cpp
     tests/WindowTests.cpp
   DEPENDS

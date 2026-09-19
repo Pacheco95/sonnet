@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
+#include <string_view>
 
 namespace sonnet::platform {
 
@@ -145,5 +147,12 @@ constexpr Modifiers &operator|=(Modifiers &a, Modifiers b) noexcept {
 constexpr bool has(Modifiers set, Modifiers flag) noexcept {
   return (set & flag) == flag;
 }
+
+// The enumerator names ("A", "Space", "LeftShift", "Left"), which scripts use to name keys and
+// buttons. Unknown names give nullopt; Key::Unknown and the Count values have no name.
+[[nodiscard]] std::string_view toString(Key key) noexcept;
+[[nodiscard]] std::optional<Key> keyFromName(std::string_view name) noexcept;
+[[nodiscard]] std::string_view toString(MouseButton button) noexcept;
+[[nodiscard]] std::optional<MouseButton> mouseButtonFromName(std::string_view name) noexcept;
 
 } // namespace sonnet::platform
