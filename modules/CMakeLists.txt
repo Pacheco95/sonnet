@@ -7,6 +7,7 @@ add_subdirectory(renderer)
 add_subdirectory(assets)
 add_subdirectory(world)
 add_subdirectory(physics)
+add_subdirectory(scripting)
 # Editor-only modules; the player never links them (docs/architecture.md, "Editor and player").
 if(SONNET_BUILD_EDITOR)
   add_subdirectory(ui)

@@ -82,7 +82,7 @@ flowchart BT
   assets --> renderer
   world --> assets
   physics --> world
-  scripting --> world
+  scripting --> physics
   audio --> world
   ui --> rhi
   editor --> ui
@@ -104,7 +104,8 @@ flowchart BT
 | `assets` | Asset database, importers, cooking, hot reload |
 | `world` | ECS world, core components (Transform, hierarchy, Name), scene load and save |
 | `physics` | Rigid bodies, colliders and raycasts behind `IPhysicsWorld`, on Jolt |
-| `scripting`, `audio` | Later milestones, each behind an interface |
+| `scripting` | Lua scripts on entities behind `IScriptRuntime`, reaching components through reflection |
+| `audio` | M5, behind an interface |
 | `ui` | Dear ImGui layer. Editor and debug builds only |
 | `editor` | Panels, selection, undo/redo, gizmos, play mode. Desktop only |
 
@@ -150,6 +151,7 @@ ctest --preset linux-debug
 | Assets: identity, database, importers, project and scene files, cooking | [docs/assets.md](docs/assets.md) |
 | World: components, phases and the fixed timestep, scenes and prefabs | [docs/world.md](docs/world.md) |
 | Physics: bodies, colliders, the simulation, queries | [docs/physics.md](docs/physics.md) |
+| Scripting: script instances, errors and hot reload, the Lua API | [docs/scripting.md](docs/scripting.md) |
 | Roadmap and milestones | [docs/roadmap.md](docs/roadmap.md) |
 | Conventions: code style, math, error handling, logging, commits, versioning | [docs/conventions.md](docs/conventions.md) |
 | Decision records | [docs/decisions/](docs/decisions/) |

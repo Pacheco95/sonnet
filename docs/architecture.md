@@ -15,7 +15,7 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | `assets` | Asset identity, database, importers (glTF, images, KTX2, Slang), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
 | `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save ([world.md](world.md)) | `assets`, flecs, nlohmann-json |
 | `physics` | Rigid bodies, colliders, raycasts and debug outlines behind `IPhysicsWorld`, with the Jolt implementation ([physics.md](physics.md)) | `world`, Jolt |
-| `scripting` | `IScriptRuntime`. Lua/sol2 implementation (M4) | `world`, Lua, sol2 |
+| `scripting` | Lua scripts on entities behind `IScriptRuntime`, with the Lua and sol2 implementation ([scripting.md](scripting.md)) | `physics`, Lua, sol2 |
 | `audio` | `IAudioDevice`, sources and listeners. miniaudio or SDL3 audio implementation (M5) | `world` |
 | `ui` | Dear ImGui layer: context, SDL3 and Vulkan backends, texture display, fonts. Editor and debug builds only | `rhi`, `platform`, ImGui |
 | `editor` | Editor framework: panels, selection, commands with undo/redo, gizmos, picking, play mode, project handling. Desktop only | everything above |
@@ -74,6 +74,8 @@ Core components, all in `world`:
 - `Camera`, `DirectionalLight`, `PointLight`, `SpotLight`, `Environment`.
 - `Tags`: `Static`, `EditorOnly`, `Disabled`.
 
+Subsystems add theirs to the same registry: `RigidBody` and the colliders in `physics`, `Script` in `scripting`. The ECS stays the one description of a scene, so snapshots, prefabs, undo and the inspector cover them too ([ADR-0009](decisions/0009-physics-and-scripting.md)).
+
 Hierarchy uses flecs `ChildOf` relationships, prefabs use `IsA`, so nested scene instances (a scene placed inside another scene) become prefab instantiation rather than a custom feature. Systems are flecs systems grouped in pipeline phases: `Input`, `FixedUpdate`, `Update`, `PostUpdate`, `PreRender`.
 
 The decision, and EnTT as the alternative, is recorded in [ADR-0003](decisions/0003-ecs-library.md); the module as built is described in [world.md](world.md).
@@ -106,4 +108,5 @@ Initialization and resource creation may throw; the hot loop never throws; recov
 - [World](world.md)
 - [Assets](assets.md)
 - [Physics](physics.md)
+- [Scripting](scripting.md)
 - [Roadmap](roadmap.md)
