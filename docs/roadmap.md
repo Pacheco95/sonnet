@@ -84,7 +84,23 @@ Done: the sample renders with shadows and image-based lighting. The README's tar
 - `scripting`: `IScriptRuntime` with Lua and sol2: entity and component access through reflection, input, logging, hot reload.
 - `editor`: physics and script components in the inspector, physics running in play mode only.
 
-Done when a sample level has scripted behaviour and physics that runs in play mode and resets on stop.
+Landed as thirteen commits, the first a fix found on the way and the second accepting ADR-0009:
+
+1. A fix: the inspector compared scalar members' kinds with flecs' type entities of the same names, so every float, bool and integer member showed as unsupported.
+2. ADR-0009: physics and scripting as world subsystems.
+3. `joltphysics`, `lua` built as C++ and `sol2` through vcpkg.
+4. `core`: log records at a given location, for script lines, and the script error category.
+5. `platform`: the input state and the names of keys and mouse buttons.
+6. `world`: the fixed timestep in a pipeline of its own with the interpolation fraction, component registration open to subsystems, world matrices from the hierarchy.
+7. `rhi`: line-list pipelines, and the null device's count of live pipelines.
+8. `renderer`: the debug line pass, depth-tested against the scene.
+9. `assets`: script assets with revisions, CPU mesh data kept for collision, new scripts from the editor.
+10. `physics`: the components, the Jolt world with static and kinematic bodies following their entities and dynamic ones interpolated back into them, compound, scaled and mesh shapes, raycasts, forces and collider outlines.
+11. `scripting`: the Lua runtime with an instance per entity, components through reflection, the `world`, `input`, `physics`, `log` and maths API, errors at the script's line and hot reload that keeps the instances' state.
+12. `editor`: physics and scripts in play mode, game input from the focused viewport, collider outlines, script assets in the browser and the inspector.
+13. `samples`: the playground scene, with a ball rolled by the player, a sweeper, an elevator, a crate pyramid and a spawner, all scripted or simulated; the version becomes 0.5.0.
+
+Done: the basic sample's playground plays in the editor with its scripts and physics and is back as it was on stop, which `editor_tests` checks headless on Lavapipe. Deferred: contact and trigger events for scripts, compound bodies from a hierarchy's colliders, per-instance script properties in the inspector and several scripts per entity, `require` between scripts, the scene camera in play mode (the editor draws through its own), and Jolt on the engine's job system once there is one.
 
 ## M5: Audio and animation
 

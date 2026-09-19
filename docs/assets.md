@@ -71,7 +71,7 @@ A project is a folder with a `project.json` at its root:
 ```json
 {
   "name": "Basic",
-  "engineVersion": "0.4.0",
+  "engineVersion": "0.5.0",
   "startScene": "scenes/main.scene.json",
   "assetRoots": ["assets", "shaders", "scripts"]
 }

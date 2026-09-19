@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle), M1 (editor shell: `ui`, `renderer` with the render graph, `editor`), M2 (`world` with flecs, scenes and prefabs; the editor's hierarchy and inspector, gizmos, picking, undo/redo, play mode, projects; the basic sample) and M3 (`assets` with the database, glTF and image import, KTX2 cooking and hot reload; the clustered forward renderer with PBR, shadows, IBL and post-processing; the editor's asset browser, material editing and shader hot reload) are done; M4 (physics and scripting) is next.
+Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle), M1 (editor shell: `ui`, `renderer` with the render graph, `editor`), M2 (`world` with flecs, scenes and prefabs; the editor's hierarchy and inspector, gizmos, picking, undo/redo, play mode, projects; the basic sample), M3 (`assets` with the database, glTF and image import, KTX2 cooking and hot reload; the clustered forward renderer with PBR, shadows, IBL and post-processing; the editor's asset browser, material editing and shader hot reload) and M4 (`physics` on Jolt, Lua `scripting` with sol2, the world's fixed timestep, play mode running both, the playground sample) are done; M5 (audio and animation) is next.
 
 The docs are the source of truth. Read the relevant one before a non-trivial change, and update it in the same change:
 
@@ -17,6 +17,8 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 | `world`, scene and prefab files | `docs/world.md` |
 | `ui`, `editor`, `apps/editor` | `docs/editor.md` |
 | `assets`, file formats | `docs/assets.md` |
+| `physics` | `docs/physics.md` |
+| `scripting`, the Lua API | `docs/scripting.md` |
 | CMake, vcpkg, CI | `docs/build.md` |
 | A cross-module decision | `docs/decisions/` (ADRs and the template) |
 
@@ -43,12 +45,13 @@ Machine-specific notes (tool locations, checkouts of the previous iterations to 
 
 ## Architecture in one page
 
-- **Modules in dependency order**: `core → platform → rhi → renderer → assets → world → physics / scripting / audio → ui → editor`. A module links only modules earlier in the dependency order; `modules/CMakeLists.txt` adds them in this order and that order is the canonical statement of the architecture. `apps/editor` and `apps/player` are executables; `apps/samples/*` are project folders.
+- **Modules in dependency order**: `core → platform → rhi → renderer → assets → world → physics → scripting → audio → ui → editor`. A module links only modules earlier in the dependency order; `modules/CMakeLists.txt` adds them in this order and that order is the canonical statement of the architecture. `apps/editor` and `apps/player` are executables; `apps/samples/*` are project folders.
 - **Interfaces live with their owner.** There is no `api` module. `platform` holds `IWindow` and the SDL3 implementation; `rhi` holds the device interfaces and the Vulkan implementation. Upward communication uses interfaces, callbacks and data handed down, never a dependency.
 - **One `#if`-switched site**: the `rhi` device factory. The documented exception is `ui`, which links `sonnet::rhi_vulkan` to include the Vulkan implementation headers for Dear ImGui's backend.
 - **The engine does not own `main()`.** It implements SDL3's callback model so desktop and mobile share one lifecycle. Frame ordering lives in the app, not in modules.
 - **ECS**: flecs. Hierarchy is `ChildOf`, prefabs and nested scenes are `IsA`, components are plain structs registered with flecs reflection, which drives the inspector, scene JSON and scripting bindings. flecs types appear unwrapped in `world` headers by decision. Scene entities carry a UUID `Identity`; the editor's selection and undo commands refer to entities by it, never by flecs id. `world` links `renderer` until `assets` exists.
 - **Handles**: `core::Handle<Tag>` is a 32-bit index plus 32-bit generation; components store handles, owners resolve them.
+- **Subsystems register into the world** (ADR-0009): `physics` and `scripting` register their components through `World::registerComponent` and their systems in the world's phases, marked as simulation so they run in play mode only. `FixedUpdate` runs at a fixed step from an accumulator; physics steps there and interpolates dynamic bodies' `Transform` in `PostUpdate`. Bodies follow the ECS, never the other way round: static and kinematic bodies take their entity's pose, and an outside write to a dynamic body's `Transform` teleports it. Scripts are `.lua` assets whose returned table is the class of a per-entity instance; components cross into Lua through flecs reflection, and Lua is compiled as C++ so errors unwind.
 - **Editor versus player**: the player never links `editor`, nor `ui` in release. Play mode snapshots the world on play and restores it on stop; every editor edit is an `ICommand` on the `CommandStack`, and the inspector and gizmo edit live and push one command when the widget is released.
 - **Rendering**: vk-bootstrap creates, Vulkan-HPP RAII wrappers own, `vkb::destroy_*` is never called, RAII members are declared in reverse destruction order. The render graph is an engine module. Shaders are Slang only, compiled by `slangc` at build time through `sonnet_add_shaders` and at runtime in the editor for hot reload; Slang reflection is the only shader reflection source. Set 0 is the bindless set, set 1 is push descriptors, push constants carry per-draw indices. Reversed-Z, negative viewport height for the Y flip, counter-clockwise front faces.
 - **rhi per-frame rules**: `beginFrame`/`endFrame` bracket every frame; resource destruction is deferred to the frame slot's next reuse; acquire, submit and present go through raw dispatcher calls so the per-frame path never throws; `rhi_tests` fails on any validation message.

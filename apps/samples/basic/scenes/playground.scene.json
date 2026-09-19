@@ -1,0 +1,801 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000001",
+      "name": "Ground",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 20.0,
+            "y": 1.0,
+            "z": 20.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40",
+          "material": "60abe124-b44f-4f02-a0c3-6d2d3c94ee6d",
+          "color": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "MeshCollider": {
+          "mesh": "00000000-0000-0000-0000-000000000000"
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000002",
+      "name": "North wall",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": -10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 20.5,
+            "y": 1.0,
+            "z": 0.5
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.55,
+            "y": 0.57,
+            "z": 0.62,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "BoxCollider": {
+          "halfExtents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000003",
+      "name": "South wall",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": 10.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 20.5,
+            "y": 1.0,
+            "z": 0.5
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.55,
+            "y": 0.57,
+            "z": 0.62,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "BoxCollider": {
+          "halfExtents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000004",
+      "name": "West wall",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -10.0,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 0.5,
+            "y": 1.0,
+            "z": 20.5
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.55,
+            "y": 0.57,
+            "z": 0.62,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "BoxCollider": {
+          "halfExtents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000005",
+      "name": "East wall",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 10.0,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 0.5,
+            "y": 1.0,
+            "z": 20.5
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.55,
+            "y": 0.57,
+            "z": 0.62,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "BoxCollider": {
+          "halfExtents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000006",
+      "name": "Ramp",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 6.0,
+            "y": 0.5,
+            "z": 3.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.13052619222005157,
+            "w": 0.9914448613738104
+          },
+          "scale": {
+            "x": 5.0,
+            "y": 0.3,
+            "z": 3.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.35,
+            "y": 0.6,
+            "z": 0.75,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "BoxCollider": {
+          "halfExtents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000007",
+      "name": "Sweeper",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 3.5,
+            "y": 0.3,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 6.0,
+            "y": 0.5,
+            "z": 0.3
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.85,
+            "y": 0.3,
+            "z": 0.25,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "RigidBody": {
+          "type": "Kinematic",
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1.0
+        },
+        "BoxCollider": {
+          "halfExtents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Script": {
+          "script": "5c0a1b2c-0003-4d4e-9f00-000000000002"
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000008",
+      "name": "Elevator",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -6.0,
+            "y": 0.15,
+            "z": 5.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 2.5,
+            "y": 0.3,
+            "z": 2.5
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.3,
+            "y": 0.7,
+            "z": 0.4,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "RigidBody": {
+          "type": "Kinematic",
+          "mass": 1.0,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1.0
+        },
+        "BoxCollider": {
+          "halfExtents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Script": {
+          "script": "5c0a1b2c-0003-4d4e-9f00-000000000003"
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000009",
+      "name": "Passenger",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -6.0,
+            "y": 0.8,
+            "z": 5.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000010",
+      "name": "Stacked crate 1",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -1.05,
+            "y": 0.5,
+            "z": -6.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000011",
+      "name": "Stacked crate 2",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": -6.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000012",
+      "name": "Stacked crate 3",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 1.05,
+            "y": 0.5,
+            "z": -6.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000013",
+      "name": "Stacked crate 4",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -0.525,
+            "y": 1.5,
+            "z": -6.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000014",
+      "name": "Stacked crate 5",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.525,
+            "y": 1.5,
+            "z": -6.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000015",
+      "name": "Stacked crate 6",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 2.5,
+            "z": -6.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000016",
+      "name": "Ball",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": 5.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "fe3d3b79-c4ee-8f48-8944-6b1596b2c621",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.95,
+            "y": 0.8,
+            "z": 0.2,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "RigidBody": {
+          "type": "Dynamic",
+          "mass": 2.0,
+          "friction": 0.8,
+          "restitution": 0.0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.3,
+          "gravityScale": 1.0
+        },
+        "SphereCollider": {
+          "radius": 0.5,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "Script": {
+          "script": "5c0a1b2c-0003-4d4e-9f00-000000000001"
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000017",
+      "name": "Capsule",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 4.0,
+            "y": 0.25,
+            "z": 6.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.7071067811865475,
+            "w": 0.7071067811865476
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "663df5e4-bf07-8eb4-9364-2db2a5a3e28d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.6,
+            "y": 0.4,
+            "z": 0.8,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "RigidBody": {
+          "type": "Dynamic",
+          "mass": 0.5,
+          "friction": 0.5,
+          "restitution": 0.0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1.0
+        },
+        "CapsuleCollider": {
+          "radius": 0.25,
+          "halfHeight": 0.25,
+          "offset": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000018",
+      "name": "Spawner",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -4.0,
+            "y": 7.0,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "Script": {
+          "script": "5c0a1b2c-0003-4d4e-9f00-000000000004"
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000019",
+      "name": "Sky",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "Environment": {
+          "map": "0238c936-ba15-474c-a8a7-53a87650359e",
+          "intensity": 1.0,
+          "exposure": 1.0
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000020",
+      "name": "Sun",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 5.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": -0.4285,
+            "y": -0.1626,
+            "z": -0.0797,
+            "w": 0.8851
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "DirectionalLight": {
+          "color": {
+            "x": 1.0,
+            "y": 0.96,
+            "z": 0.9
+          },
+          "intensity": 3.0
+        }
+      }
+    },
+    {
+      "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000021",
+      "name": "Camera",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 9.0,
+            "z": 16.0
+          },
+          "rotation": {
+            "x": -0.24192189559966773,
+            "y": -0.0,
+            "z": -0.0,
+            "w": 0.9702957262759965
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "Camera": {
+          "fovY": 1.0471976,
+          "nearPlane": 0.1
+        }
+      }
+    }
+  ]
+}
