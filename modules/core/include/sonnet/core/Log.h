@@ -36,6 +36,12 @@ public:
   ::sonnet::core::Log::get(SONNET_MODULE)                                                                              \
       .log(::spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, ::spdlog::level::lvl, __VA_ARGS__)
 
+// For records whose origin is not a C++ line, such as a script's (docs/conventions.md, "Logging"):
+// the level is a spdlog::level::level_enum value and the location is given, not captured. The
+// location's strings must outlive the call; sinks copy what they keep.
+#define SONNET_LOG_LOCATED(level, location, ...)                                                                       \
+  ::sonnet::core::Log::get(SONNET_MODULE).log(location, level, __VA_ARGS__)
+
 #define SONNET_LOG_COMPILED_OUT(lvl, ...)                                                                              \
   do {                                                                                                                 \
     if constexpr (false) {                                                                                             \

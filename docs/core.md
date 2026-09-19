@@ -6,7 +6,7 @@ Fundamental types every other module uses. `core` depends on GLM, spdlog and Tra
 |---|---|
 | `Handle.h` | `Handle<Tag>`: 32-bit slot index plus 32-bit generation, typed by a tag struct, hashable, packable into a `uint64_t` |
 | `HandlePool.h` | `HandlePool<T, Tag>`: slot map that issues handles, bumps the generation on release and refuses stale handles |
-| `Log.h` | `Log` and the `SONNET_LOG_*` macros |
+| `Log.h` | `Log`, the `SONNET_LOG_*` macros and `SONNET_LOG_LOCATED` |
 | `Assert.h` | `SONNET_ASSERT` and `SONNET_VERIFY` |
 | `Error.h` | `Error`, `Result<T>` (`std::expected<T, Error>`) and `Exception` |
 | `Uuid.h` | 128-bit identifier, random generation, name-based derivation for sub-assets, canonical string form |
@@ -21,13 +21,13 @@ A handle is a value type components store and owners resolve ([architecture.md](
 
 ## Logging
 
-`sonnet_add_module` and `sonnet_add_module_test` define `SONNET_MODULE` to the target's name, and the `SONNET_LOG_*` macros use it to pick the logger, so `SONNET_LOG_INFO("created {}", name)` in `rhi` sources goes to the `rhi` logger. Loggers are created on first use and share one sink list; `Log::addSink` reaches existing and future loggers, which is how the editor's log panel attaches. The line format and levels are in [conventions.md](conventions.md#logging). `SPDLOG_ACTIVE_LEVEL` is set by the build per configuration, so trace and debug calls compile out of Release.
+`sonnet_add_module` and `sonnet_add_module_test` define `SONNET_MODULE` to the target's name, and the `SONNET_LOG_*` macros use it to pick the logger, so `SONNET_LOG_INFO("created {}", name)` in `rhi` sources goes to the `rhi` logger. Loggers are created on first use and share one sink list; `Log::addSink` reaches existing and future loggers, which is how the editor's log panel attaches. The line format and levels are in [conventions.md](conventions.md#logging). `SPDLOG_ACTIVE_LEVEL` is set by the build per configuration, so trace and debug calls compile out of Release. `SONNET_LOG_LOCATED(level, location, ...)` is for records whose origin is not a C++ line: it takes a runtime level and a `spdlog::source_loc`, which the scripting runtime fills with a script's file and line.
 
 ## Assertions and errors
 
 `SONNET_ASSERT(expr, fmt, args...)` is compiled in when `SONNET_ASSERTS_ENABLED` is defined, which the build does for Debug and RelWithDebInfo; `SONNET_VERIFY` always evaluates its expression. A failure logs the expression and the `std::source_location` of the site at `critical`, raises `SIGTRAP` (or `__debugbreak`) so an attached debugger stops there, then aborts.
 
-`Error` and `Exception` capture `std::source_location` at construction by a defaulted parameter, so the reported line is where the problem was created. Return `Result<T>` from recoverable operations, throw `Exception` from initialisation.
+`Error` and `Exception` capture `std::source_location` at construction by a defaulted parameter, so the reported line is where the problem was created. Return `Result<T>` from recoverable operations, throw `Exception` from initialisation. The category says which layer failed: platform, graphics, shader, I/O or script.
 
 ## GLM
 
