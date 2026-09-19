@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,9 +27,24 @@ public:
   // `asset` is what to show when no entity is selected; nil for nothing.
   void draw(bool &open, core::Uuid asset = {});
 
+  // How a member of a primitive type is edited, by its reflected kind and unit.
+  enum class ScalarWidget : std::uint8_t {
+    Checkbox,
+    Float,
+    Degrees, // a float in radians, shown in degrees
+    Double,
+    Int,
+    UInt,
+    Int64,
+    UInt64,
+    Entity,
+    Unsupported, // also any member that is not a primitive
+  };
+
   // The asset type a component member of type Uuid refers to, by the member's name; none for
   // a member the pickers do not know.
   [[nodiscard]] static std::optional<assets::AssetType> assetTypeOfMember(std::string_view member);
+  [[nodiscard]] static ScalarWidget scalarWidget(const flecs::world &world, const ecs_member_t &member);
 
 private:
   struct Edit {
