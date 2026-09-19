@@ -17,6 +17,8 @@ std::string_view toString(ErrorCategory category) noexcept {
     return "Shader";
   case ErrorCategory::Io:
     return "Io";
+  case ErrorCategory::Script:
+    return "Script";
   }
   return "Unknown";
 }

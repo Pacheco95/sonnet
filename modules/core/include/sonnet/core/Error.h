@@ -15,6 +15,7 @@ enum class ErrorCategory {
   Graphics,
   Shader,
   Io,
+  Script,
 };
 
 [[nodiscard]] std::string_view toString(ErrorCategory category) noexcept;

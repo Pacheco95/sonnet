@@ -33,6 +33,14 @@ TEST_CASE("log lines carry module, level, file and line", "[core][log]") {
   REQUIRE(text.contains("[info] [core_tests] [LogTests.cpp:" + std::to_string(line) + "] hello 42"));
 }
 
+TEST_CASE("located records carry the given location and a runtime level", "[core][log]") {
+  CaptureSink capture;
+  const spdlog::source_loc location{"/project/scripts/mover.lua", 7, "lua"};
+  const spdlog::level::level_enum level = spdlog::level::err;
+  SONNET_LOG_LOCATED(level, location, "bad {}", "value");
+  REQUIRE(capture.stream.str().contains("[error] [core_tests] [mover.lua:7] bad value"));
+}
+
 TEST_CASE("loggers are shared per module", "[core][log]") {
   REQUIRE(&sonnet::core::Log::get("rhi") == &sonnet::core::Log::get("rhi"));
   REQUIRE(&sonnet::core::Log::get("rhi") != &sonnet::core::Log::get("core"));
