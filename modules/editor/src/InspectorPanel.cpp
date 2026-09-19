@@ -81,6 +81,41 @@ std::optional<assets::AssetType> InspectorPanel::assetTypeOfMember(std::string_v
   return std::nullopt;
 }
 
+InspectorPanel::ScalarWidget InspectorPanel::scalarWidget(const flecs::world &world, const ecs_member_t &member) {
+  const flecs::Primitive *primitive = flecs::entity{world, member.type}.try_get<flecs::Primitive>();
+  if (primitive == nullptr) {
+    return ScalarWidget::Unsupported;
+  }
+  // Kinds, from flecs::meta, not the type entities of the same names in flecs itself. They are
+  // not constant expressions, hence no switch.
+  const flecs::meta::primitive_kind_t kind = primitive->kind;
+  if (kind == flecs::meta::Bool) {
+    return ScalarWidget::Checkbox;
+  }
+  if (kind == flecs::meta::F32) {
+    return member.unit == world.id<flecs::units::angle::Radians>() ? ScalarWidget::Degrees : ScalarWidget::Float;
+  }
+  if (kind == flecs::meta::F64) {
+    return ScalarWidget::Double;
+  }
+  if (kind == flecs::meta::I32) {
+    return ScalarWidget::Int;
+  }
+  if (kind == flecs::meta::U32) {
+    return ScalarWidget::UInt;
+  }
+  if (kind == flecs::meta::I64) {
+    return ScalarWidget::Int64;
+  }
+  if (kind == flecs::meta::U64) {
+    return ScalarWidget::UInt64;
+  }
+  if (kind == flecs::meta::Entity) {
+    return ScalarWidget::Entity;
+  }
+  return ScalarWidget::Unsupported;
+}
+
 void InspectorPanel::track() {
   m_activated = m_activated || ImGui::IsItemActivated();
   m_deactivatedAfterEdit = m_deactivatedAfterEdit || ImGui::IsItemDeactivatedAfterEdit();
@@ -507,35 +542,44 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
       m_activated = true;
       m_deactivatedAfterEdit = true;
     }
-  } else if (const flecs::Primitive *primitive = type.try_get<flecs::Primitive>()) {
-    // The kinds are not constant expressions, hence no switch.
-    const flecs::meta::primitive_kind_t kind = primitive->kind;
-    if (kind == flecs::Bool) {
+  } else if (type.has<flecs::Primitive>()) {
+    switch (scalarWidget(ecs, member)) {
+    case ScalarWidget::Checkbox:
       ImGui::Checkbox("##value", &at<bool>(field, 0));
-    } else if (kind == flecs::F32) {
-      if (member.unit == ecs.id<flecs::units::angle::Radians>()) {
-        float degrees = glm::degrees(at<float>(field, 0));
-        if (ImGui::DragFloat("##value", &degrees, AngleDragSpeed, 0.0f, 0.0f, "%.1f°")) {
-          at<float>(field, 0) = glm::radians(degrees);
-        }
-      } else {
-        ImGui::DragFloat("##value", &at<float>(field, 0), DragSpeed);
+      break;
+    case ScalarWidget::Float:
+      ImGui::DragFloat("##value", &at<float>(field, 0), DragSpeed);
+      break;
+    case ScalarWidget::Degrees: {
+      float degrees = glm::degrees(at<float>(field, 0));
+      if (ImGui::DragFloat("##value", &degrees, AngleDragSpeed, 0.0f, 0.0f, "%.1f°")) {
+        at<float>(field, 0) = glm::radians(degrees);
       }
-    } else if (kind == flecs::F64) {
+      break;
+    }
+    case ScalarWidget::Double:
       ImGui::DragScalar("##value", ImGuiDataType_Double, &at<double>(field, 0), DragSpeed);
-    } else if (kind == flecs::I32) {
+      break;
+    case ScalarWidget::Int:
       ImGui::DragInt("##value", &at<int>(field, 0));
-    } else if (kind == flecs::U32) {
+      break;
+    case ScalarWidget::UInt:
       ImGui::DragScalar("##value", ImGuiDataType_U32, &at<std::uint32_t>(field, 0));
-    } else if (kind == flecs::I64) {
+      break;
+    case ScalarWidget::Int64:
       ImGui::DragScalar("##value", ImGuiDataType_S64, &at<std::int64_t>(field, 0));
-    } else if (kind == flecs::U64) {
+      break;
+    case ScalarWidget::UInt64:
       ImGui::DragScalar("##value", ImGuiDataType_U64, &at<std::uint64_t>(field, 0));
-    } else if (kind == flecs::Entity) {
+      break;
+    case ScalarWidget::Entity: {
       const flecs::entity referenced{ecs, at<flecs::entity_t>(field, 0)};
       ImGui::TextDisabled("%s", referenced.is_valid() ? referenced.name().c_str() : "(none)");
-    } else {
+      break;
+    }
+    case ScalarWidget::Unsupported:
       ImGui::TextDisabled("(unsupported)");
+      break;
     }
     track();
   } else if (type.has<flecs::Enum>()) {

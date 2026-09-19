@@ -26,6 +26,7 @@ sonnet_add_module_test(editor
     tests/EditorTests.cpp
     tests/FlyCameraTests.cpp
     tests/GizmoTests.cpp
+    tests/InspectorTests.cpp
     tests/LogPanelTests.cpp
     tests/ProjectTests.cpp
 )
