@@ -7,8 +7,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,9 +24,13 @@ enum class AssetType : std::uint8_t {
   Model,       // a glTF file: the node hierarchy over its meshes and materials
   Environment, // an equirectangular .hdr map
   Script,      // a .lua file, run by the scripting module
+  Sound,       // a .wav, .ogg, .mp3 or .flac file, played by the audio module
+  Skin,        // a glTF skin: the joints of a skinned mesh
+  Animation,   // a glTF animation clip
 };
 
 [[nodiscard]] std::string_view toString(AssetType type) noexcept;
+[[nodiscard]] std::optional<AssetType> assetTypeFromString(std::string_view name) noexcept;
 
 // What the database knows about an asset before it is loaded (docs/assets.md, "Database").
 struct AssetInfo {
@@ -81,6 +87,13 @@ struct ScriptSource {
   std::uint64_t revision{0};
 };
 
+// A sound file as last read, still encoded: the audio module decodes it. The revision changes
+// with every read, like a script's.
+struct SoundSource {
+  std::vector<std::byte> bytes;
+  std::uint64_t revision{0};
+};
+
 // The node hierarchy of a glTF file, which `world` turns into a prefab.
 struct ModelNode {
   std::string name;
@@ -89,10 +102,12 @@ struct ModelNode {
   glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
   glm::vec3 scale{1.0f};
   core::Uuid mesh{}; // nil for a node without geometry
+  core::Uuid skin{}; // the skin deforming the node's mesh, nil for none
 };
 
 struct Model {
-  std::vector<ModelNode> nodes; // parents before children
+  std::vector<ModelNode> nodes;       // parents before children
+  std::vector<core::Uuid> animations; // the file's clips, in file order
 };
 
 // The built-in primitive meshes, registered by every database under fixed identities so scenes

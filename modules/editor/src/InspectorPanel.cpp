@@ -78,6 +78,15 @@ std::optional<assets::AssetType> InspectorPanel::assetTypeOfMember(std::string_v
   if (member == "script") {
     return assets::AssetType::Script;
   }
+  if (member == "sound") {
+    return assets::AssetType::Sound;
+  }
+  if (member == "skin") {
+    return assets::AssetType::Skin;
+  }
+  if (member == "clip") {
+    return assets::AssetType::Animation;
+  }
   if (member.ends_with("Texture")) {
     return assets::AssetType::Texture;
   }
@@ -262,6 +271,26 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
     break;
   case assets::AssetType::Environment:
     ImGui::TextDisabled(m_assets.environment(uuid) ? "loaded" : "not loaded");
+    break;
+  case assets::AssetType::Sound:
+    ImGui::TextDisabled("(no audio device)");
+    break;
+  case assets::AssetType::Skin:
+    if (const assets::Skin *skin = m_assets.skin(uuid)) {
+      ImGui::Text("%zu joints", skin->joints.size());
+      for (const std::string &joint : skin->joints) {
+        ImGui::TextDisabled("%s", joint.c_str());
+      }
+    } else {
+      ImGui::TextDisabled("(not loaded)");
+    }
+    break;
+  case assets::AssetType::Animation:
+    if (const assets::AnimationClip *clip = m_assets.animation(uuid)) {
+      ImGui::Text("%.2f s, %zu channels", static_cast<double>(clip->duration), clip->channels.size());
+    } else {
+      ImGui::TextDisabled("(not loaded)");
+    }
     break;
   }
 }

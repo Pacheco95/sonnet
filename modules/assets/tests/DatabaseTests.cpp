@@ -245,6 +245,74 @@ TEST_CASE("a script is read on first use and again, with a new revision, when it
   REQUIRE(std::ranges::equal(database.roots(), fixture.roots));
 }
 
+TEST_CASE("a sound is read on first use and again, with a new revision, when it changes", "[assets][database]") {
+  Fixture fixture;
+  const std::vector<std::byte> first(64, std::byte{1});
+  REQUIRE(core::writeFile(fixture.root / "assets" / "chime.wav", first).has_value());
+  REQUIRE(core::writeFile(fixture.root / "assets" / "notes.txt", first).has_value());
+  AssetDatabase database{fixture.renderer};
+  database.open(fixture.root, fixture.roots);
+  const AssetInfo *info = byName(database, "chime", AssetType::Sound);
+  REQUIRE(info != nullptr);
+  REQUIRE(database.assets(AssetType::Sound).size() == 1); // the text file is no asset
+  REQUIRE(assetTypeFromString("Sound") == AssetType::Sound);
+  const core::Uuid uuid = info->uuid;
+  const SoundSource *loaded = database.sound(uuid);
+  REQUIRE(loaded != nullptr);
+  REQUIRE(loaded->bytes == first);
+  const std::uint64_t revision = loaded->revision;
+  REQUIRE(database.sound(uuid)->revision == revision);
+  REQUIRE(database.sound(builtin::box()) == nullptr);
+
+  const std::vector<std::byte> second(32, std::byte{2});
+  Fixture::touchLater(fixture.root / "assets" / "chime.wav", second);
+  std::this_thread::sleep_for(std::chrono::milliseconds{600});
+  REQUIRE(database.pollChanges() == std::vector<core::Uuid>{uuid});
+  REQUIRE(database.sound(uuid)->bytes == second);
+  REQUIRE(database.sound(uuid)->revision > revision);
+}
+
+TEST_CASE("a glTF file's skins and clips are sub-assets, reloaded with the file", "[assets][database]") {
+  Fixture fixture;
+  test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
+  // A sidecar from before skins were sub-assets lists none and is rebuilt.
+  const core::Uuid rigUuid = core::Uuid::generate();
+  const nlohmann::json old{{"version", 1},
+                           {"uuid", rigUuid.toString()},
+                           {"type", "Model"},
+                           {"settings", nlohmann::json::object()},
+                           {"subAssets", nlohmann::json::array()}};
+  REQUIRE(core::writeFile(fixture.root / "assets" / "models" / "rig.gltf.meta", old.dump()).has_value());
+  AssetDatabase database{fixture.renderer};
+  database.open(fixture.root, fixture.roots);
+  const AssetInfo *skinInfo = byName(database, "StripSkin", AssetType::Skin);
+  const AssetInfo *clipInfo = byName(database, "Bend", AssetType::Animation);
+  REQUIRE(skinInfo != nullptr);
+  REQUIRE(clipInfo != nullptr);
+  REQUIRE(skinInfo->parent == rigUuid);
+  REQUIRE(skinInfo->uuid == core::Uuid::derive(rigUuid, "skin/0"));
+  REQUIRE(clipInfo->uuid == core::Uuid::derive(rigUuid, "animation/0"));
+
+  const Skin *skin = database.skin(skinInfo->uuid);
+  REQUIRE(skin != nullptr);
+  REQUIRE(skin->joints.size() == 2);
+  const AnimationClip *clip = database.animation(clipInfo->uuid);
+  REQUIRE(clip != nullptr);
+  REQUIRE(clip->duration == Approx(1.0f));
+  REQUIRE(database.animation(skinInfo->uuid) == nullptr); // not a clip
+  const Model *model = database.model(rigUuid);
+  REQUIRE(model != nullptr);
+  REQUIRE(model->animations == std::vector<core::Uuid>{clipInfo->uuid});
+  REQUIRE(model->nodes[3].skin == skinInfo->uuid);
+  REQUIRE(model->nodes[0].skin.isNil());
+  REQUIRE(!database.meshData(model->nodes[3].mesh)->skin.empty());
+
+  const std::uint64_t revision = clip->revision;
+  REQUIRE(database.reimport(rigUuid).has_value());
+  REQUIRE(database.animation(clipInfo->uuid)->revision > revision);
+  REQUIRE(database.skin(skinInfo->uuid)->revision > revision);
+}
+
 TEST_CASE("mesh data stays on the CPU for built-in and glTF meshes", "[assets][database]") {
   Fixture fixture;
   AssetDatabase database{fixture.renderer};

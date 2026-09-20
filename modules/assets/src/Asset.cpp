@@ -81,8 +81,25 @@ std::string_view toString(AssetType type) noexcept {
     return "Environment";
   case AssetType::Script:
     return "Script";
+  case AssetType::Sound:
+    return "Sound";
+  case AssetType::Skin:
+    return "Skin";
+  case AssetType::Animation:
+    return "Animation";
   }
   return "?";
+}
+
+std::optional<AssetType> assetTypeFromString(std::string_view name) noexcept {
+  for (const AssetType type :
+       {AssetType::Texture, AssetType::Mesh, AssetType::Material, AssetType::Model, AssetType::Environment,
+        AssetType::Script, AssetType::Sound, AssetType::Skin, AssetType::Animation}) {
+    if (toString(type) == name) {
+      return type;
+    }
+  }
+  return std::nullopt;
 }
 
 TextureSettings TextureSettings::fromJson(const json &object) {

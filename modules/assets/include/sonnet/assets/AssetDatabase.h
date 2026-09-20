@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sonnet/assets/Animation.h>
 #include <sonnet/assets/Asset.h>
 #include <sonnet/assets/Importers.h>
 
@@ -63,6 +64,12 @@ public:
   [[nodiscard]] const renderer::MeshData *meshData(const core::Uuid &uuid);
   // A script's source, read on first use and again when the file changes.
   [[nodiscard]] const ScriptSource *script(const core::Uuid &uuid);
+  // A sound file's bytes, read on first use and again when the file changes.
+  [[nodiscard]] const SoundSource *sound(const core::Uuid &uuid);
+  // A glTF skin or animation clip, loaded with the rest of its file. The pointer is valid until
+  // the file is re-imported; the revision says whether it was.
+  [[nodiscard]] const Skin *skin(const core::Uuid &uuid);
+  [[nodiscard]] const AnimationClip *animation(const core::Uuid &uuid);
   // A new .lua file under the project, registered at once.
   [[nodiscard]] core::Result<core::Uuid> createScript(const std::filesystem::path &file, std::string_view code);
 
@@ -133,7 +140,10 @@ private:
   std::unordered_map<core::Uuid, renderer::MeshHandle> m_meshes;
   std::unordered_map<core::Uuid, renderer::MeshData> m_meshData;
   std::unordered_map<core::Uuid, ScriptSource> m_scripts;
-  std::uint64_t m_scriptRevision{0};
+  std::unordered_map<core::Uuid, SoundSource> m_sounds;
+  std::unordered_map<core::Uuid, Skin> m_skins;
+  std::unordered_map<core::Uuid, AnimationClip> m_animations;
+  std::uint64_t m_revision{0}; // what the next loaded script, sound, skin or clip is stamped with
   std::unordered_map<core::Uuid, LoadedTexture> m_textures;
   std::unordered_map<core::Uuid, LoadedMaterial> m_materials;
   std::unordered_map<core::Uuid, renderer::EnvironmentHandle> m_environments;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sonnet/assets/Animation.h>
 #include <sonnet/assets/Asset.h>
 
 #include <sonnet/core/Error.h>
@@ -54,12 +55,26 @@ struct GltfImage {
   bool srgb{true};              // used as colour by some material
 };
 
+// Joints and channels name their nodes by path from the model's root (Animation.h).
+struct GltfSkin {
+  std::string name;
+  Skin skin;
+};
+
+struct GltfAnimation {
+  std::string name;
+  AnimationClip clip;
+};
+
 struct GltfImport {
   std::vector<GltfMesh> meshes;
   std::vector<GltfMaterial> materials;
   std::vector<GltfImage> images;
-  Model model;                           // nodes refer to meshes by their index through `meshIndices`
+  std::vector<GltfSkin> skins;
+  std::vector<GltfAnimation> animations;
+  Model model;                           // nodes refer to meshes and skins through the index lists
   std::vector<std::int32_t> meshIndices; // per model node, -1 for none
+  std::vector<std::int32_t> skinIndices; // per model node, -1 for none
 };
 
 [[nodiscard]] core::Result<GltfImport> importGltf(const std::filesystem::path &path);
