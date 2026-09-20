@@ -187,6 +187,9 @@ private:
   void writeSampledDescriptor(std::uint32_t binding, std::uint32_t index, vk::ImageView view, vk::ImageLayout layout);
   void writeSamplerDescriptor(std::uint32_t binding, std::uint32_t index, vk::Sampler sampler);
   void waitForFrame(Frame &frame);
+  // Submits uploads recorded into the current slot that no endFrame has taken, so nothing is
+  // left referencing a resource the caller is about to destroy. Only outside a frame.
+  void submitRecordedUploads();
   void readTimestamps(Frame &frame);
   void deferDestruction(std::function<void()> destroy);
   void reportLeaks();
