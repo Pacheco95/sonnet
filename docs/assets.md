@@ -43,7 +43,9 @@ Import decodes to RGBA8, generates mipmaps, and cooks to KTX2 in the project's c
 
 ## Meshes
 
-Meshes are uploaded in the vertex layout the renderer pulls from (position, normal, tangent, one UV set) with a 32-bit index buffer, bounds and a material slot list, straight from the glTF file. The database keeps the CPU copy of every loaded mesh, built-in or imported, which `meshData` returns for physics to build mesh colliders from ([physics.md](physics.md#components)); a cooked binary form of the same layout arrives with the cook tool in M6, together with welding and vertex-cache optimisation.
+Meshes are uploaded in the vertex layout the renderer pulls from (position, normal, tangent, one UV set) with a 32-bit index buffer, bounds and a material slot list, straight from the glTF file. The database keeps the CPU copy of every loaded mesh, built-in or imported, which `meshData` returns for physics to build mesh colliders from ([physics.md](physics.md#components)).
+
+`cookMesh` reshapes a mesh for the player: vertices equal to the bit are welded into one, each submesh's triangles are reordered for a sixteen-entry post-transform vertex cache with tipsify (Sander, Nehab and Barczak), and the vertices are renumbered by first use so the fetch runs forwards and vertices no index names are dropped. The result draws the same triangles wound the same way; only their order and numbering change, and a submesh stays one range of the index buffer. `averageCacheMissRatio` measures what that bought: an unwelded grid of quads goes from three misses per triangle, the worst there is, to about 0.65 against a floor of 0.5. A mesh the cook cannot reshape, one whose indices are not whole triangles or name vertices that are not there, comes back as it was.
 
 ## Skins and animations
 

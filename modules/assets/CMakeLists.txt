@@ -12,6 +12,7 @@ sonnet_add_module(assets
     src/GltfImporter.cpp
     src/ImageImporter.cpp
     src/Ktx2.cpp
+    src/MeshCook.cpp
     src/Project.cpp
     src/ShaderCompiler.cpp
   PUBLIC_DEPENDS
@@ -27,6 +28,7 @@ target_include_directories(sonnet_assets SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 sonnet_add_module_test(assets
   SOURCES
     tests/AnimationTests.cpp
+    tests/CookTests.cpp
     tests/DatabaseTests.cpp
     tests/GltfTests.cpp
     tests/ProjectTests.cpp
