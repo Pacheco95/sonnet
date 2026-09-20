@@ -169,6 +169,10 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   // without a feature bit.
   VkPhysicalDeviceFeatures features{};
   features.samplerAnisotropy = VK_TRUE;
+  // The indirect draws of ADR-0012: many commands per call, each naming its object in
+  // firstInstance.
+  features.multiDrawIndirect = VK_TRUE;
+  features.drawIndirectFirstInstance = VK_TRUE;
 
   VkPhysicalDeviceVulkan11Features features11{};
   features11.shaderDrawParameters = VK_TRUE; // Slang lowers SV_VertexID through gl_BaseVertex
@@ -187,6 +191,7 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   features12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
   features12.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
   features12.runtimeDescriptorArray = VK_TRUE;
+  features12.drawIndirectCount = VK_TRUE;
 
   VkPhysicalDeviceVulkan13Features features13{};
   features13.dynamicRendering = VK_TRUE;

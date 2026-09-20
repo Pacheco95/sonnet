@@ -32,6 +32,8 @@ public:
             std::uint32_t firstInstance) override;
   void drawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex,
                    std::int32_t vertexOffset, std::uint32_t firstInstance) override;
+  void drawIndexedIndirectCount(BufferHandle commands, std::uint64_t commandOffset, BufferHandle countBuffer,
+                                std::uint64_t countOffset, std::uint32_t maxDrawCount) override;
   void dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) override;
   void copyImageToBuffer(ImageHandle image, BufferHandle buffer) override;
   void writeTimestamp(std::uint32_t index) override;

@@ -86,6 +86,9 @@ vk::BufferUsageFlags toVk(BufferUsage usage) noexcept {
   if (has(usage, BufferUsage::Index)) {
     flags |= vk::BufferUsageFlagBits::eIndexBuffer;
   }
+  if (has(usage, BufferUsage::Indirect)) {
+    flags |= vk::BufferUsageFlagBits::eIndirectBuffer;
+  }
   return flags;
 }
 
@@ -180,6 +183,9 @@ vk::PipelineStageFlags2 toVk(PipelineStage stage) noexcept {
   if (has(stage, PipelineStage::AllCommands)) {
     flags |= Bits::eAllCommands;
   }
+  if (has(stage, PipelineStage::DrawIndirect)) {
+    flags |= Bits::eDrawIndirect;
+  }
   return flags;
 }
 
@@ -215,6 +221,9 @@ vk::AccessFlags2 toVk(Access access) noexcept {
   }
   if (has(access, Access::MemoryWrite)) {
     flags |= Bits::eMemoryWrite;
+  }
+  if (has(access, Access::IndirectCommandRead)) {
+    flags |= Bits::eIndirectCommandRead;
   }
   return flags;
 }

@@ -123,7 +123,21 @@ enum class BufferUsage : std::uint8_t {
   // Storage buffers also get a device address (IDevice::bufferAddress) for vertex pulling.
   Storage = 1 << 3,
   Index = 1 << 4,
+  // Source of the draw commands and counts of drawIndexedIndirectCount (ADR-0012).
+  Indirect = 1 << 5,
 };
+
+// One entry of the buffer drawIndexedIndirectCount reads, laid out as Vulkan's
+// VkDrawIndexedIndirectCommand. `firstInstance` reaches the vertex shader as
+// SV_StartInstanceLocation, which is where the engine puts the draw's object index (ADR-0012).
+struct IndirectCommand {
+  std::uint32_t indexCount{0};
+  std::uint32_t instanceCount{0};
+  std::uint32_t firstIndex{0};
+  std::int32_t vertexOffset{0};
+  std::uint32_t firstInstance{0};
+};
+static_assert(sizeof(IndirectCommand) == 20);
 
 enum class ImageUsage : std::uint8_t {
   None = 0,
@@ -150,6 +164,7 @@ enum class PipelineStage : std::uint16_t {
   Transfer = 1 << 6,
   AllGraphics = 1 << 7,
   AllCommands = 1 << 8,
+  DrawIndirect = 1 << 9, // where an indirect draw fetches its commands and count
 };
 
 enum class Access : std::uint16_t {
@@ -164,6 +179,7 @@ enum class Access : std::uint16_t {
   TransferWrite = 1 << 7,
   MemoryRead = 1 << 8,
   MemoryWrite = 1 << 9,
+  IndirectCommandRead = 1 << 10,
 };
 
 template <typename Flags>

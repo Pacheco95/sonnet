@@ -43,6 +43,13 @@ public:
                     std::uint32_t firstInstance = 0) = 0;
   virtual void drawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount = 1, std::uint32_t firstIndex = 0,
                            std::int32_t vertexOffset = 0, std::uint32_t firstInstance = 0) = 0;
+  // Up to `maxDrawCount` IndirectCommands from `commands` at `commandOffset`, as many of them as
+  // the 32-bit count at `countOffset` of `countBuffer` says. Both buffers need BufferUsage::
+  // Indirect, and a barrier into PipelineStage::DrawIndirect with Access::IndirectCommandRead
+  // has to order whatever wrote them before this (ADR-0012). The index buffer bound applies to
+  // every command; an indirect draw cannot change it.
+  virtual void drawIndexedIndirectCount(BufferHandle commands, std::uint64_t commandOffset, BufferHandle countBuffer,
+                                        std::uint64_t countOffset, std::uint32_t maxDrawCount) = 0;
 
   // Outside beginRendering/endRendering, with a compute pipeline bound: workgroup counts.
   virtual void dispatch(std::uint32_t groupsX, std::uint32_t groupsY = 1, std::uint32_t groupsZ = 1) = 0;

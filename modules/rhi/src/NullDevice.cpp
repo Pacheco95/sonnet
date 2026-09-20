@@ -115,6 +115,13 @@ public:
     SONNET_ASSERT(m_rendering, "drawIndexed outside beginRendering/endRendering");
     m_device.m_trace.push_back(std::format("drawIndexed {} x{}", indexCount, instanceCount));
   }
+  void drawIndexedIndirectCount(BufferHandle commands, std::uint64_t, BufferHandle, std::uint64_t,
+                                std::uint32_t maxDrawCount) override {
+    SONNET_ASSERT(m_rendering, "drawIndexedIndirectCount outside beginRendering/endRendering");
+    // Without a GPU nothing culls, so the trace reports what was offered, not what was drawn.
+    m_device.m_trace.push_back(
+        std::format("drawIndexedIndirectCount {} max {}", m_device.bufferName(commands), maxDrawCount));
+  }
   void dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) override {
     SONNET_ASSERT(m_compute && !m_rendering, "dispatch needs a compute pipeline outside rendering");
     m_device.m_trace.push_back(std::format("dispatch {} {} {}", groupsX, groupsY, groupsZ));
