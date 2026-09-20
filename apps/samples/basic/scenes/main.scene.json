@@ -272,6 +272,66 @@
       }
     },
     {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000014",
+      "name": "Reed",
+      "prefab": "f870a0b5-a2db-46ad-8570-08d26ed40026",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -3.6,
+            "y": 0.0,
+            "z": -2.2
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000015",
+      "name": "Beacon",
+      "prefab": "b1c7ef7c-afa8-4ab9-9a03-1e6e8719809d",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 3.4,
+            "y": 0.0,
+            "z": -2.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "AudioSource": {
+          "sound": "539fe2ed-9536-4663-8928-25d6bcc1c478",
+          "volume": 0.5,
+          "pitch": 1.0,
+          "playing": true,
+          "loop": true,
+          "spatial": true,
+          "minDistance": 2.0,
+          "maxDistance": 22.0
+        }
+      }
+    },
+    {
       "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000011",
       "name": "Lamp",
       "components": {
@@ -425,7 +485,8 @@
         "Camera": {
           "fovY": 1.0471976,
           "nearPlane": 0.1
-        }
+        },
+        "AudioListener": null
       }
     }
   ]

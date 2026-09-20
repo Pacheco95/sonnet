@@ -3,9 +3,13 @@
 
 Writes, under apps/samples/basic/assets:
   models/crate.glb   a textured box and a metallic sphere, embedded PNG textures, two nodes
+  models/reed.glb    a skinned stem on a chain of four joints, swaying in the clip "Sway"
+  models/beacon.glb  a lamp spinning around its own axis with a bobbing halo, the clip "Pulse"
   textures/checker.png   a checker for the ground material
   sky.hdr            a gradient sky with a sun, as an uncompressed Radiance file
   ground.material.json   the ground's material over the checker
+  sounds/hum.wav     a two-second drone that loops seamlessly
+  sounds/chime.wav   a short bell
 
 Run from the repository root: python3 tools/generate_sample_assets.py
 The files are plain data; re-running overwrites them identically.
@@ -227,8 +231,241 @@ def hdr(path: Path, width=256, height=128):
     path.write_bytes(header + bytes(pixels))
 
 
+class Glb:
+    """A glTF binary under construction: buffer views, accessors and the JSON around them."""
+
+    def __init__(self):
+        self.buffer = bytearray()
+        self.views = []
+        self.accessors = []
+
+    def view(self, data: bytes, target=None):
+        while len(self.buffer) % 4:
+            self.buffer.append(0)
+        entry = {"buffer": 0, "byteOffset": len(self.buffer), "byteLength": len(data)}
+        if target:
+            entry["target"] = target
+        self.views.append(entry)
+        self.buffer.extend(data)
+        return len(self.views) - 1
+
+    def accessor(self, view, count, kind, component, minimum=None, maximum=None):
+        entry = {"bufferView": view, "componentType": component, "count": count, "type": kind}
+        if minimum is not None:
+            entry["min"], entry["max"] = minimum, maximum
+        self.accessors.append(entry)
+        return len(self.accessors) - 1
+
+    def floats(self, rows, kind, target=None):
+        flat = b"".join(struct.pack("<%df" % len(r), *r) for r in rows)
+        minimum = [min(r[i] for r in rows) for i in range(len(rows[0]))]
+        maximum = [max(r[i] for r in rows) for i in range(len(rows[0]))]
+        return self.accessor(self.view(flat, target), len(rows), kind, 5126, minimum, maximum)
+
+    def scalars(self, values):
+        data = struct.pack("<%df" % len(values), *values)
+        return self.accessor(self.view(data), len(values), "SCALAR", 5126, [min(values)], [max(values)])
+
+    def indices(self, values):
+        data = struct.pack("<%dI" % len(values), *values)
+        return self.accessor(self.view(data, 34963), len(values), "SCALAR", 5125)
+
+    def joints(self, rows):
+        data = b"".join(struct.pack("<4H", *r) for r in rows)
+        return self.accessor(self.view(data, 34962), len(rows), "VEC4", 5123)
+
+    def write(self, path: Path, document: dict):
+        document.update({
+            "asset": {"version": "2.0", "generator": "sonnet tools/generate_sample_assets.py"},
+            "bufferViews": self.views,
+            "accessors": self.accessors,
+            "buffers": [{"byteLength": len(self.buffer)}],
+        })
+        text = json.dumps(document, separators=(",", ":")).encode()
+        while len(text) % 4:
+            text += b" "
+        while len(self.buffer) % 4:
+            self.buffer.append(0)
+        body = struct.pack("<II", len(text), 0x4E4F534A) + text + struct.pack("<II", len(self.buffer), 0x004E4942) + bytes(self.buffer)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"glTF" + struct.pack("<II", 2, 12 + len(body)) + body)
+
+
+def quaternion_z(angle: float):
+    return [0.0, 0.0, math.sin(angle / 2), math.cos(angle / 2)]
+
+
+def quaternion_y(angle: float):
+    return [0.0, math.sin(angle / 2), 0.0, math.cos(angle / 2)]
+
+
+def reed_glb(path: Path):
+    """A tapered stem skinned to a chain of four joints, one per metre, swaying in a loop."""
+    segments, rings, height = 12, 6, 3.0
+    positions, normals, uvs, joints, weights, indices = [], [], [], [], [], []
+    for ring in range(rings + 1):
+        v = ring / rings
+        y = v * height
+        radius = 0.25 * (1.0 - v) + 0.07 * v
+        # Two joints share every vertex, by the metre it sits in: the stem bends smoothly.
+        lower = min(int(y), 3)
+        upper = min(lower + 1, 3)
+        blend = min(max(y - lower, 0.0), 1.0)
+        for s in range(segments + 1):
+            u = s / segments
+            theta = u * 2 * math.pi
+            normal = (math.cos(theta), 0.0, math.sin(theta))
+            positions.append([radius * normal[0], y, radius * normal[2]])
+            normals.append(list(normal))
+            uvs.append([u, 1.0 - v])
+            joints.append((lower, upper, 0, 0))
+            weights.append([1.0 - blend, blend, 0.0, 0.0])
+    for ring in range(rings):
+        for s in range(segments):
+            a = ring * (segments + 1) + s
+            b = a + segments + 1
+            indices += [a, b, b + 1, a, b + 1, a + 1]
+
+    glb = Glb()
+    attributes = {
+        "POSITION": glb.floats(positions, "VEC3", 34962),
+        "NORMAL": glb.floats(normals, "VEC3", 34962),
+        "TEXCOORD_0": glb.floats(uvs, "VEC2", 34962),
+        "JOINTS_0": glb.joints(joints),
+        "WEIGHTS_0": glb.floats(weights, "VEC4", 34962),
+    }
+    triangles = glb.indices(indices)
+    # Joint 0 sits at the stem's foot, the others one metre above the one below.
+    inverse_binds = []
+    for joint in range(4):
+        matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -float(joint), 0, 1]
+        inverse_binds.append(matrix)
+    inverse_bind = glb.accessor(glb.view(b"".join(struct.pack("<16f", *m) for m in inverse_binds)), 4, "MAT4", 5126)
+
+    # Sway: every joint above the foot turns about Z, each a little further and later than the
+    # one below, over two seconds that end where they began so the loop is seamless.
+    samplers, channels = [], []
+    times = [i * 0.25 for i in range(9)]
+    time = glb.scalars(times)
+    for joint, (amplitude, phase) in enumerate((( 0.10, 0.0), (0.16, 0.6), (0.22, 1.2)), start=2):
+        rotations = [quaternion_z(amplitude * math.sin(2 * math.pi * t / 2.0 + phase)) for t in times]
+        samplers.append({"input": time, "output": glb.floats(rotations, "VEC4"), "interpolation": "LINEAR"})
+        channels.append({"sampler": len(samplers) - 1, "target": {"node": joint, "path": "rotation"}})
+
+    glb.write(path, {
+        "scene": 0,
+        "scenes": [{"name": "Reed", "nodes": [0]}],
+        "nodes": [
+            {"name": "Reed", "children": [1, 5]},
+            {"name": "Bone0", "children": [2]},
+            {"name": "Bone1", "children": [3], "translation": [0.0, 1.0, 0.0]},
+            {"name": "Bone2", "children": [4], "translation": [0.0, 1.0, 0.0]},
+            {"name": "Bone3", "translation": [0.0, 1.0, 0.0]},
+            {"name": "Stem", "mesh": 0, "skin": 0},
+        ],
+        "meshes": [{"name": "StemMesh", "primitives": [{"attributes": attributes, "indices": triangles, "material": 0}]}],
+        "skins": [{"name": "StemSkin", "joints": [1, 2, 3, 4], "skeleton": 1, "inverseBindMatrices": inverse_bind}],
+        "animations": [{"name": "Sway", "samplers": samplers, "channels": channels}],
+        "materials": [{
+            "name": "Stem",
+            "pbrMetallicRoughness": {"baseColorFactor": [0.35, 0.60, 0.28, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.75},
+            "doubleSided": True,
+        }],
+    })
+
+
+def beacon_glb(path: Path):
+    """A lamp that turns about its axis while its halo bobs: an animation without a skin."""
+    glb = Glb()
+
+    def mesh(data):
+        positions, normals, uvs, indices = data
+        attributes = {
+            "POSITION": glb.floats(positions, "VEC3", 34962),
+            "NORMAL": glb.floats(normals, "VEC3", 34962),
+            "TEXCOORD_0": glb.floats(uvs, "VEC2", 34962),
+        }
+        return attributes, glb.indices(indices)
+
+    lamp_attributes, lamp_indices = mesh(box_mesh())
+    halo_attributes, halo_indices = mesh(sphere_mesh(24, 12, 0.5))
+
+    # A full turn in four seconds, in quarters: a slerp takes the short way between neighbours.
+    spin_times = [0.0, 1.0, 2.0, 3.0, 4.0]
+    spins = [quaternion_y(i * math.pi / 2) for i in range(5)]
+    bob_times = [i * 0.25 for i in range(9)]
+    bobs = [[0.8, 0.6 + 0.18 * math.sin(2 * math.pi * t / 2.0), 0.0] for t in bob_times]
+    samplers = [
+        {"input": glb.scalars(spin_times), "output": glb.floats(spins, "VEC4"), "interpolation": "LINEAR"},
+        {"input": glb.scalars(bob_times), "output": glb.floats(bobs, "VEC3"), "interpolation": "LINEAR"},
+    ]
+    glb.write(path, {
+        "scene": 0,
+        "scenes": [{"name": "Beacon", "nodes": [0]}],
+        # The halo is a sibling of the lamp, not its child: the lamp's scale is its own, and the
+        # root's spin carries the halo around it.
+        "nodes": [
+            {"name": "Beacon", "children": [1, 2]},
+            {"name": "Lamp", "mesh": 0, "translation": [0.0, 0.45, 0.0], "scale": [0.4, 0.9, 0.4]},
+            {"name": "Halo", "mesh": 1, "translation": [0.8, 0.6, 0.0], "scale": [0.36, 0.36, 0.36]},
+        ],
+        "meshes": [
+            {"name": "LampMesh", "primitives": [{"attributes": lamp_attributes, "indices": lamp_indices, "material": 0}]},
+            {"name": "HaloMesh", "primitives": [{"attributes": halo_attributes, "indices": halo_indices, "material": 1}]},
+        ],
+        "animations": [{"name": "Pulse", "samplers": samplers, "channels": [
+            {"sampler": 0, "target": {"node": 0, "path": "rotation"}},
+            {"sampler": 1, "target": {"node": 2, "path": "translation"}},
+        ]}],
+        "materials": [
+            {"name": "Lamp", "pbrMetallicRoughness": {"baseColorFactor": [0.20, 0.22, 0.26, 1.0], "metallicFactor": 0.9, "roughnessFactor": 0.35}},
+            {"name": "Glow", "pbrMetallicRoughness": {"baseColorFactor": [0.95, 0.85, 0.55, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.4}, "emissiveFactor": [1.0, 0.75, 0.25]},
+        ],
+    })
+
+
+def wav(path: Path, samples, rate=48000):
+    """A mono 16-bit WAV of samples in [-1, 1]."""
+    frames = len(samples)
+    data = b"".join(struct.pack("<h", max(-32767, min(32767, int(s * 32767)))) for s in samples)
+    header = b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(header + b"data" + struct.pack("<I", len(data)) + data)
+    return frames
+
+
+def hum(seconds=2.0, rate=48000):
+    """A drone whose partials fit whole cycles into its length, so it loops without a click."""
+    frames = int(seconds * rate)
+    partials = ((110.0, 0.5), (220.0, 0.18), (330.0, 0.10), (55.0, 0.22))
+    out = []
+    for i in range(frames):
+        t = i / rate
+        value = sum(gain * math.sin(2 * math.pi * frequency * t) for frequency, gain in partials)
+        # A slow tremolo, also a whole number of cycles long.
+        out.append(value * (0.85 + 0.15 * math.sin(2 * math.pi * t / seconds)))
+    return out
+
+
+def chime(seconds=1.2, rate=48000):
+    """A struck bell: a few partials decaying at their own rates."""
+    frames = int(seconds * rate)
+    partials = ((880.0, 0.5, 3.0), (1320.0, 0.25, 4.5), (1760.0, 0.15, 6.0), (2640.0, 0.08, 9.0))
+    out = []
+    for i in range(frames):
+        t = i / rate
+        value = sum(gain * math.exp(-decay * t) * math.sin(2 * math.pi * frequency * t) for frequency, gain, decay in partials)
+        out.append(value * min(1.0, t * 400.0))  # a short attack, so the start does not click
+    return out
+
+
+
 def main():
     glb(ROOT / "models" / "crate.glb")
+    reed_glb(ROOT / "models" / "reed.glb")
+    beacon_glb(ROOT / "models" / "beacon.glb")
+    wav(ROOT / "sounds" / "hum.wav", hum())
+    wav(ROOT / "sounds" / "chime.wav", chime())
     (ROOT / "textures").mkdir(parents=True, exist_ok=True)
     (ROOT / "textures" / "checker.png").write_bytes(png(64, 64, checker(64, (150, 152, 158, 255), (110, 112, 118, 255), 8)))
     hdr(ROOT / "sky.hdr")
