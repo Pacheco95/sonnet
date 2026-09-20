@@ -94,7 +94,32 @@ Scenes are JSON produced by the `world` serializer: a list of entities with thei
 
 ## Cooking and export
 
-`sonnet_cook <project> --platform <windows|linux|macos|android|ios> --out <dir>` produces a bundle: cooked assets in an index-plus-blob format, scenes in a compact binary encoding, and a manifest. Export copies the player binary for the target next to the bundle and, for mobile, wraps both in the platform's application package. The editor's export dialog runs the same tool.
+`sonnet_cook <project> --platform <windows|linux|macos> --out <dir>` produces a bundle; the editor's export dialog runs the same code and copies a player next to it ([editor.md](editor.md)). Mobile targets join in M7.
+
+### The bundle
+
+A bundle is one file, `<name>.sbundle` ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)): a 32-byte header (the magic `SONNETBN`, the format version, and where the index is), the payload blobs back to back, and the index at the end. The index is CBOR, so it is a JSON document at both ends:
+
+- `manifest`: the project's `name`, the `engineVersion` that cooked it, the `platform` it was cooked for, and the `startScene` as a path.
+- `assets`: one entry per asset with its `uuid`, `type`, `name`, the `parent` it is a sub-asset of, a mesh's default `materials`, and the `offset` and `size` of its payload.
+- `files`: the scene and prefab paths, each with an offset and size. Scenes keep their project-relative path because that is how `project.json` and the editor name them.
+
+`Bundle::open` reads the index and nothing else; a payload is read when it is asked for. `BundleWriter` streams payloads out as they arrive, so a project's textures never all sit in memory at once, and `finish` writes the index and rewrites the header.
+
+### What each payload is
+
+| Type | Cooked as |
+|---|---|
+| Texture | The KTX2 file the editor already cooks into its cache ([Textures](#textures)) |
+| Mesh | A binary block of the renderer's vertex layout, welded and reordered ([Meshes](#meshes)) |
+| Environment | The equirectangular map's `TextureData`, uncompressed: it is RGBA16F, which the KTX2 path does not cook |
+| Skin, Animation, Model | Binary: the joints and matrices, the channels and their keys, the node hierarchy |
+| Material | CBOR of the `.material.json` document |
+| Script | The Lua source, as it is |
+| Sound | The encoded file, as it is; `audio` decodes it either way |
+| Scene, prefab | CBOR of the scene document, so its `version` field and the migrations keep working |
+
+Every payload begins with a four-character tag, and every decode is defensive: a payload of the wrong kind, one that is truncated, or one whose counts promise more than it holds, is an `Io` error rather than a read past the end.
 
 ## See also
 
