@@ -14,6 +14,7 @@
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/assets/ShaderCompiler.h>
+#include <sonnet/audio/AudioDevice.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/Event.h>
@@ -27,6 +28,7 @@
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/ui/ImGuiLayer.h>
+#include <sonnet/world/Animation.h>
 #include <sonnet/world/DrawList.h>
 #include <sonnet/world/World.h>
 
@@ -90,8 +92,8 @@ public:
   [[nodiscard]] core::Result<void> reloadShaders();
 
   // Play mode (docs/architecture.md, "Editor and player"): play snapshots the scene and enables
-  // the simulation, physics and scripts; stop restores the snapshot, drops the undo history and
-  // the scripts' state.
+  // the simulation, physics, scripts, animation and sound; stop restores the snapshot, drops the
+  // undo history and the scripts' state, and silences everything.
   void play();
   void stop();
   [[nodiscard]] bool isPlaying() const noexcept {
@@ -106,6 +108,9 @@ public:
   }
   [[nodiscard]] scripting::IScriptRuntime &scripts() noexcept {
     return *m_scripts;
+  }
+  [[nodiscard]] audio::IAudioDevice &audio() noexcept {
+    return *m_audio;
   }
   // What the game's scripts see: fed while playing with the viewport focused (docs/editor.md,
   // "Play mode").
@@ -191,6 +196,10 @@ private:
   platform::InputState m_input;
   std::unique_ptr<physics::IPhysicsWorld> m_physics;
   std::unique_ptr<scripting::IScriptRuntime> m_scripts;
+  // After the scripts, so a pose a script sets this frame is sampled over; the audio device, after
+  // everything that moves entities, hears them where they end up.
+  world::AnimationSystem m_animation;
+  std::unique_ptr<audio::IAudioDevice> m_audio;
   std::vector<renderer::DrawItem> m_draws;
   std::vector<glm::mat4> m_joints;
   std::vector<renderer::DebugLine> m_debugLines;

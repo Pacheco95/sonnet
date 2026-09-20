@@ -4,6 +4,7 @@
 #include <sonnet/editor/Selection.h>
 
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/audio/AudioDevice.h>
 #include <sonnet/world/World.h>
 
 #include <nlohmann/json.hpp>
@@ -31,6 +32,10 @@ public:
   // Opens a file at a line in the external editor; the script asset view's Edit button uses it.
   void setOpenHandler(std::function<void(const std::string &, int)> handler) {
     m_open = std::move(handler);
+  }
+  // What the sound asset view decodes and previews with; without one it shows the file only.
+  void setAudio(audio::IAudioDevice *audio) noexcept {
+    m_audio = audio;
   }
 
   // How a member of a primitive type is edited, by its reflected kind and unit.
@@ -77,6 +82,7 @@ private:
   void drawMaterial(const assets::AssetInfo &info);
   void drawTexture(const assets::AssetInfo &info);
   void drawScript(const assets::AssetInfo &info);
+  void drawSound(const assets::AssetInfo &info);
   // Records activation and edits of the last widget for the pending command.
   void track();
 
@@ -93,6 +99,7 @@ private:
   core::Uuid m_nameEntity;
   std::string m_pickerFilter;
   std::function<void(const std::string &, int)> m_open;
+  audio::IAudioDevice *m_audio{nullptr};
 };
 
 } // namespace sonnet::editor

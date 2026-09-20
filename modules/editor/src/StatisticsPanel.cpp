@@ -68,6 +68,10 @@ void StatisticsPanel::drawContents(bool compact) {
   }
 
   ImGui::Text("%u draws, %u triangles", m_current.renderer.drawCount, m_current.renderer.triangleCount);
+  if (m_current.renderer.skinnedInstanceCount > 0) {
+    ImGui::Text("%u skinned, %u vertices", m_current.renderer.skinnedInstanceCount,
+                m_current.renderer.skinnedVertexCount);
+  }
   if (m_current.graph != nullptr) {
     if (ImGui::BeginTable("passes", 3, ImGuiTableFlags_SizingStretchProp)) {
       ImGui::TableSetupColumn("pass");

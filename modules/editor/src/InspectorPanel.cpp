@@ -273,7 +273,7 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
     ImGui::TextDisabled(m_assets.environment(uuid) ? "loaded" : "not loaded");
     break;
   case assets::AssetType::Sound:
-    ImGui::TextDisabled("(no audio device)");
+    drawSound(*info);
     break;
   case assets::AssetType::Skin:
     if (const assets::Skin *skin = m_assets.skin(uuid)) {
@@ -292,6 +292,25 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
       ImGui::TextDisabled("(not loaded)");
     }
     break;
+  }
+}
+
+void InspectorPanel::drawSound(const assets::AssetInfo &info) {
+  if (m_audio == nullptr) {
+    return;
+  }
+  const std::optional<audio::SoundInfo> sound = m_audio->soundInfo(info.uuid);
+  if (!sound) {
+    ImGui::TextDisabled("(cannot be decoded)");
+    return;
+  }
+  ImGui::Text("%.2f s, %u channels, %u Hz", static_cast<double>(sound->duration), sound->channels, sound->sampleRate);
+  if (ImGui::Button("Play")) {
+    m_audio->preview(info.uuid);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Stop")) {
+    m_audio->stopPreview();
   }
 }
 
