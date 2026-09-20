@@ -43,7 +43,7 @@ Bodies are created lazily, so edit mode has none. Stopping play reloads the snap
 
 - Two object layers, moving and non-moving, each with a broad-phase layer of its own; static bodies only meet moving ones.
 - Jolt's process-wide state (allocator hooks, factory, type registry) is set up by the first physics world and released by the last. Its trace output goes to the `physics` logger at `debug`, its assertions, in Debug builds, at `error`.
-- Jolt runs on the calling thread through its single-threaded job system, as the engine has no job system yet; when it gets one, Jolt's `JobSystem` will be implemented on top of it (ADR-0009).
+- Jolt runs on the calling thread through its single-threaded job system, as the engine has no job system yet; when M8 brings one, Jolt's `JobSystem` will be implemented on top of it (ADR-0009).
 - Resting contacts sink by Jolt's penetration slop, 2 cm by default, so a ball of radius 0.5 rests with its centre near 0.49.
 - vcpkg builds Jolt with AVX2 and the instructions that come with it on x64, so the editor and player need a CPU from 2013 or later there. Jolt's compile flags are an interface property of its target and reach only the module's own sources, since `physics` links it privately.
 

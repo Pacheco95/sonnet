@@ -12,7 +12,7 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 - **Modern Vulkan only.** One rendering code path on Vulkan 1.4: dynamic rendering, synchronization2, bindless descriptors, push descriptors. No legacy render passes and no second backend to keep in parity.
 - **Editor first.** The editor is an engine feature, not a demo. It drives the design of reflection, serialization, undo/redo and play mode.
 - **Exportable.** A game is a project folder (scenes, assets, scripts) run by a generic player binary, so exporting never needs a compiler on the target.
-- **Measurable performance.** Proposed targets: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and the same scene in 33 ms on a 2022 flagship phone. First measured in M3 on an RTX 4090 ([docs/roadmap.md](docs/roadmap.md#m3-assets-and-pbr)): about 1.1 ms of GPU time and, until draws go GPU-driven, far more CPU time.
+- **Measurable performance.** Proposed targets: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and the same scene in 33 ms on a 2022 flagship phone. First measured in M3 on an RTX 4090 ([docs/roadmap.md](docs/roadmap.md#m3-assets-and-pbr)): about 1.1 ms of GPU time and, until draws go GPU-driven in M7, far more CPU time.
 
 ## Non-goals (for now)
 
@@ -31,7 +31,9 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 | Physics (Jolt) and Lua scripting | M4 |
 | Audio and skeletal animation | M5 |
 | Player binary and export to Windows, Linux and macOS | M6 |
-| Export to Android and iOS | M7 |
+| GPU-driven culling and indirect draws | M7 |
+| Job system, asynchronous loading and multi-threaded recording | M8 |
+| Export to Android and iOS | M9 |
 
 ## Platforms
 

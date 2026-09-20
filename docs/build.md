@@ -47,7 +47,7 @@ miniaudio and stb_vorbis are single-file libraries without CMake packages: `audi
 
 The `joltphysics` port builds Jolt with AVX2 and its companions on x64 and without RTTI; its instruction-set flags are an interface property of `Jolt::Jolt`, which `physics` links privately so they stay on that module's sources, and the sanitizer build turns off UBSan's `vptr` check for `physics` alone, since that check needs the typeinfo Jolt does not have ([physics.md](physics.md#jolt)).
 
-Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M7.
+Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M9.
 
 ## Presets
 
@@ -57,11 +57,12 @@ Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-androi
 |---|---|
 | `linux-debug`, `linux-release` | Ninja, Clang or GCC from `PATH` |
 | `linux-asan` | Address and undefined-behaviour sanitizers |
+| `linux-tsan` | Thread sanitizer, for the job system. Added in M8 |
 | `linux-coverage` | gcov instrumentation, `coverage` target runs gcovr (same shape as the previous iteration) |
 | `windows-debug`, `windows-release` | Ninja with MSVC from a developer prompt |
 | `macos-debug`, `macos-release` | Ninja, Apple Clang |
-| `android-debug` | Chain-loads the NDK toolchain through `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`, player only. Added in M7 |
-| `ios-debug` | Xcode generator, `CMAKE_SYSTEM_NAME=iOS`, player only. Added in M7 |
+| `android-debug` | Chain-loads the NDK toolchain through `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`, player only. Added in M9 |
+| `ios-debug` | Xcode generator, `CMAKE_SYSTEM_NAME=iOS`, player only. Added in M9 |
 
 Binary directories are `build/<preset>/`. In-source builds are rejected. Configuring without a preset still works when `VCPKG_ROOT` is set or a checkout exists at `~/vcpkg`: the root `CMakeLists.txt` picks the toolchain file up itself, and otherwise stops with a message saying so.
 
@@ -148,7 +149,7 @@ GitHub Actions, one workflow with a matrix:
 - `ubuntu-latest` (GCC and Clang), `windows-latest` (MSVC), `macos-latest` (Apple Clang): configure, build, run tests.
 - Vulkan-dependent tests run on Linux under Lavapipe (Mesa's CPU Vulkan implementation, which supports 1.4) so the renderer is exercised without a GPU.
 - `linux-asan` job on every pull request.
-- Android job that builds the player with the NDK, added in M7.
+- Android job that builds the player with the NDK, added in M9.
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated.
 - A lint job runs `clang-format --dry-run` on every tracked source (`.clang-format` lists only the differences from LLVM style, so it parses with clang-format 18 and newer; CI uses 20), `tools/check_docs.py`, `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
 - Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe; tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.

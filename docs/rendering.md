@@ -19,7 +19,7 @@ Vulkan 1.4 core is the minimum ([ADR-0001](decisions/0001-vulkan-1.4-only.md)). 
 | Push descriptors | 1.4 | Per-pass uniform and storage buffers |
 | Dynamic rendering local read | 1.4 | Tile-friendly subpass-style reads on mobile |
 | Maintenance 5 and 6 | 1.4 | Simpler pipeline and descriptor handling |
-| Host image copy | 1.4, optional feature | Faster texture uploads when present; falls back to staging |
+| Host image copy | 1.4, optional feature | Faster texture uploads when present; not used yet, every upload goes through staging |
 
 Vulkan 1.4 also raises minimum limits (push constants, bound descriptor sets, image dimensions), which the design assumes.
 
@@ -82,11 +82,11 @@ Descriptor layout:
 - Set 1, push descriptors: per-pass buffers and one image. The frame constants at binding 0, the object array at binding 1 and, for the outline pass, the selection mask at binding 2.
 - Push constants: per-draw indices into the bindless arrays and the draw's transform index. Today the mesh's vertex buffer address and the object index.
 
-Per-object data lives in storage buffers addressed by index, so the draw loop is `bind pipeline, push constants, draw` and is ready for indirect submission.
+Per-object data lives in storage buffers addressed by index, so the draw loop is `bind pipeline, push constants, draw` and is ready for the indirect submission M7 brings.
 
 ## Render graph
 
-The render graph is an engine feature this time; the previous iteration kept it in the demo and regretted it. Passes declare the resources they read and write; the graph allocates transient images, orders passes, emits synchronization2 barriers and image layout transitions, and merges compatible passes. Aliasing of transient memory is a later optimisation with no API change.
+The render graph is an engine feature this time; the previous iteration kept it in the demo and regretted it. Passes declare the resources they read and write; the graph allocates transient images, orders passes, and emits synchronization2 barriers and image layout transitions. Aliasing of transient memory is a later optimisation with no API change.
 
 `renderer::RenderGraph` is rebuilt every frame between `reset` and `execute`:
 
