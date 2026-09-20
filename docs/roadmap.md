@@ -143,26 +143,27 @@ Done: `sonnet_cook` cooks the basic sample into a 680 KB bundle with no warnings
 
 ## M7: GPU-driven rendering
 
-M3 measured the engine against the README's target and found the gap is CPU-side: ten thousand draws cost about 1.1 ms of GPU time and about 95 ms of CPU time, because six passes each record ten thousand draw calls. Submitting those draws from the GPU is what closes it, and it comes before the job system because it removes the work rather than spreading it over threads. ADR-0012 settles the shape first, as ADR-0009, ADR-0010 and ADR-0011 did for their milestones.
+M3 measured the engine against the README's target and found the gap is CPU-side: ten thousand draws cost about 1.1 ms of GPU time and about 95 ms of CPU time, because six passes each record ten thousand draw calls. Submitting those draws from the GPU is what closes it, and it comes before the job system because it removes the work rather than spreading it over threads.
 
-- `rhi`: an `Indirect` buffer usage, `drawIndexedIndirect` and `drawIndexedIndirectCount`, `dispatchIndirect`, and the null device's trace lines for them.
-- `renderer`: per-draw bounds in the object array, a compute pass that culls against the frustum and writes draw commands with a count, and passes that submit them indirectly instead of looping. The per-draw vertex buffer address moves from push constants into the object array, which the draw already indexes.
-- `world`: world-space bounds on a draw item, from the mesh bounds the renderer already computes.
-- `editor`: the id and selection-mask passes take the same path, so picking and the outline keep working.
+Landed as three commits, the first accepting ADR-0012:
 
-The open question the ADR settles: an indirect draw cannot rebind the index buffer, which the draw loop does per mesh today. Either meshes move into a shared index and vertex arena, leaving one call per pass, or one indirect call is issued per distinct mesh, which still collapses ten thousand calls into a few dozen.
+1. ADR-0012: culling into indirect draws, batched per pipeline and mesh. The open question was how an indirect draw reaches a mesh's index buffer, which it cannot rebind: batches won over a shared index arena, because the draw loop already sorts into exactly those runs.
+2. `rhi`: the `Indirect` buffer usage, an `IndirectCommand` matching Vulkan's layout, the `DrawIndirect` stage and `IndirectCommandRead` access, and `drawIndexedIndirectCount`; three device features that the 1.4 baseline already guaranteed; and a Lavapipe test over the whole shape, a compute pass writing the commands and a draw reading them.
+3. `renderer`: `cull.slang` and the culling pass, the batches each drawing pass submits, the object index moved into the command's `firstInstance` and the vertex address into the object array, with the scene shaders following. `world` and `editor` needed no change: the renderer derives world-space bounds from the mesh bounds it already holds, so every producer of a draw item gets culling for free.
 
-Done when `renderer_tests "[benchmark]"` shows the scene passes' CPU time collapsing with their GPU time unchanged, the basic and playground samples render as they did, and picking, the outline and skinning still work.
+Done: `renderer_tests "[benchmark]"` on an RTX 4090 in Release, ten thousand draws of two meshes and a hundred lights at 1080p, records 12 indirect calls where it recorded 60000 draw calls; the six scene passes fall from 2.69 ms of CPU to 0.28 ms, of which 0.26 ms is the per-frame object upload that stays, and GPU time falls from 1.24 ms to 0.64 ms because nothing culled the draws before. In Debug the recording falls from the 93 ms M3 measured to about 13 ms. The basic and playground samples render as they did, and picking, the outline and skinning still work, which `editor_tests` checks headless on Lavapipe.
+
+Deferred: occlusion culling and a depth pyramid, meshlets, a shared index arena to reach one call per pass, sorting the blended draws on the GPU so they take the same path, reading the surviving counts back so the statistics report what drew rather than what was submitted, and tighter bounds for a skinned mesh, which is culled by its bind pose today. The per-frame object, material and light upload is now the larger part of a frame's CPU cost and is M8's to spread over threads.
 
 ## M8: Job system and asynchronous loading
 
-More of the docs wait on the job system than on anything else: asset loading is synchronous, Jolt runs on a single-threaded job system of its own, and `world` never uses flecs' multi-threaded pipeline. It follows M7 so that multi-threaded command recording is built only if the benchmark still asks for it. ADR-0013 settles its shape first.
+More of the docs wait on the job system than on anything else: asset loading is synchronous, Jolt runs on a single-threaded job system of its own, and `world` never uses flecs' multi-threaded pipeline. It follows M7, which answered whether multi-threaded command recording is worth building: it is not, since recording a scene pass is now a handful of calls, but the per-frame object, material and light upload that M7 left behind is. ADR-0013 settles its shape first.
 
 - `core`: the job system — jobs with dependencies, a parallel for, main-thread affinity for what needs it, Tracy zones on the workers.
 - `physics`: `JPH::JobSystem` implemented on it, replacing `JobSystemSingleThreaded` ([ADR-0009](decisions/0009-physics-and-scripting.md)).
 - `assets`: the asynchronous request form, which returns at once with a placeholder until the job finishes ([assets.md](assets.md#database)).
 - `world`: flecs' multi-threaded pipeline for the systems that are safe in it.
-- `renderer` and `rhi`: parallel command recording, only if M7's benchmark leaves CPU time worth splitting.
+- `renderer`: the per-frame object, material and light upload spread over workers, which M7 left as the larger part of a frame's CPU cost.
 - A `linux-tsan` preset, since the sanitizer preset is address and undefined-behaviour only and nothing has run under a thread sanitizer.
 
 Done when the playground sample loads without a frame hitch, physics scales across cores in a stress scene, and the suites pass under the thread sanitizer.
