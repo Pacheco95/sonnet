@@ -1,3 +1,4 @@
+find_package(Threads REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 # GLOBAL: sonnet_copy_tracy_client (cmake/SonnetFunctions.cmake) references Tracy::TracyClient
@@ -9,10 +10,12 @@ sonnet_add_module(core
     src/Assert.cpp
     src/Error.cpp
     src/File.cpp
+    src/JobSystem.cpp
     src/Log.cpp
     src/Uuid.cpp
     src/Version.cpp
   PUBLIC_DEPENDS
+    Threads::Threads
     glm::glm
     spdlog::spdlog
     $<$<AND:$<BOOL:${SONNET_ENABLE_TRACY}>,${SONNET_DEBUGGABLE_CONFIG}>:Tracy::TracyClient>
@@ -38,6 +41,7 @@ sonnet_add_module_test(core
     tests/FileTests.cpp
     tests/HandlePoolTests.cpp
     tests/HandleTests.cpp
+    tests/JobSystemTests.cpp
     tests/LogTests.cpp
     tests/UuidTests.cpp
     tests/VersionTests.cpp

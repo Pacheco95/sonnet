@@ -10,14 +10,25 @@ Fundamental types every other module uses. `core` depends on GLM, spdlog and Tra
 | `Assert.h` | `SONNET_ASSERT` and `SONNET_VERIFY` |
 | `Error.h` | `Error`, `Result<T>` (`std::expected<T, Error>`) and `Exception` |
 | `Uuid.h` | 128-bit identifier, random generation, name-based derivation for sub-assets, canonical string form |
+| `JobSystem.h` | `JobSystem` and `JobHandle`: the engine's one thread pool, with dependencies, a parallel for and main-thread affinity |
 | `File.h` | `readFile`: whole-file read returning `Result<std::vector<std::byte>>`; `writeFile`: whole-file write that creates the directories |
 | `Math.h` | The single GLM include point; checks that the GLM configuration is present |
-| `Profile.h` | `SONNET_ZONE()`, `SONNET_ZONE_NAMED()`, `SONNET_FRAME_MARK()` over Tracy |
+| `Profile.h` | `SONNET_ZONE()`, `SONNET_ZONE_NAMED()`, `SONNET_ZONE_NAME()`, `SONNET_SET_THREAD_NAME()`, `SONNET_FRAME_MARK()` over Tracy |
 | `Version.h` | `engineVersion()`, the version from the root `CMakeLists.txt` |
 
 ## Handles
 
 A handle is a value type components store and owners resolve ([architecture.md](architecture.md#resource-handles)). `HandlePool` is the reference owner: `emplace` returns a handle, `remove` returns the removed object so the caller decides when it is destroyed (for GPU objects, after the device is idle), and a handle whose slot was reused never resolves again because the generation moved on. `get` asserts on a stale handle; `find` returns null instead for callers that expect staleness. `forEach` visits the live objects, for leak reports and statistics.
+
+## The job system
+
+`JobSystem` is the engine's one thread pool ([ADR-0013](decisions/0013-job-system.md)). Everything the engine schedules runs on it: the renderer's per-frame upload, the asset imports and Jolt's jobs. flecs is the exception and keeps stage workers of its own, because a flecs worker blocks for a whole pipeline run rather than running to completion, and a pool whose workers are blocked is a pool that starves everything else.
+
+`schedule` takes a name, a callable and the handles it depends on, and returns a `JobHandle`; the job runs once, on a worker, after every dependency has finished. `wait` blocks until a handle is done and **runs other jobs while it waits**, so a job may wait on the jobs it scheduled without deadlocking a pool whose every worker is doing the same. `parallelFor` splits a range into contiguous chunks of at least a grain, runs them across the pool and waits, keeping the last chunk for the calling thread rather than idling it.
+
+`JobSystemDesc::workerCount` is `hardware_concurrency() - 1` when it is unset, leaving the calling thread a core of its own. Zero means no workers at all, and every job then runs on the thread that waits for it, which is what the tests and the cook tool use. Workers are named `sonnet worker <n>` for Tracy and carry a zone per job, named after the job.
+
+Work that may only happen on the main thread — creating an `rhi` resource, above all — goes to `scheduleOnMainThread` and runs when the application loop calls `runMainThreadJobs`. Waiting on the main thread drains that queue too, so waiting for a main-thread job is not waiting for yourself. A job that throws is caught and logged rather than terminating the process, because a job that never completes is a waiter that never wakes.
 
 ## Logging
 
@@ -35,4 +46,4 @@ The four GLM configuration macros are `PUBLIC` compile definitions of `sonnet::c
 
 ## Tests
 
-`core_tests` covers handles and the pool, logging through a captured sink, error locations, UUID generation, derivation and parsing, file reads and writes, and the version. Run one tag with `core_tests "[handle]"`.
+`core_tests` covers the job system — dependencies, a job waiting on its own children, `parallelFor`'s coverage of a range, main-thread affinity, a throwing job and the jobs queued at destruction — handles and the pool, logging through a captured sink, error locations, UUID generation, derivation and parsing, file reads and writes, and the version. Run one tag with `core_tests "[handle]"`.
