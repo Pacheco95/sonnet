@@ -10,7 +10,9 @@
 #include <fastgltf/types.hpp>
 
 #include <algorithm>
+#include <array>
 #include <format>
+#include <span>
 #include <variant>
 
 namespace sonnet::assets {
@@ -86,6 +88,44 @@ core::Result<std::vector<std::byte>> imageBytes(const fastgltf::Asset &asset, co
       image.data);
 }
 
+// A primitive without normals gets flat ones, which the glTF specification asks for: its
+// triangles no longer share corners, so the vertices and indices from the primitive's start are
+// rewritten as one corner per index.
+void flattenNormals(renderer::MeshData &data, std::uint32_t firstVertex, std::uint32_t firstIndex) {
+  const std::span<const std::uint32_t> indices{data.indices.begin() + firstIndex, data.indices.end()};
+  const bool skinned = !data.skin.empty();
+  if (skinned) {
+    data.skin.resize(data.vertices.size()); // this primitive may have had no weights of its own
+  }
+  std::vector<renderer::Vertex> corners;
+  std::vector<renderer::SkinWeights> cornerSkin;
+  corners.reserve(indices.size());
+  for (std::size_t i = 0; i + 2 < indices.size(); i += 3) {
+    const std::array<std::uint32_t, 3> triangle{indices[i], indices[i + 1], indices[i + 2]};
+    const glm::vec3 edge1 = data.vertices[triangle[1]].position - data.vertices[triangle[0]].position;
+    const glm::vec3 edge2 = data.vertices[triangle[2]].position - data.vertices[triangle[0]].position;
+    const glm::vec3 cross = glm::cross(edge1, edge2);
+    const float length = glm::length(cross);
+    const glm::vec3 normal = length > 0.0f ? cross / length : glm::vec3{0.0f, 1.0f, 0.0f};
+    for (const std::uint32_t index : triangle) {
+      corners.push_back(data.vertices[index]);
+      corners.back().normal = normal;
+      if (skinned) {
+        cornerSkin.push_back(data.skin[index]);
+      }
+    }
+  }
+  data.vertices.resize(firstVertex);
+  data.vertices.insert(data.vertices.end(), corners.begin(), corners.end());
+  if (skinned) {
+    data.skin.resize(firstVertex);
+    data.skin.insert(data.skin.end(), cornerSkin.begin(), cornerSkin.end());
+  }
+  for (std::size_t i = 0; i < indices.size(); ++i) {
+    data.indices[firstIndex + i] = firstVertex + static_cast<std::uint32_t>(i);
+  }
+}
+
 } // namespace
 
 core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
@@ -104,12 +144,14 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
   const fastgltf::Asset &asset = loaded.get();
   GltfImport import;
 
-  // Meshes: one submesh per triangle primitive, tangents generated where a primitive has none.
+  // Meshes: one submesh per triangle primitive, with flat normals and tangents generated where a
+  // primitive has none.
   for (std::size_t m = 0; m < asset.meshes.size(); ++m) {
     const fastgltf::Mesh &mesh = asset.meshes[m];
     GltfMesh out{.name = nameOr(mesh.name, "mesh", m), .data = {}, .materials = {}};
     bool needTangents = false;
     for (const fastgltf::Primitive &primitive : mesh.primitives) {
+      bool needFlatNormals = false;
       if (primitive.type != fastgltf::PrimitiveType::Triangles) {
         SONNET_LOG_WARN("{}: mesh \"{}\" has a primitive that is not a triangle list, skipped", path.string(),
                         out.name);
@@ -133,7 +175,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
             asset, asset.accessors[normal->accessorIndex],
             [&](glm::vec3 value, std::size_t i) { out.data.vertices[base + i].normal = value; });
       } else {
-        SONNET_LOG_WARN("{}: mesh \"{}\" has no normals, using up", path.string(), out.name);
+        needFlatNormals = true;
       }
       if (const auto uv = primitive.findAttribute("TEXCOORD_0"); uv != primitive.attributes.end()) {
         fastgltf::iterateAccessorWithIndex<glm::vec2>(
@@ -147,15 +189,34 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       } else {
         needTangents = true;
       }
+      // The first set of joints and weights; a primitive without them keeps zero weights, which
+      // the skinning pass leaves in the bind pose.
+      const auto joints = primitive.findAttribute("JOINTS_0");
+      const auto weights = primitive.findAttribute("WEIGHTS_0");
+      if (joints != primitive.attributes.end() && weights != primitive.attributes.end()) {
+        out.data.skin.resize(out.data.vertices.size());
+        fastgltf::iterateAccessorWithIndex<glm::uvec4>(
+            asset, asset.accessors[joints->accessorIndex],
+            [&](glm::uvec4 value, std::size_t i) { out.data.skin[base + i].joints = value; });
+        fastgltf::iterateAccessorWithIndex<glm::vec4>(
+            asset, asset.accessors[weights->accessorIndex],
+            [&](glm::vec4 value, std::size_t i) { out.data.skin[base + i].weights = value; });
+      }
       const fastgltf::Accessor &indices = asset.accessors[*primitive.indicesAccessor];
       const auto firstIndex = static_cast<std::uint32_t>(out.data.indices.size());
       fastgltf::iterateAccessor<std::uint32_t>(asset, indices,
                                                [&](std::uint32_t index) { out.data.indices.push_back(base + index); });
+      if (needFlatNormals) {
+        flattenNormals(out.data, base, firstIndex);
+      }
       out.data.submeshes.push_back(renderer::Submesh{.firstIndex = firstIndex,
                                                      .indexCount = static_cast<std::uint32_t>(indices.count),
                                                      .materialSlot = static_cast<std::uint32_t>(out.materials.size())});
       out.materials.push_back(primitive.materialIndex.has_value() ? static_cast<std::int32_t>(*primitive.materialIndex)
                                                                   : -1);
+    }
+    if (!out.data.skin.empty()) {
+      out.data.skin.resize(out.data.vertices.size()); // primitives after the last skinned one
     }
     if (out.data.vertices.empty() || out.data.indices.empty()) {
       SONNET_LOG_WARN("{}: mesh \"{}\" has no usable primitives", path.string(), out.name);
@@ -235,14 +296,26 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       }
     }
   }
-  const auto visit = [&](auto &self, std::size_t nodeIndex, std::int32_t parent) -> void {
-    if (nodeIndex >= asset.nodes.size()) {
+  // Every visited node's path from the model's root, by glTF node index: what joints and channels
+  // name their nodes by (ADR-0010). Siblings with one name make the path ambiguous.
+  std::vector<std::string> paths(asset.nodes.size());
+  std::vector<bool> visited(asset.nodes.size(), false);
+  const auto visit = [&](auto &self, std::size_t nodeIndex, std::int32_t parent, const std::string &parentPath,
+                         std::vector<std::string> &siblings) -> void {
+    if (nodeIndex >= asset.nodes.size() || visited[nodeIndex]) {
       return;
     }
+    visited[nodeIndex] = true;
     const fastgltf::Node &node = asset.nodes[nodeIndex];
     ModelNode out;
     out.name = nameOr(node.name, "node", nodeIndex);
     out.parent = parent;
+    if (std::ranges::find(siblings, out.name) != siblings.end()) {
+      SONNET_LOG_WARN("{}: two nodes named \"{}\" under one parent; animations and skins bind the first", path.string(),
+                      out.name);
+    }
+    siblings.push_back(out.name);
+    paths[nodeIndex] = parentPath.empty() ? out.name : parentPath + "/" + out.name;
     if (const auto *trs = std::get_if<fastgltf::TRS>(&node.transform)) {
       out.position = {trs->translation[0], trs->translation[1], trs->translation[2]};
       out.rotation = glm::quat{trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
@@ -251,15 +324,94 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     const auto index = static_cast<std::int32_t>(import.model.nodes.size());
     import.model.nodes.push_back(std::move(out));
     import.meshIndices.push_back(node.meshIndex.has_value() ? static_cast<std::int32_t>(*node.meshIndex) : -1);
+    import.skinIndices.push_back(
+        node.meshIndex.has_value() && node.skinIndex.has_value() ? static_cast<std::int32_t>(*node.skinIndex) : -1);
+    std::vector<std::string> children;
     for (const std::size_t child : node.children) {
-      self(self, child, index);
+      self(self, child, index, paths[nodeIndex], children);
     }
   };
+  std::vector<std::string> rootNames;
   for (const std::size_t root : roots) {
-    visit(visit, root, -1);
+    visit(visit, root, -1, std::string{}, rootNames);
   }
-  SONNET_LOG_DEBUG("{}: {} meshes, {} materials, {} images, {} nodes", path.string(), import.meshes.size(),
-                   import.materials.size(), import.images.size(), import.model.nodes.size());
+
+  // Skins: the joints by path, with their inverse bind matrices (identity when the file has none).
+  for (std::size_t s = 0; s < asset.skins.size(); ++s) {
+    const fastgltf::Skin &skin = asset.skins[s];
+    GltfSkin out{.name = nameOr(skin.name, "skin", s), .skin = {}};
+    for (const std::size_t joint : skin.joints) {
+      if (joint >= asset.nodes.size() || !visited[joint]) {
+        SONNET_LOG_WARN("{}: skin \"{}\" has a joint outside the scene", path.string(), out.name);
+        out.skin.joints.emplace_back();
+        continue;
+      }
+      out.skin.joints.push_back(paths[joint]);
+    }
+    out.skin.inverseBindMatrices.assign(out.skin.joints.size(), glm::mat4{1.0f});
+    if (skin.inverseBindMatrices.has_value()) {
+      fastgltf::iterateAccessorWithIndex<glm::mat4>(asset, asset.accessors[*skin.inverseBindMatrices],
+                                                    [&](const glm::mat4 &value, std::size_t i) {
+                                                      if (i < out.skin.inverseBindMatrices.size()) {
+                                                        out.skin.inverseBindMatrices[i] = value;
+                                                      }
+                                                    });
+    }
+    import.skins.push_back(std::move(out));
+  }
+
+  // Animations: translation, rotation and scale channels; morph target weights are not played.
+  for (std::size_t a = 0; a < asset.animations.size(); ++a) {
+    const fastgltf::Animation &animation = asset.animations[a];
+    GltfAnimation out{.name = nameOr(animation.name, "animation", a), .clip = {}};
+    bool warnedWeights = false;
+    for (const fastgltf::AnimationChannel &channel : animation.channels) {
+      if (!channel.nodeIndex.has_value() || *channel.nodeIndex >= asset.nodes.size() || !visited[*channel.nodeIndex] ||
+          channel.samplerIndex >= animation.samplers.size()) {
+        continue;
+      }
+      if (channel.path == fastgltf::AnimationPath::Weights) {
+        if (!warnedWeights) {
+          SONNET_LOG_WARN("{}: animation \"{}\" drives morph target weights, which are not played", path.string(),
+                          out.name);
+          warnedWeights = true;
+        }
+        continue;
+      }
+      const fastgltf::AnimationSampler &sampler = animation.samplers[channel.samplerIndex];
+      AnimationChannel result;
+      result.target = paths[*channel.nodeIndex];
+      result.path = channel.path == fastgltf::AnimationPath::Translation ? AnimationPath::Translation
+                    : channel.path == fastgltf::AnimationPath::Rotation  ? AnimationPath::Rotation
+                                                                         : AnimationPath::Scale;
+      result.interpolation = sampler.interpolation == fastgltf::AnimationInterpolation::Step ? Interpolation::Step
+                             : sampler.interpolation == fastgltf::AnimationInterpolation::CubicSpline
+                                 ? Interpolation::CubicSpline
+                                 : Interpolation::Linear;
+      fastgltf::iterateAccessor<float>(asset, asset.accessors[sampler.inputAccessor],
+                                       [&](float time) { result.times.push_back(time); });
+      const fastgltf::Accessor &output = asset.accessors[sampler.outputAccessor];
+      if (result.path == AnimationPath::Rotation) {
+        fastgltf::iterateAccessor<glm::vec4>(asset, output, [&](glm::vec4 value) { result.values.push_back(value); });
+      } else {
+        fastgltf::iterateAccessor<glm::vec3>(asset, output,
+                                             [&](glm::vec3 value) { result.values.emplace_back(value, 0.0f); });
+      }
+      const std::size_t stride = result.interpolation == Interpolation::CubicSpline ? 3 : 1;
+      if (result.times.empty() || result.values.size() != result.times.size() * stride ||
+          !std::ranges::is_sorted(result.times)) {
+        SONNET_LOG_WARN("{}: animation \"{}\" has a malformed channel for \"{}\", skipped", path.string(), out.name,
+                        result.target);
+        continue;
+      }
+      out.clip.duration = std::max(out.clip.duration, result.times.back());
+      out.clip.channels.push_back(std::move(result));
+    }
+    import.animations.push_back(std::move(out));
+  }
+  SONNET_LOG_DEBUG("{}: {} meshes, {} materials, {} images, {} nodes, {} skins, {} animations", path.string(),
+                   import.meshes.size(), import.materials.size(), import.images.size(), import.model.nodes.size(),
+                   import.skins.size(), import.animations.size());
   return import;
 }
 

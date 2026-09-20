@@ -15,7 +15,9 @@ namespace {
 
 using nlohmann::json;
 
-constexpr int SidecarVersion = 1;
+// Version 2 lists a glTF file's skins and animations among its sub-assets; a version 1 sidecar of
+// a glTF file is rebuilt on scan.
+constexpr int SidecarVersion = 2;
 constexpr std::chrono::milliseconds PollInterval{500};
 
 enum class SourceKind {
@@ -26,6 +28,7 @@ enum class SourceKind {
   Gltf,
   Material,
   Script,
+  Sound,
 };
 
 // Lower-cased extension, with the double extension of material files.
@@ -53,6 +56,9 @@ SourceKind kindOf(const std::filesystem::path &file) {
   if (extension == ".lua") {
     return SourceKind::Script;
   }
+  if (extension == ".wav" || extension == ".ogg" || extension == ".mp3" || extension == ".flac") {
+    return SourceKind::Sound;
+  }
   return SourceKind::Unknown;
 }
 
@@ -69,6 +75,8 @@ AssetType typeOf(SourceKind kind) {
     return AssetType::Material;
   case SourceKind::Script:
     return AssetType::Script;
+  case SourceKind::Sound:
+    return AssetType::Sound;
   case SourceKind::Unknown:
     break;
   }
@@ -233,11 +241,12 @@ void AssetDatabase::registerGltfSubAssets(const core::Uuid &uuid, const json &su
     if (!subUuid) {
       continue;
     }
-    const std::string type = entry["type"].get<std::string>();
+    const std::optional<AssetType> type = assetTypeFromString(entry["type"].get<std::string>());
+    if (!type) {
+      continue;
+    }
     AssetInfo info{.uuid = *subUuid,
-                   .type = type == "Mesh"       ? AssetType::Mesh
-                           : type == "Material" ? AssetType::Material
-                                                : AssetType::Texture,
+                   .type = *type,
                    .source = parent.source,
                    .name = entry.value("name", std::string{}),
                    .parent = uuid,
@@ -279,6 +288,12 @@ core::Result<json> AssetDatabase::listGltfSubAssets(const core::Uuid &uuid, cons
   for (std::size_t i = 0; i < import->images.size(); ++i) {
     add("image", i, import->images[i].name, "Texture", json::array());
   }
+  for (std::size_t i = 0; i < import->skins.size(); ++i) {
+    add("skin", i, import->skins[i].name, "Skin", json::array());
+  }
+  for (std::size_t i = 0; i < import->animations.size(); ++i) {
+    add("animation", i, import->animations[i].name, "Animation", json::array());
+  }
   return subAssets;
 }
 
@@ -312,8 +327,8 @@ void AssetDatabase::scanFile(const std::filesystem::path &file) {
     // The sub-asset list is kept in the sidecar so a scan does not parse every glTF file; it is
     // rebuilt when the file's content changed since.
     m_files[uuid].sourceHash = contentHash(file);
-    const bool stale =
-        !document.contains("subAssets") || document.value("sourceHash", std::string{}) != m_files[uuid].sourceHash;
+    const bool stale = !document.contains("subAssets") || document.value("version", 1) < SidecarVersion ||
+                       document.value("sourceHash", std::string{}) != m_files[uuid].sourceHash;
     if (stale) {
       if (auto subAssets = listGltfSubAssets(uuid, file)) {
         document["subAssets"] = std::move(*subAssets);
@@ -531,10 +546,24 @@ bool AssetDatabase::loadGltf(const core::Uuid &uuid) {
     m_meshes[meshUuid] = m_renderer.createMesh(mesh.data, std::format("{}/{}", info->name, mesh.name));
     m_meshData[meshUuid] = std::move(import->meshes[i].data);
   }
+  for (std::size_t i = 0; i < import->skins.size(); ++i) {
+    Skin &skin = m_skins[core::Uuid::derive(uuid, std::format("skin/{}", i))];
+    skin = std::move(import->skins[i].skin);
+    skin.revision = ++m_revision;
+  }
   Model model = std::move(import->model);
+  for (std::size_t i = 0; i < import->animations.size(); ++i) {
+    const core::Uuid clipUuid = core::Uuid::derive(uuid, std::format("animation/{}", i));
+    AnimationClip &clip = m_animations[clipUuid];
+    clip = std::move(import->animations[i].clip);
+    clip.revision = ++m_revision;
+    model.animations.push_back(clipUuid);
+  }
   for (std::size_t n = 0; n < model.nodes.size(); ++n) {
     const std::int32_t meshIndex = import->meshIndices[n];
+    const std::int32_t skinIndex = import->skinIndices[n];
     model.nodes[n].mesh = meshIndex >= 0 ? core::Uuid::derive(uuid, std::format("mesh/{}", meshIndex)) : core::Uuid{};
+    model.nodes[n].skin = skinIndex >= 0 ? core::Uuid::derive(uuid, std::format("skin/{}", skinIndex)) : core::Uuid{};
   }
   m_models[uuid] = std::move(model);
   m_gltfLoaded[uuid] = true;
@@ -689,8 +718,46 @@ const ScriptSource *AssetDatabase::script(const core::Uuid &uuid) {
   }
   ScriptSource &source = m_scripts[uuid];
   source.code.assign(reinterpret_cast<const char *>(bytes->data()), bytes->size());
-  source.revision = ++m_scriptRevision;
+  source.revision = ++m_revision;
   return &source;
+}
+
+const SoundSource *AssetDatabase::sound(const core::Uuid &uuid) {
+  if (const auto it = m_sounds.find(uuid); it != m_sounds.end()) {
+    return &it->second;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Sound || m_failed.contains(uuid)) {
+    return nullptr;
+  }
+  auto bytes = core::readFile(info->source);
+  if (!bytes) {
+    SONNET_LOG_ERROR("{}", bytes.error().toString());
+    m_failed[uuid] = true;
+    return nullptr;
+  }
+  SoundSource &source = m_sounds[uuid];
+  source.bytes = std::move(*bytes);
+  source.revision = ++m_revision;
+  return &source;
+}
+
+const Skin *AssetDatabase::skin(const core::Uuid &uuid) {
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Skin || !loadGltf(info->parent)) {
+    return nullptr;
+  }
+  const auto it = m_skins.find(uuid);
+  return it != m_skins.end() ? &it->second : nullptr;
+}
+
+const AnimationClip *AssetDatabase::animation(const core::Uuid &uuid) {
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Animation || !loadGltf(info->parent)) {
+    return nullptr;
+  }
+  const auto it = m_animations.find(uuid);
+  return it != m_animations.end() ? &it->second : nullptr;
 }
 
 // ---- Materials ----
@@ -829,15 +896,22 @@ void AssetDatabase::unloadFile(const core::Uuid &uuid) {
         m_meshes.erase(it);
       }
       m_meshData.erase(subUuid);
+      m_skins.erase(subUuid);
+      m_animations.erase(subUuid);
     }
     m_models.erase(uuid);
     m_gltfLoaded.erase(uuid);
     break;
   }
   case AssetType::Mesh:
+  case AssetType::Skin:
+  case AssetType::Animation:
     break;
   case AssetType::Script:
     m_scripts.erase(uuid);
+    break;
+  case AssetType::Sound:
+    m_sounds.erase(uuid);
     break;
   }
 }
@@ -870,7 +944,7 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
   }
   const AssetType type = info->type;
   const bool wasLoaded = m_textures.contains(uuid) || m_environments.contains(uuid) || m_gltfLoaded.contains(uuid) ||
-                         m_materials.contains(uuid) || m_scripts.contains(uuid);
+                         m_materials.contains(uuid) || m_scripts.contains(uuid) || m_sounds.contains(uuid);
   unloadFile(uuid);
   if (type == AssetType::Model) {
     // The sub-asset list may have changed with the file.
@@ -921,9 +995,17 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
     }
     break;
   case AssetType::Mesh:
+  case AssetType::Skin:
+  case AssetType::Animation:
     break;
   case AssetType::Script:
     if (script(uuid) == nullptr) {
+      return std::unexpected(
+          core::Error{std::format("{}: re-import failed", info->source.string()), core::ErrorCategory::Io});
+    }
+    break;
+  case AssetType::Sound:
+    if (sound(uuid) == nullptr) {
       return std::unexpected(
           core::Error{std::format("{}: re-import failed", info->source.string()), core::ErrorCategory::Io});
     }

@@ -6,6 +6,7 @@ find_package(slang CONFIG REQUIRED)
 
 sonnet_add_module(assets
   SOURCES
+    src/Animation.cpp
     src/Asset.cpp
     src/AssetDatabase.cpp
     src/GltfImporter.cpp
@@ -24,6 +25,7 @@ target_include_directories(sonnet_assets SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 
 sonnet_add_module_test(assets
   SOURCES
+    tests/AnimationTests.cpp
     tests/DatabaseTests.cpp
     tests/GltfTests.cpp
     tests/ShaderTests.cpp

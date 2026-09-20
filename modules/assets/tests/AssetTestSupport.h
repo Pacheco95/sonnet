@@ -34,4 +34,11 @@ namespace sonnet::assets::test {
 // texture from `imageFile`, under one node named "Crate". Writes the .gltf and its .bin.
 void writeBoxGltf(const std::filesystem::path &gltf, const std::string &imageFile);
 
+// A skinned glTF: nodes Rig, Rig/Root, Rig/Root/Tip and Rig/Strip, a quad strip two metres high
+// whose bottom follows Root and top follows Tip, one metre up, through a skin of those two
+// joints; and the clip "Bend", which turns Tip a quarter about Z over a second (linear), moves
+// Root one metre along X at half a second (step) and grows Tip from 1 to 2 (cubic spline, flat
+// tangents). Writes the .gltf and its .bin (in GltfTests.cpp).
+void writeSkinnedGltf(const std::filesystem::path &gltf);
+
 } // namespace sonnet::assets::test
