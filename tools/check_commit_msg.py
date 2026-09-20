@@ -8,7 +8,7 @@ import sys
 
 TYPES = "feat|fix|perf|refactor|docs|test|build|ci|style|chore|revert"
 SCOPES = (
-    "core|platform|rhi|renderer|assets|world|physics|scripting|audio|ui|editor|player|cook|samples|cmake|deps|docs"
+    "core|platform|rhi|renderer|assets|world|physics|scripting|audio|runtime|ui|editor|player|cook|samples|cmake|deps|docs"
 )
 SUBJECT = re.compile(rf"^({TYPES})(\(({SCOPES})\))?!?: [a-z0-9].*[^.]$")
 MERGE_OR_REVERT = re.compile(r"^(Merge |Revert \")")

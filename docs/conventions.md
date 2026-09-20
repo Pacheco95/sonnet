@@ -79,7 +79,7 @@ Commit messages follow [Conventional Commits 1.0.0](https://www.conventionalcomm
 ```
 
 - Types: `feat` (new capability), `fix` (bug fix), `perf` (performance change with no behaviour change), `refactor` (no behaviour change), `docs`, `test`, `build` (CMake, vcpkg, toolchains), `ci`, `style` (formatting only), `chore` (maintenance that fits nothing else), `revert`.
-- Scope is the module or app touched: `core`, `platform`, `rhi`, `renderer`, `assets`, `world`, `physics`, `scripting`, `audio`, `ui`, `editor`, `player`, `cook`, `samples`, plus `cmake`, `deps` and `docs` for cross-cutting changes. Omit the scope when a change spans several modules.
+- Scope is the module or app touched: `core`, `platform`, `rhi`, `renderer`, `assets`, `world`, `physics`, `scripting`, `audio`, `runtime`, `ui`, `editor`, `player`, `cook`, `samples`, plus `cmake`, `deps` and `docs` for cross-cutting changes. Omit the scope when a change spans several modules.
 - Description: imperative mood, lowercase, no trailing period, subject line at most 72 characters. Example: `feat(rhi): adopt vk-bootstrap handles into RAII wrappers`.
 - Body: explains why, wrapped at 72 columns. Required whenever the reason is not obvious from the subject.
 - Footers: `BREAKING CHANGE: <what changed and how to migrate>`, `Refs: ADR-0006`, `Fixes #42`, `Co-Authored-By: ...`. A breaking change also puts `!` after the type or scope: `feat(assets)!: reference assets by UUID instead of path`.

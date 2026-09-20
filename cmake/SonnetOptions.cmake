@@ -14,6 +14,7 @@ endif()
 
 include(CMakeDependentOption)
 cmake_dependent_option(SONNET_BUILD_EDITOR "Build the editor" ON "_sonnet_desktop" OFF)
+option(SONNET_BUILD_PLAYER "Build the generic player" ON)
 option(SONNET_BUILD_TESTS "Build Catch2 tests and register them with CTest" ON)
 option(SONNET_BUILD_SAMPLES "Copy the sample projects next to the binaries" ON)
 option(SONNET_SANITIZERS "Address and undefined-behaviour sanitizers" OFF)
@@ -35,7 +36,7 @@ if(SONNET_SANITIZERS)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
-message(STATUS "Sonnet ${PROJECT_VERSION}: rhi=${SONNET_RHI} editor=${SONNET_BUILD_EDITOR} tests=${SONNET_BUILD_TESTS} "
-               "samples=${SONNET_BUILD_SAMPLES} "
+message(STATUS "Sonnet ${PROJECT_VERSION}: rhi=${SONNET_RHI} editor=${SONNET_BUILD_EDITOR} "
+               "player=${SONNET_BUILD_PLAYER} tests=${SONNET_BUILD_TESTS} samples=${SONNET_BUILD_SAMPLES} "
                "tracy=${SONNET_ENABLE_TRACY} validation=${SONNET_ENABLE_VALIDATION} "
                "sanitizers=${SONNET_SANITIZERS} coverage=${SONNET_COVERAGE}")

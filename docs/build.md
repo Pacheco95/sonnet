@@ -94,7 +94,7 @@ IDEs: CLion and Visual Studio read `CMakePresets.json`; in CLion enable the pres
 |---|---|---|
 | `SONNET_RHI` | `Vulkan` | Graphics implementation. Only `Vulkan` exists |
 | `SONNET_BUILD_EDITOR` | `ON` on desktop, forced `OFF` on mobile | Builds `ui`, `editor` and `apps/editor` |
-| `SONNET_BUILD_PLAYER` | `ON` | Builds `apps/player`. Added in M6 |
+| `SONNET_BUILD_PLAYER` | `ON` | Builds `apps/player`, the generic runtime ([player.md](player.md)) |
 | `SONNET_BUILD_TESTS` | `ON` | Builds Catch2 tests and registers them with CTest |
 | `SONNET_BUILD_SAMPLES` | `ON` | Copies `apps/samples/` next to the editor binary, so `sonnet_editor samples/basic` works from the build directory |
 | `SONNET_ENABLE_TRACY` | `ON` | Compiles Tracy zones in, and links Tracy, in Debug and RelWithDebInfo; Release never has them |
@@ -119,7 +119,7 @@ Per-configuration definitions applied by `sonnet_add_module`: `SONNET_ASSERTS_EN
 
 The helpers live in `cmake/SonnetFunctions.cmake`; options are in `SonnetOptions.cmake`, warning flags in `SonnetWarnings.cmake` and the coverage target in `SonnetCoverage.cmake`.
 
-`modules/CMakeLists.txt` adds the modules in dependency order, and that order is the canonical statement of the architecture. `ui` and `editor` are added only when `SONNET_BUILD_EDITOR` is on. `rhi` also exports the interface target `sonnet::rhi_vulkan` (its implementation headers and the Vulkan-HPP configuration), which only `ui` may link, for Dear ImGui's Vulkan backend.
+`modules/CMakeLists.txt` adds the modules in dependency order, and that order is the canonical statement of the architecture. `ui` and `editor` are added only when `SONNET_BUILD_EDITOR` is on, which also builds `apps/cook`; `apps/player` follows `SONNET_BUILD_PLAYER`. `rhi` also exports the interface target `sonnet::rhi_vulkan` (its implementation headers and the Vulkan-HPP configuration), which only `ui` may link, for Dear ImGui's Vulkan backend.
 
 ## Shaders in the build
 
@@ -135,8 +135,10 @@ ctest --preset linux-debug --output-on-failure
 
 # run the editor on a sample project
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic
-# run the player on the same project
+# run the player on the same project, or on a bundle cooked from it
 ./build/linux-debug/apps/player/sonnet_player apps/samples/basic
+./build/linux-debug/apps/cook/sonnet_cook apps/samples/basic --out /tmp/basic
+./build/linux-debug/apps/player/sonnet_player /tmp/basic/game.sbundle
 ```
 
 ## Continuous integration
