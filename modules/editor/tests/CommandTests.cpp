@@ -1,3 +1,4 @@
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/EntityCommands.h>
@@ -170,7 +171,8 @@ TEST_CASE("material and texture settings commands act on the database and undo",
   platform::Platform platform{{.headless = true}};
   const auto device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
-  assets::AssetDatabase assets{renderer};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
   const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_asset_commands";
   std::filesystem::remove_all(root);
   std::filesystem::create_directories(root / "assets");

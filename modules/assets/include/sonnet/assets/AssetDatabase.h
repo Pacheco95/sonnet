@@ -6,6 +6,7 @@
 #include <sonnet/assets/Importers.h>
 
 #include <sonnet/core/Error.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/core/Uuid.h>
 #include <sonnet/renderer/Renderer.h>
 
@@ -13,6 +14,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <span>
@@ -31,7 +33,9 @@ namespace sonnet::assets {
 // and swaps the objects under the same identities.
 class AssetDatabase {
 public:
-  explicit AssetDatabase(renderer::Renderer &renderer);
+  // `jobs` carries the asynchronous requests below and has to outlive the database; a pool with
+  // no workers imports on the thread that drains it, which is what the cook tool and the tests get.
+  AssetDatabase(renderer::Renderer &renderer, core::JobSystem &jobs);
   ~AssetDatabase();
   AssetDatabase(const AssetDatabase &) = delete;
   AssetDatabase &operator=(const AssetDatabase &) = delete;
@@ -67,6 +71,22 @@ public:
 
   [[nodiscard]] renderer::MeshHandle mesh(const core::Uuid &uuid);
   [[nodiscard]] renderer::TextureHandle texture(const core::Uuid &uuid);
+
+  // The asynchronous form of the two loaders above (ADR-0013). A loaded asset comes back at once;
+  // anything else returns an invalid handle and schedules the import on the pool, so the caller
+  // draws nothing for it this frame and asks again on the next. The import runs on a worker and
+  // the renderer objects are created by a main-thread job, since recording an upload is not
+  // thread-safe; both are done by the time `core::JobSystem::runMainThreadJobs` returns. Asking
+  // again while a request is in flight does not schedule it twice. A glTF file is one request for
+  // the whole file, as the synchronous path loads one, so a mesh and its textures arrive together.
+  [[nodiscard]] renderer::MeshHandle requestMesh(const core::Uuid &uuid);
+  [[nodiscard]] renderer::TextureHandle requestTexture(const core::Uuid &uuid);
+  // Whether any request is still in flight, which is what a loading screen waits on.
+  [[nodiscard]] bool loading() const noexcept {
+    return !m_pending.empty();
+  }
+  // Runs every request to completion, for a caller that wants the synchronous behaviour back.
+  void waitForLoads();
   [[nodiscard]] renderer::MaterialHandle material(const core::Uuid &uuid);
   [[nodiscard]] renderer::EnvironmentHandle environment(const core::Uuid &uuid);
   [[nodiscard]] const Model *model(const core::Uuid &uuid);
@@ -139,12 +159,58 @@ private:
   void unloadTexture(const core::Uuid &uuid);
   [[nodiscard]] bool loadGltf(const core::Uuid &uuid);
   [[nodiscard]] renderer::TextureHandle loadFileTexture(const core::Uuid &uuid, const AssetInfo &info);
+
+  // What a glTF import needs from the database, copied on the main thread so the worker that runs
+  // the import touches none of it.
+  struct GltfRequest {
+    core::Uuid uuid;
+    std::filesystem::path source;
+    std::filesystem::path cache;
+    std::string name;
+    std::filesystem::file_time_type sourceTime;
+    bool blockCompression{false};
+  };
+  // The result of that import: everything decoded, nothing created. Images line up with
+  // `import.images`; an image that failed to decode has no data.
+  struct GltfLoad {
+    std::optional<GltfImport> import;
+    std::vector<core::Uuid> imageUuids;
+    std::vector<std::optional<renderer::TextureData>> images;
+  };
+  // Pure: reads files and decodes, touches no member and no renderer, so it runs on any thread.
+  [[nodiscard]] static GltfLoad importGltfFiles(const GltfRequest &request);
+  // The other half, main thread only: creates the renderer objects and registers the sub-assets.
+  bool publishGltf(const GltfRequest &request, GltfLoad &&load);
+  [[nodiscard]] std::optional<GltfRequest> gltfRequest(const core::Uuid &uuid);
+
+  // The same split for a texture that is a file of its own rather than a glTF sub-asset.
+  struct TextureRequest {
+    core::Uuid uuid;
+    std::filesystem::path source;
+    std::filesystem::path sidecar;
+    std::filesystem::path cache;
+    std::string name;
+    std::filesystem::file_time_type sourceTime;
+    TextureSettings settings;
+    bool blockCompression{false};
+  };
+  [[nodiscard]] static std::optional<renderer::TextureData> importFileTexture(const TextureRequest &request);
+  [[nodiscard]] std::optional<TextureRequest> textureRequest(const core::Uuid &uuid, const AssetInfo &info);
+
+  // A request in flight, keyed by the asset whose import it is: a glTF file, or a file texture.
+  // Only the main thread touches this map; a worker sees nothing but its own captured request.
+  struct PendingLoad {
+    core::JobHandle job;
+  };
+  void schedule(const core::Uuid &uuid, std::function<void()> work);
   [[nodiscard]] renderer::TextureHandle uploadTexture(const core::Uuid &uuid, const renderer::TextureData &data,
                                                       const std::string &name);
   [[nodiscard]] renderer::MaterialDesc resolve(const MaterialSource &source);
   void refreshMaterials(const core::Uuid &texture);
 
   renderer::Renderer &m_renderer;
+  core::JobSystem &m_jobs;
+  std::unordered_map<core::Uuid, PendingLoad> m_pending;
   std::optional<Bundle> m_bundle; // set in bundle mode, in which m_files stays empty
   std::filesystem::path m_projectRoot;
   std::vector<std::string> m_roots;

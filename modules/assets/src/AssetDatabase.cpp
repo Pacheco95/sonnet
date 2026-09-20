@@ -139,7 +139,7 @@ core::Result<json> readJsonFile(const std::filesystem::path &path) {
 
 } // namespace
 
-AssetDatabase::AssetDatabase(renderer::Renderer &renderer) : m_renderer(renderer) {
+AssetDatabase::AssetDatabase(renderer::Renderer &renderer, core::JobSystem &jobs) : m_renderer(renderer), m_jobs(jobs) {
   registerBuiltins();
 }
 
@@ -189,6 +189,9 @@ void AssetDatabase::open(const std::filesystem::path &projectRoot, std::span<con
 }
 
 void AssetDatabase::close() {
+  // An import in flight names files and a cache this database is about to forget, and its publish
+  // would write maps that are about to be cleared. Finish them first rather than racing them.
+  waitForLoads();
   if (m_bundle) {
     // A cooked asset has no file record to unload through, so everything the bundle loaded is
     // released here; the built-in meshes come back on demand.
@@ -462,59 +465,85 @@ renderer::TextureHandle AssetDatabase::uploadTexture(const core::Uuid &uuid, con
   return handle;
 }
 
-renderer::TextureHandle AssetDatabase::loadFileTexture(const core::Uuid &uuid, const AssetInfo &info) {
-  const FileRecord &record = m_files.at(uuid);
-  const bool blockCompression = m_renderer.blockCompressionSupported();
-  if (kindOf(info.source) == SourceKind::Ktx2) {
-    const auto bytes = core::readFile(info.source);
+std::optional<AssetDatabase::TextureRequest> AssetDatabase::textureRequest(const core::Uuid &uuid,
+                                                                           const AssetInfo &info) {
+  const auto record = m_files.find(uuid);
+  if (record == m_files.end()) {
+    return std::nullopt;
+  }
+  return TextureRequest{.uuid = uuid,
+                        .source = info.source,
+                        .sidecar = record->second.sidecar,
+                        .cache = cacheDirectory(),
+                        .name = info.name,
+                        .sourceTime = record->second.sourceTime,
+                        .settings = TextureSettings::fromJson(record->second.settings),
+                        .blockCompression = m_renderer.blockCompressionSupported()};
+}
+
+std::optional<renderer::TextureData> AssetDatabase::importFileTexture(const TextureRequest &request) {
+  SONNET_ZONE();
+  if (kindOf(request.source) == SourceKind::Ktx2) {
+    const auto bytes = core::readFile(request.source);
     if (!bytes) {
       SONNET_LOG_ERROR("{}", bytes.error().toString());
-      return {};
+      return std::nullopt;
     }
-    const auto data = readKtx2(*bytes, blockCompression);
+    auto data = readKtx2(*bytes, request.blockCompression);
     if (!data) {
-      SONNET_LOG_ERROR("{}: {}", info.source.string(), data.error().toString());
-      return {};
+      SONNET_LOG_ERROR("{}: {}", request.source.string(), data.error().toString());
+      return std::nullopt;
     }
-    return uploadTexture(uuid, *data, info.name);
+    return std::move(*data);
   }
   // Cooked on demand into the cache, keyed by identity; stale when the source or its settings
   // are newer (docs/assets.md, "Source and cooked").
-  const std::filesystem::path cooked = cacheDirectory() / (uuid.toString() + ".ktx2");
+  const std::filesystem::path cooked = request.cache / (request.uuid.toString() + ".ktx2");
   const auto cookedTime = modificationTime(cooked);
-  const bool fresh = cookedTime != std::filesystem::file_time_type{} && cookedTime >= record.sourceTime &&
-                     cookedTime >= modificationTime(record.sidecar);
+  const bool fresh = cookedTime != std::filesystem::file_time_type{} && cookedTime >= request.sourceTime &&
+                     cookedTime >= modificationTime(request.sidecar);
   if (!fresh) {
-    const auto bytes = core::readFile(info.source);
+    const auto bytes = core::readFile(request.source);
     if (!bytes) {
       SONNET_LOG_ERROR("{}", bytes.error().toString());
-      return {};
+      return std::nullopt;
     }
-    const TextureSettings settings = TextureSettings::fromJson(record.settings);
-    const auto imported = importImage(*bytes, settings);
+    const auto imported = importImage(*bytes, request.settings);
     if (!imported) {
-      SONNET_LOG_ERROR("{}: {}", info.source.string(), imported.error().toString());
-      return {};
+      SONNET_LOG_ERROR("{}: {}", request.source.string(), imported.error().toString());
+      return std::nullopt;
     }
-    const auto ktx = cookKtx2(*imported, settings.compress);
+    const auto ktx = cookKtx2(*imported, request.settings.compress);
     if (!ktx) {
-      SONNET_LOG_ERROR("{}: {}", info.source.string(), ktx.error().toString());
-      return {};
+      SONNET_LOG_ERROR("{}: {}", request.source.string(), ktx.error().toString());
+      return std::nullopt;
     }
     if (const auto written = core::writeFile(cooked, *ktx); !written) {
       SONNET_LOG_ERROR("{}", written.error().toString());
-      return {};
+      return std::nullopt;
     }
-    SONNET_LOG_INFO("cooked {} into {}", info.source.filename().string(), cooked.filename().string());
+    SONNET_LOG_INFO("cooked {} into {}", request.source.filename().string(), cooked.filename().string());
   }
   const auto bytes = core::readFile(cooked);
   if (!bytes) {
     SONNET_LOG_ERROR("{}", bytes.error().toString());
-    return {};
+    return std::nullopt;
   }
-  const auto data = readKtx2(*bytes, blockCompression);
+  auto data = readKtx2(*bytes, request.blockCompression);
   if (!data) {
     SONNET_LOG_ERROR("{}: {}", cooked.string(), data.error().toString());
+    return std::nullopt;
+  }
+  return std::move(*data);
+}
+
+renderer::TextureHandle AssetDatabase::loadFileTexture(const core::Uuid &uuid, const AssetInfo &info) {
+  const std::optional<TextureRequest> request = textureRequest(uuid, info);
+  if (!request) {
+    return {};
+  }
+  const std::optional<renderer::TextureData> data = importFileTexture(*request);
+  if (!data) {
     return {};
   }
   return uploadTexture(uuid, *data, info.name);
@@ -540,61 +569,90 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   return desc;
 }
 
-bool AssetDatabase::loadGltf(const core::Uuid &uuid) {
-  SONNET_ZONE();
-  if (m_gltfLoaded.contains(uuid)) {
-    return m_gltfLoaded[uuid];
-  }
+std::optional<AssetDatabase::GltfRequest> AssetDatabase::gltfRequest(const core::Uuid &uuid) {
   const AssetInfo *info = find(uuid);
   if (info == nullptr || info->type != AssetType::Model) {
-    return false;
+    return std::nullopt;
   }
-  m_gltfLoaded[uuid] = false;
-  auto import = importGltf(info->source);
+  const auto record = m_files.find(uuid);
+  if (record == m_files.end()) {
+    return std::nullopt;
+  }
+  return GltfRequest{.uuid = uuid,
+                     .source = info->source,
+                     .cache = cacheDirectory(),
+                     .name = info->name,
+                     .sourceTime = record->second.sourceTime,
+                     .blockCompression = m_renderer.blockCompressionSupported()};
+}
+
+AssetDatabase::GltfLoad AssetDatabase::importGltfFiles(const GltfRequest &request) {
+  SONNET_ZONE();
+  GltfLoad load;
+  auto import = importGltf(request.source);
   if (!import) {
     SONNET_LOG_ERROR("{}", import.error().toString());
-    return false;
+    return load;
   }
-  const bool blockCompression = m_renderer.blockCompressionSupported();
-  // Images first, cooked into the cache like file textures, so materials can resolve them.
-  std::vector<core::Uuid> imageUuids;
+  // Images, cooked into the cache like file textures, so materials can resolve them. Decoding
+  // only: the renderer objects are created by publishGltf on the main thread.
   for (std::size_t i = 0; i < import->images.size(); ++i) {
-    const core::Uuid imageUuid = core::Uuid::derive(uuid, std::format("image/{}", i));
-    imageUuids.push_back(imageUuid);
+    const core::Uuid imageUuid = core::Uuid::derive(request.uuid, std::format("image/{}", i));
+    load.imageUuids.push_back(imageUuid);
+    load.images.emplace_back();
     const GltfImage &image = import->images[i];
     if (image.bytes.empty()) {
       continue;
     }
-    const std::filesystem::path cooked = cacheDirectory() / (imageUuid.toString() + ".ktx2");
+    const std::filesystem::path cooked = request.cache / (imageUuid.toString() + ".ktx2");
     const auto cookedTime = modificationTime(cooked);
-    if (cookedTime == std::filesystem::file_time_type{} || cookedTime < m_files.at(uuid).sourceTime) {
+    if (cookedTime == std::filesystem::file_time_type{} || cookedTime < request.sourceTime) {
       const auto imported = importImage(image.bytes, TextureSettings{.srgb = image.srgb});
       if (!imported) {
-        SONNET_LOG_ERROR("{}: image \"{}\": {}", info->source.string(), image.name, imported.error().toString());
+        SONNET_LOG_ERROR("{}: image \"{}\": {}", request.source.string(), image.name, imported.error().toString());
         continue;
       }
       const auto ktx = cookKtx2(*imported, true);
       if (!ktx || !core::writeFile(cooked, *ktx)) {
-        SONNET_LOG_ERROR("{}: image \"{}\": cooking failed", info->source.string(), image.name);
+        SONNET_LOG_ERROR("{}: image \"{}\": cooking failed", request.source.string(), image.name);
         continue;
       }
     }
     const auto bytes = core::readFile(cooked);
-    const auto data = bytes ? readKtx2(*bytes, blockCompression) : std::unexpected(bytes.error());
+    auto data = bytes ? readKtx2(*bytes, request.blockCompression) : std::unexpected(bytes.error());
     if (!data) {
-      SONNET_LOG_ERROR("{}: image \"{}\": {}", info->source.string(), image.name, data.error().toString());
+      SONNET_LOG_ERROR("{}: image \"{}\": {}", request.source.string(), image.name, data.error().toString());
       continue;
     }
-    static_cast<void>(uploadTexture(imageUuid, *data, std::format("{}/{}", info->name, image.name)));
+    load.images.back() = std::move(*data);
+  }
+  load.import = std::move(*import);
+  return load;
+}
+
+bool AssetDatabase::publishGltf(const GltfRequest &request, GltfLoad &&load) {
+  SONNET_ZONE();
+  const core::Uuid &uuid = request.uuid;
+  if (!load.import) {
+    m_gltfLoaded[uuid] = false;
+    return false;
+  }
+  GltfImport &import = *load.import;
+  for (std::size_t i = 0; i < load.images.size(); ++i) {
+    if (!load.images[i]) {
+      continue;
+    }
+    static_cast<void>(
+        uploadTexture(load.imageUuids[i], *load.images[i], std::format("{}/{}", request.name, import.images[i].name)));
   }
   const auto imageUuid = [&](std::int32_t index) {
-    return index >= 0 && static_cast<std::size_t>(index) < imageUuids.size()
-               ? imageUuids[static_cast<std::size_t>(index)]
+    return index >= 0 && static_cast<std::size_t>(index) < load.imageUuids.size()
+               ? load.imageUuids[static_cast<std::size_t>(index)]
                : core::Uuid{};
   };
-  for (std::size_t i = 0; i < import->materials.size(); ++i) {
+  for (std::size_t i = 0; i < import.materials.size(); ++i) {
     const core::Uuid materialUuid = core::Uuid::derive(uuid, std::format("material/{}", i));
-    GltfMaterial &material = import->materials[i];
+    GltfMaterial &material = import.materials[i];
     material.source.baseColorTexture = imageUuid(material.baseColorImage);
     material.source.metallicRoughnessTexture = imageUuid(material.metallicRoughnessImage);
     material.source.normalTexture = imageUuid(material.normalImage);
@@ -606,41 +664,54 @@ bool AssetDatabase::loadGltf(const core::Uuid &uuid) {
       m_renderer.updateMaterial(existing->second.handle, resolve(material.source));
     } else {
       const renderer::MaterialHandle handle =
-          m_renderer.createMaterial(resolve(material.source), std::format("{}/{}", info->name, material.name));
+          m_renderer.createMaterial(resolve(material.source), std::format("{}/{}", request.name, material.name));
       m_materials[materialUuid] = LoadedMaterial{handle, material.source};
     }
   }
-  for (std::size_t i = 0; i < import->meshes.size(); ++i) {
+  for (std::size_t i = 0; i < import.meshes.size(); ++i) {
     const core::Uuid meshUuid = core::Uuid::derive(uuid, std::format("mesh/{}", i));
-    const GltfMesh &mesh = import->meshes[i];
+    GltfMesh &mesh = import.meshes[i];
     if (mesh.data.vertices.empty() || mesh.data.indices.empty()) {
       continue;
     }
-    m_meshes[meshUuid] = m_renderer.createMesh(mesh.data, std::format("{}/{}", info->name, mesh.name));
-    m_meshData[meshUuid] = std::move(import->meshes[i].data);
+    m_meshes[meshUuid] = m_renderer.createMesh(mesh.data, std::format("{}/{}", request.name, mesh.name));
+    m_meshData[meshUuid] = std::move(mesh.data);
   }
-  for (std::size_t i = 0; i < import->skins.size(); ++i) {
+  for (std::size_t i = 0; i < import.skins.size(); ++i) {
     Skin &skin = m_skins[core::Uuid::derive(uuid, std::format("skin/{}", i))];
-    skin = std::move(import->skins[i].skin);
+    skin = std::move(import.skins[i].skin);
     skin.revision = ++m_revision;
   }
-  Model model = std::move(import->model);
-  for (std::size_t i = 0; i < import->animations.size(); ++i) {
+  Model model = std::move(import.model);
+  for (std::size_t i = 0; i < import.animations.size(); ++i) {
     const core::Uuid clipUuid = core::Uuid::derive(uuid, std::format("animation/{}", i));
     AnimationClip &clip = m_animations[clipUuid];
-    clip = std::move(import->animations[i].clip);
+    clip = std::move(import.animations[i].clip);
     clip.revision = ++m_revision;
     model.animations.push_back(clipUuid);
   }
   for (std::size_t n = 0; n < model.nodes.size(); ++n) {
-    const std::int32_t meshIndex = import->meshIndices[n];
-    const std::int32_t skinIndex = import->skinIndices[n];
+    const std::int32_t meshIndex = import.meshIndices[n];
+    const std::int32_t skinIndex = import.skinIndices[n];
     model.nodes[n].mesh = meshIndex >= 0 ? core::Uuid::derive(uuid, std::format("mesh/{}", meshIndex)) : core::Uuid{};
     model.nodes[n].skin = skinIndex >= 0 ? core::Uuid::derive(uuid, std::format("skin/{}", skinIndex)) : core::Uuid{};
   }
   m_models[uuid] = std::move(model);
   m_gltfLoaded[uuid] = true;
   return true;
+}
+
+bool AssetDatabase::loadGltf(const core::Uuid &uuid) {
+  SONNET_ZONE();
+  if (m_gltfLoaded.contains(uuid)) {
+    return m_gltfLoaded[uuid];
+  }
+  const std::optional<GltfRequest> request = gltfRequest(uuid);
+  if (!request) {
+    return false;
+  }
+  m_gltfLoaded[uuid] = false;
+  return publishGltf(*request, importGltfFiles(*request));
 }
 
 renderer::MeshHandle AssetDatabase::mesh(const core::Uuid &uuid) {
@@ -689,6 +760,113 @@ renderer::MeshHandle AssetDatabase::mesh(const core::Uuid &uuid) {
     }
   }
   m_failed[uuid] = true;
+  return {};
+}
+
+void AssetDatabase::schedule(const core::Uuid &uuid, std::function<void()> work) {
+  m_pending[uuid] = PendingLoad{m_jobs.schedule("asset import", std::move(work))};
+}
+
+void AssetDatabase::waitForLoads() {
+  // Each pass finishes the imports in flight and runs the main-thread jobs they scheduled, which
+  // is what erases them; a publish schedules nothing new, so the loop drains.
+  while (!m_pending.empty()) {
+    std::vector<core::JobHandle> jobs;
+    jobs.reserve(m_pending.size());
+    for (const auto &[uuid, pending] : m_pending) {
+      jobs.push_back(pending.job);
+    }
+    m_jobs.wait(jobs);
+    static_cast<void>(m_jobs.runMainThreadJobs());
+  }
+}
+
+renderer::MeshHandle AssetDatabase::requestMesh(const core::Uuid &uuid) {
+  if (const auto it = m_meshes.find(uuid); it != m_meshes.end()) {
+    return it->second;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Mesh || m_failed.contains(uuid)) {
+    return {};
+  }
+  // A built-in is already in memory and a bundle payload is a decode away; neither is worth a
+  // round trip through the pool, and the synchronous path is what everything else already calls.
+  if (info->source == "builtin" || m_bundle) {
+    return mesh(uuid);
+  }
+  if (info->parent.isNil()) {
+    return {};
+  }
+  // A glTF mesh arrives with the rest of its file, so the request is the file's.
+  if (m_gltfLoaded.contains(info->parent) || m_pending.contains(info->parent)) {
+    return {}; // loaded and this mesh is not in it, or still importing
+  }
+  const std::optional<GltfRequest> request = gltfRequest(info->parent);
+  if (!request) {
+    return {};
+  }
+  const auto load = std::make_shared<GltfLoad>();
+  schedule(info->parent, [this, request = *request, load] {
+    *load = importGltfFiles(request);
+    m_jobs.scheduleOnMainThread("asset publish", [this, request, load] {
+      m_pending.erase(request.uuid);
+      static_cast<void>(publishGltf(request, std::move(*load)));
+    });
+  });
+  return {};
+}
+
+renderer::TextureHandle AssetDatabase::requestTexture(const core::Uuid &uuid) {
+  if (uuid.isNil()) {
+    return {};
+  }
+  if (const auto it = m_textures.find(uuid); it != m_textures.end()) {
+    return it->second.handle;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Texture || m_failed.contains(uuid)) {
+    return {};
+  }
+  if (m_bundle) {
+    return texture(uuid);
+  }
+  if (!info->parent.isNil()) {
+    if (m_gltfLoaded.contains(info->parent) || m_pending.contains(info->parent)) {
+      return {};
+    }
+    const std::optional<GltfRequest> request = gltfRequest(info->parent);
+    if (!request) {
+      return {};
+    }
+    const auto load = std::make_shared<GltfLoad>();
+    schedule(info->parent, [this, request = *request, load] {
+      *load = importGltfFiles(request);
+      m_jobs.scheduleOnMainThread("asset publish", [this, request, load] {
+        m_pending.erase(request.uuid);
+        static_cast<void>(publishGltf(request, std::move(*load)));
+      });
+    });
+    return {};
+  }
+  if (m_pending.contains(uuid)) {
+    return {};
+  }
+  const std::optional<TextureRequest> request = textureRequest(uuid, *info);
+  if (!request) {
+    return {};
+  }
+  const auto data = std::make_shared<std::optional<renderer::TextureData>>();
+  schedule(uuid, [this, request = *request, data] {
+    *data = importFileTexture(request);
+    m_jobs.scheduleOnMainThread("asset publish", [this, request, data] {
+      m_pending.erase(request.uuid);
+      if (*data) {
+        static_cast<void>(uploadTexture(request.uuid, **data, request.name));
+      } else {
+        m_failed[request.uuid] = true;
+      }
+    });
+  });
   return {};
 }
 

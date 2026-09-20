@@ -2,6 +2,7 @@
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/assets/Cook.h>
+#include <sonnet/core/JobSystem.h>
 
 #include <sonnet/platform/Platform.h>
 #include <sonnet/renderer/Renderer.h>
@@ -158,6 +159,7 @@ struct ProjectFixture {
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
   std::filesystem::path root = test::freshDirectory("sonnet_assets_cook");
   Project project;
 
@@ -223,7 +225,7 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   core::Uuid environmentId;
   std::size_t sourceAssetCount = 0;
   {
-    AssetDatabase database{fixture.renderer};
+    AssetDatabase database{fixture.renderer, fixture.jobs};
     database.open(fixture.root, fixture.project.assetRoots);
     meshId = idOf(database, "CrateMesh", AssetType::Mesh);
     materialId = idOf(database, "painted", AssetType::Material);
@@ -250,7 +252,7 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
     REQUIRE(!cook(database, elsewhere, {.outputDirectory = out, .platform = CookPlatform::Linux}).has_value());
   }
 
-  AssetDatabase player{fixture.renderer};
+  AssetDatabase player{fixture.renderer, fixture.jobs};
   REQUIRE(player.openBundle(out / "game.sbundle").has_value());
   REQUIRE(player.isOpen());
   REQUIRE(player.bundle() != nullptr);
