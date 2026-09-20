@@ -606,12 +606,14 @@ void VulkanDevice::prepareSlot() {
   }
   waitForFrame(frame);
   readTimestamps(frame);
+  // The pools go back before the garbage does: a command buffer that names a resource counts as
+  // using it, so the slot's own command buffers are returned to the initial state first.
+  frame.commandPool.reset();
+  frame.uploadPool.reset();
   for (auto &destroy : frame.garbage) {
     destroy();
   }
   frame.garbage.clear();
-  frame.commandPool.reset();
-  frame.uploadPool.reset();
   frame.transientOffset = 0;
   frame.transientExhausted = false;
   frame.stagingOffset = 0;
@@ -1012,6 +1014,8 @@ void VulkanDevice::endFrame() {
     const vk::DependencyInfo dependency{{}, 1, &after};
     m_device.getDispatcher()->vkCmdPipelineBarrier2(uploads, reinterpret_cast<const VkDependencyInfo *>(&dependency));
     m_device.getDispatcher()->vkEndCommandBuffer(uploads);
+    // Recorded and now submitted: this slot has nothing pending until it is prepared again.
+    frame.uploadsRecorded = false;
     commandInfos.emplace_back(uploads);
   }
   commandInfos.emplace_back(*frame.commandBuffer);
@@ -1055,10 +1059,42 @@ void VulkanDevice::endFrame() {
   m_frameIndex = (m_frameIndex + 1) % FramesInFlight;
 }
 
-void VulkanDevice::waitIdle() {
-  if (*m_device != nullptr) {
-    m_device.waitIdle();
+void VulkanDevice::submitRecordedUploads() {
+  Frame &frame = m_frames[m_frameIndex];
+  if (m_recording || !frame.uploadsRecorded) {
+    return;
   }
+  const vk::CommandBuffer uploads = *frame.uploadCommandBuffer;
+  const vk::MemoryBarrier2 after{vk::PipelineStageFlagBits2::eAllTransfer, vk::AccessFlagBits2::eTransferWrite,
+                                 vk::PipelineStageFlagBits2::eAllCommands,
+                                 vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
+  const vk::DependencyInfo dependency{{}, 1, &after};
+  m_device.getDispatcher()->vkCmdPipelineBarrier2(uploads, reinterpret_cast<const VkDependencyInfo *>(&dependency));
+  m_device.getDispatcher()->vkEndCommandBuffer(uploads);
+  frame.uploadsRecorded = false;
+
+  const std::uint64_t signalValue = ++m_timelineValue;
+  const vk::CommandBufferSubmitInfo commandInfo{uploads};
+  const vk::SemaphoreSubmitInfo signal{*m_timeline, signalValue, vk::PipelineStageFlagBits2::eAllCommands};
+  const vk::SubmitInfo2 submit{{}, {}, commandInfo, signal};
+  const VkResult result = m_device.getDispatcher()->vkQueueSubmit2(
+      *m_graphicsQueue, 1, reinterpret_cast<const VkSubmitInfo2 *>(&submit), VK_NULL_HANDLE);
+  if (result != VK_SUCCESS) {
+    SONNET_LOG_ERROR("vkQueueSubmit2 of pending uploads failed: {}", vk::to_string(static_cast<vk::Result>(result)));
+    return;
+  }
+  frame.submittedValue = signalValue;
+}
+
+void VulkanDevice::waitIdle() {
+  if (*m_device == nullptr) {
+    return;
+  }
+  // Uploads staged since the last endFrame are still recorded in this slot's command buffer, and
+  // a caller that waits for the device to go idle usually means to tear something down next.
+  // Submitting them keeps the data and leaves nothing holding a reference to it.
+  submitRecordedUploads();
+  m_device.waitIdle();
 }
 
 void VulkanDevice::setDebugName(vk::ObjectType type, std::uint64_t handle, std::string_view name) const {

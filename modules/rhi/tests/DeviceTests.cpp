@@ -4,6 +4,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <cstddef>
+
 #include <vulkan/vulkan_core.h>
 
 using namespace sonnet::rhi;
@@ -23,6 +26,26 @@ TEST_CASE("frames can be begun and ended without work", "[rhi][device]") {
   for (int i = 0; i < 2 * static_cast<int>(FramesInFlight) + 1; ++i) {
     ICommandList &commands = device->beginFrame();
     static_cast<void>(commands);
+    device->endFrame();
+  }
+  device->waitIdle();
+}
+
+TEST_CASE("a buffer uploaded but never submitted is destroyed without a complaint", "[rhi][device]") {
+  test::TestDevice device;
+  // What loading a project and dropping it without drawing a frame does: the upload is recorded
+  // into the slot's command buffer, which no endFrame ever submits. The slot's next reuse has to
+  // put that command buffer back before it runs the destruction it deferred, since a command
+  // buffer still in the recording state counts as using what it names.
+  const BufferHandle buffer = device->createBuffer(
+      {.size = 256, .usage = BufferUsage::Storage | BufferUsage::TransferDst, .debugName = "never submitted"});
+  const std::array<std::byte, 256> data{};
+  device->uploadBuffer(buffer, 0, data);
+  device->waitIdle();
+  device->destroyBuffer(buffer);
+
+  for (int i = 0; i < 2 * static_cast<int>(FramesInFlight) + 1; ++i) {
+    static_cast<void>(device->beginFrame());
     device->endFrame();
   }
   device->waitIdle();
