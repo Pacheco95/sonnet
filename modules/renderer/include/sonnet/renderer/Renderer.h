@@ -8,11 +8,13 @@
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/HandlePool.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/rhi/Device.h>
 
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -55,6 +57,10 @@ struct RendererSettings {
   std::uint32_t prefilterSamples{256};
   std::uint32_t brdfLutSize{256};
   std::uint32_t brdfLutSamples{256};
+  // The pool the per-frame object and cull-candidate fill is spread over
+  // ([ADR-0013](docs/decisions/0013-job-system.md)). Null runs it on the calling thread, which is what the tests and
+  // the cook tool get; the result is the same either way, since every iteration writes one slot of its own.
+  core::JobSystem *jobs{nullptr};
 };
 
 // Owns meshes, textures, materials, environments and the engine pipelines, and adds the scene
@@ -274,6 +280,10 @@ private:
 
   // Sorts and resolves the view's draws for the frame and declares the skinning pass; a graph
   // frame that already prepared this view keeps its state.
+  // Runs `body` over [0, count) across the settings' pool, or on this thread when there is none.
+  void parallelFor(const char *name, std::size_t count, std::size_t grain,
+                   const std::function<void(std::size_t, std::size_t)> &body) const;
+
   void prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
   // The address the draw pulls its vertices from: its skinned instance's buffer, created or
   // reused here, when it is a valid skinned draw, the mesh's otherwise.

@@ -20,6 +20,11 @@ namespace {
 
 // Mirrors of shaders/sonnet.slang under scalar block layout.
 
+// How much of a per-frame fill is worth handing to another worker. Small enough that a modest
+// scene still spreads, large enough that a handful of draws does not pay for the scheduling.
+constexpr std::size_t ObjectGrain = 2048;
+constexpr std::size_t BatchGrain = 16;
+
 constexpr std::uint32_t LightPoint = 0;
 constexpr std::uint32_t LightSpot = 1;
 constexpr std::uint32_t ClusterGridX = 16;
@@ -877,6 +882,18 @@ void Renderer::computeCascades(const SceneView &view, float aspect) {
   }
 }
 
+void Renderer::parallelFor(const char *name, std::size_t count, std::size_t grain,
+                           const std::function<void(std::size_t, std::size_t)> &body) const {
+  if (count == 0) {
+    return;
+  }
+  if (m_settings.jobs == nullptr) {
+    body(0, count);
+    return;
+  }
+  m_settings.jobs->parallelFor(name, count, grain, body);
+}
+
 void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize) {
   SONNET_ZONE();
   if (m_view == &view && m_graph == &graph && m_graphFrame == graph.frameIndex() && m_targetSize == targetSize) {
@@ -1224,15 +1241,19 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
   // Objects, in the draw list's order so the object index is the draw index. A draw whose mesh
   // handle went stale keeps a null vertex address and is never in an order list.
   auto *objects = reinterpret_cast<ObjectData *>(m_frameBuffers.objects.data.data());
-  for (std::size_t i = 0; i < view.draws.size(); ++i) {
-    const DrawItem &item = view.draws[i];
-    objects[i] = ObjectData{.model = item.transform,
-                            .normalMatrix = glm::transpose(glm::inverse(item.transform)),
-                            .color = item.color,
-                            .id = item.id,
-                            .material = materialIndex(item.material),
-                            .vertices = 0};
-  }
+  // One slot per draw, written once, read by nobody until the pass records: the loop the job
+  // system exists for (ADR-0013). The inverse-transpose is most of what it costs.
+  parallelFor("frame objects", view.draws.size(), ObjectGrain, [&](std::size_t begin, std::size_t end) {
+    for (std::size_t i = begin; i < end; ++i) {
+      const DrawItem &item = view.draws[i];
+      objects[i] = ObjectData{.model = item.transform,
+                              .normalMatrix = glm::transpose(glm::inverse(item.transform)),
+                              .color = item.color,
+                              .id = item.id,
+                              .material = materialIndex(item.material),
+                              .vertices = 0};
+    }
+  });
   for (const ResolvedDraw &draw : m_resolved) {
     objects[draw.objectIndex].vertices = draw.vertices;
   }
@@ -1249,23 +1270,27 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
       return; // the allocator logged the exhaustion; the passes fall back to the direct path
     }
     auto *candidates = reinterpret_cast<CullDraw *>(allocation.data.data());
-    for (std::uint32_t index = 0; index < batches.size(); ++index) {
-      const Batch &batch = batches[index];
-      for (std::uint32_t offset = 0; offset < batch.drawCount; ++offset) {
-        const std::uint32_t position = batch.firstDraw + offset;
-        const ResolvedDraw &draw = m_resolved[order[position]];
-        const bool selected =
-            !m_selected.empty() && std::ranges::binary_search(m_selected, view.draws[draw.objectIndex].id);
-        candidates[position] = CullDraw{.center = draw.center,
-                                        .extent = draw.extent,
-                                        .objectIndex = draw.objectIndex,
-                                        .indexCount = draw.submesh.indexCount,
-                                        .firstIndex = draw.submesh.firstIndex,
-                                        .batch = index,
-                                        .batchFirst = batch.firstDraw,
-                                        .flags = selected ? CullSelected : 0u};
+    // Split over the batches rather than the draws: a batch is a contiguous run of positions, so
+    // every job still writes a range of its own, and a batch knows its own index.
+    parallelFor("cull candidates", batches.size(), BatchGrain, [&](std::size_t first, std::size_t last) {
+      for (std::size_t index = first; index < last; ++index) {
+        const Batch &batch = batches[index];
+        for (std::uint32_t offset = 0; offset < batch.drawCount; ++offset) {
+          const std::uint32_t position = batch.firstDraw + offset;
+          const ResolvedDraw &draw = m_resolved[order[position]];
+          const bool selected =
+              !m_selected.empty() && std::ranges::binary_search(m_selected, view.draws[draw.objectIndex].id);
+          candidates[position] = CullDraw{.center = draw.center,
+                                          .extent = draw.extent,
+                                          .objectIndex = draw.objectIndex,
+                                          .indexCount = draw.submesh.indexCount,
+                                          .firstIndex = draw.submesh.firstIndex,
+                                          .batch = static_cast<std::uint32_t>(index),
+                                          .batchFirst = batch.firstDraw,
+                                          .flags = selected ? CullSelected : 0u};
+        }
       }
-    }
+    });
     address = m_device.bufferAddress(allocation.buffer) + allocation.offset;
   };
   uploadCandidates(m_opaqueOrder, m_opaqueBatches, m_frameBuffers.opaqueCandidates);
