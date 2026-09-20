@@ -54,6 +54,11 @@ jobs:
             preset: linux-asan
             cc: clang-20
             cxx: clang++-20
+          - name: Linux TSan
+            os: ubuntu-24.04
+            preset: linux-tsan
+            cc: clang-20
+            cxx: clang++-20
           - name: Windows MSVC
             os: windows-latest
             preset: windows-debug

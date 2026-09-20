@@ -18,6 +18,7 @@ option(SONNET_BUILD_PLAYER "Build the generic player" ON)
 option(SONNET_BUILD_TESTS "Build Catch2 tests and register them with CTest" ON)
 option(SONNET_BUILD_SAMPLES "Copy the sample projects next to the binaries" ON)
 option(SONNET_SANITIZERS "Address and undefined-behaviour sanitizers" OFF)
+option(SONNET_THREAD_SANITIZER "Thread sanitizer, for the job system and what runs on it" OFF)
 option(SONNET_COVERAGE "gcov instrumentation for engine modules" OFF)
 
 # Single-config generators decide at configure time; multi-config ones through generator expressions.
@@ -28,6 +29,11 @@ set(SONNET_DEBUG_CONFIG "$<CONFIG:Debug>")
 option(SONNET_ENABLE_TRACY "Compile Tracy zones in (Debug and RelWithDebInfo only unless forced)" ON)
 option(SONNET_ENABLE_VALIDATION "Request Vulkan validation layers at instance creation (Debug only unless forced)" ON)
 
+if(SONNET_SANITIZERS AND SONNET_THREAD_SANITIZER)
+  # They instrument the same accesses in incompatible ways and no toolchain links both.
+  message(FATAL_ERROR "SONNET_SANITIZERS and SONNET_THREAD_SANITIZER are mutually exclusive")
+endif()
+
 if(SONNET_SANITIZERS)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     message(FATAL_ERROR "SONNET_SANITIZERS requires GCC or Clang (got ${CMAKE_CXX_COMPILER_ID})")
@@ -36,7 +42,15 @@ if(SONNET_SANITIZERS)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
+if(SONNET_THREAD_SANITIZER)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR "SONNET_THREAD_SANITIZER requires GCC or Clang (got ${CMAKE_CXX_COMPILER_ID})")
+  endif()
+  add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=thread)
+endif()
+
 message(STATUS "Sonnet ${PROJECT_VERSION}: rhi=${SONNET_RHI} editor=${SONNET_BUILD_EDITOR} "
                "player=${SONNET_BUILD_PLAYER} tests=${SONNET_BUILD_TESTS} samples=${SONNET_BUILD_SAMPLES} "
                "tracy=${SONNET_ENABLE_TRACY} validation=${SONNET_ENABLE_VALIDATION} "
-               "sanitizers=${SONNET_SANITIZERS} coverage=${SONNET_COVERAGE}")
+               "sanitizers=${SONNET_SANITIZERS} tsan=${SONNET_THREAD_SANITIZER} coverage=${SONNET_COVERAGE}")

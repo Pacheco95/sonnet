@@ -57,7 +57,7 @@ Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-androi
 |---|---|
 | `linux-debug`, `linux-release` | Ninja, Clang or GCC from `PATH` |
 | `linux-asan` | Address and undefined-behaviour sanitizers |
-| `linux-tsan` | Thread sanitizer, for the job system. Added in M8 |
+| `linux-tsan` | Thread sanitizer, for the job system and what runs on it. Tracy is off in it, because its lock-free queue uses fences the sanitizer cannot model and reports races of its own that would drown real ones |
 | `linux-coverage` | gcov instrumentation, `coverage` target runs gcovr (same shape as the previous iteration) |
 | `windows-debug`, `windows-release` | Ninja with MSVC from a developer prompt |
 | `macos-debug`, `macos-release` | Ninja, Apple Clang |
@@ -101,6 +101,7 @@ IDEs: CLion and Visual Studio read `CMakePresets.json`; in CLion enable the pres
 | `SONNET_ENABLE_TRACY` | `ON` | Compiles Tracy zones in, and links Tracy, in Debug and RelWithDebInfo; Release never has them |
 | `SONNET_ENABLE_VALIDATION` | `ON` | Requests Vulkan validation layers at instance creation in Debug |
 | `SONNET_SANITIZERS` | `OFF` | Address and undefined-behaviour sanitizers (the `linux-asan` preset) |
+| `SONNET_THREAD_SANITIZER` | `OFF` | Thread sanitizer (the `linux-tsan` preset); mutually exclusive with `SONNET_SANITIZERS` |
 | `SONNET_COVERAGE` | `OFF` | gcov instrumentation for engine modules only |
 
 Global flags: `CMAKE_CXX_STANDARD 23`, extensions off. Warnings are an interface target, `sonnet::warnings`, that `sonnet_add_module` links privately with `COMPILE_WARNING_AS_ERROR`; vcpkg include directories are `SYSTEM`, so third-party headers never trip them. On GCC and Clang, `-fmacro-prefix-map` makes `__FILE__` and `std::source_location` repository-relative while debug info keeps absolute paths, so debuggers find the sources; `-ffile-prefix-map` would rewrite those too and breakpoints set from an IDE would never bind.

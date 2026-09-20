@@ -52,6 +52,12 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "SONNET_SANITIZERS": "ON" }
     },
     {
+      "name": "linux-tsan",
+      "inherits": "linux-base",
+      "displayName": "Linux Debug with the thread sanitizer",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "SONNET_THREAD_SANITIZER": "ON", "SONNET_ENABLE_TRACY": "OFF" }
+    },
+    {
       "name": "linux-coverage",
       "inherits": "linux-base",
       "displayName": "Linux Debug with gcov instrumentation",
@@ -86,6 +92,7 @@
     { "name": "linux-debug", "configurePreset": "linux-debug" },
     { "name": "linux-release", "configurePreset": "linux-release" },
     { "name": "linux-asan", "configurePreset": "linux-asan" },
+    { "name": "linux-tsan", "configurePreset": "linux-tsan" },
     { "name": "linux-coverage", "configurePreset": "linux-coverage" },
     { "name": "linux-coverage-report", "configurePreset": "linux-coverage", "targets": ["coverage"] },
     { "name": "windows-debug", "configurePreset": "windows-debug" },
@@ -97,6 +104,7 @@
     { "name": "linux-debug", "configurePreset": "linux-debug", "output": { "outputOnFailure": true } },
     { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } },
     { "name": "linux-asan", "configurePreset": "linux-asan", "output": { "outputOnFailure": true } },
+    { "name": "linux-tsan", "configurePreset": "linux-tsan", "output": { "outputOnFailure": true } },
     { "name": "linux-coverage", "configurePreset": "linux-coverage", "output": { "outputOnFailure": true } },
     { "name": "windows-debug", "configurePreset": "windows-debug", "output": { "outputOnFailure": true } },
     { "name": "windows-release", "configurePreset": "windows-release", "output": { "outputOnFailure": true } },
