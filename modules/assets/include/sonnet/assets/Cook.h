@@ -1,9 +1,16 @@
 #pragma once
 
+#include <sonnet/assets/Bundle.h>
+#include <sonnet/assets/Project.h>
+
+#include <sonnet/core/Error.h>
 #include <sonnet/renderer/Mesh.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <span>
+#include <string>
+#include <vector>
 
 namespace sonnet::assets {
 
@@ -31,5 +38,30 @@ constexpr std::uint32_t VertexCacheSize = 16;
 // never reuses anything, near 0.5 for a well-ordered closed mesh.
 [[nodiscard]] float averageCacheMissRatio(std::span<const std::uint32_t> indices,
                                           std::uint32_t cacheSize = VertexCacheSize);
+
+class AssetDatabase;
+
+struct CookOptions {
+  std::filesystem::path outputDirectory;
+  CookPlatform platform{hostPlatform()};
+};
+
+struct CookReport {
+  std::filesystem::path bundle;
+  std::uint32_t assetCount{0}; // assets written; the built-in primitives are not among them
+  std::uint32_t fileCount{0};  // scenes and prefabs
+  std::uint64_t bytes{0};
+  MeshCookStatistics meshes;         // summed over every mesh cooked
+  std::vector<std::string> warnings; // one per asset that could not be cooked, which is skipped
+};
+
+// Cooks the project `database` has open into `<outputDirectory>/game.sbundle`, the name the
+// player looks for beside itself (ADR-0011). Every asset is asked of the database, so the
+// importers run in the code that already runs them and the texture cache is reused; an asset
+// that fails is a warning in the report and is left out rather than failing the whole cook.
+// Fails outright only when the database is open on another project or the bundle cannot be
+// written. `sonnet_cook` and the editor's export dialog are the two callers.
+[[nodiscard]] core::Result<CookReport> cook(AssetDatabase &database, const Project &project,
+                                            const CookOptions &options);
 
 } // namespace sonnet::assets

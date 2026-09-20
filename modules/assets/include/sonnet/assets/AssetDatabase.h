@@ -2,6 +2,7 @@
 
 #include <sonnet/assets/Animation.h>
 #include <sonnet/assets/Asset.h>
+#include <sonnet/assets/Bundle.h>
 #include <sonnet/assets/Importers.h>
 
 #include <sonnet/core/Error.h>
@@ -38,9 +39,18 @@ public:
   // Scans `roots` under `projectRoot`, writes missing sidecars and registers what it finds; the
   // assets of a previous project are unloaded first. Problems are logged and skip the file.
   void open(const std::filesystem::path &projectRoot, std::span<const std::string> roots);
+  // Opens a cooked bundle instead of a project folder (ADR-0011): its index becomes the same
+  // asset list, and every loader below reads a payload instead of importing a source. There are
+  // no sidecars, no re-import and no hot reload in this mode, so `pollChanges` finds nothing.
+  // The built-in primitives are registered either way.
+  [[nodiscard]] core::Result<void> openBundle(const std::filesystem::path &file);
   void close();
   [[nodiscard]] bool isOpen() const noexcept {
-    return !m_projectRoot.empty();
+    return !m_projectRoot.empty() || m_bundle.has_value();
+  }
+  // The open bundle, for the scenes and prefabs it holds beside the assets; null in project mode.
+  [[nodiscard]] const Bundle *bundle() const noexcept {
+    return m_bundle ? &*m_bundle : nullptr;
   }
   [[nodiscard]] const std::filesystem::path &projectRoot() const noexcept {
     return m_projectRoot;
@@ -118,6 +128,8 @@ private:
 
   void registerBuiltins();
   void scanFile(const std::filesystem::path &file);
+  // A cooked payload, or a logged failure that is not retried. Bundle mode only.
+  [[nodiscard]] std::optional<std::vector<std::byte>> bundlePayload(const core::Uuid &uuid);
   [[nodiscard]] core::Result<nlohmann::json> readSidecar(const std::filesystem::path &sidecar) const;
   [[nodiscard]] core::Result<void> writeSidecar(const core::Uuid &uuid);
   void registerGltfSubAssets(const core::Uuid &uuid, const nlohmann::json &subAssets);
@@ -133,6 +145,7 @@ private:
   void refreshMaterials(const core::Uuid &texture);
 
   renderer::Renderer &m_renderer;
+  std::optional<Bundle> m_bundle; // set in bundle mode, in which m_files stays empty
   std::filesystem::path m_projectRoot;
   std::vector<std::string> m_roots;
   std::map<core::Uuid, AssetInfo> m_assets;

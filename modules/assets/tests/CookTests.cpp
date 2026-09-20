@@ -1,16 +1,27 @@
+#include "AssetTestSupport.h"
+
+#include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/assets/Cook.h>
 
+#include <sonnet/platform/Platform.h>
+#include <sonnet/renderer/Renderer.h>
+#include <sonnet/rhi/NullDevice.h>
+
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <filesystem>
+#include <memory>
 #include <set>
 #include <tuple>
 #include <vector>
 
 using namespace sonnet;
 using namespace sonnet::assets;
+using Catch::Approx;
 using renderer::MeshData;
 using renderer::Vertex;
 
@@ -137,4 +148,158 @@ TEST_CASE("a mesh the cook cannot reshape comes back as it was", "[assets][cook]
   const MeshData empty;
   REQUIRE(cookMesh(empty).vertices.empty());
   REQUIRE(averageCacheMissRatio(empty.indices) == 0.0f);
+}
+
+// Cooking a whole project needs a renderer for the importers to upload into; the null device is
+// what the cook tool uses too (ADR-0011).
+namespace {
+
+struct ProjectFixture {
+  platform::Platform platform{{.headless = true}};
+  std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  std::filesystem::path root = test::freshDirectory("sonnet_assets_cook");
+  Project project;
+
+  ProjectFixture() {
+    std::filesystem::create_directories(root / "assets" / "models");
+    std::filesystem::create_directories(root / "scripts");
+    std::filesystem::create_directories(root / "scenes");
+    REQUIRE(core::writeFile(root / "assets" / "models" / "wood.png", test::encodePng({2, 2}, test::quadPixels()))
+                .has_value());
+    test::writeBoxGltf(root / "assets" / "models" / "crate.gltf", "wood.png");
+    test::writeSkinnedGltf(root / "assets" / "models" / "reed.gltf");
+    REQUIRE(core::writeFile(root / "assets" / "sky.hdr", test::encodeHdr({4, 2}, std::vector<float>(4 * 2 * 3, 0.5f)))
+                .has_value());
+    MaterialSource painted;
+    painted.baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
+    painted.roughness = 0.25f;
+    REQUIRE(core::writeFile(root / "assets" / "painted.material.json", saveMaterial(painted).dump(2)).has_value());
+    REQUIRE(core::writeFile(root / "scripts" / "spin.lua", std::string_view{"return { update = function() end }\n"})
+                .has_value());
+    REQUIRE(core::writeFile(root / "scenes" / "main.scene.json", std::string_view{R"({"version": 2, "entities": []})"})
+                .has_value());
+    REQUIRE(
+        core::writeFile(root / "scenes" / "crate.prefab.json", std::string_view{R"({"version": 2, "entities": []})"})
+            .has_value());
+    project.root = root;
+    project.name = "Cooked";
+    project.assetRoots = {"assets", "scripts"};
+    REQUIRE(project.save().has_value());
+  }
+  ~ProjectFixture() {
+    std::filesystem::remove_all(root);
+  }
+};
+
+[[nodiscard]] const AssetInfo *byName(const AssetDatabase &database, std::string_view name, AssetType type) {
+  for (const AssetInfo *info : database.assets(type)) {
+    if (info->name == name) {
+      return info;
+    }
+  }
+  return nullptr;
+}
+
+// The identity of an asset the fixture put there: a missing one is the test's own bug, so it
+// fails here rather than dereferencing null further down.
+[[nodiscard]] core::Uuid idOf(const AssetDatabase &database, std::string_view name, AssetType type) {
+  const AssetInfo *info = byName(database, name, type);
+  REQUIRE(info != nullptr);
+  return info->uuid;
+}
+
+} // namespace
+
+TEST_CASE("a project cooks into a bundle the database opens again", "[assets][cook]") {
+  ProjectFixture fixture;
+  const std::filesystem::path out = fixture.root / "export";
+
+  core::Uuid meshId;
+  core::Uuid materialId;
+  core::Uuid skinId;
+  core::Uuid clipId;
+  core::Uuid scriptId;
+  core::Uuid environmentId;
+  std::size_t sourceAssetCount = 0;
+  {
+    AssetDatabase database{fixture.renderer};
+    database.open(fixture.root, fixture.project.assetRoots);
+    meshId = idOf(database, "CrateMesh", AssetType::Mesh);
+    materialId = idOf(database, "painted", AssetType::Material);
+    skinId = idOf(database, "StripSkin", AssetType::Skin);
+    clipId = idOf(database, "Bend", AssetType::Animation);
+    scriptId = idOf(database, "spin", AssetType::Script);
+    environmentId = idOf(database, "sky", AssetType::Environment);
+    sourceAssetCount = database.assets().size();
+
+    const auto report = cook(database, fixture.project, {.outputDirectory = out, .platform = CookPlatform::Windows});
+    REQUIRE(report.has_value());
+    REQUIRE(report->warnings.empty());
+    REQUIRE(report->bundle == out / "game.sbundle");
+    REQUIRE(report->fileCount == 2); // the scene and the prefab
+    // Every asset but the five built-in primitives, which the player registers for itself.
+    REQUIRE(report->assetCount == sourceAssetCount - 5);
+    REQUIRE(report->meshes.verticesBefore > 0);
+    // bytesWritten counts the payloads; the index and header follow them in the file.
+    REQUIRE(std::filesystem::file_size(report->bundle) > report->bytes);
+
+    // Cooking a project the database does not have open is refused rather than half done.
+    Project elsewhere = fixture.project;
+    elsewhere.root = fixture.root / "not-here";
+    REQUIRE(!cook(database, elsewhere, {.outputDirectory = out, .platform = CookPlatform::Linux}).has_value());
+  }
+
+  AssetDatabase player{fixture.renderer};
+  REQUIRE(player.openBundle(out / "game.sbundle").has_value());
+  REQUIRE(player.isOpen());
+  REQUIRE(player.bundle() != nullptr);
+  REQUIRE(player.bundle()->manifest().name == "Cooked");
+  REQUIRE(player.bundle()->manifest().platform == CookPlatform::Windows);
+  REQUIRE(player.bundle()->manifest().startScene == "scenes/main.scene.json");
+  REQUIRE(player.assets().size() == sourceAssetCount); // the built-ins are back too
+  REQUIRE(player.pollChanges().empty());               // nothing to watch in a bundle
+
+  // The primitives still resolve, from the renderer rather than from the bundle.
+  REQUIRE(player.mesh(builtin::box()));
+  // A cooked mesh comes back with its data, which physics builds colliders from.
+  REQUIRE(player.mesh(meshId));
+  const renderer::MeshData *data = player.meshData(meshId);
+  REQUIRE(data != nullptr);
+  REQUIRE(data->indices.size() == 36); // the box's twelve triangles
+  REQUIRE(!data->vertices.empty());
+
+  const MaterialSource *material = player.materialSource(materialId);
+  REQUIRE(material != nullptr);
+  REQUIRE(material->baseColor == glm::vec4{0.2f, 0.4f, 0.6f, 1.0f});
+  REQUIRE(material->roughness == Approx(0.25f));
+
+  const Skin *skin = player.skin(skinId);
+  REQUIRE(skin != nullptr);
+  REQUIRE(skin->joints.size() == 2);
+  REQUIRE(skin->revision > 0);
+
+  const AnimationClip *clip = player.animation(clipId);
+  REQUIRE(clip != nullptr);
+  REQUIRE(clip->duration > 0.0f);
+  REQUIRE(!clip->channels.empty());
+
+  const ScriptSource *script = player.script(scriptId);
+  REQUIRE(script != nullptr);
+  REQUIRE(script->code.starts_with("return {"));
+
+  REQUIRE(player.environment(environmentId));
+  const AssetInfo *crate = byName(player, "crate", AssetType::Model);
+  REQUIRE(crate != nullptr);
+  const Model *model = player.model(crate->uuid);
+  REQUIRE(model != nullptr);
+  REQUIRE(!model->nodes.empty());
+
+  // The textures cooked with the model are there, and the scene and prefab came along.
+  REQUIRE(player.texture(idOf(player, "image 0", AssetType::Texture)));
+  const auto scene = player.bundle()->read("scenes/main.scene.json");
+  REQUIRE(scene.has_value());
+  const auto document = decodeJson(*scene);
+  REQUIRE(document.has_value());
+  REQUIRE(document->at("version") == 2);
 }
