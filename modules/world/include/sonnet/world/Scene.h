@@ -39,8 +39,9 @@ constexpr int SceneVersion = 2;
 
 // A glTF file's node hierarchy as a prefab (docs/assets.md, "Importers"): the root carries the
 // model's identity and name, every node becomes a child with the node's transform and, for a
-// node with geometry, a MeshRenderer of its mesh; child identities derive from the model's, so
-// instances save and load the same way across imports.
+// node with geometry, a MeshRenderer of its mesh and a SkinnedMesh when a skin deforms it; a
+// model with animations has an Animator with the first clip on its root. Child identities derive
+// from the model's, so instances save and load the same way across imports.
 [[nodiscard]] flecs::entity loadModelPrefab(World &world, const assets::Model &model, const core::Uuid &uuid,
                                             std::string_view name);
 

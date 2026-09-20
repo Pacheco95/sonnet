@@ -328,7 +328,14 @@ flecs::entity loadModelPrefab(World &world, const assets::Model &model, const co
     if (!node.mesh.isNil()) {
       entity.set<MeshRenderer>({.mesh = node.mesh, .material = {}, .color = {1.0f, 1.0f, 1.0f, 1.0f}, .visible = true});
     }
+    if (!node.skin.isNil()) {
+      entity.set<SkinnedMesh>({node.skin});
+    }
     entities.push_back(entity);
+  }
+  // A model with clips plays its first on the root, where the clips' paths start.
+  if (!model.animations.empty()) {
+    root.set<Animator>({.clip = model.animations.front(), .time = 0.0f, .speed = 1.0f, .playing = true, .loop = true});
   }
   return root;
 }

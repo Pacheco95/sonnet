@@ -192,6 +192,7 @@ private:
   std::unique_ptr<physics::IPhysicsWorld> m_physics;
   std::unique_ptr<scripting::IScriptRuntime> m_scripts;
   std::vector<renderer::DrawItem> m_draws;
+  std::vector<glm::mat4> m_joints;
   std::vector<renderer::DebugLine> m_debugLines;
   std::vector<renderer::Light> m_lights;
   renderer::SceneView m_view;

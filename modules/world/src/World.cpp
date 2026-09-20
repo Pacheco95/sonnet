@@ -170,6 +170,15 @@ void World::registerComponents() {
       .member<float, Radians>("outerAngle");
   registerComponent<Environment>("Environment");
   m_world.component<Environment>().member<core::Uuid>("map").member<float>("intensity").member<float>("exposure");
+  registerComponent<SkinnedMesh>("SkinnedMesh").member<core::Uuid>("skin");
+  registerComponent<Animator>("Animator")
+      .member<core::Uuid>("clip")
+      .member<float>("time")
+      .member<float>("speed")
+      .member<bool>("playing")
+      .member<bool>("loop");
+  // Derived every frame for the entity itself, like WorldTransform: never inherited, never saved.
+  m_world.component<SkinPose>("SkinPose").add(flecs::OnInstantiate, flecs::DontInherit);
   registerComponent<Spin>("Spin");
   m_world.component<Spin>().member<glm::vec3>("axis").member<float>("speed");
   registerComponent<Static>("Static", true);
@@ -263,6 +272,25 @@ glm::mat4 World::worldMatrix(flecs::entity entity) {
     }
   }
   return matrix;
+}
+
+flecs::entity World::findByPath(flecs::entity root, std::string_view path) const {
+  flecs::entity current = root;
+  while (current && !path.empty()) {
+    const std::size_t slash = path.find('/');
+    const std::string_view name = path.substr(0, slash);
+    path = slash == std::string_view::npos ? std::string_view{} : path.substr(slash + 1);
+    flecs::entity match;
+    for (const flecs::entity child : children(current)) {
+      const Name *childName = child.try_get<Name>();
+      if (childName != nullptr && childName->value == name) {
+        match = child;
+        break;
+      }
+    }
+    current = match;
+  }
+  return current;
 }
 
 bool World::isDescendant(flecs::entity entity, flecs::entity ancestor) const {
