@@ -13,10 +13,10 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | `rhi` | Render hardware interface: device, swapchain, buffers, images, samplers, pipelines, command recording. Contains the Vulkan 1.4 implementation | `platform`, Vulkan-HPP, vk-bootstrap, VMA, Slang (runtime compile) |
 | `renderer` | Render graph, frame resources, materials, meshes, cameras, lights, the rendering passes, engine shaders | `rhi` |
 | `assets` | Asset identity, database, importers (glTF, images, KTX2, Slang), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
-| `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save ([world.md](world.md)) | `assets`, flecs, nlohmann-json |
+| `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save, skeletal animation ([world.md](world.md)) | `assets`, flecs, nlohmann-json |
 | `physics` | Rigid bodies, colliders, raycasts and debug outlines behind `IPhysicsWorld`, with the Jolt implementation ([physics.md](physics.md)) | `world`, Jolt |
 | `scripting` | Lua scripts on entities behind `IScriptRuntime`, with the Lua and sol2 implementation ([scripting.md](scripting.md)) | `physics`, Lua, sol2 |
-| `audio` | `IAudioDevice`, sources and listeners. miniaudio or SDL3 audio implementation (M5) | `world` |
+| `audio` | Sounds on entities behind `IAudioDevice`, with the miniaudio implementation ([audio.md](audio.md)) | `world`, miniaudio |
 | `ui` | Dear ImGui layer: context, SDL3 and Vulkan backends, texture display, fonts. Editor and debug builds only | `rhi`, `platform`, ImGui |
 | `editor` | Editor framework: panels, selection, commands with undo/redo, gizmos, picking, play mode, project handling. Desktop only | everything above |
 
@@ -74,7 +74,9 @@ Core components, all in `world`:
 - `Camera`, `DirectionalLight`, `PointLight`, `SpotLight`, `Environment`.
 - `Tags`: `Static`, `EditorOnly`, `Disabled`.
 
-Subsystems add theirs to the same registry: `RigidBody` and the colliders in `physics`, `Script` in `scripting`. The ECS stays the one description of a scene, so snapshots, prefabs, undo and the inspector cover them too ([ADR-0009](decisions/0009-physics-and-scripting.md)).
+- `SkinnedMesh` and `Animator`: the skin that deforms a mesh and the clip playing on a hierarchy ([ADR-0010](decisions/0010-audio-and-animation.md)).
+
+Subsystems add theirs to the same registry: `RigidBody` and the colliders in `physics`, `Script` in `scripting`, `AudioSource` and `AudioListener` in `audio`. The ECS stays the one description of a scene, so snapshots, prefabs, undo and the inspector cover them too ([ADR-0009](decisions/0009-physics-and-scripting.md)).
 
 Hierarchy uses flecs `ChildOf` relationships, prefabs use `IsA`, so nested scene instances (a scene placed inside another scene) become prefab instantiation rather than a custom feature. Systems are flecs systems grouped in pipeline phases: `Input`, `FixedUpdate`, `Update`, `PostUpdate`, `PreRender`.
 
@@ -109,4 +111,5 @@ Initialization and resource creation may throw; the hot loop never throws; recov
 - [Assets](assets.md)
 - [Physics](physics.md)
 - [Scripting](scripting.md)
+- [Audio](audio.md)
 - [Roadmap](roadmap.md)

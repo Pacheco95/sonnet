@@ -43,6 +43,8 @@ Patched ports live under `ports/` as overlay ports, registered by `vcpkg-configu
 
 Lua is built with its `cpp` feature and `scripting` links the C++ library, so a Lua error unwinds C++ frames as an exception instead of a `longjmp` over destructors; `SOL_USING_CXX_LUA` tells sol2 ([scripting.md](scripting.md#errors-and-hot-reload)).
 
+miniaudio and stb_vorbis are single-file libraries without CMake packages: `audio` finds their headers with `find_path` and compiles their implementations once, in `src/MiniaudioImplementation.cpp`, with stb_vorbis's header part before miniaudio so its Ogg Vorbis decoder is found. Both come from vcpkg's include directory, which is a system one, so the engine's warnings do not reach them. The module links the platform's threads and `${CMAKE_DL_LIBS}`; miniaudio loads the audio libraries it needs at run time ([audio.md](audio.md#miniaudio)).
+
 The `joltphysics` port builds Jolt with AVX2 and its companions on x64 and without RTTI; its instruction-set flags are an interface property of `Jolt::Jolt`, which `physics` links privately so they stay on that module's sources, and the sanitizer build turns off UBSan's `vptr` check for `physics` alone, since that check needs the typeinfo Jolt does not have ([physics.md](physics.md#jolt)).
 
 Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M7.
