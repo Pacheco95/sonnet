@@ -65,7 +65,7 @@ struct Fixture {
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
-  assets::AssetDatabase assets{renderer};
+  assets::AssetDatabase assets{renderer, jobs};
   world::World world;
   // Two workers rather than the machine's count: enough to run Jolt's jobs on the pool rather
   // than inline, few enough that a fixture per test case stays cheap.

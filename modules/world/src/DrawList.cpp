@@ -13,9 +13,11 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
     if (!meshRenderer.visible || entity.has<Disabled>()) {
       return;
     }
-    const renderer::MeshHandle mesh = assets.mesh(meshRenderer.mesh);
+    // Requested rather than loaded: an asset that is not in memory yet imports on the job system
+    // and draws on a later frame, instead of stalling this one (ADR-0013).
+    const renderer::MeshHandle mesh = assets.requestMesh(meshRenderer.mesh);
     if (!mesh) {
-      return; // missing or failed asset: logged by the database, nothing drawn
+      return; // missing, failed, or still importing: nothing drawn this frame
     }
     const assets::AssetInfo *info = assets.find(meshRenderer.mesh);
     const renderer::MaterialHandle override = assets.material(meshRenderer.material);

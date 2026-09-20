@@ -42,8 +42,9 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                .docking = true,
                // Platform windows need a display; the headless driver has none.
                .viewports = !platform.isHeadless()}),
-      m_renderer(device, platform.basePath() / "shaders"), m_graph(device), m_picker(device), m_assets(m_renderer),
-      m_world({.explorer = explorer}), m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
+      m_renderer(device, platform.basePath() / "shaders"), m_graph(device), m_picker(device),
+      m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}),
+      m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
       m_scripts(scripting::createScriptRuntime(
           {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
       m_animation(m_world, m_assets),
@@ -143,6 +144,9 @@ void Editor::update(float dt) {
   }
   m_imgui.endFrame();
 
+  // Imports that finished on a worker are published here, before the draw list resolves the
+  // identities they arrived under, so an asset requested last frame draws in this one (ADR-0013).
+  static_cast<void>(m_jobs.runMainThreadJobs());
   // Changed source files are re-imported before the draw list resolves them, and changed
   // shader sources rebuild their pipelines.
   static_cast<void>(m_assets.pollChanges());

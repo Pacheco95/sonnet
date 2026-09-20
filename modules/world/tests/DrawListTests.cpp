@@ -1,3 +1,4 @@
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/world/DrawList.h>
 #include <sonnet/world/World.h>
 
@@ -20,7 +21,8 @@ struct Fixture {
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
-  assets::AssetDatabase assets{renderer};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
   world::World world;
 };
 

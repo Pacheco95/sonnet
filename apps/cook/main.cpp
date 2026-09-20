@@ -4,6 +4,7 @@
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/assets/Cook.h>
 #include <sonnet/assets/Project.h>
+#include <sonnet/core/JobSystem.h>
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Log.h>
@@ -86,7 +87,9 @@ int main(int argc, char **argv) {
     }
     const auto device = rhi::createNullDevice();
     renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
-    assets::AssetDatabase database{renderer};
+    // No workers: the cook drives the synchronous loaders and wants them done on return.
+    core::JobSystem jobs{{.workerCount = 0}};
+    assets::AssetDatabase database{renderer, jobs};
     database.open(project->root, project->assetRoots);
 
     const auto report =

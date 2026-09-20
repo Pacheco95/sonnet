@@ -48,7 +48,7 @@ Game::Game(platform::Platform &platform, platform::IWindow &window, rhi::IDevice
                                                        settings.presentFormat = swapchain.format();
                                                        return settings;
                                                      }()),
-      m_graph(device), m_target(device, "game"), m_assets(m_renderer), m_world({}),
+      m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
       m_scripts(scripting::createScriptRuntime(
           {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
@@ -177,6 +177,8 @@ void Game::update(float dt) {
   // changed source still reaches the next frame, which makes running a project folder a usable
   // way to try a change without the editor.
   static_cast<void>(m_assets.pollChanges());
+  // Imports that finished on a worker are published before the draw list resolves them.
+  static_cast<void>(m_jobs.runMainThreadJobs());
 
   const std::optional<renderer::Camera> scene = world::sceneCamera(m_world);
   if (!scene && !m_warnedAboutCamera) {

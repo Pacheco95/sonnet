@@ -1,6 +1,7 @@
 #include "AssetTestSupport.h"
 
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/core/JobSystem.h>
 
 #include <sonnet/platform/Platform.h>
 #include <sonnet/renderer/Renderer.h>
@@ -22,6 +23,7 @@ struct Fixture {
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
   std::filesystem::path root = test::freshDirectory("sonnet_assets_db");
   std::vector<std::string> roots{"assets"};
 
@@ -74,7 +76,7 @@ TEST_CASE("opening a project writes sidecars and keeps identities across reopens
   core::Uuid crateUuid;
   core::Uuid crateMeshUuid;
   {
-    AssetDatabase database{fixture.renderer};
+    AssetDatabase database{fixture.renderer, fixture.jobs};
     REQUIRE(database.find(builtin::box()) != nullptr);
     REQUIRE(database.find(builtin::box())->name == "Box");
     database.open(fixture.root, fixture.roots);
@@ -106,7 +108,7 @@ TEST_CASE("opening a project writes sidecars and keeps identities across reopens
     REQUIRE(database.assets(AssetType::Mesh).size() == 6); // five built-ins and the crate
   }
   {
-    AssetDatabase database{fixture.renderer};
+    AssetDatabase database{fixture.renderer, fixture.jobs};
     database.open(fixture.root, fixture.roots);
     REQUIRE(database.findByPath(fixture.root / "assets" / "wood.png")->uuid == woodUuid);
     REQUIRE(byName(database, "crate", AssetType::Model)->uuid == crateUuid);
@@ -119,7 +121,7 @@ TEST_CASE("opening a project writes sidecars and keeps identities across reopens
 
 TEST_CASE("assets load on first use, into the cache for textures, and stay loaded", "[assets][database]") {
   Fixture fixture;
-  AssetDatabase database{fixture.renderer};
+  AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
 
   const renderer::MeshHandle box = database.mesh(builtin::box());
@@ -163,7 +165,7 @@ TEST_CASE("assets load on first use, into the cache for textures, and stay loade
 
 TEST_CASE("a changed source is re-imported by polling and materials follow their textures", "[assets][database]") {
   Fixture fixture;
-  AssetDatabase database{fixture.renderer};
+  AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   const core::Uuid woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
   const core::Uuid paintedUuid = byName(database, "painted", AssetType::Material)->uuid;
@@ -205,7 +207,7 @@ TEST_CASE("a changed source is re-imported by polling and materials follow their
   REQUIRE(fixture.renderer.isValid(database.texture(woodUuid)));
   REQUIRE(database.texture(woodUuid) != after);
   {
-    AssetDatabase reopened{fixture.renderer};
+    AssetDatabase reopened{fixture.renderer, fixture.jobs};
     reopened.open(fixture.root, fixture.roots);
     REQUIRE(reopened.textureSettings(woodUuid).mipmaps == false);
   }
@@ -216,7 +218,7 @@ TEST_CASE("a script is read on first use and again, with a new revision, when it
   const std::string first = "return { speed = 1 }\n";
   REQUIRE(core::writeFile(fixture.root / "assets" / "mover.lua", std::as_bytes(std::span{first.data(), first.size()}))
               .has_value());
-  AssetDatabase database{fixture.renderer};
+  AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   const AssetInfo *info = byName(database, "mover", AssetType::Script);
   REQUIRE(info != nullptr);
@@ -250,7 +252,7 @@ TEST_CASE("a sound is read on first use and again, with a new revision, when it 
   const std::vector<std::byte> first(64, std::byte{1});
   REQUIRE(core::writeFile(fixture.root / "assets" / "chime.wav", first).has_value());
   REQUIRE(core::writeFile(fixture.root / "assets" / "notes.txt", first).has_value());
-  AssetDatabase database{fixture.renderer};
+  AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   const AssetInfo *info = byName(database, "chime", AssetType::Sound);
   REQUIRE(info != nullptr);
@@ -283,7 +285,7 @@ TEST_CASE("a glTF file's skins and clips are sub-assets, reloaded with the file"
                            {"settings", nlohmann::json::object()},
                            {"subAssets", nlohmann::json::array()}};
   REQUIRE(core::writeFile(fixture.root / "assets" / "models" / "rig.gltf.meta", old.dump()).has_value());
-  AssetDatabase database{fixture.renderer};
+  AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   const AssetInfo *skinInfo = byName(database, "StripSkin", AssetType::Skin);
   const AssetInfo *clipInfo = byName(database, "Bend", AssetType::Animation);
@@ -315,7 +317,7 @@ TEST_CASE("a glTF file's skins and clips are sub-assets, reloaded with the file"
 
 TEST_CASE("mesh data stays on the CPU for built-in and glTF meshes", "[assets][database]") {
   Fixture fixture;
-  AssetDatabase database{fixture.renderer};
+  AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   const renderer::MeshData *box = database.meshData(builtin::box());
   REQUIRE(box != nullptr);
@@ -335,7 +337,7 @@ TEST_CASE("mesh data stays on the CPU for built-in and glTF meshes", "[assets][d
 
 TEST_CASE("materials are created, edited and saved as files", "[assets][database]") {
   Fixture fixture;
-  AssetDatabase database{fixture.renderer};
+  AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   MaterialSource metal;
   metal.metallic = 1.0f;
@@ -385,4 +387,88 @@ TEST_CASE("the built-in mesh identities never change, since scene files hold the
   REQUIRE(builtin::plane().toString() == "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40");
   REQUIRE(builtin::cylinder().toString() == "4982c24f-bd36-8c92-a2c1-47e047fbe1b6");
   REQUIRE(builtin::capsule().toString() == "663df5e4-bf07-8eb4-9364-2db2a5a3e28d");
+}
+
+TEST_CASE("a requested texture arrives on a later frame, imported off the main thread", "[assets][database]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+
+  const core::Uuid woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
+  REQUIRE(!database.requestTexture(woodUuid).isValid()); // nothing yet, and an import is scheduled
+  REQUIRE(database.loading());
+  // Asking again while it is in flight must not schedule a second import of the same file.
+  REQUIRE(!database.requestTexture(woodUuid).isValid());
+
+  database.waitForLoads();
+  REQUIRE(!database.loading());
+  const renderer::TextureHandle wood = database.requestTexture(woodUuid);
+  REQUIRE(fixture.renderer.isValid(wood));
+  // The same object the synchronous loader would have returned, under the same identity.
+  REQUIRE(database.texture(woodUuid) == wood);
+  REQUIRE(std::filesystem::exists(database.cacheDirectory() / (woodUuid.toString() + ".ktx2")));
+}
+
+TEST_CASE("a requested glTF mesh brings its whole file with it", "[assets][database]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+
+  const core::Uuid crateUuid = byName(database, "crate", AssetType::Model)->uuid;
+  const core::Uuid meshUuid = core::Uuid::derive(crateUuid, "mesh/0");
+  const core::Uuid imageUuid = core::Uuid::derive(crateUuid, "image/0");
+
+  REQUIRE(!database.requestMesh(meshUuid).isValid());
+  REQUIRE(database.loading());
+  // A texture of the same file joins the request already in flight rather than starting another.
+  REQUIRE(!database.requestTexture(imageUuid).isValid());
+  database.waitForLoads();
+
+  // One request, and the mesh, its material, its image and the model are all there.
+  REQUIRE(fixture.renderer.isValid(database.requestMesh(meshUuid)));
+  REQUIRE(fixture.renderer.isValid(database.requestTexture(imageUuid)));
+  REQUIRE(fixture.renderer.isValid(database.material(core::Uuid::derive(crateUuid, "material/0"))));
+  REQUIRE(database.model(crateUuid) != nullptr);
+  REQUIRE(database.meshData(meshUuid) != nullptr);
+}
+
+TEST_CASE("requesting a built-in or a missing asset needs no job", "[assets][database]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+
+  // A built-in is already in memory, so it comes back at once rather than a frame later.
+  REQUIRE(fixture.renderer.isValid(database.requestMesh(builtin::box())));
+  REQUIRE(!database.loading());
+  REQUIRE(!database.requestMesh(core::Uuid::generate()).isValid());
+  REQUIRE(!database.requestTexture({}).isValid());
+  REQUIRE(!database.loading());
+}
+
+TEST_CASE("closing while a request is in flight finishes it rather than racing it", "[assets][database]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+
+  const core::Uuid crateUuid = byName(database, "crate", AssetType::Model)->uuid;
+  REQUIRE(!database.requestMesh(core::Uuid::derive(crateUuid, "mesh/0")).isValid());
+  REQUIRE(database.loading());
+  database.close(); // must not leave a job writing into a closed database
+  REQUIRE(!database.loading());
+}
+
+TEST_CASE("a request for a texture that cannot be imported fails once and is not retried", "[assets][database]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+
+  const core::Uuid woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
+  // Truncate the source so the import fails, and clear the cooked copy that would otherwise serve it.
+  std::filesystem::remove(database.cacheDirectory() / (woodUuid.toString() + ".ktx2"));
+  Fixture::touchLater(fixture.root / "assets" / "wood.png", std::vector<std::byte>{std::byte{0x1}});
+
+  REQUIRE(!database.requestTexture(woodUuid).isValid());
+  database.waitForLoads();
+  REQUIRE(!database.requestTexture(woodUuid).isValid());
+  REQUIRE(!database.loading()); // marked failed, so asking again schedules nothing
 }
