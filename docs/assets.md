@@ -19,7 +19,7 @@ The sidecar is JSON: a `version`, the `uuid`, the asset `type`, the import `sett
 
 `AssetDatabase` maps UUIDs to metadata (`AssetInfo`: type, source path, name, parent, default materials) and to loaded renderer objects and data. `open` scans the project's asset roots, writes the sidecars that are missing and registers every file whose extension has an importer; `assets` lists them by type for the editor's browser. Loading runs on the main thread, on first use: `mesh`, `texture`, `material`, `environment` and `model` import what they are asked for and return the renderer's handle, or an invalid handle when the import failed, which is logged once and not retried until a re-import. `script` returns a script's source text with a revision that changes on every read, so the scripting runtime knows when to reload ([scripting.md](scripting.md#errors-and-hot-reload)), and `sound` the still encoded bytes of a sound file with a revision of the same kind, which `audio` decodes ([audio.md](audio.md#miniaudio)); `skin` and `animation` return a model's skins and clips, loaded with the rest of their glTF file, with a revision that changes when the file is re-imported so the bindings made from them are rebuilt ([world.md](world.md#animation)). `createScript` writes a new `.lua` file and registers it, as `createMaterial` does for materials. A glTF file's sub-assets are imported together the first time any of them is asked for. The draw list resolves mesh identities through the database every frame, so a swap under an identity reaches the next frame without anyone holding a stale handle.
 
-The asynchronous-ready form of this API, a request that returns at once with a placeholder until a job finishes, arrives with the job system.
+The asynchronous-ready form of this API, a request that returns at once with a placeholder until a job finishes, arrives with the job system in M8.
 
 ## Importers
 
@@ -39,7 +39,7 @@ Import settings live in the sidecar file and are edited in the inspector. A text
 
 ## Textures
 
-Import decodes to RGBA8, generates mipmaps, and cooks to KTX2 in the project's cache (`.sonnet/cache/<uuid>.ktx2`, ignored by git), which is rebuilt when the source or its sidecar is newer. A compressed texture is stored as Basis Universal UASTC with zstd supercompression, the portable form, and transcoded on load to BC7 where the device supports block compression (`DeviceInfo::blockCompressionSupported`: desktop GPUs and Lavapipe) and to RGBA8 otherwise; ASTC for mobile joins in M7. An uncompressed texture is stored as plain RGBA8. Colour textures are sRGB, data textures (normals, roughness, metallic, occlusion) are linear; the glTF importer decides per image from how the materials use it, and a file texture's sidecar says.
+Import decodes to RGBA8, generates mipmaps, and cooks to KTX2 in the project's cache (`.sonnet/cache/<uuid>.ktx2`, ignored by git), which is rebuilt when the source or its sidecar is newer. A compressed texture is stored as Basis Universal UASTC with zstd supercompression, the portable form, and transcoded on load to BC7 where the device supports block compression (`DeviceInfo::blockCompressionSupported`: desktop GPUs and Lavapipe) and to RGBA8 otherwise; ASTC for mobile joins in M9. An uncompressed texture is stored as plain RGBA8. Colour textures are sRGB, data textures (normals, roughness, metallic, occlusion) are linear; the glTF importer decides per image from how the materials use it, and a file texture's sidecar says.
 
 ## Meshes
 
@@ -94,7 +94,7 @@ Scenes are JSON produced by the `world` serializer: a list of entities with thei
 
 ## Cooking and export
 
-`assets::cook` writes a project into `<out>/game.sbundle`, the name the player looks for beside its own binary. `sonnet_cook <project> [--platform windows|linux|macos] [--out <dir>]` is its command line, and the editor's export dialog is the other caller, which also copies a player next to the bundle ([editor.md](editor.md#export)). Mobile targets join in M7.
+`assets::cook` writes a project into `<out>/game.sbundle`, the name the player looks for beside its own binary. `sonnet_cook <project> [--platform windows|linux|macos] [--out <dir>]` is its command line, and the editor's export dialog is the other caller, which also copies a player next to the bundle ([editor.md](editor.md#export)). Mobile targets join in M9.
 
 The cook asks the open `AssetDatabase` for every asset, so the importers run in the code that already runs them and the texture cache is reused rather than rebuilt ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). `sonnet_cook` opens the project in a database on a null device, so cooking needs no GPU and no window; the editor cooks from the database it already has open, which means an exported material is the one on screen. An asset that will not cook is a warning in the `CookReport` and is left out, the way a missing asset is logged and skipped at run time; only a database open on another project, or a bundle that cannot be written, fails the cook outright. The built-in primitives are never written: every database registers them.
 

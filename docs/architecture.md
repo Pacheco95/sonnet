@@ -62,7 +62,7 @@ Per iteration:
 3. Interpolate transforms for rendering, build the frame's draw list and light list.
 4. Execute the render graph and present.
 
-Everything runs on the main thread until a job system exists. The render graph is designed so that recording can move to worker threads later without changing its API.
+Everything runs on the main thread until the job system of M8 exists. The render graph is designed so that recording can move to worker threads later without changing its API.
 
 ## Entity model
 

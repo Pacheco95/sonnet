@@ -31,7 +31,7 @@ constexpr std::uint32_t BundleVersion = 1;
 constexpr std::string_view BundleExtension = ".sbundle";
 
 // What a bundle is cooked for. The desktop platforms cook the same bytes and differ only in
-// which player binary export copies; mobile joins in M7 with its own texture format.
+// which player binary export copies; mobile joins in M9 with its own texture format.
 enum class CookPlatform : std::uint8_t {
   Windows,
   Linux,

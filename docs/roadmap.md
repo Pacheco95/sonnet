@@ -141,7 +141,33 @@ Landed as nine commits, the first accepting ADR-0011:
 
 Done: `sonnet_cook` cooks the basic sample into a 680 KB bundle with no warnings, and the player runs it from a directory holding only the binary, `shaders/` and `game.sbundle` — no project folder, no importers, no SDK. `runtime_tests` checks the same two paths headless on Lavapipe. Deferred: compressing the bundle's environment maps, which are stored as uncompressed RGBA16F because the KTX2 path cooks RGBA8; Lua bytecode instead of source; incremental cooking, which today redoes the whole project; native file dialogs for the export folder, with the other path modals; and cross-compiling a player from the editor, which stays CI's job.
 
-## M7: Mobile export
+## M7: GPU-driven rendering
+
+M3 measured the engine against the README's target and found the gap is CPU-side: ten thousand draws cost about 1.1 ms of GPU time and about 95 ms of CPU time, because six passes each record ten thousand draw calls. Submitting those draws from the GPU is what closes it, and it comes before the job system because it removes the work rather than spreading it over threads. ADR-0012 settles the shape first, as ADR-0009, ADR-0010 and ADR-0011 did for their milestones.
+
+- `rhi`: an `Indirect` buffer usage, `drawIndexedIndirect` and `drawIndexedIndirectCount`, `dispatchIndirect`, and the null device's trace lines for them.
+- `renderer`: per-draw bounds in the object array, a compute pass that culls against the frustum and writes draw commands with a count, and passes that submit them indirectly instead of looping. The per-draw vertex buffer address moves from push constants into the object array, which the draw already indexes.
+- `world`: world-space bounds on a draw item, from the mesh bounds the renderer already computes.
+- `editor`: the id and selection-mask passes take the same path, so picking and the outline keep working.
+
+The open question the ADR settles: an indirect draw cannot rebind the index buffer, which the draw loop does per mesh today. Either meshes move into a shared index and vertex arena, leaving one call per pass, or one indirect call is issued per distinct mesh, which still collapses ten thousand calls into a few dozen.
+
+Done when `renderer_tests "[benchmark]"` shows the scene passes' CPU time collapsing with their GPU time unchanged, the basic and playground samples render as they did, and picking, the outline and skinning still work.
+
+## M8: Job system and asynchronous loading
+
+More of the docs wait on the job system than on anything else: asset loading is synchronous, Jolt runs on a single-threaded job system of its own, and `world` never uses flecs' multi-threaded pipeline. It follows M7 so that multi-threaded command recording is built only if the benchmark still asks for it. ADR-0013 settles its shape first.
+
+- `core`: the job system — jobs with dependencies, a parallel for, main-thread affinity for what needs it, Tracy zones on the workers.
+- `physics`: `JPH::JobSystem` implemented on it, replacing `JobSystemSingleThreaded` ([ADR-0009](decisions/0009-physics-and-scripting.md)).
+- `assets`: the asynchronous request form, which returns at once with a placeholder until the job finishes ([assets.md](assets.md#database)).
+- `world`: flecs' multi-threaded pipeline for the systems that are safe in it.
+- `renderer` and `rhi`: parallel command recording, only if M7's benchmark leaves CPU time worth splitting.
+- A `linux-tsan` preset, since the sanitizer preset is address and undefined-behaviour only and nothing has run under a thread sanitizer.
+
+Done when the playground sample loads without a frame hitch, physics scales across cores in a stress scene, and the suites pass under the thread sanitizer.
+
+## M9: Mobile export
 
 - Android: NDK build of the player, ASTC texture cooking, Android 16+ device testing, packaging into an APK.
 - iOS: Xcode build of the player from a macOS host, MoltenVK, packaging into an app bundle.
@@ -151,4 +177,4 @@ Done when the basic sample runs on an Android 16 device and an iOS device.
 
 ## Later
 
-Job system and multi-threaded command recording, GPU-driven culling and indirect draws, temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.
+Temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.
