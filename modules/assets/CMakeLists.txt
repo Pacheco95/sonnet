@@ -10,6 +10,7 @@ sonnet_add_module(assets
     src/Asset.cpp
     src/AssetDatabase.cpp
     src/Bundle.cpp
+    src/Cook.cpp
     src/GltfImporter.cpp
     src/ImageImporter.cpp
     src/Ktx2.cpp

@@ -2,5 +2,7 @@
 # binaries when SONNET_BUILD_SAMPLES is on.
 if(SONNET_BUILD_EDITOR)
   add_subdirectory(editor)
+  # Desktop tooling: cooking a project is what an export does, and mobile builds only run one.
+  add_subdirectory(cook)
 endif()
 add_subdirectory(samples)

@@ -121,6 +121,7 @@ sonnet/
 ├── modules/<name>/        — include/sonnet/<name>/, src/, tests/, shaders/ (renderer only)
 ├── apps/
 │   ├── editor/            — the editor executable (desktop)
+│   ├── cook/              — sonnet_cook, which cooks a project into a bundle
 │   ├── player/            — the generic runtime that exported projects run on
 │   └── samples/           — sample projects used for testing and demos
 ├── docs/                  — this documentation, decisions/ for ADRs

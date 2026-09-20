@@ -112,6 +112,19 @@ std::string contentHash(const std::filesystem::path &file) {
   return std::format("{:016x}", hash);
 }
 
+// A whole file, or a logged failure the caller does not retry: the project-mode counterpart of
+// `bundlePayload`, so the two modes read the same way at the call site.
+std::optional<std::vector<std::byte>> readOptionalFile(const std::filesystem::path &path, const core::Uuid &uuid,
+                                                       std::unordered_map<core::Uuid, bool> &failed) {
+  auto bytes = core::readFile(path);
+  if (!bytes) {
+    SONNET_LOG_ERROR("{}", bytes.error().toString());
+    failed[uuid] = true;
+    return std::nullopt;
+  }
+  return std::move(*bytes);
+}
+
 core::Result<json> readJsonFile(const std::filesystem::path &path) {
   const auto bytes = core::readFile(path);
   if (!bytes) {
@@ -185,8 +198,41 @@ void AssetDatabase::close() {
   }
   std::erase_if(m_assets, [](const auto &entry) { return entry.second.source != "builtin"; });
   m_files.clear();
+  m_bundle.reset();
   m_projectRoot.clear();
   m_roots.clear();
+}
+
+core::Result<void> AssetDatabase::openBundle(const std::filesystem::path &file) {
+  SONNET_ZONE();
+  close();
+  auto bundle = Bundle::open(file);
+  if (!bundle) {
+    return std::unexpected(bundle.error());
+  }
+  for (const BundleAsset &asset : bundle->assets()) {
+    // The source is where the asset came from, and a cooked one came from the bundle; nothing
+    // in this mode opens it, and the browser and the inspector show it as the origin.
+    m_assets[asset.uuid] = AssetInfo{.uuid = asset.uuid,
+                                     .type = asset.type,
+                                     .source = file,
+                                     .name = asset.name,
+                                     .parent = asset.parent,
+                                     .materials = asset.materials};
+  }
+  m_bundle = std::move(*bundle);
+  SONNET_LOG_INFO("asset database: {} cooked assets from {}", m_bundle->assets().size(), file.string());
+  return {};
+}
+
+std::optional<std::vector<std::byte>> AssetDatabase::bundlePayload(const core::Uuid &uuid) {
+  auto payload = m_bundle->read(uuid);
+  if (!payload) {
+    SONNET_LOG_ERROR("{}", payload.error().toString());
+    m_failed[uuid] = true;
+    return std::nullopt;
+  }
+  return std::move(*payload);
 }
 
 core::Result<json> AssetDatabase::readSidecar(const std::filesystem::path &sidecar) const {
@@ -595,6 +641,21 @@ renderer::MeshHandle AssetDatabase::mesh(const core::Uuid &uuid) {
     m_meshData[uuid] = std::move(data);
     return m_meshes[uuid];
   }
+  if (m_bundle) {
+    const auto payload = bundlePayload(uuid);
+    if (!payload) {
+      return {};
+    }
+    auto data = decodeMesh(*payload);
+    if (!data) {
+      SONNET_LOG_ERROR("{}: {}", info->name, data.error().toString());
+      m_failed[uuid] = true;
+      return {};
+    }
+    m_meshes[uuid] = m_renderer.createMesh(*data, info->name);
+    m_meshData[uuid] = std::move(*data);
+    return m_meshes[uuid];
+  }
   if (!info->parent.isNil() && loadGltf(info->parent)) {
     if (const auto it = m_meshes.find(uuid); it != m_meshes.end()) {
       return it->second;
@@ -616,7 +677,17 @@ renderer::TextureHandle AssetDatabase::texture(const core::Uuid &uuid) {
     return {};
   }
   renderer::TextureHandle handle;
-  if (!info->parent.isNil()) {
+  if (m_bundle) {
+    // A cooked texture is the KTX2 the editor caches, sub-asset or file asset alike.
+    if (const auto payload = bundlePayload(uuid)) {
+      const auto data = readKtx2(*payload, m_renderer.blockCompressionSupported());
+      if (data) {
+        handle = uploadTexture(uuid, *data, info->name);
+      } else {
+        SONNET_LOG_ERROR("{}: {}", info->name, data.error().toString());
+      }
+    }
+  } else if (!info->parent.isNil()) {
     if (loadGltf(info->parent)) {
       if (const auto it = m_textures.find(uuid); it != m_textures.end()) {
         handle = it->second.handle;
@@ -638,6 +709,22 @@ renderer::MaterialHandle AssetDatabase::material(const core::Uuid &uuid) {
   const AssetInfo *info = find(uuid);
   if (info == nullptr || info->type != AssetType::Material || m_failed.contains(uuid)) {
     return {};
+  }
+  if (m_bundle) {
+    const auto payload = bundlePayload(uuid);
+    if (!payload) {
+      return {};
+    }
+    const auto document = decodeJson(*payload);
+    const auto source = document ? loadMaterial(*document) : std::unexpected(document.error());
+    if (!source) {
+      SONNET_LOG_ERROR("{}: {}", info->name, source.error().toString());
+      m_failed[uuid] = true;
+      return {};
+    }
+    const renderer::MaterialHandle handle = m_renderer.createMaterial(resolve(*source), info->name);
+    m_materials[uuid] = LoadedMaterial{handle, *source};
+    return handle;
   }
   if (!info->parent.isNil()) {
     if (loadGltf(info->parent)) {
@@ -668,14 +755,31 @@ renderer::EnvironmentHandle AssetDatabase::environment(const core::Uuid &uuid) {
   if (info == nullptr || info->type != AssetType::Environment || m_failed.contains(uuid)) {
     return {};
   }
-  const auto bytes = core::readFile(info->source);
-  const auto data = bytes ? importHdr(*bytes) : std::unexpected(bytes.error());
-  if (!data) {
-    SONNET_LOG_ERROR("{}: {}", info->source.string(), data.error().toString());
-    m_failed[uuid] = true;
-    return {};
+  renderer::TextureData map;
+  if (m_bundle) {
+    // Cooked, an environment is its decoded RGBA16F map rather than the .hdr file it came from.
+    const auto payload = bundlePayload(uuid);
+    if (!payload) {
+      return {};
+    }
+    auto decoded = decodeTexture(*payload);
+    if (!decoded) {
+      SONNET_LOG_ERROR("{}: {}", info->name, decoded.error().toString());
+      m_failed[uuid] = true;
+      return {};
+    }
+    map = std::move(*decoded);
+  } else {
+    const auto bytes = core::readFile(info->source);
+    auto data = bytes ? importHdr(*bytes) : std::unexpected(bytes.error());
+    if (!data) {
+      SONNET_LOG_ERROR("{}: {}", info->source.string(), data.error().toString());
+      m_failed[uuid] = true;
+      return {};
+    }
+    map = std::move(*data);
   }
-  const renderer::EnvironmentHandle handle = m_renderer.createEnvironment(*data, info->name);
+  const renderer::EnvironmentHandle handle = m_renderer.createEnvironment(map, info->name);
   if (!handle) {
     m_failed[uuid] = true;
     return {};
@@ -687,6 +791,24 @@ renderer::EnvironmentHandle AssetDatabase::environment(const core::Uuid &uuid) {
 const Model *AssetDatabase::model(const core::Uuid &uuid) {
   if (const auto it = m_models.find(uuid); it != m_models.end()) {
     return &it->second;
+  }
+  if (m_bundle) {
+    const AssetInfo *info = find(uuid);
+    if (info == nullptr || info->type != AssetType::Model || m_failed.contains(uuid)) {
+      return nullptr;
+    }
+    const auto payload = bundlePayload(uuid);
+    if (!payload) {
+      return nullptr;
+    }
+    auto model = decodeModel(*payload);
+    if (!model) {
+      SONNET_LOG_ERROR("{}: {}", info->name, model.error().toString());
+      m_failed[uuid] = true;
+      return nullptr;
+    }
+    m_models[uuid] = std::move(*model);
+    return &m_models[uuid];
   }
   if (loadGltf(uuid)) {
     return &m_models[uuid];
@@ -710,10 +832,8 @@ const ScriptSource *AssetDatabase::script(const core::Uuid &uuid) {
   if (info == nullptr || info->type != AssetType::Script || m_failed.contains(uuid)) {
     return nullptr;
   }
-  const auto bytes = core::readFile(info->source);
+  const auto bytes = m_bundle ? bundlePayload(uuid) : readOptionalFile(info->source, uuid, m_failed);
   if (!bytes) {
-    SONNET_LOG_ERROR("{}", bytes.error().toString());
-    m_failed[uuid] = true;
     return nullptr;
   }
   ScriptSource &source = m_scripts[uuid];
@@ -730,10 +850,8 @@ const SoundSource *AssetDatabase::sound(const core::Uuid &uuid) {
   if (info == nullptr || info->type != AssetType::Sound || m_failed.contains(uuid)) {
     return nullptr;
   }
-  auto bytes = core::readFile(info->source);
+  auto bytes = m_bundle ? bundlePayload(uuid) : readOptionalFile(info->source, uuid, m_failed);
   if (!bytes) {
-    SONNET_LOG_ERROR("{}", bytes.error().toString());
-    m_failed[uuid] = true;
     return nullptr;
   }
   SoundSource &source = m_sounds[uuid];
@@ -744,7 +862,31 @@ const SoundSource *AssetDatabase::sound(const core::Uuid &uuid) {
 
 const Skin *AssetDatabase::skin(const core::Uuid &uuid) {
   const AssetInfo *info = find(uuid);
-  if (info == nullptr || info->type != AssetType::Skin || !loadGltf(info->parent)) {
+  if (info == nullptr || info->type != AssetType::Skin) {
+    return nullptr;
+  }
+  if (m_bundle) {
+    if (const auto it = m_skins.find(uuid); it != m_skins.end()) {
+      return &it->second;
+    }
+    if (m_failed.contains(uuid)) {
+      return nullptr;
+    }
+    const auto payload = bundlePayload(uuid);
+    if (!payload) {
+      return nullptr;
+    }
+    auto skin = decodeSkin(*payload);
+    if (!skin) {
+      SONNET_LOG_ERROR("{}: {}", info->name, skin.error().toString());
+      m_failed[uuid] = true;
+      return nullptr;
+    }
+    skin->revision = ++m_revision;
+    m_skins[uuid] = std::move(*skin);
+    return &m_skins[uuid];
+  }
+  if (!loadGltf(info->parent)) {
     return nullptr;
   }
   const auto it = m_skins.find(uuid);
@@ -753,7 +895,31 @@ const Skin *AssetDatabase::skin(const core::Uuid &uuid) {
 
 const AnimationClip *AssetDatabase::animation(const core::Uuid &uuid) {
   const AssetInfo *info = find(uuid);
-  if (info == nullptr || info->type != AssetType::Animation || !loadGltf(info->parent)) {
+  if (info == nullptr || info->type != AssetType::Animation) {
+    return nullptr;
+  }
+  if (m_bundle) {
+    if (const auto it = m_animations.find(uuid); it != m_animations.end()) {
+      return &it->second;
+    }
+    if (m_failed.contains(uuid)) {
+      return nullptr;
+    }
+    const auto payload = bundlePayload(uuid);
+    if (!payload) {
+      return nullptr;
+    }
+    auto clip = decodeAnimation(*payload);
+    if (!clip) {
+      SONNET_LOG_ERROR("{}: {}", info->name, clip.error().toString());
+      m_failed[uuid] = true;
+      return nullptr;
+    }
+    clip->revision = ++m_revision;
+    m_animations[uuid] = std::move(*clip);
+    return &m_animations[uuid];
+  }
+  if (!loadGltf(info->parent)) {
     return nullptr;
   }
   const auto it = m_animations.find(uuid);
