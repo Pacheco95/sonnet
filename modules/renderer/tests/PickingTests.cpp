@@ -28,6 +28,10 @@ std::size_t countLines(const NullDevice &device, std::string_view text) {
       std::ranges::count_if(device.trace(), [&](const std::string &line) { return line.contains(text); }));
 }
 
+bool hasPass(const RenderGraph &graph, std::string_view name) {
+  return std::ranges::any_of(graph.statistics().passes, [&](const PassTiming &pass) { return pass.name == name; });
+}
+
 std::filesystem::path shaderDir(sonnet::platform::Platform &platform) {
   return platform.basePath() / "shaders";
 }
@@ -106,16 +110,22 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
   REQUIRE(countLines(*device, "bindPipeline \"id\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"selection mask\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"outline\"") == 1);
-  // Two boxes in the pre-pass, the forward and the id pass, the selected one in the mask pass.
-  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 7);
+  // The two boxes are one batch, so the pre-pass, the forward, the id and the mask pass each
+  // offer it in one indirect call; which of the two survive is the GPU's answer (ADR-0012).
+  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 2") == 4);
+  REQUIRE(countLines(*device, "drawIndexed ") == 0);
+  REQUIRE(hasPass(graph, "id cull"));
+  REQUIRE(hasPass(graph, "selection mask cull"));
   REQUIRE(countLines(*device, "beginRendering color \"mask\" clear") == 1); // no depth attachment
   REQUIRE(countLines(*device, "bindImage 2 \"mask\"") == 1);
   REQUIRE(countLines(*device, "draw 3 x1") == 2); // the tone mapping and the outline
   REQUIRE(countLines(*device, "copyImageToBuffer \"ids\"") == 1);
   REQUIRE(countLines(*device, "barrier \"mask\" ColorAttachment->ShaderReadOnly") == 1);
-  REQUIRE(renderer.statistics().drawCount == 2); // the id and mask passes are not counted
-  // The lookup table, depth, clustering, forward, tonemap, id, mask, outline and the readback.
-  REQUIRE(graph.statistics().passes.size() == 9);
+  REQUIRE(renderer.statistics().drawCount == 2);         // the id and mask passes are not counted
+  REQUIRE(renderer.statistics().indirectCallCount == 2); // nor are their indirect calls
+  // The lookup table, the scene's cull, depth, clustering, forward, tonemap, the id cull and the
+  // id pass, the mask cull and the mask pass, the outline and the readback.
+  REQUIRE(graph.statistics().passes.size() == 12);
 
   // The answer arrives when the slot comes round, FramesInFlight frames later; the null device's
   // memory reads as zero.
@@ -159,7 +169,10 @@ TEST_CASE("the selection mask draws every listed item, given in any order with r
   graph.execute(commands);
   device->endFrame();
   REQUIRE(countLines(*device, "bindPipeline \"selection mask\"") == 1);
-  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 20); // each even id once, the odd ones never
+  // Forty boxes are one batch, offered in one call; the culling pass keeps the twenty whose
+  // CullSelected flag is set, which the outline's Lavapipe tests are what prove (ADR-0012).
+  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 40") == 1);
+  REQUIRE(countLines(*device, "drawIndexed ") == 0);
   REQUIRE(countLines(*device, "bindPipeline \"outline\"") == 1);
   renderer.destroyMesh(box);
 }

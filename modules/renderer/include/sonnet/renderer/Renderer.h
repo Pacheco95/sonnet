@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -23,9 +24,12 @@
 namespace sonnet::renderer {
 
 struct RenderStatistics {
+  // What was submitted, not what survived culling: the GPU decides that and the CPU never reads
+  // the counts back (ADR-0012).
   std::uint32_t drawCount{0}; // scene draws: opaque and blended, not the shadow, id or mask passes
   std::uint32_t triangleCount{0};
   std::uint32_t shadowDrawCount{0};
+  std::uint32_t indirectCallCount{0}; // drawIndexedIndirectCount calls the scene passes recorded
   std::uint32_t lightCount{0};
   std::uint32_t skinnedInstanceCount{0}; // instances the skinning pass deformed
   std::uint32_t skinnedVertexCount{0};
@@ -65,6 +69,11 @@ public:
   static constexpr rhi::Format HdrFormat = rhi::Format::R16G16B16A16Sfloat;
   static constexpr std::uint32_t CascadeCount = 4;
   static constexpr std::uint32_t MaxLights = 1024;
+  // Culling jobs one frame can reserve over each order list: the four cascades, the depth
+  // pre-pass and the forward pass over the opaque draws, the id and selection-mask passes over
+  // all of them. The command and count buffers are sized for exactly these (ADR-0012).
+  static constexpr std::uint32_t CullJobsOpaque = CascadeCount + 2;
+  static constexpr std::uint32_t CullJobsAll = 2;
 
   // shaderDir holds the modules compiled by sonnet_add_engine_shaders (`forward.spv`, ...).
   Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir, const RendererSettings &settings = {});
@@ -198,6 +207,8 @@ private:
   struct FrameBuffers {
     rhi::TransientAllocation frame;
     rhi::TransientAllocation objects;
+    std::uint64_t opaqueCandidates{0}; // addresses of the culling pass's input arrays
+    std::uint64_t allCandidates{0};
     bool uploaded{false};
     [[nodiscard]] bool valid() const noexcept {
       return !frame.data.empty() && !objects.data.empty();
@@ -209,10 +220,30 @@ private:
     const Mesh *mesh;
     std::uint64_t vertices; // the mesh's vertex address, or its skinned instance's
     Submesh submesh;
+    glm::vec3 center; // world-space bounds, what the culling pass tests
+    glm::vec3 extent; // half size
     bool doubleSided;
     bool blended;
     bool masked;
     float viewDepth;
+  };
+  // A run of draws in one order list sharing a pipeline and a mesh, submitted by one
+  // drawIndexedIndirectCount against that mesh's index buffer (ADR-0012).
+  struct Batch {
+    const Mesh *mesh;
+    std::uint32_t pipeline;  // index into a pipeline pair: 1 for double-sided
+    std::uint32_t firstDraw; // into the order list, and into that list's command range
+    std::uint32_t drawCount;
+  };
+  // One culling dispatch: a frustum over one order list, writing one pass's commands.
+  struct CullJob {
+    glm::mat4 viewProjection{1.0f};
+    bool opaque{true}; // which order list's candidate array it tests
+    std::uint32_t drawCount{0};
+    std::uint32_t firstCommand{0};
+    std::uint32_t firstCount{0};
+    std::uint32_t batchCount{0};
+    bool selectedOnly{false};
   };
   struct Cascade {
     glm::mat4 matrix{1.0f};
@@ -250,12 +281,29 @@ private:
   void recordSkinning(rhi::ICommandList &commands);
   void releaseSkinnedVertices(bool all);
   void computeCascades(const SceneView &view, float aspect);
-  // Allocates and fills the frame constants, objects, materials and lights once per frame.
+  // Groups an order list, already sorted by pipeline and mesh, into the runs one indirect call
+  // each can submit. Returns the batches; the order list's entries keep their positions.
+  void buildBatches(std::span<const std::uint32_t> order, std::vector<Batch> &batches) const;
+  // Grows the command and count buffers to what this frame's batches need.
+  void ensureIndirectBuffers();
+  // Allocates and fills the frame constants, objects, materials, lights and cull candidates
+  // once per frame.
   void ensureFrameUploaded(const PassResources &resources);
   void bindFrame(rhi::ICommandList &commands);
+  // Reserves a job's command and count ranges, or nothing when the frame has no room left.
+  [[nodiscard]] std::optional<CullJob> reserveCullJob(bool opaque);
+  // Declares the culling pass the editor's id or selection-mask pass needs, over all draws.
+  [[nodiscard]] std::optional<CullJob> addCullPass(RenderGraph &graph, const SceneView &view, glm::uvec2 size,
+                                                   bool selectedOnly);
+  // Zeroes every reserved job's counts, then runs each job's frustum test, with the barriers
+  // that order the previous frame's indirect reads and this frame's command fetch around them.
+  void recordCulling(rhi::ICommandList &commands);
+  // One drawIndexedIndirectCount per batch, over the range the job culled into.
+  void recordIndirect(rhi::ICommandList &commands, const CullJob &job, std::span<const Batch> batches,
+                      std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t cascade = 0);
+  // The direct path, which the blended draws keep because their order is view-dependent.
   void recordDraws(rhi::ICommandList &commands, std::span<const std::uint32_t> order,
-                   std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t cascade = 0,
-                   std::span<const std::uint32_t> only = {});
+                   std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t cascade = 0);
   void recordClustering(rhi::ICommandList &commands);
   void recordPost(rhi::ICommandList &commands, rhi::PipelineHandle pipeline, rhi::ImageHandle source,
                   rhi::ImageHandle secondary, glm::uvec2 targetSize);
@@ -284,6 +332,8 @@ private:
   rhi::PipelineHandle m_outlinePipeline;
   rhi::PipelineHandle m_debugLinePipeline;
   rhi::PipelineHandle m_clusterPipeline;
+  rhi::PipelineHandle m_cullPipeline;
+  rhi::PipelineHandle m_clearCountsPipeline;
   rhi::PipelineHandle m_equirectPipeline;
   rhi::PipelineHandle m_cubeMipPipeline;
   rhi::PipelineHandle m_irradiancePipeline;
@@ -299,6 +349,12 @@ private:
   rhi::ImageHandle m_brdfLut;
   bool m_brdfLutPending{true};
   rhi::BufferHandle m_clusterBuffer;
+  // The draw commands the culling pass writes and the per-batch counts that bound them, device
+  // local and rewritten every frame (ADR-0012).
+  rhi::BufferHandle m_commandBuffer;
+  rhi::BufferHandle m_countBuffer;
+  std::uint32_t m_commandCapacity{0};
+  std::uint32_t m_countCapacity{0};
 
   core::HandlePool<Mesh, MeshTag> m_meshes;
   core::HandlePool<Texture, TextureTag> m_textures;
@@ -317,7 +373,13 @@ private:
   std::vector<SkinJob> m_skinJobs;
   std::vector<std::uint32_t> m_opaqueOrder;  // opaque and masked, grouped by pipeline and mesh
   std::vector<std::uint32_t> m_blendedOrder; // back to front
-  std::vector<std::uint32_t> m_allOrder;     // for the id and mask passes
+  std::vector<std::uint32_t> m_allOrder;     // for the id and mask passes, grouped the same way
+  std::vector<Batch> m_opaqueBatches;
+  std::vector<Batch> m_allBatches;
+  std::vector<CullJob> m_cullJobs;   // reserved this frame, run by the culling passes
+  std::uint32_t m_opaqueJobsUsed{0}; // of CullJobsOpaque
+  std::uint32_t m_allJobsUsed{0};    // of CullJobsAll
+  std::size_t m_firstPendingJob{0};  // jobs a culling pass has not recorded yet
   std::array<Cascade, CascadeCount> m_cascades;
   std::array<GraphImage, CascadeCount> m_cascadeImages;
   FrameImages m_frameImages;
