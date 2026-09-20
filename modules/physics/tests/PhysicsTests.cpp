@@ -1,6 +1,7 @@
 #include <sonnet/physics/PhysicsWorld.h>
 
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
@@ -11,8 +12,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <format>
 #include <memory>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 using namespace sonnet;
@@ -29,7 +34,13 @@ struct Fixture {
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
   assets::AssetDatabase assets{renderer};
   world::World world;
-  std::unique_ptr<physics::IPhysicsWorld> physics = physics::createPhysicsWorld(world, assets);
+  // Two workers rather than the machine's count: enough to run Jolt's jobs on the pool rather
+  // than inline, few enough that a fixture per test case stays cheap. The benchmark sets its own.
+  core::JobSystem jobs;
+  std::unique_ptr<physics::IPhysicsWorld> physics = physics::createPhysicsWorld(world, assets, jobs);
+
+  explicit Fixture(std::uint32_t workers = 2) : jobs({.workerCount = workers}) {
+  }
 
   // A static 20 x 1 x 20 slab whose top face is at y = 0.
   flecs::entity ground() {
@@ -358,4 +369,52 @@ TEST_CASE("stopping play and reloading the snapshot discards the simulated state
   fixture.world.setPlaying(true);
   fixture.run(0.1f);
   REQUIRE(fixture.physics->bodyCount() == 2);
+}
+
+// `physics_tests "[benchmark]"` prints the wall time of a stress scene's fixed steps with the pool
+// idle and with it working, which is what ADR-0013 claims Jolt gains from the job system. Run it in
+// Release: a Debug Jolt is slow enough to bury the difference in its own overhead.
+TEST_CASE("a pile of dynamic bodies steps faster across cores", "[.][benchmark][physics]") {
+  constexpr int Columns = 12;
+  constexpr int Layers = 7;
+  constexpr int Steps = 120;
+
+  const auto measure = [](std::uint32_t workers) {
+    Fixture fixture{workers};
+    fixture.ground();
+    // A loose pile rather than a grid: the boxes settle into each other, so the solver has real
+    // islands to split across threads instead of a thousand independent falls.
+    for (int layer = 0; layer < Layers; ++layer) {
+      for (int x = 0; x < Columns; ++x) {
+        for (int z = 0; z < Columns; ++z) {
+          const flecs::entity body = fixture.world.createEntity("Box");
+          const float jitter = static_cast<float>((x * 7 + z * 13 + layer * 3) % 5) * 0.01f;
+          body.set<world::Transform>(
+              {.position = {static_cast<float>(x) - 5.5f + jitter, 1.0f + static_cast<float>(layer) * 1.1f,
+                            static_cast<float>(z) - 5.5f + jitter}});
+          body.set<physics::BoxCollider>({.halfExtents = {0.5f, 0.5f, 0.5f}});
+          body.set<physics::RigidBody>({});
+        }
+      }
+    }
+    fixture.world.setPlaying(true);
+    fixture.world.progress(Step); // the first step creates the bodies; not what is being timed
+
+    const auto start = std::chrono::steady_clock::now();
+    for (int step = 0; step < Steps; ++step) {
+      fixture.world.progress(Step);
+    }
+    const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start);
+    return std::pair{elapsed.count() / Steps, fixture.physics->bodyCount()};
+  };
+
+  const unsigned hardware = std::thread::hardware_concurrency();
+  const auto [inlineMs, inlineBodies] = measure(0);
+  const auto [pooledMs, pooledBodies] = measure(hardware > 1 ? hardware - 1 : 1);
+  REQUIRE(inlineBodies == pooledBodies);
+
+  WARN(std::format("{} bodies, {} steps", inlineBodies, Steps));
+  WARN(std::format("no workers        {:8.3f} ms per step", inlineMs));
+  WARN(std::format("{:2} workers        {:8.3f} ms per step, {:.2f}x", hardware > 1 ? hardware - 1 : 1, pooledMs,
+                   inlineMs / pooledMs));
 }

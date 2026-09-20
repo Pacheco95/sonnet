@@ -49,7 +49,7 @@ Game::Game(platform::Platform &platform, platform::IWindow &window, rhi::IDevice
                                                        return settings;
                                                      }()),
       m_graph(device), m_target(device, "game"), m_assets(m_renderer), m_world({}),
-      m_physics(physics::createPhysicsWorld(m_world, m_assets)),
+      m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
       m_scripts(scripting::createScriptRuntime(
           {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
       m_animation(m_world, m_assets),

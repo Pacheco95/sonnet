@@ -16,6 +16,10 @@ namespace sonnet::assets {
 class AssetDatabase;
 }
 
+namespace sonnet::core {
+class JobSystem;
+}
+
 namespace sonnet::world {
 class World;
 }
@@ -65,8 +69,10 @@ public:
 };
 
 // Registers the components and the physics systems on `world`, which has to outlive the result;
-// mesh colliders are resolved through `assets`. The Jolt implementation.
+// mesh colliders are resolved through `assets`, and Jolt's jobs run on `jobs` (ADR-0013), which
+// has to outlive it too. A `jobs` with no workers steps on the calling thread. The Jolt
+// implementation.
 [[nodiscard]] std::unique_ptr<IPhysicsWorld> createPhysicsWorld(world::World &world, assets::AssetDatabase &assets,
-                                                                const PhysicsDesc &desc = {});
+                                                                core::JobSystem &jobs, const PhysicsDesc &desc = {});
 
 } // namespace sonnet::physics
