@@ -68,7 +68,7 @@ Public headers under `sonnet/rhi/`: `Types.h` (handles, formats, usages, layouts
 - Validation messages are logged with their id and the debug names of the objects involved, and counted; the tests of every module fail when the count is non-zero. Loader messages go to `trace`.
 - `DeviceInfo::blockCompressionSupported` says whether the BC formats can be used, which desktop GPUs and Lavapipe support and mobile GPUs do not; the feature is enabled where present rather than required, and the texture loader falls back to uncompressed data without it.
 - Host-visible buffers are persistently mapped; `mappedRange` exposes them.
-- `NullDevice` implements the same interface without a GPU: handles, descriptions, mapped memory, bindless slots, transient allocations and timestamp bookkeeping behave as on the Vulkan device, and recording produces a readable trace (`barrier "scene" ColorAttachment->ShaderReadOnly`, `drawIndexed 36 x1`, `uploadImage "albedo" level 0 layer 0 4194304 bytes`, `dispatch 4 2 1`) that the tests of the modules above assert on.
+- `NullDevice` implements the same interface without a GPU: handles, descriptions, mapped memory, bindless slots, transient allocations and timestamp bookkeeping behave as on the Vulkan device, and `pipelineCount` and `bufferCount` report what is still alive, for tests that check an owner releases what it creates, and recording produces a readable trace (`barrier "scene" ColorAttachment->ShaderReadOnly`, `drawIndexed 36 x1`, `uploadImage "albedo" level 0 layer 0 4194304 bytes`, `dispatch 4 2 1`) that the tests of the modules above assert on.
 
 Not there yet: pass merging and transient aliasing in the graph.
 
