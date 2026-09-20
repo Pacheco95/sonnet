@@ -43,11 +43,11 @@ With no argument it looks for `game.sbundle` next to itself, which is what an ex
 
 ## What an export is
 
-An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). The editor's export dialog assembles one ([editor.md](editor.md)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
+An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
 
 ## See also
 
 - [Architecture](architecture.md), for the editor and player split
 - [Assets](assets.md), for cooking and the bundle format
-- [Editor](editor.md), for the export dialog and what play mode shares with this
+- [Editor](editor.md#export), for the export dialog and what play mode shares with this
 - [Rendering](rendering.md), for the passes and the present pass

@@ -2,6 +2,7 @@
 
 #include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/CommandStack.h>
+#include <sonnet/editor/Export.h>
 #include <sonnet/editor/Gizmo.h>
 #include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/InspectorPanel.h>
@@ -85,6 +86,10 @@ public:
   // The starter scene, unsaved.
   void newScene();
 
+  // Cooks the open project and assembles a runnable directory beside the bundle
+  // (docs/editor.md, "Export"). The dialog is this with the fields it collected.
+  [[nodiscard]] core::Result<ExportReport> exportProject(const ExportOptions &options);
+
   // Compiles every engine shader from the checkout's sources and rebuilds its pipelines: what
   // the Tools menu does, and what the source poll does for one changed file (docs/editor.md,
   // "Shader hot reload"). Fails when the sources are not found or a shader does not compile,
@@ -162,6 +167,7 @@ private:
     NewProject,
     OpenProject,
     SaveSceneAs,
+    Export,
   };
 
   void drawMenuBar();
@@ -235,6 +241,8 @@ private:
   std::string m_modalPath;
   std::string m_modalName;
   std::string m_modalError;
+  std::string m_modalMessage; // what the last export did, shown in its dialog
+  assets::CookPlatform m_exportPlatform{assets::hostPlatform()};
   std::string m_title;
   bool m_relativeMouseRequested{false};
   bool m_layoutBuilt{false};
