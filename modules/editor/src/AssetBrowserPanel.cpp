@@ -17,7 +17,7 @@ namespace sonnet::editor {
 
 namespace {
 
-constexpr std::array<std::pair<const char *, std::optional<assets::AssetType>>, 7> TypeFilters{{
+constexpr std::array<std::pair<const char *, std::optional<assets::AssetType>>, 10> TypeFilters{{
     {"All", std::nullopt},
     {"Textures", assets::AssetType::Texture},
     {"Meshes", assets::AssetType::Mesh},
@@ -25,6 +25,9 @@ constexpr std::array<std::pair<const char *, std::optional<assets::AssetType>>, 
     {"Models", assets::AssetType::Model},
     {"Environments", assets::AssetType::Environment},
     {"Scripts", assets::AssetType::Script},
+    {"Sounds", assets::AssetType::Sound},
+    {"Skins", assets::AssetType::Skin},
+    {"Animations", assets::AssetType::Animation},
 }};
 
 // What "New script" writes: every hook, empty, and the shape a script has to return.

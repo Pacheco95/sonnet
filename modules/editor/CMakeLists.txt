@@ -16,6 +16,7 @@ sonnet_add_module(editor
     src/StatisticsPanel.cpp
     src/ViewportPanel.cpp
   PUBLIC_DEPENDS
+    sonnet::audio
     sonnet::scripting
     sonnet::ui
 )

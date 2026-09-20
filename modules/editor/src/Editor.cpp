@@ -45,11 +45,15 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_world({.explorer = explorer}), m_physics(physics::createPhysicsWorld(m_world, m_assets)),
       m_scripts(scripting::createScriptRuntime(
           {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
+      m_animation(m_world, m_assets),
+      // A headless editor is a test's: it mixes without a device rather than making a sound.
+      m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})),
       m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_hierarchyPanel(m_world, m_selection, m_commands), m_inspectorPanel(m_world, m_assets, m_selection, m_commands),
       m_assetBrowserPanel(m_assets, m_selection) {
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  m_inspectorPanel.setAudio(m_audio.get());
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   newScene();
   SONNET_LOG_INFO("editor ready");
@@ -149,7 +153,10 @@ void Editor::update(float dt) {
   }
   m_gameInputWasActive = gameInput;
   // The world's frame after the UI edited it: systems, then what the renderer draws. The game
-  // input's presses and releases last one frame.
+  // input's presses and releases last one frame. The editor draws through its own camera, so
+  // that is where a scene without an AudioListener is heard from.
+  const renderer::Camera &camera = m_viewportPanel.camera().camera();
+  m_audio->setFallbackListener(camera.position, camera.rotation);
   m_world.progress(dt);
   m_input.beginFrame();
   world::buildDrawList(m_world, m_assets, m_draws, m_joints);
@@ -681,6 +688,7 @@ void Editor::stop() {
   m_world.clearScene();
   // The scripts' instances and globals go with the running scene; the next play loads them fresh.
   m_scripts->reset();
+  m_audio->stopAll();
   m_input = {};
   if (const auto restored = world::loadScene(m_world, m_snapshot); !restored) {
     SONNET_LOG_ERROR("restoring the scene after play: {}", restored.error().toString());
