@@ -166,7 +166,23 @@ More of the docs wait on the job system than on anything else: asset loading is 
 - `renderer`: the per-frame object, material and light upload spread over workers, which M7 left as the larger part of a frame's CPU cost.
 - A `linux-tsan` preset, since the sanitizer preset is address and undefined-behaviour only and nothing has run under a thread sanitizer.
 
-Done when the playground sample loads without a frame hitch, physics scales across cores in a stress scene, and the suites pass under the thread sanitizer.
+Landed as five commits, the first accepting ADR-0013:
+
+1. ADR-0013: one job system in `core`, and who runs on it. The question the milestone turned on was not what a job system looks like but who gets the cores. flecs offers "task threads" as the hook for an external job system, and taking it would have starved physics: `ecs_run_pipeline` creates and joins those tasks on every call, a task blocks on a condition variable for the whole run, and `World::progress` makes up to six of those calls a frame, so every worker would sit blocked through the `FixedUpdate` pipeline that `PhysicsStep` lives in.
+2. `core`: the job system — dependencies, a parallel for, main-thread affinity, Tracy zones on the workers — and the `linux-tsan` preset that says it is correct, with Tracy off in it because its lock-free queue reports races of its own.
+3. `physics`: `JoltJobSystem` over `JobSystemWithBarrier`, replacing `JobSystemSingleThreaded`; the module compiled without RTTI, as vcpkg builds Jolt and its target does not say.
+4. `assets`: the request form, with the glTF and file-texture loaders split into a worker half that parses, decodes and cooks and a main-thread half that creates the renderer objects; `buildDrawList` requests rather than loads.
+5. `renderer`: the per-frame object and cull-candidate fill spread over the pool.
+
+Done, with two criteria short of what they said. Physics scales: `physics_tests "[benchmark]"` settles a pile of about a thousand boxes in 1.23 ms per step on fifteen workers against 2.87 ms on none, 2.33 times.
+
+The suites pass under the thread sanitizer, but less of them than the criterion implies. `linux-tsan` runs with `VK_DRIVER_FILES` pointed at `/dev/null`, so every suite's GPU cases skip: Lavapipe rasterizes on a pool of its own, is no more instrumented than Jolt, and reports races and lock-order inversions from inside its own threads by the hundred, through stacks that enter at `VulkanDevice` and so cannot be suppressed without blinding the sanitizer to the engine's own Vulkan calls. What still runs under it is everything the job system touches — `core`, `physics`, `assets`, `world`, `scripting`, `audio` in full, and 29 of `renderer_tests`' 38 on the null device — and what does not is `rhi`, `ui` and `runtime`, which are almost entirely GPU cases and now run a handful of tests each. `ctest --preset linux-debug` on Lavapipe is what covers those, where the driver's threads are not the sanitizer's problem. Jolt is suppressed in `tools/tsan.supp` for the same uninstrumented reason, with what covers `physics` instead written down there.
+
+The frame hitch is only half gone. Mesh and texture resolution no longer blocks a frame, but loading a scene still does: `loadModelPrefab` needs a model's node hierarchy before it can create the entities, so a prefab instantiation imports its glTF file in place. Letting a prefab instance exist before its model does is the change that would finish it.
+
+Two things the measurements said that the plan did not. The renderer's per-frame fill was the larger part of a frame's CPU cost and was meant to be spread away; it goes from 0.26 ms to 0.19 ms with one extra worker and then stops, because writing ten thousand 160-byte entries into `MemoryUsage::CpuToGpu` memory is bandwidth to host-visible device memory, not computation. Writing less is what would move it. And `world` gained nothing: `cascade` excludes `TransformSystem` from flecs' multi-threaded pipeline and `immediate` excludes the animation, skin and script systems, so the pipeline stays single-threaded and a parallel `TransformSystem` over `parallelFor`, with a barrier between depth levels, waits for the benchmark that asks for it.
+
+Deferred: the asynchronous scene load above; an overlay port building Jolt with the thread sanitizer, which is the only way to let it see Jolt; a placeholder asset to draw while a request is in flight, rather than nothing; and shrinking `ObjectData` or skipping the objects that did not move.
 
 ## M9: Mobile export
 
