@@ -1,6 +1,7 @@
 #include <sonnet/physics/PhysicsWorld.h>
 
 #include "ColliderLines.h"
+#include "JoltJobSystem.h"
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/core/Log.h>
@@ -12,7 +13,6 @@
 #include <Jolt/Jolt.h>
 
 #include <Jolt/Core/Factory.h>
-#include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
@@ -182,13 +182,13 @@ std::string describe(flecs::entity entity) {
 
 class JoltPhysicsWorld final : public IPhysicsWorld {
 public:
-  JoltPhysicsWorld(world::World &world, assets::AssetDatabase &assets, const PhysicsDesc &desc)
+  JoltPhysicsWorld(world::World &world, assets::AssetDatabase &assets, core::JobSystem &jobs, const PhysicsDesc &desc)
       : m_world(world), m_assets(assets) {
     acquireJolt();
     registerComponents(world);
     m_temp = std::make_unique<JPH::TempAllocatorImpl>(TempAllocatorBytes);
-    // The engine has no job system yet; Jolt's own thread pool would be a second one (ADR-0009).
-    m_jobs = std::make_unique<JPH::JobSystemSingleThreaded>(JPH::cMaxPhysicsJobs);
+    // Jolt's jobs run on the engine's pool, never a second one of its own (ADR-0009, ADR-0013).
+    m_jobs = std::make_unique<JoltJobSystem>(jobs, JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
     m_system = std::make_unique<JPH::PhysicsSystem>();
     m_system->Init(desc.maxBodies, 0, MaxBodyPairs, MaxContactConstraints, m_layers, m_objectVsBroadPhase,
                    m_objectPairs);
@@ -673,7 +673,7 @@ private:
   ObjectVsBroadPhaseFilter m_objectVsBroadPhase;
   ObjectPairFilter m_objectPairs;
   std::unique_ptr<JPH::TempAllocatorImpl> m_temp;
-  std::unique_ptr<JPH::JobSystemSingleThreaded> m_jobs;
+  std::unique_ptr<JoltJobSystem> m_jobs;
   std::unique_ptr<JPH::PhysicsSystem> m_system;
   std::unordered_map<flecs::entity_t, Body> m_bodies;
   flecs::query<> m_colliders;
@@ -685,8 +685,8 @@ private:
 } // namespace
 
 std::unique_ptr<IPhysicsWorld> createPhysicsWorld(world::World &world, assets::AssetDatabase &assets,
-                                                  const PhysicsDesc &desc) {
-  return std::make_unique<JoltPhysicsWorld>(world, assets, desc);
+                                                  core::JobSystem &jobs, const PhysicsDesc &desc) {
+  return std::make_unique<JoltPhysicsWorld>(world, assets, jobs, desc);
 }
 
 } // namespace sonnet::physics

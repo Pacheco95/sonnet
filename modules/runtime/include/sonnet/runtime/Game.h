@@ -4,6 +4,7 @@
 #include <sonnet/assets/Project.h>
 #include <sonnet/audio/AudioDevice.h>
 #include <sonnet/core/Error.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/InputState.h>
@@ -100,6 +101,9 @@ private:
 
   platform::IWindow &m_window;
   rhi::IDevice &m_device;
+  // First of the members that outlive work, so everything scheduling onto it is destroyed before
+  // it is (ADR-0013).
+  core::JobSystem m_jobs;
   renderer::Renderer m_renderer;
   renderer::RenderGraph m_graph;
   renderer::RenderTarget m_target;

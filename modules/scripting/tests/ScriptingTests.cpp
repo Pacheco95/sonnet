@@ -2,6 +2,7 @@
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/core/File.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/InputState.h>
@@ -66,7 +67,10 @@ struct Fixture {
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
   assets::AssetDatabase assets{renderer};
   world::World world;
-  std::unique_ptr<physics::IPhysicsWorld> physics = physics::createPhysicsWorld(world, assets);
+  // Two workers rather than the machine's count: enough to run Jolt's jobs on the pool rather
+  // than inline, few enough that a fixture per test case stays cheap.
+  core::JobSystem jobs{{.workerCount = 2}};
+  std::unique_ptr<physics::IPhysicsWorld> physics = physics::createPhysicsWorld(world, assets, jobs);
   platform::InputState input;
   std::unique_ptr<scripting::IScriptRuntime> scripts;
   std::shared_ptr<RecordingSink> sink = std::make_shared<RecordingSink>();

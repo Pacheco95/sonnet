@@ -43,7 +43,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                // Platform windows need a display; the headless driver has none.
                .viewports = !platform.isHeadless()}),
       m_renderer(device, platform.basePath() / "shaders"), m_graph(device), m_picker(device), m_assets(m_renderer),
-      m_world({.explorer = explorer}), m_physics(physics::createPhysicsWorld(m_world, m_assets)),
+      m_world({.explorer = explorer}), m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
       m_scripts(scripting::createScriptRuntime(
           {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
       m_animation(m_world, m_assets),
