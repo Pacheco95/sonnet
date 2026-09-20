@@ -25,6 +25,13 @@ struct DrawItem {
   glm::mat4 transform{1.0f};
   glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f}; // multiplies the material's base colour
   std::uint32_t id{0};                     // written by the id pass for picking and the outline; 0 means none
+  // A skinned draw deforms a mesh with skin weights by joints [firstJoint, firstJoint + jointCount)
+  // of SceneView::joints; jointCount 0 draws the mesh as it is. `skinInstance`, non-zero, names
+  // the deformed instance across frames so its skinned vertices keep their buffer; the draws of
+  // one instance's submeshes share it and their joint range.
+  std::uint32_t firstJoint{0};
+  std::uint32_t jointCount{0};
+  std::uint64_t skinInstance{0};
 };
 
 // The sun: the one light that casts cascaded shadows.
@@ -70,6 +77,8 @@ struct SceneView {
   float exposure{1.0f};
   float bloomStrength{0.04f};
   std::span<const DrawItem> draws;
+  // The skinned draws' joint matrices, each from the mesh's bind pose into its object space.
+  std::span<const glm::mat4> joints;
   std::span<const DebugLine> debugLines; // drawn by addDebugLinePass
 };
 

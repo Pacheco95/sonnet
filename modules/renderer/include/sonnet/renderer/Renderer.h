@@ -16,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -26,6 +27,8 @@ struct RenderStatistics {
   std::uint32_t triangleCount{0};
   std::uint32_t shadowDrawCount{0};
   std::uint32_t lightCount{0};
+  std::uint32_t skinnedInstanceCount{0}; // instances the skinning pass deformed
+  std::uint32_t skinnedVertexCount{0};
 };
 
 // Quality knobs. Tests turn the sizes and sample counts down so Lavapipe finishes quickly.
@@ -66,7 +69,8 @@ public:
   Renderer(const Renderer &) = delete;
   Renderer &operator=(const Renderer &) = delete;
 
-  // Uploads the mesh into device-local buffers. Without submeshes the whole mesh is one.
+  // Uploads the mesh into device-local buffers. Without submeshes the whole mesh is one. Skin
+  // weights, when there is one per vertex, make the mesh deformable by skinned draws.
   [[nodiscard]] MeshHandle createMesh(const MeshData &data, std::string debugName);
   void destroyMesh(MeshHandle handle);
   [[nodiscard]] bool isValid(MeshHandle handle) const;
@@ -99,7 +103,8 @@ public:
   // structure"): the shadow cascades, the depth pre-pass, light clustering, the forward pass into
   // an HDR image, the skybox, the blended draws, bloom, tone mapping into `color` and FXAA, plus
   // any pending environment or lookup-table precomputation. `view` and the spans it holds must
-  // outlive the graph's execute.
+  // outlive the graph's execute. The first pass the renderer declares in a graph frame, this or
+  // the id or mask pass, is preceded by the skinning pass when the view has skinned draws.
   void addScenePasses(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth,
                       glm::vec4 clearColor = {0.05f, 0.05f, 0.07f, 1.0f});
   // Declares the id pass: every item's id into `ids` (IdFormat, cleared to 0), tested against
@@ -146,8 +151,24 @@ private:
     std::string debugName;
     rhi::BufferHandle vertices;
     rhi::BufferHandle indices;
+    rhi::BufferHandle skin; // SkinWeights per vertex; invalid for a mesh that cannot be skinned
+    std::uint32_t vertexCount{0};
     std::vector<Submesh> submeshes;
     Bounds bounds;
+  };
+  // The deformed vertices of one skinned instance, rewritten every frame it is drawn and
+  // released a few frames after its last use.
+  struct SkinnedVertices {
+    MeshHandle mesh;
+    rhi::BufferHandle buffer;
+    std::uint64_t lastFrame{0};
+  };
+  // One instance to deform this frame.
+  struct SkinJob {
+    const Mesh *mesh;
+    rhi::BufferHandle destination;
+    std::uint32_t firstJoint;
+    std::uint32_t jointCount;
   };
   struct Texture {
     std::string debugName;
@@ -178,6 +199,7 @@ private:
   struct ResolvedDraw {
     std::uint32_t objectIndex;
     const Mesh *mesh;
+    std::uint64_t vertices; // the mesh's vertex address, or its skinned instance's
     Submesh submesh;
     bool doubleSided;
     bool blended;
@@ -211,9 +233,14 @@ private:
   [[nodiscard]] std::uint32_t materialIndex(MaterialHandle handle) const;
   [[nodiscard]] std::uint32_t sampledIndex(rhi::ImageHandle image) const;
 
-  // Sorts and resolves the view's draws for the frame; a graph frame that already prepared
-  // this view keeps its state.
-  void prepareFrame(const RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
+  // Sorts and resolves the view's draws for the frame and declares the skinning pass; a graph
+  // frame that already prepared this view keeps its state.
+  void prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
+  // The address the draw pulls its vertices from: its skinned instance's buffer, created or
+  // reused here, when it is a valid skinned draw, the mesh's otherwise.
+  [[nodiscard]] std::uint64_t resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view);
+  void recordSkinning(rhi::ICommandList &commands);
+  void releaseSkinnedVertices(bool all);
   void computeCascades(const SceneView &view, float aspect);
   // Allocates and fills the frame constants, objects, materials and lights once per frame.
   void ensureFrameUploaded(const PassResources &resources);
@@ -253,6 +280,7 @@ private:
   rhi::PipelineHandle m_irradiancePipeline;
   rhi::PipelineHandle m_prefilterPipeline;
   rhi::PipelineHandle m_brdfLutPipeline;
+  rhi::PipelineHandle m_skinPipeline;
 
   std::array<rhi::SamplerHandle, 3> m_materialSamplers; // by TextureWrap
   rhi::SamplerHandle m_linearClampSampler;
@@ -267,7 +295,8 @@ private:
   core::HandlePool<Texture, TextureTag> m_textures;
   core::HandlePool<Material, MaterialTag> m_materials;
   core::HandlePool<Environment, EnvironmentTag> m_environments;
-  std::uint32_t m_materialSlots{0}; // highest material index plus one, the GPU array's size
+  std::unordered_map<std::uint64_t, SkinnedVertices> m_skinned; // by DrawItem::skinInstance
+  std::uint32_t m_materialSlots{0};                             // highest material index plus one, the GPU array's size
   RenderStatistics m_statistics;
 
   // Frame state between addScenePasses and the graph's execute.
@@ -276,6 +305,7 @@ private:
   std::uint64_t m_graphFrame{0};
   glm::uvec2 m_targetSize{0, 0};
   std::vector<ResolvedDraw> m_resolved;
+  std::vector<SkinJob> m_skinJobs;
   std::vector<std::uint32_t> m_opaqueOrder;  // opaque and masked, grouped by pipeline and mesh
   std::vector<std::uint32_t> m_blendedOrder; // back to front
   std::vector<std::uint32_t> m_allOrder;     // for the id and mask passes

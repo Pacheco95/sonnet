@@ -27,17 +27,28 @@ struct Submesh {
   std::uint32_t materialSlot{0};
 };
 
+// The joints that deform one vertex and their weights, which sum to one: indices into the skin's
+// joint list, read by the skinning pass (docs/rendering.md, "Skinning"). Matches `SkinWeights` in
+// shaders/skin.slang.
+struct SkinWeights {
+  glm::uvec4 joints{0u};
+  glm::vec4 weights{0.0f};
+};
+static_assert(sizeof(SkinWeights) == 32);
+
 struct Bounds {
   glm::vec3 min{0.0f};
   glm::vec3 max{0.0f};
 };
 
 // Mesh data on the CPU: counter-clockwise triangles with outward normals. Without submeshes the
-// whole index range is one submesh with slot 0.
+// whole index range is one submesh with slot 0. A skinned mesh has one SkinWeights per vertex,
+// its vertices in the bind pose; an unskinned one has none.
 struct MeshData {
   std::vector<Vertex> vertices;
   std::vector<std::uint32_t> indices;
   std::vector<Submesh> submeshes;
+  std::vector<SkinWeights> skin;
 
   [[nodiscard]] std::uint32_t triangleCount() const noexcept {
     return static_cast<std::uint32_t>(indices.size() / 3);
