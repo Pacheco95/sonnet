@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle), M1 (editor shell: `ui`, `renderer` with the render graph, `editor`), M2 (`world` with flecs, scenes and prefabs; the editor's hierarchy and inspector, gizmos, picking, undo/redo, play mode, projects; the basic sample), M3 (`assets` with the database, glTF and image import, KTX2 cooking and hot reload; the clustered forward renderer with PBR, shadows, IBL and post-processing; the editor's asset browser, material editing and shader hot reload) and M4 (`physics` on Jolt, Lua `scripting` with sol2, the world's fixed timestep, play mode running both, the playground sample) are done; M5 (audio and animation) is next.
+Sonnet is a C++23 3D game engine (Vulkan 1.4 only, SDL3, flecs, Slang, Dear ImGui) with an editor and a generic player, targeting Windows, Linux, macOS, Android and iOS. It is the third iteration of the engine and was restarted docs-first; code lands milestone by milestone following `docs/roadmap.md`. M0 (build, `core`, `platform`, `rhi`, triangle), M1 (editor shell: `ui`, `renderer` with the render graph, `editor`), M2 (`world` with flecs, scenes and prefabs; the editor's hierarchy and inspector, gizmos, picking, undo/redo, play mode, projects; the basic sample), M3 (`assets` with the database, glTF and image import, KTX2 cooking and hot reload; the clustered forward renderer with PBR, shadows, IBL and post-processing; the editor's asset browser, material editing and shader hot reload), M4 (`physics` on Jolt, Lua `scripting` with sol2, the world's fixed timestep, play mode running both, the playground sample), M5 (`audio` on miniaudio, skeletal animation in `world`, GPU skinning) and M6 (`runtime` with the generic player, the cooked bundle, `sonnet_cook` and the editor's export) are done; M7 (mobile export) is next.
 
 The docs are the source of truth. Read the relevant one before a non-trivial change, and update it in the same change:
 
@@ -18,6 +18,8 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 | `ui`, `editor`, `apps/editor` | `docs/editor.md` |
 | `assets`, file formats | `docs/assets.md` |
 | `physics` | `docs/physics.md` |
+| `audio` | `docs/audio.md` |
+| `runtime`, `apps/player`, `apps/cook`, export | `docs/player.md` |
 | `scripting`, the Lua API | `docs/scripting.md` |
 | CMake, vcpkg, CI | `docs/build.md` |
 | A cross-module decision | `docs/decisions/` (ADRs and the template) |
@@ -45,7 +47,7 @@ Machine-specific notes (tool locations, checkouts of the previous iterations to 
 
 ## Architecture in one page
 
-- **Modules in dependency order**: `core → platform → rhi → renderer → assets → world → physics → scripting → audio → ui → editor`. A module links only modules earlier in the dependency order; `modules/CMakeLists.txt` adds them in this order and that order is the canonical statement of the architecture. `apps/editor` and `apps/player` are executables; `apps/samples/*` are project folders.
+- **Modules in dependency order**: `core → platform → rhi → renderer → assets → world → physics → scripting → audio → runtime → ui → editor`. A module links only modules earlier in the dependency order; `modules/CMakeLists.txt` adds them in this order and that order is the canonical statement of the architecture. `apps/editor`, `apps/player` and `apps/cook` are executables; `apps/samples/*` are project folders.
 - **Interfaces live with their owner.** There is no `api` module. `platform` holds `IWindow` and the SDL3 implementation; `rhi` holds the device interfaces and the Vulkan implementation. Upward communication uses interfaces, callbacks and data handed down, never a dependency.
 - **One `#if`-switched site**: the `rhi` device factory. The documented exception is `ui`, which links `sonnet::rhi_vulkan` to include the Vulkan implementation headers for Dear ImGui's backend.
 - **The engine does not own `main()`.** It implements SDL3's callback model so desktop and mobile share one lifecycle. Frame ordering lives in the app, not in modules.
@@ -55,7 +57,7 @@ Machine-specific notes (tool locations, checkouts of the previous iterations to 
 - **Editor versus player**: the player never links `editor`, nor `ui` in release. Play mode snapshots the world on play and restores it on stop; every editor edit is an `ICommand` on the `CommandStack`, and the inspector and gizmo edit live and push one command when the widget is released.
 - **Rendering**: vk-bootstrap creates, Vulkan-HPP RAII wrappers own, `vkb::destroy_*` is never called, RAII members are declared in reverse destruction order. The render graph is an engine module. Shaders are Slang only, compiled by `slangc` at build time through `sonnet_add_shaders` and at runtime in the editor for hot reload; Slang reflection is the only shader reflection source. Set 0 is the bindless set, set 1 is push descriptors, push constants carry per-draw indices. Reversed-Z, negative viewport height for the Y flip, counter-clockwise front faces.
 - **rhi per-frame rules**: `beginFrame`/`endFrame` bracket every frame; resource destruction is deferred to the frame slot's next reuse; acquire, submit and present go through raw dispatcher calls so the per-frame path never throws; `rhi_tests` fails on any validation message.
-- **Assets**: UUID in a `.meta` sidecar next to each source file; references are by UUID, never by path. Source assets are imported by the editor, cooked assets are what the player loads.
+- **Assets**: UUID in a `.meta` sidecar next to each source file; references are by UUID, never by path. Source assets are imported by the editor, cooked assets are what the player loads. A cook writes one `.sbundle` (a CBOR index over binary payloads) and `AssetDatabase::openBundle` reads it back under the same API, so the player is the editor's play mode without the editing (ADR-0011).
 - **Render graph**: rebuilt every frame; passes declare attachments and sampled images, the graph emits the barriers, pools transient images and times every pass. Upper-module tests use `rhi::createNullDevice()` and assert on its command trace. CMake app targets are `sonnet_<name>_app` (binary `sonnet_<name>`); `sonnet_add_engine_shaders(<target>)` puts the engine shaders next to a binary.
 - **Patched ports**: `ports/<name>` overlay ports registered by `vcpkg-configuration.json`, each described in `ports/README.md`.
 
