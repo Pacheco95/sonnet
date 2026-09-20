@@ -16,7 +16,7 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
   endif()
 endif()
 
-project(sonnet VERSION 0.7.0 LANGUAGES CXX C)
+project(sonnet VERSION 0.8.0 LANGUAGES CXX C)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "In-source builds are not allowed. Configure with a preset: cmake --preset linux-debug")
