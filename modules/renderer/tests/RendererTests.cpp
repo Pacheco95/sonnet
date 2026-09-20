@@ -1,3 +1,4 @@
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/renderer/Primitives.h>
 #include <sonnet/renderer/RenderGraph.h>
 #include <sonnet/renderer/RenderTarget.h>
@@ -866,8 +867,17 @@ TEST_CASE("reloading a shader rebuilds its pipelines and keeps them on a rejecte
 TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
+  // SONNET_BENCH_WORKERS=0 measures the per-frame fill on one thread, for the comparison
+  // ADR-0013 asks for; unset is the machine's pool, which is what the editor and player run.
+  sonnet::core::JobSystem jobs{[] {
+    sonnet::core::JobSystemDesc desc;
+    if (const char *workers = std::getenv("SONNET_BENCH_WORKERS")) {
+      desc.workerCount = static_cast<std::uint32_t>(std::atoi(workers));
+    }
+    return desc;
+  }()};
   {
-    Renderer renderer{*device, shaderDir(platform)};
+    Renderer renderer{*device, shaderDir(platform), {.jobs = &jobs}};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
     const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
     MaterialDesc rough;

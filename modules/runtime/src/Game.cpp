@@ -46,6 +46,7 @@ Game::Game(platform::Platform &platform, platform::IWindow &window, rhi::IDevice
                                                        // structure").
                                                        renderer::RendererSettings settings = desc.renderer;
                                                        settings.presentFormat = swapchain.format();
+                                                       settings.jobs = &m_jobs;
                                                        return settings;
                                                      }()),
       m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}),
