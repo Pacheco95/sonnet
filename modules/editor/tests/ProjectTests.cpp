@@ -25,14 +25,14 @@ std::filesystem::path scratch(const char *name) {
 
 TEST_CASE("a project is created with a start scene and reopened from its folder", "[editor][project]") {
   const std::filesystem::path directory = scratch("basic");
-  const auto created = editor::Project::create(directory, "Basic");
+  const auto created = editor::createStarterProject(directory, "Basic");
   REQUIRE(created.has_value());
   REQUIRE(created->name == "Basic");
   REQUIRE(std::filesystem::exists(created->file()));
   REQUIRE(std::filesystem::exists(created->resolve(created->startScene)));
-  REQUIRE(!editor::Project::create(directory, "Again").has_value()); // never overwrites
+  REQUIRE(!editor::createStarterProject(directory, "Again").has_value()); // never overwrites
 
-  const auto opened = editor::Project::open(directory);
+  const auto opened = assets::Project::open(directory);
   REQUIRE(opened.has_value());
   REQUIRE(opened->name == "Basic");
   REQUIRE(opened->startScene == "scenes/main.scene.json");
@@ -50,7 +50,7 @@ TEST_CASE("a project is created with a start scene and reopened from its folder"
   REQUIRE(world::sceneCamera(world).has_value());
   REQUIRE(world::sceneLight(world).has_value());
 
-  REQUIRE(!editor::Project::open(scratch("missing")).has_value());
+  REQUIRE(!assets::Project::open(scratch("missing")).has_value());
   std::filesystem::remove_all(directory);
 }
 

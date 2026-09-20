@@ -550,7 +550,7 @@ void Editor::afterPresent() {
 }
 
 core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
-  auto project = Project::open(directory);
+  auto project = assets::Project::open(directory);
   if (!project) {
     return std::unexpected(project.error());
   }
@@ -576,7 +576,7 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
 }
 
 core::Result<void> Editor::createProject(const std::filesystem::path &directory, std::string name) {
-  const auto project = Project::create(directory, std::move(name));
+  const auto project = createStarterProject(directory, std::move(name));
   if (!project) {
     return std::unexpected(project.error());
   }
