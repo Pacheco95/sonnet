@@ -105,7 +105,7 @@ flowchart BT
 | `world` | ECS world, core components (Transform, hierarchy, Name), scene load and save, skeletal animation |
 | `physics` | Rigid bodies, colliders and raycasts behind `IPhysicsWorld`, on Jolt |
 | `scripting` | Lua scripts on entities behind `IScriptRuntime`, reaching components through reflection |
-| `audio` | M5, behind an interface |
+| `audio` | Sounds on entities behind `IAudioDevice`, on miniaudio |
 | `ui` | Dear ImGui layer. Editor and debug builds only |
 | `editor` | Panels, selection, undo/redo, gizmos, play mode. Desktop only |
 
@@ -152,6 +152,7 @@ ctest --preset linux-debug
 | World: components, phases and the fixed timestep, animation, scenes and prefabs | [docs/world.md](docs/world.md) |
 | Physics: bodies, colliders, the simulation, queries | [docs/physics.md](docs/physics.md) |
 | Scripting: script instances, errors and hot reload, the Lua API | [docs/scripting.md](docs/scripting.md) |
+| Audio: sources and listeners, playing, miniaudio | [docs/audio.md](docs/audio.md) |
 | Roadmap and milestones | [docs/roadmap.md](docs/roadmap.md) |
 | Conventions: code style, math, error handling, logging, commits, versioning | [docs/conventions.md](docs/conventions.md) |
 | Decision records | [docs/decisions/](docs/decisions/) |

@@ -116,6 +116,10 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 | `physics.linearVelocity(entity)`, `physics.setLinearVelocity(entity, v)` | |
 | `physics.angularVelocity(entity)`, `physics.setAngularVelocity(entity, v)` | |
 
+### Sound and animation
+
+`audio` and the animation systems are driven by components, so a script reaches them through `get` and `set` like anything else (ADR-0010): `self.entity:set("AudioSource", { playing = true })` rings a sound that has ended, and `set("Animator", { clip = ..., time = 0 })` switches or restarts a clip. There is no table for either.
+
 ### log
 
 `log.debug`, `log.info`, `log.warn` and `log.error` take any values, turn them into strings like `print` and join them with spaces; `print` is `log.info`. Records carry the calling script's file and line ([conventions.md](conventions.md#logging)).
