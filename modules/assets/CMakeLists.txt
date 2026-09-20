@@ -9,6 +9,7 @@ sonnet_add_module(assets
     src/Animation.cpp
     src/Asset.cpp
     src/AssetDatabase.cpp
+    src/Bundle.cpp
     src/GltfImporter.cpp
     src/ImageImporter.cpp
     src/Ktx2.cpp
@@ -28,6 +29,7 @@ target_include_directories(sonnet_assets SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 sonnet_add_module_test(assets
   SOURCES
     tests/AnimationTests.cpp
+    tests/BundleTests.cpp
     tests/CookTests.cpp
     tests/DatabaseTests.cpp
     tests/GltfTests.cpp
