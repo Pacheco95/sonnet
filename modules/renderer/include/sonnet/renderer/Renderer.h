@@ -40,6 +40,9 @@ struct RendererSettings {
   bool bloom{true};
   std::uint32_t bloomLevels{5};
   bool antialiasing{true};
+  // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
+  // present pipeline out, which is what the editor does: it shows the scene through Dear ImGui.
+  rhi::Format presentFormat{rhi::Format::Undefined};
   std::uint32_t environmentSize{512}; // the skybox cube, with a full mip chain
   std::uint32_t irradianceSize{32};
   std::uint32_t irradianceSamples{256};
@@ -107,6 +110,11 @@ public:
   // the id or mask pass, is preceded by the skinning pass when the view has skinned draws.
   void addScenePasses(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth,
                       glm::vec4 clearColor = {0.05f, 0.05f, 0.07f, 1.0f});
+  // Declares the present pass: `source`, already tone-mapped and display-encoded by the scene
+  // passes, copied into `target`, which may have another format. The player puts its scene into
+  // the acquired swapchain image this way (docs/rendering.md, "Frame structure"). Adds nothing
+  // when the settings named no present format.
+  void addPresentPass(RenderGraph &graph, GraphImage source, GraphImage target);
   // Declares the id pass: every item's id into `ids` (IdFormat, cleared to 0), tested against
   // the depth the scene passes wrote so only visible surfaces remain. Same lifetime rule.
   void addIdPass(RenderGraph &graph, const SceneView &view, GraphImage ids, GraphImage depth);
@@ -272,6 +280,7 @@ private:
   rhi::PipelineHandle m_bloomUpPipeline;
   rhi::PipelineHandle m_tonemapPipeline;
   rhi::PipelineHandle m_fxaaPipeline;
+  rhi::PipelineHandle m_presentPipeline; // only when the settings named a present format
   rhi::PipelineHandle m_outlinePipeline;
   rhi::PipelineHandle m_debugLinePipeline;
   rhi::PipelineHandle m_clusterPipeline;

@@ -96,6 +96,13 @@ float4 tonemap(VertexOutput input) : SV_Target {
   return float4(pow(mapped, 1.0 / 2.2), 1.0);
 }
 
+// A straight copy of a display-encoded image into a target of another format: what the player
+// puts its finished scene into the acquired swapchain image with.
+[shader("fragment")]
+float4 blit(VertexOutput input) : SV_Target {
+  return float4(fetch(post.source, pixelUv(input.position.xy, post.targetSize)), 1.0);
+}
+
 float luma(float3 color) {
   return dot(color, float3(0.299, 0.587, 0.114));
 }
