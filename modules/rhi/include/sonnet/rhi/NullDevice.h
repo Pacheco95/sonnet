@@ -30,9 +30,12 @@ public:
   [[nodiscard]] const std::vector<std::string> &trace() const noexcept {
     return m_trace;
   }
-  // Live pipelines, for tests that check an owner destroys what it creates.
+  // Live pipelines and buffers, for tests that check an owner destroys what it creates.
   [[nodiscard]] std::size_t pipelineCount() const noexcept {
     return m_pipelines.size();
+  }
+  [[nodiscard]] std::size_t bufferCount() const noexcept {
+    return m_buffers.size();
   }
 
   const DeviceInfo &info() const override {
