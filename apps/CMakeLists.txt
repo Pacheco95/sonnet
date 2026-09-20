@@ -5,4 +5,7 @@ if(SONNET_BUILD_EDITOR)
   # Desktop tooling: cooking a project is what an export does, and mobile builds only run one.
   add_subdirectory(cook)
 endif()
+if(SONNET_BUILD_PLAYER)
+  add_subdirectory(player)
+endif()
 add_subdirectory(samples)

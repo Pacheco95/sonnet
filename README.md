@@ -84,15 +84,13 @@ flowchart BT
   physics --> world
   scripting --> physics
   audio --> world
+  runtime --> audio
+  runtime --> scripting
   ui --> rhi
   editor --> ui
-  editor --> physics
-  editor --> scripting
-  editor --> audio
+  editor --> runtime
   appEditor["apps/editor"] --> editor
-  appPlayer["apps/player"] --> physics
-  appPlayer --> scripting
-  appPlayer --> audio
+  appPlayer["apps/player"] --> runtime
 ```
 
 | Module | Responsibility |
@@ -106,6 +104,7 @@ flowchart BT
 | `physics` | Rigid bodies, colliders and raycasts behind `IPhysicsWorld`, on Jolt |
 | `scripting` | Lua scripts on entities behind `IScriptRuntime`, reaching components through reflection |
 | `audio` | Sounds on entities behind `IAudioDevice`, on miniaudio |
+| `runtime` | The world and its subsystems running a project or a cooked bundle, for the player |
 | `ui` | Dear ImGui layer. Editor and debug builds only |
 | `editor` | Panels, selection, undo/redo, gizmos, play mode. Desktop only |
 
@@ -154,6 +153,7 @@ ctest --preset linux-debug
 | Physics: bodies, colliders, the simulation, queries | [docs/physics.md](docs/physics.md) |
 | Scripting: script instances, errors and hot reload, the Lua API | [docs/scripting.md](docs/scripting.md) |
 | Audio: sources and listeners, playing, miniaudio | [docs/audio.md](docs/audio.md) |
+| Player: the runtime module, running a project or a bundle, what an export is | [docs/player.md](docs/player.md) |
 | Roadmap and milestones | [docs/roadmap.md](docs/roadmap.md) |
 | Conventions: code style, math, error handling, logging, commits, versioning | [docs/conventions.md](docs/conventions.md) |
 | Decision records | [docs/decisions/](docs/decisions/) |

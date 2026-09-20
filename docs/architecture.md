@@ -17,13 +17,15 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | `physics` | Rigid bodies, colliders, raycasts and debug outlines behind `IPhysicsWorld`, with the Jolt implementation ([physics.md](physics.md)) | `world`, Jolt |
 | `scripting` | Lua scripts on entities behind `IScriptRuntime`, with the Lua and sol2 implementation ([scripting.md](scripting.md)) | `physics`, Lua, sol2 |
 | `audio` | Sounds on entities behind `IAudioDevice`, with the miniaudio implementation ([audio.md](audio.md)) | `world`, miniaudio |
+| `runtime` | `Game`: the world and its subsystems running a project or a cooked bundle, for the player ([player.md](player.md)) | `audio`, `scripting` |
 | `ui` | Dear ImGui layer: context, SDL3 and Vulkan backends, texture display, fonts. Editor and debug builds only | `rhi`, `platform`, ImGui |
 | `editor` | Editor framework: panels, selection, commands with undo/redo, gizmos, picking, play mode, project handling. Desktop only | everything above |
 
 Applications live under `apps/`:
 
 - `apps/editor` links `editor` and is built only on desktop platforms.
-- `apps/player` links the runtime modules (`world` and the subsystems, never `ui` in release or `editor`) and runs a project folder.
+- `apps/player` links `runtime` and runs a project folder or a cooked bundle; it never links `ui` or `editor` ([player.md](player.md)).
+- `apps/cook` is `sonnet_cook`, which cooks a project into a bundle ([assets.md](assets.md#cooking-and-export)). Desktop only.
 - `apps/samples/<name>` are project folders, not executables. They are opened by the editor and run by the player.
 
 ## Dependency rule
@@ -89,7 +91,7 @@ GPU resources and assets are referenced by typed opaque handles from `core`: `Ha
 ## Editor and player
 
 - The **editor** is a desktop application built on the `editor` module. It opens a project folder, edits scenes and assets, and can play the current scene in place.
-- The **player** is the generic runtime. It opens a project folder (or a cooked bundle), loads the start scene and runs it. It has no editor code and, in release builds, no ImGui. An exported game is the player binary plus the cooked project ([ADR-0007](decisions/0007-data-driven-game-structure.md)).
+- The **player** is the generic runtime. It opens a project folder or a cooked bundle, loads the start scene and runs it. It has no editor code and, in release builds, no ImGui. An exported game is the player binary, the engine shaders and one bundle ([ADR-0007](decisions/0007-data-driven-game-structure.md), [ADR-0011](decisions/0011-cooked-bundles-and-the-player.md), [player.md](player.md)).
 
 Play mode in the editor:
 
@@ -112,4 +114,5 @@ Initialization and resource creation may throw; the hot loop never throws; recov
 - [Physics](physics.md)
 - [Scripting](scripting.md)
 - [Audio](audio.md)
+- [Player](player.md)
 - [Roadmap](roadmap.md)

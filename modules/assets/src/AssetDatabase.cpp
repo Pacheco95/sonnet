@@ -189,6 +189,33 @@ void AssetDatabase::open(const std::filesystem::path &projectRoot, std::span<con
 }
 
 void AssetDatabase::close() {
+  if (m_bundle) {
+    // A cooked asset has no file record to unload through, so everything the bundle loaded is
+    // released here; the built-in meshes come back on demand.
+    for (const auto &[uuid, texture] : m_textures) {
+      m_renderer.destroyTexture(texture.handle);
+    }
+    for (const auto &[uuid, environment] : m_environments) {
+      m_renderer.destroyEnvironment(environment);
+    }
+    for (const auto &[uuid, mesh] : m_meshes) {
+      m_renderer.destroyMesh(mesh);
+    }
+    for (const auto &[uuid, material] : m_materials) {
+      m_renderer.destroyMaterial(material.handle);
+    }
+    m_textures.clear();
+    m_environments.clear();
+    m_meshes.clear();
+    m_materials.clear();
+    m_meshData.clear();
+    m_models.clear();
+    m_skins.clear();
+    m_animations.clear();
+    m_scripts.clear();
+    m_sounds.clear();
+    m_failed.clear();
+  }
   std::vector<core::Uuid> files;
   for (const auto &[uuid, record] : m_files) {
     files.push_back(uuid);
