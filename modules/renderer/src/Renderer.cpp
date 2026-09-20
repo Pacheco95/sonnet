@@ -159,6 +159,21 @@ struct DebugConstants {
 };
 static_assert(sizeof(DebugConstants) <= rhi::PushConstantSize);
 
+// Mirror of shaders/skin.slang.
+struct SkinConstants {
+  std::uint64_t source;
+  std::uint64_t skin;
+  std::uint64_t joints;
+  std::uint64_t destination;
+  std::uint32_t vertexCount;
+  std::uint32_t jointCount;
+};
+static_assert(sizeof(SkinConstants) == 40);
+constexpr std::uint32_t SkinThreads = 64;
+// Graph frames a skinned instance's buffer outlives its last draw, so an instance hidden for a
+// moment does not reallocate.
+constexpr std::uint64_t SkinnedBufferFrames = 8;
+
 std::uint32_t groups(std::uint32_t size, std::uint32_t threads) {
   return (size + threads - 1) / threads;
 }
@@ -255,16 +270,21 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineCompute(m_irradiancePipeline, "ibl", "irradiance", "irradiance");
   defineCompute(m_prefilterPipeline, "ibl", "prefilter", "prefilter");
   defineCompute(m_brdfLutPipeline, "ibl", "brdfLut", "brdf lut");
+  defineCompute(m_skinPipeline, "skin", "computeMain", "skinning");
   createPipelines(shaderDir);
   createDefaults();
   SONNET_LOG_DEBUG("renderer ready, shaders from {}", shaderDir.string());
 }
 
 Renderer::~Renderer() {
+  releaseSkinnedVertices(true);
   m_meshes.forEach([this](MeshHandle handle, Mesh &mesh) {
     SONNET_LOG_WARN("leaked mesh \"{}\" ({}:{})", mesh.debugName, handle.index, handle.generation);
     m_device.destroyBuffer(mesh.vertices);
     m_device.destroyBuffer(mesh.indices);
+    if (mesh.skin) {
+      m_device.destroyBuffer(mesh.skin);
+    }
   });
   m_environments.forEach([this](EnvironmentHandle handle, Environment &environment) {
     SONNET_LOG_WARN("leaked environment \"{}\" ({}:{})", environment.debugName, handle.index, handle.generation);
@@ -284,9 +304,9 @@ Renderer::~Renderer() {
     m_device.destroySampler(sampler);
   }
   for (const rhi::PipelineHandle pipeline :
-       {m_brdfLutPipeline, m_prefilterPipeline, m_irradiancePipeline, m_cubeMipPipeline, m_equirectPipeline,
-        m_clusterPipeline, m_debugLinePipeline, m_outlinePipeline, m_fxaaPipeline, m_tonemapPipeline, m_bloomUpPipeline,
-        m_bloomDownPipeline, m_skyboxPipeline}) {
+       {m_skinPipeline, m_brdfLutPipeline, m_prefilterPipeline, m_irradiancePipeline, m_cubeMipPipeline,
+        m_equirectPipeline, m_clusterPipeline, m_debugLinePipeline, m_outlinePipeline, m_fxaaPipeline,
+        m_tonemapPipeline, m_bloomUpPipeline, m_bloomDownPipeline, m_skyboxPipeline}) {
     m_device.destroyPipeline(pipeline);
   }
   for (const auto &pair :
@@ -297,8 +317,8 @@ Renderer::~Renderer() {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 9> names{"cluster", "debug",   "depth", "forward", "ibl",
-                                                         "id",      "outline", "post",  "skybox"};
+  static constexpr std::array<std::string_view, 10> names{"cluster", "debug",   "depth", "forward", "ibl",
+                                                          "id",      "outline", "post",  "skin",    "skybox"};
   return names;
 }
 
@@ -414,12 +434,23 @@ MeshHandle Renderer::createMesh(const MeshData &data, std::string debugName) {
                              .debugName = std::format("{} indices", debugName)});
   m_device.uploadBuffer(vertices, 0, std::as_bytes(std::span{data.vertices}));
   m_device.uploadBuffer(indices, 0, std::as_bytes(std::span{data.indices}));
+  rhi::BufferHandle skin;
+  if (!data.skin.empty() && data.skin.size() != data.vertices.size()) {
+    SONNET_LOG_ERROR("mesh \"{}\": {} skin weights for {} vertices, drawn unskinned", debugName, data.skin.size(),
+                     data.vertices.size());
+  } else if (!data.skin.empty()) {
+    skin = m_device.createBuffer({.size = data.skin.size() * sizeof(SkinWeights),
+                                  .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::TransferDst,
+                                  .debugName = std::format("{} skin", debugName)});
+    m_device.uploadBuffer(skin, 0, std::as_bytes(std::span{data.skin}));
+  }
   std::vector<Submesh> submeshes = data.submeshes;
   if (submeshes.empty()) {
     submeshes.push_back(Submesh{0, static_cast<std::uint32_t>(data.indices.size()), 0});
   }
   const MeshHandle handle =
-      m_meshes.emplace(Mesh{std::move(debugName), vertices, indices, std::move(submeshes), data.bounds()});
+      m_meshes.emplace(Mesh{std::move(debugName), vertices, indices, skin,
+                            static_cast<std::uint32_t>(data.vertices.size()), std::move(submeshes), data.bounds()});
   SONNET_LOG_DEBUG("mesh \"{}\": {} vertices, {} triangles, {} submeshes", m_meshes.get(handle).debugName,
                    data.vertices.size(), data.triangleCount(), m_meshes.get(handle).submeshes.size());
   return handle;
@@ -433,6 +464,9 @@ void Renderer::destroyMesh(MeshHandle handle) {
   }
   m_device.destroyBuffer(mesh->vertices);
   m_device.destroyBuffer(mesh->indices);
+  if (mesh->skin) {
+    m_device.destroyBuffer(mesh->skin);
+  }
 }
 
 bool Renderer::isValid(MeshHandle handle) const {
@@ -798,7 +832,7 @@ void Renderer::computeCascades(const SceneView &view, float aspect) {
   }
 }
 
-void Renderer::prepareFrame(const RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize) {
+void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize) {
   SONNET_ZONE();
   if (m_view == &view && m_graph == &graph && m_graphFrame == graph.frameIndex() && m_targetSize == targetSize) {
     return;
@@ -811,6 +845,7 @@ void Renderer::prepareFrame(const RenderGraph &graph, const SceneView &view, glm
   m_frameBuffers = {};
   m_statistics = {};
   m_resolved.clear();
+  m_skinJobs.clear();
   m_opaqueOrder.clear();
   m_blendedOrder.clear();
   m_allOrder.clear();
@@ -826,6 +861,7 @@ void Renderer::prepareFrame(const RenderGraph &graph, const SceneView &view, glm
     const glm::vec4 viewPosition = cameraView * item.transform[3];
     m_resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
                                       .mesh = mesh,
+                                      .vertices = resolveVertices(item, *mesh, view),
                                       .submesh = mesh->submeshes[item.submesh],
                                       .doubleSided = desc.doubleSided,
                                       .blended = desc.alphaMode == AlphaMode::Blend,
@@ -849,6 +885,88 @@ void Renderer::prepareFrame(const RenderGraph &graph, const SceneView &view, glm
   std::ranges::sort(m_blendedOrder, [&](std::uint32_t a, std::uint32_t b) {
     return m_resolved[a].viewDepth > m_resolved[b].viewDepth;
   });
+
+  releaseSkinnedVertices(false);
+  if (!m_skinJobs.empty()) {
+    graph.addPass(
+        "skinning", [](PassBuilder &) {},
+        [this](rhi::ICommandList &commands, const PassResources &) { recordSkinning(commands); });
+  }
+}
+
+std::uint64_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view) {
+  const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
+                       std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
+  if (!skinned) {
+    return m_device.bufferAddress(mesh.vertices);
+  }
+  SkinnedVertices &instance = m_skinned[item.skinInstance];
+  if (instance.mesh != item.mesh || !instance.buffer) {
+    if (instance.buffer) {
+      m_device.destroyBuffer(instance.buffer);
+    }
+    instance.mesh = item.mesh;
+    instance.buffer = m_device.createBuffer({.size = std::uint64_t{mesh.vertexCount} * sizeof(Vertex),
+                                             .usage = rhi::BufferUsage::Storage,
+                                             .debugName = std::format("{} skinned", mesh.debugName)});
+    instance.lastFrame = m_graphFrame + 1; // not yet scheduled this frame
+  }
+  // The submeshes of one instance share its vertices: deformed once.
+  if (instance.lastFrame != m_graphFrame) {
+    instance.lastFrame = m_graphFrame;
+    m_skinJobs.push_back(SkinJob{
+        .mesh = &mesh, .destination = instance.buffer, .firstJoint = item.firstJoint, .jointCount = item.jointCount});
+    ++m_statistics.skinnedInstanceCount;
+    m_statistics.skinnedVertexCount += mesh.vertexCount;
+  }
+  return m_device.bufferAddress(instance.buffer);
+}
+
+void Renderer::releaseSkinnedVertices(bool all) {
+  for (auto it = m_skinned.begin(); it != m_skinned.end();) {
+    const bool stale = it->second.lastFrame + SkinnedBufferFrames < m_graphFrame || !m_meshes.contains(it->second.mesh);
+    if (all || stale) {
+      m_device.destroyBuffer(it->second.buffer);
+      it = m_skinned.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void Renderer::recordSkinning(rhi::ICommandList &commands) {
+  SONNET_ZONE();
+  if (m_view == nullptr || m_view->joints.empty()) {
+    return;
+  }
+  const std::span<const glm::mat4> joints = m_view->joints;
+  const rhi::TransientAllocation allocation = m_device.allocateTransient(joints.size_bytes());
+  if (allocation.data.empty()) {
+    return; // the allocator logged the exhaustion; the instances keep last frame's pose
+  }
+  std::memcpy(allocation.data.data(), joints.data(), joints.size_bytes());
+  const std::uint64_t jointAddress = m_device.bufferAddress(allocation.buffer) + allocation.offset;
+  // The instance buffers were written by the previous frame's skinning and read by its draws,
+  // which may still be running.
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::VertexShader | rhi::PipelineStage::ComputeShader,
+                          .srcAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite,
+                          .dstStage = rhi::PipelineStage::ComputeShader,
+                          .dstAccess = rhi::Access::ShaderWrite});
+  commands.bindPipeline(m_skinPipeline);
+  for (const SkinJob &job : m_skinJobs) {
+    const SkinConstants constants{.source = m_device.bufferAddress(job.mesh->vertices),
+                                  .skin = m_device.bufferAddress(job.mesh->skin),
+                                  .joints = jointAddress + std::uint64_t{job.firstJoint} * sizeof(glm::mat4),
+                                  .destination = m_device.bufferAddress(job.destination),
+                                  .vertexCount = job.mesh->vertexCount,
+                                  .jointCount = job.jointCount};
+    commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+    commands.dispatch(groups(job.mesh->vertexCount, SkinThreads), 1, 1);
+  }
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                          .srcAccess = rhi::Access::ShaderWrite,
+                          .dstStage = rhi::PipelineStage::VertexShader,
+                          .dstAccess = rhi::Access::ShaderRead});
 }
 
 void Renderer::ensureFrameUploaded(const PassResources &resources) {
@@ -1013,7 +1131,7 @@ void Renderer::recordDraws(rhi::ICommandList &commands, std::span<const std::uin
       commands.bindIndexBuffer(draw.mesh->indices, rhi::IndexType::Uint32);
       boundMesh = draw.mesh;
     }
-    const DrawConstants push{m_device.bufferAddress(draw.mesh->vertices), draw.objectIndex, cascade};
+    const DrawConstants push{draw.vertices, draw.objectIndex, cascade};
     commands.pushConstants(std::as_bytes(std::span{&push, 1}));
     commands.drawIndexed(draw.submesh.indexCount, 1, draw.submesh.firstIndex);
     if (count) {

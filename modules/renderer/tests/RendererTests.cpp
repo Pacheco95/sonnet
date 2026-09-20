@@ -20,6 +20,7 @@
 #include <format>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 using namespace sonnet::renderer;
 using namespace sonnet::rhi;
@@ -425,6 +426,114 @@ TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu
     REQUIRE(device->validationMessageCount() == 0);
 
     renderer.destroyMaterial(material);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// A box whose every vertex follows joint 0: what a skinned draw moves as one piece.
+MeshData skinnedBox() {
+  MeshData box = primitives::box();
+  box.skin.assign(box.vertices.size(), SkinWeights{.joints = {0u, 0u, 0u, 0u}, .weights = {1.0f, 0.0f, 0.0f, 0.0f}});
+  return box;
+}
+
+TEST_CASE("skinned draws are deformed once per instance before the passes that draw them", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const MeshHandle skinned = renderer.createMesh(skinnedBox(), "skinned box");
+  const MeshHandle plain = renderer.createMesh(primitives::box(), "plain box");
+  const std::array joints{glm::translate(glm::mat4{1.0f}, glm::vec3{1.0f, 0.0f, 0.0f})};
+  // Two draws of one instance, as two submeshes would be, a plain draw, and a draw that asks for
+  // skinning of a mesh without weights, which draws it as it is.
+  std::vector<DrawItem> draws{DrawItem{.mesh = skinned, .firstJoint = 0, .jointCount = 1, .skinInstance = 7},
+                              DrawItem{.mesh = skinned, .firstJoint = 0, .jointCount = 1, .skinInstance = 7},
+                              DrawItem{.mesh = plain},
+                              DrawItem{.mesh = plain, .firstJoint = 0, .jointCount = 1, .skinInstance = 8}};
+  SceneView view = boxScene(draws);
+  view.joints = joints;
+  const auto frame = [&](bool idPass) {
+    view.draws = draws;
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    const GraphImage color = graph.importImage(target.color());
+    const GraphImage depth = graph.importImage(target.depth());
+    if (idPass) {
+      renderer.addIdPass(
+          graph, view, graph.createImage({.size = {32, 32}, .format = Renderer::IdFormat, .debugName = "ids"}), depth);
+    } else {
+      renderer.addScenePasses(graph, view, color, depth);
+    }
+    graph.execute(commands);
+    device->endFrame();
+  };
+
+  frame(false);
+  REQUIRE(hasPass(graph, "skinning"));
+  REQUIRE(graph.statistics().passes[1].name == "skinning");               // after the lookup table, before the shadows
+  REQUIRE(countLines(*device, "uploadBuffer \"skinned box skin\"") == 0); // uploaded before the frame
+  REQUIRE(countLines(*device, "bindPipeline \"skinning\"") == 1);
+  // One dispatch for the instance, 24 vertices in one group of 64, between the barriers that
+  // order it after last frame's draws and before this frame's.
+  const std::size_t skinning = lineIndex(*device, "bindPipeline \"skinning\"");
+  REQUIRE(device->trace()[skinning - 1] == "memoryBarrier");
+  REQUIRE(device->trace()[skinning + 1] == "pushConstants 40 bytes");
+  REQUIRE(device->trace()[skinning + 2] == "dispatch 1 1 1");
+  REQUIRE(device->trace()[skinning + 3] == "memoryBarrier");
+  REQUIRE(lineIndex(*device, "bindPipeline \"skinning\"") < lineIndex(*device, "bindPipeline \"shadow\""));
+  REQUIRE(renderer.statistics().skinnedInstanceCount == 1);
+  REQUIRE(renderer.statistics().skinnedVertexCount == 24);
+  REQUIRE(renderer.statistics().drawCount == 4);
+  const std::size_t buffers = device->bufferCount();
+
+  // The next frame reuses the instance's buffer; the id pass alone skins too.
+  frame(true);
+  REQUIRE(hasPass(graph, "skinning"));
+  REQUIRE(graph.statistics().passes.front().name == "skinning");
+  REQUIRE(device->bufferCount() == buffers);
+
+  // An instance that stops being drawn keeps its buffer for a few frames, then releases it.
+  draws.resize(3);
+  draws[0].jointCount = 0;
+  draws[1].jointCount = 0;
+  frame(false);
+  REQUIRE_FALSE(hasPass(graph, "skinning"));
+  REQUIRE(device->bufferCount() == buffers);
+  for (int i = 0; i < 10; ++i) {
+    frame(false);
+  }
+  REQUIRE(device->bufferCount() == buffers - 1);
+
+  renderer.destroyMesh(plain);
+  renderer.destroyMesh(skinned);
+}
+
+TEST_CASE("a skinned box follows its joint on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(skinnedBox(), "skinned box");
+    // The joint moves the box a metre and a half to the right, out of the centre of the view.
+    const std::array joints{glm::translate(glm::mat4{1.0f}, glm::vec3{1.5f, 0.0f, 0.0f})};
+    const std::array draws{DrawItem{.mesh = box, .firstJoint = 0, .jointCount = 1, .skinInstance = 1}};
+    SceneView view = boxScene(draws);
+    view.joints = joints;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2);
+
+    // The camera is 3 m back with a 60 degree field of view: the box's centre, 1.5 m right,
+    // lands near pixel 32 + 1.5 / 1.732 * 32 = 60.
+    const Pixel centre = scene.pixel(32, 32);
+    REQUIRE(centre.r + centre.g + centre.b == 0);
+    const Pixel moved = scene.pixel(56, 32);
+    REQUIRE(moved.r + moved.g + moved.b > 60);
+    REQUIRE(renderer.statistics().skinnedInstanceCount == 1);
+    REQUIRE(device->validationMessageCount() == 0);
     renderer.destroyMesh(box);
   }
   REQUIRE(device->validationMessageCount() == 0);
