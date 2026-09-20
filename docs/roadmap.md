@@ -157,12 +157,12 @@ Deferred: occlusion culling and a depth pyramid, meshlets, a shared index arena 
 
 ## M8: Job system and asynchronous loading
 
-More of the docs wait on the job system than on anything else: asset loading is synchronous, Jolt runs on a single-threaded job system of its own, and `world` never uses flecs' multi-threaded pipeline. It follows M7, which answered whether multi-threaded command recording is worth building: it is not, since recording a scene pass is now a handful of calls, but the per-frame object, material and light upload that M7 left behind is. ADR-0013 settles its shape first.
+More of the docs wait on the job system than on anything else: asset loading is synchronous, Jolt runs on a single-threaded job system of its own, and `world` never uses flecs' multi-threaded pipeline. It follows M7, which answered whether multi-threaded command recording is worth building: it is not, since recording a scene pass is now a handful of calls, but the per-frame object, material and light upload that M7 left behind is. [ADR-0013](decisions/0013-job-system.md) settles its shape first, and above all how flecs, Jolt and the engine's own parallel loops share one machine without starving each other.
 
 - `core`: the job system — jobs with dependencies, a parallel for, main-thread affinity for what needs it, Tracy zones on the workers.
 - `physics`: `JPH::JobSystem` implemented on it, replacing `JobSystemSingleThreaded` ([ADR-0009](decisions/0009-physics-and-scripting.md)).
 - `assets`: the asynchronous request form, which returns at once with a placeholder until the job finishes ([assets.md](assets.md#database)).
-- `world`: flecs' multi-threaded pipeline for the systems that are safe in it.
+- `world`: not threaded after all. `cascade` excludes `TransformSystem` and `immediate` excludes the animation, skin and script systems, which leaves flecs' pipeline nothing worth splitting; a parallel `TransformSystem` over `parallelFor` waits for the benchmark that asks for it ([ADR-0013](decisions/0013-job-system.md)).
 - `renderer`: the per-frame object, material and light upload spread over workers, which M7 left as the larger part of a frame's CPU cost.
 - A `linux-tsan` preset, since the sanitizer preset is address and undefined-behaviour only and nothing has run under a thread sanitizer.
 
