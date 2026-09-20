@@ -52,6 +52,7 @@ sonnet_add_module_test(rhi
     tests/BindlessTests.cpp
     tests/DeviceTests.cpp
     tests/IdImageTests.cpp
+    tests/IndirectTests.cpp
     tests/MeshTests.cpp
     tests/NullDeviceTests.cpp
     tests/ResourceTests.cpp
@@ -61,5 +62,5 @@ sonnet_add_module_test(rhi
 if(TARGET rhi_tests)
   sonnet_add_shaders(rhi_tests SHADERS
     tests/shaders/triangle.slang tests/shaders/mesh.slang tests/shaders/id.slang tests/shaders/readid.slang
-    tests/shaders/texture.slang tests/shaders/fill.slang)
+    tests/shaders/texture.slang tests/shaders/fill.slang tests/shaders/indirect.slang)
 endif()
