@@ -209,10 +209,21 @@ TEST_CASE("the scene passes shade every item once after the depth pre-pass and t
   REQUIRE(countLines(*device, "bindPipeline \"light clustering\"") == 1);
   REQUIRE(countLines(*device, "dispatch 4 3 6") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"tonemap\"") == 1);
-  // Each box in four cascades, the pre-pass and the forward pass.
-  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 12);
-  REQUIRE(countLines(*device, "drawIndexed") == 18);
+  // The opaque draws are submitted from the GPU (ADR-0012): one culling pass ahead of the scene
+  // clears the counts and tests the six frusta, and each drawing pass then issues one call per
+  // batch. The three draws are two boxes and a sphere sorted by mesh, so two batches each in the
+  // four cascades, the pre-pass and the forward pass.
+  REQUIRE(hasPass(graph, "cull"));
+  REQUIRE(lineIndex(*device, "bindPipeline \"cull\"") < lineIndex(*device, "bindPipeline \"shadow\""));
+  REQUIRE(countLines(*device, "bindPipeline \"clear draw counts\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"cull\"") == 1);
+  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 2") == 6);
+  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 1") == 6);
+  // The trailing space matches only the direct form, not drawIndexedIndirectCount.
+  REQUIRE(countLines(*device, "drawIndexed ") == 0); // nothing direct: no blended draws
   REQUIRE(lineIndex(*device, "bindPipeline \"depth\"") < lineIndex(*device, "bindPipeline \"forward\""));
+  // The statistics report what was submitted; the GPU decides what survives.
+  REQUIRE(renderer.statistics().indirectCallCount == 12);
   REQUIRE(renderer.statistics().drawCount == 3);
   REQUIRE(renderer.statistics().shadowDrawCount == 12);
   REQUIRE(renderer.statistics().triangleCount == 12 * 2 + (8 * 2 * 2 + 8 * 2));
@@ -284,12 +295,16 @@ TEST_CASE("blended materials draw after the opaque scene, farthest first", "[ren
   REQUIRE(countLines(*device, "bindPipeline \"depth\"") == 0);
   REQUIRE(countLines(*device, "bindPipeline \"forward double sided\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"forward blend\"") == 1);
-  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 4 + 1 + 1 + 1);
+  // The one opaque draw is submitted indirectly, once per cascade plus the pre-pass and the
+  // forward pass; the two blended ones stay on the direct path (ADR-0012).
+  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 1") == 6);
+  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 1); // the blended box
+  REQUIRE(countLines(*device, "drawIndexed ") == 2);      // and the blended sphere
   const std::size_t blend = lineIndex(*device, "bindPipeline \"forward blend\"");
   REQUIRE(lineIndex(*device, "bindPipeline \"forward double sided\"") < blend);
   const auto &trace = device->trace();
   const auto firstBlendedDraw = std::find_if(trace.begin() + static_cast<std::ptrdiff_t>(blend), trace.end(),
-                                             [](const std::string &line) { return line.starts_with("drawIndexed"); });
+                                             [](const std::string &line) { return line.starts_with("drawIndexed "); });
   REQUIRE(firstBlendedDraw != trace.end());
   REQUIRE(*firstBlendedDraw == "drawIndexed 36 x1"); // the far box, then the near sphere
   REQUIRE(renderer.statistics().drawCount == 3);
@@ -656,6 +671,69 @@ TEST_CASE("debug lines are depth-tested against the scene on a GPU", "[renderer]
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[renderer][culling][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    constexpr glm::uvec2 size{64, 64};
+    // A ground plane far wider than the view, so it straddles every frustum plane and every
+    // cascade's: the case where a wrong plane extraction would cull what fills the screen.
+    const MeshHandle plane = renderer.createMesh(primitives::plane({40.0f, 40.0f}), "ground");
+
+    std::vector<DrawItem> visible{
+        DrawItem{.mesh = plane, .transform = glm::translate(glm::mat4{1.0f}, {0.0f, -1.0f, 0.0f})},
+        DrawItem{.mesh = box, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
+    };
+    // The same scene plus boxes far behind the camera and far off to either side. None of them
+    // can reach a pixel, so culling them must leave the image untouched.
+    std::vector<DrawItem> withOutsiders = visible;
+    for (int i = 0; i < 64; ++i) {
+      const float offset = 60.0f + static_cast<float>(i);
+      for (const glm::vec3 place :
+           {glm::vec3{offset, 0.0f, 0.0f}, glm::vec3{-offset, 0.0f, 0.0f}, glm::vec3{0.0f, 0.0f, offset}}) {
+        withOutsiders.push_back(DrawItem{
+            .mesh = box, .transform = glm::translate(glm::mat4{1.0f}, place), .color = {0.0f, 1.0f, 0.0f, 1.0f}});
+      }
+    }
+
+    const auto shoot = [&](std::span<const DrawItem> draws) {
+      GpuScene scene{*device, renderer, size};
+      scene.render(boxScene(draws), 2);
+      std::vector<Pixel> image;
+      image.reserve(std::size_t{size.x} * size.y);
+      for (unsigned y = 0; y < size.y; ++y) {
+        for (unsigned x = 0; x < size.x; ++x) {
+          image.push_back(scene.pixel(x, y));
+        }
+      }
+      return image;
+    };
+    const std::vector<Pixel> alone = shoot(visible);
+    const std::vector<Pixel> crowded = shoot(withOutsiders);
+
+    // The box is lit and red at the centre, and the ground fills the bottom of the screen: both
+    // survived culling, in the forward pass and in the cascades that shadow them.
+    const Pixel centre = alone[std::size_t{size.y / 2} * size.x + size.x / 2];
+    REQUIRE(centre.r > centre.g);
+    REQUIRE(centre.r > 40);
+    const Pixel ground = alone[std::size_t{size.y - 4} * size.x + size.x / 2];
+    REQUIRE(ground.r + ground.g + ground.b > 30); // not the clear colour
+    // And what the frustum does not hold changes nothing at all.
+    REQUIRE(crowded.size() == alone.size());
+    for (std::size_t i = 0; i < alone.size(); ++i) {
+      REQUIRE(crowded[i].r == alone[i].r);
+      REQUIRE(crowded[i].g == alone[i].g);
+      REQUIRE(crowded[i].b == alone[i].b);
+    }
+
+    renderer.destroyMesh(plane);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("the sun's shadow darkens the ground beside a box on a GPU", "[renderer][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
@@ -837,7 +915,12 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     WARN(std::format("{} draws, {} lights, {} triangles: {:.3f} ms GPU per frame on {}",
                      renderer.statistics().drawCount, renderer.statistics().lightCount,
                      renderer.statistics().triangleCount, total, device->info().deviceName));
+    WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
+                     renderer.statistics().indirectCallCount, Renderer::CullJobsOpaque));
     REQUIRE(renderer.statistics().drawCount == Side * Side);
+    // Two meshes, so two batches, and one call each in the four cascades, the pre-pass and the
+    // forward pass: what used to be sixty thousand draw calls (ADR-0012).
+    REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);
     REQUIRE(device->validationMessageCount() == 0);
     renderer.destroyEnvironment(environment);
     renderer.destroyMaterial(material);

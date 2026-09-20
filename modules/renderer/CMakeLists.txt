@@ -16,6 +16,7 @@ sonnet_add_module(renderer
 # are compiled, and sonnet_add_engine_shaders(<target>) places the result next to a binary.
 set_property(GLOBAL PROPERTY SONNET_ENGINE_SHADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cluster.slang"
+  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cull.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/debug.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/depth.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/forward.slang"

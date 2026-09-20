@@ -130,16 +130,41 @@ public struct ObjectData {
   public float4 color; // multiplies the material's base colour
   public uint id;      // entity id for picking and the selection outline, 0 for none
   public uint material;
-  public uint padding0;
-  public uint padding1;
+  // Where this draw pulls its vertices from: the mesh's buffer, or the buffer the skinning pass
+  // deformed it into. It lives here rather than in the push constants because an indirect draw
+  // cannot carry it (ADR-0012).
+  public Vertex *vertices;
 };
 
-// Vertices are pulled through the mesh's buffer device address; the object index selects the
-// draw's entry in the per-pass storage buffer. Shadow passes carry their cascade.
+// A draw finds its object through SV_StartInstanceLocation, which every command carries in its
+// firstInstance and every direct draw passes as its first instance (ADR-0012). What is left per
+// pass is the shadow cascade, pushed once.
 public struct DrawConstants {
-  public Vertex *vertices;
-  public uint objectIndex;
   public uint cascade;
+};
+
+// One candidate for the culling pass: the world-space bounds tested against the frustum, and
+// what the surviving command is made of. Matches CullDraw in the renderer module.
+public struct CullDraw {
+  public float3 center;
+  public float3 extent;
+  public uint objectIndex;
+  public uint indexCount;
+  public uint firstIndex;
+  public uint batch;      // which count this draw bumps
+  public uint batchFirst; // the batch's first command slot
+  public uint flags;
+};
+
+public static const uint CullSelected = 1u << 0;
+
+// Vulkan's VkDrawIndexedIndirectCommand, the layout rhi::IndirectCommand mirrors.
+public struct IndirectCommand {
+  public uint indexCount;
+  public uint instanceCount;
+  public uint firstIndex;
+  public int vertexOffset;
+  public uint firstInstance;
 };
 
 [[vk::push_constant]]

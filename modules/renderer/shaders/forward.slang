@@ -11,14 +11,16 @@ struct VertexOutput {
   float4 tangent : TANGENT0;
   float2 uv : TEXCOORD0;
   float4 color : COLOR0;
+  nointerpolation uint objectIndex : OBJECT0;
 };
 
 [shader("vertex")]
-VertexOutput vertexMain(uint vertexId : SV_VertexID) {
-  const Vertex vertex = draw.vertices[vertexId];
-  const ObjectData object = objects[draw.objectIndex];
+VertexOutput vertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV_StartInstanceLocation) {
+  const ObjectData object = objects[objectIndex];
+  const Vertex vertex = object.vertices[vertexId];
   const float4 world = mul(object.model, float4(vertex.position, 1.0));
   VertexOutput output;
+  output.objectIndex = objectIndex;
   output.position = mul(frame.viewProjection, world);
   output.worldPosition = world.xyz;
   output.normal = mul((float3x3)object.normalMatrix, vertex.normal);
@@ -108,7 +110,7 @@ float4 sampleMaterial(uint texture, uint sampler, float2 uv) {
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
-  const ObjectData object = objects[draw.objectIndex];
+  const ObjectData object = objects[input.objectIndex];
   const MaterialData material = frame.materials[object.material];
   const uint alphaMode = material.flags & 0xFF;
 
