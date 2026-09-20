@@ -176,6 +176,7 @@ ctest --preset linux-debug
 | [0010](docs/decisions/0010-audio-and-animation.md) | Audio on miniaudio, animation in `world`, skinning in compute | Accepted |
 | [0011](docs/decisions/0011-cooked-bundles-and-the-player.md) | Cooked bundles, the `runtime` module and what export assembles | Accepted |
 | [0012](docs/decisions/0012-gpu-driven-rendering.md) | GPU culling into indirect draws, batched per pipeline and mesh | Accepted |
+| [0013](docs/decisions/0013-job-system.md) | One job system in `core`, with flecs on stage workers of its own | Accepted |
 
 ## License
 
