@@ -41,6 +41,7 @@
       ]
     },
     "sol2",
+    "miniaudio",
     {
       "name": "imgui",
       "features": [
