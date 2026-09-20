@@ -25,3 +25,16 @@
 # Lifting this needs an overlay port that builds Jolt with -fsanitize=thread for this preset alone,
 # which is the only way to give the sanitizer the whole picture. Deferred, and noted in M8.
 race:JPH::
+
+# There is no Lavapipe entry here on purpose. Mesa's software rasterizer runs the Vulkan tests and
+# starts a rasterizing pool of its own, uninstrumented like Jolt, and it reports races and
+# lock-order inversions from inside its own threads by the hundred. Suppressing those needs both
+# race: and deadlock: entries broad enough to cover engine frames, since the stacks enter through
+# VulkanDevice, which would blind the sanitizer to the engine's own use of the device.
+#
+# The preset points VK_DRIVER_FILES at /dev/null instead, so every suite runs with no Vulkan driver
+# and its GPU cases skip themselves: renderer_tests still runs 29 of its 38 on the null device,
+# which is where the per-frame fill and everything else the job system touches is exercised. What
+# this gives up is the sanitizer's view of the engine's Vulkan calls, and those are single-threaded
+# by design (docs/rendering.md, "rhi per-frame rules"); ctest --preset linux-debug is what covers
+# them, on Lavapipe, where the driver's own threads are not the sanitizer's problem.

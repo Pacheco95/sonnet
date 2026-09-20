@@ -105,7 +105,10 @@
     { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } },
     { "name": "linux-asan", "configurePreset": "linux-asan", "output": { "outputOnFailure": true } },
     { "name": "linux-tsan", "configurePreset": "linux-tsan", "output": { "outputOnFailure": true },
-      "environment": { "TSAN_OPTIONS": "halt_on_error=1 exitcode=66 suppressions=${sourceDir}/tools/tsan.supp" } },
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1 exitcode=66 suppressions=${sourceDir}/tools/tsan.supp",
+        "VK_DRIVER_FILES": "/dev/null"
+      } },
     { "name": "linux-coverage", "configurePreset": "linux-coverage", "output": { "outputOnFailure": true } },
     { "name": "windows-debug", "configurePreset": "windows-debug", "output": { "outputOnFailure": true } },
     { "name": "windows-release", "configurePreset": "windows-release", "output": { "outputOnFailure": true } },

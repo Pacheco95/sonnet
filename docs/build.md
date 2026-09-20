@@ -57,7 +57,7 @@ Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-androi
 |---|---|
 | `linux-debug`, `linux-release` | Ninja, Clang or GCC from `PATH` |
 | `linux-asan` | Address and undefined-behaviour sanitizers |
-| `linux-tsan` | Thread sanitizer, for the job system and what runs on it. Tracy is off in it, because its lock-free queue uses fences the sanitizer cannot model and reports races of its own that would drown real ones. The test preset points `TSAN_OPTIONS` at `tools/tsan.supp` and makes a race fail the test; the file suppresses Jolt, whose vcpkg build carries no instrumentation, and says what covers `physics` instead |
+| `linux-tsan` | Thread sanitizer, for the job system and what runs on it. Tracy is off in it, because its lock-free queue uses fences the sanitizer cannot model and reports races of its own that would drown real ones. The test preset points `TSAN_OPTIONS` at `tools/tsan.supp`, makes a race fail the test, and sets `VK_DRIVER_FILES` to `/dev/null` so the GPU cases skip: Mesa's software rasterizer runs on threads of its own that carry no instrumentation. The suppression file covers Jolt for the same reason and says what covers those paths instead |
 | `linux-coverage` | gcov instrumentation, `coverage` target runs gcovr (same shape as the previous iteration) |
 | `windows-debug`, `windows-release` | Ninja with MSVC from a developer prompt |
 | `macos-debug`, `macos-release` | Ninja, Apple Clang |
