@@ -104,10 +104,22 @@ Done: the basic sample's playground plays in the editor with its scripts and phy
 
 ## M5: Audio and animation
 
-- `audio`: `IAudioDevice`, sources, listener, mixing with miniaudio or SDL3 audio.
+- `audio`: `IAudioDevice`, sources, listener, mixing with miniaudio.
 - Skeletal animation: skins and clips from glTF, animation player component, GPU skinning.
 
-Done when the animated glTF samples play with sound in the editor and the player.
+Landed as nine commits, the first accepting ADR-0010:
+
+1. ADR-0010: audio on miniaudio behind `IAudioDevice`, animation in `world`, skinning in a compute pass, and both driven by components so scripts reach them.
+2. `miniaudio` through vcpkg.
+3. `rhi`: the null device's count of live buffers.
+4. `renderer`: skin weights on a mesh, joint ranges on a draw item, the skinning pass over `skin.slang` with a device-local buffer per instance, and the statistics for it.
+5. `assets`: skins, animation clips and their sampling, sound files, flat normals for a primitive without them, the sidecar at version 2 with the new sub-assets.
+6. `world`: `SkinnedMesh`, `Animator` and `SkinPose`, `AnimationSystem` with the playback and skin palette systems, lookup by path, model prefabs that carry the skin and the first clip, and joint matrices in the draw list.
+7. `audio`: the components, the miniaudio device with its voices, spatialisation and listener, decoding with hot reload, and mixing without an output device for the tests.
+8. `editor`: animation and sound in play mode, the editor camera as the fallback listener, sounds, skins and clips in the browser and the inspector, with a preview button, and the skinned count in the statistics.
+9. `samples`: a skinned reed that sways and a beacon that turns and hums in the basic sample's start scene, a chime the playground's spawner rings, and the generator that writes them; the version becomes 0.6.0.
+
+Done: the basic sample's start scene plays its skinned and node animations with a spatial hum in the editor, which `editor_tests` checks headless on Lavapipe, and the Khronos animated samples (CesiumMan, Fox, RiggedFigure, RiggedSimple, BoxAnimated, InterpolationTest) import and play. The player half of the criterion waits for M6, where `apps/player` arrives. Deferred: blending and crossfades between clips, morph targets, animation events, root motion, animation in edit mode, streaming long sounds instead of decoding them whole, sound cooking into the bundle, and several clips on one entity.
 
 ## M6: Player and desktop export
 

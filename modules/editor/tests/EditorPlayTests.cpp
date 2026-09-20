@@ -209,3 +209,55 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("the basic sample's start scene plays its animations and sounds", "[editor][gpu][samples]") {
+  Fixture fixture;
+  const std::optional<std::filesystem::path> manifest =
+      editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
+  if (!manifest) {
+    SKIP("the sample was not found above " << fixture.platform.basePath().string());
+  }
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "animated";
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory.parent_path());
+  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  const auto sink = std::make_shared<ProblemSink>();
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    core::Log::addSink(sink);
+    REQUIRE(editor.openProject(directory).has_value()); // opens the start scene
+    world::World &world = editor.world();
+    const flecs::entity reed = byName(world, "Reed");
+    const flecs::entity beacon = byName(world, "Beacon");
+    const flecs::entity stem = world.findByPath(reed, "Reed/Stem");
+    REQUIRE(stem);
+    REQUIRE(stem.has<world::SkinnedMesh>());
+    fixture.frame(editor);
+    // The skin poses its joints in edit mode; the clip waits for play.
+    REQUIRE(stem.get<world::SkinPose>().joints.size() == 4);
+    REQUIRE(reed.get<world::Animator>().time == 0.0f);
+    REQUIRE(editor.audio().playingCount() == 0);
+
+    editor.play();
+    for (int frame = 0; frame < 60; ++frame) {
+      fixture.frame(editor);
+    }
+    // The stem bends away from its bind pose, the lamp turns, and the beacon hums.
+    REQUIRE(reed.get<world::Animator>().time > 0.0f);
+    const glm::mat4 tip = stem.get<world::SkinPose>().joints.back();
+    REQUIRE(std::abs(tip[3].x) > 0.01f);
+    REQUIRE(world.findByPath(beacon, "Beacon").get<world::Transform>().rotation.y != 0.0f);
+    REQUIRE(editor.audio().playingCount() == 1);
+    REQUIRE(editor.audio().isPlaying(beacon));
+
+    editor.stop();
+    fixture.frame(editor);
+    REQUIRE(editor.audio().playingCount() == 0);
+    REQUIRE(byName(world, "Reed").get<world::Animator>().time == 0.0f);
+    REQUIRE(sink->problems.empty());
+    core::Log::removeSink(sink);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}

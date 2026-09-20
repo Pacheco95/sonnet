@@ -1,0 +1,43 @@
+{
+  "settings": {},
+  "sourceHash": "34d48d0027bd5a6c",
+  "subAssets": [
+    {
+      "materials": [],
+      "name": "Pulse",
+      "type": "Animation",
+      "uuid": "098a469d-544d-8a8c-84da-5218204dca4e"
+    },
+    {
+      "materials": [
+        "99e16203-1a2e-87fc-9a48-8da386d1fe2d"
+      ],
+      "name": "HaloMesh",
+      "type": "Mesh",
+      "uuid": "7db11607-2f81-8ea5-8e67-88f1cf91bd18"
+    },
+    {
+      "materials": [],
+      "name": "Glow",
+      "type": "Material",
+      "uuid": "99e16203-1a2e-87fc-9a48-8da386d1fe2d"
+    },
+    {
+      "materials": [
+        "e6df6203-1a2d-87fc-8d49-8da386d2fe2d"
+      ],
+      "name": "LampMesh",
+      "type": "Mesh",
+      "uuid": "caaf1607-2f80-8ea5-8168-88f1cf92bd18"
+    },
+    {
+      "materials": [],
+      "name": "Lamp",
+      "type": "Material",
+      "uuid": "e6df6203-1a2d-87fc-8d49-8da386d2fe2d"
+    }
+  ],
+  "type": "Model",
+  "uuid": "b1c7ef7c-afa8-4ab9-9a03-1e6e8719809d",
+  "version": 2
+}

@@ -24,6 +24,8 @@ function Spawner:update(dt)
   transform.rotation = quat.euler(math.random() * math.pi, math.random() * math.pi, 0)
   crate:set("Transform", transform)
   table.insert(self.crates, crate)
+  -- The chime stops by itself, which clears `playing`; setting it again rings it anew.
+  self.entity:set("AudioSource", { playing = true })
   if #self.crates > self.limit then
     local oldest = table.remove(self.crates, 1)
     if oldest:isValid() then
