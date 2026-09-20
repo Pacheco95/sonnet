@@ -84,7 +84,7 @@ A project is a folder with a `project.json` at its root:
 }
 ```
 
-Everything in the project is referenced relative to this folder so projects are portable.
+Everything in the project is referenced relative to this folder so projects are portable. `assets::Project` reads and writes it and resolves paths against the folder, because the editor and the player both open projects ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)); creating one with its starter scene needs `world` and stays in the editor ([editor.md](editor.md#projects-and-scenes)).
 
 ## Scene file
 

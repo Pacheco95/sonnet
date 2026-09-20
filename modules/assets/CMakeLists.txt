@@ -12,6 +12,7 @@ sonnet_add_module(assets
     src/GltfImporter.cpp
     src/ImageImporter.cpp
     src/Ktx2.cpp
+    src/Project.cpp
     src/ShaderCompiler.cpp
   PUBLIC_DEPENDS
     sonnet::renderer
@@ -28,6 +29,7 @@ sonnet_add_module_test(assets
     tests/AnimationTests.cpp
     tests/DatabaseTests.cpp
     tests/GltfTests.cpp
+    tests/ProjectTests.cpp
     tests/ShaderTests.cpp
     tests/TextureTests.cpp
   DEPENDS

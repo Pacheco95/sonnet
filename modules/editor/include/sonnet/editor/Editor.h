@@ -133,7 +133,7 @@ public:
   [[nodiscard]] CommandStack &commands() noexcept {
     return m_commands;
   }
-  [[nodiscard]] const std::optional<Project> &project() const noexcept {
+  [[nodiscard]] const std::optional<assets::Project> &project() const noexcept {
     return m_project;
   }
   [[nodiscard]] const std::filesystem::path &scenePath() const noexcept {
@@ -212,7 +212,7 @@ private:
   Gizmo m_gizmo;
   std::filesystem::path m_preferencesFile;
   Preferences m_preferences;
-  std::optional<Project> m_project;
+  std::optional<assets::Project> m_project;
   std::filesystem::path m_scenePath;
   std::uint64_t m_savedRevision{0};
   nlohmann::json m_snapshot;
