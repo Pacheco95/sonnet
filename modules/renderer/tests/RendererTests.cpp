@@ -549,6 +549,47 @@ TEST_CASE("the renderer destroys every pipeline it creates", "[renderer][null]")
   REQUIRE(device->pipelineCount() == 0);
 }
 
+TEST_CASE("the present pass copies the scene into a target of another format", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  RendererSettings settings = testSettings();
+  // What a swapchain usually hands out, which is not the renderer's own colour format.
+  settings.presentFormat = Format::B8G8R8A8Unorm;
+  Renderer renderer{*device, shaderDir(platform), settings};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const ImageHandle backbuffer = device->createImage(
+      {.size = {32, 32}, .format = Format::B8G8R8A8Unorm, .usage = ImageUsage::None, .debugName = "backbuffer"});
+
+  graph.reset();
+  renderer.addPresentPass(graph, graph.importImage(target.color()), graph.importImage(backbuffer));
+  ICommandList &commands = device->beginFrame();
+  graph.execute(commands);
+  device->endFrame();
+
+  REQUIRE(hasPass(graph, "present"));
+  REQUIRE(countLines(*device, "bindPipeline") >= 1);
+  REQUIRE(countLines(*device, "draw 3 x1") == 1); // the full-screen triangle
+  device->destroyImage(backbuffer);
+}
+
+TEST_CASE("without a present format there is no present pass", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+
+  graph.reset();
+  renderer.addPresentPass(graph, graph.importImage(target.color()), graph.importImage(target.color()));
+  ICommandList &commands = device->beginFrame();
+  graph.execute(commands);
+  device->endFrame();
+  REQUIRE(!hasPass(graph, "present"));
+}
+
 TEST_CASE("debug lines draw over the scene where nothing hides them", "[renderer][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();

@@ -110,6 +110,8 @@ The main pipeline is clustered forward ([ADR-0008](decisions/0008-clustered-forw
 
 The editor adds the id, selection mask and outline passes after these. `RendererSettings` holds the sizes and sample counts, which the tests turn down and which the editor keeps at their defaults.
 
+The player adds one more: `addPresentPass` copies the finished colour image into the acquired swapchain image with a full-screen triangle. A swapchain's format is decided by the surface and is usually `B8G8R8A8Unorm`, not the renderer's own `ColorFormat`, so the pipeline that writes it is built for `RendererSettings::presentFormat` and only exists when that is set. The editor leaves it unset: it shows the scene through Dear ImGui, which owns the pipeline that writes the swapchain image there ([editor.md](editor.md#the-ui-module)).
+
 ## The renderer module today
 
 Public headers under `sonnet/renderer/`: `RenderGraph.h`, `Mesh.h` (`Vertex`, `SkinWeights`, `Submesh`, `MeshData`, `MeshHandle`, `generateTangents`), `Primitives.h` (box, sphere, plane, cylinder and capsule generators for scenes without assets), `Texture.h` (`TextureData`, `TextureHandle`, `generateMipChain`), `Material.h` (`MaterialDesc`, `MaterialHandle`), `Camera.h` (`Camera` and the reversed-Z infinite projection), `SceneView.h` (`DrawItem`, `DirectionalLight`, `Light`, `EnvironmentHandle`, `DebugLine`, `SceneView`), `Renderer.h`, `RenderTarget.h` and `Picker.h`. Engine shaders are `shaders/sonnet.slang` (the shared module), the scene passes `depth.slang`, `cluster.slang`, `forward.slang` and `skybox.slang`, the precomputation `ibl.slang`, the post passes `post.slang`, the skinning `skin.slang`, and the editor's `id.slang`, `outline.slang` and `debug.slang`.

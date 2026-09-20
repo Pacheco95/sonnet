@@ -255,6 +255,13 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineGraphics(
       m_fxaaPipeline, "post",
       {.fragmentEntry = "fxaa", .colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "fxaa"});
+  if (m_settings.presentFormat != rhi::Format::Undefined) {
+    defineGraphics(m_presentPipeline, "post",
+                   {.fragmentEntry = "blit",
+                    .colorFormats = {m_settings.presentFormat},
+                    .cullMode = rhi::CullMode::None,
+                    .debugName = "present"});
+  }
   defineGraphics(m_outlinePipeline, "outline",
                  {.colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "outline"});
   defineGraphics(m_debugLinePipeline, "debug",
@@ -306,8 +313,11 @@ Renderer::~Renderer() {
   for (const rhi::PipelineHandle pipeline :
        {m_skinPipeline, m_brdfLutPipeline, m_prefilterPipeline, m_irradiancePipeline, m_cubeMipPipeline,
         m_equirectPipeline, m_clusterPipeline, m_debugLinePipeline, m_outlinePipeline, m_fxaaPipeline,
-        m_tonemapPipeline, m_bloomUpPipeline, m_bloomDownPipeline, m_skyboxPipeline}) {
-    m_device.destroyPipeline(pipeline);
+        m_presentPipeline, m_tonemapPipeline, m_bloomUpPipeline, m_bloomDownPipeline, m_skyboxPipeline}) {
+    // The present pipeline is there only when the settings asked for it.
+    if (pipeline) {
+      m_device.destroyPipeline(pipeline);
+    }
   }
   for (const auto &pair :
        {m_maskPipelines, m_idPipelines, m_blendPipelines, m_forwardPipelines, m_shadowPipelines, m_depthPipelines}) {
@@ -1320,6 +1330,22 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           recordPost(commands, m_fxaaPipeline, resources.image(ldr), {}, size);
         });
   }
+}
+
+void Renderer::addPresentPass(RenderGraph &graph, GraphImage source, GraphImage target) {
+  if (!m_presentPipeline) {
+    return;
+  }
+  const glm::uvec2 size = graph.imageDesc(target).size;
+  graph.addPass(
+      "present",
+      [&](PassBuilder &builder) {
+        builder.sample(source);
+        builder.color(target, rhi::LoadOp::DontCare);
+      },
+      [this, source, size](rhi::ICommandList &commands, const PassResources &resources) {
+        recordPost(commands, m_presentPipeline, resources.image(source), {}, size);
+      });
 }
 
 void Renderer::addIdPass(RenderGraph &graph, const SceneView &view, GraphImage ids, GraphImage depth) {
