@@ -127,7 +127,19 @@ Done: the basic sample's start scene plays its skinned and node animations with 
 - Cook tool: cooked asset bundle, binary scenes, manifest.
 - Export dialog in the editor for Windows, Linux and macOS.
 
-Done when an exported sample runs on a machine without the SDK or vcpkg installed.
+Landed as nine commits, the first accepting ADR-0011:
+
+1. ADR-0011: cooked bundles, the `runtime` module and what export assembles.
+2. `assets`: the project file moves down from `editor`, since the player opens projects too; creating one with its starter scene stays in the editor.
+3. `assets`: `cookMesh`, which welds vertices and reorders each submesh for the vertex cache with tipsify, and `averageCacheMissRatio` to measure it.
+4. `assets`: the bundle, one file with a CBOR index, and the payload encodings, binary for meshes, skins, clips, models and raw texture data, CBOR for the material and scene documents.
+5. `assets`: `cook`, which walks the open database and writes a bundle, `AssetDatabase::openBundle`, which reads one back under the same API, and `sonnet_cook`, the command line over both.
+6. `renderer`: the present pass, a full-screen copy into an image of the swapchain's format, since the player has no Dear ImGui to write one with.
+7. A fix: `rhi`'s `waitIdle` submits uploads staged since the last frame, so tearing down after loading without drawing does not destroy resources a recording command buffer still names.
+8. `runtime` and `apps/player`: `Game`, the world and its subsystems running a project folder or a bundle, and the executable around it.
+9. `editor`: the export dialog, which cooks through the editor's own database and copies the player and the shaders next to the bundle.
+
+Done: `sonnet_cook` cooks the basic sample into a 680 KB bundle with no warnings, and the player runs it from a directory holding only the binary, `shaders/` and `game.sbundle` — no project folder, no importers, no SDK. `runtime_tests` checks the same two paths headless on Lavapipe. Deferred: compressing the bundle's environment maps, which are stored as uncompressed RGBA16F because the KTX2 path cooks RGBA8; Lua bytecode instead of source; incremental cooking, which today redoes the whole project; native file dialogs for the export folder, with the other path modals; and cross-compiling a player from the editor, which stays CI's job.
 
 ## M7: Mobile export
 
