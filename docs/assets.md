@@ -94,7 +94,7 @@ Scenes are JSON produced by the `world` serializer: a list of entities with thei
 
 ## Cooking and export
 
-`assets::cook` writes a project into `<out>/game.sbundle`, the name the player looks for beside its own binary. `sonnet_cook <project> [--platform windows|linux|macos] [--out <dir>]` is its command line, and the editor's export dialog is the other caller, which also copies a player next to the bundle ([editor.md](editor.md)). Mobile targets join in M7.
+`assets::cook` writes a project into `<out>/game.sbundle`, the name the player looks for beside its own binary. `sonnet_cook <project> [--platform windows|linux|macos] [--out <dir>]` is its command line, and the editor's export dialog is the other caller, which also copies a player next to the bundle ([editor.md](editor.md#export)). Mobile targets join in M7.
 
 The cook asks the open `AssetDatabase` for every asset, so the importers run in the code that already runs them and the texture cache is reused rather than rebuilt ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). `sonnet_cook` opens the project in a database on a null device, so cooking needs no GPU and no window; the editor cooks from the database it already has open, which means an exported material is the one on screen. An asset that will not cook is a warning in the `CookReport` and is left out, the way a missing asset is logged and skipped at run time; only a database open on another project, or a bundle that cannot be written, fails the cook outright. The built-in primitives are never written: every database registers them.
 

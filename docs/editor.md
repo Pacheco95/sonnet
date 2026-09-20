@@ -33,7 +33,8 @@ Per frame, in this order:
 | `Gizmo.h` | Translate, rotate and scale handles drawn over the viewport |
 | `Selection.h` | The selected entities by identity; the last one is primary |
 | `CommandStack.h`, `EntityCommands.h` | `ICommand`, the undo history, and the commands every edit goes through |
-| `Project.h`, `Preferences.h` | The project folder with its `project.json`, and the per-user settings |
+| `Project.h`, `Preferences.h` | Creating a project with its starter scene, and the per-user settings; the project file itself is `assets::Project` |
+| `Export.h` | Cooking the project and assembling a runnable directory next to the bundle ([Export](#export)) |
 | `LogPanel.h` | `LogBuffer`, a spdlog sink registered with `core::Log` for the panel's lifetime, and the panel with a level threshold, text filter, auto-scroll and `file:line` links |
 | `StatisticsPanel.h` | Frame time history, per-pass CPU and GPU times from the graph, draw and triangle counts, VMA budget per heap; drawn as a window or as the overlay in the viewport's corner |
 
@@ -80,6 +81,14 @@ The inspector shows an asset's name, type, source and identity, with a Reimport 
 - A script: its length, and an Edit button that opens it in the external editor of the preferences, as the log's links do. Saving it there reloads it into a running game ([scripting.md](scripting.md#errors-and-hot-reload)).
 - A sound: its length, channels and sample rate, with Play and Stop, which preview it through the audio device in edit mode ([audio.md](audio.md#playing)). A skin: its joints by path. An animation clip: its length and channel count.
 
+## Export
+
+File, Export... cooks the open project and assembles a directory that runs on its own ([player.md](player.md#what-an-export-is)). The dialog asks for the target platform and the folder to write into, which defaults to `export/<platform>` under the project, and reports what it wrote without closing, so the result can be read before the dialog goes away.
+
+An export is the bundle ([assets.md](assets.md#cooking-and-export)), the target's player binary, the compiled engine shaders and, on Windows, the libraries beside the binary. The player and the shaders are taken from the editor's own directory, which is right for the host platform; exporting for another one writes the bundle and warns that no player was found, so a player built by CI can be dropped beside it. Cross-compiling one is not the editor's job ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)).
+
+The dialog is `Editor::exportProject` with the fields it collected, and `editor::exportProject` is the function under both. Cooking asks the editor's own database for every asset, so what is exported is what play mode has been running, including a glTF material edited in the inspector, and the texture cache the editor has already filled is reused rather than rebuilt.
+
 ## Undo and redo
 
 Every edit is an `ICommand` with `apply` and `revert`, pushed on the `CommandStack`, which applies it, drops the redo list and keeps the last 256. Commands refer to entities by UUID, never by flecs id, and a deleted subtree comes back with the identities it had, so later commands keep working after undo and redo. The commands: create, delete, duplicate (fresh identities, decided once so redo makes the same copy), reparent (keeping the world transform, restoring the exact local one on undo), rename, a component set, add or remove holding both values, prefab instantiation, and a composite for a multi-selection delete or duplicate. Ctrl+Z and Ctrl+Y (or Ctrl+Shift+Z) and the Edit menu, which names what they would do. The stack's revision compared with the one at the last save is the dirty flag in the window title.
@@ -96,7 +105,7 @@ A project is a folder with a `project.json` ([assets.md](assets.md#project-file)
 
 Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "editor")`: the recent projects and the external editor command. A `file:line` in the log panel is a link that runs that command with the placeholders filled in (`code --goto {file}:{line}` by default). Log records name repository-relative files and binaries carry no build-machine paths, so the editor finds the file at click time: under `sourceRoot` when set, otherwise in the directories from the executable's upwards, which finds the checkout a build directory lives in. A file found nowhere is a warning, not an empty document in the external editor.
 
-`editor_tests` covers the selection, every command through undo and redo including the material and texture settings commands, the gizmo's maths and headless drags, projects and preferences through the temporary directory, the fly camera, the log buffer, the inspector's widget for each scalar kind, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play and stop, save and reopen, a scripted dynamic body launched in play mode and put back by stop, twice, with the colliders drawn, the basic sample's playground played without a warning and reset, its start scene's clip and hum playing and stopping with play mode, the asset browser and a material in the inspector, the shaders recompiled from the checkout, with picking and the outline in the frames and validation silent.
+`editor_tests` covers the selection, every command through undo and redo including the material and texture settings commands, the gizmo's maths and headless drags, projects, exports and preferences through the temporary directory, the fly camera, the log buffer, the inspector's widget for each scalar kind, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play and stop, save and reopen, a scripted dynamic body launched in play mode and put back by stop, twice, with the colliders drawn, the basic sample's playground played without a warning and reset, its start scene's clip and hum playing and stopping with play mode, the asset browser and a material in the inspector, the shaders recompiled from the checkout, with picking and the outline in the frames and validation silent.
 
 ## Running it
 
@@ -115,4 +124,5 @@ File, Open scene, `scenes/playground.scene.json` is the physics and scripting sa
 - [Rendering](rendering.md), for the render graph, the viewport target, the id and outline passes and the picker
 - [World](world.md), for the components, the scene format and prefabs
 - [Physics](physics.md), [Scripting](scripting.md) and [Audio](audio.md), for what play mode runs
+- [Player](player.md), for the runtime an export ships with
 - [Roadmap](roadmap.md), M1 to M5

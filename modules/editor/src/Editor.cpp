@@ -12,6 +12,7 @@
 #include <imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <format>
 #include <fstream>
@@ -336,6 +337,10 @@ void Editor::drawMenuBar() {
       m_modal = Modal::SaveSceneAs;
     }
     ImGui::Separator();
+    if (ImGui::MenuItem("Export...", nullptr, false, m_project.has_value())) {
+      m_modal = Modal::Export;
+    }
+    ImGui::Separator();
     if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
       m_quitRequested = true;
     }
@@ -425,9 +430,13 @@ void Editor::drawModal() {
   if (!ImGui::IsPopupOpen(ModalId)) {
     ImGui::OpenPopup(ModalId);
     m_modalError.clear();
+    m_modalMessage.clear();
     if (m_modal == Modal::SaveSceneAs) {
       m_modalPath = m_scenePath.empty() && m_project ? m_project->resolve("scenes/untitled.scene.json").string()
                                                      : m_scenePath.string();
+    } else if (m_modal == Modal::Export && m_project) {
+      m_exportPlatform = assets::hostPlatform();
+      m_modalPath = (m_project->root / "export" / std::string{assets::toString(m_exportPlatform)}).string();
     } else if (m_project) {
       m_modalPath = m_project->root.parent_path().string();
     }
@@ -438,12 +447,34 @@ void Editor::drawModal() {
   }
   const char *title = m_modal == Modal::NewProject    ? "Create a project folder"
                       : m_modal == Modal::OpenProject ? "Open a project folder"
+                      : m_modal == Modal::Export      ? "Export the project"
                                                       : "Save the scene as";
   ImGui::TextUnformatted(title);
   if (m_modal == Modal::NewProject) {
     ImGui::InputText("Name", &m_modalName);
   }
+  if (m_modal == Modal::Export) {
+    // The three desktop targets; a target that is not this machine needs its player put beside
+    // the bundle afterwards (docs/editor.md, "Export").
+    const std::array<assets::CookPlatform, 3> platforms{assets::CookPlatform::Windows, assets::CookPlatform::Linux,
+                                                        assets::CookPlatform::MacOS};
+    if (ImGui::BeginCombo("Platform", std::string{assets::toString(m_exportPlatform)}.c_str())) {
+      for (const assets::CookPlatform platform : platforms) {
+        const std::string name{assets::toString(platform)};
+        if (ImGui::Selectable(name.c_str(), platform == m_exportPlatform)) {
+          m_exportPlatform = platform;
+          if (m_project) {
+            m_modalPath = (m_project->root / "export" / name).string();
+          }
+        }
+      }
+      ImGui::EndCombo();
+    }
+  }
   ImGui::InputText("Path", &m_modalPath);
+  if (!m_modalMessage.empty()) {
+    ImGui::TextUnformatted(m_modalMessage.c_str());
+  }
   if (!m_modalError.empty()) {
     ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
   }
@@ -462,8 +493,33 @@ void Editor::drawModal() {
     case Modal::SaveSceneAs:
       outcome = saveSceneAs(m_modalPath);
       break;
+    case Modal::Export: {
+      // The dialog stays open on success, showing what was written: an export is something to
+      // read the result of, not a step on the way somewhere else.
+      const auto report =
+          exportProject({.outputDirectory = m_modalPath, .platform = m_exportPlatform, .playerDirectory = m_basePath});
+      if (report) {
+        m_modalMessage = std::format("{} assets and {} scenes in {}", report->cook.assetCount, report->cook.fileCount,
+                                     report->cook.bundle.filename().string());
+        for (const std::string &warning : report->warnings) {
+          SONNET_LOG_WARN("{}", warning);
+        }
+        if (!report->warnings.empty()) {
+          m_modalMessage += std::format("; {} warnings, see the log", report->warnings.size());
+        }
+      } else {
+        outcome = std::unexpected(report.error());
+      }
+      break;
+    }
     case Modal::None:
       break;
+    }
+    if (m_modal == Modal::Export && outcome) {
+      // Handled above: the dialog is closed by Cancel once its message has been read.
+      m_modalError.clear();
+      ImGui::EndPopup();
+      return;
     }
     if (outcome) {
       m_modal = Modal::None;
@@ -547,6 +603,17 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
 
 void Editor::afterPresent() {
   m_imgui.renderPlatformWindows();
+}
+
+core::Result<ExportReport> Editor::exportProject(const ExportOptions &options) {
+  if (!m_project) {
+    return std::unexpected(core::Error{"no project is open", core::ErrorCategory::Io});
+  }
+  ExportOptions resolved = options;
+  if (resolved.playerDirectory.empty()) {
+    resolved.playerDirectory = m_basePath;
+  }
+  return editor::exportProject(m_assets, *m_project, resolved);
 }
 
 core::Result<void> Editor::openProject(const std::filesystem::path &directory) {

@@ -1,8 +1,10 @@
 #include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/Editor.h>
 #include <sonnet/editor/EntityCommands.h>
+#include <sonnet/editor/Export.h>
 
 #include <sonnet/core/Error.h>
+#include <sonnet/core/File.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
@@ -336,4 +338,65 @@ TEST_CASE("the editor recompiles the engine shaders from the checkout's sources"
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("exporting a project writes a bundle and what runs it", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("export-project");
+  const std::filesystem::path out = scratch("export-out");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Exported").has_value());
+    // An export before a project is open is an error, not a half-written directory.
+    fixture.frame(editor);
+
+    const auto report = editor.exportProject({.outputDirectory = out,
+                                              .platform = assets::CookPlatform::Linux,
+                                              .playerDirectory = {}}); // the editor's own directory
+    REQUIRE(report.has_value());
+    REQUIRE(report->cook.bundle == out / "game.sbundle");
+    REQUIRE(std::filesystem::exists(report->cook.bundle));
+    REQUIRE(report->cook.fileCount == 1); // the starter scene
+    // The starter scene is made of primitives, which every database registers for itself.
+    REQUIRE(report->cook.assetCount == 0);
+    // The engine shaders travel with the player; the test binary has them beside it.
+    REQUIRE(report->supportFileCount > 0);
+    REQUIRE(std::filesystem::is_directory(out / "shaders"));
+
+    // The player binary is not next to a test binary, so that is a warning and the bundle is
+    // still written: an export can be finished by dropping a player built elsewhere beside it.
+    REQUIRE(report->player.empty());
+    REQUIRE(!report->warnings.empty());
+    REQUIRE(editor::playerFileName(assets::CookPlatform::Windows) == "sonnet_player.exe");
+    REQUIRE(editor::playerFileName(assets::CookPlatform::Linux) == "sonnet_player");
+
+    // What was exported is what the player opens: the manifest names the start scene by the
+    // path the project gave it.
+    const auto bundle = assets::Bundle::open(report->cook.bundle);
+    REQUIRE(bundle.has_value());
+    REQUIRE(bundle->manifest().name == "Exported");
+    REQUIRE(bundle->manifest().platform == assets::CookPlatform::Linux);
+    REQUIRE(bundle->contains(bundle->manifest().startScene));
+    // Given a directory that does hold a player, it travels with the bundle and stays runnable.
+    const std::filesystem::path players = scratch("export-players");
+    std::filesystem::create_directories(players / "shaders");
+    REQUIRE(core::writeFile(players / "sonnet_player", std::string_view{"#!/bin/sh\nexit 0\n"}).has_value());
+    REQUIRE(core::writeFile(players / "shaders" / "forward.spv", std::string_view{"spv"}).has_value());
+    const auto second = editor.exportProject(
+        {.outputDirectory = out, .platform = assets::CookPlatform::Linux, .playerDirectory = players});
+    REQUIRE(second.has_value());
+    REQUIRE(second->player == out / "sonnet_player");
+    REQUIRE(std::filesystem::exists(second->player));
+    REQUIRE((std::filesystem::status(second->player).permissions() & std::filesystem::perms::owner_exec) !=
+            std::filesystem::perms::none);
+    REQUIRE(second->supportFileCount == 1); // the one shader that directory holds
+    REQUIRE(second->warnings.empty());
+    std::filesystem::remove_all(players);
+
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+  std::filesystem::remove_all(out);
 }

@@ -5,6 +5,7 @@ sonnet_add_module(editor
     src/CommandStack.cpp
     src/Editor.cpp
     src/EntityCommands.cpp
+    src/Export.cpp
     src/FlyCamera.cpp
     src/Gizmo.cpp
     src/HierarchyPanel.cpp
