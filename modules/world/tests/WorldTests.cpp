@@ -59,6 +59,21 @@ TEST_CASE("world transforms compose parent times local through the hierarchy", "
   REQUIRE(grandchildPosition.z == Approx(-1.0f).margin(1e-5f));
 }
 
+TEST_CASE("descendants are found by their path of names", "[world]") {
+  world::World world;
+  const flecs::entity root = world.createEntity("Root");
+  const flecs::entity hips = world.createEntity("Hips", root);
+  const flecs::entity spine = world.createEntity("Spine", hips);
+  const flecs::entity twin = world.createEntity("Spine", hips); // a second of the name: never found
+  REQUIRE(world.findByPath(root, "Hips") == hips);
+  REQUIRE(world.findByPath(root, "Hips/Spine") == spine);
+  REQUIRE(world.findByPath(root, "Hips/Spine") != twin);
+  REQUIRE(world.findByPath(root, "") == root);
+  REQUIRE_FALSE(world.findByPath(root, "Hips/Neck"));
+  REQUIRE_FALSE(world.findByPath(root, "Spine"));
+  REQUIRE_FALSE(world.findByPath(hips, "Hips"));
+}
+
 TEST_CASE("reparenting keeps the world transform", "[world][transform]") {
   world::World world;
   const flecs::entity parent = world.createEntity("Parent");

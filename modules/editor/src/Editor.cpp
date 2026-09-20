@@ -152,10 +152,11 @@ void Editor::update(float dt) {
   // input's presses and releases last one frame.
   m_world.progress(dt);
   m_input.beginFrame();
-  world::buildDrawList(m_world, m_assets, m_draws);
+  world::buildDrawList(m_world, m_assets, m_draws, m_joints);
   world::buildLightList(m_world, m_lights);
   m_view.camera = m_viewportPanel.camera().camera();
   m_view.draws = m_draws;
+  m_view.joints = m_joints;
   m_view.lights = m_lights;
   const std::optional<renderer::DirectionalLight> sun = world::sceneLight(m_world);
   m_view.hasSun = sun.has_value();

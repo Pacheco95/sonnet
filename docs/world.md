@@ -4,20 +4,21 @@ The entity component system: a flecs world with the engine's components, phases 
 
 | Header | Contents |
 |---|---|
-| `Components.h` | The core components as plain structs: `Identity`, `Name`, `Transform`, `WorldTransform`, `MeshRenderer`, `Camera`, the three lights, `Environment`, `Spin`, and the tags `Static`, `EditorOnly`, `Disabled` |
+| `Components.h` | The core components as plain structs: `Identity`, `Name`, `Transform`, `WorldTransform`, `MeshRenderer`, `SkinnedMesh`, `Animator`, `SkinPose`, `Camera`, the three lights, `Environment`, `Spin`, and the tags `Static`, `EditorOnly`, `Disabled` |
 | `World.h` | `World`: the flecs world with everything registered, entity creation with identities, hierarchy helpers and world matrices, prefab instantiation, the component registry open to subsystems, JSON per component, play mode, the fixed timestep and `progress` |
 | `Scene.h` | The scene and prefab file format: `saveScene`, `loadScene`, `savePrefab`, `loadPrefab` and their file variants, and `loadModelPrefab` for a glTF file's hierarchy |
+| `Animation.h` | `AnimationSystem`: the clip playback and skin palette systems, constructed on a world and the asset database |
 | `DrawList.h` | `buildDrawList`, `buildLightList`, `sceneLight`, `sceneCamera`, `sceneEnvironment`: what the world hands the renderer |
 
 ## Components
 
 Every component is registered with flecs reflection in `World`, under the name scene files use, so the inspector, the serializer and the scripting bindings enumerate fields through one system. Subsystems register theirs the same way through `World::registerComponent`, which returns the flecs component to add members to and makes it inheritable by prefab instances: `physics` its bodies and colliders ([physics.md](physics.md#components)), `scripting` its `Script` ([scripting.md](scripting.md#scripts-and-instances)) (ADR-0009). GLM's `vec3`, `vec4` and `quat` are registered as structs; `core::Uuid` is an opaque type that serializes as its canonical string, which is how asset references appear in files; angles carry the flecs `Radians` unit, which the inspector reads to show degrees ([conventions.md](conventions.md#math-conventions)).
 
-Three components are structural and are not in the registry: `Identity` holds the UUID that scenes, prefab references and undo refer to; `WorldTransform` is derived; `Name` is written as the file envelope's `name`. `World::createEntity` gives every scene entity all three plus a `Transform`.
+Four components are structural and are not in the registry: `Identity` holds the UUID that scenes, prefab references and undo refer to; `WorldTransform` and `SkinPose` are derived every frame; `Name` is written as the file envelope's `name`. `World::createEntity` gives every scene entity all three plus a `Transform`.
 
 `Transform` is local. The transform system, in the `PreRender` phase, computes `WorldTransform` as parent times local, parents first through the flecs `cascade` ordering over `ChildOf`; `World::worldMatrix` computes one entity's from the hierarchy directly, for code that runs before the transform system in a frame. `World::setParent` keeps the world transform when reparenting, so an entity stays where it is on screen. `Transform::fromMatrix` decomposes a matrix back, discarding shear.
 
-`MeshRenderer` references a mesh asset by identity ([assets.md](assets.md#identity)), a built-in primitive or a glTF mesh, with an optional material that overrides every slot of the mesh (nil keeps the mesh's own materials) and a colour that multiplies the material's base colour. `PointLight` and `SpotLight` are punctual lights at their entity's position, the spot shining along its -Z. `Environment` names the equirectangular map that lights the scene and fills its background; the first entity that has one wins. `Spin` turns its entity about an axis in play mode and is the script-free behaviour M2's sample uses.
+`MeshRenderer` references a mesh asset by identity ([assets.md](assets.md#identity)), a built-in primitive or a glTF mesh, with an optional material that overrides every slot of the mesh (nil keeps the mesh's own materials) and a colour that multiplies the material's base colour. `PointLight` and `SpotLight` are punctual lights at their entity's position, the spot shining along its -Z. `Environment` names the equirectangular map that lights the scene and fills its background; the first entity that has one wins. `Spin` turns its entity about an axis in play mode and is the script-free behaviour M2's sample uses. `SkinnedMesh` and `Animator` are described under [Animation](#animation).
 
 ## Phases and play mode
 
@@ -26,6 +27,17 @@ The phases `Input`, `FixedUpdate`, `Update`, `PostUpdate` and `PreRender` are fl
 `progress(dt)` runs the phases as three flecs pipelines inside one flecs frame: `Input`, then `FixedUpdate` as many times as the accumulated time holds whole fixed steps, then `Update`, `PostUpdate` and `PreRender`. The first and last pipelines come in an edit and a play variant, the play one with the simulation systems, and `setPlaying` picks between them; the fixed pipeline runs only in play mode. The fixed step is `WorldDesc::fixedDelta`, 1/60 s by default, and systems in `FixedUpdate` see it as their delta time. A frame runs at most `maxFixedSteps` steps, four by default, and drops the rest of its backlog, so a long frame slows the simulation down instead of making the next frame longer still. `fixedAlpha` is the fraction of a step left in the accumulator, what physics interpolates the drawn poses by ([physics.md](physics.md#the-simulation)); starting play resets the accumulator.
 
 `Disabled` is the engine's tag, not flecs' built-in one, so a disabled entity still appears in the hierarchy; the draw list and the simulation systems skip it.
+
+## Animation
+
+Skeletal animation is part of `world` ([ADR-0010](decisions/0010-audio-and-animation.md)): the components belong to the model prefab this module builds, and a pose is the hierarchy of `Transform`s it already owns. `AnimationSystem`, constructed on a `World` and an `AssetDatabase` like the subsystems of ADR-0009, registers two systems:
+
+1. `AnimationPlayback`, a simulation system in `Update`: every enabled `Animator` advances its `time` by `speed` while `playing`, wrapping when it loops and stopping at the end when it does not, and writes its clip's pose into the local `Transform` of the entity at each channel's path, under the entity carrying the `Animator`. The pose is written whenever there is a clip, so setting `time` on a stopped animator scrubs it.
+2. `SkinPalette`, in `PreRender` after the transform system, in edit and play mode: every enabled `SkinnedMesh` gets a `SkinPose`, one matrix per joint of its skin, each the joint's world transform times its inverse bind matrix, brought back into the skinned entity's own space. `buildDrawList` hands those to the renderer, which deforms the mesh on the GPU ([rendering.md](rendering.md#skinning)).
+
+Both resolve their targets by path: the joints of a skin under the nearest ancestor of the skinned entity where all of them resolve, which for a model instance is its root, and a clip's channels under the `Animator`'s own entity. `World::findByPath` walks names; a binding is cached per entity and rebuilt when the clip or skin changes, when its revision does because the file was re-imported, or when a bound entity is destroyed. A path that resolves nowhere is reported once and moves nothing; a skin whose joints are not all found leaves the mesh in its bind pose.
+
+`loadModelPrefab` is what puts them there: a node with a skin gets a `SkinnedMesh`, and a model with clips gets an `Animator` on its root with the first of them, playing and looping. Because the pose is ordinary `Transform`s, play-mode snapshots undo it, physics sees animated kinematic bodies move, and the joints are entities in the hierarchy panel.
 
 ## Hierarchy
 
@@ -66,7 +78,7 @@ A glTF file is a prefab too: `loadModelPrefab` builds one from the file's `asset
 
 ## Draw list
 
-`buildDrawList` fills `renderer::DrawItem`s from every entity with a `WorldTransform` and a visible, enabled `MeshRenderer`: one item per submesh, the mesh and materials resolved through the `AssetDatabase` every frame so a re-imported asset shows on the next one, and an entity whose mesh is missing or failed to import draws nothing. `buildLightList` collects the enabled point and spot lights; `sceneLight` is the first directional light, shining along its entity's -Z; `sceneCamera` the first camera, placed by its entity's world transform; `sceneEnvironment` the first `Environment` whose map loads. The editor draws through its own camera and uses the scene's lights and environment; the player uses the camera too.
+`buildDrawList` fills `renderer::DrawItem`s from every entity with a `WorldTransform` and a visible, enabled `MeshRenderer`: one item per submesh, the mesh and materials resolved through the `AssetDatabase` every frame so a re-imported asset shows on the next one, and an entity whose mesh is missing or failed to import draws nothing. An entity with a `SkinnedMesh` and a `SkinPose` appends its joint matrices to the list's `joints`, and its items carry that range and the entity as the skinned instance. `buildLightList` collects the enabled point and spot lights; `sceneLight` is the first directional light, shining along its entity's -Z; `sceneCamera` the first camera, placed by its entity's world transform; `sceneEnvironment` the first `Environment` whose map loads. The editor draws through its own camera and uses the scene's lights and environment; the player uses the camera too.
 
 ## Debugging
 
@@ -74,4 +86,4 @@ A glTF file is a prefab too: `loadModelPrefab` builds one from the file's `asset
 
 ## Tests
 
-`world_tests` covers the fixed timestep's step count, order, remainder and backlog limit, components registered from outside the world, the transform decomposition, JSON round trips by reflection including identities, units and tags, the hierarchy and world transforms, reparenting, play mode gating, prefab instantiation and overrides, scene and prefab files through the temporary directory including the failure paths, the version 1 migration, model prefabs, and the draw and light lists on the null device.
+`world_tests` covers the fixed timestep's step count, order, remainder and backlog limit, lookup by path, clips playing on each instance of a model in play mode only with their loops, ends and scrubbing, skin poses following their joints in edit mode and reaching the draw list, components registered from outside the world, the transform decomposition, JSON round trips by reflection including identities, units and tags, the hierarchy and world transforms, reparenting, play mode gating, prefab instantiation and overrides, scene and prefab files through the temporary directory including the failure paths, the version 1 migration, model prefabs, and the draw and light lists on the null device.

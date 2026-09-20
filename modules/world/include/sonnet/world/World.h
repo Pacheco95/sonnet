@@ -78,6 +78,9 @@ public:
   [[nodiscard]] std::vector<flecs::entity> roots() const;
   [[nodiscard]] std::vector<flecs::entity> children(flecs::entity entity) const;
   [[nodiscard]] bool isDescendant(flecs::entity entity, flecs::entity ancestor) const;
+  // The descendant of `root` at a path of names joined by '/' ("Hips/Spine"), taking the first
+  // child of each name in id order; null when a name is missing, `root` for an empty path.
+  [[nodiscard]] flecs::entity findByPath(flecs::entity root, std::string_view path) const;
   // The world matrix from the hierarchy's local transforms, current even between runs of the
   // transform system.
   [[nodiscard]] static glm::mat4 worldMatrix(flecs::entity entity);

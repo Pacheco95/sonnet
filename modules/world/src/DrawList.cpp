@@ -4,9 +4,11 @@
 
 namespace sonnet::world {
 
-void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vector<renderer::DrawItem> &draws) {
+void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vector<renderer::DrawItem> &draws,
+                   std::vector<glm::mat4> &joints) {
   SONNET_ZONE();
   draws.clear();
+  joints.clear();
   world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const MeshRenderer &meshRenderer) {
     if (!meshRenderer.visible || entity.has<Disabled>()) {
       return;
@@ -18,6 +20,13 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
     const assets::AssetInfo *info = assets.find(meshRenderer.mesh);
     const renderer::MaterialHandle override = assets.material(meshRenderer.material);
     const std::span<const renderer::Submesh> submeshes = assets.renderer().submeshes(mesh);
+    // A skinned mesh's pose is shared by its submeshes; without one it draws in its bind pose.
+    const auto firstJoint = static_cast<std::uint32_t>(joints.size());
+    std::uint32_t jointCount = 0;
+    if (const SkinPose *pose = entity.try_get<SkinPose>(); pose != nullptr && entity.has<SkinnedMesh>()) {
+      joints.insert(joints.end(), pose->joints.begin(), pose->joints.end());
+      jointCount = static_cast<std::uint32_t>(pose->joints.size());
+    }
     for (std::uint32_t i = 0; i < submeshes.size(); ++i) {
       renderer::MaterialHandle material = override;
       if (!material && info != nullptr && submeshes[i].materialSlot < info->materials.size()) {
@@ -28,7 +37,10 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
                        .material = material,
                        .transform = transform.matrix,
                        .color = meshRenderer.color,
-                       .id = World::pickId(entity)});
+                       .id = World::pickId(entity),
+                       .firstJoint = firstJoint,
+                       .jointCount = jointCount,
+                       .skinInstance = jointCount > 0 ? entity.id() : 0});
     }
   });
 }

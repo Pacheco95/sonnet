@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace sonnet::world {
 
@@ -82,6 +83,32 @@ struct Environment {
   core::Uuid map{};
   float intensity{1.0f};
   float exposure{1.0f};
+};
+
+// Deforms the entity's MeshRenderer mesh by a skin asset's joints (ADR-0010): the joints are the
+// entities at the skin's paths under the nearest ancestor where all of them resolve, which for a
+// model instance is its root. Without AnimationSystem, or while the joints cannot be found, the
+// mesh draws in its bind pose.
+struct SkinnedMesh {
+  core::Uuid skin{};
+};
+
+// Plays an animation clip on the entity's hierarchy in play mode (ADR-0010): each channel drives
+// the local Transform of the entity at its path under this one. `time` advances by `speed` while
+// `playing`; a clip that does not loop stops at its end and clears `playing`. The pose at `time`
+// is written every frame there is a clip, so setting `time` while stopped scrubs.
+struct Animator {
+  core::Uuid clip{};
+  float time{0.0f}; // seconds
+  float speed{1.0f};
+  bool playing{true};
+  bool loop{true};
+};
+
+// The joint matrices of a SkinnedMesh for the current pose, each from the mesh's bind pose into
+// its entity's space; computed every frame by AnimationSystem, never saved or inherited.
+struct SkinPose {
+  std::vector<glm::mat4> joints;
 };
 
 // Turns the entity about `axis` in play mode: the script-free behaviour of M2.

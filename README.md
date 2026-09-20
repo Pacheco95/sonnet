@@ -102,7 +102,7 @@ flowchart BT
 | `rhi` | Render hardware interface plus the Vulkan 1.4 implementation |
 | `renderer` | Render graph, materials, meshes, cameras, lights, passes. Talks only to `rhi` interfaces |
 | `assets` | Asset database, importers, cooking, hot reload |
-| `world` | ECS world, core components (Transform, hierarchy, Name), scene load and save |
+| `world` | ECS world, core components (Transform, hierarchy, Name), scene load and save, skeletal animation |
 | `physics` | Rigid bodies, colliders and raycasts behind `IPhysicsWorld`, on Jolt |
 | `scripting` | Lua scripts on entities behind `IScriptRuntime`, reaching components through reflection |
 | `audio` | M5, behind an interface |
@@ -149,7 +149,7 @@ ctest --preset linux-debug
 | Rendering: Vulkan baseline, platform notes, Slang pipeline, frame structure, render graph | [docs/rendering.md](docs/rendering.md) |
 | Editor: the Dear ImGui layer, panels, viewport camera, frame order | [docs/editor.md](docs/editor.md) |
 | Assets: identity, database, importers, project and scene files, cooking | [docs/assets.md](docs/assets.md) |
-| World: components, phases and the fixed timestep, scenes and prefabs | [docs/world.md](docs/world.md) |
+| World: components, phases and the fixed timestep, animation, scenes and prefabs | [docs/world.md](docs/world.md) |
 | Physics: bodies, colliders, the simulation, queries | [docs/physics.md](docs/physics.md) |
 | Scripting: script instances, errors and hot reload, the Lua API | [docs/scripting.md](docs/scripting.md) |
 | Roadmap and milestones | [docs/roadmap.md](docs/roadmap.md) |

@@ -30,6 +30,7 @@ TEST_CASE("the draw list resolves every visible mesh renderer through the databa
   Fixture fixture;
   world::World &world = fixture.world;
   std::vector<renderer::DrawItem> draws;
+  std::vector<glm::mat4> joints;
 
   const flecs::entity box = world.createEntity("Box");
   box.set<world::MeshRenderer>({.mesh = assets::builtin::box(), .color = {1.0f, 0.0f, 0.0f, 1.0f}});
@@ -46,8 +47,10 @@ TEST_CASE("the draw list resolves every visible mesh renderer through the databa
   world.createEntity("Empty");
 
   world.progress(0.016f);
-  world::buildDrawList(world, fixture.assets, draws);
+  world::buildDrawList(world, fixture.assets, draws, joints);
   REQUIRE(draws.size() == 2); // the missing asset draws nothing
+  REQUIRE(joints.empty());
+  REQUIRE(draws[0].jointCount == 0);
   const auto boxDraw = std::ranges::find(draws, world::World::pickId(box), &renderer::DrawItem::id);
   REQUIRE(boxDraw != draws.end());
   REQUIRE(boxDraw->mesh == fixture.assets.mesh(assets::builtin::box()));
