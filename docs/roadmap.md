@@ -194,18 +194,22 @@ Done when the basic sample runs on an Android 16 device and an iOS device.
 
 ## Known gaps
 
-Work M8 named rather than did, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. These are engineering debts; the feature backlog is [Later](#later).
+Work M8 named rather than did, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. A gap that has been closed keeps its entry, saying what closed it and what it measured. These are engineering debts; the feature backlog is [Later](#later).
 
-### Scene loading still blocks the frame
+### Scene loading blocked the frame
 
-M8 made the draw list request its meshes, so an asset that is not in memory imports on the job system and draws a frame or two later. Loading a scene still blocks: `loadModelPrefab` needs a model's node hierarchy before it can create the entities, so a prefab instantiation imports its glTF file in place ([assets.md](assets.md#database)). That is most of the hitch M8 set out to remove, which is why the milestone counts the criterion as half met.
+Closed. M8 made the draw list request its meshes, but loading a scene still blocked: `loadModelPrefab` needs a model's node hierarchy before it can create the entities, and `AssetDatabase::model` imported the whole glTF file to give it one — every mesh, every image decoded and, on a first open, cooked — for every model in the project, since each is placed as a prefab when the project opens.
 
-Two shapes are worth measuring against each other:
+The plan was the hierarchy ahead of the payloads, and it held, with two corrections to what this entry predicted. The sidecar did not carry enough: it lists sub-assets by name and identity, but not the nodes' parents or transforms. The file's JSON does, and none of what made the import slow was ever needed for it, so `model` now parses the JSON without loading a buffer or an image and walks the nodes through the same function the full import does ([assets.md](assets.md#database)). And the player never had the problem: in a bundle the model is a payload of its own, a decode away from its meshes. The fallback, a prefab that fills in, was not needed, so no instance is ever an entity missing its children.
 
-- **Hierarchy ahead of payloads.** A glTF file's sidecar already lists its sub-assets, and a bundle's index does too ([assets.md](assets.md#identity)), so the node hierarchy can be known without importing meshes and images. `loadModelPrefab` would create the entities from that list and request the payloads, which arrive under identities the entities already name. The scene format does not change, and the ECS stays the description of the scene.
-- **A prefab that fills in.** Instantiate a root at once, request the model, add the children when it publishes. Less work, but an instance is briefly an entity with no children, which the hierarchy panel, selection and undo would all see, and a scene saved in that window would be wrong.
+What the entities then ask for arrives through the request form: meshes already did, and `SkinPalette` and `AnimationPlayback` now request their skins and clips too, since the first ran every frame in the editor and would have imported a skinned model's file on the frame after its scene loaded. `assets_tests "[benchmark]"`, placing the basic sample's three models in Release:
 
-The first is the one to try; the second is what to fall back to if the sidecar turns out not to carry enough.
+| | warm cache | first open, cooking the textures |
+|---|---|---|
+| full import, as `model` did | 0.38 ms | 11.2 ms |
+| hierarchy only | 0.023 ms | 0.023 ms |
+
+The sample's files are small; the old figure grew with a file's images and the new one grows only with its JSON. The cooking still happens on a first open, on the job system, off the frame.
 
 ### The per-frame fill is bandwidth, not computation
 
