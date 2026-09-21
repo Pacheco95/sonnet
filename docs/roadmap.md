@@ -182,7 +182,7 @@ The frame hitch is only half gone. Mesh and texture resolution no longer blocks 
 
 Two things the measurements said that the plan did not. The renderer's per-frame fill was the larger part of a frame's CPU cost and was meant to be spread away; it goes from 0.26 ms to 0.19 ms with one extra worker and then stops, because writing ten thousand 160-byte entries into `MemoryUsage::CpuToGpu` memory is bandwidth to host-visible device memory, not computation. Writing less is what would move it. And `world` gained nothing: `cascade` excludes `TransformSystem` from flecs' multi-threaded pipeline and `immediate` excludes the animation, skin and script systems, so the pipeline stays single-threaded and a parallel `TransformSystem` over `parallelFor`, with a barrier between depth levels, waits for the benchmark that asks for it.
 
-Deferred: the asynchronous scene load above; an overlay port building Jolt with the thread sanitizer, which is the only way to let it see Jolt; a placeholder asset to draw while a request is in flight, rather than nothing; and shrinking `ObjectData` or skipping the objects that did not move.
+What M8 left behind, with what each would take, is in [Known gaps](#known-gaps): the asynchronous scene load, the bandwidth the per-frame fill is bound by, the two libraries the thread sanitizer cannot see, a placeholder to draw while a request is in flight, and a parallel transform hierarchy.
 
 ## M9: Mobile export
 
@@ -191,6 +191,55 @@ Deferred: the asynchronous scene load above; an overlay port building Jolt with 
 - Touch input mapping and the OS-owned loop through the SDL3 callbacks.
 
 Done when the basic sample runs on an Android 16 device and an iOS device.
+
+## Known gaps
+
+Work M8 named rather than did, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. These are engineering debts; the feature backlog is [Later](#later).
+
+### Scene loading still blocks the frame
+
+M8 made the draw list request its meshes, so an asset that is not in memory imports on the job system and draws a frame or two later. Loading a scene still blocks: `loadModelPrefab` needs a model's node hierarchy before it can create the entities, so a prefab instantiation imports its glTF file in place ([assets.md](assets.md#database)). That is most of the hitch M8 set out to remove, which is why the milestone counts the criterion as half met.
+
+Two shapes are worth measuring against each other:
+
+- **Hierarchy ahead of payloads.** A glTF file's sidecar already lists its sub-assets, and a bundle's index does too ([assets.md](assets.md#identity)), so the node hierarchy can be known without importing meshes and images. `loadModelPrefab` would create the entities from that list and request the payloads, which arrive under identities the entities already name. The scene format does not change, and the ECS stays the description of the scene.
+- **A prefab that fills in.** Instantiate a root at once, request the model, add the children when it publishes. Less work, but an instance is briefly an entity with no children, which the hierarchy panel, selection and undo would all see, and a scene saved in that window would be wrong.
+
+The first is the one to try; the second is what to fall back to if the sidecar turns out not to carry enough.
+
+### The per-frame fill is bandwidth, not computation
+
+M7 left the per-frame object, material and light fill as the larger part of a frame's CPU cost and expected M8 to spread it over workers. It does not spread. `renderer_tests "[benchmark]"` in Release, ten thousand draws on an RTX 4090:
+
+| workers | 0 | 1 | 3 | 15 |
+|---|---|---|---|---|
+| fill | 0.261 ms | 0.189 ms | 0.180 ms | 0.199 ms |
+
+One extra worker takes about a quarter off and the rest add scheduling, which is the shape of a bandwidth limit rather than a divisible loop: ten thousand draws of a 160-byte `ObjectData` is 1.6 MB written every frame into a `MemoryUsage::CpuToGpu` buffer, which on a discrete GPU is host-visible device memory across the bus. Threads cannot remove that. Writing less can, and there are two independent levers:
+
+- **`ObjectData::normalMatrix` is 64 of the 160 bytes.** It is the inverse transpose of `model`, which the CPU computes per draw with `glm::inverse` and then sends in full. Deriving it in the vertex shader removes 40% of the bytes and the inverse with them, at the cost of ALU the forward pass has room for (0.65 ms GPU). For a transform with uniform scale it is just the upper 3×3 of `model`, so the general form may not be needed at all; a flag or a 3×4 packing are the middle grounds.
+- **Most objects do not move between frames.** The array is rebuilt from scratch every frame because it lives in a per-frame transient allocation. A persistent device-local buffer written only where a draw's transform, colour or material changed would cut the traffic to what actually moved, at the cost of a dirty list and a stable slot per draw, which the draw list does not have today.
+
+Take the first before the second: it is contained in the shaders and one struct, and it halves the second's remaining cost as well.
+
+### The thread sanitizer cannot see two libraries the engine depends on
+
+`linux-tsan` polices the engine's own concurrency and is blind in two places, both because vcpkg ships the library without instrumentation and the sanitizer cannot reason about synchronization it did not compile.
+
+- **Jolt** is suppressed wholesale by `race:JPH::` in `tools/tsan.supp`. The reports are on `TempAllocatorImpl`, whose plain `mTop` is written from several threads by design — Jolt's header says the ordering comes from job dependencies, and those resolve inside `JobSystemWithBarrier.cpp`, in the library. The suppression matches any frame, so it also stops the sanitizer policing how `physics` drives Jolt. Closing it is an overlay port under `ports/` building Jolt with `-fsanitize=thread` for this preset alone ([ports/README.md](../ports/README.md)), after which the entry comes out.
+- **The Vulkan driver.** Mesa's Lavapipe rasterizes on a pool of its own and reports races and lock-order inversions from inside it by the hundred, through stacks that enter at `VulkanDevice`, so no suppression narrow enough to spare engine frames exists. The preset points `VK_DRIVER_FILES` at `/dev/null` so the GPU cases skip, which leaves `rhi`, `ui` and `runtime` running a handful of tests each under the sanitizer.
+
+The second gap matters less than it looks, because `rhi` is main-thread-only by design ([rendering.md](rendering.md#frame-structure)), but that rule is assumed rather than enforced. Making `VulkanDevice` record the thread it was created on and assert that `beginFrame`, `endFrame` and resource creation are called from it would catch the case the sanitizer is missing — a later change scheduling rhi work onto the pool — without needing the driver instrumented at all. That is the cheaper half of this gap and worth doing first.
+
+### A pending asset draws nothing rather than something
+
+`requestMesh` returns an invalid handle while an import is in flight, and the draw list skips the entity, so geometry appears rather than popping in. ADR-0013 described a placeholder, which is what a user would rather see. It needs the database to distinguish pending from failed at the call site, which today both answer with an invalid handle, and a built-in mesh and texture to stand in — the primitives are already registered, so the mesh half is nearly free.
+
+### The transform hierarchy is still single-threaded
+
+`TransformSystem` is the one world system with something to gain from threads and the one flecs cannot split: it depends on `cascade` to write parents before children, and flecs' workers cross tables with no barrier between them ([ADR-0013](decisions/0013-job-system.md)). Making it parallel means grouping the matched entities by hierarchy depth and running a `parallelFor` per level, with the barrier between levels that flecs cannot express.
+
+Nothing has measured that it is worth doing. The scenes that exist are shallow and small, and `world_tests` has no benchmark with a deep or wide hierarchy to measure against. That benchmark is the first step, not the restructure.
 
 ## Later
 
