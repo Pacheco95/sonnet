@@ -550,6 +550,60 @@ TEST_CASE("a request for a texture that cannot be imported fails once and is not
   REQUIRE(!database.loading()); // marked failed, so asking again schedules nothing
 }
 
+// A material file used to import its textures in place on the frame that first drew it, the
+// stall M8 removed for meshes (roadmap.md, "A pending texture draws as nothing in particular").
+TEST_CASE("a material requests its textures and shows a placeholder until they arrive", "[assets][database]") {
+  Fixture fixture;
+  core::JobSystem jobs{{.workerCount = 0}}; // nothing runs until the test drains it
+  core::Uuid woodUuid;
+  core::Uuid brokenUuid;
+  {
+    AssetDatabase database{fixture.renderer, jobs};
+    database.open(fixture.root, fixture.roots);
+    woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
+  }
+  REQUIRE(core::writeFile(fixture.root / "assets" / "broken.png", std::vector<std::byte>{std::byte{0x1}}).has_value());
+  {
+    AssetDatabase database{fixture.renderer, jobs};
+    database.open(fixture.root, fixture.roots);
+    brokenUuid = database.findByPath(fixture.root / "assets" / "broken.png")->uuid;
+  }
+  MaterialSource source;
+  source.baseColorTexture = woodUuid;
+  source.normalTexture = woodUuid;
+  REQUIRE(core::writeFile(fixture.root / "assets" / "wooden.material.json", saveMaterial(source).dump(2)).has_value());
+  source.baseColorTexture = brokenUuid;
+  source.normalTexture = {};
+  REQUIRE(core::writeFile(fixture.root / "assets" / "broken.material.json", saveMaterial(source).dump(2)).has_value());
+
+  AssetDatabase database{fixture.renderer, jobs};
+  database.open(fixture.root, fixture.roots);
+  const std::filesystem::path cooked = database.cacheDirectory() / (woodUuid.toString() + ".ktx2");
+  std::filesystem::remove(cooked);
+  const renderer::MaterialHandle wooden = database.material(byName(database, "wooden", AssetType::Material)->uuid);
+  const renderer::MaterialHandle broken = database.material(byName(database, "broken", AssetType::Material)->uuid);
+
+  // Created at once, with nothing imported: the base colour reads the placeholder, the normal
+  // slot the renderer's fallback, and the texture is a request in flight.
+  REQUIRE(fixture.renderer.isValid(wooden));
+  REQUIRE(database.loading());
+  REQUIRE_FALSE(std::filesystem::exists(cooked));
+  const renderer::TextureHandle placeholder = fixture.renderer.material(wooden).baseColorTexture;
+  REQUIRE(fixture.renderer.isValid(placeholder));
+  REQUIRE(fixture.renderer.textureIndex(placeholder) != fixture.renderer.textureIndex({}));
+  REQUIRE_FALSE(fixture.renderer.material(wooden).normalTexture.isValid());
+  REQUIRE(fixture.renderer.material(broken).baseColorTexture == placeholder); // one placeholder for all
+
+  // The import and its main-thread publish update the materials in place.
+  database.waitForLoads();
+  const renderer::TextureHandle wood = database.requestTexture(woodUuid);
+  REQUIRE(fixture.renderer.isValid(wood));
+  REQUIRE(fixture.renderer.material(wooden).baseColorTexture == wood);
+  REQUIRE(fixture.renderer.material(wooden).normalTexture == wood);
+  // A texture that failed reads the white fallback, so it looks different from one still pending.
+  REQUIRE_FALSE(fixture.renderer.material(broken).baseColorTexture.isValid());
+}
+
 // What placing every model of the basic sample costs, measured rather than asserted: hidden from
 // the default run, `assets_tests "[benchmark]"` prints the time to read each model's hierarchy,
 // which is what opening a project now does, against the full import it used to do. The first
