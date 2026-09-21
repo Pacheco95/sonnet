@@ -79,4 +79,15 @@ struct GltfImport {
 
 [[nodiscard]] core::Result<GltfImport> importGltf(const std::filesystem::path &path);
 
+// A glTF file's node hierarchy without its payloads: what a prefab of the model needs, read from
+// the JSON without loading a buffer or an image. The nodes are importGltf's, index for index.
+struct GltfStructure {
+  Model model;                           // mesh and skin identities and the clips left empty
+  std::vector<std::int32_t> meshIndices; // per model node, -1 for none
+  std::vector<std::int32_t> skinIndices; // per model node, -1 for none
+  std::size_t animationCount{0};
+};
+
+[[nodiscard]] core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &path);
+
 } // namespace sonnet::assets

@@ -10,7 +10,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <format>
 #include <thread>
 
 using namespace sonnet;
@@ -432,6 +434,73 @@ TEST_CASE("a requested glTF mesh brings its whole file with it", "[assets][datab
   REQUIRE(database.meshData(meshUuid) != nullptr);
 }
 
+// Every model in a project is a prefab, placed at project open, and a prefab needs only the node
+// hierarchy. Reading it must not import the file: that was the stall roadmap.md recorded.
+TEST_CASE("a model's hierarchy is read without importing its meshes or images", "[assets][database]") {
+  Fixture fixture;
+  test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const std::size_t buffersBefore = fixture.device->bufferCount();
+
+  const core::Uuid crateUuid = byName(database, "crate", AssetType::Model)->uuid;
+  const core::Uuid rigUuid = byName(database, "rig", AssetType::Model)->uuid;
+  const Model *crate = database.model(crateUuid);
+  const Model *rig = database.model(rigUuid);
+  REQUIRE(crate != nullptr);
+  REQUIRE(rig != nullptr);
+  REQUIRE(crate->nodes.size() == 1);
+  REQUIRE(crate->nodes[0].mesh == core::Uuid::derive(crateUuid, "mesh/0"));
+  REQUIRE(rig->nodes[3].skin == core::Uuid::derive(rigUuid, "skin/0"));
+  REQUIRE(rig->animations == std::vector<core::Uuid>{core::Uuid::derive(rigUuid, "animation/0")});
+  // Nothing uploaded, nothing cooked, nothing scheduled.
+  REQUIRE(fixture.device->bufferCount() == buffersBefore);
+  REQUIRE_FALSE(std::filesystem::exists(database.cacheDirectory() /
+                                        (core::Uuid::derive(crateUuid, "image/0").toString() + ".ktx2")));
+  REQUIRE_FALSE(database.loading());
+
+  // The full import builds the same hierarchy, node for node, so a prefab placed from the first
+  // matches the file once it is in.
+  const std::vector<ModelNode> read = rig->nodes;
+  const std::vector<core::Uuid> readClips = rig->animations;
+  REQUIRE(database.skin(core::Uuid::derive(rigUuid, "skin/0")) != nullptr);
+  REQUIRE(fixture.device->bufferCount() > buffersBefore);
+  const Model *imported = database.model(rigUuid);
+  REQUIRE(imported->animations == readClips);
+  REQUIRE(imported->nodes.size() == read.size());
+  for (std::size_t n = 0; n < read.size(); ++n) {
+    CAPTURE(n);
+    REQUIRE(imported->nodes[n].name == read[n].name);
+    REQUIRE(imported->nodes[n].parent == read[n].parent);
+    REQUIRE(imported->nodes[n].position == read[n].position);
+    REQUIRE(imported->nodes[n].rotation == read[n].rotation);
+    REQUIRE(imported->nodes[n].scale == read[n].scale);
+    REQUIRE(imported->nodes[n].mesh == read[n].mesh);
+    REQUIRE(imported->nodes[n].skin == read[n].skin);
+  }
+}
+
+TEST_CASE("a requested skin or clip brings its whole file with it", "[assets][database]") {
+  Fixture fixture;
+  test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const core::Uuid rigUuid = byName(database, "rig", AssetType::Model)->uuid;
+  const core::Uuid skinUuid = core::Uuid::derive(rigUuid, "skin/0");
+  const core::Uuid clipUuid = core::Uuid::derive(rigUuid, "animation/0");
+
+  REQUIRE(database.requestSkin(skinUuid) == nullptr);
+  REQUIRE(database.loading());
+  REQUIRE(database.requestAnimation(clipUuid) == nullptr); // joins the request in flight
+  database.waitForLoads();
+
+  REQUIRE(database.requestSkin(skinUuid) != nullptr);
+  REQUIRE(database.requestAnimation(clipUuid) != nullptr);
+  REQUIRE(database.requestSkin(clipUuid) == nullptr); // not a skin
+  REQUIRE(fixture.renderer.isValid(database.requestMesh(database.model(rigUuid)->nodes[3].mesh)));
+  REQUIRE_FALSE(database.loading());
+}
+
 TEST_CASE("requesting a built-in or a missing asset needs no job", "[assets][database]") {
   Fixture fixture;
   AssetDatabase database{fixture.renderer, fixture.jobs};
@@ -471,4 +540,71 @@ TEST_CASE("a request for a texture that cannot be imported fails once and is not
   database.waitForLoads();
   REQUIRE(!database.requestTexture(woodUuid).isValid());
   REQUIRE(!database.loading()); // marked failed, so asking again schedules nothing
+}
+
+// What placing every model of the basic sample costs, measured rather than asserted: hidden from
+// the default run, `assets_tests "[benchmark]"` prints the time to read each model's hierarchy,
+// which is what opening a project now does, against the full import it used to do. The first
+// import of a fresh copy also cooks the textures; the warm figure is every later open.
+TEST_CASE("placing the basic sample's models reads hierarchies, not files", "[.][benchmark]") {
+  platform::Platform platform{{.headless = true}};
+  std::filesystem::path sample;
+  for (std::filesystem::path base = std::filesystem::absolute(platform.basePath()); !base.empty();
+       base = base.parent_path()) {
+    if (std::filesystem::is_regular_file(base / "apps" / "samples" / "basic" / "project.json")) {
+      sample = base / "apps" / "samples" / "basic";
+      break;
+    }
+    if (base == base.root_path()) {
+      break;
+    }
+  }
+  if (sample.empty()) {
+    SKIP("the sample was not found above " << platform.basePath().string());
+  }
+  const std::filesystem::path root = test::freshDirectory("sonnet_assets_benchmark");
+  std::filesystem::copy(sample, root, std::filesystem::copy_options::recursive);
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  const std::vector<std::string> roots{"assets"};
+
+  using Clock = std::chrono::steady_clock;
+  const auto milliseconds = [](Clock::duration duration) {
+    return std::chrono::duration<double, std::milli>(duration).count();
+  };
+  // Each pass opens a fresh database, so nothing is in memory, and places every model the way the
+  // editor and the player do: through model().
+  std::size_t models = 0;
+  const auto place = [&](bool import) {
+    AssetDatabase database{renderer, jobs};
+    database.open(root, roots);
+    models = database.assets(AssetType::Model).size();
+    const auto start = Clock::now();
+    for (const AssetInfo *info : database.assets(AssetType::Model)) {
+      const Model *model = database.model(info->uuid);
+      REQUIRE(model != nullptr);
+      if (import) {
+        for (const ModelNode &node : model->nodes) {
+          if (!node.mesh.isNil()) {
+            static_cast<void>(database.mesh(node.mesh)); // the whole file, as model() once did
+            break;
+          }
+        }
+      }
+    }
+    const double elapsed = milliseconds(Clock::now() - start);
+    database.close();
+    return elapsed;
+  };
+  const double cold = place(true);
+  double hierarchy = 1e9;
+  double imported = 1e9;
+  for (int run = 0; run < 5; ++run) {
+    hierarchy = std::min(hierarchy, place(false));
+    imported = std::min(imported, place(true));
+  }
+  WARN(std::format("{} models: hierarchy {:.3f} ms, full import {:.3f} ms warm and {:.3f} ms cold", models, hierarchy,
+                   imported, cold));
+  std::filesystem::remove_all(root);
 }

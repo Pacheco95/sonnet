@@ -74,7 +74,7 @@ Entities are written parents first, tags as `null`, and editor-only entities not
 
 `version` is the schema version, independent of the engine version ([conventions.md](conventions.md#versioning)). A newer version than the engine knows is refused; older ones are migrated on load, oldest first, logging the file and both versions, and never written back. Version 2 references meshes by asset identity; version 1 named a primitive (`"primitive": "Box"`), which the migration turns into the built-in mesh of the same shape.
 
-A glTF file is a prefab too: `loadModelPrefab` builds one from the file's `assets::Model`, the root under the model's identity and name, every node a prefab child with its transform and, for a node with geometry, a `MeshRenderer` of its mesh, with identities derived from the model's so an instance saves and loads the same way after a re-import. The editor loads one for every model in the project alongside the `.prefab.json` files.
+A glTF file is a prefab too: `loadModelPrefab` builds one from the file's `assets::Model`, the root under the model's identity and name, every node a prefab child with its transform and, for a node with geometry, a `MeshRenderer` of its mesh, with identities derived from the model's so an instance saves and loads the same way after a re-import. The editor loads one for every model in the project alongside the `.prefab.json` files. The hierarchy is all a prefab needs, and it is all the database reads to give one ([assets.md](assets.md#database)), so the instances are whole entities from the frame the scene loads and their meshes draw once the file has imported.
 
 ## Draw list
 
