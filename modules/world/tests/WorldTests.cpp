@@ -4,7 +4,10 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <format>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace sonnet;
@@ -237,4 +240,78 @@ TEST_CASE("a prefab instance shares components until it overrides them", "[world
   REQUIRE(!prefab.is_alive());
   REQUIRE(!lid.is_alive());
   REQUIRE(world.prefabs().empty());
+}
+
+// What the transform hierarchy costs a frame, measured rather than asserted: hidden from the
+// default run, `world_tests "[benchmark]"` prints World::progress in edit mode, which is the
+// TransformSystem and flecs' iteration of it, for ten thousand entities in three shapes, next to
+// the same number of matrix compositions in a plain loop. The gap between the two is iteration,
+// which threads would not divide; the loop is the arithmetic, which they could (ADR-0013).
+TEST_CASE("the transform hierarchy's cost by shape", "[.][benchmark]") {
+  using Clock = std::chrono::steady_clock;
+  constexpr int Count = 10000;
+  constexpr int Frames = 200;
+  const auto local = [](int i) {
+    return world::Transform{.position = {static_cast<float>(i % 7) * 0.1f, 0.2f, 0.0f},
+                            .rotation = glm::angleAxis(0.01f * static_cast<float>(i), glm::vec3{0.0f, 1.0f, 0.0f}),
+                            .scale = glm::vec3{1.0f}};
+  };
+  // Microseconds per frame, the best of three runs of Frames frames.
+  const auto measure = [&](const char *shape, int roots) {
+    world::World world;
+    const int perRoot = Count / roots;
+    const bool chain = std::string_view{shape} == "deep";
+    int created = 0;
+    for (int r = 0; r < roots; ++r) {
+      const flecs::entity root = world.createEntity("root");
+      root.set<world::Transform>(local(created++));
+      flecs::entity parent = root;
+      for (int c = 1; c < perRoot; ++c) {
+        const flecs::entity entity = world.createEntity("node", parent);
+        entity.set<world::Transform>(local(created++));
+        if (chain) {
+          parent = entity;
+        }
+      }
+    }
+    world.progress(0.016f);
+    double best = 1e9;
+    for (int run = 0; run < 3; ++run) {
+      const auto start = Clock::now();
+      for (int frame = 0; frame < Frames; ++frame) {
+        world.progress(0.016f);
+      }
+      best = std::min(best, std::chrono::duration<double, std::micro>(Clock::now() - start).count() / Frames);
+    }
+    WARN(std::format("{:<5} {:>5} roots of {:>5}: {:8.1f} us a frame", shape, roots, perRoot, best));
+    return best;
+  };
+  measure("flat", Count);
+  measure("wide", 100);
+  measure("deep", 100);
+  measure("deep", 10);
+
+  // The arithmetic alone, in a plain loop over arrays: the wide shape's work, every local matrix
+  // composed and multiplied by one of a hundred parents already computed.
+  std::vector<world::Transform> locals;
+  for (int i = 0; i < Count; ++i) {
+    locals.push_back(local(i));
+  }
+  std::vector<glm::mat4> parents(100);
+  for (int p = 0; p < 100; ++p) {
+    parents[static_cast<std::size_t>(p)] = locals[static_cast<std::size_t>(p)].matrix();
+  }
+  std::vector<glm::mat4> matrices(Count);
+  double best = 1e9;
+  for (int run = 0; run < 3; ++run) {
+    const auto start = Clock::now();
+    for (int frame = 0; frame < Frames; ++frame) {
+      for (std::size_t i = 0; i < locals.size(); ++i) {
+        matrices[i] = parents[i % parents.size()] * locals[i].matrix();
+      }
+    }
+    best = std::min(best, std::chrono::duration<double, std::micro>(Clock::now() - start).count() / Frames);
+  }
+  // Printed so the loop is not optimised away.
+  WARN(std::format("plain loop, {} compositions: {:8.1f} us a frame ({})", Count, best, matrices.back()[3].x));
 }

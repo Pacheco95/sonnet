@@ -245,11 +245,19 @@ The second gap matters less than it looks, because `rhi` is main-thread-only by 
 
 `requestMesh` returns an invalid handle while an import is in flight, and the draw list skips the entity, so geometry appears rather than popping in. ADR-0013 described a placeholder, which is what a user would rather see. It needs the database to distinguish pending from failed at the call site, which today both answer with an invalid handle, and a built-in mesh and texture to stand in — the primitives are already registered, so the mesh half is nearly free.
 
-### The transform hierarchy is still single-threaded
+### The transform hierarchy stays single-threaded
 
-`TransformSystem` is the one world system with something to gain from threads and the one flecs cannot split: it depends on `cascade` to write parents before children, and flecs' workers cross tables with no barrier between them ([ADR-0013](decisions/0013-job-system.md)). Making it parallel means grouping the matched entities by hierarchy depth and running a `parallelFor` per level, with the barrier between levels that flecs cannot express.
+Closed by measurement. `TransformSystem` is the one world system with something to gain from threads and the one flecs cannot split: it depends on `cascade` to write parents before children, and flecs' workers cross tables with no barrier between them ([ADR-0013](decisions/0013-job-system.md)). Making it parallel would mean grouping the matched entities by depth and running a `parallelFor` per level. The benchmark that was to decide it, `world_tests "[benchmark]"` in Release, ten thousand entities with every transform recomputed each frame, as it is:
 
-Nothing has measured that it is worth doing. The scenes that exist are shallow and small, and `world_tests` has no benchmark with a deep or wide hierarchy to measure against. That benchmark is the first step, not the restructure.
+| shape | a frame |
+|---|---|
+| flat: ten thousand roots | 0.10 ms |
+| wide: a hundred roots of a hundred children | 0.19 ms |
+| deep: a hundred chains a hundred long | 0.76 ms |
+| deep: ten chains a thousand long | 0.78 ms |
+| the wide shape's arithmetic in a plain loop | 0.18 ms |
+
+It is not worth doing. The wide shape costs what its arithmetic costs, so threads could divide it, but the whole of it is under a fifth of a millisecond at ten thousand entities. The deep shapes cost four times their arithmetic, and the rest is flecs iterating a table per entity, since `ChildOf` is a pair and every parent in a chain makes a table of its own: threads cannot divide that, and a barrier per level would add to it, because a level of a deep hierarchy holds only as many entities as there are chains. If deep hierarchies ever matter, what would move them is not recomputing the subtrees that did not change, which removes the iteration and the arithmetic together. The `Static` tag exists but promises nothing today, since a static body is still moved in the editor, so that change would start by giving it a meaning.
 
 ## Later
 
