@@ -10,7 +10,12 @@ JoltJobSystem::JoltJobSystem(core::JobSystem &jobs, JPH::uint maxJobs, JPH::uint
   m_pool.Init(maxJobs, maxJobs);
 }
 
-JoltJobSystem::~JoltJobSystem() = default;
+JoltJobSystem::~JoltJobSystem() {
+  for (std::uint32_t count = m_inFlight->load(std::memory_order_acquire); count != 0;
+       count = m_inFlight->load(std::memory_order_acquire)) {
+    m_inFlight->wait(count, std::memory_order_acquire);
+  }
+}
 
 int JoltJobSystem::GetMaxConcurrency() const {
   // The workers plus the thread that calls Update, which runs jobs itself while it waits on a
@@ -40,9 +45,13 @@ void JoltJobSystem::QueueJob(Job *job) {
     return;
   }
   job->AddRef(); // released by the worker below, balancing this queued reference
-  m_jobs.schedule("jolt", [job] {
+  m_inFlight->fetch_add(1, std::memory_order_relaxed);
+  m_jobs.schedule("jolt", [job, inFlight = m_inFlight] {
     job->Execute(); // a no-op if a barrier's waiter got there first; Execute guards that itself
-    job->Release();
+    job->Release(); // may be the last reference, which frees the job into m_pool
+    if (inFlight->fetch_sub(1, std::memory_order_release) == 1) {
+      inFlight->notify_all();
+    }
   });
 }
 
