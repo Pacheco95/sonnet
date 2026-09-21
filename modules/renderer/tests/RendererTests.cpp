@@ -1093,9 +1093,14 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
   sonnet::core::JobSystem jobs{[] {
     sonnet::core::JobSystemDesc desc;
 #if defined(_MSC_VER)
-#pragma warning(suppress : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
 #endif
-    if (const char *workers = std::getenv("SONNET_BENCH_WORKERS")) {
+    const char *workers = std::getenv("SONNET_BENCH_WORKERS");
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+    if (workers != nullptr) {
       desc.workerCount = static_cast<std::uint32_t>(std::atoi(workers));
     }
     return desc;
