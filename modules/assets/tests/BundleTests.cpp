@@ -167,41 +167,43 @@ TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundl
     REQUIRE(writer->finish().has_value());
   }
 
-  const auto bundle = Bundle::open(file);
-  REQUIRE(bundle.has_value());
-  REQUIRE(bundle->manifest().name == "Basic");
-  REQUIRE(bundle->manifest().platform == CookPlatform::Windows);
-  REQUIRE(bundle->manifest().startScene == "scenes/main.scene.json");
-  REQUIRE(!bundle->manifest().engineVersion.empty()); // stamped by the writer
-  REQUIRE(bundle->assets().size() == 3);
-  REQUIRE(bundle->files() == std::vector<std::string>{"prefabs/crate.prefab.json", "scenes/main.scene.json"});
-  REQUIRE(bundle->contains(meshId));
-  REQUIRE(bundle->contains("scenes/main.scene.json"));
-  REQUIRE(!bundle->contains(core::Uuid::generate()));
-  REQUIRE(!bundle->contains("scenes/nowhere.scene.json"));
+  { // the bundle keeps its file open, which Windows will not let remove_all delete
+    const auto bundle = Bundle::open(file);
+    REQUIRE(bundle.has_value());
+    REQUIRE(bundle->manifest().name == "Basic");
+    REQUIRE(bundle->manifest().platform == CookPlatform::Windows);
+    REQUIRE(bundle->manifest().startScene == "scenes/main.scene.json");
+    REQUIRE(!bundle->manifest().engineVersion.empty()); // stamped by the writer
+    REQUIRE(bundle->assets().size() == 3);
+    REQUIRE(bundle->files() == std::vector<std::string>{"prefabs/crate.prefab.json", "scenes/main.scene.json"});
+    REQUIRE(bundle->contains(meshId));
+    REQUIRE(bundle->contains("scenes/main.scene.json"));
+    REQUIRE(!bundle->contains(core::Uuid::generate()));
+    REQUIRE(!bundle->contains("scenes/nowhere.scene.json"));
 
-  const std::span<const BundleAsset> entries = bundle->assets();
-  const auto cooked = std::ranges::find_if(entries, [&](const BundleAsset &asset) { return asset.uuid == meshId; });
-  REQUIRE(cooked != entries.end());
-  REQUIRE(cooked->type == AssetType::Mesh);
-  REQUIRE(cooked->name == "Crate");
-  REQUIRE(cooked->parent == modelId);
-  REQUIRE(cooked->materials == std::vector<core::Uuid>{materialId, {}});
+    const std::span<const BundleAsset> entries = bundle->assets();
+    const auto cooked = std::ranges::find_if(entries, [&](const BundleAsset &asset) { return asset.uuid == meshId; });
+    REQUIRE(cooked != entries.end());
+    REQUIRE(cooked->type == AssetType::Mesh);
+    REQUIRE(cooked->name == "Crate");
+    REQUIRE(cooked->parent == modelId);
+    REQUIRE(cooked->materials == std::vector<core::Uuid>{materialId, {}});
 
-  const auto payload = bundle->read(meshId);
-  REQUIRE(payload.has_value());
-  const auto mesh = decodeMesh(*payload);
-  REQUIRE(mesh.has_value());
-  REQUIRE(mesh->indices == triangleMesh().indices);
+    const auto payload = bundle->read(meshId);
+    REQUIRE(payload.has_value());
+    const auto mesh = decodeMesh(*payload);
+    REQUIRE(mesh.has_value());
+    REQUIRE(mesh->indices == triangleMesh().indices);
 
-  const auto scene = bundle->read("scenes/main.scene.json");
-  REQUIRE(scene.has_value());
-  const auto document = decodeJson(*scene);
-  REQUIRE(document.has_value());
-  REQUIRE(document->at("version") == 2);
+    const auto scene = bundle->read("scenes/main.scene.json");
+    REQUIRE(scene.has_value());
+    const auto document = decodeJson(*scene);
+    REQUIRE(document.has_value());
+    REQUIRE(document->at("version") == 2);
 
-  REQUIRE(!bundle->read(core::Uuid::generate()).has_value());
-  REQUIRE(!bundle->read("scenes/nowhere.scene.json").has_value());
+    REQUIRE(!bundle->read(core::Uuid::generate()).has_value());
+    REQUIRE(!bundle->read("scenes/nowhere.scene.json").has_value());
+  }
   std::filesystem::remove_all(directory);
 }
 

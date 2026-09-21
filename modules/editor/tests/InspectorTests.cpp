@@ -31,7 +31,6 @@ const ecs_member_t &memberOf(const world::World &world, flecs::entity_t type, st
     }
   }
   FAIL("no member " << name);
-  return members[0];
 }
 
 } // namespace
