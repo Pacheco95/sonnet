@@ -3,28 +3,14 @@
 # Only third-party code belongs here, and only where the sanitizer cannot see what orders it. A
 # race in Sonnet's own code is a bug to fix, never one to suppress.
 
-# Jolt, all of it. vcpkg ships a prebuilt libJolt.a with no sanitizer instrumentation, so the
-# happens-before that Jolt establishes is invisible to the sanitizer wherever it is built inside
-# the library rather than in a header. Two examples seen here:
-#
-#  - TempAllocatorImpl has a plain mTop and is written from several threads by design. Jolt's own
-#    header says so: "allocations and frees can take place from different threads, but the order is
-#    guaranteed though job dependencies, so it is not needed to use any form of locking". Those job
-#    dependencies resolve in JobSystemWithBarrier.cpp, inside the uninstrumented library.
-#  - Mutex, in builds defining JPH_ENABLE_ASSERTS, reads mLockedThreadID in try_lock() before it
-#    holds the lock, to assert that lock and unlock share a thread. That one is a real race on a
-#    value nothing but the assertion reads, and it is compiled out of builds without asserts.
-#
-# What this costs: a report whose stack passes through a JPH frame is suppressed, so the sanitizer
-# does not police how `physics` drives Jolt either. Two things cover that instead — Jolt's Debug
-# assertions, which check the temp allocator is freed in LIFO order and that a mutex is unlocked by
-# the thread that locked it, and would fire loudly if the job ordering this adapter relies on were
-# broken; and physics_tests, whose stress case settles a thousand-body pile identically with the
-# pool idle and with it working.
-#
-# Lifting this needs an overlay port that builds Jolt with -fsanitize=thread for this preset alone,
-# which is the only way to give the sanitizer the whole picture. Deferred, and noted in M8.
-race:JPH::
+# There is no Jolt entry. The preset builds Jolt under the sanitizer through the x64-linux-tsan
+# triplet (triplets/), so the ordering Jolt establishes inside the library — its temp allocator's
+# plain mTop, written from several threads in an order job dependencies guarantee — is visible to
+# the sanitizer, and it polices how `physics` drives Jolt like any other code. The suppression that
+# covered every JPH frame while the library was prebuilt came out with it and nothing replaced it:
+# the whole suite runs clean. Mutex::try_lock reading mLockedThreadID is a real race, on a value only
+# an assertion reads, but it exists only under JPH_ENABLE_ASSERTS, which the port does not define;
+# if it ever does, that function alone gets an entry here.
 
 # There is no Lavapipe entry here on purpose. Mesa's software rasterizer runs the Vulkan tests and
 # starts a rasterizing pool of its own, uninstrumented like Jolt, and it reports races and
