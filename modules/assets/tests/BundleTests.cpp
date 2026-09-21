@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -179,8 +180,9 @@ TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundl
   REQUIRE(!bundle->contains(core::Uuid::generate()));
   REQUIRE(!bundle->contains("scenes/nowhere.scene.json"));
 
-  const auto *cooked =
-      std::ranges::find_if(bundle->assets(), [&](const BundleAsset &asset) { return asset.uuid == meshId; }).base();
+  const std::span<const BundleAsset> entries = bundle->assets();
+  const auto cooked = std::ranges::find_if(entries, [&](const BundleAsset &asset) { return asset.uuid == meshId; });
+  REQUIRE(cooked != entries.end());
   REQUIRE(cooked->type == AssetType::Mesh);
   REQUIRE(cooked->name == "Crate");
   REQUIRE(cooked->parent == modelId);
