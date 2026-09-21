@@ -1,5 +1,7 @@
 #include <sonnet/rhi/NullDevice.h>
 
+#include "OwnerThread.h"
+
 #include <sonnet/core/Assert.h>
 #include <sonnet/core/Log.h>
 
@@ -242,10 +244,12 @@ NullDevice::~NullDevice() {
 }
 
 std::unique_ptr<ISwapchain> NullDevice::createSwapchain(platform::IWindow &window) {
+  assertOwnerThread("createSwapchain");
   return std::make_unique<NullSwapchain>(*this, window);
 }
 
 BufferHandle NullDevice::createBuffer(const BufferDesc &desc) {
+  assertOwnerThread("createBuffer");
   SONNET_ASSERT(desc.size > 0, "buffer \"{}\" has no size", desc.debugName);
   Buffer buffer{desc, {}, 0};
   if (desc.memory != MemoryUsage::GpuOnly) {
@@ -259,6 +263,7 @@ BufferHandle NullDevice::createBuffer(const BufferDesc &desc) {
 }
 
 void NullDevice::destroyBuffer(BufferHandle handle) {
+  assertOwnerThread("destroyBuffer");
   if (!m_buffers.remove(handle)) {
     SONNET_LOG_WARN("destroyBuffer: stale handle {}:{}", handle.index, handle.generation);
   }
@@ -278,6 +283,7 @@ std::uint64_t NullDevice::bufferAddress(BufferHandle handle) const {
 }
 
 ImageHandle NullDevice::createImage(const ImageDesc &desc) {
+  assertOwnerThread("createImage");
   SONNET_ASSERT(desc.size.x > 0 && desc.size.y > 0, "image \"{}\" has no size", desc.debugName);
   SONNET_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size), "image \"{}\": {} mip levels",
                 desc.debugName, desc.mipLevels);
@@ -294,6 +300,7 @@ std::uint32_t NullDevice::sampledImageIndex(ImageHandle handle) const {
 }
 
 std::uint32_t NullDevice::storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) {
+  assertOwnerThread("storageImageIndex");
   Image *image = m_images.find(handle);
   if (image == nullptr || !has(image->desc.usage, ImageUsage::Storage) || mipLevel >= image->desc.mipLevels) {
     return InvalidBindlessIndex;
@@ -308,11 +315,13 @@ std::uint32_t NullDevice::storageImageIndex(ImageHandle handle, std::uint32_t mi
 }
 
 SamplerHandle NullDevice::createSampler(const SamplerDesc &desc) {
+  assertOwnerThread("createSampler");
   const std::uint32_t index = desc.compare ? m_nextComparisonSamplerIndex++ : m_nextSamplerIndex++;
   return m_samplers.emplace(Sampler{desc, index});
 }
 
 void NullDevice::destroySampler(SamplerHandle handle) {
+  assertOwnerThread("destroySampler");
   if (!m_samplers.remove(handle)) {
     SONNET_LOG_WARN("destroySampler: stale handle {}:{}", handle.index, handle.generation);
   }
@@ -324,6 +333,7 @@ std::uint32_t NullDevice::samplerIndex(SamplerHandle handle) const {
 }
 
 void NullDevice::uploadBuffer(BufferHandle handle, std::uint64_t offset, std::span<const std::byte> data) {
+  assertOwnerThread("uploadBuffer");
   Buffer *buffer = m_buffers.find(handle);
   if (buffer == nullptr) {
     SONNET_LOG_WARN("uploadBuffer: stale handle {}:{}", handle.index, handle.generation);
@@ -340,6 +350,7 @@ void NullDevice::uploadBuffer(BufferHandle handle, std::uint64_t offset, std::sp
 }
 
 void NullDevice::uploadImage(ImageHandle handle, std::span<const ImageUpload> uploads) {
+  assertOwnerThread("uploadImage");
   const Image *image = m_images.find(handle);
   if (image == nullptr) {
     SONNET_LOG_WARN("uploadImage: stale handle {}:{}", handle.index, handle.generation);
@@ -359,6 +370,7 @@ void NullDevice::uploadImage(ImageHandle handle, std::span<const ImageUpload> up
 }
 
 void NullDevice::destroyImage(ImageHandle handle) {
+  assertOwnerThread("destroyImage");
   if (!m_images.remove(handle)) {
     SONNET_LOG_WARN("destroyImage: stale handle {}:{}", handle.index, handle.generation);
   }
@@ -369,26 +381,31 @@ const ImageDesc &NullDevice::imageDesc(ImageHandle handle) const {
 }
 
 ShaderHandle NullDevice::createShader(const ShaderDesc &desc) {
+  assertOwnerThread("createShader");
   return m_shaders.emplace(Shader{desc.debugName});
 }
 
 void NullDevice::destroyShader(ShaderHandle handle) {
+  assertOwnerThread("destroyShader");
   if (!m_shaders.remove(handle)) {
     SONNET_LOG_WARN("destroyShader: stale handle {}:{}", handle.index, handle.generation);
   }
 }
 
 PipelineHandle NullDevice::createGraphicsPipeline(const GraphicsPipelineDesc &desc) {
+  assertOwnerThread("createGraphicsPipeline");
   SONNET_ASSERT(m_shaders.contains(desc.shader), "pipeline \"{}\": stale shader handle", desc.debugName);
   return m_pipelines.emplace(Pipeline{desc.debugName, false});
 }
 
 PipelineHandle NullDevice::createComputePipeline(const ComputePipelineDesc &desc) {
+  assertOwnerThread("createComputePipeline");
   SONNET_ASSERT(m_shaders.contains(desc.shader), "compute pipeline \"{}\": stale shader handle", desc.debugName);
   return m_pipelines.emplace(Pipeline{desc.debugName, true});
 }
 
 void NullDevice::destroyPipeline(PipelineHandle handle) {
+  assertOwnerThread("destroyPipeline");
   if (!m_pipelines.remove(handle)) {
     SONNET_LOG_WARN("destroyPipeline: stale handle {}:{}", handle.index, handle.generation);
   }
@@ -411,6 +428,7 @@ bool NullDevice::isValid(PipelineHandle handle) const {
 }
 
 ICommandList &NullDevice::beginFrame() {
+  assertOwnerThread("beginFrame");
   SONNET_ASSERT(!m_recording, "beginFrame called twice without endFrame");
   Frame &frame = m_frames[m_frameIndex];
   // The previous use of this slot "completed": its timestamps read back as zero.
@@ -423,6 +441,7 @@ ICommandList &NullDevice::beginFrame() {
 }
 
 void NullDevice::endFrame() {
+  assertOwnerThread("endFrame");
   SONNET_ASSERT(m_recording, "endFrame called without beginFrame");
   SONNET_ASSERT(!m_commandList->rendering(), "endFrame inside beginRendering/endRendering");
   m_recording = false;
@@ -430,9 +449,11 @@ void NullDevice::endFrame() {
 }
 
 void NullDevice::waitIdle() {
+  assertOwnerThread("waitIdle");
 }
 
 TransientAllocation NullDevice::allocateTransient(std::uint64_t size) {
+  assertOwnerThread("allocateTransient");
   SONNET_ASSERT(m_recording, "allocateTransient outside beginFrame/endFrame");
   Frame &frame = m_frames[m_frameIndex];
   const std::uint64_t offset =
@@ -457,6 +478,10 @@ MemoryBudget NullDevice::memoryBudget() const {
   m_images.forEach([&](ImageHandle, const Image &image) { usage += image.desc.byteSize(); });
   budget.heaps[0] = HeapBudget{usage, 1u << 30, true};
   return budget;
+}
+
+void NullDevice::assertOwnerThread(std::string_view what) const {
+  detail::assertOwnerThread(m_ownerThread, what);
 }
 
 std::string NullDevice::imageName(ImageHandle handle) const {

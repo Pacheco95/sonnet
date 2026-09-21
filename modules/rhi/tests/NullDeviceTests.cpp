@@ -1,6 +1,7 @@
 #include <sonnet/rhi/NullDevice.h>
 
 #include <sonnet/core/Error.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/platform/Window.h>
 
@@ -189,4 +190,25 @@ TEST_CASE("null device traces uploads, compute dispatches and bindless slots", "
   device->destroyImage(storage);
   device->destroyImage(texture);
   device->destroyBuffer(vertices);
+}
+
+// A device belongs to the thread that created it, not to the process's main thread
+// (src/OwnerThread.h). A violation asserts and so cannot be tested in process; what this pins is
+// the other half of the rule, that a device created away from the main thread is usable there,
+// which is what `sonnet_cook` and any future loading thread of its own rely on.
+TEST_CASE("a null device created on a worker belongs to that worker", "[rhi][null][thread]") {
+  sonnet::core::JobSystem jobs{{.workerCount = 2}};
+  bool ran = false;
+  const sonnet::core::JobHandle job = jobs.schedule("device on a worker", [&] {
+    const auto device = createNullDevice();
+    const BufferHandle buffer = device->createBuffer(
+        {.size = 16, .usage = BufferUsage::Storage, .memory = MemoryUsage::CpuToGpu, .debugName = "worker"});
+    device->beginFrame();
+    const TransientAllocation transient = device->allocateTransient(16);
+    device->endFrame();
+    device->destroyBuffer(buffer);
+    ran = device->isValid(buffer) == false && transient.data.size() == 16;
+  });
+  jobs.wait(job);
+  REQUIRE(ran);
 }

@@ -1,5 +1,6 @@
 #include "VulkanDevice.h"
 
+#include "OwnerThread.h"
 #include "VulkanSwapchain.h"
 #include "VulkanTypes.h"
 
@@ -367,10 +368,12 @@ void VulkanDevice::createFrames() {
 }
 
 std::unique_ptr<ISwapchain> VulkanDevice::createSwapchain(platform::IWindow &window) {
+  assertOwnerThread("createSwapchain");
   return std::make_unique<VulkanSwapchain>(*this, window);
 }
 
 BufferHandle VulkanDevice::createBuffer(const BufferDesc &desc) {
+  assertOwnerThread("createBuffer");
   SONNET_ASSERT(desc.size > 0, "buffer \"{}\" has no size", desc.debugName);
   vk::BufferCreateInfo bufferInfo{{}, desc.size, toVk(desc.usage), vk::SharingMode::eExclusive};
   vma::AllocationCreateInfo allocationInfo{};
@@ -400,6 +403,7 @@ BufferHandle VulkanDevice::createBuffer(const BufferDesc &desc) {
 }
 
 void VulkanDevice::destroyBuffer(BufferHandle handle) {
+  assertOwnerThread("destroyBuffer");
   std::optional<VulkanBuffer> buffer = m_buffers.remove(handle);
   if (!buffer) {
     SONNET_LOG_WARN("destroyBuffer: stale handle {}:{}", handle.index, handle.generation);
@@ -442,6 +446,7 @@ void VulkanDevice::writeSamplerDescriptor(std::uint32_t binding, std::uint32_t i
 }
 
 ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
+  assertOwnerThread("createImage");
   SONNET_ASSERT(desc.size.x > 0 && desc.size.y > 0, "image \"{}\" has no size", desc.debugName);
   SONNET_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size), "image \"{}\": {} mip levels",
                 desc.debugName, desc.mipLevels);
@@ -485,6 +490,7 @@ ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
 }
 
 ImageHandle VulkanDevice::registerExternalImage(vk::Image image, const ImageDesc &desc) {
+  assertOwnerThread("registerExternalImage");
   vk::ImageViewCreateInfo viewInfo{{}, image, vk::ImageViewType::e2D, toVk(desc.format), {}, wholeImage(desc.format)};
   vk::raii::ImageView view{m_device, viewInfo};
   setDebugName(vk::ObjectType::eImage, objectHandle(image), desc.debugName);
@@ -493,6 +499,7 @@ ImageHandle VulkanDevice::registerExternalImage(vk::Image image, const ImageDesc
 }
 
 void VulkanDevice::destroyImage(ImageHandle handle) {
+  assertOwnerThread("destroyImage");
   std::optional<VulkanImage> image = m_images.remove(handle);
   if (!image) {
     SONNET_LOG_WARN("destroyImage: stale handle {}:{}", handle.index, handle.generation);
@@ -522,6 +529,7 @@ std::uint32_t VulkanDevice::sampledImageIndex(ImageHandle handle) const {
 }
 
 std::uint32_t VulkanDevice::storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) {
+  assertOwnerThread("storageImageIndex");
   VulkanImage *image = m_images.find(handle);
   if (image == nullptr || !has(image->desc.usage, ImageUsage::Storage) || mipLevel >= image->desc.mipLevels) {
     SONNET_LOG_WARN("storageImageIndex: no storage view for level {} of image {}:{}", mipLevel, handle.index,
@@ -556,6 +564,7 @@ std::uint32_t VulkanDevice::storageImageIndex(ImageHandle handle, std::uint32_t 
 }
 
 SamplerHandle VulkanDevice::createSampler(const SamplerDesc &desc) {
+  assertOwnerThread("createSampler");
   const bool anisotropic = desc.anisotropy > 1.0f;
   const vk::SamplerCreateInfo info{{},
                                    toVk(desc.filter),
@@ -584,6 +593,7 @@ SamplerHandle VulkanDevice::createSampler(const SamplerDesc &desc) {
 }
 
 void VulkanDevice::destroySampler(SamplerHandle handle) {
+  assertOwnerThread("destroySampler");
   std::optional<VulkanSampler> sampler = m_samplers.remove(handle);
   if (!sampler) {
     SONNET_LOG_WARN("destroySampler: stale handle {}:{}", handle.index, handle.generation);
@@ -673,6 +683,7 @@ VulkanDevice::Staging VulkanDevice::stage(std::uint64_t size, std::string_view w
 }
 
 void VulkanDevice::uploadBuffer(BufferHandle handle, std::uint64_t offset, std::span<const std::byte> data) {
+  assertOwnerThread("uploadBuffer");
   const VulkanBuffer *buffer = m_buffers.find(handle);
   if (buffer == nullptr) {
     SONNET_LOG_WARN("uploadBuffer: stale handle {}:{}", handle.index, handle.generation);
@@ -694,6 +705,7 @@ void VulkanDevice::uploadBuffer(BufferHandle handle, std::uint64_t offset, std::
 }
 
 void VulkanDevice::uploadImage(ImageHandle handle, std::span<const ImageUpload> uploads) {
+  assertOwnerThread("uploadImage");
   const VulkanImage *image = m_images.find(handle);
   if (image == nullptr) {
     SONNET_LOG_WARN("uploadImage: stale handle {}:{}", handle.index, handle.generation);
@@ -749,6 +761,7 @@ void VulkanDevice::uploadImage(ImageHandle handle, std::span<const ImageUpload> 
 }
 
 ShaderHandle VulkanDevice::createShader(const ShaderDesc &desc) {
+  assertOwnerThread("createShader");
   if (desc.spirv.size() < 4 || desc.spirv.size() % 4 != 0) {
     throw core::Exception{
         std::format("shader \"{}\": {} bytes is not a SPIR-V module", desc.debugName, desc.spirv.size()),
@@ -767,6 +780,7 @@ ShaderHandle VulkanDevice::createShader(const ShaderDesc &desc) {
 }
 
 void VulkanDevice::destroyShader(ShaderHandle handle) {
+  assertOwnerThread("destroyShader");
   std::optional<VulkanShader> shader = m_shaders.remove(handle);
   if (!shader) {
     SONNET_LOG_WARN("destroyShader: stale handle {}:{}", handle.index, handle.generation);
@@ -777,6 +791,7 @@ void VulkanDevice::destroyShader(ShaderHandle handle) {
 }
 
 PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &desc) {
+  assertOwnerThread("createGraphicsPipeline");
   const VulkanShader *shader = m_shaders.find(desc.shader);
   if (shader == nullptr) {
     throw core::Exception{std::format("pipeline \"{}\": stale shader handle", desc.debugName),
@@ -848,6 +863,7 @@ PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &
 }
 
 PipelineHandle VulkanDevice::createComputePipeline(const ComputePipelineDesc &desc) {
+  assertOwnerThread("createComputePipeline");
   const VulkanShader *shader = m_shaders.find(desc.shader);
   if (shader == nullptr) {
     throw core::Exception{std::format("compute pipeline \"{}\": stale shader handle", desc.debugName),
@@ -863,6 +879,7 @@ PipelineHandle VulkanDevice::createComputePipeline(const ComputePipelineDesc &de
 }
 
 void VulkanDevice::destroyPipeline(PipelineHandle handle) {
+  assertOwnerThread("destroyPipeline");
   std::optional<VulkanPipeline> pipeline = m_pipelines.remove(handle);
   if (!pipeline) {
     SONNET_LOG_WARN("destroyPipeline: stale handle {}:{}", handle.index, handle.generation);
@@ -889,6 +906,10 @@ bool VulkanDevice::isValid(ImageHandle handle) const {
 
 bool VulkanDevice::isValid(SamplerHandle handle) const {
   return m_samplers.contains(handle);
+}
+
+void VulkanDevice::assertOwnerThread(std::string_view what) const {
+  detail::assertOwnerThread(m_ownerThread, what);
 }
 
 void VulkanDevice::deferDestruction(std::function<void()> destroy) {
@@ -939,6 +960,7 @@ void VulkanDevice::readTimestamps(Frame &frame) {
 }
 
 ICommandList &VulkanDevice::beginFrame() {
+  assertOwnerThread("beginFrame");
   SONNET_ZONE();
   SONNET_ASSERT(!m_recording, "beginFrame called twice without endFrame");
   prepareSlot();
@@ -958,6 +980,7 @@ void VulkanDevice::noteTimestamp(std::uint32_t index) noexcept {
 }
 
 TransientAllocation VulkanDevice::allocateTransient(std::uint64_t size) {
+  assertOwnerThread("allocateTransient");
   SONNET_ASSERT(m_recording, "allocateTransient outside beginFrame/endFrame");
   Frame &frame = m_frames[m_frameIndex];
   const std::uint64_t offset =
@@ -999,6 +1022,7 @@ void VulkanDevice::addPendingPresent(VulkanSwapchain &swapchain, std::uint32_t i
 }
 
 void VulkanDevice::endFrame() {
+  assertOwnerThread("endFrame");
   SONNET_ZONE();
   SONNET_ASSERT(m_recording, "endFrame called without beginFrame");
   Frame &frame = m_frames[m_frameIndex];
@@ -1092,6 +1116,7 @@ void VulkanDevice::submitRecordedUploads() {
 }
 
 void VulkanDevice::waitIdle() {
+  assertOwnerThread("waitIdle");
   if (*m_device == nullptr) {
     return;
   }
