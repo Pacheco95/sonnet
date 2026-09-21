@@ -99,6 +99,8 @@ The render graph is an engine feature this time; the previous iteration kept it 
 
 Topological ordering and pass merging are not there yet: passes run in the order they are added, which the renderer controls.
 
+`reset` also begins a frame with a serial, `frameSerial`, that no graph in the process has used before. It is what a caller keys per-frame state on, as the renderer does to prepare a frame once however many of its passes are added. `frameIndex` counts one graph's frames from zero, so it measures a distance between two of that graph's frames and never identifies one: keyed on it and on the graph's address, a graph built where an earlier one stood matched the earlier one's first frame, and the renderer drew the earlier view again from that frame's memory.
+
 The main pipeline is clustered forward ([ADR-0008](decisions/0008-clustered-forward-rendering.md)). `Renderer::addScenePasses` declares it, in this order:
 
 1. Precomputation that is pending: the BRDF lookup table on the first frame, an environment's cubes on the frame after its creation ([Image-based lighting](#image-based-lighting)).

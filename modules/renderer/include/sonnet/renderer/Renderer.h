@@ -376,8 +376,8 @@ private:
 
   // Frame state between addScenePasses and the graph's execute.
   const SceneView *m_view{nullptr};
-  const RenderGraph *m_graph{nullptr};
-  std::uint64_t m_graphFrame{0};
+  std::uint64_t m_graphSerial{0}; // RenderGraph::frameSerial of the frame prepared
+  std::uint64_t m_graphFrame{0};  // its frameIndex, which the skinned buffers age by
   glm::uvec2 m_targetSize{0, 0};
   std::vector<ResolvedDraw> m_resolved;
   std::vector<SkinJob> m_skinJobs;

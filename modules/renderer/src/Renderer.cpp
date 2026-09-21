@@ -896,11 +896,13 @@ void Renderer::parallelFor(const char *name, std::size_t count, std::size_t grai
 
 void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize) {
   SONNET_ZONE();
-  if (m_view == &view && m_graph == &graph && m_graphFrame == graph.frameIndex() && m_targetSize == targetSize) {
+  // Once per graph frame, however many passes ask. The serial rather than the graph's address
+  // and frame count, which a graph built where an earlier one stood would repeat.
+  if (m_view == &view && m_graphSerial == graph.frameSerial() && m_targetSize == targetSize) {
     return;
   }
   m_view = &view;
-  m_graph = &graph;
+  m_graphSerial = graph.frameSerial();
   m_graphFrame = graph.frameIndex();
   m_targetSize = targetSize;
   m_cascadesActive = false;

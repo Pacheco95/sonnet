@@ -20,6 +20,7 @@
 #include <cstring>
 #include <format>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -412,6 +413,43 @@ TEST_CASE("a render target is recreated on resize and released at zero", "[rende
   REQUIRE(target.size() == glm::uvec2{64, 64});
   target.resize({0, 0});
   REQUIRE(!target.isValid());
+}
+
+// The renderer does its per-frame preparation once however many passes ask for it, and it used to
+// recognise "the same frame" by the view's and the graph's addresses and the graph's frame count.
+// A graph built where an earlier one stood, on its first frame as the earlier one was, matched all
+// three, and the renderer drew the earlier view again from the earlier frame's memory. The storage
+// is reused on purpose here so the addresses do collide, rather than hoping the stack lays two
+// calls out alike.
+TEST_CASE("a graph built where an earlier one stood does not inherit its frame", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 8, 4), "sphere");
+  std::optional<RenderGraph> graph;
+  std::optional<SceneView> view;
+  const auto record = [&](MeshHandle mesh) {
+    const std::array draws{DrawItem{.mesh = mesh}};
+    graph.emplace(*device);
+    view.emplace(boxScene(draws));
+    ICommandList &commands = device->beginFrame();
+    graph->reset();
+    renderer.addScenePasses(*graph, *view, graph->importImage(target.color()), graph->importImage(target.depth()));
+    graph->execute(commands);
+    device->endFrame();
+    view.reset();
+    graph.reset();
+  };
+  record(box);
+  REQUIRE(countLines(*device, "bindIndexBuffer \"box indices\"") > 0);
+  record(sphere);
+  REQUIRE(countLines(*device, "bindIndexBuffer \"sphere indices\"") > 0);
+  REQUIRE(countLines(*device, "bindIndexBuffer \"box indices\"") == 0);
+  renderer.destroyMesh(sphere);
+  renderer.destroyMesh(box);
 }
 
 TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu]") {
