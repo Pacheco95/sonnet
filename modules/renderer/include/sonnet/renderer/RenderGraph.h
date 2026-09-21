@@ -113,7 +113,8 @@ public:
   RenderGraph(const RenderGraph &) = delete;
   RenderGraph &operator=(const RenderGraph &) = delete;
 
-  // Forgets the previous frame's passes and images; pooled transient images stay allocated.
+  // Forgets the previous frame's passes and images and begins a new frame with a new serial;
+  // pooled transient images stay allocated.
   void reset();
 
   // An image the caller owns, in `initialLayout`. Undefined treats the contents as garbage at
@@ -137,9 +138,16 @@ public:
   [[nodiscard]] const GraphStatistics &statistics() const noexcept {
     return m_statistics;
   }
-  // Counts the frames executed; what a caller keys per-frame state on.
+  // Counts this graph's executed frames: a distance between two of its frames, not an identity,
+  // since every graph counts from zero.
   [[nodiscard]] std::uint64_t frameIndex() const noexcept {
     return m_frameCounter;
+  }
+  // Identifies the frame begun by the last reset, unique across every graph in the process, so a
+  // graph built where an earlier one stood never shares a frame with it. What a caller keys
+  // per-frame state on; zero before the first reset.
+  [[nodiscard]] std::uint64_t frameSerial() const noexcept {
+    return m_frameSerial;
   }
 
 private:
@@ -174,6 +182,7 @@ private:
   std::vector<detail::Pass> m_passes;
   std::vector<PooledImage> m_pool;
   std::uint64_t m_frameCounter{0};
+  std::uint64_t m_frameSerial{0};
   // Pass names per frame slot, to pair timestamps with the passes that wrote them.
   std::array<std::vector<std::string>, rhi::FramesInFlight> m_slotPassNames;
   GraphStatistics m_statistics;

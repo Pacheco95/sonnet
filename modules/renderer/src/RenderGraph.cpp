@@ -5,6 +5,7 @@
 #include <sonnet/core/Profile.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <utility>
 
@@ -14,6 +15,9 @@ namespace {
 
 // Pooled transient images that no frame has used for this long are released.
 constexpr std::uint64_t PoolRetentionFrames = rhi::FramesInFlight + 2;
+
+// The last frame serial handed out by any graph.
+std::atomic<std::uint64_t> lastFrameSerial{0};
 
 struct Required {
   rhi::ImageLayout layout;
@@ -98,6 +102,7 @@ RenderGraph::~RenderGraph() {
 }
 
 void RenderGraph::reset() {
+  m_frameSerial = lastFrameSerial.fetch_add(1, std::memory_order_relaxed) + 1;
   m_images.clear();
   m_handles.clear();
   m_states.clear();
