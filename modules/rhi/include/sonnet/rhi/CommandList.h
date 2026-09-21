@@ -27,8 +27,12 @@ public:
   virtual void endRendering() = 0;
 
   // A graphics pipeline inside beginRendering/endRendering, with attachment formats that match;
-  // a compute pipeline outside. Binds the bindless set for the pipeline's bind point too.
+  // a compute pipeline outside. Binds the bindless set for the pipeline's bind point too, and
+  // for a graphics pipeline sets the front face back to counter-clockwise.
   virtual void bindPipeline(PipelineHandle pipeline) = 0;
+  // With a graphics pipeline bound, until the next bind: which winding faces the viewer. A
+  // transform that mirrors reverses a triangle's winding on screen, so its draws set Clockwise.
+  virtual void setFrontFace(FrontFace frontFace) = 0;
   // Per-pass buffers pushed into PassDescriptorSet: PassUniformBinding takes a uniform buffer,
   // PassStorageBinding a storage buffer. Offsets follow the device's alignment rules; slices
   // from allocateTransient always do.

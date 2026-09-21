@@ -25,7 +25,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV_Start
   output.position = mul(frame.viewProjection, world);
   output.worldPosition = world.xyz;
   output.normal = transformNormal(basis, vertex.normal);
-  output.tangent = float4(transformDirection(basis, vertex.tangent.xyz), vertex.tangent.w);
+  output.tangent = float4(transformDirection(basis, vertex.tangent.xyz), vertex.tangent.w * mirrorSign(basis));
   output.uv = vertex.uv;
   output.color = object.color;
   return output;

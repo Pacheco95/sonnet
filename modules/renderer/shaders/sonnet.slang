@@ -165,14 +165,21 @@ public float3 transformDirection(WorldBasis basis, float3 direction) {
 // What a normal needs is the cofactor matrix of the model matrix's upper 3x3, whose columns are
 // these cross products. It equals the inverse transpose times the determinant, and the
 // determinant is a uniform scale that a normalised normal cannot tell from 1, except for its
-// sign: under a mirroring transform the cofactor points the other way. So does SV_IsFrontFace,
-// because mirroring reverses the winding and the pipelines do not flip their front face per
-// draw, and forward.slang turns a back-facing normal round. The two cancel, which makes a
-// mirrored double-sided draw shade correctly where the inverse transpose shaded it inside out.
-// A mirrored single-sided draw is culled inside out before any normal is read.
+// sign: under a mirroring transform the cofactor points inward. Multiplying by the sign puts it
+// back. It used to cancel against SV_IsFrontFace instead, while the pipelines kept a fixed front
+// face and a mirrored draw's reversed winding made its outside read as its back; the renderer now
+// sets a clockwise front face for a mirrored draw, so nothing cancels it any more.
 public float3 transformNormal(WorldBasis basis, float3 normal) {
-  return cross(basis.y, basis.z) * normal.x + cross(basis.z, basis.x) * normal.y +
-         cross(basis.x, basis.y) * normal.z;
+  const float3 cofactor = cross(basis.y, basis.z) * normal.x + cross(basis.z, basis.x) * normal.y +
+                          cross(basis.x, basis.y) * normal.z;
+  return cofactor * mirrorSign(basis);
+}
+
+// -1 when the model matrix mirrors, which is when its upper 3x3 has a negative determinant. A
+// mirrored draw's bitangent has to take it too: cross(n, t) of the transformed normal and tangent
+// is the transformed bitangent times it, so a normal map's green channel would read upside down.
+public float mirrorSign(WorldBasis basis) {
+  return dot(cross(basis.x, basis.y), basis.z) < 0.0 ? -1.0 : 1.0;
 }
 
 // A draw finds its object through SV_StartInstanceLocation, which every command carries in its
