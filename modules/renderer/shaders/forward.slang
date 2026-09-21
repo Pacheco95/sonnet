@@ -19,12 +19,13 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV_Start
   const ObjectData object = objects[objectIndex];
   const Vertex vertex = object.vertices[vertexId];
   const float4 world = mul(object.model, float4(vertex.position, 1.0));
+  const WorldBasis basis = worldBasis(object.model);
   VertexOutput output;
   output.objectIndex = objectIndex;
   output.position = mul(frame.viewProjection, world);
   output.worldPosition = world.xyz;
-  output.normal = mul((float3x3)object.normalMatrix, vertex.normal);
-  output.tangent = float4(mul((float3x3)object.model, vertex.tangent.xyz), vertex.tangent.w);
+  output.normal = transformNormal(basis, vertex.normal);
+  output.tangent = float4(transformDirection(basis, vertex.tangent.xyz), vertex.tangent.w);
   output.uv = vertex.uv;
   output.color = object.color;
   return output;
