@@ -705,11 +705,15 @@ bool AssetDatabase::publishGltf(const GltfRequest &request, GltfLoad &&load) {
     clip = std::move(import.animations[i].clip);
     clip.revision = ++m_revision;
   }
-  // The same hierarchy model() may have read from the JSON already, so a prefab placed from that
-  // one still matches.
-  Model model = std::move(import.model);
-  assignModelIdentities(uuid, model, import.meshIndices, import.skinIndices, import.animations.size());
-  m_models[uuid] = std::move(model);
+  // model() may have read this hierarchy from the JSON already, through the same walk, so it is
+  // the same one; keep it where it is. Replacing it with an equal copy would free the nodes under
+  // any caller holding one, and a caller asking for a node's mesh is how this import started. A
+  // re-import erases the entry first, so a changed file still gets the new hierarchy.
+  if (!m_models.contains(uuid)) {
+    Model model = std::move(import.model);
+    assignModelIdentities(uuid, model, import.meshIndices, import.skinIndices, import.animations.size());
+    m_models[uuid] = std::move(model);
+  }
   m_gltfLoaded[uuid] = true;
   return true;
 }
