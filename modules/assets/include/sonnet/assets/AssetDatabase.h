@@ -91,7 +91,8 @@ public:
   [[nodiscard]] renderer::EnvironmentHandle environment(const core::Uuid &uuid);
   // A model's node hierarchy. From a source glTF it is read from the file's JSON without
   // importing a mesh or an image, so placing a model's prefab costs a parse rather than an import;
-  // its payloads come when something asks for them.
+  // its payloads come when something asks for them. The model and its nodes stay where they are
+  // until the file is re-imported, including while the rest of the file loads.
   [[nodiscard]] const Model *model(const core::Uuid &uuid);
   // A mesh's vertices and indices on the CPU, kept once the mesh is loaded, for collision shapes.
   [[nodiscard]] const renderer::MeshData *meshData(const core::Uuid &uuid);

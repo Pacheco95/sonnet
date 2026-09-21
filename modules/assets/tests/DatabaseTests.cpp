@@ -459,6 +459,14 @@ TEST_CASE("a model's hierarchy is read without importing its meshes or images", 
                                         (core::Uuid::derive(crateUuid, "image/0").toString() + ".ktx2")));
   REQUIRE_FALSE(database.loading());
 
+  // A caller may hold a node while asking for its mesh, and that mesh's import is the file's: the
+  // hierarchy has to stay where it is when the rest of the file arrives, not be replaced by an
+  // equal one in new storage. The sanitizer found the version that replaced it, through exactly
+  // this call, as a use after free.
+  const ModelNode *firstNode = crate->nodes.data();
+  REQUIRE(fixture.renderer.isValid(database.mesh(firstNode->mesh)));
+  REQUIRE(database.model(crateUuid)->nodes.data() == firstNode);
+
   // The full import builds the same hierarchy, node for node, so a prefab placed from the first
   // matches the file once it is in.
   const std::vector<ModelNode> read = rig->nodes;
