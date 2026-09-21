@@ -89,6 +89,9 @@ public:
   void waitForLoads();
   [[nodiscard]] renderer::MaterialHandle material(const core::Uuid &uuid);
   [[nodiscard]] renderer::EnvironmentHandle environment(const core::Uuid &uuid);
+  // A model's node hierarchy. From a source glTF it is read from the file's JSON without
+  // importing a mesh or an image, so placing a model's prefab costs a parse rather than an import;
+  // its payloads come when something asks for them.
   [[nodiscard]] const Model *model(const core::Uuid &uuid);
   // A mesh's vertices and indices on the CPU, kept once the mesh is loaded, for collision shapes.
   [[nodiscard]] const renderer::MeshData *meshData(const core::Uuid &uuid);
@@ -100,6 +103,10 @@ public:
   // the file is re-imported; the revision says whether it was.
   [[nodiscard]] const Skin *skin(const core::Uuid &uuid);
   [[nodiscard]] const AnimationClip *animation(const core::Uuid &uuid);
+  // The request forms, as requestMesh: a loaded skin or clip at once, otherwise null and the
+  // file's import scheduled, for the systems that ask every frame.
+  [[nodiscard]] const Skin *requestSkin(const core::Uuid &uuid);
+  [[nodiscard]] const AnimationClip *requestAnimation(const core::Uuid &uuid);
   // A new .lua file under the project, registered at once.
   [[nodiscard]] core::Result<core::Uuid> createScript(const std::filesystem::path &file, std::string_view code);
 
@@ -182,6 +189,9 @@ private:
   // The other half, main thread only: creates the renderer objects and registers the sub-assets.
   bool publishGltf(const GltfRequest &request, GltfLoad &&load);
   [[nodiscard]] std::optional<GltfRequest> gltfRequest(const core::Uuid &uuid);
+  // Schedules a glTF file's import for a request of one of its sub-assets, unless the file is
+  // loaded, failed or importing already: the request is always the whole file's.
+  void requestGltf(const core::Uuid &uuid);
 
   // The same split for a texture that is a file of its own rather than a glTF sub-asset.
   struct TextureRequest {

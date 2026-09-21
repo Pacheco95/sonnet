@@ -126,6 +126,80 @@ void flattenNormals(renderer::MeshData &data, std::uint32_t firstVertex, std::ui
   }
 }
 
+// The node hierarchy of the default scene, or of every root node without one, walked parents
+// before children. The full import and the structure-only read both go through here, so they
+// agree on every node's index, which is what a model prefab derives its entities' identities from.
+struct NodeWalk {
+  // By glTF node index, the path from the model's root: what joints and channels name their nodes
+  // by (ADR-0010).
+  std::vector<std::string> paths;
+  // By glTF node index, whether the node is in the scene.
+  std::vector<bool> visited;
+  // Names that siblings share, which makes their paths ambiguous.
+  std::vector<std::string> duplicateNames;
+};
+
+NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::int32_t> &meshIndices,
+                   std::vector<std::int32_t> &skinIndices) {
+  std::vector<std::size_t> roots;
+  if (asset.defaultScene.has_value() && *asset.defaultScene < asset.scenes.size()) {
+    roots.assign(asset.scenes[*asset.defaultScene].nodeIndices.begin(),
+                 asset.scenes[*asset.defaultScene].nodeIndices.end());
+  } else if (!asset.scenes.empty()) {
+    roots.assign(asset.scenes[0].nodeIndices.begin(), asset.scenes[0].nodeIndices.end());
+  } else {
+    std::vector<bool> isChild(asset.nodes.size(), false);
+    for (const fastgltf::Node &node : asset.nodes) {
+      for (const std::size_t child : node.children) {
+        isChild[child] = true;
+      }
+    }
+    for (std::size_t n = 0; n < asset.nodes.size(); ++n) {
+      if (!isChild[n]) {
+        roots.push_back(n);
+      }
+    }
+  }
+  NodeWalk walk{.paths = std::vector<std::string>(asset.nodes.size()),
+                .visited = std::vector<bool>(asset.nodes.size(), false),
+                .duplicateNames = {}};
+  const auto visit = [&](auto &self, std::size_t nodeIndex, std::int32_t parent, const std::string &parentPath,
+                         std::vector<std::string> &siblings) -> void {
+    if (nodeIndex >= asset.nodes.size() || walk.visited[nodeIndex]) {
+      return;
+    }
+    walk.visited[nodeIndex] = true;
+    const fastgltf::Node &node = asset.nodes[nodeIndex];
+    ModelNode out;
+    out.name = nameOr(node.name, "node", nodeIndex);
+    out.parent = parent;
+    if (std::ranges::find(siblings, out.name) != siblings.end()) {
+      walk.duplicateNames.push_back(out.name);
+    }
+    siblings.push_back(out.name);
+    walk.paths[nodeIndex] = parentPath.empty() ? out.name : parentPath + "/" + out.name;
+    if (const auto *trs = std::get_if<fastgltf::TRS>(&node.transform)) {
+      out.position = {trs->translation[0], trs->translation[1], trs->translation[2]};
+      out.rotation = glm::quat{trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
+      out.scale = {trs->scale[0], trs->scale[1], trs->scale[2]};
+    }
+    const auto index = static_cast<std::int32_t>(model.nodes.size());
+    model.nodes.push_back(std::move(out));
+    meshIndices.push_back(node.meshIndex.has_value() ? static_cast<std::int32_t>(*node.meshIndex) : -1);
+    skinIndices.push_back(
+        node.meshIndex.has_value() && node.skinIndex.has_value() ? static_cast<std::int32_t>(*node.skinIndex) : -1);
+    std::vector<std::string> children;
+    for (const std::size_t child : node.children) {
+      self(self, child, index, walk.paths[nodeIndex], children);
+    }
+  };
+  std::vector<std::string> rootNames;
+  for (const std::size_t root : roots) {
+    visit(visit, root, -1, std::string{}, rootNames);
+  }
+  return walk;
+}
+
 } // namespace
 
 core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
@@ -276,65 +350,13 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     import.materials.push_back(std::move(out));
   }
 
-  // The node hierarchy of the default scene, or of every root node without one.
-  std::vector<std::size_t> roots;
-  if (asset.defaultScene.has_value() && *asset.defaultScene < asset.scenes.size()) {
-    roots.assign(asset.scenes[*asset.defaultScene].nodeIndices.begin(),
-                 asset.scenes[*asset.defaultScene].nodeIndices.end());
-  } else if (!asset.scenes.empty()) {
-    roots.assign(asset.scenes[0].nodeIndices.begin(), asset.scenes[0].nodeIndices.end());
-  } else {
-    std::vector<bool> isChild(asset.nodes.size(), false);
-    for (const fastgltf::Node &node : asset.nodes) {
-      for (const std::size_t child : node.children) {
-        isChild[child] = true;
-      }
-    }
-    for (std::size_t n = 0; n < asset.nodes.size(); ++n) {
-      if (!isChild[n]) {
-        roots.push_back(n);
-      }
-    }
+  const NodeWalk walk = walkNodes(asset, import.model, import.meshIndices, import.skinIndices);
+  for (const std::string &name : walk.duplicateNames) {
+    SONNET_LOG_WARN("{}: two nodes named \"{}\" under one parent; animations and skins bind the first", path.string(),
+                    name);
   }
-  // Every visited node's path from the model's root, by glTF node index: what joints and channels
-  // name their nodes by (ADR-0010). Siblings with one name make the path ambiguous.
-  std::vector<std::string> paths(asset.nodes.size());
-  std::vector<bool> visited(asset.nodes.size(), false);
-  const auto visit = [&](auto &self, std::size_t nodeIndex, std::int32_t parent, const std::string &parentPath,
-                         std::vector<std::string> &siblings) -> void {
-    if (nodeIndex >= asset.nodes.size() || visited[nodeIndex]) {
-      return;
-    }
-    visited[nodeIndex] = true;
-    const fastgltf::Node &node = asset.nodes[nodeIndex];
-    ModelNode out;
-    out.name = nameOr(node.name, "node", nodeIndex);
-    out.parent = parent;
-    if (std::ranges::find(siblings, out.name) != siblings.end()) {
-      SONNET_LOG_WARN("{}: two nodes named \"{}\" under one parent; animations and skins bind the first", path.string(),
-                      out.name);
-    }
-    siblings.push_back(out.name);
-    paths[nodeIndex] = parentPath.empty() ? out.name : parentPath + "/" + out.name;
-    if (const auto *trs = std::get_if<fastgltf::TRS>(&node.transform)) {
-      out.position = {trs->translation[0], trs->translation[1], trs->translation[2]};
-      out.rotation = glm::quat{trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
-      out.scale = {trs->scale[0], trs->scale[1], trs->scale[2]};
-    }
-    const auto index = static_cast<std::int32_t>(import.model.nodes.size());
-    import.model.nodes.push_back(std::move(out));
-    import.meshIndices.push_back(node.meshIndex.has_value() ? static_cast<std::int32_t>(*node.meshIndex) : -1);
-    import.skinIndices.push_back(
-        node.meshIndex.has_value() && node.skinIndex.has_value() ? static_cast<std::int32_t>(*node.skinIndex) : -1);
-    std::vector<std::string> children;
-    for (const std::size_t child : node.children) {
-      self(self, child, index, paths[nodeIndex], children);
-    }
-  };
-  std::vector<std::string> rootNames;
-  for (const std::size_t root : roots) {
-    visit(visit, root, -1, std::string{}, rootNames);
-  }
+  const std::vector<std::string> &paths = walk.paths;
+  const std::vector<bool> &visited = walk.visited;
 
   // Skins: the joints by path, with their inverse bind matrices (identity when the file has none).
   for (std::size_t s = 0; s < asset.skins.size(); ++s) {
@@ -413,6 +435,25 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
                    import.meshes.size(), import.materials.size(), import.images.size(), import.model.nodes.size(),
                    import.skins.size(), import.animations.size());
   return import;
+}
+
+core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &path) {
+  SONNET_ZONE();
+  auto buffer = fastgltf::GltfDataBuffer::FromPath(path);
+  if (buffer.error() != fastgltf::Error::None) {
+    return std::unexpected(gltfError(path, "reading", buffer.error()));
+  }
+  // No external buffers and no images: everything a hierarchy needs is in the JSON.
+  fastgltf::Parser parser;
+  auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), fastgltf::Options::DecomposeNodeMatrices);
+  if (loaded.error() != fastgltf::Error::None) {
+    return std::unexpected(gltfError(path, "parsing", loaded.error()));
+  }
+  const fastgltf::Asset &asset = loaded.get();
+  GltfStructure structure;
+  static_cast<void>(walkNodes(asset, structure.model, structure.meshIndices, structure.skinIndices));
+  structure.animationCount = asset.animations.size();
+  return structure;
 }
 
 } // namespace sonnet::assets

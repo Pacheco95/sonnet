@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <format>
+#include <span>
 #include <system_error>
 
 namespace sonnet::assets {
@@ -135,6 +136,23 @@ core::Result<json> readJsonFile(const std::filesystem::path &path) {
     return std::unexpected(core::Error{std::format("{}: not valid JSON", path.string()), core::ErrorCategory::Io});
   }
   return document;
+}
+
+// A model's nodes name their meshes and skins by index into the file, and its clips are the file's
+// in order; the database hands all of them out by identities derived from the model's, as the
+// sub-assets are registered.
+void assignModelIdentities(const core::Uuid &uuid, Model &model, std::span<const std::int32_t> meshIndices,
+                           std::span<const std::int32_t> skinIndices, std::size_t animationCount) {
+  for (std::size_t n = 0; n < model.nodes.size(); ++n) {
+    const std::int32_t meshIndex = meshIndices[n];
+    const std::int32_t skinIndex = skinIndices[n];
+    model.nodes[n].mesh = meshIndex >= 0 ? core::Uuid::derive(uuid, std::format("mesh/{}", meshIndex)) : core::Uuid{};
+    model.nodes[n].skin = skinIndex >= 0 ? core::Uuid::derive(uuid, std::format("skin/{}", skinIndex)) : core::Uuid{};
+  }
+  model.animations.clear();
+  for (std::size_t i = 0; i < animationCount; ++i) {
+    model.animations.push_back(core::Uuid::derive(uuid, std::format("animation/{}", i)));
+  }
 }
 
 } // namespace
@@ -682,20 +700,15 @@ bool AssetDatabase::publishGltf(const GltfRequest &request, GltfLoad &&load) {
     skin = std::move(import.skins[i].skin);
     skin.revision = ++m_revision;
   }
-  Model model = std::move(import.model);
   for (std::size_t i = 0; i < import.animations.size(); ++i) {
-    const core::Uuid clipUuid = core::Uuid::derive(uuid, std::format("animation/{}", i));
-    AnimationClip &clip = m_animations[clipUuid];
+    AnimationClip &clip = m_animations[core::Uuid::derive(uuid, std::format("animation/{}", i))];
     clip = std::move(import.animations[i].clip);
     clip.revision = ++m_revision;
-    model.animations.push_back(clipUuid);
   }
-  for (std::size_t n = 0; n < model.nodes.size(); ++n) {
-    const std::int32_t meshIndex = import.meshIndices[n];
-    const std::int32_t skinIndex = import.skinIndices[n];
-    model.nodes[n].mesh = meshIndex >= 0 ? core::Uuid::derive(uuid, std::format("mesh/{}", meshIndex)) : core::Uuid{};
-    model.nodes[n].skin = skinIndex >= 0 ? core::Uuid::derive(uuid, std::format("skin/{}", skinIndex)) : core::Uuid{};
-  }
+  // The same hierarchy model() may have read from the JSON already, so a prefab placed from that
+  // one still matches.
+  Model model = std::move(import.model);
+  assignModelIdentities(uuid, model, import.meshIndices, import.skinIndices, import.animations.size());
   m_models[uuid] = std::move(model);
   m_gltfLoaded[uuid] = true;
   return true;
@@ -798,22 +811,26 @@ renderer::MeshHandle AssetDatabase::requestMesh(const core::Uuid &uuid) {
     return {};
   }
   // A glTF mesh arrives with the rest of its file, so the request is the file's.
-  if (m_gltfLoaded.contains(info->parent) || m_pending.contains(info->parent)) {
-    return {}; // loaded and this mesh is not in it, or still importing
+  requestGltf(info->parent);
+  return {};
+}
+
+void AssetDatabase::requestGltf(const core::Uuid &uuid) {
+  if (m_gltfLoaded.contains(uuid) || m_pending.contains(uuid)) {
+    return; // loaded, whether or not the asset asked for is in it, failed, or still importing
   }
-  const std::optional<GltfRequest> request = gltfRequest(info->parent);
+  const std::optional<GltfRequest> request = gltfRequest(uuid);
   if (!request) {
-    return {};
+    return;
   }
   const auto load = std::make_shared<GltfLoad>();
-  schedule(info->parent, [this, request = *request, load] {
+  schedule(uuid, [this, request = *request, load] {
     *load = importGltfFiles(request);
     m_jobs.scheduleOnMainThread("asset publish", [this, request, load] {
       m_pending.erase(request.uuid);
       static_cast<void>(publishGltf(request, std::move(*load)));
     });
   });
-  return {};
 }
 
 renderer::TextureHandle AssetDatabase::requestTexture(const core::Uuid &uuid) {
@@ -831,21 +848,7 @@ renderer::TextureHandle AssetDatabase::requestTexture(const core::Uuid &uuid) {
     return texture(uuid);
   }
   if (!info->parent.isNil()) {
-    if (m_gltfLoaded.contains(info->parent) || m_pending.contains(info->parent)) {
-      return {};
-    }
-    const std::optional<GltfRequest> request = gltfRequest(info->parent);
-    if (!request) {
-      return {};
-    }
-    const auto load = std::make_shared<GltfLoad>();
-    schedule(info->parent, [this, request = *request, load] {
-      *load = importGltfFiles(request);
-      m_jobs.scheduleOnMainThread("asset publish", [this, request, load] {
-        m_pending.erase(request.uuid);
-        static_cast<void>(publishGltf(request, std::move(*load)));
-      });
-    });
+    requestGltf(info->parent);
     return {};
   }
   if (m_pending.contains(uuid)) {
@@ -1015,10 +1018,23 @@ const Model *AssetDatabase::model(const core::Uuid &uuid) {
     m_models[uuid] = std::move(*model);
     return &m_models[uuid];
   }
-  if (loadGltf(uuid)) {
-    return &m_models[uuid];
+  // A source glTF: the hierarchy from the JSON alone, which is what a prefab needs. Importing the
+  // meshes and images here is what made opening a project with models stall (roadmap.md, "Scene
+  // loading blocked the frame"); they arrive when something requests them.
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Model || m_failed.contains(uuid)) {
+    return nullptr;
   }
-  return nullptr;
+  auto structure = importGltfStructure(info->source);
+  if (!structure) {
+    SONNET_LOG_ERROR("{}", structure.error().toString());
+    m_failed[uuid] = true;
+    return nullptr;
+  }
+  Model model = std::move(structure->model);
+  assignModelIdentities(uuid, model, structure->meshIndices, structure->skinIndices, structure->animationCount);
+  m_models[uuid] = std::move(model);
+  return &m_models[uuid];
 }
 
 const renderer::MeshData *AssetDatabase::meshData(const core::Uuid &uuid) {
@@ -1129,6 +1145,36 @@ const AnimationClip *AssetDatabase::animation(const core::Uuid &uuid) {
   }
   const auto it = m_animations.find(uuid);
   return it != m_animations.end() ? &it->second : nullptr;
+}
+
+const Skin *AssetDatabase::requestSkin(const core::Uuid &uuid) {
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Skin) {
+    return nullptr;
+  }
+  if (m_bundle) {
+    return skin(uuid); // a decode away, as requestMesh reasons
+  }
+  if (const auto it = m_skins.find(uuid); it != m_skins.end()) {
+    return &it->second;
+  }
+  requestGltf(info->parent);
+  return nullptr;
+}
+
+const AnimationClip *AssetDatabase::requestAnimation(const core::Uuid &uuid) {
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Animation) {
+    return nullptr;
+  }
+  if (m_bundle) {
+    return animation(uuid);
+  }
+  if (const auto it = m_animations.find(uuid); it != m_animations.end()) {
+    return &it->second;
+  }
+  requestGltf(info->parent);
+  return nullptr;
 }
 
 // ---- Materials ----
