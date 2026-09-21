@@ -5,6 +5,10 @@
 #include <Jolt/Core/FixedSizeFreeList.h>
 #include <Jolt/Core/JobSystemWithBarrier.h>
 
+#include <atomic>
+#include <cstdint>
+#include <memory>
+
 namespace sonnet::core {
 class JobSystem;
 }
@@ -40,6 +44,11 @@ private:
 
   core::JobSystem &m_jobs;
   AvailableJobs m_pool;
+  // The worker calls scheduled and not yet returned. A barrier's waiter may run a job before its
+  // worker call starts, so a step can end with calls still to release their jobs into m_pool; the
+  // destructor waits for them. Shared with the calls, so the last one can notify after the count
+  // reaches zero and the destructor has let this object go.
+  std::shared_ptr<std::atomic<std::uint32_t>> m_inFlight = std::make_shared<std::atomic<std::uint32_t>>(0);
 };
 
 } // namespace sonnet::physics
