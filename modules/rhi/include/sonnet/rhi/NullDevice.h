@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <thread>
 #include <vector>
 
 namespace sonnet::rhi {
@@ -118,10 +120,16 @@ private:
     std::vector<std::uint64_t> timestampResults;
   };
 
+  // Asserts the caller is on the thread this device was created on; the rule and why it is an
+  // assertion are in src/OwnerThread.h. The null device carries it too, so the suites above rhi
+  // that schedule work onto the job system are what prove the modules keep it.
+  void assertOwnerThread(std::string_view what) const;
+
   [[nodiscard]] std::string imageName(ImageHandle handle) const;
   [[nodiscard]] std::string bufferName(BufferHandle handle) const;
 
   DeviceInfo m_info;
+  const std::thread::id m_ownerThread{std::this_thread::get_id()};
   std::vector<std::string> m_trace;
   std::unique_ptr<NullCommandList> m_commandList;
   std::array<Frame, FramesInFlight> m_frames;

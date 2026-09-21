@@ -16,6 +16,7 @@
 #include <functional>
 #include <memory>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace sonnet::rhi {
@@ -193,8 +194,11 @@ private:
   void readTimestamps(Frame &frame);
   void deferDestruction(std::function<void()> destroy);
   void reportLeaks();
+  // Asserts the caller is on the thread this device was created on; see OwnerThread.h.
+  void assertOwnerThread(std::string_view what) const;
 
   DeviceInfo m_info;
+  const std::thread::id m_ownerThread{std::this_thread::get_id()};
   std::atomic<std::uint32_t> m_validationMessages{0};
 
   // Reverse destruction order: everything below is destroyed bottom-up (ADR-0006).
