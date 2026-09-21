@@ -22,8 +22,8 @@ namespace {
 
 // A 16-bit mono WAV file of a sine at `frequency`, `seconds` long at 48 kHz.
 std::vector<std::byte> sineWav(float frequency, float seconds, float amplitude = 0.5f) {
-  constexpr std::uint32_t Rate = 48000;
-  const auto frames = static_cast<std::uint32_t>(seconds * Rate);
+  constexpr std::uint32_t rate = 48000;
+  const auto frames = static_cast<std::uint32_t>(seconds * rate);
   std::vector<std::byte> out;
   const auto put = [&](const void *data, std::size_t bytes) {
     const auto *begin = static_cast<const std::byte *>(data);
@@ -37,14 +37,14 @@ std::vector<std::byte> sineWav(float frequency, float seconds, float amplitude =
   u32(16);
   u16(1); // PCM
   u16(1); // mono
-  u32(Rate);
-  u32(Rate * 2);
+  u32(rate);
+  u32(rate * 2);
   u16(2);
   u16(16);
   put("data", 4);
   u32(frames * 2);
   for (std::uint32_t i = 0; i < frames; ++i) {
-    const float value = amplitude * std::sin(2.0f * 3.14159265f * frequency * static_cast<float>(i) / Rate);
+    const float value = amplitude * std::sin(2.0f * 3.14159265f * frequency * static_cast<float>(i) / rate);
     u16(static_cast<std::uint16_t>(static_cast<std::int16_t>(value * 32767.0f)));
   }
   return out;
@@ -123,7 +123,7 @@ TEST_CASE("sources play in play mode only and fall silent when it stops", "[audi
 
   // Edit mode: each frame's mix is there, and silent.
   fixture.world.progress(0.1f);
-  REQUIRE(fixture.audio->lastMix().size() == 4800 * 2);
+  REQUIRE(fixture.audio->lastMix().size() == std::size_t{4800} * 2);
   REQUIRE(loudness(fixture.audio->lastMix()) == 0.0f);
   REQUIRE(fixture.audio->playingCount() == 0);
 
