@@ -47,7 +47,7 @@ miniaudio and stb_vorbis are single-file libraries without CMake packages: `audi
 
 The `joltphysics` port builds Jolt with AVX2 and its companions on x64 and without RTTI; its instruction-set flags are an interface property of `Jolt::Jolt`, which `physics` links privately so they stay on that module's sources, and the sanitizer build turns off UBSan's `vptr` check for `physics` alone, since that check needs the typeinfo Jolt does not have ([physics.md](physics.md#jolt)).
 
-Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M9.
+Triplets: `x64-windows`, `x64-linux` (and `x64-linux-tsan` for the thread sanitizer, see [Presets](#presets)), `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M9.
 
 ## Presets
 
@@ -57,7 +57,7 @@ Triplets: `x64-windows`, `x64-linux`, `arm64-osx` (and `x64-osx`), `arm64-androi
 |---|---|
 | `linux-debug`, `linux-release` | Ninja, Clang or GCC from `PATH` |
 | `linux-asan` | Address and undefined-behaviour sanitizers |
-| `linux-tsan` | Thread sanitizer, for the job system and what runs on it. Tracy is off in it, because its lock-free queue uses fences the sanitizer cannot model and reports races of its own that would drown real ones. The test preset points `TSAN_OPTIONS` at `tools/tsan.supp`, makes a race fail the test, and sets `VK_DRIVER_FILES` to `/dev/null` so the GPU cases skip: Mesa's software rasterizer runs on threads of its own that carry no instrumentation. The suppression file covers Jolt for the same reason and says what covers those paths instead |
+| `linux-tsan` | Thread sanitizer, for the job system and what runs on it. Tracy is off in it, because its lock-free queue uses fences the sanitizer cannot model and reports races of its own that would drown real ones. The test preset points `TSAN_OPTIONS` at `tools/tsan.supp`, makes a race fail the test, and sets `VK_DRIVER_FILES` to `/dev/null` so the GPU cases skip: Mesa's software rasterizer runs on threads of its own that carry no instrumentation. The preset's triplet is `x64-linux-tsan`, an overlay triplet in `triplets/` that `vcpkg-configuration.json` registers: `x64-linux` with Jolt alone compiled with `-fsanitize=thread`, since Jolt orders its threads inside the library and an uninstrumented build hid that from the sanitizer. Jolt has to be compiled by the preset's own compiler, which vcpkg takes from `CC` and `CXX` in the configure environment on Linux (Clang 20 locally and in CI). The other ports are built as `x64-linux` builds them, once more under the new triplet's name. A build directory configured before the triplet changed needs `cmake --preset linux-tsan --fresh`, or it keeps tool paths such as `slangc` under the old triplet's directory |
 | `linux-coverage` | gcov instrumentation, `coverage` target runs gcovr (same shape as the previous iteration) |
 | `windows-debug`, `windows-release` | Ninja with MSVC from a developer prompt |
 | `macos-debug`, `macos-release` | Ninja, Apple Clang |

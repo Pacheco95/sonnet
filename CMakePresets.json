@@ -55,7 +55,12 @@
       "name": "linux-tsan",
       "inherits": "linux-base",
       "displayName": "Linux Debug with the thread sanitizer",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "SONNET_THREAD_SANITIZER": "ON", "SONNET_ENABLE_TRACY": "OFF" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SONNET_THREAD_SANITIZER": "ON",
+        "SONNET_ENABLE_TRACY": "OFF",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-tsan"
+      }
     },
     {
       "name": "linux-coverage",
