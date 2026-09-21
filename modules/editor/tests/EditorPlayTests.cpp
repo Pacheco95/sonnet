@@ -232,6 +232,12 @@ TEST_CASE("the basic sample's start scene plays its animations and sounds", "[ed
     const flecs::entity stem = world.findByPath(reed, "Reed/Stem");
     REQUIRE(stem);
     REQUIRE(stem.has<world::SkinnedMesh>());
+    // Opening placed the model from its hierarchy alone; its first frame asks for the file, which
+    // imports off the main thread, and the frame after the import publishes poses the skin.
+    fixture.frame(editor);
+    REQUIRE(editor.assets().loading());
+    REQUIRE_FALSE(stem.has<world::SkinPose>());
+    editor.assets().waitForLoads();
     fixture.frame(editor);
     // The skin poses its joints in edit mode; the clip waits for play.
     REQUIRE(stem.get<world::SkinPose>().joints.size() == 4);

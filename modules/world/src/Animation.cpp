@@ -88,7 +88,9 @@ void AnimationSystem::play(float dt) {
   m_animators.each([&](flecs::entity entity) { m_entities.push_back(entity); });
   for (const flecs::entity entity : m_entities) {
     const Animator *current = entity.try_get<Animator>();
-    const assets::AnimationClip *clip = current != nullptr ? m_assets.animation(current->clip) : nullptr;
+    // Requested, so a clip whose file is not loaded yet imports off the main thread and plays
+    // from a later frame instead of stalling the one that pressed play.
+    const assets::AnimationClip *clip = current != nullptr ? m_assets.requestAnimation(current->clip) : nullptr;
     if (clip == nullptr) {
       continue;
     }
@@ -170,7 +172,9 @@ void AnimationSystem::pose() {
   m_skinned.each([&](flecs::entity entity) { m_entities.push_back(entity); });
   for (const flecs::entity entity : m_entities) {
     const SkinnedMesh *skinned = entity.try_get<SkinnedMesh>();
-    const assets::Skin *skin = skinned != nullptr ? m_assets.skin(skinned->skin) : nullptr;
+    // Requested: this runs every frame in the editor too, and a skin arrives with its mesh, so
+    // until the file is in there is nothing to pose.
+    const assets::Skin *skin = skinned != nullptr ? m_assets.requestSkin(skinned->skin) : nullptr;
     Binding &binding = m_skinBindings[entity.id()];
     binding.frame = m_poseFrame;
     if (skin == nullptr) {

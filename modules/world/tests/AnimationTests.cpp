@@ -126,6 +126,15 @@ struct Fixture {
     REQUIRE(loaded != nullptr);
     prefab = world::loadModelPrefab(world, *loaded, model, "Rig");
   }
+  // model() reads only the hierarchy, so the skin and the clip arrive through a request like any
+  // payload (docs/assets.md, "Database"). The tests of playback and posing start from a loaded
+  // file; the one about arrival does not call this.
+  void loadPayloads() {
+    for (const assets::AssetInfo *info : assets.assets(assets::AssetType::Skin)) {
+      static_cast<void>(assets.requestSkin(info->uuid));
+    }
+    assets.waitForLoads();
+  }
   ~Fixture() {
     world.clearScene();
     std::filesystem::remove_all(root);
@@ -147,6 +156,7 @@ float angleAboutZ(const glm::quat &rotation) {
 
 TEST_CASE("a model's clip plays on each instance in play mode, looping or stopping at its end", "[world][animation]") {
   Fixture fixture;
+  fixture.loadPayloads();
   world::World &world = fixture.world;
   world::AnimationSystem animation{world, fixture.assets};
   const auto *clipInfo = fixture.assets.assets(assets::AssetType::Animation).front();
@@ -200,6 +210,7 @@ TEST_CASE("a model's clip plays on each instance in play mode, looping or stoppi
 
 TEST_CASE("a skinned mesh's pose follows its joints into the draw list, in edit mode too", "[world][animation]") {
   Fixture fixture;
+  fixture.loadPayloads();
   world::World &world = fixture.world;
   world::AnimationSystem animation{world, fixture.assets};
   const flecs::entity instance = world.instantiate(fixture.prefab, "Rig 1");
@@ -246,4 +257,31 @@ TEST_CASE("a skinned mesh's pose follows its joints into the draw list, in edit 
   const auto loneDraw = std::ranges::find(draws, world::World::pickId(lone), &renderer::DrawItem::id);
   REQUIRE(loneDraw->jointCount == 0);
   REQUIRE(loneDraw->skinInstance == 0);
+}
+
+// Placing a model reads its hierarchy and nothing else, so the first frames of a freshly loaded
+// scene find the skin and the clip missing: the file's import is requested, the strip draws in its
+// bind pose meanwhile, and play waits, rather than the frame stalling on the whole file.
+TEST_CASE("a model's skin and clip arrive on a later frame instead of stalling the first", "[world][animation]") {
+  Fixture fixture;
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Rig 1");
+  const flecs::entity strip = fixture.node(instance, "Rig/Strip");
+  const flecs::entity tip = fixture.node(instance, "Rig/Root/Tip");
+  const std::size_t buffersBefore = fixture.device->bufferCount();
+
+  world.setPlaying(true);
+  world.progress(0.25f);
+  REQUIRE(fixture.assets.loading());
+  REQUIRE_FALSE(strip.has<world::SkinPose>());
+  REQUIRE(instance.get<world::Animator>().time == 0.0f);
+  REQUIRE(fixture.device->bufferCount() == buffersBefore); // nothing of the file on the GPU yet
+
+  fixture.assets.waitForLoads();
+  world.progress(0.25f);
+  REQUIRE(strip.has<world::SkinPose>());
+  REQUIRE(instance.get<world::Animator>().time == Approx(0.25f));
+  REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(22.5f));
+  REQUIRE(fixture.device->bufferCount() > buffersBefore);
 }
