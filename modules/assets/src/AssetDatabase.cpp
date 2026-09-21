@@ -163,9 +163,12 @@ AssetDatabase::AssetDatabase(renderer::Renderer &renderer, core::JobSystem &jobs
 
 AssetDatabase::~AssetDatabase() {
   close();
-  // The built-in meshes outlive projects.
+  // The built-in meshes and the placeholder outlive projects.
   for (auto &[uuid, handle] : m_meshes) {
     m_renderer.destroyMesh(handle);
+  }
+  if (m_placeholder) {
+    m_renderer.destroyTexture(m_placeholder);
   }
 }
 
@@ -576,11 +579,18 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   desc.normalScale = source.normalScale;
   desc.occlusionStrength = source.occlusionStrength;
   desc.alphaCutoff = source.alphaCutoff;
-  desc.baseColorTexture = texture(source.baseColorTexture);
-  desc.metallicRoughnessTexture = texture(source.metallicRoughnessTexture);
-  desc.normalTexture = texture(source.normalTexture);
-  desc.occlusionTexture = texture(source.occlusionTexture);
-  desc.emissiveTexture = texture(source.emissiveTexture);
+  // Requested, not loaded: resolving a material must not import its textures on the frame that
+  // first draws it. A slot still importing reads the renderer's fallback, which means "no effect",
+  // except the base colour, whose fallback would show the material's untextured colour as if it
+  // were finished; publishing the texture resolves the material again.
+  desc.baseColorTexture = requestTexture(source.baseColorTexture);
+  if (!desc.baseColorTexture && texturePending(source.baseColorTexture)) {
+    desc.baseColorTexture = placeholderTexture();
+  }
+  desc.metallicRoughnessTexture = requestTexture(source.metallicRoughnessTexture);
+  desc.normalTexture = requestTexture(source.normalTexture);
+  desc.occlusionTexture = requestTexture(source.occlusionTexture);
+  desc.emissiveTexture = requestTexture(source.emissiveTexture);
   desc.alphaMode = source.alphaMode;
   desc.wrap = source.wrap;
   desc.doubleSided = source.doubleSided;
@@ -651,8 +661,10 @@ AssetDatabase::GltfLoad AssetDatabase::importGltfFiles(const GltfRequest &reques
 bool AssetDatabase::publishGltf(const GltfRequest &request, GltfLoad &&load) {
   SONNET_ZONE();
   const core::Uuid &uuid = request.uuid;
+  // Marked before anything resolves: a material resolving an image that failed to decode must not
+  // request the file it is being published from.
+  m_gltfLoaded[uuid] = false;
   if (!load.import) {
-    m_gltfLoaded[uuid] = false;
     return false;
   }
   GltfImport &import = *load.import;
@@ -720,6 +732,7 @@ bool AssetDatabase::publishGltf(const GltfRequest &request, GltfLoad &&load) {
 
 bool AssetDatabase::loadGltf(const core::Uuid &uuid) {
   SONNET_ZONE();
+  finishRequest(uuid);
   if (m_gltfLoaded.contains(uuid)) {
     return m_gltfLoaded[uuid];
   }
@@ -727,7 +740,6 @@ bool AssetDatabase::loadGltf(const core::Uuid &uuid) {
   if (!request) {
     return false;
   }
-  m_gltfLoaded[uuid] = false;
   return publishGltf(*request, importGltfFiles(*request));
 }
 
@@ -784,6 +796,38 @@ void AssetDatabase::schedule(const core::Uuid &uuid, std::function<void()> work)
   m_pending[uuid] = PendingLoad{m_jobs.schedule("asset import", std::move(work))};
 }
 
+void AssetDatabase::finishRequest(const core::Uuid &file) {
+  const auto it = m_pending.find(file);
+  if (it == m_pending.end()) {
+    return;
+  }
+  // A copy: the wait may run the publish, which erases the entry and the handle in it.
+  const core::JobHandle job = it->second.job;
+  m_jobs.wait(job);
+  // The import scheduled its publish on the main thread, which is this one; running it is what
+  // erases the entry, if the wait has not already.
+  static_cast<void>(m_jobs.runMainThreadJobs());
+}
+
+bool AssetDatabase::texturePending(const core::Uuid &uuid) const {
+  if (uuid.isNil()) {
+    return false;
+  }
+  if (m_pending.contains(uuid)) {
+    return true;
+  }
+  const AssetInfo *info = find(uuid);
+  return info != nullptr && !info->parent.isNil() && m_pending.contains(info->parent);
+}
+
+renderer::TextureHandle AssetDatabase::placeholderTexture() {
+  if (!m_placeholder) {
+    m_placeholder =
+        m_renderer.createTexture(renderer::solidTexture({128, 128, 128, 255}, rhi::Format::R8G8B8A8Srgb), "pending");
+  }
+  return m_placeholder;
+}
+
 void AssetDatabase::waitForLoads() {
   // Each pass finishes the imports in flight and runs the main-thread jobs they scheduled, which
   // is what erases them; a publish schedules nothing new, so the loop drains.
@@ -832,7 +876,13 @@ void AssetDatabase::requestGltf(const core::Uuid &uuid) {
     *load = importGltfFiles(request);
     m_jobs.scheduleOnMainThread("asset publish", [this, request, load] {
       m_pending.erase(request.uuid);
+      const std::vector<core::Uuid> images = load->imageUuids;
       static_cast<void>(publishGltf(request, std::move(*load)));
+      // The file's own materials resolved against its images as they were published; a material
+      // file reading one of them showed the placeholder until now.
+      for (const core::Uuid &image : images) {
+        refreshMaterials(image);
+      }
     });
   });
 }
@@ -872,6 +922,8 @@ renderer::TextureHandle AssetDatabase::requestTexture(const core::Uuid &uuid) {
       } else {
         m_failed[request.uuid] = true;
       }
+      // Either way the placeholder goes: the texture, or the fallback for one that failed.
+      refreshMaterials(request.uuid);
     });
   });
   return {};
@@ -906,6 +958,13 @@ renderer::TextureHandle AssetDatabase::texture(const core::Uuid &uuid) {
       }
     }
   } else {
+    finishRequest(uuid);
+    if (const auto it = m_textures.find(uuid); it != m_textures.end()) {
+      return it->second.handle;
+    }
+    if (m_failed.contains(uuid)) {
+      return {};
+    }
     handle = loadFileTexture(uuid, *info);
   }
   if (!handle) {
@@ -1355,6 +1414,9 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
   }
   const core::Uuid uuid = info->parent.isNil() ? requested : info->parent;
   info = find(uuid);
+  // A request in flight may have read the file before it changed; publish it first, so the
+  // re-import below replaces it rather than the other way round.
+  finishRequest(uuid);
   const auto record = m_files.find(uuid);
   if (record == m_files.end()) {
     return std::unexpected(core::Error{std::format("{} has no source file", info->name), core::ErrorCategory::Io});

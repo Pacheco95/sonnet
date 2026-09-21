@@ -87,6 +87,10 @@ public:
   }
   // Runs every request to completion, for a caller that wants the synchronous behaviour back.
   void waitForLoads();
+  // A material is created at once, and requests its textures rather than loading them: until one
+  // arrives its slot reads the renderer's fallback, except a base colour still importing, which
+  // reads a grey placeholder so a pending surface looks unfinished rather than untextured. A
+  // texture that failed keeps the fallback. Publishing a texture updates the materials reading it.
   [[nodiscard]] renderer::MaterialHandle material(const core::Uuid &uuid);
   [[nodiscard]] renderer::EnvironmentHandle environment(const core::Uuid &uuid);
   // A model's node hierarchy. From a source glTF it is read from the file's JSON without
@@ -214,6 +218,14 @@ private:
     core::JobHandle job;
   };
   void schedule(const core::Uuid &uuid, std::function<void()> work);
+  // Waits for the request in flight for `file`, if there is one, and publishes it, so a
+  // synchronous load that meets a request finishes it rather than importing the file a second time.
+  void finishRequest(const core::Uuid &file);
+  // Whether a texture's import is in flight: a file texture's own, or a glTF image's file's.
+  [[nodiscard]] bool texturePending(const core::Uuid &uuid) const;
+  // What a pending base colour reads: a neutral grey, created on first use and kept for the
+  // database's lifetime, like the built-in meshes.
+  [[nodiscard]] renderer::TextureHandle placeholderTexture();
   [[nodiscard]] renderer::TextureHandle uploadTexture(const core::Uuid &uuid, const renderer::TextureData &data,
                                                       const std::string &name);
   [[nodiscard]] renderer::MaterialDesc resolve(const MaterialSource &source);
@@ -222,6 +234,7 @@ private:
   renderer::Renderer &m_renderer;
   core::JobSystem &m_jobs;
   std::unordered_map<core::Uuid, PendingLoad> m_pending;
+  renderer::TextureHandle m_placeholder;
   std::optional<Bundle> m_bundle; // set in bundle mode, in which m_files stays empty
   std::filesystem::path m_projectRoot;
   std::vector<std::string> m_roots;
