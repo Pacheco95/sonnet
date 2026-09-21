@@ -137,6 +137,17 @@ void VulkanCommandList::bindPipeline(PipelineHandle pipeline) {
   const VkDescriptorSet set = m_device.bindlessSet();
   m_dispatcher->vkCmdBindDescriptorSets(m_commandBuffer, m_bindPoint, m_device.pipelineLayout(), BindlessDescriptorSet,
                                         1, &set, 0, nullptr);
+  if (!resource->compute) {
+    // Dynamic on every graphics pipeline, so it has to be set before the first draw; a bind resets
+    // it to the winding every mesh is authored in.
+    m_dispatcher->vkCmdSetFrontFace(m_commandBuffer, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+  }
+}
+
+void VulkanCommandList::setFrontFace(FrontFace frontFace) {
+  SONNET_ASSERT(m_bindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS, "setFrontFace without a graphics pipeline bound");
+  m_dispatcher->vkCmdSetFrontFace(m_commandBuffer, frontFace == FrontFace::Clockwise ? VK_FRONT_FACE_CLOCKWISE
+                                                                                     : VK_FRONT_FACE_COUNTER_CLOCKWISE);
 }
 
 void VulkanCommandList::pushDescriptors(std::span<const vk::WriteDescriptorSet> writes) {

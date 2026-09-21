@@ -830,7 +830,9 @@ PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &
       {}, desc.depth.test ? VK_TRUE : VK_FALSE, desc.depth.write ? VK_TRUE : VK_FALSE, toVk(desc.depth.compare)};
   const std::vector<vk::PipelineColorBlendAttachmentState> blendAttachments(desc.colorFormats.size(), toVk(desc.blend));
   const vk::PipelineColorBlendStateCreateInfo colorBlend{{}, VK_FALSE, vk::LogicOp::eCopy, blendAttachments};
-  const std::array dynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+  // The front face is dynamic so a mirrored draw can flip it without a pipeline of its own; the
+  // rasterization state's value is ignored and bindPipeline sets counter-clockwise.
+  const std::array dynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor, vk::DynamicState::eFrontFace};
   const vk::PipelineDynamicStateCreateInfo dynamicState{{}, dynamicStates};
   std::vector<vk::Format> colorFormats;
   colorFormats.reserve(desc.colorFormats.size());

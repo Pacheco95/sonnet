@@ -949,6 +949,7 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
                                       .center = (minimum + maximum) * 0.5f,
                                       .extent = (maximum - minimum) * 0.5f,
                                       .doubleSided = desc.doubleSided,
+                                      .mirrored = glm::determinant(glm::mat3{item.transform}) < 0.0f,
                                       .blended = desc.alphaMode == AlphaMode::Blend,
                                       .masked = desc.alphaMode == AlphaMode::Mask,
                                       .viewDepth = -viewPosition.z});
@@ -957,29 +958,26 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
     m_allOrder.push_back(i);
     (m_resolved[i].blended ? m_blendedOrder : m_opaqueOrder).push_back(i);
   }
-  // Opaque draws grouped by pipeline, then by mesh so index buffers stay bound; blended ones
-  // from the farthest to the nearest.
-  std::ranges::sort(m_opaqueOrder, [&](std::uint32_t a, std::uint32_t b) {
+  // Opaque draws grouped by pipeline, then by front face, then by mesh so index buffers stay
+  // bound; blended ones from the farthest to the nearest.
+  const auto byBatch = [&](std::uint32_t a, std::uint32_t b) {
     const ResolvedDraw &da = m_resolved[a];
     const ResolvedDraw &db = m_resolved[b];
     if (da.doubleSided != db.doubleSided) {
       return !da.doubleSided;
     }
+    if (da.mirrored != db.mirrored) {
+      return !da.mirrored;
+    }
     return da.mesh < db.mesh;
-  });
+  };
+  std::ranges::sort(m_opaqueOrder, byBatch);
   std::ranges::sort(m_blendedOrder, [&](std::uint32_t a, std::uint32_t b) {
     return m_resolved[a].viewDepth > m_resolved[b].viewDepth;
   });
   // The id and mask passes do not care about order, so grouping them the same way turns them
   // into batches too.
-  std::ranges::sort(m_allOrder, [&](std::uint32_t a, std::uint32_t b) {
-    const ResolvedDraw &da = m_resolved[a];
-    const ResolvedDraw &db = m_resolved[b];
-    if (da.doubleSided != db.doubleSided) {
-      return !da.doubleSided;
-    }
-    return da.mesh < db.mesh;
-  });
+  std::ranges::sort(m_allOrder, byBatch);
   buildBatches(m_opaqueOrder, m_opaqueBatches);
   buildBatches(m_allOrder, m_allBatches);
   ensureIndirectBuffers();
@@ -997,11 +995,13 @@ void Renderer::buildBatches(std::span<const std::uint32_t> order, std::vector<Ba
   for (std::uint32_t position = 0; position < order.size(); ++position) {
     const ResolvedDraw &draw = m_resolved[order[position]];
     const std::uint32_t pipeline = draw.doubleSided ? 1u : 0u;
-    if (!batches.empty() && batches.back().mesh == draw.mesh && batches.back().pipeline == pipeline) {
+    if (!batches.empty() && batches.back().mesh == draw.mesh && batches.back().pipeline == pipeline &&
+        batches.back().mirrored == draw.mirrored) {
       ++batches.back().drawCount;
       continue;
     }
-    batches.push_back(Batch{.mesh = draw.mesh, .pipeline = pipeline, .firstDraw = position, .drawCount = 1});
+    batches.push_back(Batch{
+        .mesh = draw.mesh, .pipeline = pipeline, .mirrored = draw.mirrored, .firstDraw = position, .drawCount = 1});
   }
 }
 
@@ -1129,15 +1129,21 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
     return;
   }
   rhi::PipelineHandle bound;
+  bool mirrored = false;
   for (std::uint32_t index = 0; index < batches.size(); ++index) {
     const Batch &batch = batches[index];
     const rhi::PipelineHandle pipeline = pipelines[batch.pipeline];
     if (pipeline != bound) {
-      commands.bindPipeline(pipeline);
+      commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
       bindFrame(commands);
       const DrawConstants push{cascade};
       commands.pushConstants(std::as_bytes(std::span{&push, 1}));
       bound = pipeline;
+      mirrored = false;
+    }
+    if (batch.mirrored != mirrored) {
+      commands.setFrontFace(batch.mirrored ? rhi::FrontFace::Clockwise : rhi::FrontFace::CounterClockwise);
+      mirrored = batch.mirrored;
     }
     commands.bindIndexBuffer(batch.mesh->indices, rhi::IndexType::Uint32);
     commands.drawIndexedIndirectCount(
@@ -1412,18 +1418,24 @@ void Renderer::recordDraws(rhi::ICommandList &commands, std::span<const std::uin
     return;
   }
   rhi::PipelineHandle bound;
+  bool mirrored = false;
   const Mesh *boundMesh = nullptr;
   for (const std::uint32_t index : order) {
     const ResolvedDraw &draw = m_resolved[index];
     const rhi::PipelineHandle pipeline = pipelines[draw.doubleSided ? 1 : 0];
     if (pipeline != bound) {
-      commands.bindPipeline(pipeline);
+      commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
       bindFrame(commands);
       // The cascade is the whole of the per-draw constants now; the object index rides in the
       // draw's first instance, as it does in an indirect command (ADR-0012).
       const DrawConstants push{cascade};
       commands.pushConstants(std::as_bytes(std::span{&push, 1}));
       bound = pipeline;
+      mirrored = false;
+    }
+    if (draw.mirrored != mirrored) {
+      commands.setFrontFace(draw.mirrored ? rhi::FrontFace::Clockwise : rhi::FrontFace::CounterClockwise);
+      mirrored = draw.mirrored;
     }
     if (draw.mesh != boundMesh) {
       commands.bindIndexBuffer(draw.mesh->indices, rhi::IndexType::Uint32);

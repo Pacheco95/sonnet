@@ -362,6 +362,13 @@ enum class CullMode : std::uint8_t {
   Front,
 };
 
+// The winding a front face has on screen. Dynamic state on every graphics pipeline, reset to
+// counter-clockwise when one is bound; ICommandList::setFrontFace flips it for a mirrored draw.
+enum class FrontFace : std::uint8_t {
+  CounterClockwise,
+  Clockwise,
+};
+
 enum class CompareOp : std::uint8_t {
   Never,
   Less,

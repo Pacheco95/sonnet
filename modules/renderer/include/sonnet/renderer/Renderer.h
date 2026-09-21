@@ -229,15 +229,17 @@ private:
     glm::vec3 center; // world-space bounds, what the culling pass tests
     glm::vec3 extent; // half size
     bool doubleSided;
+    bool mirrored; // the transform's upper 3x3 has a negative determinant: the winding reverses
     bool blended;
     bool masked;
     float viewDepth;
   };
-  // A run of draws in one order list sharing a pipeline and a mesh, submitted by one
+  // A run of draws in one order list sharing a pipeline, a front face and a mesh, submitted by one
   // drawIndexedIndirectCount against that mesh's index buffer (ADR-0012).
   struct Batch {
     const Mesh *mesh;
     std::uint32_t pipeline;  // index into a pipeline pair: 1 for double-sided
+    bool mirrored;           // drawn with a clockwise front face
     std::uint32_t firstDraw; // into the order list, and into that list's command range
     std::uint32_t drawCount;
   };

@@ -105,6 +105,10 @@ public:
     SONNET_ASSERT(data.size() <= PushConstantSize && data.size() % 4 == 0, "push constants: {} bytes", data.size());
     m_device.m_trace.push_back(std::format("pushConstants {} bytes", data.size()));
   }
+  void setFrontFace(FrontFace frontFace) override {
+    m_device.m_trace.push_back(
+        std::format("setFrontFace {}", frontFace == FrontFace::Clockwise ? "Clockwise" : "CounterClockwise"));
+  }
   void bindIndexBuffer(BufferHandle buffer, IndexType) override {
     m_device.m_trace.push_back(std::format("bindIndexBuffer {}", m_device.bufferName(buffer)));
   }

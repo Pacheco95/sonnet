@@ -24,6 +24,7 @@ public:
   void beginRendering(const RenderingDesc &desc) override;
   void endRendering() override;
   void bindPipeline(PipelineHandle pipeline) override;
+  void setFrontFace(FrontFace frontFace) override;
   void bindBuffers(std::span<const BufferBinding> bindings) override;
   void bindImages(std::span<const ImageBinding> bindings) override;
   void pushConstants(std::span<const std::byte> data) override;

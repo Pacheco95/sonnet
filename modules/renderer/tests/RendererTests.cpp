@@ -553,6 +553,121 @@ TEST_CASE("a non-uniformly scaled draw shades as its inverse transpose says on a
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// A transform that mirrors reverses a triangle's winding on screen, so a mirrored single-sided
+// draw has to be drawn with a clockwise front face or it is culled inside out (roadmap.md, "A
+// mirrored single-sided draw renders inside out").
+TEST_CASE("mirrored draws are batched apart and drawn with a clockwise front face", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const glm::mat4 mirror = glm::scale(glm::mat4{1.0f}, {-1.0f, 1.0f, 1.0f});
+  // The mirrored draw first, so only the sort can put it after the other.
+  const std::array draws{DrawItem{.mesh = box, .transform = mirror}, DrawItem{.mesh = box}};
+  const SceneView view = boxScene(draws);
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  // One mesh, but two batches in each of the four cascades, the pre-pass and the forward pass, the
+  // mirrored one last and preceded by the front face it needs.
+  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 1") == 12);
+  REQUIRE(countLines(*device, "setFrontFace Clockwise") == 6);
+  const auto &trace = device->trace();
+  for (std::size_t i = 0; i < trace.size(); ++i) {
+    if (trace[i] == "setFrontFace Clockwise") {
+      REQUIRE(i > 0);
+      REQUIRE(trace[i - 1].starts_with("drawIndexedIndirectCount"));
+      REQUIRE(trace[i + 1].starts_with("bindIndexBuffer"));
+    }
+  }
+  REQUIRE(countLines(*device, "setFrontFace CounterClockwise") == 0); // a bind resets it
+  renderer.destroyMesh(box);
+}
+
+// A mirrored, turned box with a normal map, drawn twice: once through its transform, and once with
+// the transform baked into the vertices on the CPU, the triangles rewound so they face out, and the
+// bitangent sign flipped as a mirror flips it, drawn with none. Before the front face followed the
+// transform, the first was culled inside out; before the bitangent took the mirror's sign, the
+// normal map's green channel read upside down on it.
+TEST_CASE("a mirrored single-sided draw renders as its baked mirror image on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const glm::mat4 transform = glm::rotate(glm::mat4{1.0f}, glm::radians(35.0f), glm::normalize(glm::vec3{1, 1, 0})) *
+                                glm::scale(glm::mat4{1.0f}, {-1.0f, 1.0f, 1.0f});
+    const MeshData box = primitives::box();
+    MeshData baked = box;
+    const glm::mat3 linear{transform};
+    const glm::mat3 normalMatrix = glm::transpose(glm::inverse(linear));
+    for (Vertex &vertex : baked.vertices) {
+      vertex.position = glm::vec3{transform * glm::vec4{vertex.position, 1.0f}};
+      vertex.normal = glm::normalize(normalMatrix * vertex.normal);
+      vertex.tangent = glm::vec4{glm::normalize(linear * glm::vec3{vertex.tangent}), -vertex.tangent.w};
+    }
+    for (std::size_t i = 0; i + 2 < baked.indices.size(); i += 3) {
+      std::swap(baked.indices[i + 1], baked.indices[i + 2]);
+    }
+    const MeshHandle mirrored = renderer.createMesh(box, "mirrored");
+    const MeshHandle reference = renderer.createMesh(baked, "baked");
+    // Tilted towards the bitangent alone, so a flipped bitangent tilts every face the other way.
+    const TextureHandle normals = renderer.createTexture(solidTexture({128, 220, 180, 255}), "tilted normals");
+    MaterialDesc desc;
+    desc.metallic = 0.0f;
+    desc.roughness = 0.7f;
+    desc.normalTexture = normals;
+    const MaterialHandle material = renderer.createMaterial(desc, "tilted");
+
+    const auto render = [&](const DrawItem &draw) {
+      const std::array draws{draw};
+      SceneView view = boxScene(draws);
+      view.sun.direction = glm::normalize(glm::vec3{-0.6f, -0.5f, -1.0f});
+      view.sun.intensity = 3.0f;
+      view.ambient = {0.03f, 0.03f, 0.03f};
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view);
+      std::vector<Pixel> pixels;
+      for (unsigned y = 0; y < 64; ++y) {
+        for (unsigned x = 0; x < 64; ++x) {
+          pixels.push_back(scene.pixel(x, y));
+        }
+      }
+      return pixels;
+    };
+    const std::vector<Pixel> drawn = render({.mesh = mirrored, .material = material, .transform = transform});
+    const std::vector<Pixel> expected = render({.mesh = reference, .material = material});
+
+    int covered = 0;
+    int differing = 0;
+    for (std::size_t i = 0; i < drawn.size(); ++i) {
+      const Pixel &a = drawn[i];
+      const Pixel &b = expected[i];
+      if (b.r + b.g + b.b > 0) {
+        ++covered;
+      }
+      if (std::abs(a.r - b.r) > 3 || std::abs(a.g - b.g) > 3 || std::abs(a.b - b.b) > 3) {
+        ++differing;
+      }
+    }
+    UNSCOPED_INFO(std::format("{} of {} covered pixels differ", differing, covered));
+    REQUIRE(covered > 200);
+    REQUIRE(differing * 50 < covered);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMaterial(material);
+    renderer.destroyTexture(normals);
+    renderer.destroyMesh(reference);
+    renderer.destroyMesh(mirrored);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 // A box whose every vertex follows joint 0: what a skinned draw moves as one piece.
 MeshData skinnedBox() {
   MeshData box = primitives::box();
