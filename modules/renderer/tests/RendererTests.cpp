@@ -1092,6 +1092,9 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
   // ADR-0013 asks for; unset is the machine's pool, which is what the editor and player run.
   sonnet::core::JobSystem jobs{[] {
     sonnet::core::JobSystemDesc desc;
+#if defined(_MSC_VER)
+#pragma warning(suppress : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
+#endif
     if (const char *workers = std::getenv("SONNET_BENCH_WORKERS")) {
       desc.workerCount = static_cast<std::uint32_t>(std::atoi(workers));
     }
