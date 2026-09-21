@@ -103,7 +103,6 @@ struct Fixture {
       }
     }
     FAIL("no sound named " << name);
-    return {};
   }
 
   flecs::entity source(std::string_view name, const audio::AudioSource &value, glm::vec3 position = glm::vec3{0.0f}) {

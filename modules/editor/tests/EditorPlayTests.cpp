@@ -68,7 +68,6 @@ flecs::entity byName(world::World &world, std::string_view name) {
     }
   }
   FAIL("no entity " << name);
-  return {};
 }
 
 // Keeps the warnings and errors logged while it is registered.
