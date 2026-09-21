@@ -485,6 +485,74 @@ TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// The vertex shader derives each normal from the model matrix rather than reading a normal matrix
+// (sonnet.slang, transformNormal). What would get that wrong is a non-uniform scale, where the
+// model matrix itself tilts normals the wrong way, so draw a squashed, turned sphere twice: once
+// through its transform, and once with the transform baked into the vertices on the CPU through
+// glm's own inverse transpose and drawn with none. The two must shade alike.
+TEST_CASE("a non-uniformly scaled draw shades as its inverse transpose says on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const glm::mat4 transform = glm::rotate(glm::mat4{1.0f}, glm::radians(35.0f), glm::normalize(glm::vec3{1, 1, 0})) *
+                                glm::scale(glm::mat4{1.0f}, {2.0f, 0.5f, 1.0f});
+    const MeshData sphere = primitives::sphere(0.5f, 32, 16);
+    MeshData baked = sphere;
+    const glm::mat3 linear{transform};
+    const glm::mat3 normalMatrix = glm::transpose(glm::inverse(linear));
+    for (Vertex &vertex : baked.vertices) {
+      vertex.position = glm::vec3{transform * glm::vec4{vertex.position, 1.0f}};
+      vertex.normal = glm::normalize(normalMatrix * vertex.normal);
+      vertex.tangent = glm::vec4{glm::normalize(linear * glm::vec3{vertex.tangent}), vertex.tangent.w};
+    }
+    const MeshHandle transformed = renderer.createMesh(sphere, "transformed");
+    const MeshHandle reference = renderer.createMesh(baked, "baked");
+
+    const auto render = [&](const DrawItem &draw) {
+      const std::array draws{draw};
+      SceneView view = boxScene(draws);
+      view.sun.direction = glm::normalize(glm::vec3{-0.6f, -0.5f, -1.0f});
+      view.sun.intensity = 3.0f;
+      view.ambient = {0.03f, 0.03f, 0.03f};
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view);
+      std::vector<Pixel> pixels;
+      for (unsigned y = 0; y < 64; ++y) {
+        for (unsigned x = 0; x < 64; ++x) {
+          pixels.push_back(scene.pixel(x, y));
+        }
+      }
+      return pixels;
+    };
+    const std::vector<Pixel> derived = render({.mesh = transformed, .transform = transform});
+    const std::vector<Pixel> expected = render({.mesh = reference});
+
+    // Rasterising T * p on the GPU and on the CPU can disagree by a rounding at the silhouette, so
+    // count the pixels that differ rather than demanding none do.
+    int covered = 0;
+    int differing = 0;
+    for (std::size_t i = 0; i < derived.size(); ++i) {
+      const Pixel &a = derived[i];
+      const Pixel &b = expected[i];
+      if (b.r + b.g + b.b > 0) {
+        ++covered;
+      }
+      if (std::abs(a.r - b.r) > 3 || std::abs(a.g - b.g) > 3 || std::abs(a.b - b.b) > 3) {
+        ++differing;
+      }
+    }
+    UNSCOPED_INFO(std::format("{} of {} covered pixels differ", differing, covered));
+    REQUIRE(covered > 200);
+    REQUIRE(differing * 50 < covered);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMesh(reference);
+    renderer.destroyMesh(transformed);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 // A box whose every vertex follows joint 0: what a skinned draw moves as one piece.
 MeshData skinnedBox() {
   MeshData box = primitives::box();

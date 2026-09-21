@@ -101,15 +101,15 @@ struct FrameConstants {
 };
 static_assert(sizeof(FrameConstants) == 776);
 
+// No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
   glm::mat4 model;
-  glm::mat4 normalMatrix;
   glm::vec4 color;
   std::uint32_t id;
   std::uint32_t material;
   std::uint64_t vertices; // where this draw pulls its vertices from (ADR-0012)
 };
-static_assert(sizeof(ObjectData) == 160);
+static_assert(sizeof(ObjectData) == 96);
 
 struct DrawConstants {
   std::uint32_t cascade;
@@ -1244,12 +1244,11 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
   // handle went stale keeps a null vertex address and is never in an order list.
   auto *objects = reinterpret_cast<ObjectData *>(m_frameBuffers.objects.data.data());
   // One slot per draw, written once, read by nobody until the pass records: the loop the job
-  // system exists for (ADR-0013). The inverse-transpose is most of what it costs.
+  // system exists for (ADR-0013). What it costs is the bytes, not the arithmetic.
   parallelFor("frame objects", view.draws.size(), ObjectGrain, [&](std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; ++i) {
       const DrawItem &item = view.draws[i];
       objects[i] = ObjectData{.model = item.transform,
-                              .normalMatrix = glm::transpose(glm::inverse(item.transform)),
                               .color = item.color,
                               .id = item.id,
                               .material = materialIndex(item.material),

@@ -215,12 +215,18 @@ M7 left the per-frame object, material and light fill as the larger part of a fr
 |---|---|---|---|---|
 | fill | 0.261 ms | 0.189 ms | 0.180 ms | 0.199 ms |
 
-One extra worker takes about a quarter off and the rest add scheduling, which is the shape of a bandwidth limit rather than a divisible loop: ten thousand draws of a 160-byte `ObjectData` is 1.6 MB written every frame into a `MemoryUsage::CpuToGpu` buffer, which on a discrete GPU is host-visible device memory across the bus. Threads cannot remove that. Writing less can, and there are two independent levers:
+One extra worker takes about a quarter off and the rest add scheduling, which is the shape of a bandwidth limit rather than a divisible loop: ten thousand draws of a 160-byte `ObjectData` is 1.6 MB written every frame into a `MemoryUsage::CpuToGpu` buffer, which on a discrete GPU is host-visible device memory across the bus. Threads cannot remove that. Writing less can, and there were two independent levers.
 
-- **`ObjectData::normalMatrix` is 64 of the 160 bytes.** It is the inverse transpose of `model`, which the CPU computes per draw with `glm::inverse` and then sends in full. Deriving it in the vertex shader removes 40% of the bytes and the inverse with them, at the cost of ALU the forward pass has room for (0.65 ms GPU). For a transform with uniform scale it is just the upper 3×3 of `model`, so the general form may not be needed at all; a flag or a 3×4 packing are the middle grounds.
-- **Most objects do not move between frames.** The array is rebuilt from scratch every frame because it lives in a per-frame transient allocation. A persistent device-local buffer written only where a draw's transform, colour or material changed would cut the traffic to what actually moved, at the cost of a dirty list and a stable slot per draw, which the draw list does not have today.
+The first is taken. `ObjectData::normalMatrix` was 64 of the 160 bytes, the inverse transpose of `model`, computed per draw with `glm::inverse` and sent in full. The vertex shader now derives it as the cofactor matrix of `model`'s upper 3×3, which is the inverse transpose times the determinant and so correct for any scale without a flag or a special case ([rendering.md](rendering.md#gpu-driven-submission)). Same benchmark:
 
-Take the first before the second: it is contained in the shaders and one struct, and it halves the second's remaining cost as well.
+| workers | 0 | 1 | 3 | 15 |
+|---|---|---|---|---|
+| fill, 160-byte entries | 0.261 ms | 0.189 ms | 0.180 ms | 0.199 ms |
+| fill, 96-byte entries | 0.150 ms | 0.151 ms | 0.149 ms | 0.157 ms |
+
+The forward pass's GPU time did not move within the noise of the measurement, about 0.21 ms either way, so the derivation is free where it runs. And the pool no longer changes the fill at all, which is the bandwidth limit with nothing left in front of it. The per-draw inverse was the part a worker could take; it is gone, and what remains is bytes.
+
+The second lever is what is left. **Most objects do not move between frames.** The array is rebuilt from scratch every frame because it lives in a per-frame transient allocation. A persistent device-local buffer written only where a draw's transform, colour or material changed would cut the traffic to what actually moved, at the cost of a dirty list and a stable slot per draw, which the draw list does not have today. At 0.15 ms for ten thousand draws it is no longer the frame's largest CPU cost, so it waits for a scene that needs it.
 
 ### The thread sanitizer cannot see two libraries the engine depends on
 

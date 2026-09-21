@@ -126,7 +126,6 @@ public struct FrameConstants {
 
 public struct ObjectData {
   public float4x4 model;
-  public float4x4 normalMatrix;
   public float4 color; // multiplies the material's base colour
   public uint id;      // entity id for picking and the selection outline, 0 for none
   public uint material;
@@ -135,6 +134,46 @@ public struct ObjectData {
   // cannot carry it (ADR-0012).
   public Vertex *vertices;
 };
+
+// A draw's world basis: the three axis vectors of its model matrix. They come out of the same mul
+// the position goes through, so nothing here depends on how the matrix is laid out in memory, and
+// the compiler folds each one down to a swizzle.
+public struct WorldBasis {
+  public float3 x;
+  public float3 y;
+  public float3 z;
+};
+
+public WorldBasis worldBasis(float4x4 model) {
+  WorldBasis basis;
+  basis.x = mul(model, float4(1.0, 0.0, 0.0, 0.0)).xyz;
+  basis.y = mul(model, float4(0.0, 1.0, 0.0, 0.0)).xyz;
+  basis.z = mul(model, float4(0.0, 0.0, 1.0, 0.0)).xyz;
+  return basis;
+}
+
+// A direction through the model matrix: the basis combination, no translation.
+public float3 transformDirection(WorldBasis basis, float3 direction) {
+  return basis.x * direction.x + basis.y * direction.y + basis.z * direction.z;
+}
+
+// A normal through the model matrix, derived here rather than sent. ObjectData used to carry the
+// inverse transpose in full, 64 of its 160 bytes, written per draw every frame into host-visible
+// device memory, which is what the fill was bound by (roadmap.md, "The per-frame fill is
+// bandwidth, not computation").
+//
+// What a normal needs is the cofactor matrix of the model matrix's upper 3x3, whose columns are
+// these cross products. It equals the inverse transpose times the determinant, and the
+// determinant is a uniform scale that a normalised normal cannot tell from 1, except for its
+// sign: under a mirroring transform the cofactor points the other way. So does SV_IsFrontFace,
+// because mirroring reverses the winding and the pipelines do not flip their front face per
+// draw, and forward.slang turns a back-facing normal round. The two cancel, which makes a
+// mirrored double-sided draw shade correctly where the inverse transpose shaded it inside out.
+// A mirrored single-sided draw is culled inside out before any normal is read.
+public float3 transformNormal(WorldBasis basis, float3 normal) {
+  return cross(basis.y, basis.z) * normal.x + cross(basis.z, basis.x) * normal.y +
+         cross(basis.x, basis.y) * normal.z;
+}
 
 // A draw finds its object through SV_StartInstanceLocation, which every command carries in its
 // firstInstance and every direct draw passes as its first instance (ADR-0012). What is left per
