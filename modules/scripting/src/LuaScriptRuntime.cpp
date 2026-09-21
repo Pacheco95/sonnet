@@ -125,16 +125,11 @@ struct LuaEntity {
   std::abort(); // luaL_error does not return
 }
 
-// Lua's "path:line: message" split into the line and the message, when the error is in the file
-// at `path`.
-std::optional<std::pair<int, std::string_view>> locate(std::string_view message, std::string_view path) {
-  if (path.empty() || !message.starts_with(path) || message.size() <= path.size() || message[path.size()] != ':') {
-    return std::nullopt;
-  }
-  const std::string_view rest = message.substr(path.size() + 1);
+// "line: message" split into the line and the message.
+std::optional<std::pair<int, std::string_view>> splitLine(std::string_view rest) {
   int line = 0;
   const auto [end, error] = std::from_chars(rest.data(), rest.data() + rest.size(), line);
-  if (error != std::errc{} || end == rest.data() || *end != ':') {
+  if (error != std::errc{} || end == rest.data() || end == rest.data() + rest.size() || *end != ':') {
     return std::nullopt;
   }
   std::string_view text = rest.substr(static_cast<std::size_t>(end - rest.data()) + 1);
@@ -142,6 +137,32 @@ std::optional<std::pair<int, std::string_view>> locate(std::string_view message,
     text.remove_prefix(1);
   }
   return std::pair{line, text};
+}
+
+// Lua's "path:line: message" split into the line and the message, when the error is in the file
+// at `path`. Lua shortens a path longer than LUA_IDSIZE to "..." and its tail, which a project
+// under a long temporary directory reaches.
+std::optional<std::pair<int, std::string_view>> locate(std::string_view message, std::string_view path) {
+  if (path.empty()) {
+    return std::nullopt;
+  }
+  if (message.starts_with(path) && message.size() > path.size() && message[path.size()] == ':') {
+    return splitLine(message.substr(path.size() + 1));
+  }
+  constexpr std::string_view Ellipsis = "...";
+  if (!message.starts_with(Ellipsis)) {
+    return std::nullopt;
+  }
+  for (std::size_t colon = message.find(':', Ellipsis.size()); colon != std::string_view::npos;
+       colon = message.find(':', colon + 1)) {
+    const std::string_view tail = message.substr(Ellipsis.size(), colon - Ellipsis.size());
+    if (!tail.empty() && path.ends_with(tail)) {
+      if (const auto located = splitLine(message.substr(colon + 1))) {
+        return located;
+      }
+    }
+  }
+  return std::nullopt;
 }
 
 class LuaScriptRuntime final : public IScriptRuntime {

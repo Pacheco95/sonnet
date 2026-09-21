@@ -61,7 +61,10 @@ protected:
 // A project with the given scripts under assets/, and everything a runtime runs on. Members are
 // declared in the order they depend on each other, so they are destroyed in reverse.
 struct Fixture {
-  std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_scripting_tests";
+  // Long enough that Lua shortens a script's path in its messages on every platform, as it does
+  // under macOS's temporary directory.
+  std::filesystem::path root =
+      std::filesystem::temp_directory_path() / "sonnet_scripting_tests_under_a_directory_longer_than_lua_idsize";
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
