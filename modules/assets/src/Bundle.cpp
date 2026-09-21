@@ -144,7 +144,10 @@ core::Result<Bundle> Bundle::open(const std::filesystem::path &file) {
                                        .size = entry.value("size", std::uint64_t{0})};
     bundle.m_assets.push_back(std::move(asset));
   }
-  for (const auto &[path, entry] : index.value("files", json::object()).items()) {
+  // Bound first: items() refers into the value, and before P2718 (GCC 14) a range-for extends
+  // only the outermost temporary of its initializer, so the value would die before the loop ran.
+  const json files = index.value("files", json::object());
+  for (const auto &[path, entry] : files.items()) {
     bundle.m_fileSpans[path] = {.offset = entry.value("offset", std::uint64_t{0}),
                                 .size = entry.value("size", std::uint64_t{0})};
   }
