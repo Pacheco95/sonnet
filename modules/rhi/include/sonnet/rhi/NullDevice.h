@@ -40,6 +40,11 @@ public:
     return m_buffers.size();
   }
 
+  // Reports drawIndirectCount missing, as MoltenVK does, for tests of the path without it.
+  void disableDrawIndirectCount() noexcept {
+    m_info.drawIndirectCountSupported = false;
+  }
+
   const DeviceInfo &info() const override {
     return m_info;
   }
