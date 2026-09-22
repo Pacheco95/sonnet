@@ -6,9 +6,10 @@ TEST_CASE("engine version matches the milestone scheme", "[core][version]") {
   const auto version = sonnet::core::engineVersion();
   REQUIRE(version.major == 0);
   REQUIRE(version.minor >= 1);
-  // Each milestone bumps MINOR: M8 landed as 0.9.0 (docs/conventions.md, "Versioning"). The pin is
+  // Each milestone bumps MINOR, and so does a feature or breaking change between them: M8 landed
+  // as 0.9.0 and the macOS fixes as 0.10.0 (docs/conventions.md, "Versioning"). The pin is
   // deliberate, so that landing a milestone without bumping the version fails here.
-  REQUIRE(version.toString() == "0.9.0");
+  REQUIRE(version.toString() == "0.10.0");
 }
 
 TEST_CASE("versions order lexicographically", "[core][version]") {

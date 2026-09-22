@@ -99,7 +99,7 @@ The public API that versioning protects:
 
 Rules:
 
-- Before 1.0.0, in the `0.y.z` range: each roadmap milestone landing bumps MINOR, so M0 ships as 0.1.0 and M9 as 0.10.0. A MINOR bump may break the public API. PATCH is for fixes only. 1.0.0 is tagged after M9, once the project and bundle formats have stopped changing.
+- Before 1.0.0, in the `0.y.z` range: each roadmap milestone landing bumps MINOR, and so does a `feat` or breaking change between milestones (below). M0 shipped as 0.1.0 and M8 as 0.9.0; the macOS fixes after M8 added a capability and broke `IDevice`, so they shipped as 0.10.0 and M9 will ship as 0.11.0. A MINOR bump may break the public API. PATCH is for fixes only. 1.0.0 is tagged after M9, once the project and bundle formats have stopped changing.
 - From 1.0.0: a breaking change bumps MAJOR, a new capability bumps MINOR, fixes and performance changes bump PATCH.
 - Commit types decide the bump: `feat` bumps MINOR, `fix` and `perf` bump PATCH, any `!` or `BREAKING CHANGE:` footer bumps MAJOR (MINOR before 1.0.0). Other types never bump on their own.
 - File formats carry their own integer schema version, independent of the engine version. A schema bump ships with a migration and is at least a MINOR bump of the engine. The engine never writes an old schema version.
