@@ -46,6 +46,7 @@ public:
   const ImageDesc &imageDesc(ImageHandle handle) const override;
   std::uint32_t sampledImageIndex(ImageHandle handle) const override;
   std::uint32_t storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) override;
+  std::uint32_t storageBufferIndex(BufferHandle handle) override;
 
   SamplerHandle createSampler(const SamplerDesc &desc) override;
   void destroySampler(SamplerHandle handle) override;
@@ -220,6 +221,7 @@ private:
   IndexAllocator m_storageIndices{MaxBindlessStorageImages};
   IndexAllocator m_cubeIndices{MaxBindlessCubeImages};
   IndexAllocator m_comparisonSamplerIndices{MaxBindlessComparisonSamplers};
+  IndexAllocator m_storageBufferIndices{MaxBindlessStorageBuffers};
   vk::raii::Semaphore m_timeline{nullptr};
   std::uint64_t m_timelineValue{0};
   std::uint64_t m_transientAlignment{256};

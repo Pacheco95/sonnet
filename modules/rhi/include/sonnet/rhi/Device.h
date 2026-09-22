@@ -20,6 +20,9 @@ struct DeviceDesc {
   std::string applicationName{"Sonnet"};
   // Requests the validation layer when it is installed; absent layers are logged, not fatal.
   bool enableValidation{SONNET_ENABLE_VALIDATION != 0};
+  // Leaves drawIndirectCount disabled even where the device has it, so the GPU tests on Lavapipe
+  // exercise the path MoltenVK takes (ADR-0014). Nothing else sets it.
+  bool disableDrawIndirectCount{false};
 };
 
 struct DeviceInfo {
@@ -30,7 +33,8 @@ struct DeviceInfo {
   std::uint32_t loaderVersion{0}; // packed Vulkan version of the loader in the process
   bool validationEnabled{false};
   bool timestampsSupported{false};
-  bool blockCompressionSupported{false}; // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
+  bool blockCompressionSupported{false};  // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
+  bool drawIndirectCountSupported{false}; // every desktop driver and Lavapipe; not MoltenVK (ADR-0014)
 };
 
 constexpr std::uint32_t FramesInFlight = 2;
@@ -62,6 +66,10 @@ public:
   // The slot of one mip level in the bindless storage-image array, for compute shaders to write;
   // the view is created on first request. InvalidBindlessIndex without Storage usage.
   [[nodiscard]] virtual std::uint32_t storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) = 0;
+  // The buffer's slot in the bindless storage-buffer array for vertex pulling (docs/rendering.md,
+  // "Frame structure"); assigned on first call, released on destroyBuffer. InvalidBindlessIndex
+  // for a buffer without Storage usage.
+  [[nodiscard]] virtual std::uint32_t storageBufferIndex(BufferHandle handle) = 0;
 
   [[nodiscard]] virtual SamplerHandle createSampler(const SamplerDesc &desc) = 0;
   virtual void destroySampler(SamplerHandle handle) = 0;

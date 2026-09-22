@@ -107,7 +107,8 @@ struct ObjectData {
   glm::vec4 color;
   std::uint32_t id;
   std::uint32_t material;
-  std::uint64_t vertices; // where this draw pulls its vertices from (ADR-0012)
+  std::uint32_t vertexBuffer; // bindless index into vertexBuffers[] (ADR-0012, ADR-0014)
+  std::uint32_t vertexPad{0};
 };
 static_assert(sizeof(ObjectData) == 96);
 
@@ -138,7 +139,7 @@ struct CullConstants {
   std::uint32_t drawCount;
   std::uint32_t countBase;
   std::uint32_t selectedOnly;
-  std::uint32_t padding{0};
+  std::uint32_t fixedSlots; // without drawIndirectCount every candidate writes its own slot (ADR-0014)
 };
 static_assert(sizeof(CullConstants) == 96);
 static_assert(sizeof(CullConstants) <= rhi::PushConstantSize);
@@ -367,9 +368,9 @@ Renderer::~Renderer() {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 11> names{"cluster", "cull",    "debug", "depth", "forward", "ibl",
+  static constexpr std::array<std::string_view, 11> Names{"cluster", "cull",    "debug", "depth", "forward", "ibl",
                                                           "id",      "outline", "post",  "skin",  "skybox"};
-  return names;
+  return Names;
 }
 
 void Renderer::defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc) {
@@ -637,6 +638,7 @@ EnvironmentHandle Renderer::createEnvironment(const TextureData &equirectangular
                             .mipLevels = equirectangular.mipLevels,
                             .debugName = std::format("{} equirectangular", debugName)});
   std::vector<rhi::ImageUpload> uploads;
+  uploads.reserve(equirectangular.mipLevels);
   for (std::uint32_t level = 0; level < equirectangular.mipLevels; ++level) {
     uploads.push_back({.mipLevel = level, .layer = 0, .data = equirectangular.level(level)});
   }
@@ -835,13 +837,13 @@ void Renderer::computeCascades(const SceneView &view, float aspect) {
   const glm::mat4 cameraView = view.camera.view();
   const glm::vec3 lightDirection = glm::normalize(view.sun.direction);
   const glm::vec3 up = std::abs(lightDirection.y) > 0.99f ? glm::vec3{0.0f, 0.0f, 1.0f} : glm::vec3{0.0f, 1.0f, 0.0f};
-  constexpr float Lambda = 0.75f; // between logarithmic and uniform splits
+  constexpr float lambda = 0.75f; // between logarithmic and uniform splits
   float previousSplit = nearPlane;
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
     const float p = static_cast<float>(c + 1) / static_cast<float>(CascadeCount);
     const float logarithmic = nearPlane * std::pow(farPlane / nearPlane, p);
     const float uniform = nearPlane + (farPlane - nearPlane) * p;
-    const float split = Lambda * logarithmic + (1.0f - Lambda) * uniform;
+    const float split = lambda * logarithmic + (1.0f - lambda) * uniform;
 
     // The slice's eight corners in world space, from a finite projection over the slice.
     const glm::mat4 sliceProjection = glm::perspectiveRH_ZO(view.camera.fovY, aspect, previousSplit, split);
@@ -942,9 +944,13 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
       minimum = glm::min(minimum, world);
       maximum = glm::max(maximum, world);
     }
+    const std::uint32_t vertexBuffer = resolveVertices(item, *mesh, view);
+    if (vertexBuffer == rhi::InvalidBindlessIndex) {
+      continue; // the bindless vertex-buffer array is full, which the device has logged
+    }
     m_resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
                                       .mesh = mesh,
-                                      .vertices = resolveVertices(item, *mesh, view),
+                                      .vertexBuffer = vertexBuffer,
                                       .submesh = mesh->submeshes[item.submesh],
                                       .center = (minimum + maximum) * 0.5f,
                                       .extent = (maximum - minimum) * 0.5f,
@@ -1083,6 +1089,7 @@ void Renderer::recordCulling(rhi::ICommandList &commands) {
                           .dstStage = rhi::PipelineStage::ComputeShader,
                           .dstAccess = rhi::Access::ShaderWrite});
   const rhi::BufferBinding counts{.binding = rhi::PassStorageBinding, .buffer = m_countBuffer};
+  const bool countedDraws = m_device.info().drawIndirectCountSupported;
   const auto candidates = [this](const CullJob &job) {
     return job.opaque ? m_frameBuffers.opaqueCandidates : m_frameBuffers.allCandidates;
   };
@@ -1093,20 +1100,24 @@ void Renderer::recordCulling(rhi::ICommandList &commands) {
                                               std::uint64_t{job.firstCommand} * sizeof(rhi::IndirectCommand),
                                   .drawCount = threads,
                                   .countBase = job.firstCount,
-                                  .selectedOnly = job.selectedOnly ? 1u : 0u};
+                                  .selectedOnly = job.selectedOnly ? 1u : 0u,
+                                  .fixedSlots = countedDraws ? 0u : 1u};
     commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   };
 
-  commands.bindPipeline(m_clearCountsPipeline);
-  commands.bindBuffers({&counts, 1});
-  for (const CullJob &job : pending) {
-    push(job, job.batchCount);
-    commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
+  // Without a count to read, the draws take every slot and nothing appends (ADR-0014).
+  if (countedDraws) {
+    commands.bindPipeline(m_clearCountsPipeline);
+    commands.bindBuffers({&counts, 1});
+    for (const CullJob &job : pending) {
+      push(job, job.batchCount);
+      commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
+    }
+    commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                            .srcAccess = rhi::Access::ShaderWrite,
+                            .dstStage = rhi::PipelineStage::ComputeShader,
+                            .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
   }
-  commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
-                          .srcAccess = rhi::Access::ShaderWrite,
-                          .dstStage = rhi::PipelineStage::ComputeShader,
-                          .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
 
   commands.bindPipeline(m_cullPipeline);
   commands.bindBuffers({&counts, 1});
@@ -1128,6 +1139,11 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
   if (batches.empty() || !m_frameBuffers.valid()) {
     return;
   }
+  const bool countedDraws = m_device.info().drawIndirectCountSupported;
+  const std::uint64_t candidates = job.opaque ? m_frameBuffers.opaqueCandidates : m_frameBuffers.allCandidates;
+  if (!countedDraws && candidates == 0) {
+    return; // nothing was culled, so the slots still hold a previous frame's commands
+  }
   rhi::PipelineHandle bound;
   bool mirrored = false;
   for (std::uint32_t index = 0; index < batches.size(); ++index) {
@@ -1146,18 +1162,23 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
       mirrored = batch.mirrored;
     }
     commands.bindIndexBuffer(batch.mesh->indices, rhi::IndexType::Uint32);
-    commands.drawIndexedIndirectCount(
-        m_commandBuffer, std::uint64_t{job.firstCommand + batch.firstDraw} * sizeof(rhi::IndirectCommand),
-        m_countBuffer, std::uint64_t{job.firstCount + index} * sizeof(std::uint32_t), batch.drawCount);
+    const std::uint64_t commandOffset =
+        std::uint64_t{job.firstCommand + batch.firstDraw} * sizeof(rhi::IndirectCommand);
+    if (countedDraws) {
+      commands.drawIndexedIndirectCount(m_commandBuffer, commandOffset, m_countBuffer,
+                                        std::uint64_t{job.firstCount + index} * sizeof(std::uint32_t), batch.drawCount);
+    } else {
+      commands.drawIndexedIndirect(m_commandBuffer, commandOffset, batch.drawCount);
+    }
     ++m_statistics.indirectCallCount;
   }
 }
 
-std::uint64_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view) {
+std::uint32_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view) {
   const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
                        std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
   if (!skinned) {
-    return m_device.bufferAddress(mesh.vertices);
+    return m_device.storageBufferIndex(mesh.vertices);
   }
   SkinnedVertices &instance = m_skinned[item.skinInstance];
   if (instance.mesh != item.mesh || !instance.buffer) {
@@ -1178,7 +1199,7 @@ std::uint64_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, 
     ++m_statistics.skinnedInstanceCount;
     m_statistics.skinnedVertexCount += mesh.vertexCount;
   }
-  return m_device.bufferAddress(instance.buffer);
+  return m_device.storageBufferIndex(instance.buffer);
 }
 
 void Renderer::releaseSkinnedVertices(bool all) {
@@ -1258,11 +1279,11 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
                               .color = item.color,
                               .id = item.id,
                               .material = materialIndex(item.material),
-                              .vertices = 0};
+                              .vertexBuffer = 0};
     }
   });
   for (const ResolvedDraw &draw : m_resolved) {
-    objects[draw.objectIndex].vertices = draw.vertices;
+    objects[draw.objectIndex].vertexBuffer = draw.vertexBuffer;
   }
 
   // The culling pass's candidates, one array per order list, each grouped into its batches.

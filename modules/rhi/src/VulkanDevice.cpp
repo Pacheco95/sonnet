@@ -49,7 +49,13 @@ std::string versionString(std::uint32_t version) {
 
 template <typename T> [[nodiscard]] T unwrap(vkb::Result<T> result, std::string_view what) {
   if (!result) {
-    throw core::Exception{std::format("{}: {}", what, result.error().message()), core::ErrorCategory::Graphics};
+    // Device selection says why each device was rejected, e.g. which required feature it lacks.
+    std::string reasons;
+    for (const std::string &reason : result.detailed_failure_reasons()) {
+      reasons += std::format("\n  {}", reason);
+    }
+    throw core::Exception{std::format("{}: {}{}", what, result.error().message(), reasons),
+                          core::ErrorCategory::Graphics};
   }
   return std::move(result.value());
 }
@@ -94,20 +100,26 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
 }
 
 VulkanDevice::~VulkanDevice() {
-  waitIdle();
-  for (Frame &frame : m_frames) {
-    for (auto &destroy : frame.garbage) {
-      destroy();
+  // A lost device makes the wait throw; teardown carries on, since the members free their
+  // objects either way and there is no caller left to hand the error to.
+  try {
+    waitIdle();
+    for (Frame &frame : m_frames) {
+      for (auto &destroy : frame.garbage) {
+        destroy();
+      }
+      frame.garbage.clear();
+      if (frame.transientBuffer) {
+        m_buffers.remove(frame.transientBuffer);
+      }
+      if (frame.stagingBuffer) {
+        m_buffers.remove(frame.stagingBuffer);
+      }
     }
-    frame.garbage.clear();
-    if (frame.transientBuffer) {
-      m_buffers.remove(frame.transientBuffer);
-    }
-    if (frame.stagingBuffer) {
-      m_buffers.remove(frame.stagingBuffer);
-    }
+    reportLeaks();
+  } catch (const std::exception &e) {
+    SONNET_LOG_ERROR("tearing down the device: {}", e.what());
   }
-  reportLeaks();
   m_pipelines.clear();
   m_shaders.clear();
   m_samplers.clear();
@@ -165,7 +177,7 @@ void VulkanDevice::createInstance(const DeviceDesc &desc) {
   SONNET_LOG_DEBUG("Vulkan loader {}", versionString(m_info.loaderVersion));
 }
 
-void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
+void VulkanDevice::selectAndCreateDevice(const DeviceDesc &desc) {
   // The features in docs/rendering.md, "Vulkan baseline". Extended dynamic state is core in 1.3
   // without a feature bit.
   VkPhysicalDeviceFeatures features{};
@@ -192,7 +204,6 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   features12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
   features12.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
   features12.runtimeDescriptorArray = VK_TRUE;
-  features12.drawIndirectCount = VK_TRUE;
 
   VkPhysicalDeviceVulkan13Features features13{};
   features13.dynamicRendering = VK_TRUE;
@@ -230,6 +241,15 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   VkPhysicalDeviceFeatures optional{};
   optional.textureCompressionBC = VK_TRUE;
   m_info.blockCompressionSupported = physicalDevice.enable_features_if_present(optional);
+  // The count form of the indirect draws (ADR-0012) is enabled where present rather than
+  // required: MoltenVK has no drawIndirectCount, and the renderer draws every slot there instead
+  // (ADR-0014).
+  if (!desc.disableDrawIndirectCount) {
+    VkPhysicalDeviceVulkan12Features count{};
+    count.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    count.drawIndirectCount = VK_TRUE;
+    m_info.drawIndirectCountSupported = physicalDevice.enable_extension_features_if_present(count);
+  }
 
   const vkb::Device device = unwrap(vkb::DeviceBuilder{physicalDevice}.build(), "creating the Vulkan device");
   m_physicalDevice = vk::raii::PhysicalDevice{m_instance, physicalDevice.physical_device};
@@ -284,6 +304,8 @@ void VulkanDevice::createPipelineLayout() {
                                      vk::ShaderStageFlagBits::eAll},
       vk::DescriptorSetLayoutBinding{BindlessComparisonSamplerBinding, vk::DescriptorType::eSampler,
                                      MaxBindlessComparisonSamplers, vk::ShaderStageFlagBits::eAll},
+      vk::DescriptorSetLayoutBinding{BindlessStorageBufferBinding, vk::DescriptorType::eStorageBuffer,
+                                     MaxBindlessStorageBuffers, vk::ShaderStageFlagBits::eAll},
   };
   constexpr vk::DescriptorBindingFlags bindingFlags =
       vk::DescriptorBindingFlagBits::ePartiallyBound | vk::DescriptorBindingFlagBits::eUpdateAfterBind;
@@ -318,6 +340,7 @@ void VulkanDevice::createBindlessSet() {
       vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, MaxBindlessSampledImages + MaxBindlessCubeImages},
       vk::DescriptorPoolSize{vk::DescriptorType::eSampler, MaxBindlessSamplers + MaxBindlessComparisonSamplers},
       vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, MaxBindlessStorageImages},
+      vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, MaxBindlessStorageBuffers},
   };
   // The set is a RAII object that frees itself, which the pool has to allow.
   m_bindlessPool = vk::raii::DescriptorPool{
@@ -409,7 +432,10 @@ void VulkanDevice::destroyBuffer(BufferHandle handle) {
     SONNET_LOG_WARN("destroyBuffer: stale handle {}:{}", handle.index, handle.generation);
     return;
   }
-  deferDestruction([resource = std::make_shared<VulkanBuffer>(std::move(*buffer))]() mutable { resource.reset(); });
+  deferDestruction([this, resource = std::make_shared<VulkanBuffer>(std::move(*buffer))]() mutable {
+    m_storageBufferIndices.release(resource->storageBufferIndex);
+    resource.reset();
+  });
 }
 
 std::span<std::byte> VulkanDevice::mappedRange(BufferHandle handle) {
@@ -423,6 +449,31 @@ std::span<std::byte> VulkanDevice::mappedRange(BufferHandle handle) {
 std::uint64_t VulkanDevice::bufferAddress(BufferHandle handle) const {
   const VulkanBuffer *buffer = m_buffers.find(handle);
   return buffer != nullptr ? buffer->address : 0;
+}
+
+std::uint32_t VulkanDevice::storageBufferIndex(BufferHandle handle) {
+  assertOwnerThread("storageBufferIndex");
+  VulkanBuffer *buffer = m_buffers.find(handle);
+  if (buffer == nullptr || !has(buffer->desc.usage, BufferUsage::Storage)) {
+    return InvalidBindlessIndex;
+  }
+  if (!buffer->storageBufferIndexRequested) {
+    buffer->storageBufferIndexRequested = true;
+    buffer->storageBufferIndex = m_storageBufferIndices.allocate("storage buffer");
+    if (buffer->storageBufferIndex == InvalidBindlessIndex) {
+      return InvalidBindlessIndex; // the array is full; the error is logged and nothing is written
+    }
+    const vk::DescriptorBufferInfo info{*buffer->buffer, 0, buffer->desc.size};
+    const vk::WriteDescriptorSet write{*m_bindlessSet,
+                                       BindlessStorageBufferBinding,
+                                       buffer->storageBufferIndex,
+                                       1,
+                                       vk::DescriptorType::eStorageBuffer,
+                                       nullptr,
+                                       &info};
+    m_device.updateDescriptorSets(write, {});
+  }
+  return buffer->storageBufferIndex;
 }
 
 void VulkanDevice::writeSampledDescriptor(std::uint32_t binding, std::uint32_t index, vk::ImageView view,
@@ -944,7 +995,7 @@ void VulkanDevice::readTimestamps(Frame &frame) {
   }
   // The frame has completed (waitForFrame), so every written query is available. Unwritten
   // slots below the highest index come back with availability 0 and read as zero.
-  std::array<std::uint64_t, MaxTimestamps * 2> raw{};
+  std::array<std::uint64_t, std::size_t{MaxTimestamps} * 2> raw{};
   const VkResult result = m_device.getDispatcher()->vkGetQueryPoolResults(
       *m_device, *frame.queryPool, 0, frame.timestampCount, sizeof(raw), raw.data(), 2 * sizeof(std::uint64_t),
       VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
@@ -954,9 +1005,10 @@ void VulkanDevice::readTimestamps(Frame &frame) {
   }
   frame.timestampResults.resize(frame.timestampCount);
   for (std::uint32_t i = 0; i < frame.timestampCount; ++i) {
-    const bool available = raw[2 * i + 1] != 0;
+    const std::size_t slot = std::size_t{2} * i;
+    const bool available = raw[slot + 1] != 0;
     frame.timestampResults[i] =
-        available ? static_cast<std::uint64_t>(static_cast<double>(raw[2 * i]) * static_cast<double>(m_timestampPeriod))
+        available ? static_cast<std::uint64_t>(static_cast<double>(raw[slot]) * static_cast<double>(m_timestampPeriod))
                   : 0;
   }
 }
