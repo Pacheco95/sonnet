@@ -18,3 +18,9 @@ cmake-build-*/
 compile_commands.json
 .clangd/
 .sonnet/
+
+# Cache
+.vector-index/
+
+# Mac
+.DS_Store
