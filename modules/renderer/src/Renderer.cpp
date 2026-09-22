@@ -943,9 +943,13 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
       minimum = glm::min(minimum, world);
       maximum = glm::max(maximum, world);
     }
+    const std::uint32_t vertexBuffer = resolveVertices(item, *mesh, view);
+    if (vertexBuffer == rhi::InvalidBindlessIndex) {
+      continue; // the bindless vertex-buffer array is full, which the device has logged
+    }
     m_resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
                                       .mesh = mesh,
-                                      .vertexBuffer = resolveVertices(item, *mesh, view),
+                                      .vertexBuffer = vertexBuffer,
                                       .submesh = mesh->submeshes[item.submesh],
                                       .center = (minimum + maximum) * 0.5f,
                                       .extent = (maximum - minimum) * 0.5f,

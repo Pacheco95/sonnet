@@ -287,8 +287,9 @@ private:
                    const std::function<void(std::size_t, std::size_t)> &body) const;
 
   void prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
-  // The address the draw pulls its vertices from: its skinned instance's buffer, created or
-  // reused here, when it is a valid skinned draw, the mesh's otherwise.
+  // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
+  // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
+  // InvalidBindlessIndex when the array is full.
   [[nodiscard]] std::uint32_t resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view);
   void recordSkinning(rhi::ICommandList &commands);
   void releaseSkinnedVertices(bool all);
