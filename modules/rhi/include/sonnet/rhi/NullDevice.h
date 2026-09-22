@@ -60,6 +60,7 @@ public:
   const ImageDesc &imageDesc(ImageHandle handle) const override;
   std::uint32_t sampledImageIndex(ImageHandle handle) const override;
   std::uint32_t storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) override;
+  std::uint32_t storageBufferIndex(BufferHandle handle) override;
 
   SamplerHandle createSampler(const SamplerDesc &desc) override;
   void destroySampler(SamplerHandle handle) override;
@@ -101,6 +102,7 @@ private:
     BufferDesc desc;
     std::vector<std::byte> memory; // host-visible buffers only
     std::uint64_t address{0};
+    std::uint32_t storageBufferIndex{InvalidBindlessIndex};
   };
   struct Image {
     ImageDesc desc;
@@ -145,6 +147,7 @@ private:
   std::uint32_t m_nextSampledIndex{0};
   std::uint32_t m_nextCubeIndex{0};
   std::uint32_t m_nextStorageIndex{0};
+  std::uint32_t m_nextStorageBufferIndex{0};
   std::uint32_t m_nextSamplerIndex{0};
   std::uint32_t m_nextComparisonSamplerIndex{0};
   core::HandlePool<Buffer, BufferTag> m_buffers;

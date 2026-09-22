@@ -224,7 +224,7 @@ private:
   struct ResolvedDraw {
     std::uint32_t objectIndex;
     const Mesh *mesh;
-    std::uint64_t vertices; // the mesh's vertex address, or its skinned instance's
+    std::uint32_t vertexBuffer; // bindless index into vertexBuffers[] (ADR-0012, ADR-0014)
     Submesh submesh;
     glm::vec3 center; // world-space bounds, what the culling pass tests
     glm::vec3 extent; // half size
@@ -289,7 +289,7 @@ private:
   void prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
   // The address the draw pulls its vertices from: its skinned instance's buffer, created or
   // reused here, when it is a valid skinned draw, the mesh's otherwise.
-  [[nodiscard]] std::uint64_t resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view);
+  [[nodiscard]] std::uint32_t resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view);
   void recordSkinning(rhi::ICommandList &commands);
   void releaseSkinnedVertices(bool all);
   void computeCascades(const SceneView &view, float aspect);
