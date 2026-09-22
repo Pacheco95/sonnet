@@ -134,7 +134,9 @@ public struct ObjectData {
   public uint material;
   // Bindless index into vertexBuffers[]: the mesh's buffer, or the skinned buffer the skinning
   // pass wrote. Lives here rather than in push constants because indirect draws can't carry it
-  // (ADR-0012). Replaces PhysicalStorageBuffer to avoid the Metal thread-local-pointer issue.
+  // (ADR-0012). An index, not a pointer: Slang loads a storage-buffer element whole, and a
+  // pointer inside it translates to MSL that Metal rejects, so no struct stored in a storage
+  // buffer may hold one (ADR-0015).
   public uint vertexBuffer;
   public uint vertexPad;
 };
