@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -127,6 +128,10 @@ struct GpuScene {
   RenderGraph graph;
   RenderTarget target;
   BufferHandle readback;
+  // Wall-clock time of each frame's endFrame, where the frame is submitted. MoltenVK encodes the
+  // recorded commands into Metal there, one Metal draw per indirect command (ADR-0014), which no
+  // pass's recording time includes.
+  std::vector<double> submitMilliseconds;
 
   GpuScene(IDevice &gpu, Renderer &sceneRenderer, glm::uvec2 targetSize)
       : device(gpu), renderer(sceneRenderer), size(targetSize), graph(gpu), target(gpu, "viewport") {
@@ -159,7 +164,10 @@ struct GpuScene {
             });
       }
       graph.execute(commands);
+      const auto submitStart = std::chrono::steady_clock::now();
       device.endFrame();
+      submitMilliseconds.push_back(
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submitStart).count());
     }
     device.waitIdle();
   }
@@ -1128,7 +1136,6 @@ TEST_CASE("reloading a shader rebuilds its pipelines and keeps them on a rejecte
 // hundred lights at 1080p on whatever device is present.
 TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
-  std::unique_ptr<IDevice> device = gpuDevice(platform);
   // SONNET_BENCH_WORKERS=0 measures the per-frame fill on one thread, for the comparison
   // ADR-0013 asks for; unset is the machine's pool, which is what the editor and player run.
   sonnet::core::JobSystem jobs{[] {
@@ -1146,66 +1153,94 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     }
     return desc;
   }()};
-  {
-    Renderer renderer{*device, shaderDir(platform), {.jobs = &jobs}};
-    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
-    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
-    MaterialDesc rough;
-    rough.metallic = 0.0f;
-    rough.roughness = 0.7f;
-    const MaterialHandle material = renderer.createMaterial(rough, "rough");
-    const EnvironmentHandle environment = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
-    std::vector<DrawItem> draws;
-    std::vector<Light> lights;
-    constexpr int side = 100;
-    for (int z = 0; z < side; ++z) {
-      for (int x = 0; x < side; ++x) {
-        const glm::vec3 position{(static_cast<float>(x) - static_cast<float>(side) / 2.0f) * 1.5f, 0.5f,
-                                 (static_cast<float>(z) - static_cast<float>(side) / 2.0f) * 1.5f};
-        draws.push_back({.mesh = (x + z) % 2 == 0 ? box : sphere,
-                         .material = material,
-                         .transform = glm::translate(glm::mat4{1.0f}, position),
-                         .id = static_cast<std::uint32_t>(draws.size() + 1)});
+  // One scene, measured on the device given; the renderer and everything it made are gone after.
+  const auto measure = [&](IDevice &device) {
+    {
+      Renderer renderer{device, shaderDir(platform), {.jobs = &jobs}};
+      const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+      const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
+      MaterialDesc rough;
+      rough.metallic = 0.0f;
+      rough.roughness = 0.7f;
+      const MaterialHandle material = renderer.createMaterial(rough, "rough");
+      const EnvironmentHandle environment = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
+      std::vector<DrawItem> draws;
+      std::vector<Light> lights;
+      constexpr int side = 100;
+      for (int z = 0; z < side; ++z) {
+        for (int x = 0; x < side; ++x) {
+          const glm::vec3 position{(static_cast<float>(x) - static_cast<float>(side) / 2.0f) * 1.5f, 0.5f,
+                                   (static_cast<float>(z) - static_cast<float>(side) / 2.0f) * 1.5f};
+          draws.push_back({.mesh = (x + z) % 2 == 0 ? box : sphere,
+                           .material = material,
+                           .transform = glm::translate(glm::mat4{1.0f}, position),
+                           .id = static_cast<std::uint32_t>(draws.size() + 1)});
+        }
       }
+      for (int i = 0; i < 100; ++i) {
+        const float angle = static_cast<float>(i) * 0.37f;
+        lights.push_back({.type = LightType::Point,
+                          .position = {std::cos(angle) * (5.0f + static_cast<float>(i) * 0.5f), 1.5f,
+                                       std::sin(angle) * (5.0f + static_cast<float>(i) * 0.5f)},
+                          .color = {1.0f, 0.8f, 0.6f},
+                          .intensity = 8.0f,
+                          .range = 6.0f});
+      }
+      SceneView view;
+      view.camera.position = {0.0f, 12.0f, 40.0f};
+      view.camera.rotation = glm::angleAxis(glm::radians(-18.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+      view.draws = draws;
+      view.lights = lights;
+      view.environment = environment;
+      GpuScene scene{device, renderer, {1920, 1080}};
+      constexpr int frames = 30;
+      scene.render(view, frames);
+      // The last frame's timings are those of the frame two before it, complete by now.
+      float total = 0.0f;
+      for (const PassTiming &pass : scene.graph.statistics().passes) {
+        WARN(
+            std::format("{:<20} {:8.3f} ms GPU {:8.3f} ms CPU", pass.name, pass.gpuMilliseconds, pass.cpuMilliseconds));
+        total += pass.gpuMilliseconds;
+      }
+      WARN(std::format("{} draws, {} lights, {} triangles: {:.3f} ms GPU per frame on {}",
+                       renderer.statistics().drawCount, renderer.statistics().lightCount,
+                       renderer.statistics().triangleCount, total, device.info().deviceName));
+      WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
+                       renderer.statistics().indirectCallCount, Renderer::CullJobsOpaque));
+      // The first frames compile pipelines and upload the scene; the rest are the steady state.
+      std::vector<double> submits{scene.submitMilliseconds.begin() + 5, scene.submitMilliseconds.end()};
+      std::ranges::sort(submits);
+      const float recording = [&] {
+        float sum = 0.0f;
+        for (const PassTiming &pass : scene.graph.statistics().passes) {
+          sum += pass.cpuMilliseconds;
+        }
+        return sum;
+      }();
+      WARN(std::format("CPU per frame: {:.3f} ms recording the passes, {:.3f} ms submitting (median of {}, "
+                       "worst {:.3f} ms), {} indirect draws",
+                       recording, submits[submits.size() / 2], submits.size(), submits.back(),
+                       device.info().drawIndirectCountSupported ? "counted" : "uncounted (ADR-0014)"));
+      REQUIRE(renderer.statistics().drawCount == side * side);
+      // Two meshes, so two batches, and one call each in the four cascades, the pre-pass and the
+      // forward pass: what used to be sixty thousand draw calls (ADR-0012).
+      REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);
+      REQUIRE(device.validationMessageCount() == 0);
+      renderer.destroyEnvironment(environment);
+      renderer.destroyMaterial(material);
+      renderer.destroyMesh(sphere);
+      renderer.destroyMesh(box);
     }
-    for (int i = 0; i < 100; ++i) {
-      const float angle = static_cast<float>(i) * 0.37f;
-      lights.push_back({.type = LightType::Point,
-                        .position = {std::cos(angle) * (5.0f + static_cast<float>(i) * 0.5f), 1.5f,
-                                     std::sin(angle) * (5.0f + static_cast<float>(i) * 0.5f)},
-                        .color = {1.0f, 0.8f, 0.6f},
-                        .intensity = 8.0f,
-                        .range = 6.0f});
-    }
-    SceneView view;
-    view.camera.position = {0.0f, 12.0f, 40.0f};
-    view.camera.rotation = glm::angleAxis(glm::radians(-18.0f), glm::vec3{1.0f, 0.0f, 0.0f});
-    view.draws = draws;
-    view.lights = lights;
-    view.environment = environment;
-    GpuScene scene{*device, renderer, {1920, 1080}};
-    constexpr int frames = 30;
-    scene.render(view, frames);
-    // The last frame's timings are those of the frame two before it, complete by now.
-    float total = 0.0f;
-    for (const PassTiming &pass : scene.graph.statistics().passes) {
-      WARN(std::format("{:<20} {:8.3f} ms GPU {:8.3f} ms CPU", pass.name, pass.gpuMilliseconds, pass.cpuMilliseconds));
-      total += pass.gpuMilliseconds;
-    }
-    WARN(std::format("{} draws, {} lights, {} triangles: {:.3f} ms GPU per frame on {}",
-                     renderer.statistics().drawCount, renderer.statistics().lightCount,
-                     renderer.statistics().triangleCount, total, device->info().deviceName));
-    WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
-                     renderer.statistics().indirectCallCount, Renderer::CullJobsOpaque));
-    REQUIRE(renderer.statistics().drawCount == side * side);
-    // Two meshes, so two batches, and one call each in the four cascades, the pre-pass and the
-    // forward pass: what used to be sixty thousand draw calls (ADR-0012).
-    REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);
-    REQUIRE(device->validationMessageCount() == 0);
-    renderer.destroyEnvironment(environment);
-    renderer.destroyMaterial(material);
-    renderer.destroyMesh(sphere);
-    renderer.destroyMesh(box);
+    REQUIRE(device.validationMessageCount() == 0);
+  };
+  // A device with drawIndirectCount measures the counted form, then a second device with it left
+  // off measures the uncounted one, so the cost of drawing every slot (ADR-0014) can be read
+  // against it. MoltenVK has only the uncounted form, and measures it once on its one device.
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  measure(*device);
+  if (device->info().drawIndirectCountSupported) {
+    device.reset();
+    device = gpuDevice(platform, true);
+    measure(*device);
   }
-  REQUIRE(device->validationMessageCount() == 0);
 }
