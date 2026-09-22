@@ -12,7 +12,67 @@
 #include <format>
 #include <string>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
 namespace sonnet::platform {
+
+namespace {
+
+// Keeps the Vulkan loader mapped for the life of the process, whatever SDL does with it.
+//
+// SDL unloads the library when the video subsystem quits, and vk-bootstrap caches the loader's
+// entry points in a table it initialises once and never refreshes. A second Platform in one
+// process therefore hands vk-bootstrap a new loader, which it ignores, and the next device calls
+// through pointers into the unmapped library. On macOS that is a crash; elsewhere it survives
+// only when the library happens to be mapped at its old address (docs/platform.md).
+//
+// The reference is taken once and never released, so the library outlives every Platform.
+void retainVulkanLibrary() {
+  static const bool Retained = [] {
+    const SDL_FunctionPointer loader = SDL_Vulkan_GetVkGetInstanceProcAddr();
+    if (loader == nullptr) {
+      return false;
+    }
+    // Conditionally supported by the standard, required to work by POSIX and by Windows, which is
+    // where the loader comes from in the first place.
+    void *const address = reinterpret_cast<void *>(loader);
+#if defined(_WIN32)
+    HMODULE module = nullptr;
+    // PIN keeps the module loaded until the process exits, so the handle needs no release.
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                           reinterpret_cast<LPCWSTR>(address), &module) == 0) {
+      SONNET_LOG_WARN("could not pin the Vulkan loader: GetModuleHandleEx failed ({})", GetLastError());
+      return false;
+    }
+    return true;
+#else
+    Dl_info info{};
+    if (dladdr(address, &info) == 0 || info.dli_fname == nullptr) {
+      SONNET_LOG_WARN("could not find the Vulkan loader's library to keep it mapped");
+      return false;
+    }
+    // NOLOAD raises the reference count of the library already open rather than opening another.
+    void *library = dlopen(info.dli_fname, RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD);
+    if (library == nullptr) {
+      library = dlopen(info.dli_fname, RTLD_LAZY | RTLD_LOCAL);
+    }
+    if (library == nullptr) {
+      SONNET_LOG_WARN("could not keep the Vulkan loader mapped: {}", dlerror());
+      return false;
+    }
+    SONNET_LOG_DEBUG("Vulkan loader \"{}\" kept mapped for the process", info.dli_fname);
+    return true;
+#endif
+  }();
+  static_cast<void>(Retained);
+}
+
+} // namespace
 
 Platform::Platform(const PlatformDesc &desc) : m_headless(desc.headless) {
   if (m_headless) {
@@ -73,6 +133,7 @@ void Platform::loadVulkan() {
                           core::ErrorCategory::Platform};
   }
   m_vulkanLoaded = true;
+  retainVulkanLibrary();
 }
 
 std::span<const char *const> Platform::vulkanInstanceExtensions() {
