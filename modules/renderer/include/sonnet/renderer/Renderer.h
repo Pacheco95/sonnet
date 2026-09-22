@@ -31,7 +31,7 @@ struct RenderStatistics {
   std::uint32_t drawCount{0}; // scene draws: opaque and blended, not the shadow, id or mask passes
   std::uint32_t triangleCount{0};
   std::uint32_t shadowDrawCount{0};
-  std::uint32_t indirectCallCount{0}; // drawIndexedIndirectCount calls the scene passes recorded
+  std::uint32_t indirectCallCount{0}; // indirect draw calls the scene passes recorded, counted or not
   std::uint32_t lightCount{0};
   std::uint32_t skinnedInstanceCount{0}; // instances the skinning pass deformed
   std::uint32_t skinnedVertexCount{0};
@@ -235,7 +235,7 @@ private:
     float viewDepth;
   };
   // A run of draws in one order list sharing a pipeline, a front face and a mesh, submitted by one
-  // drawIndexedIndirectCount against that mesh's index buffer (ADR-0012).
+  // indirect draw against that mesh's index buffer (ADR-0012).
   struct Batch {
     const Mesh *mesh;
     std::uint32_t pipeline;  // index into a pipeline pair: 1 for double-sided
@@ -310,7 +310,8 @@ private:
   // Zeroes every reserved job's counts, then runs each job's frustum test, with the barriers
   // that order the previous frame's indirect reads and this frame's command fetch around them.
   void recordCulling(rhi::ICommandList &commands);
-  // One drawIndexedIndirectCount per batch, over the range the job culled into.
+  // One indirect draw per batch, over the range the job culled into: drawIndexedIndirectCount, or
+  // drawIndexedIndirect over every slot on a device without drawIndirectCount (ADR-0014).
   void recordIndirect(rhi::ICommandList &commands, const CullJob &job, std::span<const Batch> batches,
                       std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t cascade = 0);
   // The direct path, which the blended draws keep because their order is view-dependent.

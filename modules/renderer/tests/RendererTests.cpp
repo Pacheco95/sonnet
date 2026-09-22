@@ -11,6 +11,7 @@
 #include <sonnet/rhi/NullDevice.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <glm/gtc/packing.hpp>
 
@@ -107,10 +108,12 @@ Pixel pixelAt(std::span<const std::byte> pixels, glm::uvec2 size, unsigned x, un
           std::to_integer<int>(pixels[offset + 2]), std::to_integer<int>(pixels[offset + 3])};
 }
 
-// A GPU device, or a skip.
-std::unique_ptr<IDevice> gpuDevice(sonnet::platform::Platform &platform) {
+// A GPU device, or a skip. `disableDrawIndirectCount` runs it the way MoltenVK does (ADR-0014).
+std::unique_ptr<IDevice> gpuDevice(sonnet::platform::Platform &platform, bool disableDrawIndirectCount = false) {
   try {
-    return createDevice({.platform = &platform, .applicationName = "renderer_tests"});
+    return createDevice({.platform = &platform,
+                         .applicationName = "renderer_tests",
+                         .disableDrawIndirectCount = disableDrawIndirectCount});
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
@@ -233,6 +236,37 @@ TEST_CASE("the scene passes shade every item once after the depth pre-pass and t
   renderer.destroyMesh(sphere);
   renderer.destroyMesh(box);
   REQUIRE(!renderer.isValid(box));
+}
+
+TEST_CASE("without drawIndirectCount every batch draws all its slots and no counts are cleared", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  device->disableDrawIndirectCount(); // as on MoltenVK (ADR-0014)
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({128, 64});
+  ICommandList &commands = device->beginFrame();
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 8, 4), "sphere");
+  const std::array draws{DrawItem{.mesh = box}, DrawItem{.mesh = sphere}, DrawItem{.mesh = box}};
+  const SceneView view = boxScene(draws);
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  // Culling still runs, but writes one slot per candidate instead of appending against counts.
+  REQUIRE(countLines(*device, "bindPipeline \"cull\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"clear draw counts\"") == 0);
+  REQUIRE(countLines(*device, "drawIndexedIndirectCount") == 0);
+  // The same two batches in the same six passes, each drawn over its whole range.
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 2") == 6);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 6);
+  REQUIRE(renderer.statistics().indirectCallCount == 12);
+
+  renderer.destroyMesh(sphere);
+  renderer.destroyMesh(box);
 }
 
 TEST_CASE("a stale mesh handle draws nothing and an empty scene records no draw", "[renderer][null]") {
@@ -894,8 +928,12 @@ TEST_CASE("debug lines are depth-tested against the scene on a GPU", "[renderer]
 }
 
 TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[renderer][culling][gpu]") {
+  // Both forms of the indirect draws: counted, and every slot with the culled ones empty.
+  const bool uncounted = GENERATE(false, true);
+  CAPTURE(uncounted);
   sonnet::platform::Platform platform{{.headless = true}};
-  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  std::unique_ptr<IDevice> device = gpuDevice(platform, uncounted);
+  REQUIRE(device->info().drawIndirectCountSupported == !uncounted);
   {
     Renderer renderer{*device, shaderDir(platform), testSettings()};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");

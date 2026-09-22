@@ -10,6 +10,7 @@
 #include <sonnet/rhi/NullDevice.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
 #include <array>
@@ -199,10 +200,15 @@ TEST_CASE("an empty selection adds no mask or outline pass", "[renderer][picking
 }
 
 TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gpu]") {
+  // Both forms of the indirect draws; without the count an unselected draw's slot must stay
+  // empty in the mask pass (ADR-0014).
+  const bool uncounted = GENERATE(false, true);
+  CAPTURE(uncounted);
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device;
   try {
-    device = createDevice({.platform = &platform, .applicationName = "renderer_tests"});
+    device = createDevice(
+        {.platform = &platform, .applicationName = "renderer_tests", .disableDrawIndirectCount = uncounted});
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
@@ -285,11 +291,94 @@ TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gp
   REQUIRE(device->validationMessageCount() == 0);
 }
 
-TEST_CASE("an occluder in front of a selected surface is not outlined", "[renderer][picking][gpu]") {
+TEST_CASE("an unselected draw beside a selected one gets no outline on a GPU", "[renderer][picking][gpu]") {
+  // The mask pass is where a draw culling rejects is still on screen, so it is where a slot that
+  // should be empty would show: without the count every unselected draw's slot is drawn, and it
+  // must carry no instances (ADR-0014).
+  const bool uncounted = GENERATE(false, true);
+  CAPTURE(uncounted);
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device;
   try {
-    device = createDevice({.platform = &platform, .applicationName = "renderer_tests"});
+    device = createDevice(
+        {.platform = &platform, .applicationName = "renderer_tests", .disableDrawIndirectCount = uncounted});
+  } catch (const sonnet::core::Exception &e) {
+    SKIP("no usable Vulkan 1.4 device: " << e.what());
+  }
+  {
+    Renderer renderer{*device, shaderDir(platform), pickingSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    constexpr std::uint32_t LeftId = 7;
+    const std::array draws{DrawItem{.mesh = box,
+                                    .transform = glm::translate(glm::mat4{1.0f}, {-0.8f, 0.0f, 0.0f}),
+                                    .color = {0.2f, 0.2f, 0.2f, 1.0f},
+                                    .id = LeftId},
+                           DrawItem{.mesh = box,
+                                    .transform = glm::translate(glm::mat4{1.0f}, {0.8f, 0.0f, 0.0f}),
+                                    .color = {0.2f, 0.2f, 0.2f, 1.0f},
+                                    .id = LeftId + 1}};
+    const SceneView view = boxScene(draws);
+    constexpr glm::uvec2 size{64, 64};
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize(size);
+    const BufferHandle readback = device->createBuffer({.size = std::uint64_t{size.x} * size.y * 4,
+                                                        .usage = BufferUsage::TransferDst,
+                                                        .memory = MemoryUsage::GpuToCpu,
+                                                        .debugName = "readback"});
+    const std::array selected{LeftId};
+
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    const GraphImage color = graph.importImage(target.color());
+    const GraphImage depth = graph.importImage(target.depth());
+    const GraphImage mask = graph.createImage(idImageDesc(size));
+    renderer.addScenePasses(graph, view, color, depth, {0.0f, 0.0f, 0.0f, 1.0f});
+    renderer.addSelectionMaskPass(graph, view, mask, selected);
+    renderer.addOutlinePass(graph, color, mask, {1.0f, 0.5f, 0.0f, 1.0f});
+    graph.addPass(
+        "readback", [&](PassBuilder &b) { b.transferSrc(color); },
+        [&](ICommandList &cmd, const PassResources &resources) {
+          cmd.copyImageToBuffer(resources.image(color), readback);
+        });
+    graph.execute(commands);
+    device->endFrame();
+    device->waitIdle();
+
+    // The boxes span about 7 to 25 and 39 to 57 across: the outline hugs the left one only.
+    const std::span<const std::byte> pixels = device->mappedRange(readback);
+    const auto outlined = [&](unsigned x, unsigned y) {
+      const Pixel pixel = pixelAt(pixels, size, x, y);
+      return pixel.r == 255 && pixel.g > 100 && pixel.b == 0;
+    };
+    int left = 0;
+    int right = 0;
+    for (unsigned y = 0; y < size.y; ++y) {
+      for (unsigned x = 0; x < size.x; ++x) {
+        if (outlined(x, y)) {
+          ++(x < size.x / 2 ? left : right);
+        }
+      }
+    }
+    REQUIRE(left > 0);
+    REQUIRE(right == 0);
+
+    device->destroyBuffer(readback);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("an occluder in front of a selected surface is not outlined", "[renderer][picking][gpu]") {
+  // Both forms of the indirect draws; without the count an unselected draw's slot must stay
+  // empty in the mask pass (ADR-0014).
+  const bool uncounted = GENERATE(false, true);
+  CAPTURE(uncounted);
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device;
+  try {
+    device = createDevice(
+        {.platform = &platform, .applicationName = "renderer_tests", .disableDrawIndirectCount = uncounted});
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
