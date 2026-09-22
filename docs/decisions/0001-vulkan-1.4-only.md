@@ -17,7 +17,7 @@ Sonnet has exactly one graphics implementation, Vulkan, and requires Vulkan 1.4 
 
 - One rendering code path, shaped by explicit synchronization, dynamic rendering and bindless resources; the render hardware interface can be thin.
 - Android support is limited to devices that launched with Android 16 or later. This is accepted: the mobile milestone is last, and by then that device class is the target market for a new game.
-- Apple platforms depend on MoltenVK 1.4+ and its portability-subset rules: the instance enables portability enumeration, the device enables the portability subset, and the engine avoids geometry shaders, triangle fans and other unsupported features. macOS 12 and iOS 15 become the minimum OS versions. **Known blocker:** MoltenVK 1.4.1 and 1.4.2 do not support `drawIndirectCount` (Metal has no GPU-buffer-driven indirect count primitive), which the GPU-driven render path of [ADR-0012](0012-gpu-driven-rendering.md) requires. The editor and player therefore cannot run on macOS until MoltenVK adds this feature; tests are unaffected.
+- Apple platforms depend on MoltenVK 1.4+ and its portability-subset rules: the instance enables portability enumeration, the device enables the portability subset, and the engine avoids geometry shaders, triangle fans and other unsupported features. macOS 12 and iOS 15 become the minimum OS versions.
 - Users with old desktop drivers get a clear error at startup instead of degraded rendering.
 - If a native Metal backend is ever wanted, Slang can already emit Metal, and the `rhi` interface is explicit enough to admit it.
 

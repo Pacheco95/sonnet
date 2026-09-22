@@ -1,6 +1,6 @@
 # ADR-0012: GPU-driven culling and indirect draws
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [ADR-0014](0014-indirect-draws-without-count.md)
 - **Date:** 2026-09-20
 
 ## Context
@@ -28,7 +28,7 @@ The open question the roadmap left is that last one. Either every mesh's indices
 - Culling moves off the CPU entirely, and it is now done per pass rather than not at all: each shadow cascade sees only the casters its own frustum holds, which the CPU path never bothered to work out.
 - The command and count buffers are device-local, rewritten every frame and read by the previous frame's draws, so they need the same barriers on both sides that the light clusters already have. They are sized from the frame's draw count for the six opaque jobs and the two editor jobs, and grown by recreation when the scene grows.
 - Every scene shader loses its `draw.vertices` and `draw.objectIndex`, so `depth.slang`, `forward.slang` and `id.slang` change together with `sonnet.slang`. The shaders that do not draw objects — the skybox, the post passes, the outline, the debug lines and the skinning — are untouched.
-- `drawIndirectCount`, `drawIndirectFirstInstance` and `multiDrawIndirect` become required device features. All three are core Vulkan 1.2 or earlier and supported by every desktop driver and by Lavapipe. **`drawIndirectCount` is not supported by MoltenVK** (confirmed on 1.4.1 and 1.4.2: `VkPhysicalDeviceVulkan12Features.drawIndirectCount = false`); Metal has no GPU-buffer-driven indirect count primitive, so the editor and player cannot run on macOS until MoltenVK adds support. The remaining two features are supported. `drawIndirectFirstInstance` and `multiDrawIndirect` are also core to the 1.4 baseline of [ADR-0001](0001-vulkan-1.4-only.md).
+- `drawIndirectCount`, `drawIndirectFirstInstance` and `multiDrawIndirect` become required device features. All three are core Vulkan 1.2 or earlier, supported by every desktop driver, by Lavapipe and by MoltenVK, so the 1.4 baseline of [ADR-0001](0001-vulkan-1.4-only.md) already guaranteed them.
 - The null device's trace grows a `drawIndexedIndirectCount` line, so the tests above `rhi` assert on the number of indirect calls a pass makes rather than on ten thousand `drawIndexed` lines. What a pass actually draws is no longer visible to them, which is why the GPU tests on Lavapipe — the lit box, the shadow, the picked box, the outline — become the ones that prove culling keeps the right things.
 - A draw whose bounds are wrong now disappears instead of being merely slow, which makes bounds a correctness concern. A skinned mesh is culled by its bind-pose bounds transformed by its object's matrix, so a pose that reaches far outside them can be culled early; widening those bounds is deferred with the rest of the skinning work.
 
