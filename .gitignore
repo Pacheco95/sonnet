@@ -14,6 +14,9 @@ cmake-build-*/
 .idea/
 .vscode/
 
+# Export output inside sample projects
+export/
+
 # Editor and tool state
 compile_commands.json
 .clangd/
