@@ -301,6 +301,14 @@ Nothing else fails: the lit box, the mirrored draw, the skinned box, the picked 
 
 What would close it: on the Mac, dump the shadow factor and the irradiance and prefiltered samples the two tests produce, against the same values from Lavapipe, and find which sampler or cube level differs. A test that is merely too strict for a different rasteriser would be relaxed with the reason recorded; a sampler that resolves wrongly is a bug in the bindless set's Metal layout.
 
+### `assets_tests` hung once on Windows
+
+Open, seen once. On the Windows job of CI run 35780091420 (job 106923088063, 2026-09-22), `assets_tests` produced no output for 300 seconds and ctest killed it; the same test takes about 5 seconds on that runner, and the previous seven Windows runs passed. The log stops in the asynchronous import cases, after `job system started with 2 workers` and a `GltfImporter` line, with nothing after it: a hang rather than slow progress. Re-running the job alone passed, and twenty-five consecutive runs of `assets_tests` on Linux found nothing. The change under test only renamed two shader parameters, which cannot reach that code.
+
+The asynchronous path is where [ADR-0013](decisions/0013-job-system.md) put asset loading, and it is where the thread sanitizer found a use-after-free that appeared in one run of three while M8's gaps were being closed. A deadlock between a request waiting for a load and a worker finishing one is the shape to look for.
+
+What would close it: loop `assets_tests` on Windows until it hangs, then attach and take every thread's stack; on Linux, loop it under the thread sanitizer, which is what caught the last defect there. Until it reproduces, a re-run is the response, and this entry is what says the flake was seen before.
+
 ## Later
 
 Temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.
