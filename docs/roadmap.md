@@ -278,6 +278,16 @@ Closed. Found while deriving the normal matrix in the shader ([rendering.md](ren
 3. `sonnet.slang`: with the winding corrected, `SV_IsFrontFace` no longer flips for a mirrored draw, so `transformNormal` multiplies the cofactor by the sign of the determinant, `dot(cross(x, y), z)`, as `mirrorSign`. The plan missed one more sign: the bitangent `cross(n, t) * w` of a mirrored normal and tangent is the mirrored bitangent negated, so a normal map's green channel read upside down on a mirrored draw, double-sided or not, before this change as well. The vertex shader multiplies the tangent's `w` by the same sign.
 4. The tests. `mirrored draws are batched apart and drawn with a clockwise front face`, on the null device: a mirrored and a plain box make two batches in each of the six drawing passes, and each mirrored batch's call follows `setFrontFace Clockwise`. `a mirrored single-sided draw renders as its baked mirror image on a GPU`, on Lavapipe: a turned, mirrored box with a normal map tilted along the bitangent shades as the same box with the transform baked into its vertices, its triangles rewound and its bitangent sign flipped; it fails with the fixed front face, and with the front face fixed but the bitangent sign left alone.
 
+### macOS could not create a device
+
+Closed. Found by running the editor on an Apple M4 Max under macOS 26. MoltenVK 1.4.1 and 1.4.2 have no `drawIndirectCount`, which [ADR-0012](decisions/0012-gpu-driven-rendering.md) had made a required feature, so device selection rejected the only GPU. Metal cannot take a draw count from a buffer, so the feature is not coming. [ADR-0014](decisions/0014-indirect-draws-without-count.md) makes it optional. What closed it:
+
+1. `rhi`: `drawIndirectCount` is enabled where present and reported as `DeviceInfo::drawIndirectCountSupported`. `ICommandList::drawIndexedIndirect` draws a fixed number of commands. `DeviceDesc::disableDrawIndirectCount` lets the GPU tests take MoltenVK's path on Lavapipe. A failed device selection now lists why each device was rejected.
+2. `renderer`: without the count, `cull.slang` writes one slot per candidate, with no instances for the culled ones. Each batch draws its whole range with `drawIndexedIndirect`, and the counter-clearing dispatch is skipped. Everything else is shared with the counted path, which is unchanged: the benchmark on the RTX 4090 gives the same 12 indirect calls and the same pass times within noise.
+3. The tests. On the null device, the same scene records each path's calls. On Lavapipe, `rhi_tests` draws zero-instance slots, and the culling test and the picking tests run once on each path. `an unselected draw beside a selected one gets no outline on a GPU` fails on the uncounted path if a culled slot keeps its instance.
+
+What remains is measuring the path on macOS: MoltenVK encodes one Metal draw per slot, so recording scales with the draw count there. If the benchmark shows it matters, instanced batches (ADR-0014's first alternative) are the next step.
+
 ## Later
 
 Temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.

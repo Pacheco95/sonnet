@@ -138,7 +138,7 @@ struct CullConstants {
   std::uint32_t drawCount;
   std::uint32_t countBase;
   std::uint32_t selectedOnly;
-  std::uint32_t padding{0};
+  std::uint32_t fixedSlots; // without drawIndirectCount every candidate writes its own slot (ADR-0014)
 };
 static_assert(sizeof(CullConstants) == 96);
 static_assert(sizeof(CullConstants) <= rhi::PushConstantSize);
@@ -1083,6 +1083,7 @@ void Renderer::recordCulling(rhi::ICommandList &commands) {
                           .dstStage = rhi::PipelineStage::ComputeShader,
                           .dstAccess = rhi::Access::ShaderWrite});
   const rhi::BufferBinding counts{.binding = rhi::PassStorageBinding, .buffer = m_countBuffer};
+  const bool countedDraws = m_device.info().drawIndirectCountSupported;
   const auto candidates = [this](const CullJob &job) {
     return job.opaque ? m_frameBuffers.opaqueCandidates : m_frameBuffers.allCandidates;
   };
@@ -1093,20 +1094,24 @@ void Renderer::recordCulling(rhi::ICommandList &commands) {
                                               std::uint64_t{job.firstCommand} * sizeof(rhi::IndirectCommand),
                                   .drawCount = threads,
                                   .countBase = job.firstCount,
-                                  .selectedOnly = job.selectedOnly ? 1u : 0u};
+                                  .selectedOnly = job.selectedOnly ? 1u : 0u,
+                                  .fixedSlots = countedDraws ? 0u : 1u};
     commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   };
 
-  commands.bindPipeline(m_clearCountsPipeline);
-  commands.bindBuffers({&counts, 1});
-  for (const CullJob &job : pending) {
-    push(job, job.batchCount);
-    commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
+  // Without a count to read, the draws take every slot and nothing appends (ADR-0014).
+  if (countedDraws) {
+    commands.bindPipeline(m_clearCountsPipeline);
+    commands.bindBuffers({&counts, 1});
+    for (const CullJob &job : pending) {
+      push(job, job.batchCount);
+      commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
+    }
+    commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                            .srcAccess = rhi::Access::ShaderWrite,
+                            .dstStage = rhi::PipelineStage::ComputeShader,
+                            .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
   }
-  commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
-                          .srcAccess = rhi::Access::ShaderWrite,
-                          .dstStage = rhi::PipelineStage::ComputeShader,
-                          .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
 
   commands.bindPipeline(m_cullPipeline);
   commands.bindBuffers({&counts, 1});
@@ -1128,6 +1133,11 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
   if (batches.empty() || !m_frameBuffers.valid()) {
     return;
   }
+  const bool countedDraws = m_device.info().drawIndirectCountSupported;
+  const std::uint64_t candidates = job.opaque ? m_frameBuffers.opaqueCandidates : m_frameBuffers.allCandidates;
+  if (!countedDraws && candidates == 0) {
+    return; // nothing was culled, so the slots still hold a previous frame's commands
+  }
   rhi::PipelineHandle bound;
   bool mirrored = false;
   for (std::uint32_t index = 0; index < batches.size(); ++index) {
@@ -1146,9 +1156,14 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
       mirrored = batch.mirrored;
     }
     commands.bindIndexBuffer(batch.mesh->indices, rhi::IndexType::Uint32);
-    commands.drawIndexedIndirectCount(
-        m_commandBuffer, std::uint64_t{job.firstCommand + batch.firstDraw} * sizeof(rhi::IndirectCommand),
-        m_countBuffer, std::uint64_t{job.firstCount + index} * sizeof(std::uint32_t), batch.drawCount);
+    const std::uint64_t commandOffset =
+        std::uint64_t{job.firstCommand + batch.firstDraw} * sizeof(rhi::IndirectCommand);
+    if (countedDraws) {
+      commands.drawIndexedIndirectCount(m_commandBuffer, commandOffset, m_countBuffer,
+                                        std::uint64_t{job.firstCount + index} * sizeof(std::uint32_t), batch.drawCount);
+    } else {
+      commands.drawIndexedIndirect(m_commandBuffer, commandOffset, batch.drawCount);
+    }
     ++m_statistics.indirectCallCount;
   }
 }
