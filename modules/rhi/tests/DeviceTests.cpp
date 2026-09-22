@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <string>
 
 #include <vulkan/vulkan_core.h>
 
@@ -56,6 +57,22 @@ TEST_CASE("two devices can coexist in one process", "[rhi][device]") {
   sonnet::platform::Platform &platform = first.platform;
   const auto second = createDevice({.platform = &platform, .applicationName = "rhi_tests_second"});
   REQUIRE(second->info().deviceName == first->info().deviceName);
+}
+
+TEST_CASE("a device is created after an earlier device and its platform are gone", "[rhi][device]") {
+  // The Vulkan loader outlives every Platform (docs/platform.md): SDL unloads it with the video
+  // subsystem, and vk-bootstrap keeps the first loader's entry points in a table it never
+  // refreshes, so without that the second device here calls into an unmapped library. It crashes
+  // on macOS and survives elsewhere only when the library lands at its old address.
+  std::string name;
+  {
+    test::TestDevice first;
+    name = first->info().deviceName;
+  }
+  {
+    test::TestDevice second;
+    REQUIRE(second->info().deviceName == name);
+  }
 }
 
 TEST_CASE("memory budget lists the device heaps", "[rhi][device]") {
