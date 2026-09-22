@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -127,6 +128,10 @@ struct GpuScene {
   RenderGraph graph;
   RenderTarget target;
   BufferHandle readback;
+  // Wall-clock time of each frame's endFrame, where the frame is submitted. MoltenVK encodes the
+  // recorded commands into Metal there, one Metal draw per indirect command (ADR-0014), which no
+  // pass's recording time includes.
+  std::vector<double> submitMilliseconds;
 
   GpuScene(IDevice &gpu, Renderer &sceneRenderer, glm::uvec2 targetSize)
       : device(gpu), renderer(sceneRenderer), size(targetSize), graph(gpu), target(gpu, "viewport") {
@@ -159,7 +164,10 @@ struct GpuScene {
             });
       }
       graph.execute(commands);
+      const auto submitStart = std::chrono::steady_clock::now();
       device.endFrame();
+      submitMilliseconds.push_back(
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submitStart).count());
     }
     device.waitIdle();
   }
@@ -1127,8 +1135,14 @@ TEST_CASE("reloading a shader rebuilds its pipelines and keeps them on a rejecte
 // `renderer_tests "[benchmark]"` prints the GPU time per pass for ten thousand draws and a
 // hundred lights at 1080p on whatever device is present.
 TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gpu]") {
+  // Both forms of the indirect draws, so the cost of drawing every slot (ADR-0014) can be read
+  // against the counted form on a device that has both.
+  const bool uncounted = GENERATE(false, true);
   sonnet::platform::Platform platform{{.headless = true}};
-  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  std::unique_ptr<IDevice> device = gpuDevice(platform, uncounted);
+  if (!uncounted && !device->info().drawIndirectCountSupported) {
+    SKIP("no drawIndirectCount on " << device->info().driverName << "; the uncounted run measures it");
+  }
   // SONNET_BENCH_WORKERS=0 measures the per-frame fill on one thread, for the comparison
   // ADR-0013 asks for; unset is the machine's pool, which is what the editor and player run.
   sonnet::core::JobSystem jobs{[] {
@@ -1197,6 +1211,20 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
                      renderer.statistics().triangleCount, total, device->info().deviceName));
     WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
                      renderer.statistics().indirectCallCount, Renderer::CullJobsOpaque));
+    // The first frames compile pipelines and upload the scene; the rest are the steady state.
+    std::vector<double> submits{scene.submitMilliseconds.begin() + 5, scene.submitMilliseconds.end()};
+    std::ranges::sort(submits);
+    const float recording = [&] {
+      float sum = 0.0f;
+      for (const PassTiming &pass : scene.graph.statistics().passes) {
+        sum += pass.cpuMilliseconds;
+      }
+      return sum;
+    }();
+    WARN(std::format("CPU per frame: {:.3f} ms recording the passes, {:.3f} ms submitting (median of {}, "
+                     "worst {:.3f} ms), {} indirect draws",
+                     recording, submits[submits.size() / 2], submits.size(), submits.back(),
+                     device->info().drawIndirectCountSupported ? "counted" : "uncounted (ADR-0014)"));
     REQUIRE(renderer.statistics().drawCount == side * side);
     // Two meshes, so two batches, and one call each in the four cascades, the pre-pass and the
     // forward pass: what used to be sixty thousand draw calls (ADR-0012).
