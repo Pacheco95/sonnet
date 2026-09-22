@@ -451,13 +451,21 @@ std::uint32_t VulkanDevice::storageBufferIndex(BufferHandle handle) {
   if (buffer == nullptr || !has(buffer->desc.usage, BufferUsage::Storage)) {
     return InvalidBindlessIndex;
   }
-  if (buffer->storageBufferIndex == InvalidBindlessIndex) {
+  if (!buffer->storageBufferIndexRequested) {
+    buffer->storageBufferIndexRequested = true;
     buffer->storageBufferIndex = m_storageBufferIndices.allocate("storage buffer");
+    if (buffer->storageBufferIndex == InvalidBindlessIndex) {
+      return InvalidBindlessIndex; // the array is full; the error is logged and nothing is written
+    }
     const vk::DescriptorBufferInfo info{*buffer->buffer, 0, buffer->desc.size};
-    m_device.updateDescriptorSets(
-        vk::WriteDescriptorSet{*m_bindlessSet, BindlessStorageBufferBinding, buffer->storageBufferIndex, 1,
-                               vk::DescriptorType::eStorageBuffer, nullptr, &info},
-        {});
+    const vk::WriteDescriptorSet write{*m_bindlessSet,
+                                       BindlessStorageBufferBinding,
+                                       buffer->storageBufferIndex,
+                                       1,
+                                       vk::DescriptorType::eStorageBuffer,
+                                       nullptr,
+                                       &info};
+    m_device.updateDescriptorSets(write, {});
   }
   return buffer->storageBufferIndex;
 }

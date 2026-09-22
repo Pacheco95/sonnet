@@ -158,6 +158,12 @@ TEST_CASE("null device traces uploads, compute dispatches and bindless slots", "
   REQUIRE(device->storageImageIndex(texture, 0) == InvalidBindlessIndex);
   REQUIRE(device->samplerIndex(sampler) == 0);
   REQUIRE(device->samplerIndex(shadow) == 0);
+  // Storage buffers take a vertex-pulling slot on first request, and keep it.
+  REQUIRE(device->storageBufferIndex(vertices) == 0);
+  REQUIRE(device->storageBufferIndex(vertices) == 0);
+  const BufferHandle indices = device->createBuffer({.size = 64, .usage = BufferUsage::Index, .debugName = "indices"});
+  REQUIRE(device->storageBufferIndex(indices) == InvalidBindlessIndex);
+  device->destroyBuffer(indices);
 
   const ShaderHandle shader = device->createShader({.spirv = {}, .debugName = "shader"});
   const PipelineHandle fill = device->createComputePipeline({.shader = shader, .debugName = "fill"});
