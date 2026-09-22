@@ -360,7 +360,7 @@ TEST_CASE("textures upload every level and are reached by index, the white defau
   Renderer renderer{*device, shaderDir(platform), testSettings()};
   TextureData data = solidTexture({200, 100, 50, 255});
   data.size = {4, 2};
-  data.data.resize(4 * 2 * 4, std::byte{7});
+  data.data.resize(std::size_t{4} * 2 * 4, std::byte{7});
   generateMipChain(data);
   REQUIRE(data.mipLevels == 3);
   REQUIRE(data.data.size() == data.expectedSize());
@@ -1111,7 +1111,7 @@ TEST_CASE("reloading a shader rebuilds its pipelines and keeps them on a rejecte
   REQUIRE(!renderer.reloadShader("nonsense", *spirv).has_value());
   const std::array<std::byte, 8> garbage{};
   // The null device accepts any bytes; a real one rejects garbage and the old pipelines stay.
-  static_cast<void>(renderer.reloadShader("post", garbage));
+  REQUIRE(renderer.reloadShader("post", garbage).has_value());
 
   ICommandList &commands = device->beginFrame();
   graph.reset();
@@ -1157,11 +1157,11 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     const EnvironmentHandle environment = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
     std::vector<DrawItem> draws;
     std::vector<Light> lights;
-    constexpr int Side = 100;
-    for (int z = 0; z < Side; ++z) {
-      for (int x = 0; x < Side; ++x) {
-        const glm::vec3 position{static_cast<float>(x - Side / 2) * 1.5f, 0.5f,
-                                 static_cast<float>(z - Side / 2) * 1.5f};
+    constexpr int side = 100;
+    for (int z = 0; z < side; ++z) {
+      for (int x = 0; x < side; ++x) {
+        const glm::vec3 position{(static_cast<float>(x) - static_cast<float>(side) / 2.0f) * 1.5f, 0.5f,
+                                 (static_cast<float>(z) - static_cast<float>(side) / 2.0f) * 1.5f};
         draws.push_back({.mesh = (x + z) % 2 == 0 ? box : sphere,
                          .material = material,
                          .transform = glm::translate(glm::mat4{1.0f}, position),
@@ -1184,8 +1184,8 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     view.lights = lights;
     view.environment = environment;
     GpuScene scene{*device, renderer, {1920, 1080}};
-    constexpr int Frames = 30;
-    scene.render(view, Frames);
+    constexpr int frames = 30;
+    scene.render(view, frames);
     // The last frame's timings are those of the frame two before it, complete by now.
     float total = 0.0f;
     for (const PassTiming &pass : scene.graph.statistics().passes) {
@@ -1197,7 +1197,7 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
                      renderer.statistics().triangleCount, total, device->info().deviceName));
     WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
                      renderer.statistics().indirectCallCount, Renderer::CullJobsOpaque));
-    REQUIRE(renderer.statistics().drawCount == Side * Side);
+    REQUIRE(renderer.statistics().drawCount == side * side);
     // Two meshes, so two batches, and one call each in the four cascades, the pre-pass and the
     // forward pass: what used to be sixty thousand draw calls (ADR-0012).
     REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);

@@ -216,8 +216,8 @@ TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gp
     Renderer renderer{*device, shaderDir(platform), pickingSettings()};
     Picker picker{*device};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
-    constexpr std::uint32_t BoxId = 42;
-    const std::array draws{DrawItem{.mesh = box, .color = {0.2f, 0.2f, 0.2f, 1.0f}, .id = BoxId}};
+    constexpr std::uint32_t boxId = 42;
+    const std::array draws{DrawItem{.mesh = box, .color = {0.2f, 0.2f, 0.2f, 1.0f}, .id = boxId}};
     const SceneView view = boxScene(draws);
     constexpr glm::uvec2 size{64, 64};
     RenderGraph graph{*device};
@@ -227,7 +227,7 @@ TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gp
                                                         .usage = BufferUsage::TransferDst,
                                                         .memory = MemoryUsage::GpuToCpu,
                                                         .debugName = "readback"});
-    const std::array selected{BoxId};
+    const std::array selected{boxId};
     // The near face, half a metre across at two and a half metres with a 60 degree field of view,
     // covers about eleven pixels of the 32 from the centre.
     constexpr unsigned centre = size.y / 2;
@@ -270,7 +270,7 @@ TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gp
     device->waitIdle();
 
     REQUIRE(centreId.has_value());
-    REQUIRE(*centreId == BoxId);
+    REQUIRE(*centreId == boxId);
     REQUIRE(outsideId.has_value());
     REQUIRE(*outsideId == 0);
 
@@ -308,15 +308,15 @@ TEST_CASE("an unselected draw beside a selected one gets no outline on a GPU", "
   {
     Renderer renderer{*device, shaderDir(platform), pickingSettings()};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
-    constexpr std::uint32_t LeftId = 7;
+    constexpr std::uint32_t leftId = 7;
     const std::array draws{DrawItem{.mesh = box,
                                     .transform = glm::translate(glm::mat4{1.0f}, {-0.8f, 0.0f, 0.0f}),
                                     .color = {0.2f, 0.2f, 0.2f, 1.0f},
-                                    .id = LeftId},
+                                    .id = leftId},
                            DrawItem{.mesh = box,
                                     .transform = glm::translate(glm::mat4{1.0f}, {0.8f, 0.0f, 0.0f}),
                                     .color = {0.2f, 0.2f, 0.2f, 1.0f},
-                                    .id = LeftId + 1}};
+                                    .id = leftId + 1}};
     const SceneView view = boxScene(draws);
     constexpr glm::uvec2 size{64, 64};
     RenderGraph graph{*device};
@@ -326,7 +326,7 @@ TEST_CASE("an unselected draw beside a selected one gets no outline on a GPU", "
                                                         .usage = BufferUsage::TransferDst,
                                                         .memory = MemoryUsage::GpuToCpu,
                                                         .debugName = "readback"});
-    const std::array selected{LeftId};
+    const std::array selected{leftId};
 
     ICommandList &commands = device->beginFrame();
     graph.reset();
@@ -386,14 +386,14 @@ TEST_CASE("an occluder in front of a selected surface is not outlined", "[render
     Renderer renderer{*device, shaderDir(platform), pickingSettings()};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
     const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
-    constexpr std::uint32_t PlaneId = 3;
+    constexpr std::uint32_t planeId = 3;
     // The plane turned to face the camera, one metre behind the box, filling the whole view: its
     // silhouette has no edge on screen, and the box in front must not carve one into it.
     const glm::mat4 facing = glm::translate(glm::mat4{1.0f}, {0.0f, 0.0f, -1.0f}) *
                              glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{1.0f, 0.0f, 0.0f});
     const std::array draws{
         DrawItem{.mesh = box, .color = {0.2f, 0.2f, 0.2f, 1.0f}, .id = 42},
-        DrawItem{.mesh = plane, .transform = facing, .color = {0.5f, 0.5f, 0.5f, 1.0f}, .id = PlaneId}};
+        DrawItem{.mesh = plane, .transform = facing, .color = {0.5f, 0.5f, 0.5f, 1.0f}, .id = planeId}};
     const SceneView view = boxScene(draws);
     constexpr glm::uvec2 size{64, 64};
     RenderGraph graph{*device};
@@ -403,7 +403,7 @@ TEST_CASE("an occluder in front of a selected surface is not outlined", "[render
                                                         .usage = BufferUsage::TransferDst,
                                                         .memory = MemoryUsage::GpuToCpu,
                                                         .debugName = "readback"});
-    const std::array selected{PlaneId};
+    const std::array selected{planeId};
 
     ICommandList &commands = device->beginFrame();
     graph.reset();

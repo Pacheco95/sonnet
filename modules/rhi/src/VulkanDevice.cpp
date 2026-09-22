@@ -100,20 +100,26 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
 }
 
 VulkanDevice::~VulkanDevice() {
-  waitIdle();
-  for (Frame &frame : m_frames) {
-    for (auto &destroy : frame.garbage) {
-      destroy();
+  // A lost device makes the wait throw; teardown carries on, since the members free their
+  // objects either way and there is no caller left to hand the error to.
+  try {
+    waitIdle();
+    for (Frame &frame : m_frames) {
+      for (auto &destroy : frame.garbage) {
+        destroy();
+      }
+      frame.garbage.clear();
+      if (frame.transientBuffer) {
+        m_buffers.remove(frame.transientBuffer);
+      }
+      if (frame.stagingBuffer) {
+        m_buffers.remove(frame.stagingBuffer);
+      }
     }
-    frame.garbage.clear();
-    if (frame.transientBuffer) {
-      m_buffers.remove(frame.transientBuffer);
-    }
-    if (frame.stagingBuffer) {
-      m_buffers.remove(frame.stagingBuffer);
-    }
+    reportLeaks();
+  } catch (const std::exception &e) {
+    SONNET_LOG_ERROR("tearing down the device: {}", e.what());
   }
-  reportLeaks();
   m_pipelines.clear();
   m_shaders.clear();
   m_samplers.clear();
@@ -989,7 +995,7 @@ void VulkanDevice::readTimestamps(Frame &frame) {
   }
   // The frame has completed (waitForFrame), so every written query is available. Unwritten
   // slots below the highest index come back with availability 0 and read as zero.
-  std::array<std::uint64_t, MaxTimestamps * 2> raw{};
+  std::array<std::uint64_t, std::size_t{MaxTimestamps} * 2> raw{};
   const VkResult result = m_device.getDispatcher()->vkGetQueryPoolResults(
       *m_device, *frame.queryPool, 0, frame.timestampCount, sizeof(raw), raw.data(), 2 * sizeof(std::uint64_t),
       VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
@@ -999,9 +1005,10 @@ void VulkanDevice::readTimestamps(Frame &frame) {
   }
   frame.timestampResults.resize(frame.timestampCount);
   for (std::uint32_t i = 0; i < frame.timestampCount; ++i) {
-    const bool available = raw[2 * i + 1] != 0;
+    const std::size_t slot = std::size_t{2} * i;
+    const bool available = raw[slot + 1] != 0;
     frame.timestampResults[i] =
-        available ? static_cast<std::uint64_t>(static_cast<double>(raw[2 * i]) * static_cast<double>(m_timestampPeriod))
+        available ? static_cast<std::uint64_t>(static_cast<double>(raw[slot]) * static_cast<double>(m_timestampPeriod))
                   : 0;
   }
 }
