@@ -51,9 +51,14 @@ public:
   // the 32-bit count at `countOffset` of `countBuffer` says. Both buffers need BufferUsage::
   // Indirect, and a barrier into PipelineStage::DrawIndirect with Access::IndirectCommandRead
   // has to order whatever wrote them before this (ADR-0012). The index buffer bound applies to
-  // every command; an indirect draw cannot change it.
+  // every command; an indirect draw cannot change it. Only on a device whose DeviceInfo reports
+  // drawIndirectCountSupported.
   virtual void drawIndexedIndirectCount(BufferHandle commands, std::uint64_t commandOffset, BufferHandle countBuffer,
                                         std::uint64_t countOffset, std::uint32_t maxDrawCount) = 0;
+  // Exactly `drawCount` IndirectCommands from `commands` at `commandOffset`, under the same rules
+  // as drawIndexedIndirectCount. The form every device has: without a count, a slot that must
+  // draw nothing carries an instance count of zero (ADR-0014).
+  virtual void drawIndexedIndirect(BufferHandle commands, std::uint64_t commandOffset, std::uint32_t drawCount) = 0;
 
   // Outside beginRendering/endRendering, with a compute pipeline bound: workgroup counts.
   virtual void dispatch(std::uint32_t groupsX, std::uint32_t groupsY = 1, std::uint32_t groupsZ = 1) = 0;

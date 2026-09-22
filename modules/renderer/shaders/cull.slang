@@ -3,6 +3,10 @@
 // command buffer. A batch is a run of draws sharing a pipeline and a mesh, so every command in
 // one range is drawn by a single drawIndexedIndirectCount against the mesh's index buffer.
 //
+// A device without drawIndirectCount (MoltenVK) draws every slot of a range instead, so there
+// each candidate owns the slot at its own position and writes it whether it survives or not,
+// with an instance count of zero when it does not (ADR-0014).
+//
 // The frustum comes from the pass's view-projection matrix, so the same candidate array serves
 // the camera, the depth pre-pass and each shadow cascade; only the matrix differs. This is the
 // one scene shader that does not import `sonnet`: it needs a writable counts buffer where the
@@ -36,7 +40,7 @@ struct CullConstants {
   uint drawCount;            // candidates to test, or counts to clear
   uint countBase;            // this job's first slot in the shared counts buffer
   uint selectedOnly;         // the selection mask pass keeps only the selected draws
-  uint padding;
+  uint fixedSlots;           // one slot per candidate rather than appends, for drawIndexedIndirect
 };
 
 [[vk::push_constant]]
@@ -89,20 +93,23 @@ void computeMain(uint3 thread: SV_DispatchThreadID) {
     return;
   }
   const CullDraw candidate = cull.draws[thread.x];
-  if (cull.selectedOnly != 0 && (candidate.flags & CullSelected) == 0) {
+  const bool kept = (cull.selectedOnly == 0 || (candidate.flags & CullSelected) != 0) &&
+                    visible(candidate.center, candidate.extent);
+
+  IndirectCommand command;
+  command.indexCount = candidate.indexCount;
+  command.instanceCount = kept ? 1 : 0;
+  command.firstIndex = candidate.firstIndex;
+  command.vertexOffset = 0;
+  command.firstInstance = candidate.objectIndex;
+  if (cull.fixedSlots != 0) {
+    cull.commands[thread.x] = command; // the candidate's position is its slot
     return;
   }
-  if (!visible(candidate.center, candidate.extent)) {
+  if (!kept) {
     return;
   }
   uint slot = 0;
   InterlockedAdd(counts[cull.countBase + candidate.batch], 1u, slot);
-
-  IndirectCommand command;
-  command.indexCount = candidate.indexCount;
-  command.instanceCount = 1;
-  command.firstIndex = candidate.firstIndex;
-  command.vertexOffset = 0;
-  command.firstInstance = candidate.objectIndex;
   cull.commands[candidate.batchFirst + slot] = command;
 }

@@ -51,6 +51,7 @@ struct IndirectScene {
   test::TestDevice &device;
   ShaderHandle shader;
   PipelineHandle buildPipeline;
+  PipelineHandle slotsPipeline;
   PipelineHandle drawPipeline;
   BufferHandle vertices;
   BufferHandle indices;
@@ -65,6 +66,8 @@ struct IndirectScene {
     shader = device->createShader({.spirv = *spirv, .debugName = "indirect"});
     buildPipeline =
         device->createComputePipeline({.shader = shader, .entry = "buildCommands", .debugName = "build commands"});
+    slotsPipeline =
+        device->createComputePipeline({.shader = shader, .entry = "buildSlots", .debugName = "build slots"});
     drawPipeline = device->createGraphicsPipeline({.shader = shader,
                                                    .colorFormats = {Format::R8G8B8A8Unorm},
                                                    .cullMode = CullMode::None,
@@ -109,11 +112,14 @@ struct IndirectScene {
     device->destroyBuffer(indices);
     device->destroyBuffer(vertices);
     device->destroyPipeline(drawPipeline);
+    device->destroyPipeline(slotsPipeline);
     device->destroyPipeline(buildPipeline);
     device->destroyShader(shader);
   }
 
-  void drawFrame(std::uint32_t keepMask, std::uint32_t maxDrawCount) {
+  // `counted` builds packed commands and a count for drawIndexedIndirectCount; otherwise one
+  // slot per object, drawn whole by drawIndexedIndirect with `maxDrawCount` as the draw count.
+  void drawFrame(std::uint32_t keepMask, std::uint32_t maxDrawCount, bool counted = true) {
     ICommandList &cmd = device->beginFrame();
     const TransientAllocation objects = device->allocateTransient(ObjectCount * sizeof(Object));
     REQUIRE(objects.data.size() == ObjectCount * sizeof(Object));
@@ -134,7 +140,7 @@ struct IndirectScene {
                        .objectCount = ObjectCount,
                        .indexCount = 3,
                        .keepMask = keepMask};
-    cmd.bindPipeline(buildPipeline);
+    cmd.bindPipeline(counted ? buildPipeline : slotsPipeline);
     cmd.bindBuffers(binding);
     cmd.pushConstants(std::as_bytes(std::span{&push, 1}));
     cmd.dispatch(1, 1, 1);
@@ -151,7 +157,11 @@ struct IndirectScene {
     cmd.bindBuffers(binding);
     cmd.pushConstants(std::as_bytes(std::span{&push, 1}));
     cmd.bindIndexBuffer(indices, IndexType::Uint32);
-    cmd.drawIndexedIndirectCount(commands, 0, counts, 0, maxDrawCount);
+    if (counted) {
+      cmd.drawIndexedIndirectCount(commands, 0, counts, 0, maxDrawCount);
+    } else {
+      cmd.drawIndexedIndirect(commands, 0, maxDrawCount);
+    }
     cmd.endRendering();
     test::transition(cmd, test::colorToTransferSrc(color));
     cmd.copyImageToBuffer(color, readback);
@@ -170,6 +180,9 @@ struct IndirectScene {
 
 TEST_CASE("a compute pass writes the commands an indirect draw submits", "[rhi][indirect][gpu]") {
   test::TestDevice device;
+  if (!device->info().drawIndirectCountSupported) {
+    SKIP("no drawIndirectCount on " << device->info().driverName << "; ADR-0014's uncounted form is tested below");
+  }
   IndirectScene scene{device};
   // Objects 0 and 2 survive; the count buffer, not maxDrawCount, decides how many draw.
   scene.drawFrame(0b101, ObjectCount);
@@ -184,6 +197,9 @@ TEST_CASE("a compute pass writes the commands an indirect draw submits", "[rhi][
 
 TEST_CASE("the count buffer bounds an indirect draw below maxDrawCount", "[rhi][indirect][gpu]") {
   test::TestDevice device;
+  if (!device->info().drawIndirectCountSupported) {
+    SKIP("no drawIndirectCount on " << device->info().driverName << "; ADR-0014's uncounted form is tested below");
+  }
   IndirectScene scene{device};
   // Every object survives the build, but the draw is allowed only the first command.
   scene.drawFrame(0b111, 1);
@@ -191,6 +207,31 @@ TEST_CASE("the count buffer bounds an indirect draw below maxDrawCount", "[rhi][
   REQUIRE(columns[0].r == 255);
   REQUIRE(columns[1].g == 0);
   REQUIRE(columns[2].b == 0);
+}
+
+TEST_CASE("zero-instance slots stand in for the count without drawIndirectCount", "[rhi][indirect][gpu]") {
+  test::TestDevice device{true};
+  REQUIRE_FALSE(device->info().drawIndirectCountSupported);
+  IndirectScene scene{device};
+  // Every slot is drawn; the culled object's slot carries no instances (ADR-0014).
+  scene.drawFrame(0b101, ObjectCount, false);
+  const std::array<Pixel, ObjectCount> columns = scene.columns();
+  REQUIRE(columns[0].r == 255);
+  REQUIRE(columns[1].g == 0);
+  REQUIRE(columns[1].r == 0);
+  REQUIRE(columns[2].b == 255);
+}
+
+TEST_CASE("a device reports drawIndirectCount unless told to leave it off", "[rhi][indirect][gpu]") {
+  {
+    test::TestDevice device;
+    // Every desktop driver and Lavapipe have it; only MoltenVK does not.
+    if (device->info().driverName != "MoltenVK") {
+      REQUIRE(device->info().drawIndirectCountSupported);
+    }
+  }
+  test::TestDevice device{true};
+  REQUIRE_FALSE(device->info().drawIndirectCountSupported);
 }
 
 TEST_CASE("the null device traces an indirect draw with the commands it was offered", "[rhi][indirect][null]") {
@@ -210,5 +251,24 @@ TEST_CASE("the null device traces an indirect draw with the commands it was offe
   REQUIRE(std::ranges::count(device->trace(), "drawIndexedIndirectCount \"cmds\" max 7") == 1);
   device->destroyImage(target);
   device->destroyBuffer(counts);
+  device->destroyBuffer(commands);
+}
+
+TEST_CASE("the null device traces an uncounted indirect draw", "[rhi][indirect][null]") {
+  const std::unique_ptr<NullDevice> device = createNullDevice();
+  device->disableDrawIndirectCount();
+  REQUIRE_FALSE(device->info().drawIndirectCountSupported);
+  const BufferHandle commands =
+      device->createBuffer({.size = 64, .usage = BufferUsage::Storage | BufferUsage::Indirect, .debugName = "cmds"});
+  ICommandList &cmd = device->beginFrame();
+  const ImageHandle target = device->createImage(
+      {.size = {4, 4}, .format = Format::R8G8B8A8Unorm, .usage = ImageUsage::ColorAttachment, .debugName = "target"});
+  const ColorAttachment attachment{.image = target};
+  cmd.beginRendering({.colors = {&attachment, 1}});
+  cmd.drawIndexedIndirect(commands, 0, 3);
+  cmd.endRendering();
+  device->endFrame();
+  REQUIRE(std::ranges::count(device->trace(), "drawIndexedIndirect \"cmds\" count 3") == 1);
+  device->destroyImage(target);
   device->destroyBuffer(commands);
 }

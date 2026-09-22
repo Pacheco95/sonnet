@@ -31,7 +31,7 @@ struct RenderStatistics {
   std::uint32_t drawCount{0}; // scene draws: opaque and blended, not the shadow, id or mask passes
   std::uint32_t triangleCount{0};
   std::uint32_t shadowDrawCount{0};
-  std::uint32_t indirectCallCount{0}; // drawIndexedIndirectCount calls the scene passes recorded
+  std::uint32_t indirectCallCount{0}; // indirect draw calls the scene passes recorded, counted or not
   std::uint32_t lightCount{0};
   std::uint32_t skinnedInstanceCount{0}; // instances the skinning pass deformed
   std::uint32_t skinnedVertexCount{0};
@@ -224,7 +224,7 @@ private:
   struct ResolvedDraw {
     std::uint32_t objectIndex;
     const Mesh *mesh;
-    std::uint64_t vertices; // the mesh's vertex address, or its skinned instance's
+    std::uint32_t vertexBuffer; // bindless index into vertexBuffers[] (ADR-0012, ADR-0014)
     Submesh submesh;
     glm::vec3 center; // world-space bounds, what the culling pass tests
     glm::vec3 extent; // half size
@@ -235,7 +235,7 @@ private:
     float viewDepth;
   };
   // A run of draws in one order list sharing a pipeline, a front face and a mesh, submitted by one
-  // drawIndexedIndirectCount against that mesh's index buffer (ADR-0012).
+  // indirect draw against that mesh's index buffer (ADR-0012).
   struct Batch {
     const Mesh *mesh;
     std::uint32_t pipeline;  // index into a pipeline pair: 1 for double-sided
@@ -287,9 +287,10 @@ private:
                    const std::function<void(std::size_t, std::size_t)> &body) const;
 
   void prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
-  // The address the draw pulls its vertices from: its skinned instance's buffer, created or
-  // reused here, when it is a valid skinned draw, the mesh's otherwise.
-  [[nodiscard]] std::uint64_t resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view);
+  // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
+  // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
+  // InvalidBindlessIndex when the array is full.
+  [[nodiscard]] std::uint32_t resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view);
   void recordSkinning(rhi::ICommandList &commands);
   void releaseSkinnedVertices(bool all);
   void computeCascades(const SceneView &view, float aspect);
@@ -310,7 +311,8 @@ private:
   // Zeroes every reserved job's counts, then runs each job's frustum test, with the barriers
   // that order the previous frame's indirect reads and this frame's command fetch around them.
   void recordCulling(rhi::ICommandList &commands);
-  // One drawIndexedIndirectCount per batch, over the range the job culled into.
+  // One indirect draw per batch, over the range the job culled into: drawIndexedIndirectCount, or
+  // drawIndexedIndirect over every slot on a device without drawIndirectCount (ADR-0014).
   void recordIndirect(rhi::ICommandList &commands, const CullJob &job, std::span<const Batch> batches,
                       std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t cascade = 0);
   // The direct path, which the blended draws keep because their order is view-dependent.

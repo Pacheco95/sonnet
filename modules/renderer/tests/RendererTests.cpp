@@ -11,6 +11,7 @@
 #include <sonnet/rhi/NullDevice.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <glm/gtc/packing.hpp>
 
@@ -107,10 +108,12 @@ Pixel pixelAt(std::span<const std::byte> pixels, glm::uvec2 size, unsigned x, un
           std::to_integer<int>(pixels[offset + 2]), std::to_integer<int>(pixels[offset + 3])};
 }
 
-// A GPU device, or a skip.
-std::unique_ptr<IDevice> gpuDevice(sonnet::platform::Platform &platform) {
+// A GPU device, or a skip. `disableDrawIndirectCount` runs it the way MoltenVK does (ADR-0014).
+std::unique_ptr<IDevice> gpuDevice(sonnet::platform::Platform &platform, bool disableDrawIndirectCount = false) {
   try {
-    return createDevice({.platform = &platform, .applicationName = "renderer_tests"});
+    return createDevice({.platform = &platform,
+                         .applicationName = "renderer_tests",
+                         .disableDrawIndirectCount = disableDrawIndirectCount});
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
@@ -235,6 +238,37 @@ TEST_CASE("the scene passes shade every item once after the depth pre-pass and t
   REQUIRE(!renderer.isValid(box));
 }
 
+TEST_CASE("without drawIndirectCount every batch draws all its slots and no counts are cleared", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  device->disableDrawIndirectCount(); // as on MoltenVK (ADR-0014)
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({128, 64});
+  ICommandList &commands = device->beginFrame();
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 8, 4), "sphere");
+  const std::array draws{DrawItem{.mesh = box}, DrawItem{.mesh = sphere}, DrawItem{.mesh = box}};
+  const SceneView view = boxScene(draws);
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  // Culling still runs, but writes one slot per candidate instead of appending against counts.
+  REQUIRE(countLines(*device, "bindPipeline \"cull\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"clear draw counts\"") == 0);
+  REQUIRE(countLines(*device, "drawIndexedIndirectCount") == 0);
+  // The same two batches in the same six passes, each drawn over its whole range.
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 2") == 6);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 6);
+  REQUIRE(renderer.statistics().indirectCallCount == 12);
+
+  renderer.destroyMesh(sphere);
+  renderer.destroyMesh(box);
+}
+
 TEST_CASE("a stale mesh handle draws nothing and an empty scene records no draw", "[renderer][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();
@@ -326,7 +360,7 @@ TEST_CASE("textures upload every level and are reached by index, the white defau
   Renderer renderer{*device, shaderDir(platform), testSettings()};
   TextureData data = solidTexture({200, 100, 50, 255});
   data.size = {4, 2};
-  data.data.resize(4 * 2 * 4, std::byte{7});
+  data.data.resize(std::size_t{4} * 2 * 4, std::byte{7});
   generateMipChain(data);
   REQUIRE(data.mipLevels == 3);
   REQUIRE(data.data.size() == data.expectedSize());
@@ -894,8 +928,15 @@ TEST_CASE("debug lines are depth-tested against the scene on a GPU", "[renderer]
 }
 
 TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[renderer][culling][gpu]") {
+  // Both forms of the indirect draws: counted, and every slot with the culled ones empty.
+  const bool uncounted = GENERATE(false, true);
+  CAPTURE(uncounted);
   sonnet::platform::Platform platform{{.headless = true}};
-  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  std::unique_ptr<IDevice> device = gpuDevice(platform, uncounted);
+  if (!uncounted && !device->info().drawIndirectCountSupported) {
+    SKIP("no drawIndirectCount on " << device->info().driverName << "; the uncounted run covers it");
+  }
+  REQUIRE(device->info().drawIndirectCountSupported == !uncounted);
   {
     Renderer renderer{*device, shaderDir(platform), testSettings()};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
@@ -1070,7 +1111,7 @@ TEST_CASE("reloading a shader rebuilds its pipelines and keeps them on a rejecte
   REQUIRE(!renderer.reloadShader("nonsense", *spirv).has_value());
   const std::array<std::byte, 8> garbage{};
   // The null device accepts any bytes; a real one rejects garbage and the old pipelines stay.
-  static_cast<void>(renderer.reloadShader("post", garbage));
+  REQUIRE(renderer.reloadShader("post", garbage).has_value());
 
   ICommandList &commands = device->beginFrame();
   graph.reset();
@@ -1116,11 +1157,11 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     const EnvironmentHandle environment = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
     std::vector<DrawItem> draws;
     std::vector<Light> lights;
-    constexpr int Side = 100;
-    for (int z = 0; z < Side; ++z) {
-      for (int x = 0; x < Side; ++x) {
-        const glm::vec3 position{static_cast<float>(x - Side / 2) * 1.5f, 0.5f,
-                                 static_cast<float>(z - Side / 2) * 1.5f};
+    constexpr int side = 100;
+    for (int z = 0; z < side; ++z) {
+      for (int x = 0; x < side; ++x) {
+        const glm::vec3 position{(static_cast<float>(x) - static_cast<float>(side) / 2.0f) * 1.5f, 0.5f,
+                                 (static_cast<float>(z) - static_cast<float>(side) / 2.0f) * 1.5f};
         draws.push_back({.mesh = (x + z) % 2 == 0 ? box : sphere,
                          .material = material,
                          .transform = glm::translate(glm::mat4{1.0f}, position),
@@ -1143,8 +1184,8 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     view.lights = lights;
     view.environment = environment;
     GpuScene scene{*device, renderer, {1920, 1080}};
-    constexpr int Frames = 30;
-    scene.render(view, Frames);
+    constexpr int frames = 30;
+    scene.render(view, frames);
     // The last frame's timings are those of the frame two before it, complete by now.
     float total = 0.0f;
     for (const PassTiming &pass : scene.graph.statistics().passes) {
@@ -1156,7 +1197,7 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
                      renderer.statistics().triangleCount, total, device->info().deviceName));
     WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
                      renderer.statistics().indirectCallCount, Renderer::CullJobsOpaque));
-    REQUIRE(renderer.statistics().drawCount == Side * Side);
+    REQUIRE(renderer.statistics().drawCount == side * side);
     // Two meshes, so two batches, and one call each in the four cascades, the pre-pass and the
     // forward pass: what used to be sixty thousand draw calls (ADR-0012).
     REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);

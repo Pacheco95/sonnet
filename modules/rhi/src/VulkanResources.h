@@ -20,6 +20,8 @@ struct VulkanBuffer {
   vma::UniqueBuffer buffer;
   std::byte *mapped{nullptr};
   std::uint64_t address{0};
+  std::uint32_t storageBufferIndex{InvalidBindlessIndex};
+  bool storageBufferIndexRequested{false}; // asked once, so a full array logs once rather than every frame
 };
 
 struct VulkanImage {

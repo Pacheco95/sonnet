@@ -16,10 +16,10 @@ struct VertexOutput {
 
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV_StartInstanceLocation) {
-  const ObjectData object = objects[objectIndex];
-  const Vertex vertex = object.vertices[vertexId];
-  const float4 world = mul(object.model, float4(vertex.position, 1.0));
-  const WorldBasis basis = worldBasis(object.model);
+  const float4x4 model = objects[objectIndex].model;
+  const Vertex vertex = vertexBuffers[objects[objectIndex].vertexBuffer][vertexId];
+  const float4 world = mul(model, float4(vertex.position, 1.0));
+  const WorldBasis basis = worldBasis(model);
   VertexOutput output;
   output.objectIndex = objectIndex;
   output.position = mul(frame.viewProjection, world);
@@ -27,7 +27,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV_Start
   output.normal = transformNormal(basis, vertex.normal);
   output.tangent = float4(transformDirection(basis, vertex.tangent.xyz), vertex.tangent.w * mirrorSign(basis));
   output.uv = vertex.uv;
-  output.color = object.color;
+  output.color = objects[objectIndex].color;
   return output;
 }
 
@@ -111,8 +111,7 @@ float4 sampleMaterial(uint texture, uint sampler, float2 uv) {
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
-  const ObjectData object = objects[input.objectIndex];
-  const MaterialData material = frame.materials[object.material];
+  const MaterialData material = frame.materials[objects[input.objectIndex].material];
   const uint alphaMode = material.flags & 0xFF;
 
   float4 baseColor = material.baseColor * input.color * sampleMaterial(material.baseColorTexture, material.sampler, input.uv);
