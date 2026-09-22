@@ -105,8 +105,12 @@ float sunShadow(float3 worldPosition, float viewDepth, float nDotL) {
   return lit / 9.0;
 }
 
-float4 sampleMaterial(uint texture, uint sampler, float2 uv) {
-  return textures[texture].Sample(samplers[sampler], uv);
+// The parameters are not named `texture` or `sampler`: those are Metal types, and a parameter of
+// that name makes the translated MSL declare `constant array<sampler, 64>&` against the parameter
+// rather than the type, which Metal rejects. It bites the editor's runtime recompile, where the
+// function survives as a function (ADR-0015 is the other shape of the same problem).
+float4 sampleMaterial(uint textureIndex, uint samplerIndex, float2 uv) {
+  return textures[textureIndex].Sample(samplers[samplerIndex], uv);
 }
 
 [shader("fragment")]
