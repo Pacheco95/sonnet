@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <vector>
 
 using namespace sonnet::rhi;
@@ -140,6 +141,49 @@ TEST_CASE("samplers and sampled images take slots in the bindless arrays", "[rhi
   device->destroyImage(cube);
   device->destroyImage(attachment);
   device->destroyImage(sampled);
+}
+
+TEST_CASE("storage buffers take bindless slots, reuse freed ones and get none from a full array",
+          "[rhi][bindless][gpu]") {
+  test::TestDevice device;
+  const auto storage = [&](std::uint32_t i) {
+    return device->createBuffer(
+        {.size = 16, .usage = BufferUsage::Storage, .debugName = "storage " + std::to_string(i)});
+  };
+  std::vector<BufferHandle> buffers;
+  for (std::uint32_t i = 0; i < MaxBindlessStorageBuffers; ++i) {
+    buffers.push_back(storage(i));
+    REQUIRE(device->storageBufferIndex(buffers.back()) == i);
+  }
+  REQUIRE(device->storageBufferIndex(buffers.front()) == 0); // asked again, the same slot
+
+  // The array is full: no slot, and no descriptor written past its end, which validation would
+  // report. Asking again does not retry.
+  const BufferHandle overflow = storage(MaxBindlessStorageBuffers);
+  REQUIRE(device->storageBufferIndex(overflow) == InvalidBindlessIndex);
+  REQUIRE(device->storageBufferIndex(overflow) == InvalidBindlessIndex);
+
+  const BufferHandle index = device->createBuffer({.size = 16, .usage = BufferUsage::Index, .debugName = "index only"});
+  REQUIRE(device->storageBufferIndex(index) == InvalidBindlessIndex);
+
+  // A destroyed buffer's slot returns once the frames that could still read it have finished.
+  const std::uint32_t freed = device->storageBufferIndex(buffers[7]);
+  device->destroyBuffer(buffers[7]);
+  for (std::uint32_t frame = 0; frame <= FramesInFlight; ++frame) {
+    static_cast<void>(device->beginFrame());
+    device->endFrame();
+  }
+  const BufferHandle reused = storage(MaxBindlessStorageBuffers + 1);
+  REQUIRE(device->storageBufferIndex(reused) == freed);
+
+  device->destroyBuffer(reused);
+  device->destroyBuffer(index);
+  device->destroyBuffer(overflow);
+  for (std::size_t i = 0; i < buffers.size(); ++i) {
+    if (i != 7) {
+      device->destroyBuffer(buffers[i]);
+    }
+  }
 }
 
 TEST_CASE("a texture uploaded with its mip chain is sampled through the bindless set", "[rhi][bindless][gpu]") {
