@@ -1,6 +1,6 @@
 # ADR-0016: Instanced batches, one indirect command per batch
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-22
 
 ## Context
