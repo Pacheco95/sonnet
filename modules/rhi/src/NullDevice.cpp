@@ -325,6 +325,18 @@ std::uint32_t NullDevice::storageImageIndex(ImageHandle handle, std::uint32_t mi
   return image->storageIndices[mipLevel];
 }
 
+std::uint32_t NullDevice::storageBufferIndex(BufferHandle handle) {
+  assertOwnerThread("storageBufferIndex");
+  Buffer *buffer = m_buffers.find(handle);
+  if (buffer == nullptr || !has(buffer->desc.usage, BufferUsage::Storage)) {
+    return InvalidBindlessIndex;
+  }
+  if (buffer->storageBufferIndex == InvalidBindlessIndex) {
+    buffer->storageBufferIndex = m_nextStorageBufferIndex++;
+  }
+  return buffer->storageBufferIndex;
+}
+
 SamplerHandle NullDevice::createSampler(const SamplerDesc &desc) {
   assertOwnerThread("createSampler");
   const std::uint32_t index = desc.compare ? m_nextComparisonSamplerIndex++ : m_nextSamplerIndex++;

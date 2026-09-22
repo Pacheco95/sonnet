@@ -298,6 +298,8 @@ void VulkanDevice::createPipelineLayout() {
                                      vk::ShaderStageFlagBits::eAll},
       vk::DescriptorSetLayoutBinding{BindlessComparisonSamplerBinding, vk::DescriptorType::eSampler,
                                      MaxBindlessComparisonSamplers, vk::ShaderStageFlagBits::eAll},
+      vk::DescriptorSetLayoutBinding{BindlessStorageBufferBinding, vk::DescriptorType::eStorageBuffer,
+                                     MaxBindlessStorageBuffers, vk::ShaderStageFlagBits::eAll},
   };
   constexpr vk::DescriptorBindingFlags bindingFlags =
       vk::DescriptorBindingFlagBits::ePartiallyBound | vk::DescriptorBindingFlagBits::eUpdateAfterBind;
@@ -332,6 +334,7 @@ void VulkanDevice::createBindlessSet() {
       vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, MaxBindlessSampledImages + MaxBindlessCubeImages},
       vk::DescriptorPoolSize{vk::DescriptorType::eSampler, MaxBindlessSamplers + MaxBindlessComparisonSamplers},
       vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, MaxBindlessStorageImages},
+      vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, MaxBindlessStorageBuffers},
   };
   // The set is a RAII object that frees itself, which the pool has to allow.
   m_bindlessPool = vk::raii::DescriptorPool{
@@ -423,7 +426,10 @@ void VulkanDevice::destroyBuffer(BufferHandle handle) {
     SONNET_LOG_WARN("destroyBuffer: stale handle {}:{}", handle.index, handle.generation);
     return;
   }
-  deferDestruction([resource = std::make_shared<VulkanBuffer>(std::move(*buffer))]() mutable { resource.reset(); });
+  deferDestruction([this, resource = std::make_shared<VulkanBuffer>(std::move(*buffer))]() mutable {
+    m_storageBufferIndices.release(resource->storageBufferIndex);
+    resource.reset();
+  });
 }
 
 std::span<std::byte> VulkanDevice::mappedRange(BufferHandle handle) {
@@ -437,6 +443,23 @@ std::span<std::byte> VulkanDevice::mappedRange(BufferHandle handle) {
 std::uint64_t VulkanDevice::bufferAddress(BufferHandle handle) const {
   const VulkanBuffer *buffer = m_buffers.find(handle);
   return buffer != nullptr ? buffer->address : 0;
+}
+
+std::uint32_t VulkanDevice::storageBufferIndex(BufferHandle handle) {
+  assertOwnerThread("storageBufferIndex");
+  VulkanBuffer *buffer = m_buffers.find(handle);
+  if (buffer == nullptr || !has(buffer->desc.usage, BufferUsage::Storage)) {
+    return InvalidBindlessIndex;
+  }
+  if (buffer->storageBufferIndex == InvalidBindlessIndex) {
+    buffer->storageBufferIndex = m_storageBufferIndices.allocate("storage buffer");
+    const vk::DescriptorBufferInfo info{*buffer->buffer, 0, buffer->desc.size};
+    m_device.updateDescriptorSets(
+        vk::WriteDescriptorSet{*m_bindlessSet, BindlessStorageBufferBinding, buffer->storageBufferIndex, 1,
+                               vk::DescriptorType::eStorageBuffer, nullptr, &info},
+        {});
+  }
+  return buffer->storageBufferIndex;
 }
 
 void VulkanDevice::writeSampledDescriptor(std::uint32_t binding, std::uint32_t index, vk::ImageView view,

@@ -32,6 +32,9 @@ public struct Vertex {
   public float2 uv;
 };
 
+[[vk::binding(5, 0)]]
+public StructuredBuffer<Vertex> vertexBuffers[];
+
 // ---- Lights ----
 
 public static const uint LightPoint = 0;
@@ -129,10 +132,11 @@ public struct ObjectData {
   public float4 color; // multiplies the material's base colour
   public uint id;      // entity id for picking and the selection outline, 0 for none
   public uint material;
-  // Where this draw pulls its vertices from: the mesh's buffer, or the buffer the skinning pass
-  // deformed it into. It lives here rather than in the push constants because an indirect draw
-  // cannot carry it (ADR-0012).
-  public Vertex *vertices;
+  // Bindless index into vertexBuffers[]: the mesh's buffer, or the skinned buffer the skinning
+  // pass wrote. Lives here rather than in push constants because indirect draws can't carry it
+  // (ADR-0012). Replaces PhysicalStorageBuffer to avoid the Metal thread-local-pointer issue.
+  public uint vertexBuffer;
+  public uint vertexPad;
 };
 
 // A draw's world basis: the three axis vectors of its model matrix. They come out of the same mul

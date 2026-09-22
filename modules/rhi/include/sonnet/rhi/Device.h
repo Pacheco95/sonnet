@@ -66,6 +66,10 @@ public:
   // The slot of one mip level in the bindless storage-image array, for compute shaders to write;
   // the view is created on first request. InvalidBindlessIndex without Storage usage.
   [[nodiscard]] virtual std::uint32_t storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) = 0;
+  // The buffer's slot in the bindless storage-buffer array for vertex pulling (docs/rendering.md,
+  // "Frame structure"); assigned on first call, released on destroyBuffer. InvalidBindlessIndex
+  // for a buffer without Storage usage.
+  [[nodiscard]] virtual std::uint32_t storageBufferIndex(BufferHandle handle) = 0;
 
   [[nodiscard]] virtual SamplerHandle createSampler(const SamplerDesc &desc) = 0;
   virtual void destroySampler(SamplerHandle handle) = 0;

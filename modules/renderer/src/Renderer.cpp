@@ -107,7 +107,8 @@ struct ObjectData {
   glm::vec4 color;
   std::uint32_t id;
   std::uint32_t material;
-  std::uint64_t vertices; // where this draw pulls its vertices from (ADR-0012)
+  std::uint32_t vertexBuffer; // bindless index into vertexBuffers[] (ADR-0012, ADR-0014)
+  std::uint32_t vertexPad{0};
 };
 static_assert(sizeof(ObjectData) == 96);
 
@@ -944,7 +945,7 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
     }
     m_resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
                                       .mesh = mesh,
-                                      .vertices = resolveVertices(item, *mesh, view),
+                                      .vertexBuffer = resolveVertices(item, *mesh, view),
                                       .submesh = mesh->submeshes[item.submesh],
                                       .center = (minimum + maximum) * 0.5f,
                                       .extent = (maximum - minimum) * 0.5f,
@@ -1168,11 +1169,11 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
   }
 }
 
-std::uint64_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view) {
+std::uint32_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view) {
   const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
                        std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
   if (!skinned) {
-    return m_device.bufferAddress(mesh.vertices);
+    return m_device.storageBufferIndex(mesh.vertices);
   }
   SkinnedVertices &instance = m_skinned[item.skinInstance];
   if (instance.mesh != item.mesh || !instance.buffer) {
@@ -1193,7 +1194,7 @@ std::uint64_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, 
     ++m_statistics.skinnedInstanceCount;
     m_statistics.skinnedVertexCount += mesh.vertexCount;
   }
-  return m_device.bufferAddress(instance.buffer);
+  return m_device.storageBufferIndex(instance.buffer);
 }
 
 void Renderer::releaseSkinnedVertices(bool all) {
@@ -1273,11 +1274,11 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
                               .color = item.color,
                               .id = item.id,
                               .material = materialIndex(item.material),
-                              .vertices = 0};
+                              .vertexBuffer = 0};
     }
   });
   for (const ResolvedDraw &draw : m_resolved) {
-    objects[draw.objectIndex].vertices = draw.vertices;
+    objects[draw.objectIndex].vertexBuffer = draw.vertexBuffer;
   }
 
   // The culling pass's candidates, one array per order list, each grouped into its batches.

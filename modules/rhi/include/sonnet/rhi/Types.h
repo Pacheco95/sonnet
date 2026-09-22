@@ -410,11 +410,13 @@ constexpr std::uint32_t BindlessSamplerBinding = 1;           // SamplerState[]
 constexpr std::uint32_t BindlessStorageImageBinding = 2;      // RWTexture2DArray[], one view per mip level
 constexpr std::uint32_t BindlessCubeImageBinding = 3;         // TextureCube[]
 constexpr std::uint32_t BindlessComparisonSamplerBinding = 4; // SamplerComparisonState[]
+constexpr std::uint32_t BindlessStorageBufferBinding = 5;     // StructuredBuffer<Vertex>[] (vertex pulling)
 constexpr std::uint32_t MaxBindlessSampledImages = 4096;
 constexpr std::uint32_t MaxBindlessSamplers = 64;
 constexpr std::uint32_t MaxBindlessStorageImages = 512;
 constexpr std::uint32_t MaxBindlessCubeImages = 64;
 constexpr std::uint32_t MaxBindlessComparisonSamplers = 8;
+constexpr std::uint32_t MaxBindlessStorageBuffers = 4096;
 // Index of a resource that is not in an array; shaders never read it.
 constexpr std::uint32_t InvalidBindlessIndex = 0xFFFFFFFFu;
 constexpr std::uint32_t PassDescriptorSet = 1;

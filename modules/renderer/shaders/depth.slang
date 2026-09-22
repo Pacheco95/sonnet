@@ -11,10 +11,10 @@ struct VertexOutput {
 };
 
 VertexOutput transform(uint vertexId, uint objectIndex, float4x4 viewProjection) {
-  const ObjectData object = objects[objectIndex];
-  const Vertex vertex = object.vertices[vertexId];
+  const float4x4 model = objects[objectIndex].model;
+  const Vertex vertex = vertexBuffers[objects[objectIndex].vertexBuffer][vertexId];
   VertexOutput output;
-  output.position = mul(viewProjection, mul(object.model, float4(vertex.position, 1.0)));
+  output.position = mul(viewProjection, mul(model, float4(vertex.position, 1.0)));
   output.uv = vertex.uv;
   output.objectIndex = objectIndex;
   return output;
@@ -33,10 +33,9 @@ VertexOutput shadowVertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV
 // Masked materials cut holes; everything else keeps the rasterised depth.
 [shader("fragment")]
 void fragmentMain(VertexOutput input) {
-  const ObjectData object = objects[input.objectIndex];
-  const MaterialData material = frame.materials[object.material];
+  const MaterialData material = frame.materials[objects[input.objectIndex].material];
   if ((material.flags & 0xFF) == AlphaMask) {
-    const float alpha = material.baseColor.a * object.color.a *
+    const float alpha = material.baseColor.a * objects[input.objectIndex].color.a *
                         textures[material.baseColorTexture].Sample(samplers[material.sampler], input.uv).a;
     if (alpha < material.emissive.a) {
       discard;

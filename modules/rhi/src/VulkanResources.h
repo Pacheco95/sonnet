@@ -20,6 +20,7 @@ struct VulkanBuffer {
   vma::UniqueBuffer buffer;
   std::byte *mapped{nullptr};
   std::uint64_t address{0};
+  std::uint32_t storageBufferIndex{InvalidBindlessIndex};
 };
 
 struct VulkanImage {
