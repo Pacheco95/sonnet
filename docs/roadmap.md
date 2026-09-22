@@ -290,6 +290,17 @@ Closed. Found by running the editor on an Apple M4 Max under macOS 26. MoltenVK 
 
 What remains is measuring the path on macOS: MoltenVK encodes one Metal draw per slot, so recording scales with the draw count there. If the benchmark shows it matters, instanced batches (ADR-0014's first alternative) are the next step.
 
+### Two GPU tests shade differently on MoltenVK
+
+Open. The first full `ctest` on an Apple M4 Max (macOS 26.7, MoltenVK 1.4.1, commit `bc2b2e6`) left two pixel tests failing, both in `renderer_tests` and both passing on an RTX 4090 and on Lavapipe:
+
+- `the sun's shadow darkens the ground beside a box on a GPU`: the lit ground reads 32 where the test wants over 100, so the ground is dark where the sun should reach it.
+- `an environment fills the background and lights a sphere on a GPU`: the sphere reads bluer than the sky, 239 against 228, where the test wants the sphere darker.
+
+Nothing else fails: the lit box, the mirrored draw, the skinned box, the picked box, the outline, the clustered point light and the debug lines all pass, and so does the whole uncounted indirect path ([ADR-0014](decisions/0014-indirect-draws-without-count.md)). What the two failures have in common is sampling through the bindless arrays that MoltenVK backs with Metal argument buffers and that no other test reaches: the comparison sampler of the shadow lookup, and the cube maps of the image-based lighting. Whether the values are wrong or only different is not yet known, and neither is whether the editor's own rendering shows it.
+
+What would close it: on the Mac, dump the shadow factor and the irradiance and prefiltered samples the two tests produce, against the same values from Lavapipe, and find which sampler or cube level differs. A test that is merely too strict for a different rasteriser would be relaxed with the reason recorded; a sampler that resolves wrongly is a bug in the bindless set's Metal layout.
+
 ## Later
 
 Temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.
