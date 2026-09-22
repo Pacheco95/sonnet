@@ -179,6 +179,7 @@ ctest --preset linux-debug
 | [0013](docs/decisions/0013-job-system.md) | One job system in `core`, with flecs on stage workers of its own | Accepted |
 | [0014](docs/decisions/0014-indirect-draws-without-count.md) | Indirect draws without `drawIndirectCount`, for MoltenVK | Accepted |
 | [0015](docs/decisions/0015-bindless-vertex-buffers.md) | Bindless vertex buffers instead of a vertex pointer per object | Accepted |
+| [0016](docs/decisions/0016-instanced-batches.md) | Instanced batches, one indirect command per batch | Proposed |
 
 ## License
 
