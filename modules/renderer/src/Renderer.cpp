@@ -368,9 +368,9 @@ Renderer::~Renderer() {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 11> names{"cluster", "cull",    "debug", "depth", "forward", "ibl",
+  static constexpr std::array<std::string_view, 11> Names{"cluster", "cull",    "debug", "depth", "forward", "ibl",
                                                           "id",      "outline", "post",  "skin",  "skybox"};
-  return names;
+  return Names;
 }
 
 void Renderer::defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc) {
@@ -638,6 +638,7 @@ EnvironmentHandle Renderer::createEnvironment(const TextureData &equirectangular
                             .mipLevels = equirectangular.mipLevels,
                             .debugName = std::format("{} equirectangular", debugName)});
   std::vector<rhi::ImageUpload> uploads;
+  uploads.reserve(equirectangular.mipLevels);
   for (std::uint32_t level = 0; level < equirectangular.mipLevels; ++level) {
     uploads.push_back({.mipLevel = level, .layer = 0, .data = equirectangular.level(level)});
   }
@@ -836,13 +837,13 @@ void Renderer::computeCascades(const SceneView &view, float aspect) {
   const glm::mat4 cameraView = view.camera.view();
   const glm::vec3 lightDirection = glm::normalize(view.sun.direction);
   const glm::vec3 up = std::abs(lightDirection.y) > 0.99f ? glm::vec3{0.0f, 0.0f, 1.0f} : glm::vec3{0.0f, 1.0f, 0.0f};
-  constexpr float Lambda = 0.75f; // between logarithmic and uniform splits
+  constexpr float lambda = 0.75f; // between logarithmic and uniform splits
   float previousSplit = nearPlane;
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
     const float p = static_cast<float>(c + 1) / static_cast<float>(CascadeCount);
     const float logarithmic = nearPlane * std::pow(farPlane / nearPlane, p);
     const float uniform = nearPlane + (farPlane - nearPlane) * p;
-    const float split = Lambda * logarithmic + (1.0f - Lambda) * uniform;
+    const float split = lambda * logarithmic + (1.0f - lambda) * uniform;
 
     // The slice's eight corners in world space, from a finite projection over the slice.
     const glm::mat4 sliceProjection = glm::perspectiveRH_ZO(view.camera.fovY, aspect, previousSplit, split);

@@ -133,7 +133,7 @@ TEST_CASE("null device reports a memory budget from its live resources", "[rhi][
       {.size = {64, 64}, .format = Format::R8G8B8A8Unorm, .usage = ImageUsage::Sampled, .debugName = "texture"});
   const MemoryBudget after = device->memoryBudget();
   REQUIRE(after.heapCount == 1);
-  REQUIRE(after.heaps[0].usage == before.heaps[0].usage + 64 * 64 * 4);
+  REQUIRE(after.heaps[0].usage == before.heaps[0].usage + std::uint64_t{64} * 64 * 4);
   device->destroyImage(image);
 }
 
