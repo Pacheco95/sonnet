@@ -49,7 +49,13 @@ std::string versionString(std::uint32_t version) {
 
 template <typename T> [[nodiscard]] T unwrap(vkb::Result<T> result, std::string_view what) {
   if (!result) {
-    throw core::Exception{std::format("{}: {}", what, result.error().message()), core::ErrorCategory::Graphics};
+    // Device selection says why each device was rejected, e.g. which required feature it lacks.
+    std::string reasons;
+    for (const std::string &reason : result.detailed_failure_reasons()) {
+      reasons += std::format("\n  {}", reason);
+    }
+    throw core::Exception{std::format("{}: {}{}", what, result.error().message(), reasons),
+                          core::ErrorCategory::Graphics};
   }
   return std::move(result.value());
 }
@@ -165,7 +171,7 @@ void VulkanDevice::createInstance(const DeviceDesc &desc) {
   SONNET_LOG_DEBUG("Vulkan loader {}", versionString(m_info.loaderVersion));
 }
 
-void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
+void VulkanDevice::selectAndCreateDevice(const DeviceDesc &desc) {
   // The features in docs/rendering.md, "Vulkan baseline". Extended dynamic state is core in 1.3
   // without a feature bit.
   VkPhysicalDeviceFeatures features{};
@@ -192,7 +198,6 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   features12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
   features12.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
   features12.runtimeDescriptorArray = VK_TRUE;
-  features12.drawIndirectCount = VK_TRUE;
 
   VkPhysicalDeviceVulkan13Features features13{};
   features13.dynamicRendering = VK_TRUE;
@@ -230,6 +235,15 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &) {
   VkPhysicalDeviceFeatures optional{};
   optional.textureCompressionBC = VK_TRUE;
   m_info.blockCompressionSupported = physicalDevice.enable_features_if_present(optional);
+  // The count form of the indirect draws (ADR-0012) is enabled where present rather than
+  // required: MoltenVK has no drawIndirectCount, and the renderer draws every slot there instead
+  // (ADR-0014).
+  if (!desc.disableDrawIndirectCount) {
+    VkPhysicalDeviceVulkan12Features count{};
+    count.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    count.drawIndirectCount = VK_TRUE;
+    m_info.drawIndirectCountSupported = physicalDevice.enable_extension_features_if_present(count);
+  }
 
   const vkb::Device device = unwrap(vkb::DeviceBuilder{physicalDevice}.build(), "creating the Vulkan device");
   m_physicalDevice = vk::raii::PhysicalDevice{m_instance, physicalDevice.physical_device};

@@ -57,6 +57,22 @@ void buildCommands() {
   *push.count = written;
 }
 
+// The form for a device without drawIndirectCount (ADR-0014): every object owns the slot at its
+// own index, and a culled one draws zero instances. No count is written.
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void buildSlots() {
+  for (uint i = 0; i < push.objectCount; ++i) {
+    IndirectCommand command;
+    command.indexCount = push.indexCount;
+    command.instanceCount = (push.keepMask & (1u << i)) != 0 ? 1 : 0;
+    command.firstIndex = 0;
+    command.vertexOffset = 0;
+    command.firstInstance = i;
+    push.commands[i] = command;
+  }
+}
+
 struct VertexOutput {
   float4 position : SV_Position;
   float4 color : COLOR0;

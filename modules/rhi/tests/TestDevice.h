@@ -19,9 +19,13 @@ struct TestDevice {
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device;
 
-  TestDevice() {
+  // `disableDrawIndirectCount` runs the device as MoltenVK does, without the count form of the
+  // indirect draws (ADR-0014).
+  explicit TestDevice(bool disableDrawIndirectCount = false) {
     try {
-      device = createDevice({.platform = &platform, .applicationName = "rhi_tests"});
+      device = createDevice({.platform = &platform,
+                             .applicationName = "rhi_tests",
+                             .disableDrawIndirectCount = disableDrawIndirectCount});
     } catch (const core::Exception &e) {
       SKIP("no usable Vulkan 1.4 device: " << e.what());
     }

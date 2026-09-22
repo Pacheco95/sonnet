@@ -124,9 +124,15 @@ public:
   void drawIndexedIndirectCount(BufferHandle commands, std::uint64_t, BufferHandle, std::uint64_t,
                                 std::uint32_t maxDrawCount) override {
     SONNET_ASSERT(m_rendering, "drawIndexedIndirectCount outside beginRendering/endRendering");
+    SONNET_ASSERT(m_device.m_info.drawIndirectCountSupported, "drawIndexedIndirectCount without drawIndirectCount");
     // Without a GPU nothing culls, so the trace reports what was offered, not what was drawn.
     m_device.m_trace.push_back(
         std::format("drawIndexedIndirectCount {} max {}", m_device.bufferName(commands), maxDrawCount));
+  }
+  void drawIndexedIndirect(BufferHandle commands, std::uint64_t, std::uint32_t drawCount) override {
+    SONNET_ASSERT(m_rendering, "drawIndexedIndirect outside beginRendering/endRendering");
+    m_device.m_trace.push_back(
+        std::format("drawIndexedIndirect {} count {}", m_device.bufferName(commands), drawCount));
   }
   void dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) override {
     SONNET_ASSERT(m_compute && !m_rendering, "dispatch needs a compute pipeline outside rendering");
@@ -227,6 +233,7 @@ NullDevice::NullDevice() : m_commandList(std::make_unique<NullCommandList>(*this
   m_info.apiVersion = 0;
   m_info.timestampsSupported = true;
   m_info.blockCompressionSupported = true;
+  m_info.drawIndirectCountSupported = true;
   for (std::uint32_t i = 0; i < FramesInFlight; ++i) {
     m_frames[i].transientBuffer = createBuffer({.size = TransientBufferSize,
                                                 .usage = BufferUsage::Uniform | BufferUsage::Storage,
