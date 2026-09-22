@@ -180,6 +180,9 @@ struct IndirectScene {
 
 TEST_CASE("a compute pass writes the commands an indirect draw submits", "[rhi][indirect][gpu]") {
   test::TestDevice device;
+  if (!device->info().drawIndirectCountSupported) {
+    SKIP("no drawIndirectCount on " << device->info().driverName << "; ADR-0014's uncounted form is tested below");
+  }
   IndirectScene scene{device};
   // Objects 0 and 2 survive; the count buffer, not maxDrawCount, decides how many draw.
   scene.drawFrame(0b101, ObjectCount);
@@ -194,6 +197,9 @@ TEST_CASE("a compute pass writes the commands an indirect draw submits", "[rhi][
 
 TEST_CASE("the count buffer bounds an indirect draw below maxDrawCount", "[rhi][indirect][gpu]") {
   test::TestDevice device;
+  if (!device->info().drawIndirectCountSupported) {
+    SKIP("no drawIndirectCount on " << device->info().driverName << "; ADR-0014's uncounted form is tested below");
+  }
   IndirectScene scene{device};
   // Every object survives the build, but the draw is allowed only the first command.
   scene.drawFrame(0b111, 1);
@@ -220,7 +226,9 @@ TEST_CASE("a device reports drawIndirectCount unless told to leave it off", "[rh
   {
     test::TestDevice device;
     // Every desktop driver and Lavapipe have it; only MoltenVK does not.
-    REQUIRE(device->info().drawIndirectCountSupported);
+    if (device->info().driverName != "MoltenVK") {
+      REQUIRE(device->info().drawIndirectCountSupported);
+    }
   }
   test::TestDevice device{true};
   REQUIRE_FALSE(device->info().drawIndirectCountSupported);

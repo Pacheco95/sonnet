@@ -933,6 +933,9 @@ TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[
   CAPTURE(uncounted);
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform, uncounted);
+  if (!uncounted && !device->info().drawIndirectCountSupported) {
+    SKIP("no drawIndirectCount on " << device->info().driverName << "; the uncounted run covers it");
+  }
   REQUIRE(device->info().drawIndirectCountSupported == !uncounted);
   {
     Renderer renderer{*device, shaderDir(platform), testSettings()};
