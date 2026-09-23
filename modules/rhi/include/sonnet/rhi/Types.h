@@ -123,13 +123,14 @@ enum class BufferUsage : std::uint8_t {
   // Storage buffers also get a device address (IDevice::bufferAddress) for vertex pulling.
   Storage = 1 << 3,
   Index = 1 << 4,
-  // Source of the draw commands and counts of drawIndexedIndirectCount (ADR-0012).
+  // Source of the draw commands of drawIndexedIndirect (ADR-0012).
   Indirect = 1 << 5,
 };
 
-// One entry of the buffer drawIndexedIndirectCount reads, laid out as Vulkan's
+// One entry of the buffer drawIndexedIndirect reads, laid out as Vulkan's
 // VkDrawIndexedIndirectCommand. `firstInstance` reaches the vertex shader as
-// SV_StartInstanceLocation, which is where the engine puts the draw's object index (ADR-0012).
+// SV_StartInstanceLocation, and each instance adds SV_InstanceID to it; the engine reads the
+// draw's object index from its visible list at their sum (ADR-0016).
 struct IndirectCommand {
   std::uint32_t indexCount{0};
   std::uint32_t instanceCount{0};

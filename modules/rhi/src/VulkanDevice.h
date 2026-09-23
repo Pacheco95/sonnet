@@ -182,7 +182,7 @@ private:
   };
 
   void createInstance(const DeviceDesc &desc);
-  void selectAndCreateDevice(const DeviceDesc &desc);
+  void selectAndCreateDevice();
   void createAllocator();
   void createPipelineLayout();
   void createBindlessSet();

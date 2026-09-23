@@ -20,9 +20,6 @@ struct DeviceDesc {
   std::string applicationName{"Sonnet"};
   // Requests the validation layer when it is installed; absent layers are logged, not fatal.
   bool enableValidation{SONNET_ENABLE_VALIDATION != 0};
-  // Leaves drawIndirectCount disabled even where the device has it, so the GPU tests on Lavapipe
-  // exercise the path MoltenVK takes (ADR-0014). Nothing else sets it.
-  bool disableDrawIndirectCount{false};
 };
 
 struct DeviceInfo {
@@ -33,8 +30,7 @@ struct DeviceInfo {
   std::uint32_t loaderVersion{0}; // packed Vulkan version of the loader in the process
   bool validationEnabled{false};
   bool timestampsSupported{false};
-  bool blockCompressionSupported{false};  // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
-  bool drawIndirectCountSupported{false}; // every desktop driver and Lavapipe; not MoltenVK (ADR-0014)
+  bool blockCompressionSupported{false}; // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
 };
 
 constexpr std::uint32_t FramesInFlight = 2;

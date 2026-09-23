@@ -1,6 +1,6 @@
 # ADR-0012: GPU-driven culling and indirect draws
 
-- **Status:** Accepted, amended by [ADR-0014](0014-indirect-draws-without-count.md) and [ADR-0015](0015-bindless-vertex-buffers.md)
+- **Status:** Accepted, amended by [ADR-0014](0014-indirect-draws-without-count.md), [ADR-0015](0015-bindless-vertex-buffers.md) and [ADR-0016](0016-instanced-batches.md)
 - **Date:** 2026-09-20
 
 ## Context
