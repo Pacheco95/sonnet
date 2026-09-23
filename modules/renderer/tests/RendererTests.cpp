@@ -1006,16 +1006,10 @@ TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[
 }
 
 TEST_CASE("the sun's shadow darkens the ground beside a box on a GPU", "[renderer][gpu]") {
-  // Both comparisons: the hardware one, and the one the shader makes itself, which is what a
-  // device without usable comparison samplers gets (docs/rendering.md, "Platform notes").
-  const bool manual = GENERATE(false, true);
-  CAPTURE(manual);
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
   {
-    RendererSettings settings = testSettings();
-    settings.manualShadowCompare = manual;
-    Renderer renderer{*device, shaderDir(platform), settings};
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
     const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
     const std::array draws{DrawItem{.mesh = plane},
@@ -1093,15 +1087,83 @@ TEST_CASE("an environment fills the background and lights a sphere on a GPU", "[
     const Pixel sky = scene.pixel(2, 2);
     REQUIRE(sky.b > sky.r + 50);
     const Pixel body = scene.pixel(32, 32);
-    // Lit by the sky alone: blue, and no brighter than the sky by more than the split-sum
-    // approximation allows. That approximation does not conserve energy, so a white rough
-    // dielectric under a uniform sky can pass the sky's own value slightly: it does on an
-    // M4 Max (239 against 228) and does not on an RTX 4090 or Lavapipe
-    // (roadmap.md, "Two GPU tests shade differently on MoltenVK").
+    // Lit by the sky alone: blue, dimmer than the sky.
     REQUIRE(body.b > 30);
     REQUIRE(body.b > body.r);
-    REQUIRE(body.b < sky.b + 20);
+    REQUIRE(body.b < sky.b);
     REQUIRE(renderer.isReady(environment));
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMaterial(material);
+    renderer.destroyMesh(sphere);
+    renderer.destroyEnvironment(environment);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// Every colour channel of a material texture reaches the shading, with the shadow comparison in
+// the same shader. On MoltenVK a comparison through the colour array made SPIRV-Cross type it as
+// Metal depth textures, and every colour read returned its red alone (ADR-0017).
+TEST_CASE("a texture's green reaches the albedo beside the shadow comparison on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = testSettings();
+    settings.debugView = DebugView::Albedo;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const TextureHandle green = renderer.createTexture(solidTexture({0, 255, 0, 255}), "green");
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    MaterialDesc desc;
+    desc.metallic = 0.0f;
+    desc.baseColorTexture = green;
+    const MaterialHandle material = renderer.createMaterial(desc, "green");
+    const std::array draws{DrawItem{.mesh = box, .material = material}};
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(boxScene(draws));
+
+    const Pixel centre = scene.pixel(32, 32);
+    CAPTURE(centre.r, centre.g, centre.b);
+    REQUIRE(centre.g > 150);
+    REQUIRE(centre.r < 40);
+    REQUIRE(centre.b < 40);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMaterial(material);
+    renderer.destroyMesh(box);
+    renderer.destroyTexture(green);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// The split-sum table at n.v near one: the scale near one and the bias near zero, in red and
+// green. MoltenVK read the bias as the scale before ADR-0017, whitening every surface.
+TEST_CASE("the BRDF lookup table reads a large scale and a small bias on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = testSettings();
+    settings.brdfLutSize = 32;
+    settings.brdfLutSamples = 256;
+    settings.debugView = DebugView::BrdfLut;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const EnvironmentHandle environment = renderer.createEnvironment(skyTexture({0.1f, 0.3f, 0.9f}), "sky");
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
+    MaterialDesc desc;
+    desc.metallic = 0.0f;
+    desc.roughness = 0.5f;
+    const MaterialHandle material = renderer.createMaterial(desc, "rough");
+    const std::array draws{DrawItem{.mesh = sphere, .material = material}};
+    SceneView view = boxScene(draws);
+    view.hasSun = false;
+    view.environment = environment;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2); // the first frame computes the table, the second reads it
+
+    // Tone-mapped and display-encoded: a scale near 0.9 reads above 200, a bias near 0 below 40.
+    const Pixel centre = scene.pixel(32, 32);
+    CAPTURE(centre.r, centre.g, centre.b);
+    REQUIRE(centre.r > 180);
+    REQUIRE(centre.g < 40);
     REQUIRE(device->validationMessageCount() == 0);
 
     renderer.destroyMaterial(material);
