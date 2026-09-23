@@ -127,8 +127,10 @@ public struct FrameConstants {
   public uint shadowSampler;
   public uint lightCount;
   public uint debugView; // RendererSettings::debugView
-  public uint padding0;
-  public uint padding1;
+  // The object index of every instance a draw submits, at its first instance plus its instance
+  // index: the culling pass's runs for the indirect draws, the direct range for the rest
+  // (ADR-0016). A pointer is allowed here, in a uniform block, and not in a storage-buffer struct.
+  public uint *visible;
   public MaterialData *materials;
   public Light *lights;
   public Cluster *clusters;
@@ -195,9 +197,9 @@ public float mirrorSign(WorldBasis basis) {
   return dot(cross(basis.x, basis.y), basis.z) < 0.0 ? -1.0 : 1.0;
 }
 
-// A draw finds its object through SV_StartInstanceLocation, which every command carries in its
-// firstInstance and every direct draw passes as its first instance (ADR-0012). What is left per
-// pass is the shadow cascade, pushed once.
+// A draw finds its object through the visible list, which an indirect command's firstInstance and
+// a direct draw's first instance point into (ADR-0016). What is left per pass is the shadow
+// cascade, pushed once.
 public struct DrawConstants {
   public uint cascade;
 };
@@ -210,21 +212,12 @@ public struct CullDraw {
   public uint objectIndex;
   public uint indexCount;
   public uint firstIndex;
-  public uint batch;      // which count this draw bumps
-  public uint batchFirst; // the batch's first command slot
+  public uint batch;      // which of the job's commands this draw adds an instance to
+  public uint batchFirst; // the batch's first slot in the job's run of the visible list
   public uint flags;
 };
 
 public static const uint CullSelected = 1u << 0;
-
-// Vulkan's VkDrawIndexedIndirectCommand, the layout rhi::IndirectCommand mirrors.
-public struct IndirectCommand {
-  public uint indexCount;
-  public uint instanceCount;
-  public uint firstIndex;
-  public int vertexOffset;
-  public uint firstInstance;
-};
 
 [[vk::push_constant]]
 public ConstantBuffer<DrawConstants> draw;
@@ -236,6 +229,12 @@ public ConstantBuffer<FrameConstants> frame;
 public StructuredBuffer<ObjectData> objects;
 
 // ---- Helpers ----
+
+// The object a vertex belongs to: its instance's entry in the visible list (ADR-0016). Slang
+// lowers SV_InstanceID to the instance index less the base instance, so their sum is the slot.
+public uint drawObject(uint startInstance, uint instance) {
+  return frame.visible[startInstance + instance];
+}
 
 public static const float Pi = 3.14159265359;
 

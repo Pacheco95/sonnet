@@ -89,7 +89,7 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
     : m_context(desc.platform->vulkanGetInstanceProcAddr()), m_commandList(*this) {
   SONNET_ASSERT(desc.platform != nullptr, "a device needs the platform for the Vulkan loader and surfaces");
   createInstance(desc);
-  selectAndCreateDevice(desc);
+  selectAndCreateDevice();
   createAllocator();
   createPipelineLayout();
   createBindlessSet();
@@ -177,13 +177,13 @@ void VulkanDevice::createInstance(const DeviceDesc &desc) {
   SONNET_LOG_DEBUG("Vulkan loader {}", versionString(m_info.loaderVersion));
 }
 
-void VulkanDevice::selectAndCreateDevice(const DeviceDesc &desc) {
+void VulkanDevice::selectAndCreateDevice() {
   // The features in docs/rendering.md, "Vulkan baseline". Extended dynamic state is core in 1.3
   // without a feature bit.
   VkPhysicalDeviceFeatures features{};
   features.samplerAnisotropy = VK_TRUE;
-  // The indirect draws of ADR-0012: many commands per call, each naming its object in
-  // firstInstance.
+  // The indirect draws of ADR-0016: many commands per call, each naming the start of its batch's
+  // visible list in firstInstance.
   features.multiDrawIndirect = VK_TRUE;
   features.drawIndirectFirstInstance = VK_TRUE;
 
@@ -241,15 +241,6 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &desc) {
   VkPhysicalDeviceFeatures optional{};
   optional.textureCompressionBC = VK_TRUE;
   m_info.blockCompressionSupported = physicalDevice.enable_features_if_present(optional);
-  // The count form of the indirect draws (ADR-0012) is enabled where present rather than
-  // required: MoltenVK has no drawIndirectCount, and the renderer draws every slot there instead
-  // (ADR-0014).
-  if (!desc.disableDrawIndirectCount) {
-    VkPhysicalDeviceVulkan12Features count{};
-    count.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    count.drawIndirectCount = VK_TRUE;
-    m_info.drawIndirectCountSupported = physicalDevice.enable_extension_features_if_present(count);
-  }
 
   const vkb::Device device = unwrap(vkb::DeviceBuilder{physicalDevice}.build(), "creating the Vulkan device");
   m_physicalDevice = vk::raii::PhysicalDevice{m_instance, physicalDevice.physical_device};

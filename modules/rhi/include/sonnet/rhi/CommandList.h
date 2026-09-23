@@ -47,17 +47,11 @@ public:
                     std::uint32_t firstInstance = 0) = 0;
   virtual void drawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount = 1, std::uint32_t firstIndex = 0,
                            std::int32_t vertexOffset = 0, std::uint32_t firstInstance = 0) = 0;
-  // Up to `maxDrawCount` IndirectCommands from `commands` at `commandOffset`, as many of them as
-  // the 32-bit count at `countOffset` of `countBuffer` says. Both buffers need BufferUsage::
-  // Indirect, and a barrier into PipelineStage::DrawIndirect with Access::IndirectCommandRead
-  // has to order whatever wrote them before this (ADR-0012). The index buffer bound applies to
-  // every command; an indirect draw cannot change it. Only on a device whose DeviceInfo reports
-  // drawIndirectCountSupported.
-  virtual void drawIndexedIndirectCount(BufferHandle commands, std::uint64_t commandOffset, BufferHandle countBuffer,
-                                        std::uint64_t countOffset, std::uint32_t maxDrawCount) = 0;
-  // Exactly `drawCount` IndirectCommands from `commands` at `commandOffset`, under the same rules
-  // as drawIndexedIndirectCount. The form every device has: without a count, a slot that must
-  // draw nothing carries an instance count of zero (ADR-0014).
+  // `drawCount` IndirectCommands from `commands` at `commandOffset`. The buffer needs
+  // BufferUsage::Indirect, and a barrier into PipelineStage::DrawIndirect with
+  // Access::IndirectCommandRead has to order whatever wrote it before this. The index buffer
+  // bound applies to every command; an indirect draw cannot change it. A command that must draw
+  // nothing carries an instance count of zero (ADR-0016).
   virtual void drawIndexedIndirect(BufferHandle commands, std::uint64_t commandOffset, std::uint32_t drawCount) = 0;
 
   // Outside beginRendering/endRendering, with a compute pipeline bound: workgroup counts.
