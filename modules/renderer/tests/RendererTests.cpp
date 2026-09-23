@@ -109,12 +109,10 @@ Pixel pixelAt(std::span<const std::byte> pixels, glm::uvec2 size, unsigned x, un
           std::to_integer<int>(pixels[offset + 2]), std::to_integer<int>(pixels[offset + 3])};
 }
 
-// A GPU device, or a skip. `disableDrawIndirectCount` runs it the way MoltenVK does (ADR-0014).
-std::unique_ptr<IDevice> gpuDevice(sonnet::platform::Platform &platform, bool disableDrawIndirectCount = false) {
+// A GPU device, or a skip.
+std::unique_ptr<IDevice> gpuDevice(sonnet::platform::Platform &platform) {
   try {
-    return createDevice({.platform = &platform,
-                         .applicationName = "renderer_tests",
-                         .disableDrawIndirectCount = disableDrawIndirectCount});
+    return createDevice({.platform = &platform, .applicationName = "renderer_tests"});
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
@@ -129,7 +127,7 @@ struct GpuScene {
   RenderTarget target;
   BufferHandle readback;
   // Wall-clock time of each frame's endFrame, where the frame is submitted. MoltenVK encodes the
-  // recorded commands into Metal there, one Metal draw per indirect command (ADR-0014), which no
+  // recorded commands into Metal there, one Metal draw per indirect command (ADR-0016), which no
   // pass's recording time includes.
   std::vector<double> submitMilliseconds;
 
@@ -222,18 +220,18 @@ TEST_CASE("the scene passes shade every item once after the depth pre-pass and t
   REQUIRE(countLines(*device, "bindPipeline \"light clustering\"") == 1);
   REQUIRE(countLines(*device, "dispatch 4 3 6") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"tonemap\"") == 1);
-  // The opaque draws are submitted from the GPU (ADR-0012): one culling pass ahead of the scene
-  // clears the counts and tests the six frusta, and each drawing pass then issues one call per
-  // batch. The three draws are two boxes and a sphere sorted by mesh, so two batches each in the
-  // four cascades, the pre-pass and the forward pass.
+  // The opaque draws are submitted from the GPU (ADR-0016): one culling pass ahead of the scene
+  // empties the commands and tests the six frusta, and each drawing pass then issues one command
+  // per batch, its survivors as instances. The three draws are two boxes and a sphere sorted by
+  // mesh, so two batches each in the four cascades, the pre-pass and the forward pass.
   REQUIRE(hasPass(graph, "cull"));
   REQUIRE(lineIndex(*device, "bindPipeline \"cull\"") < lineIndex(*device, "bindPipeline \"shadow\""));
-  REQUIRE(countLines(*device, "bindPipeline \"clear draw counts\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"clear draw commands\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"cull\"") == 1);
-  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 2") == 6);
-  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 1") == 6);
-  // The trailing space matches only the direct form, not drawIndexedIndirectCount.
-  REQUIRE(countLines(*device, "drawIndexed ") == 0); // nothing direct: no blended draws
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 12);
+  // The trailing space matches only the direct form, not drawIndexedIndirect.
+  REQUIRE(countLines(*device, "drawIndexed ") == 0);                   // nothing direct: no blended draws
+  REQUIRE(countLines(*device, "uploadBuffer \"visible draws\"") == 0); // so no direct range either
   REQUIRE(lineIndex(*device, "bindPipeline \"depth\"") < lineIndex(*device, "bindPipeline \"forward\""));
   // The statistics report what was submitted; the GPU decides what survives.
   REQUIRE(renderer.statistics().indirectCallCount == 12);
@@ -246,34 +244,34 @@ TEST_CASE("the scene passes shade every item once after the depth pre-pass and t
   REQUIRE(!renderer.isValid(box));
 }
 
-TEST_CASE("without drawIndirectCount every batch draws all its slots and no counts are cleared", "[renderer][null]") {
+TEST_CASE("a batch is one submesh of one mesh, drawn as the instances of one command", "[renderer][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();
-  device->disableDrawIndirectCount(); // as on MoltenVK (ADR-0014)
   Renderer renderer{*device, shaderDir(platform), testSettings()};
   RenderGraph graph{*device};
   RenderTarget target{*device, "viewport"};
   target.resize({128, 64});
-  ICommandList &commands = device->beginFrame();
-  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
-  const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 8, 4), "sphere");
-  const std::array draws{DrawItem{.mesh = box}, DrawItem{.mesh = sphere}, DrawItem{.mesh = box}};
+  // A box in two halves, each its own submesh, as a glTF mesh with two materials would be.
+  MeshData halves = primitives::box();
+  const auto half = static_cast<std::uint32_t>(halves.indices.size() / 2);
+  halves.submeshes = {Submesh{.firstIndex = 0, .indexCount = half}, Submesh{.firstIndex = half, .indexCount = half}};
+  const MeshHandle box = renderer.createMesh(halves, "halves");
+  // Three draws of the first half and two of the second, interleaved, so only the sort groups them.
+  const std::array draws{DrawItem{.mesh = box, .submesh = 1}, DrawItem{.mesh = box},
+                         DrawItem{.mesh = box, .submesh = 1}, DrawItem{.mesh = box}, DrawItem{.mesh = box}};
   const SceneView view = boxScene(draws);
+  ICommandList &commands = device->beginFrame();
   graph.reset();
   renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
   graph.execute(commands);
   device->endFrame();
 
-  // Culling still runs, but writes one slot per candidate instead of appending against counts.
-  REQUIRE(countLines(*device, "bindPipeline \"cull\"") == 1);
-  REQUIRE(countLines(*device, "bindPipeline \"clear draw counts\"") == 0);
-  REQUIRE(countLines(*device, "drawIndexedIndirectCount") == 0);
-  // The same two batches in the same six passes, each drawn over its whole range.
-  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 2") == 6);
-  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 6);
+  // Five draws, two batches, and so two commands in each of the six drawing passes, against one
+  // index buffer bound once per pass.
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 12);
+  REQUIRE(countLines(*device, "bindIndexBuffer \"halves indices\"") == 6);
   REQUIRE(renderer.statistics().indirectCallCount == 12);
-
-  renderer.destroyMesh(sphere);
+  REQUIRE(renderer.statistics().drawCount == 5);
   renderer.destroyMesh(box);
 }
 
@@ -340,8 +338,10 @@ TEST_CASE("blended materials draw after the opaque scene, farthest first", "[ren
   REQUIRE(countLines(*device, "bindPipeline \"forward double sided\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"forward blend\"") == 1);
   // The one opaque draw is submitted indirectly, once per cascade plus the pre-pass and the
-  // forward pass; the two blended ones stay on the direct path (ADR-0012).
-  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 1") == 6);
+  // forward pass; the two blended ones stay on the direct path (ADR-0012), naming their objects
+  // through the visible list's direct range, uploaded once (ADR-0016).
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 6);
+  REQUIRE(countLines(*device, "uploadBuffer \"visible draws\"") == 1);
   REQUIRE(countLines(*device, "drawIndexed 36 x1") == 1); // the blended box
   REQUIRE(countLines(*device, "drawIndexed ") == 2);      // and the blended sphere
   const std::size_t blend = lineIndex(*device, "bindPipeline \"forward blend\"");
@@ -618,14 +618,14 @@ TEST_CASE("mirrored draws are batched apart and drawn with a clockwise front fac
 
   // One mesh, but two batches in each of the four cascades, the pre-pass and the forward pass, the
   // mirrored one last and preceded by the front face it needs.
-  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 1") == 12);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 12);
   REQUIRE(countLines(*device, "setFrontFace Clockwise") == 6);
   const auto &trace = device->trace();
   for (std::size_t i = 0; i < trace.size(); ++i) {
     if (trace[i] == "setFrontFace Clockwise") {
       REQUIRE(i > 0);
-      REQUIRE(trace[i - 1].starts_with("drawIndexedIndirectCount"));
-      REQUIRE(trace[i + 1].starts_with("bindIndexBuffer"));
+      REQUIRE(trace[i - 1].starts_with("drawIndexedIndirect"));
+      REQUIRE(trace[i + 1].starts_with("drawIndexedIndirect")); // the same mesh's index buffer stays bound
     }
   }
   REQUIRE(countLines(*device, "setFrontFace CounterClockwise") == 0); // a bind resets it
@@ -936,15 +936,8 @@ TEST_CASE("debug lines are depth-tested against the scene on a GPU", "[renderer]
 }
 
 TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[renderer][culling][gpu]") {
-  // Both forms of the indirect draws: counted, and every slot with the culled ones empty.
-  const bool uncounted = GENERATE(false, true);
-  CAPTURE(uncounted);
   sonnet::platform::Platform platform{{.headless = true}};
-  std::unique_ptr<IDevice> device = gpuDevice(platform, uncounted);
-  if (!uncounted && !device->info().drawIndirectCountSupported) {
-    SKIP("no drawIndirectCount on " << device->info().driverName << "; the uncounted run covers it");
-  }
-  REQUIRE(device->info().drawIndirectCountSupported == !uncounted);
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
   {
     Renderer renderer{*device, shaderDir(platform), testSettings()};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
@@ -958,7 +951,8 @@ TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[
         DrawItem{.mesh = box, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
     };
     // The same scene plus boxes far behind the camera and far off to either side. None of them
-    // can reach a pixel, so culling them must leave the image untouched.
+    // can reach a pixel, so culling them must leave the image untouched. They share the red box's
+    // batch, so its one instance has to find the red box among them in the visible list.
     std::vector<DrawItem> withOutsiders = visible;
     for (int i = 0; i < 64; ++i) {
       const float offset = 60.0f + static_cast<float>(i);
@@ -1001,6 +995,59 @@ TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[
 
     renderer.destroyMesh(plane);
     renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// Two boxes in one mesh, each its own submesh, so two batches over two index ranges; the left
+// one drawn twice, so its batch has two instances that must each find their own object. A batch
+// that ignored its submesh would draw the left box where the right one belongs, and an instance
+// that read the wrong slot of the visible list would draw the wrong colour (ADR-0016).
+TEST_CASE("each batch draws its submesh and each instance its own object on a GPU", "[renderer][culling][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    MeshData pair;
+    for (const float x : {-0.6f, 0.6f}) {
+      const MeshData half = primitives::box({0.25f, 0.25f, 0.25f});
+      const auto base = static_cast<std::uint32_t>(pair.vertices.size());
+      pair.submeshes.push_back(Submesh{.firstIndex = static_cast<std::uint32_t>(pair.indices.size()),
+                                       .indexCount = static_cast<std::uint32_t>(half.indices.size())});
+      for (Vertex vertex : half.vertices) {
+        vertex.position.x += x;
+        pair.vertices.push_back(vertex);
+      }
+      for (const std::uint32_t index : half.indices) {
+        pair.indices.push_back(base + index);
+      }
+    }
+    const MeshHandle mesh = renderer.createMesh(pair, "pair");
+    const std::array draws{
+        DrawItem{.mesh = mesh, .submesh = 1, .color = {0.0f, 0.0f, 1.0f, 1.0f}},
+        DrawItem{.mesh = mesh, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
+        DrawItem{.mesh = mesh,
+                 .transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.8f, 0.0f}),
+                 .color = {0.0f, 1.0f, 0.0f, 1.0f}},
+    };
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(boxScene(draws), 2);
+
+    const Pixel left = scene.pixel(20, 32);
+    REQUIRE(left.r > 40);
+    REQUIRE(left.r > left.g + left.b);
+    const Pixel above = scene.pixel(20, 16);
+    REQUIRE(above.g > 40);
+    REQUIRE(above.g > above.r + above.b);
+    const Pixel right = scene.pixel(44, 32);
+    REQUIRE(right.b > 40);
+    REQUIRE(right.b > right.r + right.g);
+    const Pixel between = scene.pixel(32, 32);
+    REQUIRE(between.r + between.g + between.b == 0);
+    REQUIRE(renderer.statistics().drawCount == 3);
+    REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);
+
+    renderer.destroyMesh(mesh);
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
@@ -1290,12 +1337,12 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
         return sum;
       }();
       WARN(std::format("CPU per frame: {:.3f} ms recording the passes, {:.3f} ms submitting (median of {}, "
-                       "worst {:.3f} ms), {} indirect draws",
-                       recording, submits[submits.size() / 2], submits.size(), submits.back(),
-                       device.info().drawIndirectCountSupported ? "counted" : "uncounted (ADR-0014)"));
+                       "worst {:.3f} ms)",
+                       recording, submits[submits.size() / 2], submits.size(), submits.back()));
       REQUIRE(renderer.statistics().drawCount == side * side);
-      // Two meshes, so two batches, and one call each in the four cascades, the pre-pass and the
-      // forward pass: what used to be sixty thousand draw calls (ADR-0012).
+      // Two meshes, so two batches, and one instanced command each in the four cascades, the
+      // pre-pass and the forward pass: what used to be sixty thousand draw calls (ADR-0012), and
+      // sixty thousand commands after them (ADR-0016).
       REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);
       REQUIRE(device.validationMessageCount() == 0);
       renderer.destroyEnvironment(environment);
@@ -1305,14 +1352,6 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     }
     REQUIRE(device.validationMessageCount() == 0);
   };
-  // A device with drawIndirectCount measures the counted form, then a second device with it left
-  // off measures the uncounted one, so the cost of drawing every slot (ADR-0014) can be read
-  // against it. MoltenVK has only the uncounted form, and measures it once on its one device.
   std::unique_ptr<IDevice> device = gpuDevice(platform);
   measure(*device);
-  if (device->info().drawIndirectCountSupported) {
-    device.reset();
-    device = gpuDevice(platform, true);
-    measure(*device);
-  }
 }

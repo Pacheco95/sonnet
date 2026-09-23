@@ -9,7 +9,9 @@ struct VertexOutput {
 };
 
 [shader("vertex")]
-VertexOutput vertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV_StartInstanceLocation) {
+VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_StartInstanceLocation,
+                        uint instance : SV_InstanceID) {
+  const uint objectIndex = drawObject(startInstance, instance);
   const Vertex vertex = vertexBuffers[objects[objectIndex].vertexBuffer][vertexId];
   VertexOutput output;
   output.position = mul(frame.viewProjection, mul(objects[objectIndex].model, float4(vertex.position, 1.0)));

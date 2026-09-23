@@ -220,19 +220,6 @@ void VulkanCommandList::drawIndexed(std::uint32_t indexCount, std::uint32_t inst
   m_dispatcher->vkCmdDrawIndexed(m_commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
-void VulkanCommandList::drawIndexedIndirectCount(BufferHandle commands, std::uint64_t commandOffset,
-                                                 BufferHandle countBuffer, std::uint64_t countOffset,
-                                                 std::uint32_t maxDrawCount) {
-  const VulkanBuffer *commandResource = m_device.findBuffer(commands);
-  const VulkanBuffer *countResource = m_device.findBuffer(countBuffer);
-  SONNET_ASSERT(commandResource != nullptr && countResource != nullptr,
-                "drawIndexedIndirectCount with a stale buffer handle");
-  SONNET_ASSERT(m_device.info().drawIndirectCountSupported, "drawIndexedIndirectCount without drawIndirectCount");
-  m_dispatcher->vkCmdDrawIndexedIndirectCount(m_commandBuffer, *commandResource->buffer, commandOffset,
-                                              *countResource->buffer, countOffset, maxDrawCount,
-                                              sizeof(IndirectCommand));
-}
-
 void VulkanCommandList::drawIndexedIndirect(BufferHandle commands, std::uint64_t commandOffset,
                                             std::uint32_t drawCount) {
   const VulkanBuffer *commandResource = m_device.findBuffer(commands);

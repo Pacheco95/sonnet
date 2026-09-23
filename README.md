@@ -175,9 +175,9 @@ ctest --preset linux-debug
 | [0009](docs/decisions/0009-physics-and-scripting.md) | Physics and scripting as world subsystems | Accepted |
 | [0010](docs/decisions/0010-audio-and-animation.md) | Audio on miniaudio, animation in `world`, skinning in compute | Accepted |
 | [0011](docs/decisions/0011-cooked-bundles-and-the-player.md) | Cooked bundles, the `runtime` module and what export assembles | Accepted |
-| [0012](docs/decisions/0012-gpu-driven-rendering.md) | GPU culling into indirect draws, batched per pipeline and mesh | Accepted, amended by 0014 and 0015 |
+| [0012](docs/decisions/0012-gpu-driven-rendering.md) | GPU culling into indirect draws, batched per pipeline and mesh | Accepted, amended by 0014, 0015 and 0016 |
 | [0013](docs/decisions/0013-job-system.md) | One job system in `core`, with flecs on stage workers of its own | Accepted |
-| [0014](docs/decisions/0014-indirect-draws-without-count.md) | Indirect draws without `drawIndirectCount`, for MoltenVK | Accepted |
+| [0014](docs/decisions/0014-indirect-draws-without-count.md) | Indirect draws without `drawIndirectCount`, for MoltenVK | Superseded by 0016 |
 | [0015](docs/decisions/0015-bindless-vertex-buffers.md) | Bindless vertex buffers instead of a vertex pointer per object | Accepted |
 | [0016](docs/decisions/0016-instanced-batches.md) | Instanced batches, one indirect command per batch | Accepted |
 | [0017](docs/decisions/0017-depth-images-in-their-own-bindless-array.md) | Depth images in their own bindless array | Accepted |

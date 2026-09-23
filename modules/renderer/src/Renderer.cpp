@@ -95,7 +95,7 @@ struct FrameConstants {
   std::uint32_t shadowSampler;
   std::uint32_t lightCount;
   std::uint32_t debugView;
-  std::uint32_t padding[2];
+  std::uint64_t visible; // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
@@ -108,7 +108,7 @@ struct ObjectData {
   glm::vec4 color;
   std::uint32_t id;
   std::uint32_t material;
-  std::uint32_t vertexBuffer; // bindless index into vertexBuffers[] (ADR-0012, ADR-0014)
+  std::uint32_t vertexBuffer; // bindless index into vertexBuffers[] (ADR-0015)
   std::uint32_t vertexPad{0};
 };
 static_assert(sizeof(ObjectData) == 96);
@@ -136,11 +136,11 @@ constexpr std::uint32_t CullSelected = 1u << 0;
 struct CullConstants {
   glm::mat4 viewProjection;
   std::uint64_t draws;
-  std::uint64_t commands;
-  std::uint32_t drawCount;
-  std::uint32_t countBase;
-  std::uint32_t selectedOnly;
-  std::uint32_t fixedSlots; // without drawIndirectCount every candidate writes its own slot (ADR-0014)
+  std::uint64_t visible;
+  std::uint32_t drawCount;    // candidates to test, or commands to empty
+  std::uint32_t commandBase;  // the job's first command
+  std::uint32_t visibleBase;  // the job's first slot in the visible list
+  std::uint32_t selectedOnly; // the selection mask pass keeps only the selected draws
 };
 static_assert(sizeof(CullConstants) == 96);
 static_assert(sizeof(CullConstants) <= rhi::PushConstantSize);
@@ -306,7 +306,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                   .debugName = "debug lines"});
   defineCompute(m_clusterPipeline, "cluster", "computeMain", "light clustering");
   defineCompute(m_cullPipeline, "cull", "computeMain", "cull");
-  defineCompute(m_clearCountsPipeline, "cull", "clearCounts", "clear draw counts");
+  defineCompute(m_clearCommandsPipeline, "cull", "clearCommands", "clear draw commands");
   defineCompute(m_equirectPipeline, "ibl", "equirectToCube", "equirect to cube");
   defineCompute(m_cubeMipPipeline, "ibl", "cubeMip", "cube mip");
   defineCompute(m_irradiancePipeline, "ibl", "irradiance", "irradiance");
@@ -342,8 +342,8 @@ Renderer::~Renderer() {
   if (m_commandBuffer) {
     m_device.destroyBuffer(m_commandBuffer);
   }
-  if (m_countBuffer) {
-    m_device.destroyBuffer(m_countBuffer);
+  if (m_visibleBuffer) {
+    m_device.destroyBuffer(m_visibleBuffer);
   }
   m_device.destroyImage(m_brdfLut);
   m_device.destroySampler(m_shadowSampler);
@@ -353,7 +353,7 @@ Renderer::~Renderer() {
   }
   for (const rhi::PipelineHandle pipeline :
        {m_skinPipeline, m_brdfLutPipeline, m_prefilterPipeline, m_irradiancePipeline, m_cubeMipPipeline,
-        m_equirectPipeline, m_clearCountsPipeline, m_cullPipeline, m_clusterPipeline, m_debugLinePipeline,
+        m_equirectPipeline, m_clearCommandsPipeline, m_cullPipeline, m_clusterPipeline, m_debugLinePipeline,
         m_outlinePipeline, m_fxaaPipeline, m_presentPipeline, m_tonemapPipeline, m_bloomUpPipeline, m_bloomDownPipeline,
         m_skyboxPipeline}) {
     // The present pipeline is there only when the settings asked for it.
@@ -966,7 +966,8 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
     (m_resolved[i].blended ? m_blendedOrder : m_opaqueOrder).push_back(i);
   }
   // Opaque draws grouped by pipeline, then by front face, then by mesh so index buffers stay
-  // bound; blended ones from the farthest to the nearest.
+  // bound, then by submesh so a batch's instances share an index range (ADR-0016); blended ones
+  // from the farthest to the nearest.
   const auto byBatch = [&](std::uint32_t a, std::uint32_t b) {
     const ResolvedDraw &da = m_resolved[a];
     const ResolvedDraw &db = m_resolved[b];
@@ -976,7 +977,13 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
     if (da.mirrored != db.mirrored) {
       return !da.mirrored;
     }
-    return da.mesh < db.mesh;
+    if (da.mesh != db.mesh) {
+      return da.mesh < db.mesh;
+    }
+    if (da.submesh.firstIndex != db.submesh.firstIndex) {
+      return da.submesh.firstIndex < db.submesh.firstIndex;
+    }
+    return da.submesh.indexCount < db.submesh.indexCount;
   };
   std::ranges::sort(m_opaqueOrder, byBatch);
   std::ranges::sort(m_blendedOrder, [&](std::uint32_t a, std::uint32_t b) {
@@ -1002,25 +1009,35 @@ void Renderer::buildBatches(std::span<const std::uint32_t> order, std::vector<Ba
   for (std::uint32_t position = 0; position < order.size(); ++position) {
     const ResolvedDraw &draw = m_resolved[order[position]];
     const std::uint32_t pipeline = draw.doubleSided ? 1u : 0u;
-    if (!batches.empty() && batches.back().mesh == draw.mesh && batches.back().pipeline == pipeline &&
-        batches.back().mirrored == draw.mirrored) {
-      ++batches.back().drawCount;
-      continue;
+    if (!batches.empty()) {
+      Batch &last = batches.back();
+      if (last.mesh == draw.mesh && last.submesh.firstIndex == draw.submesh.firstIndex &&
+          last.submesh.indexCount == draw.submesh.indexCount && last.pipeline == pipeline &&
+          last.mirrored == draw.mirrored) {
+        ++last.drawCount;
+        continue;
+      }
     }
-    batches.push_back(Batch{
-        .mesh = draw.mesh, .pipeline = pipeline, .mirrored = draw.mirrored, .firstDraw = position, .drawCount = 1});
+    batches.push_back(Batch{.mesh = draw.mesh,
+                            .submesh = draw.submesh,
+                            .pipeline = pipeline,
+                            .mirrored = draw.mirrored,
+                            .firstDraw = position,
+                            .drawCount = 1});
   }
 }
 
 void Renderer::ensureIndirectBuffers() {
-  // Every job gets the whole order list's worth of command slots, since culling is what decides
-  // how many are used and the count buffer is what the draw reads (ADR-0012).
+  // One command per batch per job, and a visible-list slot per draw per job, since culling is
+  // what decides how many of a batch's slots its instances fill (ADR-0016). The direct range
+  // after the jobs' runs gives every resolved draw a slot the direct path can name.
   const auto opaqueDraws = static_cast<std::uint32_t>(m_opaqueOrder.size());
   const auto allDraws = static_cast<std::uint32_t>(m_allOrder.size());
-  const std::uint32_t commands = opaqueDraws * CullJobsOpaque + allDraws * CullJobsAll;
-  const std::uint32_t counts = static_cast<std::uint32_t>(m_opaqueBatches.size()) * CullJobsOpaque +
-                               static_cast<std::uint32_t>(m_allBatches.size()) * CullJobsAll;
-  if (commands == 0 || counts == 0) {
+  const std::uint32_t commands = static_cast<std::uint32_t>(m_opaqueBatches.size()) * CullJobsOpaque +
+                                 static_cast<std::uint32_t>(m_allBatches.size()) * CullJobsAll;
+  m_directBase = opaqueDraws * CullJobsOpaque + allDraws * CullJobsAll;
+  const std::uint32_t visible = m_directBase + static_cast<std::uint32_t>(m_resolved.size());
+  if (commands == 0) {
     return;
   }
   if (commands > m_commandCapacity) {
@@ -1032,19 +1049,19 @@ void Renderer::ensureIndirectBuffers() {
                                              .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::Indirect,
                                              .debugName = "draw commands"});
   }
-  if (counts > m_countCapacity) {
-    if (m_countBuffer) {
-      m_device.destroyBuffer(m_countBuffer);
+  if (visible > m_visibleCapacity) {
+    if (m_visibleBuffer) {
+      m_device.destroyBuffer(m_visibleBuffer);
     }
-    m_countCapacity = counts;
-    m_countBuffer = m_device.createBuffer({.size = std::uint64_t{counts} * sizeof(std::uint32_t),
-                                           .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::Indirect,
-                                           .debugName = "draw counts"});
+    m_visibleCapacity = visible;
+    m_visibleBuffer = m_device.createBuffer({.size = std::uint64_t{visible} * sizeof(std::uint32_t),
+                                             .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::TransferDst,
+                                             .debugName = "visible draws"});
   }
 }
 
 std::optional<Renderer::CullJob> Renderer::reserveCullJob(bool opaque) {
-  if (!m_commandBuffer || !m_countBuffer) {
+  if (!m_commandBuffer || !m_visibleBuffer) {
     return std::nullopt; // nothing to draw this frame
   }
   const auto opaqueDraws = static_cast<std::uint32_t>(m_opaqueOrder.size());
@@ -1059,8 +1076,8 @@ std::optional<Renderer::CullJob> Renderer::reserveCullJob(bool opaque) {
     }
     job.drawCount = opaqueDraws;
     job.batchCount = opaqueBatches;
-    job.firstCommand = m_opaqueJobsUsed * opaqueDraws;
-    job.firstCount = m_opaqueJobsUsed * opaqueBatches;
+    job.firstCommand = m_opaqueJobsUsed * opaqueBatches;
+    job.firstVisible = m_opaqueJobsUsed * opaqueDraws;
     ++m_opaqueJobsUsed;
   } else {
     if (m_allJobsUsed >= CullJobsAll || allDraws == 0) {
@@ -1068,8 +1085,8 @@ std::optional<Renderer::CullJob> Renderer::reserveCullJob(bool opaque) {
     }
     job.drawCount = allDraws;
     job.batchCount = allBatches;
-    job.firstCommand = CullJobsOpaque * opaqueDraws + m_allJobsUsed * allDraws;
-    job.firstCount = CullJobsOpaque * opaqueBatches + m_allJobsUsed * allBatches;
+    job.firstCommand = CullJobsOpaque * opaqueBatches + m_allJobsUsed * allBatches;
+    job.firstVisible = CullJobsOpaque * opaqueDraws + m_allJobsUsed * allDraws;
     ++m_allJobsUsed;
   }
   return job;
@@ -1083,56 +1100,53 @@ void Renderer::recordCulling(rhi::ICommandList &commands) {
   if (pending.empty() || !m_frameBuffers.valid()) {
     return;
   }
-  // The commands and counts this frame overwrites are the ones the previous frame's draws
-  // fetched, and those may still be running.
-  commands.memoryBarrier({.srcStage = rhi::PipelineStage::DrawIndirect,
-                          .srcAccess = rhi::Access::IndirectCommandRead,
+  // The commands and the visible list this frame overwrites are the ones the previous frame's
+  // draws fetched and read, and those may still be running.
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader,
+                          .srcAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead,
                           .dstStage = rhi::PipelineStage::ComputeShader,
-                          .dstAccess = rhi::Access::ShaderWrite});
-  const rhi::BufferBinding counts{.binding = rhi::PassStorageBinding, .buffer = m_countBuffer};
-  const bool countedDraws = m_device.info().drawIndirectCountSupported;
+                          .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
+  const rhi::BufferBinding commandWords{.binding = rhi::PassStorageBinding, .buffer = m_commandBuffer};
+  const std::uint64_t visible = m_device.bufferAddress(m_visibleBuffer);
   const auto candidates = [this](const CullJob &job) {
     return job.opaque ? m_frameBuffers.opaqueCandidates : m_frameBuffers.allCandidates;
   };
   const auto push = [&](const CullJob &job, std::uint32_t threads) {
     const CullConstants constants{.viewProjection = job.viewProjection,
                                   .draws = candidates(job),
-                                  .commands = m_device.bufferAddress(m_commandBuffer) +
-                                              std::uint64_t{job.firstCommand} * sizeof(rhi::IndirectCommand),
+                                  .visible = visible,
                                   .drawCount = threads,
-                                  .countBase = job.firstCount,
-                                  .selectedOnly = job.selectedOnly ? 1u : 0u,
-                                  .fixedSlots = countedDraws ? 0u : 1u};
+                                  .commandBase = job.firstCommand,
+                                  .visibleBase = job.firstVisible,
+                                  .selectedOnly = job.selectedOnly ? 1u : 0u};
     commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   };
 
-  // Without a count to read, the draws take every slot and nothing appends (ADR-0014).
-  if (countedDraws) {
-    commands.bindPipeline(m_clearCountsPipeline);
-    commands.bindBuffers({&counts, 1});
-    for (const CullJob &job : pending) {
-      push(job, job.batchCount);
-      commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
-    }
-    commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
-                            .srcAccess = rhi::Access::ShaderWrite,
-                            .dstStage = rhi::PipelineStage::ComputeShader,
-                            .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
+  // Every batch starts with a command that draws nothing; survivors add their instances.
+  commands.bindPipeline(m_clearCommandsPipeline);
+  commands.bindBuffers({&commandWords, 1});
+  for (const CullJob &job : pending) {
+    push(job, job.batchCount);
+    commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
   }
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                          .srcAccess = rhi::Access::ShaderWrite,
+                          .dstStage = rhi::PipelineStage::ComputeShader,
+                          .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
 
   commands.bindPipeline(m_cullPipeline);
-  commands.bindBuffers({&counts, 1});
+  commands.bindBuffers({&commandWords, 1});
   for (const CullJob &job : pending) {
     if (candidates(job) == 0) {
-      continue; // the candidates did not fit the frame's transient memory; the counts stay zero
+      continue; // the candidates did not fit the frame's transient memory; the commands stay empty
     }
     push(job, job.drawCount);
     commands.dispatch(groups(job.drawCount, CullThreads), 1, 1);
   }
   commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
                           .srcAccess = rhi::Access::ShaderWrite,
-                          .dstStage = rhi::PipelineStage::DrawIndirect,
-                          .dstAccess = rhi::Access::IndirectCommandRead});
+                          .dstStage = rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader,
+                          .dstAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead});
 }
 
 void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, std::span<const Batch> batches,
@@ -1140,13 +1154,9 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
   if (batches.empty() || !m_frameBuffers.valid()) {
     return;
   }
-  const bool countedDraws = m_device.info().drawIndirectCountSupported;
-  const std::uint64_t candidates = job.opaque ? m_frameBuffers.opaqueCandidates : m_frameBuffers.allCandidates;
-  if (!countedDraws && candidates == 0) {
-    return; // nothing was culled, so the slots still hold a previous frame's commands
-  }
   rhi::PipelineHandle bound;
   bool mirrored = false;
+  const Mesh *boundMesh = nullptr;
   for (std::uint32_t index = 0; index < batches.size(); ++index) {
     const Batch &batch = batches[index];
     const rhi::PipelineHandle pipeline = pipelines[batch.pipeline];
@@ -1162,15 +1172,13 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
       commands.setFrontFace(batch.mirrored ? rhi::FrontFace::Clockwise : rhi::FrontFace::CounterClockwise);
       mirrored = batch.mirrored;
     }
-    commands.bindIndexBuffer(batch.mesh->indices, rhi::IndexType::Uint32);
-    const std::uint64_t commandOffset =
-        std::uint64_t{job.firstCommand + batch.firstDraw} * sizeof(rhi::IndirectCommand);
-    if (countedDraws) {
-      commands.drawIndexedIndirectCount(m_commandBuffer, commandOffset, m_countBuffer,
-                                        std::uint64_t{job.firstCount + index} * sizeof(std::uint32_t), batch.drawCount);
-    } else {
-      commands.drawIndexedIndirect(m_commandBuffer, commandOffset, batch.drawCount);
+    // Batches of one mesh's submeshes follow each other and share its index buffer.
+    if (batch.mesh != boundMesh) {
+      commands.bindIndexBuffer(batch.mesh->indices, rhi::IndexType::Uint32);
+      boundMesh = batch.mesh;
     }
+    commands.drawIndexedIndirect(m_commandBuffer,
+                                 std::uint64_t{job.firstCommand + index} * sizeof(rhi::IndirectCommand), 1);
     ++m_statistics.indirectCallCount;
   }
 }
@@ -1407,7 +1415,7 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
       .shadowSampler = m_device.samplerIndex(m_shadowSampler),
       .lightCount = lightCount,
       .debugView = static_cast<std::uint32_t>(m_settings.debugView),
-      .padding = {},
+      .visible = m_visibleBuffer ? m_device.bufferAddress(m_visibleBuffer) : 0,
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
       .clusters = m_device.bufferAddress(m_clusterBuffer),
@@ -1437,8 +1445,19 @@ void Renderer::bindFrame(rhi::ICommandList &commands) {
 
 void Renderer::recordDraws(rhi::ICommandList &commands, std::span<const std::uint32_t> order,
                            std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t cascade) {
-  if (order.empty() || !m_frameBuffers.valid()) {
+  if (order.empty() || !m_frameBuffers.valid() || !m_visibleBuffer) {
     return;
+  }
+  // The direct range names each resolved draw's object, written once a frame through the staging
+  // ring, which lands before this frame's commands (ADR-0016).
+  if (!m_frameBuffers.directSlotsUploaded) {
+    m_frameBuffers.directSlotsUploaded = true;
+    m_directSlots.resize(m_resolved.size());
+    for (std::size_t i = 0; i < m_resolved.size(); ++i) {
+      m_directSlots[i] = m_resolved[i].objectIndex;
+    }
+    m_device.uploadBuffer(m_visibleBuffer, std::uint64_t{m_directBase} * sizeof(std::uint32_t),
+                          std::as_bytes(std::span{m_directSlots}));
   }
   rhi::PipelineHandle bound;
   bool mirrored = false;
@@ -1449,8 +1468,8 @@ void Renderer::recordDraws(rhi::ICommandList &commands, std::span<const std::uin
     if (pipeline != bound) {
       commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
       bindFrame(commands);
-      // The cascade is the whole of the per-draw constants now; the object index rides in the
-      // draw's first instance, as it does in an indirect command (ADR-0012).
+      // The cascade is the whole of the per-draw constants now; the draw's slot in the visible
+      // list rides in its first instance, as a batch's does in an indirect command (ADR-0016).
       const DrawConstants push{cascade};
       commands.pushConstants(std::as_bytes(std::span{&push, 1}));
       bound = pipeline;
@@ -1464,7 +1483,7 @@ void Renderer::recordDraws(rhi::ICommandList &commands, std::span<const std::uin
       commands.bindIndexBuffer(draw.mesh->indices, rhi::IndexType::Uint32);
       boundMesh = draw.mesh;
     }
-    commands.drawIndexed(draw.submesh.indexCount, 1, draw.submesh.firstIndex, 0, draw.objectIndex);
+    commands.drawIndexed(draw.submesh.indexCount, 1, draw.submesh.firstIndex, 0, m_directBase + index);
     if (count) {
       ++m_statistics.drawCount;
       m_statistics.triangleCount += draw.submesh.indexCount / 3;
