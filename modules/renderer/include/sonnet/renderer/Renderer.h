@@ -43,6 +43,10 @@ struct RendererSettings {
   std::uint32_t shadowMapSize{2048}; // per cascade
   float shadowDistance{80.0f};       // metres of view depth the cascades cover
   float shadowBias{0.0015f};         // in reversed-Z depth units, scaled by the cascade
+  // Compares the shadow depth in the shader rather than through a comparison sampler, which is
+  // what a device without usable comparison samplers gets anyway (docs/rendering.md, "Platform
+  // notes"). Set here only by the test that covers that path where the hardware one works.
+  bool manualShadowCompare{false};
   bool bloom{true};
   std::uint32_t bloomLevels{5};
   bool antialiasing{true};
@@ -293,6 +297,11 @@ private:
   [[nodiscard]] std::uint32_t resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view);
   void recordSkinning(rhi::ICommandList &commands);
   void releaseSkinnedVertices(bool all);
+  // True where the shadow lookup compares depth itself: on a device whose comparison samplers
+  // cannot be trusted, and wherever the settings ask for it.
+  [[nodiscard]] bool manualShadowCompare() const noexcept {
+    return m_settings.manualShadowCompare || !m_device.info().comparisonSamplersUsable;
+  }
   void computeCascades(const SceneView &view, float aspect);
   // Groups an order list, already sorted by pipeline and mesh, into the runs one indirect call
   // each can submit. Returns the batches; the order list's entries keep their positions.
@@ -358,6 +367,7 @@ private:
   std::array<rhi::SamplerHandle, 3> m_materialSamplers; // by TextureWrap
   rhi::SamplerHandle m_linearClampSampler;
   rhi::SamplerHandle m_shadowSampler;
+  rhi::SamplerHandle m_shadowNearestSampler; // the manual comparison reads through this
   TextureHandle m_whiteTexture;
   TextureHandle m_flatNormalTexture;
   rhi::ImageHandle m_brdfLut;
