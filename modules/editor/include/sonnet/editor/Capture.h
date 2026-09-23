@@ -63,6 +63,10 @@ public:
   static constexpr float FrameSeconds = 1.0f / 60.0f;
   // How long the assets may take to load before the run gives up.
   static constexpr std::chrono::seconds LoadTimeout{120};
+  // Frames drawn between the selection and the capture, so the panels have laid out what it
+  // changed: an ImGui table sizes its columns from the frames before (docs/editor.md,
+  // "Screenshots").
+  static constexpr std::uint32_t SelectionFrames = 3;
 
   enum class Status : std::uint8_t {
     Running,
@@ -79,6 +83,7 @@ private:
     Start,
     Settle,
     Play,
+    Select,
     Capture,
     Write,
   };
