@@ -1111,6 +1111,49 @@ TEST_CASE("an environment fills the background and lights a sphere on a GPU", "[
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// The split-sum table at n.v near one: the scale near one and the bias near zero, whatever the
+// sky. On MoltenVK the bias read back as large as the scale, whitening every surface (probe).
+TEST_CASE("the BRDF lookup table holds a large scale and a small bias under any sky on a GPU", "[renderer][gpu]") {
+  const glm::vec3 skyColor =
+      GENERATE(glm::vec3{0.1f, 0.3f, 0.9f}, glm::vec3{0.9f, 0.1f, 0.1f}, glm::vec3{0.1f, 0.9f, 0.1f});
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = testSettings();
+    settings.brdfLutSize = 32;
+    settings.brdfLutSamples = 256;
+    settings.debugView = DebugView::BrdfLut;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const EnvironmentHandle environment = renderer.createEnvironment(skyTexture(skyColor), "sky");
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
+    MaterialDesc desc;
+    desc.metallic = 0.0f;
+    desc.roughness = 0.5f;
+    const MaterialHandle material = renderer.createMaterial(desc, "rough");
+    const std::array draws{DrawItem{.mesh = sphere, .material = material}};
+    SceneView view = boxScene(draws);
+    view.hasSun = false;
+    view.environment = environment;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 3);
+
+    const Pixel body = scene.pixel(32, 32);
+    INFO(std::format("sky ({}, {}, {}): lut view r {} g {} b {}", skyColor.r, skyColor.g, skyColor.b, body.r, body.g,
+                     body.b));
+    WARN(std::format("sky ({}, {}, {}): lut view r {} g {} b {}", skyColor.r, skyColor.g, skyColor.b, body.r, body.g,
+                     body.b));
+    // Tone-mapped and display-encoded: a scale near 0.9 reads above 200, a bias near 0.02 near 30.
+    REQUIRE(body.r > 180);
+    REQUIRE(body.g < 80);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMaterial(material);
+    renderer.destroyMesh(sphere);
+    renderer.destroyEnvironment(environment);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("reloading a shader rebuilds its pipelines and keeps them on a rejected module", "[renderer][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();

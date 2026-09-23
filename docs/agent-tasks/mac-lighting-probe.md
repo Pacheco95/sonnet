@@ -28,3 +28,12 @@ Run the editor on MoltenVK (the default driver) with `apps/samples/basic`. Don't
 Final, Albedo, Normal, Sun direct, Shadow factor, IBL diffuse, IBL specular, BRDF LUT.
 
 The same eight will be taken on Linux from the same camera. Save the screenshots under `docs/agent-tasks/mac-lighting-probe/` as `<term>.png` (lower case, hyphens) and commit them to this branch together with a short report.
+
+## 3. Round two: the BRDF lookup table
+
+The screenshots showed the fault. The BRDF LUT view is yellow on the Mac, meaning bias ≈ scale ≈ 0.6. On Linux it is red: scale about 0.6, bias about 0. A new GPU test reads that view back under three skies of different colours.
+
+1. `git pull`, then `cmake --build --preset macos-debug-local`.
+2. `./build/macos-debug-local/modules/renderer/tests/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "lut view|passed|failed|FAILED"`: report the output verbatim. On the RTX 4090 it prints `lut view r 228 g 1 b 0` for every sky.
+3. Run it again with MoltenVK's shader dump enabled (`MVK_CONFIG_SHADER_DUMP_DIR=<dir>`). Commit the dumped MSL of the `brdfLut` compute kernel (the one that writes `a / float(ibl.sampleCount), b / ...`) as `docs/agent-tasks/mvk-brdf-lut.msl`.
+4. Append the results to the report, then commit and push. Raw output only.
