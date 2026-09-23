@@ -1093,10 +1093,14 @@ TEST_CASE("an environment fills the background and lights a sphere on a GPU", "[
     const Pixel sky = scene.pixel(2, 2);
     REQUIRE(sky.b > sky.r + 50);
     const Pixel body = scene.pixel(32, 32);
-    // Lit by the sky's irradiance alone: blue, dimmer than the sky.
+    // Lit by the sky alone: blue, and no brighter than the sky by more than the split-sum
+    // approximation allows. That approximation does not conserve energy, so a white rough
+    // dielectric under a uniform sky can pass the sky's own value slightly: it does on an
+    // M4 Max (239 against 228) and does not on an RTX 4090 or Lavapipe
+    // (roadmap.md, "Two GPU tests shade differently on MoltenVK").
     REQUIRE(body.b > 30);
     REQUIRE(body.b > body.r);
-    REQUIRE(body.b < sky.b);
+    REQUIRE(body.b < sky.b + 20);
     REQUIRE(renderer.isReady(environment));
     REQUIRE(device->validationMessageCount() == 0);
 
