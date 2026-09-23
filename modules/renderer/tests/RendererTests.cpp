@@ -1170,6 +1170,19 @@ TEST_CASE("the BRDF lookup table holds a large scale and a small bias under any 
       }
       device->destroyBuffer(texels);
     }
+    WARN(std::format("lut sampled index {} storage index {}", device->sampledImageIndex(renderer.brdfLutImage()),
+                     device->storageImageIndex(renderer.brdfLutImage(), 0)));
+    // The same table through a texel load, the nearest sampler and a fixed coordinate.
+    for (const auto &[probe, name] :
+         {std::pair{DebugView::BrdfLutLoad, "load"}, std::pair{DebugView::BrdfLutNearest, "nearest"},
+          std::pair{DebugView::BrdfLutFixed, "fixed"}}) {
+      RendererSettings probeSettings = renderer.settings();
+      probeSettings.debugView = probe;
+      renderer.setSettings(probeSettings);
+      scene.render(view, 1);
+      const Pixel probed = scene.pixel(32, 32);
+      WARN(std::format("lut {} view r {} g {} b {}", name, probed.r, probed.g, probed.b));
+    }
     // Tone-mapped and display-encoded: a scale near 0.9 reads above 200, a bias near 0.02 near 30.
     REQUIRE(body.r > 180);
     REQUIRE(body.g < 80);

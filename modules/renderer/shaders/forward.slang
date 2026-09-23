@@ -213,6 +213,21 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   case 5: color = iblDiffuse; break;
   case 6: color = iblSpecular; break;
   case 7: color = float3(brdf, 0.0); break;
+  case 8: {
+    uint width, height;
+    textures[frame.brdfLut].GetDimensions(width, height);
+    const int2 texel = int2(min(float2(nDotV, roughness) * float2(width, height), float2(width - 1, height - 1)));
+    color = float3(textures[frame.brdfLut].Load(int3(texel, 0)).rg, 0.0);
+    break;
+  }
+  case 9:
+    color = float3(
+        textures[frame.brdfLut].SampleLevel(samplers[frame.shadowNearestSampler], float2(nDotV, roughness), 0.0).rg,
+        0.0);
+    break;
+  case 10:
+    color = float3(textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(0.99, 0.5), 0.0).rg, 0.0);
+    break;
   default: break;
   }
 

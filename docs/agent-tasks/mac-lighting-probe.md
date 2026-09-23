@@ -55,3 +55,20 @@ The test now also copies the table's texels out directly, without sampling, and 
    sky (...): lut view r 228 g 1 b 0
    ```
 3. Append the output to the report, then commit and push. Raw output only.
+
+## 5. Round four: how the forward pass reads the table
+
+Round three showed the table's texels are correct on the Mac, but the forward pass reads something else from them. Three new views read the same table in different ways, and the test prints the table's descriptor indices.
+
+1. `git pull`, then `cmake --build --preset macos-debug-local`.
+2. `./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "lut |index|passed|failed|FAILED" | sort -u`: report the output verbatim.
+   On the RTX 4090 (Lavapipe matches):
+   ```
+   lut fixed view r 228 g 1 b 0
+   lut load view r 227 g 1 b 0
+   lut nearest view r 227 g 1 b 0
+   lut sampled index 2 storage index 0
+   sky (...): lut view r 228 g 1 b 0
+   ```
+3. Run it again with `MVK_CONFIG_SHADER_DUMP_DIR=<dir>`. Commit the dumped MSL of the **forward fragment** shader (the one containing `brdfLut` and `debugView`) as `docs/agent-tasks/mvk-forward-frag.msl`.
+4. Append the output to the report, then commit and push. Raw output only.

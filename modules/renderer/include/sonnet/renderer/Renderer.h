@@ -47,7 +47,10 @@ enum class DebugView : std::uint32_t {
   ShadowFactor, // the sun's visibility, white where lit
   IblDiffuse,
   IblSpecular,
-  BrdfLut, // the split-sum scale and bias at this fragment's n.v and roughness, in red and green
+  BrdfLut,        // the split-sum scale and bias at this fragment's n.v and roughness, in red and green
+  BrdfLutLoad,    // the same texel through Load, without a sampler
+  BrdfLutNearest, // the same lookup through the nearest sampler
+  BrdfLutFixed,   // the table at a fixed (n.v 0.99, roughness 0.5): about (0.88, 0.0)
 };
 
 // Quality knobs. Tests turn the sizes and sample counts down so Lavapipe finishes quickly.
