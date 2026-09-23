@@ -1,6 +1,6 @@
 # ADR-0017: Depth images in their own bindless array
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-23
 
 ## Context
