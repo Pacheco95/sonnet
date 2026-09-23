@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -503,7 +504,13 @@ ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
   SONNET_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size), "image \"{}\": {} mip levels",
                 desc.debugName, desc.mipLevels);
   SONNET_ASSERT(!desc.cube || desc.size.x == desc.size.y, "cube image \"{}\" is not square", desc.debugName);
-  vk::ImageCreateInfo imageInfo{desc.cube ? vk::ImageCreateFlagBits::eCubeCompatible : vk::ImageCreateFlags{},
+  vk::ImageCreateFlags createFlags = desc.cube ? vk::ImageCreateFlagBits::eCubeCompatible : vk::ImageCreateFlags{};
+  // Probe for the macOS lighting difference: mutable storage images make MoltenVK ask Metal for
+  // PixelFormatView usage, which turns off lossless compression.
+  if (has(desc.usage, ImageUsage::Storage) && std::getenv("SONNET_PROBE_MUTABLE_STORAGE") != nullptr) {
+    createFlags |= vk::ImageCreateFlagBits::eMutableFormat;
+  }
+  vk::ImageCreateInfo imageInfo{createFlags,
                                 vk::ImageType::e2D,
                                 toVk(desc.format),
                                 vk::Extent3D{desc.size.x, desc.size.y, 1},

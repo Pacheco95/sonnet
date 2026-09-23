@@ -72,3 +72,24 @@ Round three showed the table's texels are correct on the Mac, but the forward pa
    ```
 3. Run it again with `MVK_CONFIG_SHADER_DUMP_DIR=<dir>`. Commit the dumped MSL of the **forward fragment** shader (the one containing `brdfLut` and `debugView`) as `docs/agent-tasks/mvk-forward-frag.msl`.
 4. Append the output to the report, then commit and push. Raw output only.
+
+## 6. Round five: compression, and whether the cubes are affected
+
+Round four showed that the texture bound for the table returns green equal to red, even through `read()`, while a blit copy of it is correct. The test now also prints the sky background under each sky colour. An environment variable, `SONNET_PROBE_MUTABLE_STORAGE=1`, creates storage images as mutable-format, which makes MoltenVK turn off Metal's lossless compression for them.
+
+1. `git pull`, then `cmake --build --preset macos-debug-local`.
+2. Run the test twice and report both outputs verbatim:
+   ```
+   ./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "background|lut view|passed|failed|FAILED" | sort -u
+   SONNET_PROBE_MUTABLE_STORAGE=1 ./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "background|lut view|passed|failed|FAILED" | sort -u
+   ```
+   On the RTX 4090 both runs print:
+   ```
+   sky (0.1, 0.3, 0.9): background r 99 g 175 b 228
+   sky (0.1, 0.9, 0.1): background r 99 g 228 b 99
+   sky (0.9, 0.1, 0.1): background r 228 g 99 b 99
+   sky (...): lut view r 228 g 1 b 0
+   All tests passed
+   ```
+3. If the second run passes, also run the whole suite with the variable set (`SONNET_PROBE_MUTABLE_STORAGE=1 ctest --preset macos-debug-local --output-on-failure`) and report the failing tests, if any.
+4. Append the output to the report, then commit and push. Raw output only.

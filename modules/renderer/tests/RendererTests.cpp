@@ -1138,6 +1138,9 @@ TEST_CASE("the BRDF lookup table holds a large scale and a small bias under any 
     scene.render(view, 3);
 
     const Pixel body = scene.pixel(32, 32);
+    const Pixel background = scene.pixel(2, 2);
+    WARN(std::format("sky ({}, {}, {}): background r {} g {} b {}", skyColor.r, skyColor.g, skyColor.b, background.r,
+                     background.g, background.b));
     INFO(std::format("sky ({}, {}, {}): lut view r {} g {} b {}", skyColor.r, skyColor.g, skyColor.b, body.r, body.g,
                      body.b));
     WARN(std::format("sky ({}, {}, {}): lut view r {} g {} b {}", skyColor.r, skyColor.g, skyColor.b, body.r, body.g,
