@@ -7,6 +7,8 @@
 #include <sonnet/platform/Window.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
+#include <sonnet/scripting/Components.h>
+#include <sonnet/world/Components.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -20,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -240,6 +243,52 @@ TEST_CASE("a capture writes the viewport and the whole window as PNG on a GPU", 
     REQUIRE(std::ranges::unique(colours).begin() - colours.begin() > 10);
   }
   REQUIRE(fixture.device->validationMessageCount() == 0); // the copies out of the swapchain too
+  std::filesystem::remove_all(directory);
+}
+
+// A script that puts the box somewhere random when play starts: the playground's spawner in
+// miniature. Lua seeds math.random differently in every process, so before captures seeded it,
+// two runs of the same flags drew the box in two places.
+constexpr std::string_view Scatter = R"lua(
+local Scatter = {}
+function Scatter:start()
+  local transform = self.entity:get("Transform")
+  transform.position = vec3(math.random() * 2 - 1, 0.5, math.random() * 2 - 1)
+  self.entity:set("Transform", transform)
+end
+return Scatter
+)lua";
+
+TEST_CASE("two captures of a scene that plays random numbers write the same image", "[editor][capture][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "repeat";
+  std::filesystem::remove_all(directory);
+  // Two editors in one process can get the same seed from Lua, which mixes the clock and
+  // addresses, so each starts from a seed of its own, as two processes would.
+  const auto capture = [&](const std::filesystem::path &file, std::uint64_t processSeed) {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.scripts().seedRandom(processSeed);
+    REQUIRE(editor.createProject(directory / file.stem(), "Repeat").has_value());
+    const auto script = editor.assets().createScript(directory / file.stem() / "scripts" / "scatter.lua", Scatter);
+    REQUIRE(script.has_value());
+    for (const flecs::entity root : editor.world().roots()) {
+      if (root.get<world::Name>().value == "Box") {
+        root.set<scripting::Script>({.script = *script});
+      }
+    }
+    editor::CaptureOptions options;
+    options.playSeconds = 0.1f;
+    options.viewport = file;
+    options.settleFrames = 2;
+    editor::CaptureRun run{options};
+    REQUIRE(fixture.run(editor, run) == editor::CaptureRun::Status::Done);
+    const auto bytes = core::readFile(file);
+    REQUIRE(bytes.has_value());
+    return *bytes;
+  };
+  const std::vector<std::byte> first = capture(directory / "first.png", 1000);
+  const std::vector<std::byte> second = capture(directory / "second.png", 2000);
+  REQUIRE(first == second);
   std::filesystem::remove_all(directory);
 }
 

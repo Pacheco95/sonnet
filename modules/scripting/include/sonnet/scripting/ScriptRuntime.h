@@ -45,6 +45,10 @@ public:
   // Drops every instance and loaded script, so the next play starts from fresh script state; the
   // editor calls it when play stops.
   virtual void reset() = 0;
+  // Seeds math.random, which Lua otherwise seeds differently in every process. The editor's
+  // captures seed it before playing, so a scene whose scripts draw random numbers plays the same
+  // run after run (docs/editor.md, "Screenshots").
+  virtual void seedRandom(std::uint64_t seed) = 0;
   // Runs a chunk outside any entity with the same globals scripts see, for tests and tools.
   [[nodiscard]] virtual core::Result<void> run(std::string_view code, std::string_view chunkName) = 0;
   [[nodiscard]] virtual std::uint32_t instanceCount() const = 0;

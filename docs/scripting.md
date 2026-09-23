@@ -126,6 +126,8 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 
 ### Maths
 
+`math.random` is Lua's own, which seeds itself differently in every process, so a game's randomness differs run to run. `IScriptRuntime::seedRandom` seeds it as `math.randomseed` would; the editor's captures call it before playing, so a scene that draws random numbers repeats exactly ([editor.md](editor.md#screenshots)).
+
 `vec3(x, y, z)` and `quat(x, y, z, w)` make values with the same metatables component values carry:
 
 - `vec3`: `+`, `-`, unary `-`, `*` and `/` by a number or component-wise, `==`, `tostring`, and the methods `dot`, `cross`, `length`, `normalized` and `lerp(b, t)`.
@@ -133,4 +135,4 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 
 ## Tests
 
-`scripting_tests` covers the maths and the missing libraries, errors from `run`, an instance's start and updates in play mode only, an error in `start` reported at the script's line and a reload that fixes it while keeping the instance's state, components through reflection including enums, identities, tags and malformed values, finding, creating, instantiating and destroying entities, input and physics from scripts with the fixed update after the step, log records with the script's location, scripts that fail to load or are missing, and instances following their entities, with `reset` starting the scripts over.
+`scripting_tests` covers the maths and the missing libraries, a seeded `math.random` repeating its draws, errors from `run`, an instance's start and updates in play mode only, an error in `start` reported at the script's line and a reload that fixes it while keeping the instance's state, components through reflection including enums, identities, tags and malformed values, finding, creating, instantiating and destroying entities, input and physics from scripts with the fixed update after the step, log records with the script's location, scripts that fail to load or are missing, and instances following their entities, with `reset` starting the scripts over.
