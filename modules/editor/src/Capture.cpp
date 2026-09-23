@@ -232,23 +232,32 @@ CaptureRun::Status CaptureRun::step(Editor &editor) {
       m_stage = Stage::Play;
       return Status::Running;
     }
-    m_stage = Stage::Capture;
+    m_stage = Stage::Select;
     return step(editor);
   case Stage::Play:
     if (static_cast<float>(++m_frames) * FrameSeconds < *m_options.playSeconds) {
       return Status::Running;
     }
-    m_stage = Stage::Capture;
+    m_stage = Stage::Select;
     return step(editor);
-  case Stage::Capture:
-    // Selected before the frame the screenshots come from, whose update turns the selection
-    // into the outline.
-    if (!m_options.select.empty()) {
-      const flecs::entity entity = findEntity(editor.world(), m_options.select);
-      if (!entity || !entity.has<world::Identity>()) {
-        return fail(captureError(std::format("no entity at \"{}\" in the scene", m_options.select)));
-      }
+  case Stage::Select:
+    // Some frames ahead of the capture: the first update after it turns the selection into the
+    // outline, and the panels take a frame or two to lay out what it shows. Capturing on the
+    // first frame photographed the inspector with every value a few pixels wide.
+    m_frames = 0;
+    m_stage = Stage::Capture;
+    if (m_options.select.empty()) {
+      return step(editor);
+    }
+    if (const flecs::entity entity = findEntity(editor.world(), m_options.select);
+        entity && entity.has<world::Identity>()) {
       editor.selection().select(entity.get<world::Identity>().uuid);
+      return Status::Running;
+    }
+    return fail(captureError(std::format("no entity at \"{}\" in the scene", m_options.select)));
+  case Stage::Capture:
+    if (!m_options.select.empty() && ++m_frames < SelectionFrames) {
+      return Status::Running;
     }
     editor.requestScreenshots(m_options.viewport, m_options.window);
     m_stage = Stage::Write;

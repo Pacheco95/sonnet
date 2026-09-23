@@ -10,6 +10,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <imgui.h>
+#include <imgui_internal.h>
+
 #include <stb_image.h>
 
 #include <vulkan/vulkan_core.h>
@@ -40,7 +43,7 @@ struct Fixture {
 
   Fixture() {
     try {
-      window = platform.createWindow({.title = "editor_tests", .size = {320, 240}});
+      window = platform.createWindow({.title = "editor_tests", .size = {800, 600}});
       device = rhi::createDevice({.platform = &platform, .applicationName = "editor_tests"});
     } catch (const core::Exception &e) {
       SKIP("no usable Vulkan 1.4 device: " << e.what());
@@ -200,6 +203,22 @@ TEST_CASE("a capture writes the viewport and the whole window as PNG on a GPU", 
     REQUIRE(fixture.run(editor, capture) == editor::CaptureRun::Status::Done);
     REQUIRE(editor.isPlaying()); // captured while playing, as asked
     REQUIRE(editor.outlineIds().size() == 1);
+    // Captured once the panels had laid out the selection: the inspector's value columns hold what
+    // their labels leave, where the frame right after selecting still had them a few pixels wide.
+    ImGuiContext &context = *ImGui::GetCurrentContext();
+    int members = 0;
+    for (int i = 0; i < context.Tables.GetMapSize(); ++i) {
+      const ImGuiTable *table = context.Tables.TryGetMapData(i);
+      if (table == nullptr || table->ColumnsCount != 2 || table->LastFrameActive < context.FrameCount - 1 ||
+          !std::string_view{table->OuterWindow->Name}.starts_with("Inspector")) {
+        continue;
+      }
+      ++members;
+      // All of it but the spacing between cells, which the frames right after selecting fall short of.
+      CAPTURE(table->OuterRect.GetWidth(), table->Columns[1].WidthGiven);
+      REQUIRE(table->Columns[1].WidthGiven >= table->OuterRect.GetWidth() - table->Columns[0].WidthGiven - 16.0f);
+    }
+    REQUIRE(members >= 3); // the box's Transform
 
     const Image viewport = readPng(directory / "shots" / "viewport.png");
     const glm::uvec2 target = editor.viewport().target().size();
