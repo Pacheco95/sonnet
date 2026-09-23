@@ -93,10 +93,9 @@ struct FrameConstants {
   std::uint32_t brdfLut;
   std::uint32_t linearSampler;
   std::uint32_t shadowSampler;
-  std::uint32_t shadowNearestSampler; // read by the manual comparison
-  std::uint32_t manualShadowCompare;  // 1 where comparison samplers cannot be trusted
   std::uint32_t lightCount;
-  std::uint32_t padding;
+  std::uint32_t debugView;
+  std::uint32_t padding[2];
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
@@ -347,7 +346,6 @@ Renderer::~Renderer() {
     m_device.destroyBuffer(m_countBuffer);
   }
   m_device.destroyImage(m_brdfLut);
-  m_device.destroySampler(m_shadowNearestSampler);
   m_device.destroySampler(m_shadowSampler);
   m_device.destroySampler(m_linearClampSampler);
   for (const rhi::SamplerHandle sampler : m_materialSamplers) {
@@ -460,10 +458,6 @@ void Renderer::createDefaults() {
       m_device.createSampler({.addressMode = rhi::AddressMode::ClampToEdge, .debugName = "linear clamp"});
   m_shadowSampler =
       m_device.createSampler({.addressMode = rhi::AddressMode::ClampToEdge, .compare = true, .debugName = "shadow"});
-  // The manual comparison reads the stored depth itself, so it must not be filtered: a blend of
-  // two depths compared once is not the average of two comparisons.
-  m_shadowNearestSampler = m_device.createSampler(
-      {.filter = rhi::Filter::Nearest, .addressMode = rhi::AddressMode::ClampToEdge, .debugName = "shadow nearest"});
   m_whiteTexture = createTexture(solidTexture({255, 255, 255, 255}), "white");
   m_flatNormalTexture = createTexture(solidTexture({128, 128, 255, 255}), "flat normal");
   m_brdfLut = m_device.createImage({.size = {m_settings.brdfLutSize, m_settings.brdfLutSize},
@@ -1411,10 +1405,9 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
       .brdfLut = sampledIndex(m_brdfLut),
       .linearSampler = m_device.samplerIndex(m_linearClampSampler),
       .shadowSampler = m_device.samplerIndex(m_shadowSampler),
-      .shadowNearestSampler = m_device.samplerIndex(m_shadowNearestSampler),
-      .manualShadowCompare = manualShadowCompare() ? 1u : 0u,
       .lightCount = lightCount,
-      .padding = 0,
+      .debugView = static_cast<std::uint32_t>(m_settings.debugView),
+      .padding = {},
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
       .clusters = m_device.bufferAddress(m_clusterBuffer),
