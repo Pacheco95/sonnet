@@ -225,13 +225,9 @@ void AssetDatabase::close() {
     for (const auto &[uuid, mesh] : m_meshes) {
       m_renderer.destroyMesh(mesh);
     }
-    for (const auto &[uuid, material] : m_materials) {
-      m_renderer.destroyMaterial(material.handle);
-    }
     m_textures.clear();
     m_environments.clear();
     m_meshes.clear();
-    m_materials.clear();
     m_meshData.clear();
     m_models.clear();
     m_skins.clear();
@@ -247,6 +243,12 @@ void AssetDatabase::close() {
   for (const core::Uuid &uuid : files) {
     unloadFile(uuid);
   }
+  // Unloading a file keeps its materials' handles for hot reload, but those read textures that
+  // are gone now; a kept material would never resolve them again in the next project.
+  for (const auto &[uuid, material] : m_materials) {
+    m_renderer.destroyMaterial(material.handle);
+  }
+  m_materials.clear();
   std::erase_if(m_assets, [](const auto &entry) { return entry.second.source != "builtin"; });
   m_files.clear();
   m_bundle.reset();

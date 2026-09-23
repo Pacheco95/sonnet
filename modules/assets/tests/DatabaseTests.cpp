@@ -604,6 +604,31 @@ TEST_CASE("a material requests its textures and shows a placeholder until they a
   REQUIRE_FALSE(fixture.renderer.material(broken).baseColorTexture.isValid());
 }
 
+// Reopening a project kept its file materials, which still read the textures the close had
+// destroyed: the basic sample's ground lost its checker on the second open.
+TEST_CASE("reopening a project resolves its materials against the new textures", "[assets][database]") {
+  Fixture fixture;
+  core::Uuid woodUuid;
+  {
+    AssetDatabase database{fixture.renderer, fixture.jobs};
+    database.open(fixture.root, fixture.roots);
+    woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
+  }
+  MaterialSource source;
+  source.baseColorTexture = woodUuid;
+  REQUIRE(core::writeFile(fixture.root / "assets" / "wooden.material.json", saveMaterial(source).dump(2)).has_value());
+
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  for (int open = 0; open < 2; ++open) {
+    database.open(fixture.root, fixture.roots);
+    const renderer::MaterialHandle wooden = database.material(byName(database, "wooden", AssetType::Material)->uuid);
+    database.waitForLoads();
+    const renderer::TextureHandle wood = database.requestTexture(woodUuid);
+    REQUIRE(fixture.renderer.isValid(wood));
+    REQUIRE(fixture.renderer.material(wooden).baseColorTexture == wood);
+  }
+}
+
 // What placing every model of the basic sample costs, measured rather than asserted: hidden from
 // the default run, `assets_tests "[benchmark]"` prints the time to read each model's hierarchy,
 // which is what opening a project now does, against the full import it used to do. The first
