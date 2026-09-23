@@ -28,6 +28,10 @@ public:
   [[nodiscard]] virtual Format format() const = 0;
   [[nodiscard]] virtual glm::uvec2 extent() const = 0;
   [[nodiscard]] virtual std::uint32_t imageCount() const = 0;
+  // Whether the images also have ImageUsage::TransferSrc, so a frame can be copied out of one
+  // before it is presented: the editor's window screenshot (docs/editor.md, "Screenshots"). The
+  // surface decides; every desktop driver, Lavapipe's headless surface and MoltenVK allow it.
+  [[nodiscard]] virtual bool readable() const = 0;
 };
 
 } // namespace sonnet::rhi
