@@ -1,0 +1,750 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct MaterialData_natural;
+struct Light_natural;
+struct Cluster_natural;
+
+struct ObjectData_natural_logical
+{
+    float4x4 model;
+    float4 color;
+    uint id;
+    uint material;
+    uint vertexBuffer;
+    uint vertexPad;
+};
+
+struct Vertex_natural_logical
+{
+    float3 position;
+    float3 normal;
+    float4 tangent;
+    float2 uv;
+};
+
+struct ObjectData_natural
+{
+    float4x4 model;
+    float4 color;
+    uint id;
+    uint material;
+    uint vertexBuffer;
+    uint vertexPad;
+};
+
+struct StructuredBuffer
+{
+    ObjectData_natural _member0[1];
+};
+
+struct Vertex_natural
+{
+    float3 position;
+    float3 normal;
+    float4 tangent;
+    float2 uv;
+};
+
+struct StructuredBuffer_1
+{
+    Vertex_natural _member0[1];
+};
+
+struct _Array_natural_matrix_float_4_4_4
+{
+    float4x4 data[4];
+};
+
+struct _Array_natural_uint4
+{
+    uint data[4];
+};
+
+struct FrameConstants_natural
+{
+    float4x4 view;
+    float4x4 projection;
+    float4x4 viewProjection;
+    float4x4 inverseProjection;
+    float4x4 inverseViewProjection;
+    _Array_natural_matrix_float_4_4_4 cascadeMatrices;
+    float4 cascadeSplits;
+    float4 cameraPosition;
+    float4 sunDirection;
+    float4 sunColor;
+    float4 ambient;
+    float4 environment;
+    float4 clusterScaleBias;
+    float2 targetSize;
+    float nearPlane;
+    float shadowBias;
+    _Array_natural_uint4 cascadeImages;
+    uint irradianceCube;
+    uint prefilteredCube;
+    uint skyboxCube;
+    uint brdfLut;
+    uint linearSampler;
+    uint shadowSampler;
+    uint shadowNearestSampler;
+    uint manualShadowCompare;
+    uint lightCount;
+    uint debugView;
+    const device MaterialData_natural* materials;
+    const device Light_natural* lights;
+    const device Cluster_natural* clusters;
+};
+
+struct MaterialData_natural_logical
+{
+    float4 baseColor;
+    float4 emissive;
+    float metallic;
+    float roughness;
+    float normalScale;
+    float occlusionStrength;
+    uint baseColorTexture;
+    uint metallicRoughnessTexture;
+    uint normalTexture;
+    uint occlusionTexture;
+    uint emissiveTexture;
+    uint flags;
+    uint sampler;
+    uint padding0;
+};
+
+struct _Array_natural_uint_logical63
+{
+    spvUnsafeArray<uint, 63> data;
+};
+
+struct Cluster_natural_logical
+{
+    uint count;
+    _Array_natural_uint_logical63 lights;
+};
+
+struct Light_natural_logical
+{
+    float3 position;
+    float range;
+    float3 color;
+    uint type;
+    float3 direction;
+    float innerCos;
+    float outerCos;
+    float padding0;
+    float padding1;
+    float padding2;
+};
+
+struct MaterialData_natural
+{
+    float4 baseColor;
+    float4 emissive;
+    float metallic;
+    float roughness;
+    float normalScale;
+    float occlusionStrength;
+    uint baseColorTexture;
+    uint metallicRoughnessTexture;
+    uint normalTexture;
+    uint occlusionTexture;
+    uint emissiveTexture;
+    uint flags;
+    uint sampler;
+    uint padding0;
+};
+
+struct _Array_natural_uint63
+{
+    uint data[63];
+};
+
+struct Cluster_natural
+{
+    uint count;
+    _Array_natural_uint63 lights;
+};
+
+struct Light_natural
+{
+    packed_float3 position;
+    float range;
+    packed_float3 color;
+    uint type;
+    packed_float3 direction;
+    float innerCos;
+    float outerCos;
+    float padding0;
+    float padding1;
+    float padding2;
+};
+
+constant uint _8019 = {};
+constant float3 _8020 = {};
+constant float4 _8021 = {};
+constant float2 _8022 = {};
+constant bool _8023 = {};
+constant float _8024 = {};
+constant spvUnsafeArray<uint, 63> _8025 = {};
+
+struct spvDescriptorSetBuffer0
+{
+    constant void* _m0_pad [[id(0)]];
+    array<depth2d<float>, 4096> textures [[id(1)]];
+    array<sampler, 64> samplers [[id(4097)]];
+    array<texture2d<float>, 512> _m4161_pad [[id(4161)]];
+    array<texturecube<float>, 64> cubes [[id(4673)]];
+    array<sampler, 8> comparisonSamplers [[id(4737)]];
+};
+
+struct fragmentMain_out
+{
+    float4 entryPointParam_fragmentMain [[color(0)]];
+};
+
+struct fragmentMain_in
+{
+    float3 input_worldPosition [[user(locn0)]];
+    float3 input_normal [[user(locn1)]];
+    float4 input_tangent [[user(locn2)]];
+    float2 input_uv [[user(locn3)]];
+    float4 input_color [[user(locn4)]];
+    uint input_objectIndex [[user(locn5)]];
+};
+
+fragment fragmentMain_out fragmentMain(fragmentMain_in in [[stage_in]], constant spvDescriptorSetBuffer0& spvDescriptorSet0 [[buffer(0)]], constant FrameConstants_natural& frame [[buffer(9)]], const device StructuredBuffer& objects [[buffer(10)]], float4 gl_FragCoord [[position]], bool gl_FrontFacing [[front_facing]])
+{
+    float3 entryPointParam_vertexMain_normal;
+    float4 entryPointParam_vertexMain_tangent;
+    float2 entryPointParam_vertexMain_uv;
+    float4 entryPointParam_vertexMain_color;
+    uint entryPointParam_vertexMain_objectIndex;
+    fragmentMain_out out = {};
+    ObjectData_natural_logical _1210;
+    _1210.model = transpose(objects._member0[in.input_objectIndex].model);
+    _1210.color = objects._member0[in.input_objectIndex].color;
+    _1210.id = objects._member0[in.input_objectIndex].id;
+    _1210.material = objects._member0[in.input_objectIndex].material;
+    _1210.vertexBuffer = objects._member0[in.input_objectIndex].vertexBuffer;
+    _1210.vertexPad = objects._member0[in.input_objectIndex].vertexPad;
+    MaterialData_natural_logical _1217;
+    _1217.baseColor = frame.materials[_1210.material].baseColor;
+    _1217.emissive = frame.materials[_1210.material].emissive;
+    _1217.metallic = frame.materials[_1210.material].metallic;
+    _1217.roughness = frame.materials[_1210.material].roughness;
+    _1217.normalScale = frame.materials[_1210.material].normalScale;
+    _1217.occlusionStrength = frame.materials[_1210.material].occlusionStrength;
+    _1217.baseColorTexture = frame.materials[_1210.material].baseColorTexture;
+    _1217.metallicRoughnessTexture = frame.materials[_1210.material].metallicRoughnessTexture;
+    _1217.normalTexture = frame.materials[_1210.material].normalTexture;
+    _1217.occlusionTexture = frame.materials[_1210.material].occlusionTexture;
+    _1217.emissiveTexture = frame.materials[_1210.material].emissiveTexture;
+    _1217.flags = frame.materials[_1210.material].flags;
+    _1217.sampler = frame.materials[_1210.material].sampler;
+    _1217.padding0 = frame.materials[_1210.material].padding0;
+    float4 _7535 = _1217.emissive;
+    float _7536 = _1217.metallic;
+    float _7537 = _1217.roughness;
+    float _7538 = _1217.normalScale;
+    float _7539 = _1217.occlusionStrength;
+    uint _7541 = _1217.metallicRoughnessTexture;
+    uint _7542 = _1217.normalTexture;
+    uint _7543 = _1217.occlusionTexture;
+    uint _7544 = _1217.emissiveTexture;
+    uint alphaMode = _1217.flags & 255u;
+    float4 _5201 = float4(spvDescriptorSet0.textures[_1217.baseColorTexture].sample(spvDescriptorSet0.samplers[_1217.sampler], in.input_uv));
+    float4 baseColor = (_1217.baseColor * in.input_color) * _5201;
+    bool _922;
+    if (alphaMode == 1u)
+    {
+        _922 = baseColor.w < _7535.w;
+    }
+    else
+    {
+        _922 = false;
+    }
+    if (_922)
+    {
+        discard_fragment();
+    }
+    float4 _5242 = float4(spvDescriptorSet0.textures[_7541].sample(spvDescriptorSet0.samplers[_1217.sampler], in.input_uv));
+    float _1419 = fast::clamp(_7536 * _5242.z, 0.0, 1.0);
+    float _1429 = fast::clamp(_7537 * _5242.y, 0.039999999105930328369140625, 1.0);
+    float4 _5283 = float4(spvDescriptorSet0.textures[_7543].sample(spvDescriptorSet0.samplers[_1217.sampler], in.input_uv));
+    float _1443 = mix(1.0, _5283.x, _7539);
+    float4 _5324 = float4(spvDescriptorSet0.textures[_7544].sample(spvDescriptorSet0.samplers[_1217.sampler], in.input_uv));
+    float3 _1464 = fast::normalize(in.input_normal);
+    float3 n;
+    if (!gl_FrontFacing)
+    {
+        n = -_1464;
+    }
+    else
+    {
+        n = _1464;
+    }
+    float3 _1498 = fast::normalize(in.input_tangent.xyz - (n * dot(n, in.input_tangent.xyz)));
+    float3 _1525 = (float4(spvDescriptorSet0.textures[_7542].sample(spvDescriptorSet0.samplers[_1217.sampler], in.input_uv)).xyz * 2.0) - float3(1.0);
+    float3 tangentNormal = _1525;
+    float2 _1533 = _1525.xy * _7538;
+    tangentNormal.x = _1533.x;
+    tangentNormal.y = _1533.y;
+    float3 _1555 = fast::normalize(((_1498 * tangentNormal.x) + ((cross(n, _1498) * in.input_tangent.w) * tangentNormal.y)) + (n * tangentNormal.z));
+    float3 _1568 = fast::normalize(frame.cameraPosition.xyz - in.input_worldPosition);
+    float3 albedo = baseColor.xyz;
+    float3 _1585 = mix(float3(0.039999999105930328369140625), albedo, float3(_1419));
+    float viewDepth = -(frame.view * float4(in.input_worldPosition, 1.0)).z;
+    float3 sunDirect;
+    float3 color;
+    float shadow;
+    if (frame.sunDirection.w > 0.0)
+    {
+        float3 l = -frame.sunDirection.xyz;
+        float _5389;
+        do
+        {
+            if (frame.cascadeImages.data[0] == 4294967295u)
+            {
+                _5389 = 1.0;
+                break;
+            }
+            uint _5395 = 0u;
+            uint _5396;
+            for (;;)
+            {
+                if (!(_5395 < 3u))
+                {
+                    _5396 = 3u;
+                    break;
+                }
+                if (viewDepth < frame.cascadeSplits[_5395])
+                {
+                    _5396 = _5395;
+                    break;
+                }
+                _5395++;
+                continue;
+            }
+            float4 _5469 = frame.cascadeMatrices.data[_5396] * float4(in.input_worldPosition, 1.0);
+            float3 _5475 = _5469.xyz / float3(_5469.w);
+            bool _5399;
+            if (any(abs(_5475.xy) > float2(1.0)))
+            {
+                _5399 = true;
+            }
+            else
+            {
+                _5399 = _5475.z < 0.0;
+            }
+            if (_5399)
+            {
+                _5399 = true;
+            }
+            else
+            {
+                _5399 = _5475.z > 1.0;
+            }
+            if (_5399)
+            {
+                _5389 = 1.0;
+                break;
+            }
+            float2 _5503 = float2((_5475.x * 0.5) + 0.5, 0.5 - (_5475.y * 0.5));
+            uint2 _5512 = uint2(spvDescriptorSet0.textures[frame.cascadeImages.data[_5396]].get_width(), spvDescriptorSet0.textures[frame.cascadeImages.data[_5396]].get_height());
+            float2 _5526 = float2(1.0) / float2(float(_5512.x), float(_5512.y));
+            float _5538 = (frame.shadowBias * (1.0 + (2.0 * (1.0 - fast::clamp(dot(_1555, l), 0.0, 1.0))))) * float(_5396 + 1u);
+            int _5409 = -1;
+            float _5410 = 0.0;
+            float _5414;
+            for (;;)
+            {
+                if (!(_5409 <= 1))
+                {
+                    break;
+                }
+                int _5412 = -1;
+                for (;;)
+                {
+                    if (!(_5412 <= 1))
+                    {
+                        break;
+                    }
+                    float2 _5569 = _5503 + (float2(float(_5412), float(_5409)) * _5526);
+                    if (frame.manualShadowCompare != 0u)
+                    {
+                        if ((_5475.z + _5538) >= float4(spvDescriptorSet0.textures[frame.cascadeImages.data[_5396]].sample(spvDescriptorSet0.samplers[frame.shadowNearestSampler], _5569, level(0.0))).x)
+                        {
+                            _5414 = 1.0;
+                        }
+                        else
+                        {
+                            _5414 = 0.0;
+                        }
+                        _5414 = _5410 + _5414;
+                    }
+                    else
+                    {
+                        _5414 = _5410 + spvDescriptorSet0.textures[frame.cascadeImages.data[_5396]].sample_compare(spvDescriptorSet0.comparisonSamplers[frame.shadowSampler], _5569, _5475.z + _5538, level(0.0));
+                    }
+                    _5412++;
+                    _5410 = _5414;
+                    continue;
+                }
+                _5409++;
+                continue;
+            }
+            _5389 = _5410 * 0.111111111938953399658203125;
+            break;
+        } while(false);
+        float3 _5934 = fast::normalize(_1568 - frame.sunDirection.xyz);
+        float _5938 = fast::clamp(dot(_1555, l), 0.0, 1.0);
+        float _5942 = fast::max(dot(_1555, _1568), 9.9999997473787516355514526367188e-05);
+        float _5946 = fast::clamp(dot(_1555, _5934), 0.0, 1.0);
+        float _6084 = _1429 * _1429;
+        float _6087 = _6084 * _6084;
+        float _6093 = ((_5946 * _5946) * (_6087 - 1.0)) + 1.0;
+        float _6170 = _1429 + 1.0;
+        float _6174 = (_6170 * _6170) * 0.125;
+        float _6216 = _1429 + 1.0;
+        float _6220 = (_6216 * _6216) * 0.125;
+        float3 _6265 = _1585 + ((float3(1.0) - _1585) * powr(fast::clamp(1.0 - fast::clamp(dot(_5934, _1568), 0.0, 1.0), 0.0, 1.0), 5.0));
+        float3 _5981 = ((((((float3(1.0) - _6265) * (1.0 - _1419)) * albedo) * float3(0.3183098733425140380859375)) + ((_6265 * ((_6087 / ((3.1415927410125732421875 * _6093) * _6093)) * ((_5942 / ((_5942 * (1.0 - _6174)) + _6174)) * (_5938 / ((_5938 * (1.0 - _6220)) + _6220))))) / float3(fast::max((4.0 * _5942) * _5938, 9.9999997473787516355514526367188e-05)))) * frame.sunColor.xyz) * _5938;
+        sunDirect = _5981;
+        shadow = _5389;
+        color = _5981 * _5389;
+    }
+    else
+    {
+        sunDirect = float3(0.0);
+        shadow = 1.0;
+        color = float3(0.0);
+    }
+    uint _6331 = min(uint(gl_FragCoord.x / frame.clusterScaleBias.x), 15u) + (16u * (min(uint(gl_FragCoord.y / frame.clusterScaleBias.y), 8u) + (9u * uint(clamp(int((log(fast::max(viewDepth, 9.9999997473787516355514526367188e-05)) * frame.clusterScaleBias.z) + frame.clusterScaleBias.w), 0, 23)))));
+    Cluster_natural_logical _2612;
+    _2612.count = frame.clusters[_6331].count;
+    _2612.lights.data[0] = frame.clusters[_6331].lights.data[0];
+    _2612.lights.data[1] = frame.clusters[_6331].lights.data[1];
+    _2612.lights.data[2] = frame.clusters[_6331].lights.data[2];
+    _2612.lights.data[3] = frame.clusters[_6331].lights.data[3];
+    _2612.lights.data[4] = frame.clusters[_6331].lights.data[4];
+    _2612.lights.data[5] = frame.clusters[_6331].lights.data[5];
+    _2612.lights.data[6] = frame.clusters[_6331].lights.data[6];
+    _2612.lights.data[7] = frame.clusters[_6331].lights.data[7];
+    _2612.lights.data[8] = frame.clusters[_6331].lights.data[8];
+    _2612.lights.data[9] = frame.clusters[_6331].lights.data[9];
+    _2612.lights.data[10] = frame.clusters[_6331].lights.data[10];
+    _2612.lights.data[11] = frame.clusters[_6331].lights.data[11];
+    _2612.lights.data[12] = frame.clusters[_6331].lights.data[12];
+    _2612.lights.data[13] = frame.clusters[_6331].lights.data[13];
+    _2612.lights.data[14] = frame.clusters[_6331].lights.data[14];
+    _2612.lights.data[15] = frame.clusters[_6331].lights.data[15];
+    _2612.lights.data[16] = frame.clusters[_6331].lights.data[16];
+    _2612.lights.data[17] = frame.clusters[_6331].lights.data[17];
+    _2612.lights.data[18] = frame.clusters[_6331].lights.data[18];
+    _2612.lights.data[19] = frame.clusters[_6331].lights.data[19];
+    _2612.lights.data[20] = frame.clusters[_6331].lights.data[20];
+    _2612.lights.data[21] = frame.clusters[_6331].lights.data[21];
+    _2612.lights.data[22] = frame.clusters[_6331].lights.data[22];
+    _2612.lights.data[23] = frame.clusters[_6331].lights.data[23];
+    _2612.lights.data[24] = frame.clusters[_6331].lights.data[24];
+    _2612.lights.data[25] = frame.clusters[_6331].lights.data[25];
+    _2612.lights.data[26] = frame.clusters[_6331].lights.data[26];
+    _2612.lights.data[27] = frame.clusters[_6331].lights.data[27];
+    _2612.lights.data[28] = frame.clusters[_6331].lights.data[28];
+    _2612.lights.data[29] = frame.clusters[_6331].lights.data[29];
+    _2612.lights.data[30] = frame.clusters[_6331].lights.data[30];
+    _2612.lights.data[31] = frame.clusters[_6331].lights.data[31];
+    _2612.lights.data[32] = frame.clusters[_6331].lights.data[32];
+    _2612.lights.data[33] = frame.clusters[_6331].lights.data[33];
+    _2612.lights.data[34] = frame.clusters[_6331].lights.data[34];
+    _2612.lights.data[35] = frame.clusters[_6331].lights.data[35];
+    _2612.lights.data[36] = frame.clusters[_6331].lights.data[36];
+    _2612.lights.data[37] = frame.clusters[_6331].lights.data[37];
+    _2612.lights.data[38] = frame.clusters[_6331].lights.data[38];
+    _2612.lights.data[39] = frame.clusters[_6331].lights.data[39];
+    _2612.lights.data[40] = frame.clusters[_6331].lights.data[40];
+    _2612.lights.data[41] = frame.clusters[_6331].lights.data[41];
+    _2612.lights.data[42] = frame.clusters[_6331].lights.data[42];
+    _2612.lights.data[43] = frame.clusters[_6331].lights.data[43];
+    _2612.lights.data[44] = frame.clusters[_6331].lights.data[44];
+    _2612.lights.data[45] = frame.clusters[_6331].lights.data[45];
+    _2612.lights.data[46] = frame.clusters[_6331].lights.data[46];
+    _2612.lights.data[47] = frame.clusters[_6331].lights.data[47];
+    _2612.lights.data[48] = frame.clusters[_6331].lights.data[48];
+    _2612.lights.data[49] = frame.clusters[_6331].lights.data[49];
+    _2612.lights.data[50] = frame.clusters[_6331].lights.data[50];
+    _2612.lights.data[51] = frame.clusters[_6331].lights.data[51];
+    _2612.lights.data[52] = frame.clusters[_6331].lights.data[52];
+    _2612.lights.data[53] = frame.clusters[_6331].lights.data[53];
+    _2612.lights.data[54] = frame.clusters[_6331].lights.data[54];
+    _2612.lights.data[55] = frame.clusters[_6331].lights.data[55];
+    _2612.lights.data[56] = frame.clusters[_6331].lights.data[56];
+    _2612.lights.data[57] = frame.clusters[_6331].lights.data[57];
+    _2612.lights.data[58] = frame.clusters[_6331].lights.data[58];
+    _2612.lights.data[59] = frame.clusters[_6331].lights.data[59];
+    _2612.lights.data[60] = frame.clusters[_6331].lights.data[60];
+    _2612.lights.data[61] = frame.clusters[_6331].lights.data[61];
+    _2612.lights.data[62] = frame.clusters[_6331].lights.data[62];
+    uint _7586 = _2612.count;
+    uint _7631 = _2612.lights.data[0];
+    uint _7632 = _2612.lights.data[1];
+    uint _7633 = _2612.lights.data[2];
+    uint _7634 = _2612.lights.data[3];
+    uint _7635 = _2612.lights.data[4];
+    uint _7636 = _2612.lights.data[5];
+    uint _7637 = _2612.lights.data[6];
+    uint _7638 = _2612.lights.data[7];
+    uint _7639 = _2612.lights.data[8];
+    uint _7640 = _2612.lights.data[9];
+    uint _7641 = _2612.lights.data[10];
+    uint _7642 = _2612.lights.data[11];
+    uint _7643 = _2612.lights.data[12];
+    uint _7644 = _2612.lights.data[13];
+    uint _7645 = _2612.lights.data[14];
+    uint _7646 = _2612.lights.data[15];
+    uint _7647 = _2612.lights.data[16];
+    uint _7648 = _2612.lights.data[17];
+    uint _7649 = _2612.lights.data[18];
+    uint _7650 = _2612.lights.data[19];
+    uint _7651 = _2612.lights.data[20];
+    uint _7652 = _2612.lights.data[21];
+    uint _7653 = _2612.lights.data[22];
+    uint _7654 = _2612.lights.data[23];
+    uint _7655 = _2612.lights.data[24];
+    uint _7656 = _2612.lights.data[25];
+    uint _7657 = _2612.lights.data[26];
+    uint _7658 = _2612.lights.data[27];
+    uint _7659 = _2612.lights.data[28];
+    uint _7660 = _2612.lights.data[29];
+    uint _7661 = _2612.lights.data[30];
+    uint _7662 = _2612.lights.data[31];
+    uint _7663 = _2612.lights.data[32];
+    uint _7664 = _2612.lights.data[33];
+    uint _7665 = _2612.lights.data[34];
+    uint _7666 = _2612.lights.data[35];
+    uint _7667 = _2612.lights.data[36];
+    uint _7668 = _2612.lights.data[37];
+    uint _7669 = _2612.lights.data[38];
+    uint _7670 = _2612.lights.data[39];
+    uint _7671 = _2612.lights.data[40];
+    uint _7672 = _2612.lights.data[41];
+    uint _7673 = _2612.lights.data[42];
+    uint _7674 = _2612.lights.data[43];
+    uint _7675 = _2612.lights.data[44];
+    uint _7676 = _2612.lights.data[45];
+    uint _7677 = _2612.lights.data[46];
+    uint _7678 = _2612.lights.data[47];
+    uint _7679 = _2612.lights.data[48];
+    uint _7680 = _2612.lights.data[49];
+    uint _7681 = _2612.lights.data[50];
+    uint _7682 = _2612.lights.data[51];
+    uint _7683 = _2612.lights.data[52];
+    uint _7684 = _2612.lights.data[53];
+    uint _7685 = _2612.lights.data[54];
+    uint _7686 = _2612.lights.data[55];
+    uint _7687 = _2612.lights.data[56];
+    uint _7688 = _2612.lights.data[57];
+    uint _7689 = _2612.lights.data[58];
+    uint _7690 = _2612.lights.data[59];
+    uint _7691 = _2612.lights.data[60];
+    uint _7692 = _2612.lights.data[61];
+    uint _7693 = _2612.lights.data[62];
+    uint i = 0u;
+    float alpha;
+    for (;;)
+    {
+        if (!(i < min(_7586, 63u)))
+        {
+            break;
+        }
+        spvUnsafeArray<uint, 63> _7820 = spvUnsafeArray<uint, 63>({ _7631, _7632, _7633, _7634, _7635, _7636, _7637, _7638, _7639, _7640, _7641, _7642, _7643, _7644, _7645, _7646, _7647, _7648, _7649, _7650, _7651, _7652, _7653, _7654, _7655, _7656, _7657, _7658, _7659, _7660, _7661, _7662, _7663, _7664, _7665, _7666, _7667, _7668, _7669, _7670, _7671, _7672, _7673, _7674, _7675, _7676, _7677, _7678, _7679, _7680, _7681, _7682, _7683, _7684, _7685, _7686, _7687, _7688, _7689, _7690, _7691, _7692, _7693 });
+        spvUnsafeArray<uint, 63> _964 = _7820;
+        Light_natural_logical _2690;
+        _2690.position = float3(frame.lights[_964[i]].position);
+        _2690.range = frame.lights[_964[i]].range;
+        _2690.color = float3(frame.lights[_964[i]].color);
+        _2690.type = frame.lights[_964[i]].type;
+        _2690.direction = float3(frame.lights[_964[i]].direction);
+        _2690.innerCos = frame.lights[_964[i]].innerCos;
+        _2690.outerCos = frame.lights[_964[i]].outerCos;
+        _2690.padding0 = frame.lights[_964[i]].padding0;
+        _2690.padding1 = frame.lights[_964[i]].padding1;
+        _2690.padding2 = frame.lights[_964[i]].padding2;
+        float3 _7596 = _2690.color;
+        float3 _7598 = _2690.direction;
+        float _7599 = _2690.innerCos;
+        float _7600 = _2690.outerCos;
+        float3 toLight = _2690.position - in.input_worldPosition;
+        float _2758 = fast::max(dot(toLight, toLight), 9.9999997473787516355514526367188e-05);
+        float _2766 = sqrt(_2758);
+        float3 l_1 = toLight / float3(_2766);
+        float _2786 = fast::clamp(1.0 - powr(_2766 / _2690.range, 4.0), 0.0, 1.0);
+        float attenuation = (_2786 * _2786) / _2758;
+        if (_2690.type == 1u)
+        {
+            alpha = attenuation * fast::clamp((dot(-l_1, _7598) - _7600) / fast::max(_7599 - _7600, 9.9999997473787516355514526367188e-05), 0.0, 1.0);
+        }
+        else
+        {
+            alpha = attenuation;
+        }
+        if (alpha > 0.0)
+        {
+            float3 _6422 = fast::normalize(_1568 + l_1);
+            float _6426 = fast::clamp(dot(_1555, l_1), 0.0, 1.0);
+            float _6430 = fast::max(dot(_1555, _1568), 9.9999997473787516355514526367188e-05);
+            float _6434 = fast::clamp(dot(_1555, _6422), 0.0, 1.0);
+            float _6572 = _1429 * _1429;
+            float _6575 = _6572 * _6572;
+            float _6581 = ((_6434 * _6434) * (_6575 - 1.0)) + 1.0;
+            float _6658 = _1429 + 1.0;
+            float _6662 = (_6658 * _6658) * 0.125;
+            float _6704 = _1429 + 1.0;
+            float _6708 = (_6704 * _6704) * 0.125;
+            float3 _6753 = _1585 + ((float3(1.0) - _1585) * powr(fast::clamp(1.0 - fast::clamp(dot(_6422, _1568), 0.0, 1.0), 0.0, 1.0), 5.0));
+            color += (((((((float3(1.0) - _6753) * (1.0 - _1419)) * albedo) * float3(0.3183098733425140380859375)) + ((_6753 * ((_6575 / ((3.1415927410125732421875 * _6581) * _6581)) * ((_6430 / ((_6430 * (1.0 - _6662)) + _6662)) * (_6426 / ((_6426 * (1.0 - _6708)) + _6708))))) / float3(fast::max((4.0 * _6430) * _6426, 9.9999997473787516355514526367188e-05)))) * (_7596 * alpha)) * _6426);
+        }
+        i++;
+        continue;
+    }
+    float _2868 = fast::max(dot(_1555, _1568), 9.9999997473787516355514526367188e-05);
+    float3 iblDiffuse;
+    float3 iblSpecular;
+    float2 brdf;
+    if (frame.environment.w > 0.0)
+    {
+        float3 _6791 = _1585 + ((fast::max(float3(1.0 - _1429), _1585) - _1585) * powr(fast::clamp(1.0 - _2868, 0.0, 1.0), 5.0));
+        float4 sampled = float4(spvDescriptorSet0.textures[frame.brdfLut].sample(spvDescriptorSet0.samplers[frame.linearSampler], float2(_2868, _1429), level(0.0)));
+        float3 iblDiffuse_1 = (((((float3(1.0) - _6791) * (1.0 - _1419)) * spvDescriptorSet0.cubes[frame.irradianceCube].sample(spvDescriptorSet0.samplers[frame.linearSampler], _1555, level(0.0)).xyz) * albedo) * frame.environment.x) * _1443;
+        float3 iblSpecular_1 = ((spvDescriptorSet0.cubes[frame.prefilteredCube].sample(spvDescriptorSet0.samplers[frame.linearSampler], reflect(-_1568, _1555), level(_1429 * (frame.environment.y - 1.0))).xyz * ((_6791 * sampled.x) + float3(sampled.y))) * frame.environment.x) * _1443;
+        iblDiffuse = iblDiffuse_1;
+        iblSpecular = iblSpecular_1;
+        brdf = sampled.xy;
+        color += (iblDiffuse_1 + iblSpecular_1);
+    }
+    else
+    {
+        iblDiffuse = float3(0.0);
+        iblSpecular = float3(0.0);
+        brdf = float2(0.0);
+        color += ((frame.ambient.xyz * albedo) * _1443);
+    }
+    float3 _3104 = color;
+    switch (frame.debugView)
+    {
+        case 1u:
+        {
+            color = albedo;
+            break;
+        }
+        case 2u:
+        {
+            color = (_1555 * 0.5) + float3(0.5);
+            break;
+        }
+        case 3u:
+        {
+            color = sunDirect;
+            break;
+        }
+        case 4u:
+        {
+            color = float3(shadow);
+            break;
+        }
+        case 5u:
+        {
+            color = iblDiffuse;
+            break;
+        }
+        case 6u:
+        {
+            color = iblSpecular;
+            break;
+        }
+        case 7u:
+        {
+            color = float3(brdf, 0.0);
+            break;
+        }
+        case 8u:
+        {
+            uint2 vecSize = uint2(spvDescriptorSet0.textures[frame.brdfLut].get_width(), spvDescriptorSet0.textures[frame.brdfLut].get_height());
+            uint _width = vecSize.x;
+            uint _height = vecSize.y;
+            color = float3(float4(spvDescriptorSet0.textures[frame.brdfLut].read(uint2(int3(int2(fast::min(float2(_2868, _1429) * float2(float(_width), float(_height)), float2(float(_width - 1u), float(_height - 1u)))), 0).xy), 0)).xy, 0.0);
+            break;
+        }
+        case 9u:
+        {
+            color = float3(float4(spvDescriptorSet0.textures[frame.brdfLut].sample(spvDescriptorSet0.samplers[frame.shadowNearestSampler], float2(_2868, _1429), level(0.0))).xy, 0.0);
+            break;
+        }
+        case 10u:
+        {
+            color = float3(float4(spvDescriptorSet0.textures[frame.brdfLut].sample(spvDescriptorSet0.samplers[frame.linearSampler], float2(0.9900000095367431640625, 0.5), level(0.0))).xy, 0.0);
+            break;
+        }
+        default:
+        {
+            color = _3104 + (_7535.xyz * _5324.xyz);
+            break;
+        }
+    }
+    if (alphaMode == 2u)
+    {
+        alpha = baseColor.w;
+    }
+    else
+    {
+        alpha = 1.0;
+    }
+    out.entryPointParam_fragmentMain = float4(color, alpha);
+    return out;
+}
+

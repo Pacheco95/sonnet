@@ -516,3 +516,68 @@ lut texel (31, 30): 0.3569 0.0001 0.0000 1.0000
 lut texel (4, 16): 0.5747 0.0814 0.0000 1.0000
 sky (...): lut view r 228 g 1 b 0
 ```
+
+---
+
+## Section 5 — Round four: how the forward pass reads the table
+
+### Build
+
+```
+cmake --build --preset macos-debug-local
+```
+
+67 targets processed.
+
+### Test run 1 — new views and descriptor indices
+
+Command:
+```
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "lut |index|passed|failed|FAILED" | sort -u
+```
+
+Output:
+```
+  lut fixed view r 228 g 228 b 0
+  lut load view r 221 g 221 b 0
+  lut nearest view r 221 g 221 b 0
+  lut sampled index 2 storage index 0
+  lut texel (0, 0): 0.0737 0.8989 0.0000 1.0000
+  lut texel (16, 16): 0.7334 0.0160 0.0000 1.0000
+  lut texel (31, 16): 0.8794 0.0000 0.0000 1.0000
+  lut texel (31, 2): 0.9995 0.0000 0.0000 1.0000
+  lut texel (31, 30): 0.3569 0.0001 0.0000 1.0000
+  lut texel (4, 16): 0.5747 0.0814 0.0000 1.0000
+  sky (0.1, 0.3, 0.9): lut view r 221 g 221 b 0
+  sky (0.1, 0.9, 0.1): lut view r 221 g 221 b 0
+  sky (0.9, 0.1, 0.1): lut view r 221 g 221 b 0
+assertions: 6 | 3 passed | 3 failed
+modules/renderer/tests/RendererTests.cpp:1188: FAILED:
+test cases: 1 | 1 failed
+```
+
+Reference (RTX 4090):
+```
+lut fixed view r 228 g 1 b 0
+lut load view r 227 g 1 b 0
+lut nearest view r 227 g 1 b 0
+lut sampled index 2 storage index 0
+sky (...): lut view r 228 g 1 b 0
+```
+
+### Test run 2 — MSL shader dump
+
+Command:
+```
+rm -rf /tmp/mvk-shader-dump-s5 && mkdir /tmp/mvk-shader-dump-s5
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+MVK_CONFIG_SHADER_DUMP_DIR=/tmp/mvk-shader-dump-s5 \
+./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s
+```
+
+Fragment shaders dumped: `shader-fs-255bfa41f191509a.metal`, `shader-fs-537054d3cb91558b.metal`, `shader-fs-621d54a05dfd9a6e.metal`, `shader-fs-6facbdd4c5458d49.metal`, `shader-fs-71960bedae75471f.metal`, `shader-fs-ab6f7c1f53311b47.metal`, `shader-fs-f03305b190530a52.metal`.
+
+The forward fragment shader was identified by the highest count of `brdfLut` and `debugView` references (8 hits): file `shader-fs-6facbdd4c5458d49.metal`. It contains `frame.brdfLut` (sampled index), all three debug read paths (`sample` with `linearSampler`, `read` integer coords, `sample` with `shadowNearestSampler`), and the fixed-coord sample at `float2(0.99, 0.5)`. Committed as `docs/agent-tasks/mvk-forward-frag.msl`.
