@@ -61,7 +61,8 @@ struct Fixture {
 
   // Frames at the capture's fixed step, as the application runs them, until the run ends.
   editor::CaptureRun::Status run(editor::Editor &editor, editor::CaptureRun &capture) {
-    for (int frame = 0; frame < 600; ++frame) {
+    editor::CaptureRun::Status status = editor::CaptureRun::Status::Running;
+    for (int frame = 0; frame < 600 && status == editor::CaptureRun::Status::Running; ++frame) {
       editor.update(editor::CaptureRun::FrameSeconds);
       rhi::ICommandList &commands = device->beginFrame();
       const auto image = swapchain->acquire();
@@ -69,13 +70,11 @@ struct Fixture {
       editor.render(commands, image);
       device->endFrame();
       editor.afterPresent();
-      if (const editor::CaptureRun::Status status = capture.step(editor);
-          status != editor::CaptureRun::Status::Running) {
-        return status;
-      }
+      status = capture.step(editor);
     }
-    FAIL("the capture did not finish in 600 frames");
-    return editor::CaptureRun::Status::Failed;
+    // No statement after a FAIL: MSVC reads it as unreachable, which is an error there.
+    REQUIRE(status != editor::CaptureRun::Status::Running); // finished within 600 frames
+    return status;
   }
 };
 
