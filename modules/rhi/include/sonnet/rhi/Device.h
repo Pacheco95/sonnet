@@ -35,9 +35,6 @@ struct DeviceInfo {
   bool timestampsSupported{false};
   bool blockCompressionSupported{false};  // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
   bool drawIndirectCountSupported{false}; // every desktop driver and Lavapipe; not MoltenVK (ADR-0014)
-  // False on MoltenVK: a shader that keeps a SampleCmp result live loses unrelated lighting
-  // arithmetic there, so owners compare depth themselves (docs/rendering.md, "Platform notes").
-  bool comparisonSamplersUsable{true};
 };
 
 constexpr std::uint32_t FramesInFlight = 2;
@@ -63,8 +60,9 @@ public:
   [[nodiscard]] virtual ImageHandle createImage(const ImageDesc &desc) = 0;
   virtual void destroyImage(ImageHandle handle) = 0;
   [[nodiscard]] virtual const ImageDesc &imageDesc(ImageHandle handle) const = 0;
-  // The image's slot in the bindless sampled-image array, or in the cube array for a cube image
-  // (docs/rendering.md, "Frame structure"); InvalidBindlessIndex without Sampled usage.
+  // The image's slot in the bindless sampled-image array, in the cube array for a cube image or in
+  // the depth array for a depth image (docs/rendering.md, "Frame structure", ADR-0017);
+  // InvalidBindlessIndex without Sampled usage.
   [[nodiscard]] virtual std::uint32_t sampledImageIndex(ImageHandle handle) const = 0;
   // The slot of one mip level in the bindless storage-image array, for compute shaders to write;
   // the view is created on first request. InvalidBindlessIndex without Storage usage.

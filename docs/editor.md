@@ -113,7 +113,7 @@ Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "edit
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic
 ```
 
-Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+P to play and stop. The View menu toggles the panels, the overlay and the collider outlines, Tools reloads the shaders; Ctrl+Q quits.
+Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+P to play and stop. The View menu toggles the panels, the overlay and the collider outlines, and View > Shading term shows one term of the forward shading instead of the final image (docs/rendering.md, "Debugging"), Tools reloads the shaders; Ctrl+Q quits.
 
 The start scene has the animated models and the sound: a skinned reed that sways and a beacon that turns, humming, which play when you do.
 

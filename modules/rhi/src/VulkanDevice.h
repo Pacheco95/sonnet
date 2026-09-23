@@ -141,6 +141,10 @@ private:
     void release(std::uint32_t index);
   };
 
+  // The bindless binding an image's sampled view goes into, and the slots of that binding.
+  [[nodiscard]] static std::uint32_t sampledBinding(const ImageDesc &desc);
+  [[nodiscard]] IndexAllocator &sampledIndices(const ImageDesc &desc);
+
   struct Frame {
     vk::raii::CommandPool commandPool{nullptr};
     vk::raii::CommandBuffer commandBuffer{nullptr};
@@ -220,6 +224,7 @@ private:
   IndexAllocator m_samplerIndices{MaxBindlessSamplers};
   IndexAllocator m_storageIndices{MaxBindlessStorageImages};
   IndexAllocator m_cubeIndices{MaxBindlessCubeImages};
+  IndexAllocator m_depthIndices{MaxBindlessDepthImages};
   IndexAllocator m_comparisonSamplerIndices{MaxBindlessComparisonSamplers};
   IndexAllocator m_storageBufferIndices{MaxBindlessStorageBuffers};
   vk::raii::Semaphore m_timeline{nullptr};

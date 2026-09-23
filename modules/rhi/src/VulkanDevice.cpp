@@ -262,7 +262,6 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &desc) {
       m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceDriverProperties>();
   const auto &driver = properties.get<vk::PhysicalDeviceDriverProperties>();
   m_info.driverName = driver.driverName.data();
-  m_info.comparisonSamplersUsable = driver.driverID != vk::DriverId::eMoltenvk;
   m_info.driverInfo = driver.driverInfo.data();
   const vk::PhysicalDeviceLimits &limits = properties.get<vk::PhysicalDeviceProperties2>().properties.limits;
   m_transientAlignment =
@@ -307,6 +306,8 @@ void VulkanDevice::createPipelineLayout() {
                                      MaxBindlessComparisonSamplers, vk::ShaderStageFlagBits::eAll},
       vk::DescriptorSetLayoutBinding{BindlessStorageBufferBinding, vk::DescriptorType::eStorageBuffer,
                                      MaxBindlessStorageBuffers, vk::ShaderStageFlagBits::eAll},
+      vk::DescriptorSetLayoutBinding{BindlessDepthImageBinding, vk::DescriptorType::eSampledImage,
+                                     MaxBindlessDepthImages, vk::ShaderStageFlagBits::eAll},
   };
   constexpr vk::DescriptorBindingFlags bindingFlags =
       vk::DescriptorBindingFlagBits::ePartiallyBound | vk::DescriptorBindingFlagBits::eUpdateAfterBind;
@@ -338,7 +339,8 @@ void VulkanDevice::createPipelineLayout() {
 
 void VulkanDevice::createBindlessSet() {
   const std::array sizes{
-      vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, MaxBindlessSampledImages + MaxBindlessCubeImages},
+      vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage,
+                             MaxBindlessSampledImages + MaxBindlessCubeImages + MaxBindlessDepthImages},
       vk::DescriptorPoolSize{vk::DescriptorType::eSampler, MaxBindlessSamplers + MaxBindlessComparisonSamplers},
       vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, MaxBindlessStorageImages},
       vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, MaxBindlessStorageBuffers},
@@ -532,9 +534,12 @@ ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
       VulkanImage{desc, std::move(allocation), std::move(image), imageHandle, std::move(view), {}, {}});
   VulkanImage &resource = m_images.get(handle);
   if (has(desc.usage, ImageUsage::Sampled)) {
-    resource.sampledIndex = desc.cube ? m_cubeIndices.allocate("cube image") : m_sampledIndices.allocate("image");
-    writeSampledDescriptor(desc.cube ? BindlessCubeImageBinding : BindlessSampledImageBinding, resource.sampledIndex,
-                           *resource.view, vk::ImageLayout::eShaderReadOnlyOptimal);
+    // Depth images have an array of their own: SPIRV-Cross types a whole array as Metal depth
+    // textures when any use of it compares, which would make every colour read return red
+    // alone (ADR-0017).
+    resource.sampledIndex = sampledIndices(desc).allocate(desc.cube ? "cube image" : "image");
+    writeSampledDescriptor(sampledBinding(desc), resource.sampledIndex, *resource.view,
+                           vk::ImageLayout::eShaderReadOnlyOptimal);
   }
   SONNET_LOG_TRACE("image \"{}\" {}x{} -> {}:{}", desc.debugName, desc.size.x, desc.size.y, handle.index,
                    handle.generation);
@@ -559,16 +564,30 @@ void VulkanDevice::destroyImage(ImageHandle handle) {
   }
   // The bindless slots are reused only once the GPU is past every frame that could read them.
   deferDestruction([this, resource = std::make_shared<VulkanImage>(std::move(*image))]() mutable {
-    if (resource->desc.cube) {
-      m_cubeIndices.release(resource->sampledIndex);
-    } else {
-      m_sampledIndices.release(resource->sampledIndex);
-    }
+    sampledIndices(resource->desc).release(resource->sampledIndex);
     for (const std::uint32_t index : resource->storageIndices) {
       m_storageIndices.release(index);
     }
     resource.reset();
   });
+}
+
+std::uint32_t VulkanDevice::sampledBinding(const ImageDesc &desc) {
+  if (desc.cube) {
+    return BindlessCubeImageBinding;
+  }
+  return isDepthFormat(desc.format) ? BindlessDepthImageBinding : BindlessSampledImageBinding;
+}
+
+VulkanDevice::IndexAllocator &VulkanDevice::sampledIndices(const ImageDesc &desc) {
+  switch (sampledBinding(desc)) {
+  case BindlessCubeImageBinding:
+    return m_cubeIndices;
+  case BindlessDepthImageBinding:
+    return m_depthIndices;
+  default:
+    return m_sampledIndices;
+  }
 }
 
 const ImageDesc &VulkanDevice::imageDesc(ImageHandle handle) const {

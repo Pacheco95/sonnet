@@ -234,7 +234,6 @@ NullDevice::NullDevice() : m_commandList(std::make_unique<NullCommandList>(*this
   m_info.timestampsSupported = true;
   m_info.blockCompressionSupported = true;
   m_info.drawIndirectCountSupported = true;
-  m_info.comparisonSamplersUsable = true;
   for (std::uint32_t i = 0; i < FramesInFlight; ++i) {
     m_frames[i].transientBuffer = createBuffer({.size = TransientBufferSize,
                                                 .usage = BufferUsage::Uniform | BufferUsage::Storage,
@@ -301,7 +300,9 @@ ImageHandle NullDevice::createImage(const ImageDesc &desc) {
                 desc.debugName, desc.mipLevels);
   Image image{desc, InvalidBindlessIndex, {}};
   if (has(desc.usage, ImageUsage::Sampled)) {
-    image.sampledIndex = desc.cube ? m_nextCubeIndex++ : m_nextSampledIndex++;
+    image.sampledIndex = desc.cube                    ? m_nextCubeIndex++
+                         : isDepthFormat(desc.format) ? m_nextDepthIndex++
+                                                      : m_nextSampledIndex++;
   }
   return m_images.emplace(std::move(image));
 }
