@@ -228,6 +228,7 @@ CaptureRun::Status CaptureRun::step(Editor &editor) {
     }
     m_frames = 0;
     if (m_options.playSeconds) {
+      editor.scripts().seedRandom(RandomSeed);
       editor.play();
       m_stage = Stage::Play;
       return Status::Running;

@@ -149,7 +149,7 @@ std::optional<std::pair<int, std::string_view>> locate(std::string_view message,
   if (message.starts_with(path) && message.size() > path.size() && message[path.size()] == ':') {
     return splitLine(message.substr(path.size() + 1));
   }
-  constexpr std::string_view Ellipsis = "...";
+  static constexpr std::string_view Ellipsis = "...";
   if (!message.starts_with(Ellipsis)) {
     return std::nullopt;
   }
@@ -229,6 +229,12 @@ public:
     m_instances.clear();
     m_classes.clear();
     m_lua.collect_garbage();
+  }
+
+  void seedRandom(std::uint64_t seed) override {
+    // As a script would: math.randomseed with one integer.
+    const auto randomseed = m_lua["math"]["randomseed"].get<sol::protected_function>();
+    static_cast<void>(randomseed(static_cast<lua_Integer>(seed)));
   }
 
   core::Result<void> run(std::string_view code, std::string_view chunkName) override {
