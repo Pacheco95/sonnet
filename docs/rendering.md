@@ -161,7 +161,17 @@ The benchmark reports the frame's CPU split into recording the passes and submit
 | GPU, forward pass | 0.23 ms | 0.20 ms |
 | GPU, whole frame | 0.60–0.62 ms | 0.50 ms |
 
-The counted path lost nothing, and the forward pass gained, since the GPU now fetches one command per batch rather than one per survivor. The same run on the M4 Max is what shows the submission falling; until it has been taken, that figure is the ADR's expectation rather than a measurement.
+The counted path lost nothing, and the forward pass gained, since the GPU now fetches one command per batch rather than one per survivor. On the Apple M4 Max (macOS 26.7, MoltenVK 1.4.1), the same benchmark, three runs each against the uncounted form it replaced:
+
+| | Command per draw, every slot | Command per batch |
+|---|---|---|
+| CPU, recording the passes | 0.14–0.22 ms | 0.15–0.19 ms |
+| CPU, submitting the frame | 5.01–5.16 ms | 0.25–0.26 ms |
+| GPU, shadow cascade 0 | 0.38–0.41 ms | 0.015 ms |
+| GPU, forward pass | 1.55–1.58 ms | 1.13–1.14 ms |
+| GPU, whole frame | 4.73–4.75 ms | 2.08–2.12 ms |
+
+Submission falls twentyfold and cascade 0 to what its survivors cost. The ADR expected submission under 0.1 ms; the 0.25 ms left is MoltenVK's alone, since the RTX 4090 submits the same twelve commands in 0.004 ms, and whether it grows with the draw count is what a run at a smaller scene would show.
 
 ## Skinning
 
