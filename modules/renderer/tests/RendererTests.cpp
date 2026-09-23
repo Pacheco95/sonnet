@@ -1142,6 +1142,34 @@ TEST_CASE("the BRDF lookup table holds a large scale and a small bias under any 
                      body.b));
     WARN(std::format("sky ({}, {}, {}): lut view r {} g {} b {}", skyColor.r, skyColor.g, skyColor.b, body.r, body.g,
                      body.b));
+    // The table's own texels, copied out without sampling: which side of the table goes wrong.
+    {
+      const glm::uvec2 lutSize{settings.brdfLutSize, settings.brdfLutSize};
+      const BufferHandle texels = device->createBuffer({.size = std::uint64_t{lutSize.x} * lutSize.y * 8,
+                                                        .usage = BufferUsage::TransferDst,
+                                                        .memory = MemoryUsage::GpuToCpu,
+                                                        .debugName = "lut readback"});
+      ICommandList &commands = device->beginFrame();
+      RenderGraph graph{*device};
+      const GraphImage lut = graph.importImage(renderer.brdfLutImage(), ImageLayout::General, ImageLayout::General);
+      graph.addPass(
+          "lut readback", [&](PassBuilder &b) { b.transferSrc(lut); },
+          [&](ICommandList &cmd, const PassResources &resources) {
+            cmd.copyImageToBuffer(resources.image(lut), texels);
+          });
+      graph.execute(commands);
+      device->endFrame();
+      device->waitIdle();
+      const std::span<const std::byte> bytes = device->mappedRange(texels);
+      for (const glm::uvec2 at : {glm::uvec2{31, 16}, glm::uvec2{16, 16}, glm::uvec2{4, 16}, glm::uvec2{31, 2},
+                                  glm::uvec2{31, 30}, glm::uvec2{0, 0}}) {
+        std::array<std::uint16_t, 4> half{};
+        std::memcpy(half.data(), bytes.data() + (std::size_t{at.y} * lutSize.x + at.x) * 8, sizeof(half));
+        WARN(std::format("lut texel ({}, {}): {:.4f} {:.4f} {:.4f} {:.4f}", at.x, at.y, glm::unpackHalf1x16(half[0]),
+                         glm::unpackHalf1x16(half[1]), glm::unpackHalf1x16(half[2]), glm::unpackHalf1x16(half[3])));
+      }
+      device->destroyBuffer(texels);
+    }
     // Tone-mapped and display-encoded: a scale near 0.9 reads above 200, a bias near 0.02 near 30.
     REQUIRE(body.r > 180);
     REQUIRE(body.g < 80);

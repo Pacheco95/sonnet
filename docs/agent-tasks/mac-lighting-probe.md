@@ -37,3 +37,21 @@ The screenshots showed the fault. The BRDF LUT view is yellow on the Mac, meanin
 2. `./build/macos-debug-local/modules/renderer/tests/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "lut view|passed|failed|FAILED"`: report the output verbatim. On the RTX 4090 it prints `lut view r 228 g 1 b 0` for every sky.
 3. Run it again with MoltenVK's shader dump enabled (`MVK_CONFIG_SHADER_DUMP_DIR=<dir>`). Commit the dumped MSL of the `brdfLut` compute kernel (the one that writes `a / float(ibl.sampleCount), b / ...`) as `docs/agent-tasks/mvk-brdf-lut.msl`.
 4. Append the results to the report, then commit and push. Raw output only.
+
+## 4. Round three: the table's own texels
+
+The test now also copies the table's texels out directly, without sampling, and prints six of them. This tells us whether the compute pass writes wrong values or the forward pass reads them wrongly. The table image also gained transfer-read usage, which the copy needs.
+
+1. `git pull`, then `cmake --build --preset macos-debug-local`.
+2. `./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "lut |passed|failed|FAILED" | sort -u`: report the output verbatim.
+   On the RTX 4090 (Lavapipe matches to three decimals):
+   ```
+   lut texel (0, 0): 0.0726 0.8853 0.0000 1.0000
+   lut texel (16, 16): 0.7334 0.0160 0.0000 1.0000
+   lut texel (31, 16): 0.8794 0.0000 0.0000 1.0000
+   lut texel (31, 2): 0.9995 0.0000 0.0000 1.0000
+   lut texel (31, 30): 0.3569 0.0001 0.0000 1.0000
+   lut texel (4, 16): 0.5747 0.0814 0.0000 1.0000
+   sky (...): lut view r 228 g 1 b 0
+   ```
+3. Append the output to the report, then commit and push. Raw output only.

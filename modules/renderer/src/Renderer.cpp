@@ -466,10 +466,12 @@ void Renderer::createDefaults() {
       {.filter = rhi::Filter::Nearest, .addressMode = rhi::AddressMode::ClampToEdge, .debugName = "shadow nearest"});
   m_whiteTexture = createTexture(solidTexture({255, 255, 255, 255}), "white");
   m_flatNormalTexture = createTexture(solidTexture({128, 128, 255, 255}), "flat normal");
-  m_brdfLut = m_device.createImage({.size = {m_settings.brdfLutSize, m_settings.brdfLutSize},
-                                    .format = HdrFormat,
-                                    .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage,
-                                    .debugName = "brdf lut"});
+  m_brdfLut =
+      m_device.createImage({.size = {m_settings.brdfLutSize, m_settings.brdfLutSize},
+                            .format = HdrFormat,
+                            // TransferSrc for the probe test that reads the table back.
+                            .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage | rhi::ImageUsage::TransferSrc,
+                            .debugName = "brdf lut"});
   m_clusterBuffer = m_device.createBuffer({.size = std::uint64_t{ClusterCount} * ClusterBytes,
                                            .usage = rhi::BufferUsage::Storage,
                                            .debugName = "light clusters"});

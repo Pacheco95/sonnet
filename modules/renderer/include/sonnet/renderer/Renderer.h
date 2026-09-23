@@ -169,6 +169,10 @@ public:
   [[nodiscard]] const RenderStatistics &statistics() const noexcept {
     return m_statistics;
   }
+  // Probe for the macOS lighting difference: the split-sum table, for a test to read back.
+  [[nodiscard]] rhi::ImageHandle brdfLutImage() const noexcept {
+    return m_brdfLut;
+  }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
   }
