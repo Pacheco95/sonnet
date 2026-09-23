@@ -134,7 +134,7 @@ sonnet_editor apps/samples/basic --scene scenes/playground.scene.json --play 3 -
 | `--screenshot FILE` | The viewport's scene, at the viewport's size, as a PNG |
 | `--screenshot-window FILE` | The whole window, with the panels, as a PNG |
 | `--scene FILE` | Opens this scene, relative to the project, instead of its start scene |
-| `--play SECONDS` | Plays for this long before the capture, and captures while playing |
+| `--play SECONDS` | Plays for this many seconds, not steps, before the capture, and captures while playing: `--play 3` is 180 steps of 1/60 s |
 | `--select PATH` | Selects the entity at this path of names, `Parent/Child`, so the outline and the gizmo show |
 | `--shading-term TERM` | One term of the forward shading instead of the final image: `final`, `albedo`, `normal`, `sun-direct`, `shadow-factor`, `ibl-diffuse`, `ibl-specular` or `brdf-lut`, the View > Shading term menu's names in any case |
 | `--settle-frames N` | Frames drawn after the assets have loaded, before playing or capturing; 10 by default |
