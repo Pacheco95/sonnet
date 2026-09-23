@@ -468,3 +468,51 @@ MVK_CONFIG_SHADER_DUMP_DIR=/tmp/mvk-shader-dump \
 Dumped compute shaders: `shader-cs-038cb1fef6a959b1.metal`, `shader-cs-3baee2ef358b806d.metal`, `shader-cs-76944937dda8d7bb.metal`, `shader-cs-ce2e4773e6632aa3.metal`.
 
 The `brdfLut` kernel was identified by the presence of `ibl.sampleCount` and the write `float4(a / float(ibl.sampleCount), b / float(ibl.sampleCount), ...)`: file `shader-cs-ce2e4773e6632aa3.metal`. Committed as `docs/agent-tasks/mvk-brdf-lut.msl`.
+
+---
+
+## Section 4 — Round three: the table's own texels
+
+### Build
+
+```
+cmake --build --preset macos-debug-local
+```
+
+56 targets processed (renderer_tests and downstream targets rebuilt).
+
+### Test run — texel readback and filtered output
+
+Command:
+```
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "lut |passed|failed|FAILED" | sort -u
+```
+
+Output:
+```
+  lut texel (0, 0): 0.0737 0.8989 0.0000 1.0000
+  lut texel (16, 16): 0.7334 0.0160 0.0000 1.0000
+  lut texel (31, 16): 0.8794 0.0000 0.0000 1.0000
+  lut texel (31, 2): 0.9995 0.0000 0.0000 1.0000
+  lut texel (31, 30): 0.3569 0.0001 0.0000 1.0000
+  lut texel (4, 16): 0.5747 0.0814 0.0000 1.0000
+  sky (0.1, 0.3, 0.9): lut view r 221 g 221 b 0
+  sky (0.1, 0.9, 0.1): lut view r 221 g 221 b 0
+  sky (0.9, 0.1, 0.1): lut view r 221 g 221 b 0
+assertions: 6 | 3 passed | 3 failed
+modules/renderer/tests/RendererTests.cpp:1175: FAILED:
+test cases: 1 | 1 failed
+```
+
+Reference (RTX 4090):
+```
+lut texel (0, 0): 0.0726 0.8853 0.0000 1.0000
+lut texel (16, 16): 0.7334 0.0160 0.0000 1.0000
+lut texel (31, 16): 0.8794 0.0000 0.0000 1.0000
+lut texel (31, 2): 0.9995 0.0000 0.0000 1.0000
+lut texel (31, 30): 0.3569 0.0001 0.0000 1.0000
+lut texel (4, 16): 0.5747 0.0814 0.0000 1.0000
+sky (...): lut view r 228 g 1 b 0
+```
