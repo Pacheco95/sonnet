@@ -1,5 +1,7 @@
 #include <sonnet/editor/Editor.h>
 
+#include "Screenshot.h"
+
 #include <sonnet/editor/EntityCommands.h>
 
 #include <sonnet/core/Log.h>
@@ -17,6 +19,7 @@
 #include <format>
 #include <fstream>
 #include <thread>
+#include <utility>
 #include <variant>
 
 namespace sonnet::editor {
@@ -34,7 +37,7 @@ std::string nameOf(flecs::entity entity) {
 
 Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
                const rhi::ISwapchain &swapchain, bool explorer)
-    : m_window(window), m_device(device), m_basePath(platform.basePath()),
+    : m_window(window), m_device(device), m_swapchain(swapchain), m_basePath(platform.basePath()),
       m_imgui({.window = &window,
                .device = &device,
                .swapchainFormat = swapchain.format(),
@@ -402,12 +405,10 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Statistics overlay", nullptr, &m_showOverlay);
     ImGui::MenuItem("Physics colliders", nullptr, &m_showColliders);
     if (ImGui::BeginMenu("Shading term")) {
-      static constexpr std::array<const char *, 8> Names{"Final",         "Albedo",      "Normal",       "Sun direct",
-                                                         "Shadow factor", "IBL diffuse", "IBL specular", "BRDF LUT"};
       renderer::RendererSettings settings = m_renderer.settings();
-      for (std::uint32_t i = 0; i < Names.size(); ++i) {
+      for (std::uint32_t i = 0; i < renderer::DebugViewCount; ++i) {
         const auto view = static_cast<renderer::DebugView>(i);
-        if (ImGui::MenuItem(Names[i], nullptr, settings.debugView == view)) {
+        if (ImGui::MenuItem(renderer::debugViewName(view), nullptr, settings.debugView == view)) {
           settings.debugView = view;
           m_renderer.setSettings(settings);
         }
@@ -598,6 +599,18 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     m_renderer.addOutlinePass(m_graph, sceneColor, mask);
     m_picker.addPass(m_graph, ids, target.size());
   }
+  // A screenshot waits for a frame that has what it asks for: a viewport target, and a swapchain
+  // image for the window.
+  if (m_screenshotRequest && !m_screenshotRequest->second.empty() && !m_swapchain.readable()) {
+    m_screenshotResult = std::unexpected(
+        core::Error{"the swapchain's images cannot be copied out on this device", core::ErrorCategory::Graphics});
+    m_screenshotRequest.reset();
+  }
+  const bool capture = m_screenshotRequest && (m_screenshotRequest->first.empty() || sceneColor.isValid()) &&
+                       (m_screenshotRequest->second.empty() || swapchainImage.has_value());
+  if (capture && !m_screenshotRequest->first.empty()) {
+    addReadback(sceneColor, target.size(), renderer::Renderer::ColorFormat, m_screenshotRequest->first);
+  }
   if (swapchainImage) {
     const renderer::GraphImage backbuffer = m_graph.importImage(swapchainImage->image, rhi::ImageLayout::Present);
     m_graph.addPass(
@@ -609,6 +622,12 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
           }
         },
         [this](rhi::ICommandList &cmd, const renderer::PassResources &) { m_imgui.draw(cmd); });
+    if (capture && !m_screenshotRequest->second.empty()) {
+      addReadback(backbuffer, swapchainImage->extent, m_swapchain.format(), m_screenshotRequest->second);
+    }
+  }
+  if (capture) {
+    m_screenshotRequest.reset();
   }
   m_graph.execute(commands);
 
@@ -620,6 +639,54 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
 
 void Editor::afterPresent() {
   m_imgui.renderPlatformWindows();
+  if (!m_readbacks.empty()) {
+    writeReadbacks();
+  }
+}
+
+void Editor::setShadingTerm(renderer::DebugView view) {
+  renderer::RendererSettings settings = m_renderer.settings();
+  settings.debugView = view;
+  m_renderer.setSettings(settings);
+}
+
+void Editor::requestScreenshots(std::filesystem::path viewport, std::filesystem::path window) {
+  m_screenshotRequest.emplace(std::move(viewport), std::move(window));
+  m_screenshotResult.reset();
+}
+
+std::optional<core::Result<void>> Editor::takeScreenshotResult() {
+  return std::exchange(m_screenshotResult, std::nullopt);
+}
+
+void Editor::addReadback(renderer::GraphImage image, glm::uvec2 size, rhi::Format format, std::filesystem::path file) {
+  const rhi::BufferHandle buffer = m_device.createBuffer({.size = std::uint64_t{size.x} * size.y * 4,
+                                                          .usage = rhi::BufferUsage::TransferDst,
+                                                          .memory = rhi::MemoryUsage::GpuToCpu,
+                                                          .debugName = "screenshot"});
+  m_readbacks.push_back({.file = std::move(file), .buffer = buffer, .size = size, .format = format});
+  m_graph.addPass(
+      "screenshot", [&](renderer::PassBuilder &builder) { builder.transferSrc(image); },
+      [image, buffer](rhi::ICommandList &cmd, const renderer::PassResources &resources) {
+        cmd.copyImageToBuffer(resources.image(image), buffer);
+      });
+}
+
+void Editor::writeReadbacks() {
+  // A screenshot is a one-off: waiting for the frame is simpler than tracking its fence.
+  m_device.waitIdle();
+  core::Result<void> result;
+  for (const Readback &readback : m_readbacks) {
+    if (result) {
+      result = writeScreenshot(readback.file, readback.size, readback.format, m_device.mappedRange(readback.buffer));
+      if (result) {
+        SONNET_LOG_INFO("screenshot {}x{} written to {}", readback.size.x, readback.size.y, readback.file.string());
+      }
+    }
+    m_device.destroyBuffer(readback.buffer);
+  }
+  m_readbacks.clear();
+  m_screenshotResult = std::move(result);
 }
 
 core::Result<ExportReport> Editor::exportProject(const ExportOptions &options) {

@@ -35,6 +35,7 @@ Per frame, in this order:
 | `CommandStack.h`, `EntityCommands.h` | `ICommand`, the undo history, and the commands every edit goes through |
 | `Project.h`, `Preferences.h` | Creating a project with its starter scene, and the per-user settings; the project file itself is `assets::Project` |
 | `Export.h` | Cooking the project and assembling a runnable directory next to the bundle ([Export](#export)) |
+| `Capture.h` | The editor's command line, and `CaptureRun`, which steps a scripted run to its screenshots ([Screenshots](#screenshots)) |
 | `LogPanel.h` | `LogBuffer`, a spdlog sink registered with `core::Log` for the panel's lifetime, and the panel with a level threshold, text filter, auto-scroll and `file:line` links |
 | `StatisticsPanel.h` | Frame time history, per-pass CPU and GPU times from the graph, draw and triangle counts, VMA budget per heap; drawn as a window or as the overlay in the viewport's corner |
 
@@ -113,11 +114,34 @@ Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "edit
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic
 ```
 
-Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+P to play and stop. The View menu toggles the panels, the overlay and the collider outlines, and View > Shading term shows one term of the forward shading instead of the final image (docs/rendering.md, "Debugging"), Tools reloads the shaders; Ctrl+Q quits.
+To capture instead of looking, see [Screenshots](#screenshots). Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+P to play and stop. The View menu toggles the panels, the overlay and the collider outlines, and View > Shading term shows one term of the forward shading instead of the final image (docs/rendering.md, "Debugging"), Tools reloads the shaders; Ctrl+Q quits.
 
 The start scene has the animated models and the sound: a skinned reed that sways and a beacon that turns, humming, which play when you do.
 
 File, Open scene, `scenes/playground.scene.json` is the physics and scripting sample: play it, click into the viewport, and roll the ball with W/A/S/D and Space while a sweeper, an elevator and a spawner run their scripts, the spawner ringing a chime for every crate it drops.
+
+## Screenshots
+
+An agent or a script often cannot capture the screen: on macOS that takes the Screen Recording permission and a window to find, and on a headless machine there is no screen. So the editor writes its own screenshots, from the command line, and quits:
+
+```bash
+sonnet_editor apps/samples/basic --scene scenes/playground.scene.json --play 3 --select Ball \
+  --screenshot shots/playground.png --screenshot-window shots/playground-window.png
+```
+
+| Flag | Effect |
+|---|---|
+| `--screenshot FILE` | The viewport's scene, at the viewport's size, as a PNG |
+| `--screenshot-window FILE` | The whole window, with the panels, as a PNG |
+| `--scene FILE` | Opens this scene, relative to the project, instead of its start scene |
+| `--play SECONDS` | Plays for this long before the capture, and captures while playing |
+| `--select PATH` | Selects the entity at this path of names, `Parent/Child`, so the outline and the gizmo show |
+| `--shading-term TERM` | One term of the forward shading instead of the final image: `final`, `albedo`, `normal`, `sun-direct`, `shadow-factor`, `ibl-diffuse`, `ibl-specular` or `brdf-lut`, the View > Shading term menu's names in any case |
+| `--settle-frames N` | Frames drawn after the assets have loaded, before playing or capturing; 10 by default |
+
+`sonnet_editor --help` prints the same list, from the table the parser reads, with the shading terms and the exit codes, and opens no window; `tools/check_docs.py` fails when a flag in that table is missing from this section. A project and one of the two screenshots are required, and any mistake in the arguments fails the run rather than starting a different one. The run waits until the viewport has a target and `AssetDatabase::loading` is false, giving up after two minutes, then draws the settle frames, plays, selects and captures from one frame. Meanwhile the editor steps at a fixed 1/60 s instead of the wall clock, so `--play 3` is 180 steps however fast the machine draws, and the same arguments give the same image run after run. The exit code is 0 once both files are written and 1 on any failure, which the log says. The viewport image is the render target's bytes, already display-encoded by the tone mapper, so it matches the screen; the window image is the swapchain image the frame presented, which needs `ISwapchain::readable` (every desktop driver, Lavapipe's headless surface and MoltenVK have it). Both are opaque: the scene's alpha is not coverage.
+
+The same thing is an API for tests: `Editor::requestScreenshots` copies the next frame's viewport and window out, `afterPresent` waits for that frame and writes them, and `takeScreenshotResult` reports the outcome. `editor_tests` runs a capture of a new project's starter scene on Lavapipe, playing and with the box selected, and reads both PNGs back.
 
 ## See also
 
