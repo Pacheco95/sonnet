@@ -15,11 +15,13 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <initializer_list>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 using namespace sonnet;
@@ -187,6 +189,47 @@ TEST_CASE("selecting a parent outlines its whole subtree", "[editor][gpu]") {
     REQUIRE(outlined() == sortedIds({other, parent, child, child, grandchild, grandchild}));
     editor.selection().clear();
     REQUIRE(outlined().empty());
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+// Each member of a component is a two-column table: the name at 90 px, then the widget told to
+// fill the rest. On the first frame after a selection the value column used to fall to ImGui's
+// minimum width, so every field drew as a sliver, and grew back over the next frames.
+TEST_CASE("the inspector gives its value columns the width the label leaves", "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    world::World &world = editor.world();
+    const flecs::entity sun = world.createEntity("Lit");
+    sun.set<world::DirectionalLight>({});
+    // The panels laid out first, then the frame after the selection: the tables' first, when their
+    // value column had no auto width yet and its weight came out as 0/0.
+    for (int i = 0; i < 3; ++i) {
+      fixture.frame(editor);
+    }
+    editor.selection().select(world.uuidOf(sun));
+    fixture.frame(editor);
+    ImGuiContext &context = *ImGui::GetCurrentContext();
+    int members = 0;
+    for (int i = 0; i < context.Tables.GetMapSize(); ++i) {
+      const ImGuiTable *table = context.Tables.TryGetMapData(i);
+      if (table == nullptr || table->ColumnsCount != 2 || table->LastFrameActive < context.FrameCount - 1 ||
+          !std::string_view{table->OuterWindow->Name}.starts_with("Inspector")) {
+        continue;
+      }
+      ++members;
+      CAPTURE(members);
+      const float left = table->OuterRect.GetWidth() - table->Columns[0].WidthGiven;
+      CAPTURE(table->OuterRect.GetWidth(), table->Columns[1].WidthGiven);
+      REQUIRE(table->Columns[0].WidthGiven == Approx(90.0f));
+      // The value column takes what the label leaves, less the spacing between cells; the bug left
+      // it at ImGui's four-pixel minimum.
+      REQUIRE(table->Columns[1].WidthGiven >= left / 2.0f);
+    }
+    // The Transform's three and the light's two.
+    REQUIRE(members >= 5);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
