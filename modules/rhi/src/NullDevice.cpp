@@ -201,6 +201,9 @@ public:
   std::uint32_t imageCount() const override {
     return static_cast<std::uint32_t>(m_images.size());
   }
+  bool readable() const override {
+    return true;
+  }
 
 private:
   void create() {
@@ -210,10 +213,11 @@ private:
       return;
     }
     for (std::uint32_t i = 0; i < 3; ++i) {
-      m_images.push_back(m_device.createImage({.size = m_extent,
-                                               .format = format(),
-                                               .usage = ImageUsage::ColorAttachment | ImageUsage::TransferDst,
-                                               .debugName = std::format("swapchain image {}", i)}));
+      m_images.push_back(m_device.createImage(
+          {.size = m_extent,
+           .format = format(),
+           .usage = ImageUsage::ColorAttachment | ImageUsage::TransferDst | ImageUsage::TransferSrc,
+           .debugName = std::format("swapchain image {}", i)}));
     }
   }
 

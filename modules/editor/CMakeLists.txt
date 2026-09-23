@@ -1,7 +1,10 @@
+find_package(Stb REQUIRED)
+
 sonnet_add_module(editor
   SOURCES
     src/AssetBrowserPanel.cpp
     src/AssetCommands.cpp
+    src/Capture.cpp
     src/CommandStack.cpp
     src/Editor.cpp
     src/EntityCommands.cpp
@@ -21,9 +24,12 @@ sonnet_add_module(editor
     sonnet::scripting
     sonnet::ui
 )
+# stb_image_write for the screenshots (docs/editor.md, "Screenshots").
+target_include_directories(sonnet_editor SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 
 sonnet_add_module_test(editor
   SOURCES
+    tests/CaptureTests.cpp
     tests/CommandTests.cpp
     tests/EditorTests.cpp
     tests/EditorPlayTests.cpp
@@ -35,4 +41,6 @@ sonnet_add_module_test(editor
 )
 if(TARGET editor_tests)
   sonnet_add_engine_shaders(editor_tests)
+  # stb_image, compiled into sonnet_assets, reads the screenshots back.
+  target_include_directories(editor_tests SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 endif()

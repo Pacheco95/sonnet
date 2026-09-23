@@ -72,7 +72,25 @@ on_disk = {p.name for p in adr_dir.glob("0*.md")}
 for missing in sorted(on_disk - listed):
     problems.append(f"ADR          {missing} exists but is not listed in README")
 
-print(f"checked {len(md_files)} markdown files, modules={modules}, ports={len(ports)}")
+# Every capture flag the editor accepts must be in the Screenshots section of docs/editor.md, and
+# CLAUDE.md must point agents at it: agents and scripts are who the flags are for.
+capture_source = (ROOT / "modules/editor/src/Capture.cpp").read_text()
+flags = re.findall(r'^\s*\{"(--[a-z\-]+)"', capture_source, re.M)
+if not flags:
+    problems.append("CAPTURE      no flags found in modules/editor/src/Capture.cpp's option table")
+editor_doc = (ROOT / "docs/editor.md").read_text()
+screenshots = editor_doc.split("## Screenshots", 1)[1].split("\n## ", 1)[0] if "## Screenshots" in editor_doc else ""
+if not screenshots:
+    problems.append("CAPTURE      docs/editor.md has no '## Screenshots' section")
+for flag in flags:
+    if f"`{flag} " not in screenshots and f"`{flag}`" not in screenshots:
+        problems.append(f"CAPTURE      {flag} is an editor flag but not in docs/editor.md, Screenshots")
+claude = (ROOT / "CLAUDE.md").read_text()
+for needle in ("--screenshot", "--help", "docs/editor.md#screenshots"):
+    if needle not in claude:
+        problems.append(f"CAPTURE      CLAUDE.md does not mention {needle}, which is how agents find the screenshots")
+
+print(f"checked {len(md_files)} markdown files, modules={modules}, ports={len(ports)}, capture flags={len(flags)}")
 if problems:
     print("\n".join(problems))
     sys.exit(1)

@@ -49,6 +49,9 @@ enum class DebugView : std::uint32_t {
   IblSpecular,
   BrdfLut, // the split-sum scale and bias at the fragment's n.v and roughness, in red and green
 };
+constexpr std::uint32_t DebugViewCount = 8;
+// What the editor's View > Shading term menu calls a term: "Final", "Sun direct", "BRDF LUT".
+[[nodiscard]] const char *debugViewName(DebugView view) noexcept;
 
 // Quality knobs. Tests turn the sizes and sample counts down so Lavapipe finishes quickly.
 struct RendererSettings {
