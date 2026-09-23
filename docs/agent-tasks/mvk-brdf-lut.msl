@@ -1,0 +1,102 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct IblConstants_natural
+{
+    uint source;
+    uint destination;
+    uint size;
+    uint sampleCount;
+    float roughness;
+    float sourceLod;
+    uint sampler;
+    uint padding;
+};
+
+constant uint3 _4510 = {};
+constant float3 _4511 = {};
+constant uint _4512 = {};
+constant float _4513 = {};
+
+struct spvDescriptorSetBuffer0
+{
+    constant void* _m0_pad [[id(0)]];
+    array<texture2d<float>, 4096> _m1_pad [[id(1)]];
+    array<sampler, 64> _m4097_pad [[id(4097)]];
+    array<texture2d_array<float, access::write>, 512> storageImages [[id(4161)]];
+};
+
+kernel void brdfLut(constant spvDescriptorSetBuffer0& spvDescriptorSet0 [[buffer(0)]], constant IblConstants_natural& ibl [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    do
+    {
+        bool _1460;
+        if (gl_GlobalInvocationID.x >= ibl.size)
+        {
+            _1460 = true;
+        }
+        else
+        {
+            _1460 = gl_GlobalInvocationID.y >= ibl.size;
+        }
+        if (_1460)
+        {
+            break;
+        }
+        float _1567 = fast::max((float(gl_GlobalInvocationID.x) + 0.5) / float(ibl.size), 0.001000000047497451305389404296875);
+        float _1581 = (float(gl_GlobalInvocationID.y) + 0.5) / float(ibl.size);
+        float3 _1591 = float3(sqrt(1.0 - (_1567 * _1567)), 0.0, _1567);
+        uint i = 0u;
+        float a = 0.0;
+        float b = 0.0;
+        float3 _3872;
+        for (;;)
+        {
+            if (!(i < ibl.sampleCount))
+            {
+                break;
+            }
+            uint _3685 = (i << 16u) | (i >> 16u);
+            uint _3691 = ((_3685 & 1431655765u) << 1u) | ((_3685 & 2863311530u) >> 1u);
+            uint _3697 = ((_3691 & 858993459u) << 2u) | ((_3691 & 3435973836u) >> 2u);
+            uint _3703 = ((_3697 & 252645135u) << 4u) | ((_3697 & 4042322160u) >> 4u);
+            float2 _3716 = float2(float(i) / float(ibl.sampleCount), float(((_3703 & 16711935u) << 8u) | ((_3703 & 4278255360u) >> 8u)) * 2.3283064365386962890625e-10);
+            float _3788 = _1581 * _1581;
+            float _3792 = 6.283185482025146484375 * _3716.x;
+            float _3795 = _3716.y;
+            float _3802 = sqrt((1.0 - _3795) / (1.0 + (((_3788 * _3788) - 1.0) * _3795)));
+            float _3807 = sqrt(1.0 - (_3802 * _3802));
+            if (abs(1.0) < 0.999000012874603271484375)
+            {
+                _3872 = float3(0.0, 0.0, 1.0);
+            }
+            else
+            {
+                _3872 = float3(1.0, 0.0, 0.0);
+            }
+            float3 _3892 = fast::normalize(cross(_3872, float3(0.0, 0.0, 1.0)));
+            float3x3 _3897 = float3x3(_3892, cross(float3(0.0, 0.0, 1.0), _3892), float3(0.0, 0.0, 1.0));
+            float3 _3818 = fast::normalize(((_3897[0] * (cos(_3792) * _3807)) + (_3897[1] * (sin(_3792) * _3807))) + (_3897[2] * _3802));
+            float _1651 = dot(_1591, _3818);
+            float _1662 = fast::clamp(fast::normalize((_3818 * (2.0 * _1651)) - _1591).z, 0.0, 1.0);
+            float _1678 = fast::clamp(_1651, 0.0, 1.0);
+            if (_1662 > 0.0)
+            {
+                float _3976 = (_1581 * _1581) * 0.5;
+                float _4014 = (_1581 * _1581) * 0.5;
+                float gVis = (((_1567 / ((_1567 * (1.0 - _3976)) + _3976)) * (_1662 / ((_1662 * (1.0 - _4014)) + _4014))) * _1678) / fast::max(fast::clamp(_3818.z, 0.0, 1.0) * _1567, 9.9999997473787516355514526367188e-05);
+                float _1757 = powr(1.0 - _1678, 5.0);
+                a += ((1.0 - _1757) * gVis);
+                b += (_1757 * gVis);
+            }
+            i++;
+            continue;
+        }
+        uint3 _1798 = uint3(gl_GlobalInvocationID.xy, 0u);
+        spvDescriptorSet0.storageImages[ibl.destination].write(float4(a / float(ibl.sampleCount), b / float(ibl.sampleCount), 0.0, 1.0), uint2(_1798.xy), uint(_1798.z));
+        break;
+    } while(false);
+}
+

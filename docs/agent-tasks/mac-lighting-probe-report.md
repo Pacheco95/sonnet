@@ -409,3 +409,62 @@ GPU0:
 - KosmicKrisp `drawIndirectCount = false`. MoltenVK also lacks `drawIndirectCount` on this device (per ADR-0014, the engine already uses `drawIndexedIndirect` with zero-instance slots instead of `drawIndirectCount` on MoltenVK).
 - KosmicKrisp `samplerFilterMinmax = false`; MoltenVK status on this feature is not shown in the summary above (full grep not run for MoltenVK in this session).
 - Section 2 (shading-term screenshots on MoltenVK) was not run; it is to be done by the user.
+
+---
+
+## Section 3 — Round two: the BRDF lookup table
+
+### Build
+
+```
+cmake --build --preset macos-debug-local
+```
+
+3 targets rebuilt (new `RendererTests.cpp.o` + relinked `renderer_tests`).
+
+### Test run 1 — filtered output
+
+Command:
+```
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "lut view|passed|failed|FAILED"
+```
+
+Output:
+```
+  sky (0.1, 0.3, 0.9): lut view r 221 g 221 b 0
+  sky (0.1, 0.3, 0.9): lut view r 221 g 221 b 0
+  sky (0.1, 0.3, 0.9): lut view r 221 g 221 b 0
+modules/renderer/tests/RendererTests.cpp:1147: FAILED:
+  sky (0.1, 0.3, 0.9): lut view r 221 g 221 b 0
+  sky (0.9, 0.1, 0.1): lut view r 221 g 221 b 0
+  sky (0.9, 0.1, 0.1): lut view r 221 g 221 b 0
+  sky (0.9, 0.1, 0.1): lut view r 221 g 221 b 0
+modules/renderer/tests/RendererTests.cpp:1147: FAILED:
+  sky (0.9, 0.1, 0.1): lut view r 221 g 221 b 0
+  sky (0.1, 0.9, 0.1): lut view r 221 g 221 b 0
+  sky (0.1, 0.9, 0.1): lut view r 221 g 221 b 0
+  sky (0.1, 0.9, 0.1): lut view r 221 g 221 b 0
+modules/renderer/tests/RendererTests.cpp:1147: FAILED:
+  sky (0.1, 0.9, 0.1): lut view r 221 g 221 b 0
+test cases: 1 | 1 failed
+assertions: 6 | 3 passed | 3 failed
+```
+
+All three skies: `r 221 g 221 b 0`. Reference (RTX 4090): `r 228 g 1 b 0`.
+
+### Test run 2 — MSL shader dump
+
+Command:
+```
+mkdir -p /tmp/mvk-shader-dump
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+MVK_CONFIG_SHADER_DUMP_DIR=/tmp/mvk-shader-dump \
+./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s
+```
+
+Dumped compute shaders: `shader-cs-038cb1fef6a959b1.metal`, `shader-cs-3baee2ef358b806d.metal`, `shader-cs-76944937dda8d7bb.metal`, `shader-cs-ce2e4773e6632aa3.metal`.
+
+The `brdfLut` kernel was identified by the presence of `ibl.sampleCount` and the write `float4(a / float(ibl.sampleCount), b / float(ibl.sampleCount), ...)`: file `shader-cs-ce2e4773e6632aa3.metal`. Committed as `docs/agent-tasks/mvk-brdf-lut.msl`.
