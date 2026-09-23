@@ -581,3 +581,62 @@ MVK_CONFIG_SHADER_DUMP_DIR=/tmp/mvk-shader-dump-s5 \
 Fragment shaders dumped: `shader-fs-255bfa41f191509a.metal`, `shader-fs-537054d3cb91558b.metal`, `shader-fs-621d54a05dfd9a6e.metal`, `shader-fs-6facbdd4c5458d49.metal`, `shader-fs-71960bedae75471f.metal`, `shader-fs-ab6f7c1f53311b47.metal`, `shader-fs-f03305b190530a52.metal`.
 
 The forward fragment shader was identified by the highest count of `brdfLut` and `debugView` references (8 hits): file `shader-fs-6facbdd4c5458d49.metal`. It contains `frame.brdfLut` (sampled index), all three debug read paths (`sample` with `linearSampler`, `read` integer coords, `sample` with `shadowNearestSampler`), and the fixed-coord sample at `float2(0.99, 0.5)`. Committed as `docs/agent-tasks/mvk-forward-frag.msl`.
+
+---
+
+## Section 6 — Round five: compression, and whether the cubes are affected
+
+### Build
+
+```
+cmake --build --preset macos-debug-local
+```
+
+17 targets processed.
+
+### Test run 1 — default (no mutable storage)
+
+Command:
+```
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "background|lut view|passed|failed|FAILED" | sort -u
+```
+
+Output:
+```
+  sky (0.1, 0.3, 0.9): background r 99 g 175 b 228
+  sky (0.1, 0.3, 0.9): lut view r 221 g 221 b 0
+  sky (0.1, 0.9, 0.1): background r 99 g 228 b 99
+  sky (0.1, 0.9, 0.1): lut view r 221 g 221 b 0
+  sky (0.9, 0.1, 0.1): background r 228 g 99 b 99
+  sky (0.9, 0.1, 0.1): lut view r 221 g 221 b 0
+assertions: 6 | 3 passed | 3 failed
+modules/renderer/tests/RendererTests.cpp:1191: FAILED:
+test cases: 1 | 1 failed
+```
+
+### Test run 2 — SONNET_PROBE_MUTABLE_STORAGE=1
+
+Command:
+```
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+SONNET_PROBE_MUTABLE_STORAGE=1 \
+./build/macos-debug-local/modules/renderer/renderer_tests "the BRDF lookup table*" -s 2>&1 | grep -E "background|lut view|passed|failed|FAILED" | sort -u
+```
+
+Output:
+```
+sky (0.1, 0.3, 0.9): background r 99 g 175 b 228
+  sky (0.1, 0.3, 0.9): lut view r 221 g 221 b 0
+  sky (0.1, 0.9, 0.1): background r 99 g 228 b 99
+  sky (0.1, 0.9, 0.1): lut view r 221 g 221 b 0
+  sky (0.9, 0.1, 0.1): background r 228 g 99 b 99
+  sky (0.9, 0.1, 0.1): lut view r 221 g 221 b 0
+assertions: 6 | 3 passed | 3 failed
+modules/renderer/tests/RendererTests.cpp:1191: FAILED:
+test cases: 1 | 1 failed
+```
+
+Second run did not pass; full ctest suite not run (step 3 condition unmet).
