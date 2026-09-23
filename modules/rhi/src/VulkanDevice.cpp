@@ -262,6 +262,7 @@ void VulkanDevice::selectAndCreateDevice(const DeviceDesc &desc) {
       m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceDriverProperties>();
   const auto &driver = properties.get<vk::PhysicalDeviceDriverProperties>();
   m_info.driverName = driver.driverName.data();
+  m_info.comparisonSamplersUsable = driver.driverID != vk::DriverId::eMoltenvk;
   m_info.driverInfo = driver.driverInfo.data();
   const vk::PhysicalDeviceLimits &limits = properties.get<vk::PhysicalDeviceProperties2>().properties.limits;
   m_transientAlignment =

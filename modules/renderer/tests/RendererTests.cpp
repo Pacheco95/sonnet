@@ -1006,10 +1006,16 @@ TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[
 }
 
 TEST_CASE("the sun's shadow darkens the ground beside a box on a GPU", "[renderer][gpu]") {
+  // Both comparisons: the hardware one, and the one the shader makes itself, which is what a
+  // device without usable comparison samplers gets (docs/rendering.md, "Platform notes").
+  const bool manual = GENERATE(false, true);
+  CAPTURE(manual);
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
   {
-    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    RendererSettings settings = testSettings();
+    settings.manualShadowCompare = manual;
+    Renderer renderer{*device, shaderDir(platform), settings};
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
     const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
     const std::array draws{DrawItem{.mesh = plane},

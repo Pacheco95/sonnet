@@ -35,6 +35,9 @@ struct DeviceInfo {
   bool timestampsSupported{false};
   bool blockCompressionSupported{false};  // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
   bool drawIndirectCountSupported{false}; // every desktop driver and Lavapipe; not MoltenVK (ADR-0014)
+  // False on MoltenVK: a shader that keeps a SampleCmp result live loses unrelated lighting
+  // arithmetic there, so owners compare depth themselves (docs/rendering.md, "Platform notes").
+  bool comparisonSamplersUsable{true};
 };
 
 constexpr std::uint32_t FramesInFlight = 2;

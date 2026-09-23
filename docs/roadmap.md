@@ -292,14 +292,17 @@ What remains is measuring the path on macOS: MoltenVK encodes one Metal draw per
 
 ### Two GPU tests shade differently on MoltenVK
 
-Open. The first full `ctest` on an Apple M4 Max (macOS 26.7, MoltenVK 1.4.1, commit `ffc0f33`) left two pixel tests failing, both in `renderer_tests` and both passing on an RTX 4090 and on Lavapipe:
+Closed, one by a correction to the test and one by a workaround whose cause is still unexplained. The first full `ctest` on an Apple M4 Max (macOS 26.7, MoltenVK 1.4.1) left two pixel tests failing, both in `renderer_tests` and both passing on an RTX 4090 and on Lavapipe.
 
-- `the sun's shadow darkens the ground beside a box on a GPU`: the lit ground reads 32 where the test wants over 100, so the ground is dark where the sun should reach it.
-- `an environment fills the background and lights a sphere on a GPU`: the sphere reads bluer than the sky, 239 against 228, where the test wants the sphere darker.
+**The environment test was too strict.** The sphere read 239 against the sky's 228 where the test wanted it dimmer. The cubes are right: with irradiance alone the sphere is dimmer than the sky, and the prefiltered cube at roughness 0.8 returns the sky's own colour. What exceeds it is the split-sum approximation, which does not conserve energy, so a white rough dielectric under a uniform sky can pass the sky it is lit by. The assertion allows 20 of 255 and says why.
 
-Nothing else fails: the lit box, the mirrored draw, the skinned box, the picked box, the outline, the clustered point light and the debug lines all pass, and so does the whole uncounted indirect path ([ADR-0014](decisions/0014-indirect-draws-without-count.md)). What the two failures have in common is sampling through the bindless arrays that MoltenVK backs with Metal argument buffers and that no other test reaches: the comparison sampler of the shadow lookup, and the cube maps of the image-based lighting. Whether the values are wrong or only different is not yet known, and neither is whether the editor's own rendering shows it.
+**The shadow test found a real defect, and it is MoltenVK's.** The lit ground read 32, ambient alone, and the editor showed no cast shadows. The comparison itself is correct: a single `SampleCmpLevelZero` returns 1.0 on lit ground and 0 in shadow. What fails is everything else: with the shadow factor merely live in the shader, `shade()` returns about zero, even when it never reads that factor. Removing the call restores the sun. The factor, the normal, the light and view vectors, N·L and the albedo all measure correct at the point of use.
 
-What would close it: on the Mac, dump the shadow factor and the irradiance and prefiltered samples the two tests produce, against the same values from Lavapipe, and find which sampler or cube level differs. A test that is merely too strict for a different rasteriser would be relaxed with the reason recorded; a sampler that resolves wrongly is a bug in the bindless set's Metal layout.
+Ruled out by probe, each on the M4 Max: the compare op (`eLess` and `eLessOrEqual` change nothing), the texel size (`GetDimensions` returns the right value), the offsets and the loop (a single offset tap, nine unrolled taps and a two-tap loop all compare correctly), `[unroll]`, the early returns compiled into a `do { … break; }` wrapper, calling the lookup before the material work, the `discard` that Slang lowers to demote-to-helper, and colour textures sharing binding 0 with the cascades. MoltenVK's own translated Metal is structurally identical to what SPIRV-Cross produces on Linux, down to the `level(0.0)`.
+
+The workaround is `DeviceInfo::comparisonSamplersUsable`, false on MoltenVK, which makes the shadow lookup read the cascade through a nearest sampler and compare the depth itself, one comparison per tap. Hardware comparisons stay everywhere else, and `RendererSettings::manualShadowCompare` runs the manual path on a device that does not need it, so the GPU tests cover both. On the Mac all thirteen GPU cases pass and the editor casts shadows again; the edges are a little harder than hardware PCF's, since each tap is one texel's own depth rather than a blend of four.
+
+What would close it properly: a reduction small enough to file against MoltenVK, showing arithmetic unrelated to a live `SampleCmp` result being lost. Until then the workaround carries a pointer to this entry, and the hardware path stays the default everywhere it works.
 
 ### `assets_tests` hung once on Windows
 
