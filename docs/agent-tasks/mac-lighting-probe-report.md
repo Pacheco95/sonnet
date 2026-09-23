@@ -640,3 +640,218 @@ test cases: 1 | 1 failed
 ```
 
 Second run did not pass; full ctest suite not run (step 3 condition unmet).
+
+---
+
+## Fix verification — branch fix/macos-depth-textures
+
+### Build
+
+Branch: `fix/macos-depth-textures`. Clean rebuild: `rm -rf build/macos-debug-local`, then `cmake --preset macos-debug-local` and `cmake --build --preset macos-debug-local`. 296/296 targets built.
+
+### 1. Full ctest suite
+
+Command:
+```
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+ctest --preset macos-debug-local --output-on-failure
+```
+
+Output:
+```
+Test project /Users/michael/repositories/sonnet/build/macos-debug-local
+      Start  1: core_tests
+ 1/12 Test  #1: core_tests .......................   Passed    0.44 sec
+      Start  2: platform_tests
+ 2/12 Test  #2: platform_tests ...................   Passed    0.43 sec
+      Start  3: rhi_tests
+ 3/12 Test  #3: rhi_tests ........................   Passed    2.68 sec
+      Start  4: renderer_tests
+ 4/12 Test  #4: renderer_tests ...................   Passed    4.48 sec
+      Start  5: assets_tests
+ 5/12 Test  #5: assets_tests .....................   Passed    5.74 sec
+      Start  6: world_tests
+ 6/12 Test  #6: world_tests ......................   Passed    1.27 sec
+      Start  7: physics_tests
+ 7/12 Test  #7: physics_tests ....................   Passed    1.85 sec
+      Start  8: scripting_tests
+ 8/12 Test  #8: scripting_tests ..................   Passed    1.49 sec
+      Start  9: audio_tests
+ 9/12 Test  #9: audio_tests ......................   Passed    1.35 sec
+      Start 10: runtime_tests
+10/12 Test #10: runtime_tests ....................   Passed    1.94 sec
+      Start 11: ui_tests
+11/12 Test #11: ui_tests .........................   Passed    0.66 sec
+      Start 12: editor_tests
+12/12 Test #12: editor_tests .....................   Passed    5.19 sec
+
+100% tests passed, 0 tests failed out of 12
+
+Total Test time (real) =  27.52 sec
+```
+
+### 2. Targeted tests
+
+The command as specified in the task passed all four test-name patterns as a single combined Catch2 filter, which matched nothing (`No test cases matched`). The four tests were run by passing their full names comma-separated to a single filter argument. Output of:
+
+```
+VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json \
+DYLD_LIBRARY_PATH=/usr/local/lib \
+./build/macos-debug-local/modules/renderer/renderer_tests \
+  "a texture's green reaches the albedo beside the shadow comparison on a GPU,the BRDF lookup table reads a large scale and a small bias on a GPU,the sun's shadow darkens the ground beside a box on a GPU,an environment fills the background and lights a sphere on a GPU" \
+  -s 2>&1 | grep -E "passed|failed|FAILED|with expansion|^[a-z]" -A2
+```
+
+```
+renderer_tests is a Catch2 v3.16.0 host application.
+Run with -? for options
+
+--
+the sun's shadow darkens the ground beside a box on a GPU
+-------------------------------------------------------------------------------
+modules/renderer/tests/RendererTests.cpp:1008
+...............................................................................
+
+modules/renderer/tests/RendererTests.cpp:1028: PASSED:
+  REQUIRE( lit.r > 100 )
+with expansion:
+  219 > 100
+
+modules/renderer/tests/RendererTests.cpp:1029: PASSED:
+  REQUIRE( shadowed.r * 3 < lit.r )
+with expansion:
+  96 < 219
+
+modules/renderer/tests/RendererTests.cpp:1030: PASSED:
+  REQUIRE( device->validationMessageCount() == 0 )
+with expansion:
+  0 == 0
+
+modules/renderer/tests/RendererTests.cpp:1035: PASSED:
+  REQUIRE( device->validationMessageCount() == 0 )
+with expansion:
+  0 == 0
+
+--
+the BRDF lookup table reads a large scale and a small bias on a GPU
+-------------------------------------------------------------------------------
+modules/renderer/tests/RendererTests.cpp:1140
+...............................................................................
+
+modules/renderer/tests/RendererTests.cpp:1165: PASSED:
+  REQUIRE( centre.r > 180 )
+with expansion:
+  228 > 180
+with messages:
+  centre.r := 228
+  centre.g := 1
+--
+modules/renderer/tests/RendererTests.cpp:1166: PASSED:
+  REQUIRE( centre.g < 40 )
+with expansion:
+  1 < 40
+with messages:
+  centre.r := 228
+  centre.g := 1
+--
+modules/renderer/tests/RendererTests.cpp:1167: PASSED:
+  REQUIRE( device->validationMessageCount() == 0 )
+with expansion:
+  0 == 0
+with messages:
+  centre.r := 228
+  centre.g := 1
+--
+modules/renderer/tests/RendererTests.cpp:1173: PASSED:
+  REQUIRE( device->validationMessageCount() == 0 )
+with expansion:
+  0 == 0
+
+--
+a texture's green reaches the albedo beside the shadow comparison on a GPU
+-------------------------------------------------------------------------------
+modules/renderer/tests/RendererTests.cpp:1107
+...............................................................................
+
+modules/renderer/tests/RendererTests.cpp:1126: PASSED:
+  REQUIRE( centre.g > 150 )
+with expansion:
+  231 > 150
+with messages:
+  centre.r := 0
+  centre.g := 231
+--
+modules/renderer/tests/RendererTests.cpp:1127: PASSED:
+  REQUIRE( centre.r < 40 )
+with expansion:
+  0 < 40
+with messages:
+  centre.r := 0
+  centre.g := 231
+--
+modules/renderer/tests/RendererTests.cpp:1128: PASSED:
+  REQUIRE( centre.b < 40 )
+with expansion:
+  0 < 40
+with messages:
+  centre.r := 0
+  centre.g := 231
+--
+modules/renderer/tests/RendererTests.cpp:1129: PASSED:
+  REQUIRE( device->validationMessageCount() == 0 )
+with expansion:
+  0 == 0
+with messages:
+  centre.r := 0
+  centre.g := 231
+--
+modules/renderer/tests/RendererTests.cpp:1135: PASSED:
+  REQUIRE( device->validationMessageCount() == 0 )
+with expansion:
+  0 == 0
+
+--
+an environment fills the background and lights a sphere on a GPU
+-------------------------------------------------------------------------------
+modules/renderer/tests/RendererTests.cpp:1068
+...............................................................................
+
+modules/renderer/tests/RendererTests.cpp:1088: PASSED:
+  REQUIRE( sky.b > sky.r + 50 )
+with expansion:
+  228 > 149
+
+modules/renderer/tests/RendererTests.cpp:1091: PASSED:
+  REQUIRE( body.b > 30 )
+with expansion:
+  227 > 30
+
+modules/renderer/tests/RendererTests.cpp:1092: PASSED:
+  REQUIRE( body.b > body.r )
+with expansion:
+  227 > 98
+
+modules/renderer/tests/RendererTests.cpp:1093: PASSED:
+  REQUIRE( body.b < sky.b )
+with expansion:
+  227 < 228
+
+modules/renderer/tests/RendererTests.cpp:1094: PASSED:
+  REQUIRE( renderer.isReady(environment) )
+with expansion:
+  true
+
+modules/renderer/tests/RendererTests.cpp:1095: PASSED:
+  REQUIRE( device->validationMessageCount() == 0 )
+with expansion:
+  0 == 0
+
+modules/renderer/tests/RendererTests.cpp:1101: PASSED:
+  REQUIRE( device->validationMessageCount() == 0 )
+with expansion:
+  0 == 0
+
+--
+All tests passed (20 assertions in 4 test cases)
+```
