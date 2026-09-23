@@ -1,16 +1,14 @@
-// GPU culling (ADR-0012): one thread per candidate draw tests its world-space bounds against
-// the pass's frustum and, for a survivor, appends a draw command to its batch's range of the
-// command buffer. A batch is a run of draws sharing a pipeline and a mesh, so every command in
-// one range is drawn by a single drawIndexedIndirectCount against the mesh's index buffer.
-//
-// A device without drawIndirectCount (MoltenVK) draws every slot of a range instead, so there
-// each candidate owns the slot at its own position and writes it whether it survives or not,
-// with an instance count of zero when it does not (ADR-0014).
+// GPU culling (ADR-0012, ADR-0016): one thread per candidate draw tests its world-space bounds
+// against the pass's frustum and, for a survivor, adds an instance to its batch's command and
+// writes its object index into the batch's run of the visible list. A batch is a run of draws
+// sharing a pipeline, a front face, a mesh and a submesh, so one command draws all of its
+// survivors as instances, and each instance finds its object at SV_StartInstanceLocation plus
+// SV_InstanceID in the visible list.
 //
 // The frustum comes from the pass's view-projection matrix, so the same candidate array serves
 // the camera, the depth pre-pass and each shadow cascade; only the matrix differs. This is the
-// one scene shader that does not import `sonnet`: it needs a writable counts buffer where the
-// shared module declares the read-only object array.
+// one scene shader that does not import `sonnet`: it needs the command buffer writable at the
+// per-pass storage binding, where the shared module declares the read-only object array.
 
 struct CullDraw {
   float3 center;
@@ -18,38 +16,37 @@ struct CullDraw {
   uint objectIndex;
   uint indexCount;
   uint firstIndex;
-  uint batch;
-  uint batchFirst;
+  uint batch;      // which of the job's commands this draw adds an instance to
+  uint batchFirst; // the batch's first slot in the job's run of the visible list
   uint flags;
 };
 
 static const uint CullSelected = 1u << 0;
 
-struct IndirectCommand {
-  uint indexCount;
-  uint instanceCount;
-  uint firstIndex;
-  int vertexOffset;
-  uint firstInstance;
-};
-
 struct CullConstants {
   float4x4 viewProjection;
   CullDraw *draws;
-  IndirectCommand *commands; // already offset to this job's first command slot
-  uint drawCount;            // candidates to test, or counts to clear
-  uint countBase;            // this job's first slot in the shared counts buffer
-  uint selectedOnly;         // the selection mask pass keeps only the selected draws
-  uint fixedSlots;           // one slot per candidate rather than appends, for drawIndexedIndirect
+  uint *visible;
+  uint drawCount;    // candidates to test, or commands to empty
+  uint commandBase;  // this job's first command
+  uint visibleBase;  // this job's first slot in the visible list
+  uint selectedOnly; // the selection mask pass keeps only the selected draws
 };
 
 [[vk::push_constant]]
 ConstantBuffer<CullConstants> cull;
 
-// The counts every batch appends against, in the per-pass storage binding so the appends are
-// plain structured-buffer atomics.
+// The draw commands as words, Vulkan's VkDrawIndexedIndirectCommand five to a command, in the
+// per-pass storage binding so the instance count is a plain structured-buffer atomic.
 [[vk::binding(1, 1)]]
-RWStructuredBuffer<uint> counts;
+RWStructuredBuffer<uint> commandWords;
+
+static const uint CommandWords = 5;
+static const uint IndexCountWord = 0;
+static const uint InstanceCountWord = 1;
+static const uint FirstIndexWord = 2;
+static const uint VertexOffsetWord = 3;
+static const uint FirstInstanceWord = 4;
 
 static const uint Threads = 64;
 
@@ -76,14 +73,18 @@ bool visible(float3 center, float3 extent) {
   return true;
 }
 
-// Every batch starts the frame at zero; the cull dispatch that follows only ever adds.
+// Every batch starts the frame with a command that draws nothing: no indices, no instances. The
+// cull dispatch that follows only ever adds.
 [shader("compute")]
 [numthreads(Threads, 1, 1)]
-void clearCounts(uint3 thread: SV_DispatchThreadID) {
+void clearCommands(uint3 thread: SV_DispatchThreadID) {
   if (thread.x >= cull.drawCount) {
     return;
   }
-  counts[cull.countBase + thread.x] = 0;
+  const uint first = (cull.commandBase + thread.x) * CommandWords;
+  for (uint word = 0; word < CommandWords; ++word) {
+    commandWords[first + word] = 0;
+  }
 }
 
 [shader("compute")]
@@ -95,21 +96,19 @@ void computeMain(uint3 thread: SV_DispatchThreadID) {
   const CullDraw candidate = cull.draws[thread.x];
   const bool kept = (cull.selectedOnly == 0 || (candidate.flags & CullSelected) != 0) &&
                     visible(candidate.center, candidate.extent);
-
-  IndirectCommand command;
-  command.indexCount = candidate.indexCount;
-  command.instanceCount = kept ? 1 : 0;
-  command.firstIndex = candidate.firstIndex;
-  command.vertexOffset = 0;
-  command.firstInstance = candidate.objectIndex;
-  if (cull.fixedSlots != 0) {
-    cull.commands[thread.x] = command; // the candidate's position is its slot
-    return;
-  }
   if (!kept) {
     return;
   }
+  const uint command = (cull.commandBase + candidate.batch) * CommandWords;
+  const uint run = cull.visibleBase + candidate.batchFirst;
   uint slot = 0;
-  InterlockedAdd(counts[cull.countBase + candidate.batch], 1u, slot);
-  cull.commands[candidate.batchFirst + slot] = command;
+  InterlockedAdd(commandWords[command + InstanceCountWord], 1u, slot);
+  cull.visible[run + slot] = candidate.objectIndex;
+  // Every draw of a batch carries the same index range, so the first survivor writes the rest of
+  // the command; the others only add instances. The clear left the vertex offset at zero.
+  if (slot == 0) {
+    commandWords[command + IndexCountWord] = candidate.indexCount;
+    commandWords[command + FirstIndexWord] = candidate.firstIndex;
+    commandWords[command + FirstInstanceWord] = run;
+  }
 }

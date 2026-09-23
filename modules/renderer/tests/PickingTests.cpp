@@ -112,8 +112,9 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
   REQUIRE(countLines(*device, "bindPipeline \"selection mask\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"outline\"") == 1);
   // The two boxes are one batch, so the pre-pass, the forward, the id and the mask pass each
-  // offer it in one indirect call; which of the two survive is the GPU's answer (ADR-0012).
-  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 2") == 4);
+  // submit it as one instanced command; how many instances survive is the GPU's answer
+  // (ADR-0016).
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 4);
   REQUIRE(countLines(*device, "drawIndexed ") == 0);
   REQUIRE(hasPass(graph, "id cull"));
   REQUIRE(hasPass(graph, "selection mask cull"));
@@ -170,9 +171,10 @@ TEST_CASE("the selection mask draws every listed item, given in any order with r
   graph.execute(commands);
   device->endFrame();
   REQUIRE(countLines(*device, "bindPipeline \"selection mask\"") == 1);
-  // Forty boxes are one batch, offered in one call; the culling pass keeps the twenty whose
-  // CullSelected flag is set, which the outline's Lavapipe tests are what prove (ADR-0012).
-  REQUIRE(countLines(*device, "drawIndexedIndirectCount \"draw commands\" max 40") == 1);
+  // Forty boxes are one batch, submitted as one command; the culling pass keeps the twenty whose
+  // CullSelected flag is set as its instances, which the outline's Lavapipe tests are what prove
+  // (ADR-0016).
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 1);
   REQUIRE(countLines(*device, "drawIndexed ") == 0);
   REQUIRE(countLines(*device, "bindPipeline \"outline\"") == 1);
   renderer.destroyMesh(box);
@@ -200,15 +202,10 @@ TEST_CASE("an empty selection adds no mask or outline pass", "[renderer][picking
 }
 
 TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gpu]") {
-  // Both forms of the indirect draws; without the count an unselected draw's slot must stay
-  // empty in the mask pass (ADR-0014).
-  const bool uncounted = GENERATE(false, true);
-  CAPTURE(uncounted);
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device;
   try {
-    device = createDevice(
-        {.platform = &platform, .applicationName = "renderer_tests", .disableDrawIndirectCount = uncounted});
+    device = createDevice({.platform = &platform, .applicationName = "renderer_tests"});
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
@@ -292,16 +289,13 @@ TEST_CASE("a box is picked by id and outlined on a GPU", "[renderer][picking][gp
 }
 
 TEST_CASE("an unselected draw beside a selected one gets no outline on a GPU", "[renderer][picking][gpu]") {
-  // The mask pass is where a draw culling rejects is still on screen, so it is where a slot that
-  // should be empty would show: without the count every unselected draw's slot is drawn, and it
-  // must carry no instances (ADR-0014).
-  const bool uncounted = GENERATE(false, true);
-  CAPTURE(uncounted);
+  // The mask pass is where a draw culling rejects is still on screen, so it is where an instance
+  // that should not be there would show: the two boxes share a batch, and the unselected one
+  // must add no instance to it (ADR-0016).
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device;
   try {
-    device = createDevice(
-        {.platform = &platform, .applicationName = "renderer_tests", .disableDrawIndirectCount = uncounted});
+    device = createDevice({.platform = &platform, .applicationName = "renderer_tests"});
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }
@@ -370,15 +364,10 @@ TEST_CASE("an unselected draw beside a selected one gets no outline on a GPU", "
 }
 
 TEST_CASE("an occluder in front of a selected surface is not outlined", "[renderer][picking][gpu]") {
-  // Both forms of the indirect draws; without the count an unselected draw's slot must stay
-  // empty in the mask pass (ADR-0014).
-  const bool uncounted = GENERATE(false, true);
-  CAPTURE(uncounted);
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device;
   try {
-    device = createDevice(
-        {.platform = &platform, .applicationName = "renderer_tests", .disableDrawIndirectCount = uncounted});
+    device = createDevice({.platform = &platform, .applicationName = "renderer_tests"});
   } catch (const sonnet::core::Exception &e) {
     SKIP("no usable Vulkan 1.4 device: " << e.what());
   }

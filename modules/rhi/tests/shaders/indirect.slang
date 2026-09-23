@@ -1,7 +1,8 @@
-// The GPU-driven path of ADR-0012: a compute shader writes draw commands and a count, and a
-// draw reads both. Each command names its object in firstInstance, which the vertex shader
-// receives as SV_StartInstanceLocation. Both entry points share one push-constant block and
-// read the half they need.
+// The GPU-driven path of ADR-0016: a compute shader writes an instanced draw command and the
+// visible list it draws, and a draw reads both. The command's firstInstance is where its run of
+// the visible list starts; each instance adds SV_InstanceID to SV_StartInstanceLocation and
+// reads its object there. Both entry points share one push-constant block and read the half
+// they need.
 
 struct Vertex {
   float3 position;
@@ -23,11 +24,13 @@ struct IndirectCommand {
 
 struct PushConstants {
   IndirectCommand *commands; // the compute entry writes these
-  uint *count;
-  Vertex *vertices; // the vertex entry pulls from these
+  uint *visible;             // and the object indices they draw
+  Vertex *vertices;          // the vertex entry pulls from these
   uint objectCount;
   uint indexCount;
-  uint keepMask; // bit i keeps object i, standing in for a frustum test
+  uint keepMask;     // bit i keeps object i, standing in for a frustum test
+  uint firstVisible; // where the command's run of the visible list starts
+  uint visibleSize;
 };
 
 [[vk::push_constant]]
@@ -36,41 +39,34 @@ ConstantBuffer<PushConstants> push;
 [[vk::binding(1, 1)]]
 StructuredBuffer<Object> objects;
 
-// One thread, so the commands come out in a fixed order and the test can name them.
+static const uint DecoyObject = 1;
+
+// One thread, so the list comes out in a fixed order. Every slot outside the run names the
+// green object, so a vertex shader that reads the list at the wrong place draws green.
 [shader("compute")]
 [numthreads(1, 1, 1)]
 void buildCommands() {
-  uint written = 0;
+  for (uint i = 0; i < push.visibleSize; ++i) {
+    push.visible[i] = DecoyObject;
+  }
+  uint kept = 0;
   for (uint i = 0; i < push.objectCount; ++i) {
-    if ((push.keepMask & (1u << i)) == 0) {
-      continue;
+    if ((push.keepMask & (1u << i)) != 0) {
+      push.visible[push.firstVisible + kept] = i;
+      ++kept;
     }
-    IndirectCommand command;
-    command.indexCount = push.indexCount;
-    command.instanceCount = 1;
-    command.firstIndex = 0;
-    command.vertexOffset = 0;
-    command.firstInstance = i;
-    push.commands[written] = command;
-    ++written;
   }
-  *push.count = written;
-}
-
-// The form for a device without drawIndirectCount (ADR-0014): every object owns the slot at its
-// own index, and a culled one draws zero instances. No count is written.
-[shader("compute")]
-[numthreads(1, 1, 1)]
-void buildSlots() {
-  for (uint i = 0; i < push.objectCount; ++i) {
-    IndirectCommand command;
-    command.indexCount = push.indexCount;
-    command.instanceCount = (push.keepMask & (1u << i)) != 0 ? 1 : 0;
-    command.firstIndex = 0;
-    command.vertexOffset = 0;
-    command.firstInstance = i;
-    push.commands[i] = command;
-  }
+  IndirectCommand command;
+  command.indexCount = push.indexCount;
+  command.instanceCount = kept;
+  command.firstIndex = 0;
+  command.vertexOffset = 0;
+  command.firstInstance = push.firstVisible;
+  push.commands[0] = command;
+  // A batch nothing survived in: the same run with no instances, which must draw nothing.
+  command.instanceCount = 0;
+  command.firstInstance = 0;
+  push.commands[1] = command;
 }
 
 struct VertexOutput {
@@ -79,9 +75,10 @@ struct VertexOutput {
 };
 
 [shader("vertex")]
-VertexOutput vertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV_StartInstanceLocation) {
+VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_StartInstanceLocation,
+                        uint instance : SV_InstanceID) {
   const Vertex vertex = push.vertices[vertexId];
-  const Object object = objects[objectIndex];
+  const Object object = objects[push.visible[startInstance + instance]];
   VertexOutput output;
   output.position = float4(vertex.position + object.offset.xyz, 1.0);
   output.color = object.color;

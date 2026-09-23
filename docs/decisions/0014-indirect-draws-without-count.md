@@ -1,6 +1,6 @@
 # ADR-0014: Indirect draws without drawIndirectCount
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0016](0016-instanced-batches.md)
 - **Date:** 2026-09-22
 
 ## Context

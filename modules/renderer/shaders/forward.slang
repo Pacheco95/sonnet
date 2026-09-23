@@ -15,7 +15,9 @@ struct VertexOutput {
 };
 
 [shader("vertex")]
-VertexOutput vertexMain(uint vertexId : SV_VertexID, uint objectIndex : SV_StartInstanceLocation) {
+VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_StartInstanceLocation,
+                        uint instance : SV_InstanceID) {
+  const uint objectIndex = drawObject(startInstance, instance);
   const float4x4 model = objects[objectIndex].model;
   const Vertex vertex = vertexBuffers[objects[objectIndex].vertexBuffer][vertexId];
   const float4 world = mul(model, float4(vertex.position, 1.0));
