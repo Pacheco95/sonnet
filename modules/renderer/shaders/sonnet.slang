@@ -23,6 +23,11 @@ public TextureCube<float4> cubes[];
 [[vk::binding(4, 0)]]
 public SamplerComparisonState comparisonSamplers[];
 
+// Depth images apart from colour ones: SPIRV-Cross makes a whole array Metal depth textures when
+// any use of it compares, and a depth texture reads as its red channel alone (ADR-0017).
+[[vk::binding(6, 0)]]
+public Texture2D<float> depthTextures[];
+
 // ---- Geometry ----
 
 public struct Vertex {
@@ -120,10 +125,10 @@ public struct FrameConstants {
   public uint brdfLut;
   public uint linearSampler;
   public uint shadowSampler;
-  public uint shadowNearestSampler; // read by the manual comparison
-  public uint manualShadowCompare;  // 1 where comparison samplers cannot be trusted
   public uint lightCount;
+  public uint debugView; // RendererSettings::debugView
   public uint padding0;
+  public uint padding1;
   public MaterialData *materials;
   public Light *lights;
   public Cluster *clusters;

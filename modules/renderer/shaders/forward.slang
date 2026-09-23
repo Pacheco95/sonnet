@@ -71,11 +71,9 @@ float3 shade(float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float
   return (kd * albedo / Pi + specular) * radiance * nDotL;
 }
 
-// Reversed-Z comparison: the fragment, pushed towards the light by the bias, is lit where it is
-// at least as near as the stored depth. A 3x3 kernel over the hardware's bilinear comparison,
-// or over a plain depth read where comparison samplers cannot be trusted: on MoltenVK a live
-// SampleCmp result costs the sun term its lighting arithmetic, for reasons nobody has pinned
-// down, and the manual comparison steps around it (docs/rendering.md, "Platform notes").
+// Reversed-Z comparison: the sampler passes where the reference (the fragment, pushed towards
+// the light by the bias) is at least the stored depth. A 3x3 kernel on top of the hardware's
+// bilinear comparison. The cascades are read from the depth array (ADR-0017).
 float sunShadow(float3 worldPosition, float viewDepth, float nDotL) {
   if (frame.cascadeImages[0] == 0xFFFFFFFF) {
     return 1.0;
@@ -94,22 +92,14 @@ float sunShadow(float3 worldPosition, float viewDepth, float nDotL) {
   }
   const float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
   uint width, height;
-  textures[frame.cascadeImages[cascade]].GetDimensions(width, height);
+  depthTextures[frame.cascadeImages[cascade]].GetDimensions(width, height);
   const float2 texel = 1.0 / float2(width, height);
   const float bias = frame.shadowBias * (1.0 + 2.0 * (1.0 - nDotL)) * (cascade + 1);
   float lit = 0.0;
   for (int y = -1; y <= 1; ++y) {
     for (int x = -1; x <= 1; ++x) {
-      const float2 tap = uv + float2(x, y) * texel;
-      if (frame.manualShadowCompare != 0) {
-        // Nearest, so the depth is one texel's own rather than a blend of four.
-        const float stored =
-            textures[frame.cascadeImages[cascade]].SampleLevel(samplers[frame.shadowNearestSampler], tap, 0.0).r;
-        lit += ndc.z + bias >= stored ? 1.0 : 0.0;
-      } else {
-        lit += textures[frame.cascadeImages[cascade]].SampleCmpLevelZero(comparisonSamplers[frame.shadowSampler],
-                                                                         tap, ndc.z + bias);
-      }
+      lit += depthTextures[frame.cascadeImages[cascade]].SampleCmpLevelZero(
+          comparisonSamplers[frame.shadowSampler], uv + float2(x, y) * texel, ndc.z + bias);
     }
   }
   return lit / 9.0;
@@ -155,10 +145,13 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   const float viewDepth = -mul(frame.view, float4(input.worldPosition, 1.0)).z;
 
   float3 color = float3(0.0);
+  float3 sunDirect = float3(0.0);
+  float shadow = 1.0;
   if (frame.sunDirection.w > 0.0) {
     const float3 l = -frame.sunDirection.xyz;
-    const float shadow = sunShadow(input.worldPosition, viewDepth, saturate(dot(n, l)));
-    color += shade(n, v, l, frame.sunColor.rgb * shadow, albedo, metallic, roughness, f0);
+    shadow = sunShadow(input.worldPosition, viewDepth, saturate(dot(n, l)));
+    sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0);
+    color += sunDirect * shadow;
   }
 
   // The punctual lights of this fragment's cluster (ADR-0008).
@@ -183,6 +176,9 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
 
   // Image-based lighting through the split-sum approximation, or a flat ambient term.
   const float nDotV = max(dot(n, v), 1.0e-4);
+  float3 iblDiffuse = float3(0.0);
+  float3 iblSpecular = float3(0.0);
+  float2 brdf = float2(0.0);
   if (frame.environment.w > 0.0) {
     const float3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
     const float3 kd = (1.0 - f) * (1.0 - metallic);
@@ -190,13 +186,26 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
     const float3 r = reflect(-v, n);
     const float lod = roughness * (frame.environment.y - 1.0);
     const float3 prefiltered = cubes[frame.prefilteredCube].SampleLevel(samplers[frame.linearSampler], r, lod).rgb;
-    const float2 brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
-    const float3 ambient = (kd * irradiance * albedo + prefiltered * (f * brdf.x + brdf.y)) * frame.environment.x;
-    color += ambient * occlusion;
+    brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
+    iblDiffuse = kd * irradiance * albedo * frame.environment.x * occlusion;
+    iblSpecular = prefiltered * (f * brdf.x + brdf.y) * frame.environment.x * occlusion;
+    color += iblDiffuse + iblSpecular;
   } else {
     color += frame.ambient.rgb * albedo * occlusion;
   }
   color += emissive;
+
+  // RendererSettings::debugView: one term in place of the colour.
+  switch (frame.debugView) {
+  case 1: color = albedo; break;
+  case 2: color = n * 0.5 + 0.5; break;
+  case 3: color = sunDirect; break;
+  case 4: color = float3(shadow); break;
+  case 5: color = iblDiffuse; break;
+  case 6: color = iblSpecular; break;
+  case 7: color = float3(brdf, 0.0); break;
+  default: break;
+  }
 
   const float alpha = alphaMode == AlphaBlend ? baseColor.a : 1.0;
   return float4(color, alpha);

@@ -146,6 +146,7 @@ private:
   // Bindless slots are handed out in creation order and never reused, which keeps traces stable.
   std::uint32_t m_nextSampledIndex{0};
   std::uint32_t m_nextCubeIndex{0};
+  std::uint32_t m_nextDepthIndex{0};
   std::uint32_t m_nextStorageIndex{0};
   std::uint32_t m_nextStorageBufferIndex{0};
   std::uint32_t m_nextSamplerIndex{0};
