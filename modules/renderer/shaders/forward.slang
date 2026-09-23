@@ -155,10 +155,13 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   const float viewDepth = -mul(frame.view, float4(input.worldPosition, 1.0)).z;
 
   float3 color = float3(0.0);
+  float3 sunDirect = float3(0.0);
+  float shadow = 1.0;
   if (frame.sunDirection.w > 0.0) {
     const float3 l = -frame.sunDirection.xyz;
-    const float shadow = sunShadow(input.worldPosition, viewDepth, saturate(dot(n, l)));
-    color += shade(n, v, l, frame.sunColor.rgb * shadow, albedo, metallic, roughness, f0);
+    shadow = sunShadow(input.worldPosition, viewDepth, saturate(dot(n, l)));
+    sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0);
+    color += sunDirect * shadow;
   }
 
   // The punctual lights of this fragment's cluster (ADR-0008).
@@ -183,6 +186,9 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
 
   // Image-based lighting through the split-sum approximation, or a flat ambient term.
   const float nDotV = max(dot(n, v), 1.0e-4);
+  float3 iblDiffuse = float3(0.0);
+  float3 iblSpecular = float3(0.0);
+  float2 brdf = float2(0.0);
   if (frame.environment.w > 0.0) {
     const float3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
     const float3 kd = (1.0 - f) * (1.0 - metallic);
@@ -190,13 +196,25 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
     const float3 r = reflect(-v, n);
     const float lod = roughness * (frame.environment.y - 1.0);
     const float3 prefiltered = cubes[frame.prefilteredCube].SampleLevel(samplers[frame.linearSampler], r, lod).rgb;
-    const float2 brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
-    const float3 ambient = (kd * irradiance * albedo + prefiltered * (f * brdf.x + brdf.y)) * frame.environment.x;
-    color += ambient * occlusion;
+    brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
+    iblDiffuse = kd * irradiance * albedo * frame.environment.x * occlusion;
+    iblSpecular = prefiltered * (f * brdf.x + brdf.y) * frame.environment.x * occlusion;
+    color += iblDiffuse + iblSpecular;
   } else {
     color += frame.ambient.rgb * albedo * occlusion;
   }
   color += emissive;
+
+  switch (frame.debugView) {
+  case 1: color = albedo; break;
+  case 2: color = n * 0.5 + 0.5; break;
+  case 3: color = sunDirect; break;
+  case 4: color = float3(shadow); break;
+  case 5: color = iblDiffuse; break;
+  case 6: color = iblSpecular; break;
+  case 7: color = float3(brdf, 0.0); break;
+  default: break;
+  }
 
   const float alpha = alphaMode == AlphaBlend ? baseColor.a : 1.0;
   return float4(color, alpha);

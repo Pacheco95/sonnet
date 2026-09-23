@@ -96,7 +96,7 @@ struct FrameConstants {
   std::uint32_t shadowNearestSampler; // read by the manual comparison
   std::uint32_t manualShadowCompare;  // 1 where comparison samplers cannot be trusted
   std::uint32_t lightCount;
-  std::uint32_t padding;
+  std::uint32_t debugView;
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
@@ -1414,7 +1414,7 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
       .shadowNearestSampler = m_device.samplerIndex(m_shadowNearestSampler),
       .manualShadowCompare = manualShadowCompare() ? 1u : 0u,
       .lightCount = lightCount,
-      .padding = 0,
+      .debugView = static_cast<std::uint32_t>(m_settings.debugView),
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
       .clusters = m_device.bufferAddress(m_clusterBuffer),

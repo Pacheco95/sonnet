@@ -123,7 +123,7 @@ public struct FrameConstants {
   public uint shadowNearestSampler; // read by the manual comparison
   public uint manualShadowCompare;  // 1 where comparison samplers cannot be trusted
   public uint lightCount;
-  public uint padding0;
+  public uint debugView; // RendererSettings::debugView
   public MaterialData *materials;
   public Light *lights;
   public Cluster *clusters;

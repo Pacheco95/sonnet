@@ -401,6 +401,19 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
     ImGui::MenuItem("Statistics overlay", nullptr, &m_showOverlay);
     ImGui::MenuItem("Physics colliders", nullptr, &m_showColliders);
+    if (ImGui::BeginMenu("Shading term")) {
+      static constexpr const char *Names[] = {"Final",         "Albedo",      "Normal",       "Sun direct",
+                                              "Shadow factor", "IBL diffuse", "IBL specular", "BRDF LUT"};
+      renderer::RendererSettings settings = m_renderer.settings();
+      for (std::uint32_t i = 0; i < std::size(Names); ++i) {
+        const auto view = static_cast<renderer::DebugView>(i);
+        if (ImGui::MenuItem(Names[i], nullptr, settings.debugView == view)) {
+          settings.debugView = view;
+          m_renderer.setSettings(settings);
+        }
+      }
+      ImGui::EndMenu();
+    }
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("Help")) {

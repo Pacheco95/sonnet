@@ -37,6 +37,19 @@ struct RenderStatistics {
   std::uint32_t skinnedVertexCount{0};
 };
 
+// One term of the forward shading written in place of the final colour, to compare a platform's
+// lighting term by term against another's (probe for the macOS rendering differences).
+enum class DebugView : std::uint32_t {
+  Final,
+  Albedo,
+  Normal,
+  SunDirect,    // the sun's contribution without its shadow
+  ShadowFactor, // the sun's visibility, white where lit
+  IblDiffuse,
+  IblSpecular,
+  BrdfLut, // the split-sum scale and bias at this fragment's n.v and roughness, in red and green
+};
+
 // Quality knobs. Tests turn the sizes and sample counts down so Lavapipe finishes quickly.
 struct RendererSettings {
   bool shadows{true};
@@ -47,6 +60,7 @@ struct RendererSettings {
   // what a device without usable comparison samplers gets anyway (docs/rendering.md, "Platform
   // notes"). Set here only by the test that covers that path where the hardware one works.
   bool manualShadowCompare{false};
+  DebugView debugView{DebugView::Final};
   bool bloom{true};
   std::uint32_t bloomLevels{5};
   bool antialiasing{true};
