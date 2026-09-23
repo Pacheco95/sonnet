@@ -71,9 +71,11 @@ float3 shade(float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float
   return (kd * albedo / Pi + specular) * radiance * nDotL;
 }
 
-// Reversed-Z comparison: the sampler passes where the reference (the fragment, pushed towards
-// the light by the bias) is at least the stored depth. A 3x3 kernel on top of the hardware's
-// bilinear comparison.
+// Reversed-Z comparison: the fragment, pushed towards the light by the bias, is lit where it is
+// at least as near as the stored depth. A 3x3 kernel over the hardware's bilinear comparison,
+// or over a plain depth read where comparison samplers cannot be trusted: on MoltenVK a live
+// SampleCmp result costs the sun term its lighting arithmetic, for reasons nobody has pinned
+// down, and the manual comparison steps around it (docs/rendering.md, "Platform notes").
 float sunShadow(float3 worldPosition, float viewDepth, float nDotL) {
   if (frame.cascadeImages[0] == 0xFFFFFFFF) {
     return 1.0;
@@ -98,8 +100,16 @@ float sunShadow(float3 worldPosition, float viewDepth, float nDotL) {
   float lit = 0.0;
   for (int y = -1; y <= 1; ++y) {
     for (int x = -1; x <= 1; ++x) {
-      lit += textures[frame.cascadeImages[cascade]].SampleCmpLevelZero(
-          comparisonSamplers[frame.shadowSampler], uv + float2(x, y) * texel, ndc.z + bias);
+      const float2 tap = uv + float2(x, y) * texel;
+      if (frame.manualShadowCompare != 0) {
+        // Nearest, so the depth is one texel's own rather than a blend of four.
+        const float stored =
+            textures[frame.cascadeImages[cascade]].SampleLevel(samplers[frame.shadowNearestSampler], tap, 0.0).r;
+        lit += ndc.z + bias >= stored ? 1.0 : 0.0;
+      } else {
+        lit += textures[frame.cascadeImages[cascade]].SampleCmpLevelZero(comparisonSamplers[frame.shadowSampler],
+                                                                         tap, ndc.z + bias);
+      }
     }
   }
   return lit / 9.0;

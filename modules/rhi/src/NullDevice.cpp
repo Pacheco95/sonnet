@@ -234,6 +234,7 @@ NullDevice::NullDevice() : m_commandList(std::make_unique<NullCommandList>(*this
   m_info.timestampsSupported = true;
   m_info.blockCompressionSupported = true;
   m_info.drawIndirectCountSupported = true;
+  m_info.comparisonSamplersUsable = true;
   for (std::uint32_t i = 0; i < FramesInFlight; ++i) {
     m_frames[i].transientBuffer = createBuffer({.size = TransientBufferSize,
                                                 .usage = BufferUsage::Uniform | BufferUsage::Storage,

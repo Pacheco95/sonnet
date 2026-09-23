@@ -120,6 +120,8 @@ public struct FrameConstants {
   public uint brdfLut;
   public uint linearSampler;
   public uint shadowSampler;
+  public uint shadowNearestSampler; // read by the manual comparison
+  public uint manualShadowCompare;  // 1 where comparison samplers cannot be trusted
   public uint lightCount;
   public uint padding0;
   public MaterialData *materials;
