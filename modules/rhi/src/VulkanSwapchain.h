@@ -31,6 +31,9 @@ public:
   std::uint32_t imageCount() const override {
     return static_cast<std::uint32_t>(m_images.size());
   }
+  bool readable() const override {
+    return m_readable;
+  }
 
   vk::SwapchainKHR handle() const noexcept {
     return *m_swapchain;
@@ -58,6 +61,7 @@ private:
   Format m_format{Format::Undefined};
   glm::uvec2 m_extent{0, 0};
   bool m_needsRecreate{false};
+  bool m_readable{false};
 };
 
 } // namespace sonnet::rhi

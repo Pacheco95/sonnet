@@ -19,6 +19,10 @@ VulkanSwapchain::VulkanSwapchain(VulkanDevice &device, platform::IWindow &window
   if (!device.physicalDevice().getSurfaceSupportKHR(device.graphicsFamily(), *m_surface)) {
     throw core::Exception{"the graphics queue cannot present to this window", core::ErrorCategory::Graphics};
   }
+  // Colour attachment is the only usage a surface has to allow; copying out is asked for where it
+  // is offered, which does not change with the swapchain's size.
+  m_readable = static_cast<bool>(device.physicalDevice().getSurfaceCapabilitiesKHR(*m_surface).supportedUsageFlags &
+                                 vk::ImageUsageFlagBits::eTransferSrc);
   if (!create(VK_NULL_HANDLE)) {
     m_needsRecreate = true;
   }
@@ -35,6 +39,10 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
     return false;
   }
 
+  VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  if (m_readable) {
+    usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  }
   vkb::SwapchainBuilder builder{static_cast<VkPhysicalDevice>(*m_device.physicalDevice()),
                                 static_cast<VkDevice>(*m_device.device()), static_cast<VkSurfaceKHR>(*m_surface),
                                 m_device.graphicsFamily(), m_device.graphicsFamily()};
@@ -48,7 +56,7 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
       .add_fallback_present_mode(VK_PRESENT_MODE_FIFO_KHR)
       .set_desired_extent(size.x, size.y)
       .set_desired_min_image_count(3)
-      .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+      .set_image_usage_flags(usage)
       .set_old_swapchain(static_cast<VkSwapchainKHR>(oldSwapchain));
 
   vkb::Result<vkb::Swapchain> built = builder.build();
@@ -81,7 +89,8 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
     m_images.push_back(m_device.registerExternalImage(
         vk::Image{images.value()[i]}, ImageDesc{.size = m_extent,
                                                 .format = m_format,
-                                                .usage = ImageUsage::ColorAttachment | ImageUsage::TransferDst,
+                                                .usage = ImageUsage::ColorAttachment | ImageUsage::TransferDst |
+                                                         (m_readable ? ImageUsage::TransferSrc : ImageUsage::None),
                                                 .debugName = std::format("swapchain image {}", i)}));
     m_renderFinished.emplace_back(m_device.device(), vk::SemaphoreCreateInfo{});
     m_device.setDebugName(vk::ObjectType::eSemaphore,

@@ -36,12 +36,25 @@ ctest --preset linux-debug --output-on-failure
 ctest --preset linux-debug -R core_tests            # one module's tests
 # one case or tag: run the <module>_tests binary directly, e.g. core_tests "[handle]"
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic   # right-drag the viewport, WASD/QE; W/E/R gizmos, Ctrl+P play
+./build/linux-debug/apps/editor/sonnet_editor --help                # the capture flags below, the shading terms, the exit codes
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset linux-debug -R rhi_tests   # what CI runs: Lavapipe
 python3 tools/check_docs.py            # after editing any Markdown: links, anchors, cross-doc consistency
 python3 tools/check_version.py         # vcpkg.json must mirror project(sonnet VERSION ...)
 git ls-files '*.h' '*.cpp' | xargs clang-format --dry-run --Werror   # CI rejects unformatted code
 sh tools/install_hooks.sh              # once per clone: commit-msg hook for Conventional Commits
 ```
+
+## Seeing what the engine draws
+
+Do not screen-capture the editor: macOS needs a permission an agent cannot grant, and a headless machine has no screen. The editor writes its own screenshots and quits, exiting 0 once the files exist and 1 with the reason in the log ([docs/editor.md](docs/editor.md#screenshots)):
+
+```bash
+./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic \
+  --scene scenes/playground.scene.json --play 3 --select Ball --shading-term final \
+  --screenshot shots/view.png --screenshot-window shots/window.png
+```
+
+`--screenshot` is the viewport's scene and `--screenshot-window` the whole window with its panels. `--scene` is relative to the project, `--play` takes seconds, not steps (`--play 3` is 180 fixed 1/60 s steps, so a run repeats exactly), `--select` takes an entity path of names (`Parent/Child`) and outlines it, and `--shading-term` shows one lighting term (`albedo`, `normal`, `shadow-factor`, ...). Then read the PNG. A task for another machine's agent asks for these files rather than for screenshots of the screen. `sonnet_editor --help` lists every flag, and `tools/check_docs.py` fails if one is missing from the docs.
 
 Machine-specific notes (tool locations, checkouts of the previous iterations to adapt patterns from) live in `CLAUDE.local.md`, which is gitignored.
 

@@ -127,6 +127,15 @@ public:
   void setShowColliders(bool show) noexcept {
     m_showColliders = show;
   }
+  // The term of the forward shading the viewport shows, from View > Shading term.
+  void setShadingTerm(renderer::DebugView view);
+
+  // Screenshots (docs/editor.md, "Screenshots"). The next frame that can copies the viewport's
+  // scene into `viewport` and the whole window into `window` as PNG files; an empty path skips
+  // that one. It is written in afterPresent, once the frame has finished on the GPU, and the
+  // outcome is taken once with takeScreenshotResult. The window needs a readable swapchain.
+  void requestScreenshots(std::filesystem::path viewport, std::filesystem::path window);
+  [[nodiscard]] std::optional<core::Result<void>> takeScreenshotResult();
   [[nodiscard]] assets::AssetDatabase &assets() noexcept {
     return m_assets;
   }
@@ -163,6 +172,14 @@ public:
   }
 
 private:
+  // A screenshot's copy, waiting in a host-visible buffer for its frame to finish.
+  struct Readback {
+    std::filesystem::path file;
+    rhi::BufferHandle buffer;
+    glm::uvec2 size;
+    rhi::Format format;
+  };
+
   enum class Modal : std::uint8_t {
     None,
     NewProject,
@@ -186,11 +203,15 @@ private:
   [[nodiscard]] std::optional<std::filesystem::path> shaderSourceDirectory();
   [[nodiscard]] core::Result<void> reloadShader(std::string_view name);
   void pollShaders();
+  // Declares a pass copying `image` into a new readback buffer for `file`.
+  void addReadback(renderer::GraphImage image, glm::uvec2 size, rhi::Format format, std::filesystem::path file);
+  void writeReadbacks();
   // Whether game input goes to the scripts: playing, with the viewport focused and the camera idle.
   [[nodiscard]] bool gameInputActive() const;
 
   platform::IWindow &m_window;
   rhi::IDevice &m_device;
+  const rhi::ISwapchain &m_swapchain;
   std::filesystem::path m_basePath;
   // First of the members that outlive work, so everything scheduling onto it is destroyed before
   // it is (ADR-0013).
@@ -216,6 +237,9 @@ private:
   std::vector<renderer::Light> m_lights;
   renderer::SceneView m_view;
   std::vector<std::uint32_t> m_outlineIds;
+  std::optional<std::pair<std::filesystem::path, std::filesystem::path>> m_screenshotRequest; // viewport, window
+  std::vector<Readback> m_readbacks;
+  std::optional<core::Result<void>> m_screenshotResult;
 
   Selection m_selection;
   CommandStack m_commands;
