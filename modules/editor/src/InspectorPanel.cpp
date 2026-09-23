@@ -225,7 +225,8 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
     return;
   }
   ImGui::Text("%s", info->name.c_str());
-  ImGui::TextDisabled("%s", assets::toString(info->type).data());
+  const std::string_view type = assets::toString(info->type);
+  ImGui::TextDisabled("%.*s", static_cast<int>(type.size()), type.data());
   const std::string source = info->source == "builtin"
                                  ? std::string{"built-in"}
                                  : info->source.lexically_relative(m_assets.projectRoot()).generic_string();
@@ -571,7 +572,10 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     return;
   }
   ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-  ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+  // An explicit weight: without one, SizingStretchProp weighs a stretch column by its content's
+  // auto width, which a table's first frame has not measured yet. The weight came out as 0/0, so on
+  // the frame after every selection the values drew a few pixels wide, and grew back over the next.
+  ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 1.0f);
   ImGui::TableNextRow();
   ImGui::TableNextColumn();
   ImGui::AlignTextToFramePadding();
