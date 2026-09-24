@@ -17,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -94,6 +95,16 @@ TEST_CASE("physics components are registered with reflection and round-trip thro
   REQUIRE(loaded);
   REQUIRE(loaded.get<physics::RigidBody>().type == physics::BodyType::Kinematic);
   REQUIRE(loaded.get<physics::SphereCollider>().radius == 0.5f);
+}
+
+// Jolt was built without RTTI, and so was this module to match, so the world's vtable had no
+// typeinfo: the sanitizer's vptr check rejected it wherever another module destroyed it, and
+// typeid here read a null pointer.
+TEST_CASE("the physics world carries its type information into other modules", "[physics]") {
+  Fixture fixture;
+  physics::IPhysicsWorld &physics = *fixture.physics;
+  REQUIRE(typeid(physics) != typeid(physics::IPhysicsWorld));
+  REQUIRE(dynamic_cast<physics::IPhysicsWorld *>(&physics) == &physics);
 }
 
 TEST_CASE("a dynamic ball falls onto static ground in play mode only", "[physics]") {

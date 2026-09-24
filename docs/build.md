@@ -45,7 +45,7 @@ Lua is built with its `cpp` feature and `scripting` links the C++ library, so a 
 
 miniaudio and stb_vorbis are single-file libraries without CMake packages: `audio` finds their headers with `find_path` and compiles their implementations once, in `src/MiniaudioImplementation.cpp`, with stb_vorbis's header part before miniaudio so its Ogg Vorbis decoder is found. Both come from vcpkg's include directory, which is a system one, so the engine's warnings do not reach them. The module links the platform's threads and `${CMAKE_DL_LIBS}`; miniaudio loads the audio libraries it needs at run time ([audio.md](audio.md#miniaudio)).
 
-The `joltphysics` port builds Jolt with AVX2 and its companions on x64 and without RTTI; its instruction-set flags are an interface property of `Jolt::Jolt`, which `physics` links privately so they stay on that module's sources, and the sanitizer build turns off UBSan's `vptr` check for `physics` alone, since that check needs the typeinfo Jolt does not have ([physics.md](physics.md#jolt)).
+The `joltphysics` port builds Jolt with AVX2 and its companions on x64; its instruction-set flags are an interface property of `Jolt::Jolt`, which `physics` links privately so they stay on that module's sources. The manifest asks for the port's `rtti` feature, so Jolt and every module are compiled with RTTI and the sanitizer build keeps UBSan's `vptr` check everywhere ([physics.md](physics.md#jolt)).
 
 Triplets: `x64-windows`, `x64-linux` (and `x64-linux-tsan` for the thread sanitizer, see [Presets](#presets)), `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M9.
 
