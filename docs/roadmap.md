@@ -192,6 +192,27 @@ What M8 left behind, with what each would take, is in [Known gaps](#known-gaps):
 
 Done when the basic sample runs on an Android 16 device and an iOS device.
 
+How, and what counts as running, is decided in [ADR-0018](decisions/0018-mobile-export.md).
+
+### Checked before the code
+
+ADR-0018 was accepted with open questions. Questions 1 (Android), 3, 6, 7 and 8 were answered in it before acceptance. The rest were answered afterwards by a run on the Mac (macOS 26.7, Xcode 26.3 with the iOS 26.2 SDK) and an iPhone 15 Pro Max (`iPhone16,2`, A17 Pro), reported on `agents/mac-m9-questions`. The ADR itself stays as accepted.
+
+- **Every port builds for `arm64-ios` (question 1).** The manifest with ADR-0018's changes installed all 29 ports, with Xcode's Apple Clang. Homebrew LLVM 22 does not work: with `CC` and `CXX` pointing at it, `ktx` failed, because its libc++ rejects the iOS 12.0 minimum the port compiles for ("The selected platform is no longer supported by libc++"). The iOS presets therefore take Apple Clang, whatever the environment says.
+- **The `vulkan` stub port installs for iOS (question 2).** It pulls in `vulkan-loader:arm64-ios`, which builds in about five seconds and is never linked. ADR-0018 makes the `vulkan-memory-allocator-hpp` overlay conditional on the install failing. It did not fail, so there is no overlay. The unused loader in the iOS install tree is the whole cost.
+- **The iOS deployment target is 16.3 (question 3), confirmed against Xcode's own headers.** Compiling each library feature against iOS 15.0, 16.3, 17.0, 18.0 and 26.0 gives these minimums: `std::format` of a `double` and floating-point `to_chars` need 16.3. Floating-point `from_chars` needs 26.0, later than the table in `availability.h` suggests (LLVM 20, which it dates to iOS 19). Integer `from_chars`, atomic waits, `std::filesystem` and `std::expected` all work from 15.0. This is why the player parses `--play` without floating-point `from_chars`.
+- **Static MoltenVK works on both Apple platforms (question 4).** `vkprobe` links Khronos's MoltenVK 1.4.2 static library (both archives' SHA-256 matched) with `-Wl,-u,_vkGetInstanceProcAddr`. The only frameworks it needs beyond SDL3's are Metal, Foundation, QuartzCore, IOSurface and CoreGraphics, plus IOKit and AppKit on macOS and UIKit on iOS. On macOS, `otool -L` lists no Vulkan or MoltenVK library. With every Vulkan SDK variable cleared, the probe finds `vkGetInstanceProcAddr` in the process, SDL hands back the same pointer, and `dladdr` and `dlopen(RTLD_NOLOAD)` resolve it to the executable, so `Platform`'s loader pinning is harmless. The instance is created without portability enumeration, which MoltenVK does not offer. The same holds on the iPhone.
+- **The iPhone meets the baseline (question 5).** The A17 Pro GPU reports Vulkan 1.4.357 through MoltenVK 1.4.2, and every required feature and limit is present. ASTC LDR and BC are both supported, as is `hostImageCopy`, and ASTC 4×4 and 6×6 and BC7 sample with linear filtering. `drawIndirectCount` is absent, as on the Mac.
+- **The iOS commands work as ADR-0018 wrote them (question 9, iOS half).** These all worked: building with `xcodebuild -allowProvisioningUpdates -allowProvisioningDeviceRegistration`, `devicectl device install app`, `devicectl device process launch --console <bundle id> <arguments>` (the arguments arrived), and `devicectl device copy from --domain-type appDataContainer`. SDL's pref path on iOS is `Library/Application Support/<organisation>/<application>/` inside the app's data container. The first launch of an app signed by a personal team fails until the developer profile is trusted on the phone, under Settings > General > VPN & Device Management. That is a one-time step for whoever holds the phone.
+
+A follow-up run (`agents/mac-m9-followup`) closed what the first run left open:
+
+- **The iPhone can use `D32_SFLOAT` for the shadow cascades as they are.** Read bit by bit from `VkFormatProperties3`, the A17 Pro's `D32_SFLOAT` is a depth attachment and can be sampled, compared and copied into, but not linearly filtered. `D16_UNORM` has every bit. The M4 Max has every bit for both. The cascades are compared through a linear comparison sampler, and the Vulkan spec requires linear filtering only of a sampler that does not compare (`VUID-vkCmdDraw-magFilter-04553`). A comparison needs `SAMPLED_IMAGE_DEPTH_COMPARISON` (`VUID-vkCmdDraw-None-06479`), which the iPhone has. The only read of a depth image in the shaders is `forward.slang`'s `SampleCmpLevelZero`, so nothing changes for iOS. The rule this leaves: a depth image is never sampled without comparison through a linear filter, or iOS breaks.
+- **The iPhone runs iOS 27.0** (`osVersionNumber` from `devicectl device info details`). The earlier "19" was another field.
+- **Signing:** `DEVELOPMENT_TEAM` has to be the team of the provisioning profile Xcode made for the bundle identifier. That can differ from the team of the signing certificate in the keychain, and passing the certificate's team failed with "No Account for Team".
+
+The Android half of question 9 waits for the first APK. The Galaxy S25 Ultra's Vulkan report is in ADR-0018's open question 6 and led to [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md).
+
 ## Known gaps
 
 Work M8 named rather than did, and what closing it turned up, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. A gap that has been closed keeps its entry, saying what closed it and what it measured. These are engineering debts; the feature backlog is [Later](#later).
@@ -300,13 +321,42 @@ A probe branch (`agents/mac-lighting-probes`) added a debug view of the forward 
 
 ADR-0017 moves depth images into a bindless array of their own, removes the workaround and restores the strict environment test. Two GPU tests now read a green texture's albedo beside the shadow comparison and the lookup table's scale and bias.
 
-### `assets_tests` hung once on Windows
+### `assets_tests` hangs intermittently
 
-Open, seen once. On the Windows job of CI run 35780091420 (job 106923088063, 2026-09-22), `assets_tests` produced no output for 300 seconds and ctest killed it; the same test takes about 5 seconds on that runner, and the previous seven Windows runs passed. The log stops in the asynchronous import cases, after `job system started with 2 workers` and a `GltfImporter` line, with nothing after it: a hang rather than slow progress. Re-running the job alone passed, and twenty-five consecutive runs of `assets_tests` on Linux found nothing. The change under test only renamed two shader parameters, which cannot reach that code.
+Open, seen twice. On the Windows job of CI run 35780091420 (job 106923088063, 2026-09-22), `assets_tests` produced no output for 300 seconds and ctest killed it; the same test takes about 5 seconds on that runner, and the previous seven Windows runs passed. The log stops in the asynchronous import cases, after `job system started with 2 workers` and a `GltfImporter` line, with nothing after it: a hang rather than slow progress. Re-running the job alone passed, and twenty-five consecutive runs of `assets_tests` on Linux found nothing. The change under test only renamed two shader parameters, which cannot reach that code.
 
 The asynchronous path is where [ADR-0013](decisions/0013-job-system.md) put asset loading, and it is where the thread sanitizer found a use-after-free that appeared in one run of three while M8's gaps were being closed. A deadlock between a request waiting for a load and a worker finishing one is the shape to look for.
 
-What would close it: loop `assets_tests` on Windows until it hangs, then attach and take every thread's stack; on Linux, loop it under the thread sanitizer, which is what caught the last defect there. Until it reproduces, a re-run is the response, and this entry is what says the flake was seen before.
+Seen again on the Linux ASan job of CI run 35994756004 (job 107616944480, 2026-09-24), on pull request #22, which changes only documentation. `assets_tests` was killed at 300 seconds, while the four runs on `main` before it passed. This time the log places it. The last case that started is `a changed source is re-imported by polling and materials follow their textures`, with 2 workers again. Its last line is `re-imported painted.material.json` at 11:58:13.878, followed by five minutes of silence. That is the step after the material file's re-import: `setTextureSettings`, which rewrites the sidecar and re-imports the texture at once, on the main thread. [assets.md](assets.md#database) says a synchronous load that meets a request in flight for the same file waits for it. If finishing that request needs a main-thread job, and the main thread is the one waiting, nothing runs it. That is the shape this entry predicted. It is a reading of the log, not yet a reproduction.
+
+What would close it: loop that one case (`assets_tests "a changed source is re-imported by polling and materials follow their textures"`) under the ASan preset and under the thread sanitizer until it hangs, and take every thread's stack. Then check whether `setTextureSettings`, or the synchronous load under it, can wait on a request whose publishing needs the main thread. Until it reproduces, a re-run is the response, and this entry is what says the flake was seen before.
+
+### Undefined behaviour does not fail the sanitizer job
+
+Open. The `linux-asan` preset enables the undefined-behaviour sanitizer, but a finding only prints: nothing makes it fatal, unlike `linux-tsan`'s `halt_on_error=1`. So CI passes with undefined behaviour in the log. The same run found one: `BinaryReader::read` (`modules/assets/src/BinaryIo.h:147`) calls `std::memcpy` with a null destination when it reads an empty array. `size` is 0, so nothing is copied, but a null argument to `memcpy` is undefined behaviour all the same. It happened while opening a cooked bundle, at mesh "Box".
+
+What would close it: return early from `read` when `size` is 0, with the test that reads an empty array under the sanitizer. Then make the sanitizer's findings fatal in the preset (`-fno-sanitize-recover=undefined`, or `halt_on_error=1` in `UBSAN_OPTIONS` beside the test preset's other options), after one run to see what else it turns up.
+
+### The macOS export needs the Vulkan SDK
+
+Open. An exported game on macOS starts only where the Vulkan SDK is installed. Run from its export directory with the SDK's variables cleared, the player stops before it opens a window:
+
+```
+VK_ICD_FILENAMES= DYLD_LIBRARY_PATH= ./sonnet_player
+[critical] [platform] [SdlEntryPoint.cpp:54] startup failed: SDL_CreateWindow failed: Installed Vulkan Portability library doesn't implement the VK_KHR_surface extension (Platform, SdlWindow.cpp:24)
+```
+
+The export copies the player, the shaders and the bundle, but no Vulkan driver. SDL then searches the machine: it finds no `vkGetInstanceProcAddr` in the process, and loads the first of its known library names that opens (`SDL_cocoavulkan.m`). Here that was a loader with no driver registered, which offers only its own instance extensions, so the surface extension SDL needs was missing. On a Mac with no loader at all, the same search ends in "Failed to load Vulkan Portability library". [ADR-0018](decisions/0018-mobile-export.md) closes it the way it carries MoltenVK on iOS: the player links the static MoltenVK from Khronos's pinned release, which SDL finds in the process before it searches the machine. The check that closes this entry is the command above, from an export directory, passing, and the same run on a Mac with no SDK installed.
+
+The mechanism is confirmed. On the Mac that reported this, the Vulkan SDK's system install put a loader (`libvulkan.1.dylib`, 1.4.341) and `libMoltenVK.dylib` in `/usr/local/lib`, with their driver manifests in `/usr/local/share/vulkan/icd.d`. That is where SDL's search found a loader. `vkprobe`, which links the static MoltenVK the fix uses, created an instance and passed on the M4 Max with every Vulkan SDK variable cleared ([M9, checked before the code](#checked-before-the-code)). The entry stays open until the player itself links it.
+
+### A fresh macOS build fails where the Vulkan SDK installed its headers system-wide
+
+Open, reported by the Mac run of ADR-0018's questions. A fresh `vcpkg install` for `arm64-osx` in a new install root failed in `vk-bootstrap` with `unknown type name 'PFN_vkGetLatencyTimingsLegacyNV'; did you mean 'PFN_vkGetLatencyTimingsNV'?`. The Vulkan SDK's system install put its 1.4.341 headers in `/usr/local/include/vulkan`, which Apple Clang searches by default, and they shadow the manifest's `vulkan-headers` 1.4.357, which vk-bootstrap 1.4.357 is written against. Existing build directories are unaffected, because their install root was built before. A new clone, or a new build directory on that Mac, would hit it. CI's macOS runners have no SDK in `/usr/local`, so they cannot see it.
+
+Reproduced by the follow-up run. `vcpkg install` of `vk-bootstrap` alone, with binary caching off so the port compiles, fails the same way with `VULKAN_SDK` empty, which it was in both runs, so that variable is not the cause. The failing command is `/usr/bin/c++ -I<vk-bootstrap's src> -isystem <install root>/arm64-osx/include ...`, and the compiler's note places `PFN_vkGetLatencyTimingsNV` in `/usr/local/include/vulkan/vulkan_core.h` (`VK_HEADER_VERSION` 341). `/usr/local/include` is the first of Apple Clang's default system directories. The run concluded that the install root is searched after it. That is not how Clang orders them: `-isystem` directories are searched before the default system directories. So why the SDK's header wins is not explained yet. The next check, on that Mac: whether `<install root>/arm64-osx/include/vulkan/vulkan_core.h` exists when the port compiles, and the same compile with `-H`, which prints every header in the order it is opened.
+
+What would close it: that check, then either keeping `/usr/local/include` out of the ports' builds or not installing the SDK's headers system-wide, whichever the check points at.
 
 ## Later
 
