@@ -310,6 +310,17 @@ The asynchronous path is where [ADR-0013](decisions/0013-job-system.md) put asse
 
 What would close it: loop `assets_tests` on Windows until it hangs, then attach and take every thread's stack; on Linux, loop it under the thread sanitizer, which is what caught the last defect there. Until it reproduces, a re-run is the response, and this entry is what says the flake was seen before.
 
+### The macOS export needs the Vulkan SDK
+
+Open. An exported game on macOS starts only where the Vulkan SDK is installed. Run from its export directory with the SDK's variables cleared, the player stops before it opens a window:
+
+```
+VK_ICD_FILENAMES= DYLD_LIBRARY_PATH= ./sonnet_player
+[critical] [platform] [SdlEntryPoint.cpp:54] startup failed: SDL_CreateWindow failed: Installed Vulkan Portability library doesn't implement the VK_KHR_surface extension (Platform, SdlWindow.cpp:24)
+```
+
+The export copies the player, the shaders and the bundle, but no Vulkan driver. SDL then searches the machine: it finds no `vkGetInstanceProcAddr` in the process, and loads the first of its known library names that opens (`SDL_cocoavulkan.m`). Here that was a loader with no driver registered, which offers only its own instance extensions, so the surface extension SDL needs was missing. On a Mac with no loader at all, the same search ends in "Failed to load Vulkan Portability library". [ADR-0018](decisions/0018-mobile-export.md), proposed, closes it the way it carries MoltenVK on iOS: the player links the static MoltenVK from Khronos's pinned release, which SDL finds in the process before it searches the machine. The check that closes this entry is the command above, from an export directory, passing, and the same run on a Mac with no SDK installed.
+
 ## Later
 
 Temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.
