@@ -171,7 +171,16 @@ The counted path lost nothing, and the forward pass gained, since the GPU now fe
 | GPU, forward pass | 1.55–1.58 ms | 1.13–1.14 ms |
 | GPU, whole frame | 4.73–4.75 ms | 2.08–2.12 ms |
 
-Submission falls twentyfold and cascade 0 to what its survivors cost. The ADR expected submission under 0.1 ms; the 0.25 ms left is MoltenVK's alone, since the RTX 4090 submits the same twelve commands in 0.004 ms, and whether it grows with the draw count is what a run at a smaller scene would show.
+Submission falls twentyfold and cascade 0 to what its survivors cost. The ADR expected submission under 0.1 ms; the 0.25 ms left is MoltenVK's alone, since the RTX 4090 submits the same twelve commands in 0.004 ms, and it does not grow with the draw count. The same benchmark at smaller scenes, three runs each:
+
+| Draws | CPU, submitting | CPU, recording | GPU, whole frame |
+|---|---|---|---|
+| 10000 | 0.22–0.25 ms | 0.11–0.18 ms | 2.09–2.11 ms |
+| 2500 | 0.23–0.24 ms | 0.05–0.13 ms | 1.50–1.51 ms |
+| 625 | 0.22–0.25 ms | 0.01–0.02 ms | 0.87–0.91 ms |
+| 100 | 0.20–0.24 ms | 0.01 ms | 0.51–0.69 ms |
+
+Submission stays near 0.2 ms from a hundred draws to ten thousand, so it is a fixed cost of MoltenVK's per frame rather than anything the engine pays per draw, and the ADR's 0.1 ms was the wrong expectation for it rather than a target the change missed. Recording and the GPU fall with the scene, as they should.
 
 ## Skinning
 
