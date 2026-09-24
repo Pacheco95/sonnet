@@ -36,7 +36,8 @@ struct Fixture {
     REQUIRE(core::writeFile(root / "assets" / "models" / "wood.png", test::encodePng({2, 2}, test::quadPixels()))
                 .has_value());
     test::writeBoxGltf(root / "assets" / "models" / "crate.gltf", "wood.png");
-    REQUIRE(core::writeFile(root / "assets" / "sky.hdr", test::encodeHdr({4, 2}, std::vector<float>(4 * 2 * 3, 0.5f)))
+    REQUIRE(core::writeFile(root / "assets" / "sky.hdr",
+                            test::encodeHdr({4, 2}, std::vector<float>(std::size_t{4} * 2 * 3, 0.5f)))
                 .has_value());
     MaterialSource painted;
     painted.baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
@@ -183,7 +184,7 @@ TEST_CASE("a changed source is re-imported by polling and materials follow their
   // A larger image replaces the file: the texture is re-imported under the same identity, the
   // old handle is gone and the material now reads the new one.
   Fixture::touchLater(fixture.root / "assets" / "wood.png",
-                      test::encodePng({4, 4}, std::vector<std::uint8_t>(4 * 4 * 4, 90)));
+                      test::encodePng({4, 4}, std::vector<std::uint8_t>(std::size_t{4} * 4 * 4, 90)));
   std::this_thread::sleep_for(std::chrono::milliseconds{600});
   const std::vector<core::Uuid> changed = database.pollChanges();
   REQUIRE(changed == std::vector<core::Uuid>{woodUuid});

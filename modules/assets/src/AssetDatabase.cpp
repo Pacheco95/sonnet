@@ -238,6 +238,7 @@ void AssetDatabase::close() {
     m_failed.clear();
   }
   std::vector<core::Uuid> files;
+  files.reserve(m_files.size());
   for (const auto &[uuid, record] : m_files) {
     files.push_back(uuid);
   }

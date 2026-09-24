@@ -504,7 +504,7 @@ std::vector<std::byte> encodeJson(const json &document) {
 }
 
 core::Result<json> decodeJson(std::span<const std::byte> payload) {
-  const json document = parseCbor(payload);
+  json document = parseCbor(payload);
   if (document.is_discarded()) {
     return std::unexpected(payloadError("not readable as CBOR"));
   }
