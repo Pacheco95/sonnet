@@ -1,0 +1,87 @@
+vkprobe: SDL 3.4.16 on iOS
+argument 1: --probe-argument
+dlsym(RTLD_DEFAULT, vkGetInstanceProcAddr) = 0x10460c38c
+SDL_Vulkan_GetVkGetInstanceProcAddr() = 0x10460c38c (is the in-process symbol)
+dladdr -> /private/var/containers/Bundle/Application/E48F91C4-BF73-43C8-AF30-1386CE98F4B6/vkprobe.app/vkprobe; dlopen(RTLD_NOLOAD) = 0x399931980
+instance version 1.4.357
+instance extensions (18):
+  VK_KHR_device_group_creation
+  VK_KHR_external_fence_capabilities
+  VK_KHR_external_memory_capabilities
+  VK_KHR_external_semaphore_capabilities
+  VK_KHR_get_physical_device_properties2
+  VK_KHR_get_surface_capabilities2
+  VK_KHR_surface
+  VK_KHR_surface_maintenance1
+  VK_KHR_surface_protected_capabilities
+  VK_EXT_debug_report
+  VK_EXT_debug_utils
+  VK_EXT_headless_surface
+  VK_EXT_layer_settings
+  VK_EXT_metal_surface
+  VK_EXT_surface_maintenance1
+  VK_EXT_swapchain_colorspace
+  VK_MVK_ios_surface
+  VK_MVK_moltenvk
+portability enumeration offered: no
+vkCreateInstance = 0
+SDL_Vulkan_CreateSurface: ok
+physical devices: 1
+device: Apple A17 Pro GPU
+  apiVersion 1.4.357, driver MoltenVK (1.4.2)
+ required features
+  samplerAnisotropy                                yes
+  multiDrawIndirect                                yes
+  drawIndirectFirstInstance                        yes
+  shaderDrawParameters                             yes
+  timelineSemaphore                                yes
+  bufferDeviceAddress                              yes
+  scalarBlockLayout                                yes
+  descriptorIndexing                               yes
+  shaderSampledImageArrayNonUniformIndexing        yes
+  shaderStorageImageArrayNonUniformIndexing        yes
+  shaderStorageBufferArrayNonUniformIndexing       yes
+  descriptorBindingPartiallyBound                  yes
+  descriptorBindingSampledImageUpdateAfterBind     yes
+  descriptorBindingStorageImageUpdateAfterBind     yes
+  descriptorBindingStorageBufferUpdateAfterBind    yes
+  descriptorBindingUpdateUnusedWhilePending        yes
+  runtimeDescriptorArray                           yes
+  dynamicRendering                                 yes
+  synchronization2                                 yes
+  shaderDemoteToHelperInvocation                   yes
+  pushDescriptor                                   yes
+  dynamicRenderingLocalRead                        yes
+  maintenance5                                     yes
+  maintenance6                                     yes
+ optional features
+  textureCompressionASTC_LDR                       yes
+  textureCompressionBC                             yes
+  textureCompressionETC2                           yes
+  drawIndirectCount                                no
+  hostImageCopy                                    yes
+ limits
+  maxBoundDescriptorSets                           8 (needs >= 2)
+  maxPushConstantsSize                             4096 (needs >= 128)
+  maxDescriptorSetUpdateAfterBindSampledImages     1000000 (needs >= 4224)
+  maxDescriptorSetUpdateAfterBindStorageBuffers    1000000 (needs >= 4096)
+  maxDescriptorSetUpdateAfterBindStorageImages     1000000 (needs >= 512)
+  maxDescriptorSetUpdateAfterBindSamplers          500000 (needs >= 72)
+  maxPerStageDescriptorUpdateAfterBindSampledImages 1000000 (needs >= 4224)
+  maxPerStageDescriptorUpdateAfterBindStorageBuffers 1000000 (needs >= 4096)
+  maxPerStageDescriptorUpdateAfterBindStorageImages 1000000 (needs >= 512)
+  maxPerStageDescriptorUpdateAfterBindSamplers     500000 (needs >= 72)
+  maxPerStageUpdateAfterBindResources              1000000 (needs >= 8904)
+  maxPushDescriptors                               287 (needs >= 3)
+  maxDrawIndirectCount                             1073741824
+  maxImageDimension2D                              16384
+  maxComputeWorkGroupInvocations                   1024
+  timestampPeriod                                  1.000 ns
+ formats (optimal tiling)
+  ASTC_4x4_UNORM_BLOCK                             sampled, linear filter, transfer dst
+  ASTC_4x4_SRGB_BLOCK                              sampled, linear filter, transfer dst
+  ASTC_6x6_UNORM_BLOCK                             sampled, linear filter, transfer dst
+  ASTC_6x6_SRGB_BLOCK                              sampled, linear filter, transfer dst
+  BC7_SRGB_BLOCK                                   sampled, linear filter, transfer dst
+  D32_SFLOAT (as depth attachment)                 not usable
+result: PASS, 0 MISSING
