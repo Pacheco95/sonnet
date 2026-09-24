@@ -194,6 +194,24 @@ Done when the basic sample runs on an Android 16 device and an iOS device.
 
 How, and what counts as running, is decided in [ADR-0018](decisions/0018-mobile-export.md).
 
+### Checked before the code
+
+ADR-0018 was accepted with open questions. Questions 1 (Android), 3, 6, 7 and 8 were answered in it before acceptance. The rest were answered afterwards by a run on the Mac (macOS 26.7, Xcode 26.3 with the iOS 26.2 SDK) and an iPhone 15 Pro Max (`iPhone16,2`, A17 Pro), reported on `agents/mac-m9-questions`. The ADR itself stays as accepted.
+
+- **Every port builds for `arm64-ios` (question 1).** The manifest with ADR-0018's changes installed all 29 ports, with Xcode's Apple Clang. Homebrew LLVM 22 does not work: with `CC` and `CXX` pointing at it, `ktx` failed, because its libc++ rejects the iOS 12.0 minimum the port compiles for ("The selected platform is no longer supported by libc++"). The iOS presets therefore take Apple Clang, whatever the environment says.
+- **The `vulkan` stub port installs for iOS (question 2).** It pulls in `vulkan-loader:arm64-ios`, which builds in about five seconds and is never linked. ADR-0018 makes the `vulkan-memory-allocator-hpp` overlay conditional on the install failing. It did not fail, so there is no overlay. The unused loader in the iOS install tree is the whole cost.
+- **The iOS deployment target is 16.3 (question 3), confirmed against Xcode's own headers.** Compiling each library feature against iOS 15.0, 16.3, 17.0, 18.0 and 26.0 gives these minimums: `std::format` of a `double` and floating-point `to_chars` need 16.3. Floating-point `from_chars` needs 26.0, later than the table in `availability.h` suggests (LLVM 20, which it dates to iOS 19). Integer `from_chars`, atomic waits, `std::filesystem` and `std::expected` all work from 15.0. This is why the player parses `--play` without floating-point `from_chars`.
+- **Static MoltenVK works on both Apple platforms (question 4).** `vkprobe` links Khronos's MoltenVK 1.4.2 static library (both archives' SHA-256 matched) with `-Wl,-u,_vkGetInstanceProcAddr`. The only frameworks it needs beyond SDL3's are Metal, Foundation, QuartzCore, IOSurface and CoreGraphics, plus IOKit and AppKit on macOS and UIKit on iOS. On macOS, `otool -L` lists no Vulkan or MoltenVK library. With every Vulkan SDK variable cleared, the probe finds `vkGetInstanceProcAddr` in the process, SDL hands back the same pointer, and `dladdr` and `dlopen(RTLD_NOLOAD)` resolve it to the executable, so `Platform`'s loader pinning is harmless. The instance is created without portability enumeration, which MoltenVK does not offer. The same holds on the iPhone.
+- **The iPhone meets the baseline (question 5).** The A17 Pro GPU reports Vulkan 1.4.357 through MoltenVK 1.4.2, and every required feature and limit is present. ASTC LDR and BC are both supported, as is `hostImageCopy`, and ASTC 4×4 and 6×6 and BC7 sample with linear filtering. `drawIndirectCount` is absent, as on the Mac.
+- **The iOS commands work as ADR-0018 wrote them (question 9, iOS half).** These all worked: building with `xcodebuild -allowProvisioningUpdates -allowProvisioningDeviceRegistration`, `devicectl device install app`, `devicectl device process launch --console <bundle id> <arguments>` (the arguments arrived), and `devicectl device copy from --domain-type appDataContainer`. SDL's pref path on iOS is `Library/Application Support/<organisation>/<application>/` inside the app's data container. The first launch of an app signed by a personal team fails until the developer profile is trusted on the phone, under Settings > General > VPN & Device Management. That is a one-time step for whoever holds the phone.
+
+Two things are still open:
+
+- **Whether the iPhone can compare-sample `D32_SFLOAT` with a linear filter.** The shadow cascades are `D32_SFLOAT` read through `depthTextures[]` with a comparison sampler whose filter is linear, which is hardware PCF ([ADR-0017](decisions/0017-depth-images-in-their-own-bindless-array.md)). The probe reported the format "not usable" on the iPhone, where the Galaxy and the Mac pass. But it tested sampling, linear filtering and transfer destination together, so the missing bit is not known. The first iOS run of the player answers it: the device checks' captures show whether shadows are there, and validation is not available on iOS to flag it earlier. If the format cannot do it, the options are `D16_UNORM` for the cascades or a nearest-filtered comparison with PCF in the shader. Which, is a decision for then.
+- **The iPhone's iOS version** was not recorded. The run reported "19", which is not a version iOS has had, so it is left out. It is needed with the device checks' report.
+
+The Android half of question 9 waits for the first APK. The Galaxy S25 Ultra's Vulkan report is in ADR-0018's open question 6 and led to [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md).
+
 ## Known gaps
 
 Work M8 named rather than did, and what closing it turned up, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. A gap that has been closed keeps its entry, saying what closed it and what it measured. These are engineering debts; the feature backlog is [Later](#later).
@@ -320,6 +338,14 @@ VK_ICD_FILENAMES= DYLD_LIBRARY_PATH= ./sonnet_player
 ```
 
 The export copies the player, the shaders and the bundle, but no Vulkan driver. SDL then searches the machine: it finds no `vkGetInstanceProcAddr` in the process, and loads the first of its known library names that opens (`SDL_cocoavulkan.m`). Here that was a loader with no driver registered, which offers only its own instance extensions, so the surface extension SDL needs was missing. On a Mac with no loader at all, the same search ends in "Failed to load Vulkan Portability library". [ADR-0018](decisions/0018-mobile-export.md) closes it the way it carries MoltenVK on iOS: the player links the static MoltenVK from Khronos's pinned release, which SDL finds in the process before it searches the machine. The check that closes this entry is the command above, from an export directory, passing, and the same run on a Mac with no SDK installed.
+
+The mechanism is confirmed. On the Mac that reported this, the Vulkan SDK's system install put a loader (`libvulkan.1.dylib`, 1.4.341) and `libMoltenVK.dylib` in `/usr/local/lib`, with their driver manifests in `/usr/local/share/vulkan/icd.d`. That is where SDL's search found a loader. `vkprobe`, which links the static MoltenVK the fix uses, created an instance and passed on the M4 Max with every Vulkan SDK variable cleared ([M9, checked before the code](#checked-before-the-code)). The entry stays open until the player itself links it.
+
+### A fresh macOS build fails where the Vulkan SDK installed its headers system-wide
+
+Open, reported by the Mac run of ADR-0018's questions. A fresh `vcpkg install` for `arm64-osx` in a new install root failed in `vk-bootstrap` with `unknown type name 'PFN_vkGetLatencyTimingsLegacyNV'; did you mean 'PFN_vkGetLatencyTimingsNV'?`. The Vulkan SDK's system install put its 1.4.341 headers in `/usr/local/include/vulkan`, which Apple Clang searches by default, and they shadow the manifest's `vulkan-headers` 1.4.357, which vk-bootstrap 1.4.357 is written against. Existing build directories are unaffected, because their install root was built before. A new clone, or a new build directory on that Mac, would hit it. CI's macOS runners have no SDK in `/usr/local`, so they cannot see it.
+
+What would close it: reproduce it on that Mac with a new build directory. Then keep `/usr/local/include` out of the ports' search path, for example through the overlay triplet's compiler flags, or document that the SDK's system install has to be deselected. Which one is decided once it reproduces.
 
 ## Later
 
