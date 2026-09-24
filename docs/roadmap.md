@@ -321,13 +321,21 @@ A probe branch (`agents/mac-lighting-probes`) added a debug view of the forward 
 
 ADR-0017 moves depth images into a bindless array of their own, removes the workaround and restores the strict environment test. Two GPU tests now read a green texture's albedo beside the shadow comparison and the lookup table's scale and bias.
 
-### `assets_tests` hung once on Windows
+### `assets_tests` hangs intermittently
 
-Open, seen once. On the Windows job of CI run 35780091420 (job 106923088063, 2026-09-22), `assets_tests` produced no output for 300 seconds and ctest killed it; the same test takes about 5 seconds on that runner, and the previous seven Windows runs passed. The log stops in the asynchronous import cases, after `job system started with 2 workers` and a `GltfImporter` line, with nothing after it: a hang rather than slow progress. Re-running the job alone passed, and twenty-five consecutive runs of `assets_tests` on Linux found nothing. The change under test only renamed two shader parameters, which cannot reach that code.
+Open, seen twice. On the Windows job of CI run 35780091420 (job 106923088063, 2026-09-22), `assets_tests` produced no output for 300 seconds and ctest killed it; the same test takes about 5 seconds on that runner, and the previous seven Windows runs passed. The log stops in the asynchronous import cases, after `job system started with 2 workers` and a `GltfImporter` line, with nothing after it: a hang rather than slow progress. Re-running the job alone passed, and twenty-five consecutive runs of `assets_tests` on Linux found nothing. The change under test only renamed two shader parameters, which cannot reach that code.
 
 The asynchronous path is where [ADR-0013](decisions/0013-job-system.md) put asset loading, and it is where the thread sanitizer found a use-after-free that appeared in one run of three while M8's gaps were being closed. A deadlock between a request waiting for a load and a worker finishing one is the shape to look for.
 
-What would close it: loop `assets_tests` on Windows until it hangs, then attach and take every thread's stack; on Linux, loop it under the thread sanitizer, which is what caught the last defect there. Until it reproduces, a re-run is the response, and this entry is what says the flake was seen before.
+Seen again on the Linux ASan job of CI run 35994756004 (job 107616944480, 2026-09-24), on pull request #22, which changes only documentation. `assets_tests` was killed at 300 seconds, while the four runs on `main` before it passed. This time the log places it. The last case that started is `a changed source is re-imported by polling and materials follow their textures`, with 2 workers again. Its last line is `re-imported painted.material.json` at 11:58:13.878, followed by five minutes of silence. That is the step after the material file's re-import: `setTextureSettings`, which rewrites the sidecar and re-imports the texture at once, on the main thread. [assets.md](assets.md#database) says a synchronous load that meets a request in flight for the same file waits for it. If finishing that request needs a main-thread job, and the main thread is the one waiting, nothing runs it. That is the shape this entry predicted. It is a reading of the log, not yet a reproduction.
+
+What would close it: loop that one case (`assets_tests "a changed source is re-imported by polling and materials follow their textures"`) under the ASan preset and under the thread sanitizer until it hangs, and take every thread's stack. Then check whether `setTextureSettings`, or the synchronous load under it, can wait on a request whose publishing needs the main thread. Until it reproduces, a re-run is the response, and this entry is what says the flake was seen before.
+
+### Undefined behaviour does not fail the sanitizer job
+
+Open. The `linux-asan` preset enables the undefined-behaviour sanitizer, but a finding only prints: nothing makes it fatal, unlike `linux-tsan`'s `halt_on_error=1`. So CI passes with undefined behaviour in the log. The same run found one: `BinaryReader::read` (`modules/assets/src/BinaryIo.h:147`) calls `std::memcpy` with a null destination when it reads an empty array. `size` is 0, so nothing is copied, but a null argument to `memcpy` is undefined behaviour all the same. It happened while opening a cooked bundle, at mesh "Box".
+
+What would close it: return early from `read` when `size` is 0, with the test that reads an empty array under the sanitizer. Then make the sanitizer's findings fatal in the preset (`-fno-sanitize-recover=undefined`, or `halt_on_error=1` in `UBSAN_OPTIONS` beside the test preset's other options), after one run to see what else it turns up.
 
 ### The macOS export needs the Vulkan SDK
 
