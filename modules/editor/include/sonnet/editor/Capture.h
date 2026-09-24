@@ -67,6 +67,9 @@ public:
   // changed: an ImGui table sizes its columns from the frames before (docs/editor.md,
   // "Screenshots").
   static constexpr std::uint32_t SelectionFrames = 3;
+  // What math.random is seeded with before playing: Lua seeds it differently in every process,
+  // and a scene whose scripts draw random numbers would otherwise play differently every run.
+  static constexpr std::uint64_t RandomSeed = 1;
 
   enum class Status : std::uint8_t {
     Running,
