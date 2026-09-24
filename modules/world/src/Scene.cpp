@@ -1,5 +1,6 @@
 #include <sonnet/world/Scene.h>
 
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/Assert.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
@@ -58,7 +59,7 @@ void saveSubtree(const World &world, flecs::entity entity, flecs::entity parent,
 // Version 1 named one of the renderer's primitives; version 2 references the built-in mesh of
 // the same shape by identity.
 void migrateVersion1(json &document) {
-  static const std::array<std::pair<const char *, core::Uuid>, 5> primitives{{{"Box", assets::builtin::box()},
+  static const std::array<std::pair<const char *, core::Uuid>, 5> Primitives{{{"Box", assets::builtin::box()},
                                                                               {"Sphere", assets::builtin::sphere()},
                                                                               {"Plane", assets::builtin::plane()},
                                                                               {"Cylinder", assets::builtin::cylinder()},
@@ -78,7 +79,7 @@ void migrateVersion1(json &document) {
     const std::string primitive = meshRenderer.value("primitive", std::string{"Box"});
     meshRenderer.erase("primitive");
     core::Uuid mesh = assets::builtin::box();
-    for (const auto &[name, uuid] : primitives) {
+    for (const auto &[name, uuid] : Primitives) {
       if (primitive == name) {
         mesh = uuid;
       }
@@ -198,7 +199,7 @@ core::Result<json> readJson(const std::filesystem::path &path) {
   if (!bytes) {
     return std::unexpected(bytes.error());
   }
-  json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  json document = assets::parseJson(*bytes);
   if (document.is_discarded()) {
     return std::unexpected(core::Error{std::format("{}: not valid JSON", path.string()), core::ErrorCategory::Io});
   }

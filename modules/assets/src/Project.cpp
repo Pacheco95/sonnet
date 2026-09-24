@@ -1,5 +1,6 @@
 #include <sonnet/assets/Project.h>
 
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Version.h>
@@ -24,7 +25,7 @@ core::Result<Project> Project::open(const std::filesystem::path &directory) {
   if (!bytes) {
     return std::unexpected(bytes.error());
   }
-  const json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  const json document = parseJson(*bytes);
   if (document.is_discarded() || !document.is_object()) {
     return std::unexpected(
         core::Error{std::format("{}: not valid JSON", project.file().string()), core::ErrorCategory::Io});

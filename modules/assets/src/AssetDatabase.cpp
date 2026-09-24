@@ -1,5 +1,6 @@
 #include <sonnet/assets/AssetDatabase.h>
 
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
@@ -131,7 +132,7 @@ core::Result<json> readJsonFile(const std::filesystem::path &path) {
   if (!bytes) {
     return std::unexpected(bytes.error());
   }
-  json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  json document = parseJson(*bytes);
   if (document.is_discarded()) {
     return std::unexpected(core::Error{std::format("{}: not valid JSON", path.string()), core::ErrorCategory::Io});
   }
@@ -237,6 +238,7 @@ void AssetDatabase::close() {
     m_failed.clear();
   }
   std::vector<core::Uuid> files;
+  files.reserve(m_files.size());
   for (const auto &[uuid, record] : m_files) {
     files.push_back(uuid);
   }

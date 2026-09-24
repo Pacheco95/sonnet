@@ -1,5 +1,6 @@
 #include <sonnet/editor/Preferences.h>
 
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 
@@ -30,7 +31,7 @@ Preferences Preferences::load(const std::filesystem::path &file) {
   if (!bytes) {
     return preferences; // first run
   }
-  const json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  const json document = assets::parseJson(*bytes);
   if (document.is_discarded() || !document.is_object()) {
     SONNET_LOG_WARN("{}: not valid JSON, using defaults", file.string());
     return preferences;
