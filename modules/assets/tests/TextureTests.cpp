@@ -5,12 +5,19 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+// The macro is stb's name.
+// NOLINTNEXTLINE(readability-identifier-naming)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
 #include <glm/gtc/packing.hpp>
 
+#include <ktx.h>
+
+#include <chrono>
 #include <cstring>
+#include <future>
+#include <thread>
 
 using namespace sonnet;
 using namespace sonnet::assets;
@@ -149,7 +156,8 @@ TEST_CASE("an HDR file imports to RGBA16F", "[assets][texture]") {
 }
 
 TEST_CASE("a texture cooks into KTX2 and reads back compressed or not", "[assets][texture][ktx]") {
-  auto texture = importImage(test::encodePng({8, 8}, std::vector<std::uint8_t>(8 * 8 * 4, 200)), TextureSettings{});
+  auto texture =
+      importImage(test::encodePng({8, 8}, std::vector<std::uint8_t>(std::size_t{8} * 8 * 4, 200)), TextureSettings{});
   REQUIRE(texture.has_value());
   REQUIRE(texture->mipLevels == 4);
 
@@ -178,4 +186,58 @@ TEST_CASE("a texture cooks into KTX2 and reads back compressed or not", "[assets
 
   const std::array<std::byte, 16> garbage{};
   REQUIRE(!readKtx2(garbage, true).has_value());
+}
+
+// Issue #24. basisu's job pool, which libktx builds and tears down around every compression, set
+// its kill flag without its mutex: a worker that had just found the flag false and was about to
+// block missed the destructor's notify_all, and the destructor's join() waited for it for ever.
+// With two threads, the count cookKtx2 passes on a two-core machine, each of five runs of this loop
+// hung within 5000 compressions until ports/ktx/0009 locked the mutex around the flag. The race is between basisu's own
+// threads, so there is nothing to order by hand; the loop runs it until it would have lost.
+TEST_CASE("compressing KTX2 textures back to back never hangs basisu's job pool", "[assets][texture][ktx]") {
+  constexpr int compressions = 20000;
+  constexpr ktx_uint32_t vkFormatR8G8B8A8Unorm = 37;
+  std::promise<ktx_error_code_e> result;
+  std::future<ktx_error_code_e> finished = result.get_future();
+  // A thread of its own, which owns the promise, so a hang fails this case by its deadline rather
+  // than the whole binary by ctest's timeout, and the thread it leaves behind touches nothing here.
+  std::thread{[result = std::move(result)]() mutable {
+    const std::vector<ktx_uint8_t> pixels(std::size_t{4} * 4 * 4, 90);
+    for (int i = 0; i < compressions; ++i) {
+      ktxTextureCreateInfo info{};
+      info.vkFormat = vkFormatR8G8B8A8Unorm;
+      info.baseWidth = 4;
+      info.baseHeight = 4;
+      info.baseDepth = 1;
+      info.numDimensions = 2;
+      info.numLevels = 1;
+      info.numLayers = 1;
+      info.numFaces = 1;
+      ktxTexture2 *texture = nullptr;
+      ktx_error_code_e code = ktxTexture2_Create(&info, KTX_TEXTURE_CREATE_ALLOC_STORAGE, &texture);
+      // The library's ktxTexture() macro is a C-style cast to the base struct.
+      auto *base = reinterpret_cast<ktxTexture *>(texture);
+      if (code == KTX_SUCCESS) {
+        code = ktxTexture_SetImageFromMemory(base, 0, 0, 0, pixels.data(), pixels.size());
+      }
+      if (code == KTX_SUCCESS) {
+        ktxBasisParams params{};
+        params.structSize = sizeof(params);
+        params.uastc = KTX_TRUE;
+        params.threadCount = 2;
+        params.uastcFlags = KTX_PACK_UASTC_LEVEL_FASTER;
+        code = ktxTexture2_CompressBasisEx(texture, &params);
+      }
+      if (texture != nullptr) {
+        ktxTexture_Destroy(base);
+      }
+      if (code != KTX_SUCCESS) {
+        result.set_value(code);
+        return;
+      }
+    }
+    result.set_value(KTX_SUCCESS);
+  }}.detach();
+  REQUIRE(finished.wait_for(std::chrono::seconds{60}) == std::future_status::ready);
+  REQUIRE(finished.get() == KTX_SUCCESS);
 }

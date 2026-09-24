@@ -1,0 +1,18 @@
+--- a/external/basisu/encoder/basisu_enc.cpp
++++ b/external/basisu/encoder/basisu_enc.cpp
+@@ -1533,8 +1533,13 @@
+ 	{
+ 		debug_printf("job_pool::~job_pool\n");
+ 		
+-		// Notify all workers that they need to die right now.
+-		m_kill_flag = true;
++		// Notify all workers that they need to die right now. The flag is set under the mutex:
++		// otherwise a worker that has just found it false in m_has_work.wait's predicate, and has
++		// not yet blocked, misses the notify_all below and sleeps for ever, and join() with it.
++		{
++			std::lock_guard<std::mutex> lock(m_mutex);
++			m_kill_flag = true;
++		}
+ 		
+ 		m_has_work.notify_all();
+ 

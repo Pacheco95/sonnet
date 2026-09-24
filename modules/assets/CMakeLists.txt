@@ -41,6 +41,7 @@ sonnet_add_module_test(assets
     tests/TextureTests.cpp
   DEPENDS
     nlohmann_json::nlohmann_json
+    KTX::ktx
 )
 if(TARGET assets_tests)
   sonnet_add_engine_shaders(assets_tests)
