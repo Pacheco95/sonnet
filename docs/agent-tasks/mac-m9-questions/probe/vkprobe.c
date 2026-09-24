@@ -63,6 +63,23 @@ static void probeFormat(VkPhysicalDevice device, const char *name, VkFormat form
   out("  %-48s %s", name, (properties.optimalTilingFeatures & wanted) == wanted ? "sampled, linear filter, transfer dst" : "not usable");
 }
 
+// A depth format's features one by one. The shadow cascades need a depth attachment that is
+// sampled with depth comparison through a linear comparison sampler; the Vulkan spec asks
+// SAMPLED_IMAGE_DEPTH_COMPARISON of that, and SAMPLED_IMAGE_FILTER_LINEAR only when comparison is
+// off (VUID-vkCmdDraw-None-06479, VUID-vkCmdDraw-magFilter-04553).
+static void probeDepthFormat(VkPhysicalDevice device, const char *name, VkFormat format) {
+  VkFormatProperties3 properties3 = {.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3};
+  VkFormatProperties2 properties = {.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2, .pNext = &properties3};
+  vkGetPhysicalDeviceFormatProperties2(device, format, &properties);
+  const VkFormatFeatureFlags2 f = properties3.optimalTilingFeatures;
+  out("  %-20s attachment %s, sampled %s, depth comparison %s, linear filter %s, transfer dst %s (0x%llx)", name,
+      f & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT ? "yes" : "NO",
+      f & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT ? "yes" : "NO",
+      f & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT ? "yes" : "NO",
+      f & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT ? "yes" : "no",
+      f & VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT ? "yes" : "no", (unsigned long long)f);
+}
+
 static void probeDevice(VkPhysicalDevice device) {
   VkPhysicalDeviceDriverProperties driver = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
   VkPhysicalDeviceVulkan12Properties properties12 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES,
@@ -154,7 +171,9 @@ static void probeDevice(VkPhysicalDevice device) {
   probeFormat(device, "ASTC_6x6_UNORM_BLOCK", VK_FORMAT_ASTC_6x6_UNORM_BLOCK);
   probeFormat(device, "ASTC_6x6_SRGB_BLOCK", VK_FORMAT_ASTC_6x6_SRGB_BLOCK);
   probeFormat(device, "BC7_SRGB_BLOCK", VK_FORMAT_BC7_SRGB_BLOCK);
-  probeFormat(device, "D32_SFLOAT (as depth attachment)", VK_FORMAT_D32_SFLOAT);
+  out(" depth formats (optimal tiling), what the shadow cascades need");
+  probeDepthFormat(device, "D32_SFLOAT", VK_FORMAT_D32_SFLOAT);
+  probeDepthFormat(device, "D16_UNORM", VK_FORMAT_D16_UNORM);
 }
 
 static bool hasExtension(const VkExtensionProperties *extensions, uint32_t count, const char *name) {
