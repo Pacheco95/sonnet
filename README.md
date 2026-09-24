@@ -182,6 +182,7 @@ ctest --preset linux-debug
 | [0016](docs/decisions/0016-instanced-batches.md) | Instanced batches, one indirect command per batch | Accepted |
 | [0017](docs/decisions/0017-depth-images-in-their-own-bindless-array.md) | Depth images in their own bindless array | Accepted |
 | [0018](docs/decisions/0018-mobile-export.md) | Mobile export: builds, ASTC, packaging and device checks | Proposed |
+| [0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) | Vulkan 1.3 devices that carry the engine's 1.4 features as extensions | Proposed, would amend 0001 |
 
 ## License
 
