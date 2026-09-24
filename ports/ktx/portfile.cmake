@@ -12,6 +12,7 @@ vcpkg_from_github(
         0006-fix-ios-install.patch
         0007-clang-flags-per-language.patch
         0008-fix-stream-leak-on-short-read.patch
+        0009-job-pool-kill-flag-under-mutex.patch
         ktxread-libtool.diff
 )
 file(GLOB third_party "${SOURCE_PATH}/external/*" "${SOURCE_PATH}/external/basisu/zstd" "${SOURCE_PATH}/other_include/*")
