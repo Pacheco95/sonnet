@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -139,9 +140,14 @@ public:
   }
 
 private:
+  // An empty read returns before memcpy: an empty vector's data() may be null, and memcpy takes
+  // no null pointer even for zero bytes.
   void read(void *data, std::size_t size) {
     if (!m_ok || size > remaining()) {
       m_ok = false;
+      return;
+    }
+    if (size == 0) {
       return;
     }
     std::memcpy(data, m_bytes.data() + m_cursor, size);
