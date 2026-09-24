@@ -1,4 +1,5 @@
 #include "AssetTestSupport.h"
+#include "BinaryIo.h"
 
 #include <sonnet/assets/Bundle.h>
 #include <sonnet/assets/Cook.h>
@@ -126,6 +127,26 @@ TEST_CASE("a truncated or foreign payload is an error, never a read past the end
   lying[4] = std::byte{0xff};
   lying[5] = std::byte{0xff};
   REQUIRE(!decodeSkin(lying).has_value());
+}
+
+// An empty vector's data() is null, and the sanitizer job failed on the memcpy that took it,
+// even with nothing to copy (the "Box" mesh of a cooked bundle has no skin).
+TEST_CASE("an empty array and an empty string read back without touching memcpy", "[assets][bundle]") {
+  detail::ByteWriter writer;
+  writer.array(std::span<const float>{});
+  writer.string({});
+  writer.u32(7);
+  const std::vector<std::byte> bytes = writer.take();
+
+  detail::ByteReader reader{bytes};
+  std::vector<float> values;
+  reader.array(values);
+  const std::string text = reader.string();
+  REQUIRE(reader.u32() == 7);
+  REQUIRE(reader.ok());
+  REQUIRE(values.empty());
+  REQUIRE(text.empty());
+  REQUIRE(reader.remaining() == 0);
 }
 
 TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundle]") {

@@ -17,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -94,6 +95,16 @@ TEST_CASE("physics components are registered with reflection and round-trip thro
   REQUIRE(loaded);
   REQUIRE(loaded.get<physics::RigidBody>().type == physics::BodyType::Kinematic);
   REQUIRE(loaded.get<physics::SphereCollider>().radius == 0.5f);
+}
+
+// Jolt was built without RTTI, and so was this module to match, so the world's vtable had no
+// typeinfo: the sanitizer's vptr check rejected it wherever another module destroyed it, and
+// typeid here read a null pointer.
+TEST_CASE("the physics world carries its type information into other modules", "[physics]") {
+  Fixture fixture;
+  physics::IPhysicsWorld &physics = *fixture.physics;
+  REQUIRE(typeid(physics) != typeid(physics::IPhysicsWorld));
+  REQUIRE(dynamic_cast<physics::IPhysicsWorld *>(&physics) == &physics);
 }
 
 TEST_CASE("a dynamic ball falls onto static ground in play mode only", "[physics]") {
@@ -375,18 +386,18 @@ TEST_CASE("stopping play and reloading the snapshot discards the simulated state
 // idle and with it working, which is what ADR-0013 claims Jolt gains from the job system. Run it in
 // Release: a Debug Jolt is slow enough to bury the difference in its own overhead.
 TEST_CASE("a pile of dynamic bodies steps faster across cores", "[.][benchmark][physics]") {
-  constexpr int Columns = 12;
-  constexpr int Layers = 7;
-  constexpr int Steps = 120;
+  constexpr int columns = 12;
+  constexpr int layers = 7;
+  constexpr int steps = 120;
 
   const auto measure = [](std::uint32_t workers) {
     Fixture fixture{workers};
     fixture.ground();
     // A loose pile rather than a grid: the boxes settle into each other, so the solver has real
     // islands to split across threads instead of a thousand independent falls.
-    for (int layer = 0; layer < Layers; ++layer) {
-      for (int x = 0; x < Columns; ++x) {
-        for (int z = 0; z < Columns; ++z) {
+    for (int layer = 0; layer < layers; ++layer) {
+      for (int x = 0; x < columns; ++x) {
+        for (int z = 0; z < columns; ++z) {
           const flecs::entity body = fixture.world.createEntity("Box");
           const float jitter = static_cast<float>((x * 7 + z * 13 + layer * 3) % 5) * 0.01f;
           body.set<world::Transform>(
@@ -401,11 +412,11 @@ TEST_CASE("a pile of dynamic bodies steps faster across cores", "[.][benchmark][
     fixture.world.progress(Step); // the first step creates the bodies; not what is being timed
 
     const auto start = std::chrono::steady_clock::now();
-    for (int step = 0; step < Steps; ++step) {
+    for (int step = 0; step < steps; ++step) {
       fixture.world.progress(Step);
     }
     const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start);
-    return std::pair{elapsed.count() / Steps, fixture.physics->bodyCount()};
+    return std::pair{elapsed.count() / steps, fixture.physics->bodyCount()};
   };
 
   const unsigned hardware = std::thread::hardware_concurrency();
@@ -413,7 +424,7 @@ TEST_CASE("a pile of dynamic bodies steps faster across cores", "[.][benchmark][
   const auto [pooledMs, pooledBodies] = measure(hardware > 1 ? hardware - 1 : 1);
   REQUIRE(inlineBodies == pooledBodies);
 
-  WARN(std::format("{} bodies, {} steps", inlineBodies, Steps));
+  WARN(std::format("{} bodies, {} steps", inlineBodies, steps));
   WARN(std::format("no workers        {:8.3f} ms per step", inlineMs));
   WARN(std::format("{:2} workers        {:8.3f} ms per step, {:.2f}x", hardware > 1 ? hardware - 1 : 1, pooledMs,
                    inlineMs / pooledMs));

@@ -33,7 +33,12 @@
     "fastgltf",
     "stb",
     "ktx",
-    "joltphysics",
+    {
+      "name": "joltphysics",
+      "features": [
+        "rtti"
+      ]
+    },
     {
       "name": "lua",
       "features": [
