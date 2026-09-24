@@ -5,6 +5,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+// The macro is stb's name.
+// NOLINTNEXTLINE(readability-identifier-naming)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
@@ -154,7 +156,8 @@ TEST_CASE("an HDR file imports to RGBA16F", "[assets][texture]") {
 }
 
 TEST_CASE("a texture cooks into KTX2 and reads back compressed or not", "[assets][texture][ktx]") {
-  auto texture = importImage(test::encodePng({8, 8}, std::vector<std::uint8_t>(8 * 8 * 4, 200)), TextureSettings{});
+  auto texture =
+      importImage(test::encodePng({8, 8}, std::vector<std::uint8_t>(std::size_t{8} * 8 * 4, 200)), TextureSettings{});
   REQUIRE(texture.has_value());
   REQUIRE(texture->mipLevels == 4);
 
