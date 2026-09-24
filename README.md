@@ -45,7 +45,7 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 | Android | no | yes | Devices launching with Android 16+, where 1.4 is mandatory. Older devices are not supported. |
 | iOS 15+ | no | yes | MoltenVK 1.4+; built from a macOS host |
 
-Vulkan 1.4 is a hard minimum ([ADR-0001](docs/decisions/0001-vulkan-1.4-only.md)). Per-platform consequences are in [docs/rendering.md](docs/rendering.md#platform-notes).
+Vulkan 1.4 is the minimum, or 1.3 with the four 1.4 features the engine uses as extensions ([ADR-0001](docs/decisions/0001-vulkan-1.4-only.md), amended by [ADR-0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md)). Per-platform consequences are in [docs/rendering.md](docs/rendering.md#platform-notes).
 
 ## Technology
 
@@ -164,7 +164,7 @@ ctest --preset linux-debug
 
 | ADR | Decision | Status |
 |---|---|---|
-| [0001](docs/decisions/0001-vulkan-1.4-only.md) | Vulkan 1.4 is the only graphics backend and a hard minimum | Accepted |
+| [0001](docs/decisions/0001-vulkan-1.4-only.md) | Vulkan 1.4 is the only graphics backend and a hard minimum | Accepted, amended by 0019 |
 | [0002](docs/decisions/0002-sdl3-over-glfw.md) | SDL3 for windowing, input and the main loop | Accepted |
 | [0003](docs/decisions/0003-ecs-library.md) | flecs as the entity component system | Accepted, EnTT recorded as the alternative |
 | [0004](docs/decisions/0004-vcpkg-first.md) | vcpkg first, FetchContent for edge cases | Accepted |
@@ -181,8 +181,8 @@ ctest --preset linux-debug
 | [0015](docs/decisions/0015-bindless-vertex-buffers.md) | Bindless vertex buffers instead of a vertex pointer per object | Accepted |
 | [0016](docs/decisions/0016-instanced-batches.md) | Instanced batches, one indirect command per batch | Accepted |
 | [0017](docs/decisions/0017-depth-images-in-their-own-bindless-array.md) | Depth images in their own bindless array | Accepted |
-| [0018](docs/decisions/0018-mobile-export.md) | Mobile export: builds, ASTC, packaging and device checks | Proposed |
-| [0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) | Vulkan 1.3 devices that carry the engine's 1.4 features as extensions | Proposed, would amend 0001 |
+| [0018](docs/decisions/0018-mobile-export.md) | Mobile export: builds, ASTC, packaging and device checks | Accepted |
+| [0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) | Vulkan 1.3 devices that carry the engine's 1.4 features as extensions | Accepted |
 
 ## License
 

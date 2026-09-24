@@ -1,6 +1,6 @@
 # ADR-0019: Vulkan 1.3 devices that carry the engine's 1.4 features as extensions
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-23
 
 ## Context

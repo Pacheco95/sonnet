@@ -1,6 +1,6 @@
 # ADR-0001: Vulkan 1.4 is the only graphics backend and a hard minimum
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [ADR-0019](0019-vulkan-1.3-devices-with-the-1.4-extensions.md)
 - **Date:** 2026-09-12
 
 ## Context

@@ -1,6 +1,6 @@
 # ADR-0018: Mobile export: builds, ASTC, packaging and device checks
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-23
 
 ## Context
@@ -143,7 +143,7 @@ Each question says what answered it, or what will. Questions 1, 3, 7 and 8 were 
    - Every descriptor-indexing limit is 16 777 216 against the 4 224 the bindless set needs, and `maxPerStageUpdateAfterBindResources` is 50 331 648. `maxBoundDescriptorSets` is 7 and `maxPushConstantsSize` is 256.
    - ASTC LDR, BC and ETC2 are all supported, and ASTC 4×4 and 6×6 (UNORM and sRGB), BC7 and `D32_SFLOAT` are sampled with linear filtering and take transfers. `drawIndirectCount` is present and `VK_EXT_host_image_copy` is not. The timestamp period is 52.08 ns.
 
-   So the engine would run on it feature for feature, but only if it accepted a 1.3 device that carries those four extensions, which ADR-0001 rules out. [ADR-0019](0019-vulkan-1.3-devices-with-the-1.4-extensions.md), proposed, amends ADR-0001 to accept such a device, which keeps this phone as M9's Android device.
+   So the engine would run on it feature for feature, but only if it accepted a 1.3 device that carries those four extensions, which ADR-0001 rules out. [ADR-0019](0019-vulkan-1.3-devices-with-the-1.4-extensions.md) amends ADR-0001 to accept such a device, which keeps this phone as M9's Android device.
 7. **GitHub's runners.** *Answered* from `actions/runner-images` (image 20260907). `ubuntu-24.04` has NDK r27.3 (the default `ANDROID_NDK_HOME`), r28.2 and r29.0 (`ANDROID_NDK_LATEST_HOME`), build-tools 36.1.0, platform `android-36` and JDK 17. The Android job uses the default r27.3, the oldest NDK [build.md](../build.md#toolchains) supports, so CI proves the floor, while developers may use a newer one (r30 on the Linux machine). `macos-latest` is macOS 26 on arm64, with Xcode 26.6 as the default and the iOS 26 SDK.
 8. **The ASTC block sizes' quality.** *Answered, no change.* Measured with the `libktx` the engine builds (4.4.2) at `MEDIUM` quality, perceptual for sRGB, on the 2048² maps of Khronos's DamagedHelmet and KTX-Software's FlightHelmet base colour. The engine's desktop path (UASTC at its faster level) is the baseline. PSNR is over RGB, in dB.
 
