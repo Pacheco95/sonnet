@@ -38,7 +38,9 @@ if(SONNET_SANITIZERS)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     message(FATAL_ERROR "SONNET_SANITIZERS requires GCC or Clang (got ${CMAKE_CXX_COMPILER_ID})")
   endif()
-  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  # A finding aborts rather than prints, so CI cannot pass with undefined behaviour in its log. The
+  # flag is compiled in, so it holds however the binary is run, not only under the test preset.
+  add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
