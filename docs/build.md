@@ -64,7 +64,7 @@ Triplets: `x64-windows`, `x64-linux` (and `x64-linux-tsan` for the thread saniti
 | `windows-debug`, `windows-release` | Ninja with MSVC from a developer prompt |
 | `macos-debug`, `macos-release` | Ninja, Apple Clang |
 | `android-debug` | Chain-loads the NDK toolchain through `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`, player only. Added in M9 |
-| `ios-debug` | Xcode generator, `CMAKE_SYSTEM_NAME=iOS`, player only. Added in M9 |
+| `ios-debug` | Xcode generator, `CMAKE_SYSTEM_NAME=iOS`, player only. Added in M10 |
 
 Binary directories are `build/<preset>/`. In-source builds are rejected. Configuring without a preset still works when `VCPKG_ROOT` is set or a checkout exists at `~/vcpkg`: the root `CMakeLists.txt` picks the toolchain file up itself, and otherwise stops with a message saying so.
 

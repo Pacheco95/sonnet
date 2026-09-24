@@ -186,13 +186,12 @@ What M8 left behind, with what each would take, is in [Known gaps](#known-gaps):
 
 ## M9: Mobile export
 
-- Android: NDK build of the player, ASTC texture cooking, Android 16+ device testing, packaging into an APK.
-- iOS: Xcode build of the player from a macOS host, MoltenVK, packaging into an app bundle.
-- Touch input mapping and the OS-owned loop through the SDL3 callbacks.
+Mobile export was one milestone and is now two, because each platform is blocked on something different. Android needs the NDK build and a device on [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md)'s 1.3 path. iOS needs a Mac, signing and a phone in hand. Either one would have held the whole milestone back. M9 is the work both platforms share, plus Android; iOS is [M10](#m10-ios-export). [ADR-0018](decisions/0018-mobile-export.md) decides how both are done and what counts as running, and its decisions hold across the split.
 
-Done when the basic sample runs on an Android 16 device and an iOS device.
+- Shared: ASTC texture cooking (`CookPlatform` gains `android` and `ios`), the ASTC formats and `astcSupported` in `rhi`, touch input mapping, and the OS-owned loop through the SDL3 callbacks.
+- Android: NDK build of the player, Android 16+ device testing, packaging into an APK.
 
-How, and what counts as running, is decided in [ADR-0018](decisions/0018-mobile-export.md).
+Done when the basic sample runs on an Android 16 device.
 
 ### Checked before the code
 
@@ -212,6 +211,14 @@ A follow-up run (`agents/mac-m9-followup`) closed what the first run left open:
 - **Signing:** `DEVELOPMENT_TEAM` has to be the team of the provisioning profile Xcode made for the bundle identifier. That can differ from the team of the signing certificate in the keychain, and passing the certificate's team failed with "No Account for Team".
 
 The Android half of question 9 waits for the first APK. The Galaxy S25 Ultra's Vulkan report is in ADR-0018's open question 6 and led to [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md).
+
+## M10: iOS export
+
+- Xcode build of the player from a macOS host, MoltenVK linked statically, packaging into an app bundle.
+
+It builds on M9's shared work: ASTC cooking, touch input and the SDL3 callback loop. Most of what could stop it was already checked on the device ([Checked before the code](#checked-before-the-code)).
+
+Done when the basic sample runs on an iOS device.
 
 ## Known gaps
 

@@ -33,7 +33,8 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 | Player binary and export to Windows, Linux and macOS | M6 |
 | GPU-driven culling and indirect draws | M7 |
 | Job system, asynchronous loading and multi-threaded recording | M8 |
-| Export to Android and iOS | M9 |
+| Export to Android | M9 |
+| Export to iOS | M10 |
 
 ## Platforms
 
