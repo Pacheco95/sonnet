@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -149,6 +150,31 @@ TEST_CASE("scripts get vec3 and quat maths and no file or OS access", "[scriptin
   REQUIRE(failed.error().category == core::ErrorCategory::Script);
   REQUIRE(failed.error().message.contains("broken:1:"));
   REQUIRE(!fixture.scripts->run("this is not lua", "syntax").has_value());
+}
+
+TEST_CASE("a seeded math.random repeats its sequence", "[scripting]") {
+  Fixture fixture;
+  // Globals through _G, since every run gets an environment of its own over them.
+  const auto draw = [&](std::string_view into) {
+    REQUIRE(fixture.scripts
+                ->run(std::format("_G.{} = {{ math.random(), math.random(), math.random(1, 1000000) }}", into), "draw")
+                .has_value());
+  };
+  fixture.scripts->seedRandom(1);
+  draw("first");
+  fixture.scripts->seedRandom(1);
+  draw("again");
+  fixture.scripts->seedRandom(2);
+  draw("other");
+  REQUIRE(fixture.scripts
+              ->run(R"lua(
+    for i = 1, 3 do
+      assert(first[i] == again[i], "the same seed gave a different draw " .. i)
+    end
+    assert(first[1] ~= other[1] or first[2] ~= other[2] or first[3] ~= other[3], "another seed gave the same draws")
+  )lua",
+                    "compare")
+              .has_value());
 }
 
 TEST_CASE("a script's instance starts once and updates every frame in play mode only", "[scripting]") {
