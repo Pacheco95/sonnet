@@ -1,0 +1,65 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "sonnet-m9-trial",
+  "version-string": "0.10.0",
+  "builtin-baseline": "a1cae005c39be7b18ba319fced856b68d7276271",
+  "dependencies": [
+    {
+      "name": "sdl3",
+      "default-features": false,
+      "features": [
+        "vulkan",
+        {
+          "name": "x11",
+          "platform": "linux"
+        },
+        {
+          "name": "wayland",
+          "platform": "linux"
+        }
+      ]
+    },
+    "vulkan-headers",
+    {
+      "name": "vulkan-loader",
+      "platform": "!android & !ios"
+    },
+    "vk-bootstrap",
+    "vulkan-memory-allocator-hpp",
+    {
+      "name": "shader-slang",
+      "host": true
+    },
+    {
+      "name": "shader-slang",
+      "platform": "!android & !ios"
+    },
+    "glm",
+    "spdlog",
+    "tracy",
+    "catch2",
+    "flecs",
+    "nlohmann-json",
+    "fastgltf",
+    "stb",
+    "ktx",
+    "joltphysics",
+    {
+      "name": "lua",
+      "features": [
+        "cpp"
+      ]
+    },
+    "sol2",
+    "miniaudio",
+    {
+      "name": "imgui",
+      "features": [
+        "docking-experimental",
+        "sdl3-binding",
+        "vulkan-binding"
+      ],
+      "platform": "!android & !ios"
+    }
+  ]
+}
