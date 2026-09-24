@@ -1,6 +1,7 @@
 #include "AssetTestSupport.h"
 
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/JobSystem.h>
 
 #include <sonnet/platform/Platform.h>
@@ -355,7 +356,7 @@ TEST_CASE("materials are created, edited and saved as files", "[assets][database
   REQUIRE(database.saveMaterial(*created).has_value());
   const auto bytes = core::readFile(fixture.root / "assets" / "metal.material.json");
   REQUIRE(bytes.has_value());
-  const auto reloaded = loadMaterial(nlohmann::json::parse(bytes->begin(), bytes->end()));
+  const auto reloaded = loadMaterial(parseJson(*bytes));
   REQUIRE(reloaded.has_value());
   REQUIRE(reloaded->roughness == Approx(0.9f));
   REQUIRE(!database.createMaterial(fixture.root / "assets" / "wrong.json", metal).has_value());

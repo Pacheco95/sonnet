@@ -13,6 +13,8 @@ C++23 is required. Minimum compilers, chosen for `std::expected`, `std::print`, 
 | macOS, iOS | Apple Clang from Xcode 16.3+ |
 | Android | NDK r27+ (Clang 18) |
 
+libc++ from LLVM 19 on, which NDKs newer than r27 ship, is stricter than libstdc++ and Xcode's libc++ in one place the code met: it has no `std::char_traits<std::byte>`, so JSON and CBOR are read through `assets::parseJson` and `parseCbor` rather than handing nlohmann bytes ([assets.md](assets.md#reading-json-and-cbor)).
+
 C++23 features not relied on until every toolchain above ships them: `std::generator`, `std::flat_map`, `import std`. C++20 modules are not used for engine code. Vulkan-HPP's `vulkan.cppm` module is an optional experiment for compile times, behind a CMake option, never required.
 
 Other prerequisites:

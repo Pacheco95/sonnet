@@ -96,6 +96,10 @@ Everything in the project is referenced relative to this folder so projects are 
 
 Scenes are JSON produced by the `world` serializer: a list of entities with their UUID, name, parent, components with reflected fields, and prefab references. Prefab instances store only overrides. The format is versioned with a top-level `version` field; migrations are applied on load and old versions are never written. The format as built, with an example, is in [world.md](world.md#scenes).
 
+## Reading JSON and CBOR
+
+Every JSON text and CBOR document the engine reads arrives as bytes, from `core::readFile` or a bundle, and goes through `assets::parseJson` or `assets::parseCbor` (`sonnet/assets/Json.h`), never nlohmann's `parse` or `from_cbor` directly. Given `std::byte`, nlohmann reads through `std::char_traits<std::byte>`, which libc++ stopped defining in LLVM 19, since `std::byte` is not a character type. libstdc++ and the libc++ in Xcode 26 still accept it, so every CI job passed while an NDK newer than r27 would not compile the call. The two functions hand nlohmann `char` and `unsigned char` instead. Invalid input gives a discarded value (`is_discarded()`), never an exception, and a CBOR document with trailing bytes is invalid.
+
 ## Cooking and export
 
 `assets::cook` writes a project into `<out>/game.sbundle`, the name the player looks for beside its own binary. `sonnet_cook <project> [--platform windows|linux|macos] [--out <dir>]` is its command line, and the editor's export dialog is the other caller, which also copies a player next to the bundle ([editor.md](editor.md#export)). Mobile targets join in M9.

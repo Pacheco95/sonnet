@@ -1,6 +1,7 @@
 #include <sonnet/runtime/Game.h>
 
 #include <sonnet/assets/Bundle.h>
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
@@ -28,7 +29,7 @@ using nlohmann::json;
   if (!bytes) {
     return std::unexpected(bytes.error());
   }
-  json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  json document = assets::parseJson(*bytes);
   if (document.is_discarded()) {
     return std::unexpected(core::Error{std::format("{}: not valid JSON", file.string()), core::ErrorCategory::Io});
   }

@@ -1,5 +1,6 @@
 #include <sonnet/world/Scene.h>
 
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/Assert.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
@@ -198,7 +199,7 @@ core::Result<json> readJson(const std::filesystem::path &path) {
   if (!bytes) {
     return std::unexpected(bytes.error());
   }
-  json document = json::parse(bytes->begin(), bytes->end(), nullptr, false);
+  json document = assets::parseJson(*bytes);
   if (document.is_discarded()) {
     return std::unexpected(core::Error{std::format("{}: not valid JSON", path.string()), core::ErrorCategory::Io});
   }

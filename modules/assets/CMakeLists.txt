@@ -13,6 +13,7 @@ sonnet_add_module(assets
     src/Cook.cpp
     src/GltfImporter.cpp
     src/ImageImporter.cpp
+    src/Json.cpp
     src/Ktx2.cpp
     src/MeshCook.cpp
     src/Project.cpp
@@ -34,6 +35,7 @@ sonnet_add_module_test(assets
     tests/CookTests.cpp
     tests/DatabaseTests.cpp
     tests/GltfTests.cpp
+    tests/JsonTests.cpp
     tests/ProjectTests.cpp
     tests/ShaderTests.cpp
     tests/TextureTests.cpp

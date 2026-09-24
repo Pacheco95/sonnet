@@ -2,6 +2,7 @@
 
 #include "BinaryIo.h"
 
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 #include <sonnet/core/Version.h>
@@ -116,7 +117,7 @@ core::Result<Bundle> Bundle::open(const std::filesystem::path &file) {
   if (!indexBytes) {
     return std::unexpected(indexBytes.error());
   }
-  const json index = json::from_cbor(*indexBytes, true, false);
+  const json index = parseCbor(*indexBytes);
   if (index.is_discarded() || !index.is_object()) {
     return std::unexpected(ioError(file, "the index is not readable"));
   }
@@ -503,7 +504,7 @@ std::vector<std::byte> encodeJson(const json &document) {
 }
 
 core::Result<json> decodeJson(std::span<const std::byte> payload) {
-  const json document = json::from_cbor(payload, true, false);
+  const json document = parseCbor(payload);
   if (document.is_discarded()) {
     return std::unexpected(payloadError("not readable as CBOR"));
   }
