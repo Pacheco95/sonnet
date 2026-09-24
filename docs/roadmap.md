@@ -192,6 +192,8 @@ What M8 left behind, with what each would take, is in [Known gaps](#known-gaps):
 
 Done when the basic sample runs on an Android 16 device and an iOS device.
 
+How, and what counts as running, is proposed in [ADR-0018](decisions/0018-mobile-export.md).
+
 ## Known gaps
 
 Work M8 named rather than did, and what closing it turned up, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. A gap that has been closed keeps its entry, saying what closed it and what it measured. These are engineering debts; the feature backlog is [Later](#later).

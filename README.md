@@ -181,6 +181,7 @@ ctest --preset linux-debug
 | [0015](docs/decisions/0015-bindless-vertex-buffers.md) | Bindless vertex buffers instead of a vertex pointer per object | Accepted |
 | [0016](docs/decisions/0016-instanced-batches.md) | Instanced batches, one indirect command per batch | Accepted |
 | [0017](docs/decisions/0017-depth-images-in-their-own-bindless-array.md) | Depth images in their own bindless array | Accepted |
+| [0018](docs/decisions/0018-mobile-export.md) | Mobile export: builds, ASTC, packaging and device checks | Proposed |
 
 ## License
 
