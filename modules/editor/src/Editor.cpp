@@ -496,6 +496,17 @@ void Editor::drawModal() {
   if (!m_modalError.empty()) {
     ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
   }
+  const bool exportSucceeded = m_modal == Modal::Export && !m_modalMessage.empty() && m_modalError.empty();
+  if (exportSucceeded) {
+    const bool close = ImGui::Button("Close", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                       ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    if (close) {
+      m_modal = Modal::None;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+    return;
+  }
   const bool confirmed = ImGui::Button("OK", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Enter, false);
   ImGui::SameLine();
   const bool cancelled = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
@@ -512,8 +523,6 @@ void Editor::drawModal() {
       outcome = saveSceneAs(m_modalPath);
       break;
     case Modal::Export: {
-      // The dialog stays open on success, showing what was written: an export is something to
-      // read the result of, not a step on the way somewhere else.
       const auto report =
           exportProject({.outputDirectory = m_modalPath, .platform = m_exportPlatform, .playerDirectory = m_basePath});
       if (report) {
@@ -534,7 +543,7 @@ void Editor::drawModal() {
       break;
     }
     if (m_modal == Modal::Export && outcome) {
-      // Handled above: the dialog is closed by Cancel once its message has been read.
+      // Keep the successful report visible; the next frame offers a single Close action.
       m_modalError.clear();
       ImGui::EndPopup();
       return;
