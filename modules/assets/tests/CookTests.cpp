@@ -75,14 +75,14 @@ namespace {
 
 TEST_CASE("cooking a mesh welds its vertices and keeps the geometry", "[assets][cook]") {
   const MeshData source = unweldedGrid(8, 8);
-  REQUIRE(source.vertices.size() == 8 * 8 * 6); // three per triangle, nothing shared
+  REQUIRE(source.vertices.size() == 8uz * 8 * 6); // three per triangle, nothing shared
 
   MeshCookStatistics statistics;
   const MeshData cooked = cookMesh(source, &statistics);
 
   // A grid of 8x8 quads has 9x9 distinct corners; welding finds exactly those.
   REQUIRE(statistics.verticesBefore == source.vertices.size());
-  REQUIRE(cooked.vertices.size() == 9 * 9);
+  REQUIRE(cooked.vertices.size() == 9uz * 9);
   REQUIRE(statistics.verticesAfter == cooked.vertices.size());
   REQUIRE(cooked.indices.size() == source.indices.size());
   REQUIRE(triangles(cooked) == triangles(source));
@@ -171,7 +171,7 @@ struct ProjectFixture {
                 .has_value());
     test::writeBoxGltf(root / "assets" / "models" / "crate.gltf", "wood.png");
     test::writeSkinnedGltf(root / "assets" / "models" / "reed.gltf");
-    REQUIRE(core::writeFile(root / "assets" / "sky.hdr", test::encodeHdr({4, 2}, std::vector<float>(4 * 2 * 3, 0.5f)))
+    REQUIRE(core::writeFile(root / "assets" / "sky.hdr", test::encodeHdr({4, 2}, std::vector<float>(4uz * 2 * 3, 0.5f)))
                 .has_value());
     MaterialSource painted;
     painted.baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
@@ -333,15 +333,17 @@ TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][coo
   REQUIRE(report.has_value());
   REQUIRE(report->assetCount == database.assets().size() - 5); // built-in primitives are supplied by the player
   REQUIRE(report->fileCount == 1 + project->files(".prefab.json").size());
-  const auto bundle = Bundle::open(report->bundle);
-  REQUIRE(bundle.has_value());
-  REQUIRE(bundle->manifest().startScene == "scenes/playground.scene.json");
-  REQUIRE(bundle->read("scenes/playground.scene.json").has_value());
-  REQUIRE_FALSE(bundle->read("scenes/main.scene.json").has_value());
-  REQUIRE(bundle->assets().size() == report->assetCount);
-  for (const auto &prefab : project->files(".prefab.json")) {
-    REQUIRE(bundle->read(project->relative(prefab)).has_value());
+  {
+    const auto bundle = Bundle::open(report->bundle);
+    REQUIRE(bundle.has_value());
+    REQUIRE(bundle->manifest().startScene == "scenes/playground.scene.json");
+    REQUIRE(bundle->read("scenes/playground.scene.json").has_value());
+    REQUIRE_FALSE(bundle->read("scenes/main.scene.json").has_value());
+    REQUIRE(bundle->assets().size() == report->assetCount);
+    for (const auto &prefab : project->files(".prefab.json")) {
+      REQUIRE(bundle->read(project->relative(prefab)).has_value());
+    }
   }
   REQUIRE_FALSE(cook(database, *project, {.outputDirectory = out, .scene = "scenes/missing.scene.json"}).has_value());
-  std::filesystem::remove_all(out);
+  REQUIRE(std::filesystem::remove_all(out) > 0);
 }

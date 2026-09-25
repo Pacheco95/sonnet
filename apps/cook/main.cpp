@@ -6,12 +6,12 @@
 #include <sonnet/assets/Project.h>
 #include <sonnet/core/JobSystem.h>
 
-#include <sonnet/core/Error.h>
-#include <sonnet/core/Log.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
 
+#include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <optional>
 #include <print>
@@ -79,14 +79,14 @@ struct Arguments {
 } // namespace
 
 int main(int argc, char **argv) {
-  const std::vector<std::string_view> args{argv + 1, argv + argc};
-  const auto arguments = parse(args);
-  if (!arguments) {
-    std::println(stderr, "{}", Usage);
-    return 2;
-  }
-
   try {
+    const std::vector<std::string_view> args{argv + 1, argv + argc};
+    const auto arguments = parse(args);
+    if (!arguments) {
+      std::println(stderr, "{}", Usage);
+      return 2;
+    }
+
     // Headless: cooking opens no window, and the null device gives the renderer somewhere to
     // put what the importers upload (ADR-0011).
     platform::Platform platform{{.headless = true}};
@@ -118,8 +118,11 @@ int main(int argc, char **argv) {
       std::println(stderr, "warning: {}", warning);
     }
     return 0;
-  } catch (const core::Exception &exception) {
-    std::println(stderr, "sonnet_cook: {}", exception.error().toString());
+  } catch (const std::exception &exception) {
+    std::fprintf(stderr, "sonnet_cook: %s\n", exception.what());
+    return 1;
+  } catch (...) {
+    std::fputs("sonnet_cook: unknown exception\n", stderr);
     return 1;
   }
 }
