@@ -163,4 +163,4 @@ Tests that need a Vulkan 1.4 device skip themselves when none is present, which 
 
 ## Coverage
 
-`linux-coverage` builds engine modules with `--coverage`, excludes third-party code, and the `coverage` target runs the tests and gcovr to produce `build/linux-coverage/coverage/index.html`.
+`linux-coverage` builds engine modules with `--coverage`, excludes third-party code, and the `coverage` target runs the tests and gcovr to produce `build/linux-coverage/coverage/index.html`. gcovr is pointed at the reader that matches the compiler, `gcov-<major>` for GCC and `llvm-cov-<major> gcov` for Clang: each GCC major version writes its own data format, and a plain `gcov` is the system GCC's (13 on Ubuntu 24.04), which rejects GCC 14's data.
