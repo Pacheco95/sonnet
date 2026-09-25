@@ -131,6 +131,8 @@ Engine shaders live in `modules/renderer/shaders/*.slang`; the rhi tests keep th
 
 ## Building and testing
 
+On Linux, `python3 tools/check_setup.py` checks a machine against this page before the first configure. It checks CMake, Ninja, a C++23 compiler, the X11 and Wayland headers the `sdl3` port builds against, vcpkg and the manifest's baseline, the system Vulkan loader, and a Lavapipe at 1.4 for the tests, choosing the manifest for the host's architecture. It installs nothing, and exits 1 when something required is missing. Each line names its fix, and a last line gathers the missing packages into one `apt-get` command. It prints the compiler to configure with twice: one for `linux-debug`, `linux-release` and `linux-coverage`, and a Clang that ships the sanitizer runtime for `linux-asan` and `linux-tsan`. It lists the existing build directories with the compiler each was configured with, and flags one whose vcpkg triplet no longer matches its preset's. Validation layers, a display, clang-format 20, the commit hook, a sanitizer runtime, gcovr, and too little free disk or memory per core are warnings: the build does without them, or only some presets need them. In Claude Code, `/setup-sonnet` (`.claude/skills/setup-sonnet/`) runs the check and walks through the fixes. It then configures, builds, runs the tests on Lavapipe and takes an editor screenshot. It leaves `sudo` to the user.
+
 ```bash
 export VCPKG_ROOT=/path/to/vcpkg
 cmake --preset linux-debug
@@ -155,7 +157,7 @@ GitHub Actions, one workflow with a matrix:
 - Android job that builds the player with the NDK, added in M9.
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated.
 - A lint job runs `clang-format --dry-run` on every tracked source (`.clang-format` lists only the differences from LLVM style, so it parses with clang-format 18 and newer; CI uses 20), `tools/check_docs.py`, `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
-- Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe; tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.
+- Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe. CI takes the first `lvp_icd*.json` it finds, which is right on its runners because they have only the 64-bit Mesa. On a machine that also has the 32-bit one, `lvp_icd.i686.json` sorts first and a 64-bit test process finds no device, so `tools/check_setup.py` picks the manifest named for the host's architecture instead. Tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.
 
 Tests that need a Vulkan 1.4 device skip themselves when none is present, which is the case on the Windows and macOS runners.
 
@@ -163,4 +165,4 @@ Tests that need a Vulkan 1.4 device skip themselves when none is present, which 
 
 ## Coverage
 
-`linux-coverage` builds engine modules with `--coverage`, excludes third-party code, and the `coverage` target runs the tests and gcovr to produce `build/linux-coverage/coverage/index.html`.
+`linux-coverage` builds engine modules with `--coverage`, excludes third-party code, and the `coverage` target runs the tests and gcovr to produce `build/linux-coverage/coverage/index.html`. gcovr is pointed at the reader that matches the compiler, `gcov-<major>` for GCC and `llvm-cov-<major> gcov` for Clang: each GCC major version writes its own data format, and a plain `gcov` is the system GCC's (13 on Ubuntu 24.04), which rejects GCC 14's data.

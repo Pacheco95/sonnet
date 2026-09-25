@@ -29,6 +29,7 @@ Accepted ADRs are settled. Do not relitigate them in code; a change of direction
 ## Commands
 
 ```bash
+python3 tools/check_setup.py           # Linux prerequisites, read-only; /setup-sonnet walks through the whole setup
 export VCPKG_ROOT=/path/to/vcpkg
 cmake --preset linux-debug             # also windows-debug, macos-debug, linux-asan, linux-coverage
 cmake --build --preset linux-debug
