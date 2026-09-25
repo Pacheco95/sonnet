@@ -75,14 +75,14 @@ namespace {
 
 TEST_CASE("cooking a mesh welds its vertices and keeps the geometry", "[assets][cook]") {
   const MeshData source = unweldedGrid(8, 8);
-  REQUIRE(source.vertices.size() == 8 * 8 * 6); // three per triangle, nothing shared
+  REQUIRE(source.vertices.size() == 8uz * 8 * 6); // three per triangle, nothing shared
 
   MeshCookStatistics statistics;
   const MeshData cooked = cookMesh(source, &statistics);
 
   // A grid of 8x8 quads has 9x9 distinct corners; welding finds exactly those.
   REQUIRE(statistics.verticesBefore == source.vertices.size());
-  REQUIRE(cooked.vertices.size() == 9 * 9);
+  REQUIRE(cooked.vertices.size() == 9uz * 9);
   REQUIRE(statistics.verticesAfter == cooked.vertices.size());
   REQUIRE(cooked.indices.size() == source.indices.size());
   REQUIRE(triangles(cooked) == triangles(source));
@@ -171,7 +171,7 @@ struct ProjectFixture {
                 .has_value());
     test::writeBoxGltf(root / "assets" / "models" / "crate.gltf", "wood.png");
     test::writeSkinnedGltf(root / "assets" / "models" / "reed.gltf");
-    REQUIRE(core::writeFile(root / "assets" / "sky.hdr", test::encodeHdr({4, 2}, std::vector<float>(4 * 2 * 3, 0.5f)))
+    REQUIRE(core::writeFile(root / "assets" / "sky.hdr", test::encodeHdr({4, 2}, std::vector<float>(4uz * 2 * 3, 0.5f)))
                 .has_value());
     MaterialSource painted;
     painted.baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
@@ -304,4 +304,46 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   const auto document = decodeJson(*scene);
   REQUIRE(document.has_value());
   REQUIRE(document->at("version") == 2);
+}
+
+TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {
+  platform::Platform platform{{.headless = true}};
+  std::filesystem::path sample;
+  for (std::filesystem::path base = std::filesystem::absolute(platform.basePath()); !base.empty();
+       base = base.parent_path()) {
+    const auto candidate = base / "apps" / "samples" / "basic";
+    if (std::filesystem::is_regular_file(candidate / "project.json")) {
+      sample = candidate;
+      break;
+    }
+    if (base == base.root_path()) {
+      break;
+    }
+  }
+  REQUIRE_FALSE(sample.empty());
+  const auto project = Project::open(sample);
+  REQUIRE(project.has_value());
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  AssetDatabase database{renderer, jobs};
+  database.open(project->root, project->assetRoots);
+  const auto out = test::freshDirectory("sonnet_playground_cook");
+  const auto report = cook(database, *project, {.outputDirectory = out, .scene = "scenes/playground.scene.json"});
+  REQUIRE(report.has_value());
+  REQUIRE(report->assetCount == database.assets().size() - 5); // built-in primitives are supplied by the player
+  REQUIRE(report->fileCount == 1 + project->files(".prefab.json").size());
+  {
+    const auto bundle = Bundle::open(report->bundle);
+    REQUIRE(bundle.has_value());
+    REQUIRE(bundle->manifest().startScene == "scenes/playground.scene.json");
+    REQUIRE(bundle->read("scenes/playground.scene.json").has_value());
+    REQUIRE_FALSE(bundle->read("scenes/main.scene.json").has_value());
+    REQUIRE(bundle->assets().size() == report->assetCount);
+    for (const auto &prefab : project->files(".prefab.json")) {
+      REQUIRE(bundle->read(project->relative(prefab)).has_value());
+    }
+  }
+  REQUIRE_FALSE(cook(database, *project, {.outputDirectory = out, .scene = "scenes/missing.scene.json"}).has_value());
+  REQUIRE(std::filesystem::remove_all(out) > 0);
 }

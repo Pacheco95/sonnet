@@ -76,7 +76,8 @@ core::Result<ExportReport> exportProject(assets::AssetDatabase &database, const 
   SONNET_ZONE();
   ExportReport report;
   auto cooked =
-      assets::cook(database, project, {.outputDirectory = options.outputDirectory, .platform = options.platform});
+      assets::cook(database, project,
+                   {.outputDirectory = options.outputDirectory, .platform = options.platform, .scene = options.scene});
   if (!cooked) {
     return std::unexpected(cooked.error());
   }

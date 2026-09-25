@@ -51,11 +51,26 @@ core::Result<CookReport> cook(AssetDatabase &database, const Project &project, c
         core::ErrorCategory::Io});
   }
 
+  const auto scenes = project.files(".scene.json");
+  std::optional<std::filesystem::path> selectedScene;
+  if (options.scene) {
+    const std::filesystem::path requested =
+        (options.scene->is_absolute() ? *options.scene : project.resolve(options.scene->generic_string()))
+            .lexically_normal();
+    if (std::ranges::find(scenes, requested) == scenes.end()) {
+      return std::unexpected(core::Error{std::format("{}: scene is not in the project", options.scene->string()),
+                                         core::ErrorCategory::Io});
+    }
+    selectedScene = requested;
+  }
+
   CookReport report;
   report.bundle = options.outputDirectory / BundleFileName;
   auto writer = BundleWriter::create(
-      report.bundle,
-      {.name = project.name, .engineVersion = {}, .platform = options.platform, .startScene = project.startScene});
+      report.bundle, {.name = project.name,
+                      .engineVersion = {},
+                      .platform = options.platform,
+                      .startScene = selectedScene ? project.relative(*selectedScene) : project.startScene});
   if (!writer) {
     return std::unexpected(writer.error());
   }
@@ -141,7 +156,10 @@ core::Result<CookReport> cook(AssetDatabase &database, const Project &project, c
   // Scenes and prefabs keep their project-relative paths, which is how project.json names the
   // start scene and how the editor lists them.
   for (const std::string_view suffix : {".scene.json", ".prefab.json"}) {
-    for (const std::filesystem::path &file : project.files(suffix)) {
+    for (const std::filesystem::path &file : suffix == ".scene.json" ? scenes : project.files(suffix)) {
+      if (selectedScene && suffix == ".scene.json" && file != *selectedScene) {
+        continue;
+      }
       const auto bytes = core::readFile(file);
       if (!bytes) {
         report.warnings.push_back(bytes.error().message);

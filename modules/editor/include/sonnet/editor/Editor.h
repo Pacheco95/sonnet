@@ -271,6 +271,7 @@ private:
   std::string m_modalError;
   std::string m_modalMessage; // what the last export did, shown in its dialog
   assets::CookPlatform m_exportPlatform{assets::hostPlatform()};
+  bool m_exportCurrentScene{false};
   std::string m_title;
   bool m_relativeMouseRequested{false};
   bool m_layoutBuilt{false};
