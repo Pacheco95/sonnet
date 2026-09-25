@@ -184,6 +184,47 @@ Two things the measurements said that the plan did not. The renderer's per-frame
 
 What M8 left behind, with what each would take, is in [Known gaps](#known-gaps): the asynchronous scene load, the bandwidth the per-frame fill is bound by, the two libraries the thread sanitizer cannot see, a placeholder to draw while a request is in flight, and a parallel transform hierarchy.
 
+## Before M9
+
+Five open issues come before M9. Two touch it directly. [#27](https://github.com/Pacheco95/sonnet/issues/27) decides where the Slang library and the Vulkan loader come from, and M9's build work changes the same lines. [#29](https://github.com/Pacheco95/sonnet/issues/29) is a shadow artifact in the screenshots that M9's device checks compare against by eye. The other three are small editor bugs. Each is its own branch and pull request, in the order below: the first changes the build under everything else, and the second changes the reference screenshots the rest are checked with. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)), planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
+
+### 1. Linux binaries load vcpkg's Vulkan loader ([#27](https://github.com/Pacheco95/sonnet/issues/27))
+
+`assets` links Slang's shared `libslang-compiler.so`, so CMake gives every binary that links `assets` a RUNPATH into `build/<preset>/vcpkg_installed/x64-linux/lib`. That directory also holds vcpkg's `libvulkan.so.1`, pulled in by the `vulkan` stub port, and SDL's `dlopen` finds it there before the system's. That loader is built without window-system support, so the editor cannot create a window. It was found on a fresh Ubuntu 24.04 machine with no Vulkan SDK installed. PR [#28](https://github.com/Pacheco95/sonnet/pull/28) gives the loader X11 and Wayland support as an interim fix.
+
+It also reproduces on the development machine (RTX 4090) once the SDK's variables are cleared. There the SDK's `LD_LIBRARY_PATH` normally comes ahead of the RUNPATH and hides the bug. Without those variables, SDL loads the build directory's loader, and the editor stops with the issue's error: `Installed Vulkan doesn't implement either the VK_KHR_xcb_surface extension or the VK_KHR_xlib_surface extension`. With `LD_LIBRARY_PATH=/lib/x86_64-linux-gnu` it opens on the system's loader.
+
+In `linux-debug`, the editor, the player, `sonnet_cook` and the test suites from `assets` up to `editor` carry the RUNPATH. `core`, `platform`, `rhi`, `renderer` and `ui` do not. Whether the player and the cook also list Slang as a runtime dependency (`NEEDED`) depends on the compiler: with GCC 14 only the editor does, and with Clang 22 all three do.
+
+1. `ShaderCompiler` moves from `assets` to `editor`, as [ADR-0018](decisions/0018-mobile-export.md) decided, and `find_package(slang)` moves with it. Every binary below the editor then loses the RUNPATH. An exported player no longer needs Slang, whatever the toolchain.
+2. The editor and `editor_tests` keep Slang. Its libraries are copied beside those binaries, and those binaries' RUNPATH becomes `$ORIGIN` instead of the vcpkg directory. Two alternatives get measured against this first: `platform` naming the system loader explicitly, and an overlay of the `vulkan` stub port that keeps the loader out of the install tree.
+3. A test in `editor_tests` asserts that the loader `Platform` keeps mapped is not under `vcpkg_installed`. It must fail on the build before the change. `platform_tests` cannot catch this, since it has no RUNPATH.
+4. PR [#28](https://github.com/Pacheco95/sonnet/pull/28) is closed in favour of this one. Its Linux setup section in [build.md](build.md) is kept, and its loader features are dropped because they no longer reach anything.
+
+Done when `readelf -d` shows no RUNPATH into `vcpkg_installed` on any binary, and when the editor, with the SDK's variables cleared and `vcpkg.json` without loader features, opens a window on the system's loader, as `LD_DEBUG=libs` shows. If the choice in step 2 moves a cross-module decision ([ADR-0004](decisions/0004-vcpkg-first.md) on where the loader comes from, [ADR-0006](decisions/0006-vulkan-object-ownership.md) on which one the process uses), it gets an ADR.
+
+### 2. Shadow seam and dashed shadow edge in the basic sample ([#29](https://github.com/Pacheco95/sonnet/issues/29))
+
+Two artifacts in the basic sample come from the shadows, since both show in the `shadow-factor` shading term. One is a straight seam across the ground at a fixed depth, with evenly spaced ticks, on Intel and on Lavapipe. The other is a row of lit dashes along a cube's shadow edge, on Intel only. `forward.slang` switches cascades hard at each view-depth split, samples a 3×3 kernel with no margin at a cascade's edge, and multiplies the bias by the cascade's index, so the bias jumps at every split.
+
+1. A `cascade` shading term, the cascade index as a colour, confirms whether the seam lies on a split. It stays, since the phones will need it too.
+2. The fix follows what that shows. Likely changes: a cascade is chosen only if the kernel's footprint fits inside its bounds, the last stretch before a split blends with the next cascade, and a normal-offset bias scaled by each cascade's texel size replaces the per-cascade multiplier.
+3. A `renderer_tests` GPU test renders a sun-lit plane with no occluders across every split and asserts a shadow factor of 1 everywhere on it. It must fail before the fix.
+
+Done when the test passes on Lavapipe, and screenshots of both samples on the RTX 4090 and Lavapipe show neither artifact. The dashes appear only on the reporter's Intel GPU, so that machine confirms them.
+
+### 3. The mouse leaks into the UI while flying the viewport camera ([#14](https://github.com/Pacheco95/sonnet/issues/14))
+
+Right-drag in the viewport switches on relative mouse mode, but every SDL event still reaches Dear ImGui. SDL keeps reporting a moving cursor position in relative mode, so ImGui's cursor wanders over the other panels and hovers them. It was reproduced on Linux. While the camera looks, mouse motion is kept from ImGui but still turns the camera, and button events still pass, so releasing the button ends the look. When the look ends, ImGui is given the real cursor position once. An `editor_tests` case feeds a motion event while the camera is active, and checks that ImGui's cursor did not move and the look delta did.
+
+### 4. The export dialog does not close on OK ([#11](https://github.com/Pacheco95/sonnet/issues/11))
+
+The dialog stays open after a successful export on purpose, to show what was written. Nothing says how to close it, though. After a successful export, OK and Cancel become a single Close button, which Enter and Escape also trigger. A failed export keeps both buttons and shows the error.
+
+### 5. Export the current scene only ([#13](https://github.com/Pacheco95/sonnet/issues/13))
+
+The bundle always starts at the project's `startScene` and carries every scene in the project. `CookOptions` gains an optional scene. When it is given, the manifest's start scene is that scene and it is the only scene in the bundle. Every prefab and asset is still cooked, because scripts reach them at run time. The export dialog gets a "Current scene only" checkbox. It is available when a scene file is open, and says when that scene has unsaved changes, since the export reads it from disk. `sonnet_cook` gains `--scene` to match. An `assets_tests` case cooks the playground alone and reads the bundle back. Done when an export of the playground with the checkbox set runs in the player from its own directory and shows the playground.
+
 ## M9: Mobile export
 
 Mobile export was one milestone and is now two, because each platform is blocked on something different. Android needs the NDK build and a device on [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md)'s 1.3 path. iOS needs a Mac, signing and a phone in hand. Either one would have held the whole milestone back. M9 is the work both platforms share, plus Android; iOS is [M10](#m10-ios-export). [ADR-0018](decisions/0018-mobile-export.md) decides how both are done and what counts as running, and its decisions hold across the split.
