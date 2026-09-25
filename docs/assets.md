@@ -34,7 +34,7 @@ Materials request their textures rather than load them, so neither `material` no
 | `.hdr` | stb_image | Environments, decoded to RGBA16F for the renderer's cubes |
 | KTX2 | KTX-Software | Textures, used directly; Basis Universal data is transcoded on load |
 | `.material.json` | assets | Materials ([Materials](#materials)) |
-| `.slang` | Slang, through `ShaderCompiler` | SPIR-V modules for the editor's shader hot reload ([rendering.md](rendering.md#shaders)) |
+| `.slang` | Slang, through `editor::ShaderCompiler` | SPIR-V modules for the editor's shader hot reload ([rendering.md](rendering.md#shaders)) |
 | `.lua` | assets | Script assets: the source text, run by `scripting` ([scripting.md](scripting.md)) |
 | `.wav`, `.ogg`, `.mp3`, `.flac` | assets | Sound assets: the encoded file, decoded and played by `audio` ([audio.md](audio.md)) |
 | `.scene.json`, `.prefab.json` | world | Scenes and prefabs |

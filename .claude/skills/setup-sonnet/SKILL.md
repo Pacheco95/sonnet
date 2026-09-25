@@ -141,7 +141,6 @@ Skip this step if the report said there is no interactive session, and say so.
 ./build/<preset>/apps/editor/sonnet_editor apps/samples/basic --screenshot <scratchpad>/view.png
 ```
 
-- **Exits 1 with `Installed Vulkan doesn't implement either the VK_KHR_xcb_surface extension or the VK_KHR_xlib_surface extension`.** This is [#27](https://github.com/Pacheco95/sonnet/issues/27): SDL found vcpkg's loader in the build directory instead of the system's. Run it again with the system's library directory first, `LD_LIBRARY_PATH=/lib/x86_64-linux-gnu` (the directory of the `libvulkan.so.1` that `ldconfig -p` lists), and tell the user the fix is planned in `docs/roadmap.md` under "Before M9". The fix for #27 removes this bullet.
 - **Exits 1 because no GPU meets Vulkan 1.4.** Run it on Lavapipe with `VK_DRIVER_FILES`, and say that it is slow there.
 
 Sanitizer presets instrument the editor but not the drivers it loads, so there the exit code alone doesn't say whether the screenshot worked. Judge by whether the PNG exists and by the frames in the sanitizer's report:
@@ -179,7 +178,7 @@ The script takes the compiler from `build/<preset>/CMakeCache.txt` and `VCPKG_RO
 VS Code started from the desktop does not inherit what the shell sets. Pass what this run needed, since the debugger would otherwise run with a different environment than the one that worked here:
 
 - `--env` for each variable the Vulkan SDK's `setup-env.sh` set in this Linux session (`VK_ADD_LAYER_PATH`, and `LD_LIBRARY_PATH` when it points into the SDK), so validation stays on under the debugger. Leave them out when the session has none. This is rarely needed on Windows: the Vulkan SDK registers its validation layer and loader machine-wide, so a plain launch already sees them.
-- `--editor-env LD_LIBRARY_PATH=...` when step 4 needed the #27 workaround (Linux only), and `--editor-env VK_DRIVER_FILES=<manifest>` when the editor only ran on Lavapipe. `--editor-env` takes precedence over `--env` for the editor.
+- `--editor-env VK_DRIVER_FILES=<manifest>` when the editor only ran on Lavapipe (Linux only). `--editor-env` takes precedence over `--env` for the editor.
 
 The script leaves alone any file that already exists and differs, prints its diff and exits 1. Show the user the diff and ask. Rerun with `--force` only if they want the files replaced, since `--force` loses whatever they changed by hand. A file that matches is reported as `same`.
 

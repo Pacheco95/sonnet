@@ -7,7 +7,7 @@
 #include <memory>
 #include <vector>
 
-namespace sonnet::assets {
+namespace sonnet::editor {
 
 // Compiles Slang entry-point files at runtime the way `sonnet_add_shaders` does at build time
 // (docs/rendering.md, "Shaders"): one SPIR-V 1.6 module per file holding every entry point under
@@ -30,4 +30,4 @@ private:
   std::unique_ptr<Session> m_session;
 };
 
-} // namespace sonnet::assets
+} // namespace sonnet::editor

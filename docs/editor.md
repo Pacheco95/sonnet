@@ -50,7 +50,7 @@ The Debug build of the application turns on the flecs explorer through `World`.
 
 ## Shader hot reload
 
-The engine's shader sources are found in the checkout the way the log's source links are, `modules/renderer/shaders` under `sourceRoot` or above the executable. Every half second the editor compares their modification times; a changed entry-point file is recompiled with `assets::ShaderCompiler` and its pipelines rebuilt through `Renderer::reloadShader`, and a changed module, `sonnet.slang`, recompiles every entry point ([rendering.md](rendering.md#shaders)). Compile errors go to the log with the `file:line:column` the compiler reports and leave the previous pipelines running. Tools, Reload shaders does the same for every shader at once. Without a checkout around the binary the poll turns itself off.
+The engine's shader sources are found in the checkout the way the log's source links are, `modules/renderer/shaders` under `sourceRoot` or above the executable. Every half second the editor compares their modification times; a changed entry-point file is recompiled with `editor::ShaderCompiler` and its pipelines rebuilt through `Renderer::reloadShader`, and a changed module, `sonnet.slang`, recompiles every entry point ([rendering.md](rendering.md#shaders)). Compile errors go to the log with the `file:line:column` the compiler reports and leave the previous pipelines running. Tools, Reload shaders does the same for every shader at once. Without a checkout around the binary the poll turns itself off.
 
 ## Selection and picking
 

@@ -1,4 +1,4 @@
-#include <sonnet/assets/ShaderCompiler.h>
+#include <sonnet/editor/ShaderCompiler.h>
 
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
@@ -12,7 +12,7 @@
 #include <regex>
 #include <string>
 
-namespace sonnet::assets {
+namespace sonnet::editor {
 
 // The global session holds the core module and is slow to create; one per compiler.
 struct ShaderCompiler::Session {
@@ -156,4 +156,4 @@ core::Result<std::vector<std::byte>> ShaderCompiler::compile(const std::filesyst
   return spirv;
 }
 
-} // namespace sonnet::assets
+} // namespace sonnet::editor

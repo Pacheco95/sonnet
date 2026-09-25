@@ -10,11 +10,11 @@
 #include <sonnet/editor/Preferences.h>
 #include <sonnet/editor/Project.h>
 #include <sonnet/editor/Selection.h>
+#include <sonnet/editor/ShaderCompiler.h>
 #include <sonnet/editor/StatisticsPanel.h>
 #include <sonnet/editor/ViewportPanel.h>
 
 #include <sonnet/assets/AssetDatabase.h>
-#include <sonnet/assets/ShaderCompiler.h>
 #include <sonnet/audio/AudioDevice.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/JobSystem.h>
@@ -250,7 +250,7 @@ private:
   std::filesystem::path m_scenePath;
   std::uint64_t m_savedRevision{0};
   nlohmann::json m_snapshot;
-  std::unique_ptr<assets::ShaderCompiler> m_shaderCompiler;
+  std::unique_ptr<ShaderCompiler> m_shaderCompiler;
   std::filesystem::path m_shaderSources;
   std::unordered_map<std::string, std::filesystem::file_time_type> m_shaderTimes;
   std::chrono::steady_clock::time_point m_lastShaderPoll{};

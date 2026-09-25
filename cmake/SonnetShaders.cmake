@@ -5,7 +5,9 @@
 # own name (-fvk-use-entrypoint-name). Buffers use scalar block layout so structs are shared with
 # C++ unchanged (docs/rendering.md, "Vulkan baseline"). Release builds therefore carry no shader
 # compiler. The depfile makes edits to imported modules rebuild their users.
-find_package(slang CONFIG REQUIRED)
+# Only the editor imports the target library; all rendering binaries need this host tool.
+# vcpkg puts its tools (host tools when cross-compiling) in CMAKE_PROGRAM_PATH.
+find_program(SLANGC_EXECUTABLE NAMES slangc REQUIRED)
 
 # Engine shader modules import each other by name; every compilation sees this directory.
 set(SONNET_ENGINE_SHADER_DIR "${CMAKE_SOURCE_DIR}/modules/renderer/shaders")
