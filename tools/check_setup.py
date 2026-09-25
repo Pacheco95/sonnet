@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Checks a Linux machine for what building and testing Sonnet needs (docs/build.md).
+"""Checks a Linux or Windows machine for what building and testing Sonnet needs (docs/build.md).
 
 Read-only: it runs version queries and reads files, and installs nothing. Each line is ok, warn or
 missing, with the fix after it. Exits 1 when something required is missing, 0 otherwise.
 Warnings are for what the build does without, or what only some presets need: validation layers,
-a display, clang-format, hooks, a sanitizer runtime, gcovr, and room on disk and in memory.
+a display, clang-format, hooks, a sanitizer runtime, gcovr, and room on disk and in memory. macOS
+is not covered; see docs/build.md.
 """
 
 from __future__ import annotations
 
+import ctypes
 import glob
 import json
 import os
@@ -24,7 +26,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # pkg-config module and the Ubuntu package that provides it: the headers the sdl3 overlay port's
 # X11 and Wayland back ends are built against (ports/sdl3/portfile.cmake). SDL loads the libraries
 # at run time, so only the headers are needed; the port turns the audio, libdecor and KMSDRM back
-# ends off, so CI's longer package list is more than a build needs.
+# ends off, so CI's longer package list is more than a build needs. Windows has no equivalent: the
+# sdl3 port's win32 back end needs no development headers beyond what the Windows SDK ships.
 DEV_PACKAGES = {
     "x11": "libx11-dev",
     "xext": "libxext-dev",
@@ -52,10 +55,21 @@ TOOLS = {
     "cmake": "cmake",
 }
 
+# The same tools on Windows, with the winget package identifier for each. vcpkg's bootstrap and
+# the ports it builds on Windows need nothing from curl, zip, unzip, tar or pkg-config: curl and
+# bsdtar are inbox since Windows 10 1803, vcpkg unpacks archives itself, and no port here reads
+# pkg-config on the x64-windows triplet.
+TOOLS_WINDOWS = {
+    "git": "Git.Git",
+    "ninja": "Ninja-build.Ninja",
+    "cmake": "Kitware.CMake",
+}
+
 MIN_CMAKE = (3, 28)
 MIN_GCC = 14
 MIN_CLANG = 19  # with libstdc++ 14; Clang 18 cannot see std::expected in libstdc++ (docs/build.md)
 MIN_LIBSTDCXX = 14
+MIN_MSVC = (17, 10)  # Visual Studio's own version number, which docs/build.md states the floor in
 CI_CLANG_FORMAT = 20
 MIN_VULKAN = (1, 4)
 MIN_FREE_DISK_GB = 20  # the ports' build trees, vcpkg's binary cache and one build directory
@@ -68,7 +82,7 @@ class Report:
     def __init__(self) -> None:
         self.missing = 0
         self.warnings = 0
-        self.apt: list[str] = []
+        self.packages: list[str] = []
 
     def ok(self, what: str) -> None:
         print(f"  ok       {what}")
@@ -77,10 +91,10 @@ class Report:
         self.warnings += 1
         print(f"  warn     {what}\n           fix: {fix}")
 
-    def fail(self, what: str, fix: str, apt: list[str] | None = None) -> None:
+    def fail(self, what: str, fix: str, packages: list[str] | None = None) -> None:
         self.missing += 1
         print(f"  MISSING  {what}\n           fix: {fix}")
-        self.apt.extend(apt or [])
+        self.packages.extend(packages or [])
 
 
 def run(*command: str, env: dict[str, str] | None = None) -> str | None:
@@ -112,24 +126,60 @@ def section(title: str) -> None:
 
 def check_system(report: Report) -> bool:
     section("System")
-    if platform.system() != "Linux":
-        report.fail(f"{platform.system()} host", "this check covers Linux only; see docs/build.md for the others")
+    system = platform.system()
+    if system not in ("Linux", "Windows"):
+        report.fail(f"{system} host", "this check covers Linux and Windows only; see docs/build.md for macOS")
         return False
-    distro = "unknown distribution"
-    if Path("/etc/os-release").exists():
-        fields = dict(
-            line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines() if "=" in line
-        )
-        distro = fields.get("PRETTY_NAME", distro).strip('"')
-    report.ok(f"Linux, {distro}, {platform.machine()}")
-    if platform.machine() != "x86_64":
-        report.warn(f"{platform.machine()} host", "the presets and CI use x64-linux; other triplets are untested")
+    if system == "Linux":
+        distro = "unknown distribution"
+        if Path("/etc/os-release").exists():
+            fields = dict(
+                line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines() if "=" in line
+            )
+            distro = fields.get("PRETTY_NAME", distro).strip('"')
+        report.ok(f"Linux, {distro}, {platform.machine()}")
+        if platform.machine() != "x86_64":
+            report.warn(f"{platform.machine()} host", "the presets and CI use x64-linux; other triplets are untested")
+    else:
+        report.ok(f"Windows {platform.win32_ver()[0]}, build {platform.win32_ver()[1]}, {platform.machine()}")
+        if platform.machine() != "AMD64":
+            report.warn(f"{platform.machine()} host", "the presets and CI use x64-windows; other triplets are untested")
     if sys.version_info < (3, 10):
         report.fail(f"Python {dotted(sys.version_info[:3])}", "Python 3.10 or later, for the tools/ scripts")
     else:
         report.ok(f"Python {dotted(sys.version_info[:3])}")
     check_resources(report)
     return True
+
+
+def memory_total_gb() -> float | None:
+    system = platform.system()
+    if system == "Linux":
+        try:
+            meminfo = Path("/proc/meminfo").read_text()
+            return int(re.search(r"MemTotal:\s+(\d+)", meminfo).group(1)) / 2**20
+        except (OSError, AttributeError):
+            return None
+    if system == "Windows":
+        class MemoryStatusEx(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(MemoryStatusEx)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+            return None
+        return status.ullTotalPhys / 2**30
+    return None
 
 
 def check_resources(report: Report) -> None:
@@ -141,10 +191,8 @@ def check_resources(report: Report) -> None:
         )
     else:
         report.ok(f"{free_gb:.0f} GB free on disk")
-    try:
-        meminfo = Path("/proc/meminfo").read_text()
-        memory_gb = int(re.search(r"MemTotal:\s+(\d+)", meminfo).group(1)) / 2**20
-    except (OSError, AttributeError):
+    memory_gb = memory_total_gb()
+    if memory_gb is None:
         return
     cores = os.cpu_count() or 1
     jobs = max(1, int(memory_gb // MIN_MEMORY_GB_PER_JOB))
@@ -159,18 +207,20 @@ def check_resources(report: Report) -> None:
 
 def check_tools(report: Report) -> None:
     section("Build tools")
-    for tool, package in TOOLS.items():
+    windows = platform.system() == "Windows"
+    tools = TOOLS_WINDOWS if windows else TOOLS
+    for tool, package in tools.items():
         path = shutil.which(tool)
         if path is None:
-            report.fail(tool, f"install {package}", [package])
+            fix = f"winget install --id {package} -e" if windows else f"install {package}"
+            report.fail(tool, fix, [package])
             continue
         if tool == "cmake":
             found = version(run(path, "--version"))
             if found < MIN_CMAKE:
-                report.fail(
-                    f"cmake {dotted(found)}, 3.28 or later needed",
-                    "install a newer CMake (Kitware's apt repository, or `pip install --user cmake`)",
-                )
+                fix = "winget upgrade --id Kitware.CMake -e" if windows else \
+                    "install a newer CMake (Kitware's apt repository, or `pip install --user cmake`)"
+                report.fail(f"cmake {dotted(found)}, 3.28 or later needed", fix)
                 continue
             report.ok(f"cmake {dotted(found)}")
         else:
@@ -244,6 +294,58 @@ def check_compilers(report: Report) -> None:
         )
 
 
+def vswhere_path() -> Path | None:
+    program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    path = Path(program_files_x86) / "Microsoft Visual Studio/Installer/vswhere.exe"
+    return path if path.exists() else None
+
+
+def check_compilers_windows(report: Report) -> None:
+    section("Compilers (C++23: MSVC 17.10+ from Visual Studio 2022, or clang-cl of Clang 19+)")
+    finder = vswhere_path()
+    version_found: tuple[int, ...] = ()
+    install_path = ""
+    if finder:
+        version_found = version(run(
+            str(finder), "-latest", "-products", "*",
+            "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-property", "installationVersion",
+        ))
+        install_path = (run(
+            str(finder), "-latest", "-products", "*",
+            "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-property", "installationPath",
+        ) or "").strip()
+
+    if not version_found:
+        report.fail(
+            'no Visual Studio with the "Desktop development with C++" workload',
+            "install Visual Studio 2022 Build Tools or Community with that workload",
+            ["Microsoft.VisualStudio.2022.BuildTools"],
+        )
+    elif version_found < MIN_MSVC:
+        report.fail(
+            f"Visual Studio {dotted(version_found)}, 17.10 or later needed for C++23",
+            "update Visual Studio through the Visual Studio Installer",
+        )
+    else:
+        report.ok(f"Visual Studio {dotted(version_found)} at {install_path}, C++ workload")
+        dev_shell = Path(install_path) / "Common7/Tools/Launch-VsDevShell.ps1" if install_path else None
+        if dev_shell and dev_shell.exists():
+            print(
+                f"           configure with: & '{dev_shell}' -Arch amd64 -SkipAutomaticLocation; "
+                f"cmake --preset windows-debug (also windows-release)"
+            )
+
+    clang_cl = shutil.which("clang-cl")
+    if clang_cl:
+        found = version(run(clang_cl, "--version"))
+        if found and found[0] >= MIN_CLANG:
+            report.ok(f"clang-cl {dotted(found)}")
+        elif found:
+            report.warn(f"clang-cl {dotted(found)}, {MIN_CLANG}+ needed", "install a newer LLVM")
+
+
 def check_dev_packages(report: Report) -> None:
     section("Development headers (SDL3's X11 and Wayland back ends)")
     if shutil.which("pkg-config") is None:
@@ -266,31 +368,36 @@ def check_dev_packages(report: Report) -> None:
 def check_vcpkg(report: Report) -> None:
     section("vcpkg")
     baseline = json.loads((ROOT / "vcpkg.json").read_text())["builtin-baseline"]
+    windows = platform.system() == "Windows"
     env_root = os.environ.get("VCPKG_ROOT")
     root = Path(env_root) if env_root else Path.home() / "vcpkg"
+    exe = root / ("vcpkg.exe" if windows else "vcpkg")
+    bootstrap = root / ("bootstrap-vcpkg.bat" if windows else "bootstrap-vcpkg.sh")
     if not (root / "scripts/buildsystems/vcpkg.cmake").exists():
-        where = f"VCPKG_ROOT={env_root}" if env_root else "~/vcpkg"
+        where = f"VCPKG_ROOT={env_root}" if env_root else str(Path.home() / "vcpkg")
         report.fail(
             f"no vcpkg checkout at {where}",
-            f"git clone https://github.com/microsoft/vcpkg {root} && {root}/bootstrap-vcpkg.sh -disableMetrics",
+            f"git clone https://github.com/microsoft/vcpkg {root} && {bootstrap} -disableMetrics",
         )
         return
-    if not (root / "vcpkg").exists():
-        report.fail(f"vcpkg at {root} is not bootstrapped", f"{root}/bootstrap-vcpkg.sh -disableMetrics")
+    if not exe.exists():
+        report.fail(f"vcpkg at {root} is not bootstrapped", f"{bootstrap} -disableMetrics")
     else:
         report.ok(f"vcpkg at {root}")
     if run("git", "-C", str(root), "cat-file", "-e", f"{baseline}^{{commit}}") is None:
         report.fail(
             f"the checkout does not have the manifest's baseline {baseline[:10]}",
-            f"git -C {root} pull && {root}/bootstrap-vcpkg.sh -disableMetrics",
+            f"git -C {root} pull && {bootstrap} -disableMetrics",
         )
     else:
         report.ok(f"baseline {baseline[:10]} present")
     if not env_root:
-        report.warn(
-            "VCPKG_ROOT is not set; the presets read it",
-            f"export VCPKG_ROOT={root} in the shell's startup file, or set it on each cmake --preset",
+        fix = (
+            f'setx VCPKG_ROOT "{root}", then open a new shell, or set it on each cmake --preset ($env:VCPKG_ROOT=...)'
+            if windows
+            else f"export VCPKG_ROOT={root} in the shell's startup file, or set it on each cmake --preset"
         )
+        report.warn("VCPKG_ROOT is not set; the presets read it", fix)
 
 
 def icd_version(manifest: str) -> tuple[int, ...]:
@@ -308,6 +415,12 @@ def layer_dirs() -> list[str]:
     data_dirs = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
     dirs += [f"{d}/vulkan/explicit_layer.d" for d in [data_home, *data_dirs, "/etc"] if d]
     return dirs
+
+
+def parse_gpus(summary: str) -> list[tuple[str, str]]:
+    """(apiVersion, deviceName) for each hardware device in a `vulkaninfo --summary` listing."""
+    gpus = re.findall(r"apiVersion\s*=\s*(\S+).*?deviceType\s*=\s*(\S+).*?deviceName\s*=\s*([^\n]+)", summary, re.S)
+    return [(api, name.strip()) for api, kind, name in gpus if "CPU" not in kind]
 
 
 def check_vulkan(report: Report) -> None:
@@ -354,8 +467,7 @@ def check_vulkan(report: Report) -> None:
         last = (summary or "no output").strip().splitlines()[-1:] or ["no output"]
         report.warn(f"vulkaninfo --summary failed: {last[0]}", "run vulkaninfo --summary and read its errors")
     else:
-        gpus = re.findall(r"apiVersion\s*=\s*(\S+).*?deviceType\s*=\s*(\S+).*?deviceName\s*=\s*([^\n]+)", summary, re.S)
-        hardware = [(api, name.strip()) for api, kind, name in gpus if "CPU" not in kind]
+        hardware = parse_gpus(summary)
         for api, name in hardware:
             found = version(api)
             if found[:2] >= MIN_VULKAN:
@@ -393,6 +505,76 @@ def check_vulkan(report: Report) -> None:
             report.ok(f"validation layer {dotted(found)}")
 
 
+def check_vulkan_windows(report: Report) -> None:
+    section("Vulkan (the loader and a GPU; the GPU tests skip below 1.4, as they do on the windows-latest runner)")
+    loader = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/vulkan-1.dll"
+    if loader.exists():
+        report.ok("system loader vulkan-1.dll")
+    else:
+        report.fail(
+            "no system Vulkan loader (vulkan-1.dll)",
+            "install a GPU driver, or the Vulkan SDK from vulkan.lunarg.com, either of which installs it",
+        )
+
+    status = run_status("vulkaninfo", "--summary") if shutil.which("vulkaninfo") else None
+    summary = status[1] if status else None
+    if not shutil.which("vulkaninfo"):
+        report.warn(
+            "cannot list the GPUs or validation layer without vulkaninfo",
+            "install the Vulkan SDK from vulkan.lunarg.com, which puts it on PATH",
+        )
+        return
+    if not summary or "deviceName" not in summary:
+        last = (summary or "no output").strip().splitlines()[-1:] or ["no output"]
+        report.warn(f"vulkaninfo --summary failed: {last[0]}", "run vulkaninfo --summary and read its errors")
+        return
+
+    hardware = parse_gpus(summary)
+    ready = False
+    for api, name in hardware:
+        found = version(api)
+        if found[:2] >= MIN_VULKAN:
+            report.ok(f"GPU {name}, Vulkan {dotted(found)}")
+            ready = True
+        else:
+            report.warn(f"GPU {name}, Vulkan {dotted(found)}: below the engine's 1.4", "update its driver")
+    if not hardware:
+        report.warn("no GPU besides the CPU drivers", "install or update a GPU driver")
+    elif not ready:
+        report.warn(
+            "no GPU here reaches Vulkan 1.4; the editor cannot open and the GPU tests skip, as on the CI runner",
+            "update the GPU driver, or accept that this machine covers what windows-latest CI covers",
+        )
+
+    if "VK_LAYER_KHRONOS_validation" in summary:
+        report.ok("validation layer VK_LAYER_KHRONOS_validation")
+    else:
+        report.warn(
+            "no Khronos validation layer; the engine runs without validation and says so in its log",
+            "install the Vulkan SDK from vulkan.lunarg.com, which registers it",
+        )
+
+
+def check_clang_format(report: Report, fix: str) -> None:
+    formatter = shutil.which(f"clang-format-{CI_CLANG_FORMAT}") or shutil.which("clang-format")
+    found = version(run(formatter, "--version")) if formatter else ()
+    if not found:
+        report.warn(f"no clang-format; CI rejects unformatted code with clang-format {CI_CLANG_FORMAT}", fix)
+    elif found[0] != CI_CLANG_FORMAT:
+        report.warn(f"clang-format {dotted(found)}; CI formats with {CI_CLANG_FORMAT}, which may disagree", fix)
+    else:
+        report.ok(f"clang-format {dotted(found)}")
+
+
+def check_commit_hook(report: Report) -> None:
+    # Relative to the repository, or absolute in a worktree; joining handles both.
+    hook = ROOT / (run("git", "-C", str(ROOT), "rev-parse", "--git-path", "hooks/commit-msg") or "").strip()
+    if hook.is_file():
+        report.ok("commit-msg hook")
+    else:
+        report.warn("no commit-msg hook for Conventional Commits", "sh tools/install_hooks.sh (from Git Bash on Windows)")
+
+
 def check_contributing(report: Report) -> None:
     section("Running the editor and contributing")
     if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
@@ -402,30 +584,28 @@ def check_contributing(report: Report) -> None:
             "no DISPLAY or WAYLAND_DISPLAY; the editor cannot open, the tests still run",
             "run the editor from a desktop session",
         )
-    formatter = shutil.which(f"clang-format-{CI_CLANG_FORMAT}") or shutil.which("clang-format")
-    found = version(run(formatter, "--version")) if formatter else ()
-    if not found:
-        report.warn(
-            f"no clang-format; CI rejects unformatted code with clang-format {CI_CLANG_FORMAT}",
-            f"install clang-format-{CI_CLANG_FORMAT} (apt.llvm.org)",
-        )
-    elif found[0] != CI_CLANG_FORMAT:
-        report.warn(
-            f"clang-format {dotted(found)}; CI formats with {CI_CLANG_FORMAT}, which may disagree",
-            f"install clang-format-{CI_CLANG_FORMAT} (apt.llvm.org)",
-        )
-    else:
-        report.ok(f"clang-format {dotted(found)}")
+    check_clang_format(report, f"install clang-format-{CI_CLANG_FORMAT} (apt.llvm.org)")
     if shutil.which("gcovr"):
         report.ok("gcovr, for linux-coverage")
     else:
         report.warn("no gcovr; configuring linux-coverage fails without it", "pip install --user gcovr")
-    # Relative to the repository, or absolute in a worktree; joining handles both.
-    hook = ROOT / (run("git", "-C", str(ROOT), "rev-parse", "--git-path", "hooks/commit-msg") or "").strip()
-    if hook.is_file():
-        report.ok("commit-msg hook")
+    check_commit_hook(report)
+
+
+def check_contributing_windows(report: Report) -> None:
+    section("Running the editor and contributing")
+    # SESSIONNAME is unset for a non-interactive session, such as a service or an SSH login with
+    # no desktop attached; it is set ("Console", "RDP-Tcp#n", ...) for one the editor can open in.
+    if os.environ.get("SESSIONNAME"):
+        report.ok(f"interactive session ({os.environ['SESSIONNAME']}) for the editor")
     else:
-        report.warn("no commit-msg hook for Conventional Commits", "sh tools/install_hooks.sh")
+        report.warn(
+            "no interactive desktop session detected; the editor cannot open, the tests still run",
+            "run from a local or Remote Desktop session",
+        )
+    check_clang_format(report, f"install LLVM {CI_CLANG_FORMAT} from releases.llvm.org, or winget install --id LLVM.LLVM -e")
+    # windows-coverage does not exist (docs/build.md, Presets): gcovr is a Linux-only prerequisite.
+    check_commit_hook(report)
 
 
 def preset_triplets() -> dict[str, str]:
@@ -467,19 +647,31 @@ def check_build_dirs() -> None:
 
 def main() -> int:
     report = Report()
+    system = platform.system()
     if check_system(report):
         check_tools(report)
-        check_compilers(report)
-        check_dev_packages(report)
-        check_vcpkg(report)
-        check_vulkan(report)
-        check_contributing(report)
+        if system == "Windows":
+            check_compilers_windows(report)
+            check_vcpkg(report)
+            check_vulkan_windows(report)
+            check_contributing_windows(report)
+        else:
+            check_compilers(report)
+            check_dev_packages(report)
+            check_vcpkg(report)
+            check_vulkan(report)
+            check_contributing(report)
         check_build_dirs()
 
     print()
-    if report.apt:
-        packages = " ".join(dict.fromkeys(report.apt))
-        print(f"Ubuntu and Debian packages to install:\n  sudo apt-get install -y {packages}\n")
+    if report.packages:
+        packages = list(dict.fromkeys(report.packages))
+        if system == "Windows":
+            lines = "\n".join(f"  winget install --id {p} -e" for p in packages)
+            print(f"Windows packages to install (winget):\n{lines}\n")
+        else:
+            line = " ".join(packages)
+            print(f"Ubuntu and Debian packages to install:\n  sudo apt-get install -y {line}\n")
     print(f"{report.missing} missing, {report.warnings} warnings")
     return 1 if report.missing else 0
 
