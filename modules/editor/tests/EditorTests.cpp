@@ -434,6 +434,18 @@ TEST_CASE("exporting a project writes a bundle and what runs it", "[editor][gpu]
             std::filesystem::perms::none);
     REQUIRE(second->supportFileCount == 1); // the one shader that directory holds
     REQUIRE(second->warnings.empty());
+    REQUIRE(editor.saveSceneAs(directory / "scenes" / "other.scene.json").has_value());
+    const auto selected = editor.exportProject({.outputDirectory = out,
+                                                .platform = assets::CookPlatform::Linux,
+                                                .scene = editor.scenePath(),
+                                                .playerDirectory = players});
+    REQUIRE(selected.has_value());
+    REQUIRE(selected->cook.fileCount == 1);
+    const auto selectedBundle = assets::Bundle::open(selected->cook.bundle);
+    REQUIRE(selectedBundle.has_value());
+    REQUIRE(selectedBundle->manifest().startScene == "scenes/other.scene.json");
+    REQUIRE(selectedBundle->contains("scenes/other.scene.json"));
+    REQUIRE_FALSE(selectedBundle->contains("scenes/main.scene.json"));
     std::filesystem::remove_all(players);
 
     fixture.frame(editor);

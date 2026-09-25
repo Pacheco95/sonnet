@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,7 @@ namespace sonnet::editor {
 struct ExportOptions {
   std::filesystem::path outputDirectory;
   assets::CookPlatform platform{assets::hostPlatform()};
+  std::optional<std::filesystem::path> scene{std::nullopt};
   // Where the target's player binary, its `shaders/` folder and the runtime libraries beside it
   // are. Defaults to the editor's own directory, which is right for the host platform only:
   // building a player for another one is CI's job, not the editor's (ADR-0011).

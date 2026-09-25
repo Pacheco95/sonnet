@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -44,6 +45,7 @@ class AssetDatabase;
 struct CookOptions {
   std::filesystem::path outputDirectory;
   CookPlatform platform{hostPlatform()};
+  std::optional<std::filesystem::path> scene{std::nullopt}; // project-relative, or absolute within the project
 };
 
 struct CookReport {
@@ -59,8 +61,9 @@ struct CookReport {
 // player looks for beside itself (ADR-0011). Every asset is asked of the database, so the
 // importers run in the code that already runs them and the texture cache is reused; an asset
 // that fails is a warning in the report and is left out rather than failing the whole cook.
-// Fails outright only when the database is open on another project or the bundle cannot be
-// written. `sonnet_cook` and the editor's export dialog are the two callers.
+// Fails outright when the database is open on another project, the selected scene is not in the
+// project, or the bundle cannot be written. `sonnet_cook` and the editor's export dialog are the
+// two callers.
 [[nodiscard]] core::Result<CookReport> cook(AssetDatabase &database, const Project &project,
                                             const CookOptions &options);
 

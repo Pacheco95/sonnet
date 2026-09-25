@@ -13,6 +13,7 @@
 #include <sonnet/rhi/NullDevice.h>
 
 #include <filesystem>
+#include <optional>
 #include <print>
 #include <string>
 #include <string_view>
@@ -22,12 +23,14 @@ namespace {
 
 using namespace sonnet;
 
-constexpr const char *Usage = "usage: sonnet_cook <project> [--platform windows|linux|macos] [--out <directory>]";
+constexpr const char *Usage =
+    "usage: sonnet_cook <project> [--platform windows|linux|macos] [--out <directory>] [--scene <scene>]";
 
 struct Arguments {
   std::filesystem::path project;
   std::filesystem::path output;
   assets::CookPlatform platform{assets::hostPlatform()};
+  std::optional<std::filesystem::path> scene;
 };
 
 // Returns nothing and prints why when the command line does not parse.
@@ -46,6 +49,13 @@ struct Arguments {
       parsed.platform = *platform;
     } else if (argument == "--out") {
       parsed.output = value();
+    } else if (argument == "--scene") {
+      const std::string_view scene = value();
+      if (scene.empty()) {
+        std::println(stderr, "sonnet_cook: --scene needs a path");
+        return std::nullopt;
+      }
+      parsed.scene = scene;
     } else if (argument.starts_with("--")) {
       std::println(stderr, "sonnet_cook: unknown option \"{}\"", argument);
       return std::nullopt;
@@ -92,8 +102,9 @@ int main(int argc, char **argv) {
     assets::AssetDatabase database{renderer, jobs};
     database.open(project->root, project->assetRoots);
 
-    const auto report =
-        assets::cook(database, *project, {.outputDirectory = arguments->output, .platform = arguments->platform});
+    const auto report = assets::cook(
+        database, *project,
+        {.outputDirectory = arguments->output, .platform = arguments->platform, .scene = arguments->scene});
     if (!report) {
       std::println(stderr, "sonnet_cook: {}", report.error().toString());
       return 1;

@@ -454,6 +454,7 @@ void Editor::drawModal() {
                                                      : m_scenePath.string();
     } else if (m_modal == Modal::Export && m_project) {
       m_exportPlatform = assets::hostPlatform();
+      m_exportCurrentScene = false;
       m_modalPath = (m_project->root / "export" / std::string{assets::toString(m_exportPlatform)}).string();
     } else if (m_project) {
       m_modalPath = m_project->root.parent_path().string();
@@ -487,6 +488,12 @@ void Editor::drawModal() {
         }
       }
       ImGui::EndCombo();
+    }
+    ImGui::BeginDisabled(m_scenePath.empty());
+    ImGui::Checkbox("Current scene only", &m_exportCurrentScene);
+    ImGui::EndDisabled();
+    if (m_exportCurrentScene && isDirty()) {
+      ImGui::TextUnformatted("Unsaved scene changes will not be exported; the scene is read from disk.");
     }
   }
   ImGui::InputText("Path", &m_modalPath);
@@ -523,8 +530,10 @@ void Editor::drawModal() {
       outcome = saveSceneAs(m_modalPath);
       break;
     case Modal::Export: {
-      const auto report =
-          exportProject({.outputDirectory = m_modalPath, .platform = m_exportPlatform, .playerDirectory = m_basePath});
+      const auto report = exportProject({.outputDirectory = m_modalPath,
+                                         .platform = m_exportPlatform,
+                                         .scene = m_exportCurrentScene ? std::optional{m_scenePath} : std::nullopt,
+                                         .playerDirectory = m_basePath});
       if (report) {
         m_modalMessage = std::format("{} assets and {} scenes in {}", report->cook.assetCount, report->cook.fileCount,
                                      report->cook.bundle.filename().string());

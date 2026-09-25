@@ -224,7 +224,7 @@ After a successful export, the dialog reports what was written and replaces OK a
 
 ### 5. Export the current scene only ([#13](https://github.com/Pacheco95/sonnet/issues/13))
 
-The bundle always starts at the project's `startScene` and carries every scene in the project. `CookOptions` gains an optional scene. When it is given, the manifest's start scene is that scene and it is the only scene in the bundle. Every prefab and asset is still cooked, because scripts reach them at run time. The export dialog gets a "Current scene only" checkbox. It is available when a scene file is open, and says when that scene has unsaved changes, since the export reads it from disk. `sonnet_cook` gains `--scene` to match. An `assets_tests` case cooks the playground alone and reads the bundle back. Done when an export of the playground with the checkbox set runs in the player from its own directory and shows the playground.
+Done: `CookOptions` accepts an optional scene. When it is given, the manifest starts there and it is the only scene in the bundle. Every prefab and asset is still cooked, because scripts reach them at run time. The export dialog offers "Current scene only" when a scene file is open and warns about unsaved scene changes, since the export reads it from disk. `sonnet_cook --scene` exposes the same choice. `assets_tests` cooks the playground alone and reads the bundle back; `editor_tests` checks the scene selected through export. The standalone player loads that playground bundle from its own directory and renders it on Lavapipe.
 
 ## M9: Mobile export
 

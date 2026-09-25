@@ -305,3 +305,43 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   REQUIRE(document.has_value());
   REQUIRE(document->at("version") == 2);
 }
+
+TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {
+  platform::Platform platform{{.headless = true}};
+  std::filesystem::path sample;
+  for (std::filesystem::path base = std::filesystem::absolute(platform.basePath()); !base.empty();
+       base = base.parent_path()) {
+    const auto candidate = base / "apps" / "samples" / "basic";
+    if (std::filesystem::is_regular_file(candidate / "project.json")) {
+      sample = candidate;
+      break;
+    }
+    if (base == base.root_path()) {
+      break;
+    }
+  }
+  REQUIRE_FALSE(sample.empty());
+  const auto project = Project::open(sample);
+  REQUIRE(project.has_value());
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  AssetDatabase database{renderer, jobs};
+  database.open(project->root, project->assetRoots);
+  const auto out = test::freshDirectory("sonnet_playground_cook");
+  const auto report = cook(database, *project, {.outputDirectory = out, .scene = "scenes/playground.scene.json"});
+  REQUIRE(report.has_value());
+  REQUIRE(report->assetCount == database.assets().size() - 5); // built-in primitives are supplied by the player
+  REQUIRE(report->fileCount == 1 + project->files(".prefab.json").size());
+  const auto bundle = Bundle::open(report->bundle);
+  REQUIRE(bundle.has_value());
+  REQUIRE(bundle->manifest().startScene == "scenes/playground.scene.json");
+  REQUIRE(bundle->read("scenes/playground.scene.json").has_value());
+  REQUIRE_FALSE(bundle->read("scenes/main.scene.json").has_value());
+  REQUIRE(bundle->assets().size() == report->assetCount);
+  for (const auto &prefab : project->files(".prefab.json")) {
+    REQUIRE(bundle->read(project->relative(prefab)).has_value());
+  }
+  REQUIRE_FALSE(cook(database, *project, {.outputDirectory = out, .scene = "scenes/missing.scene.json"}).has_value());
+  std::filesystem::remove_all(out);
+}
