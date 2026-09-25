@@ -1,6 +1,8 @@
 # AGENTS.md
 
-Shared project guidance for coding agents. Provider-specific instruction files should include this file rather than copy its content.
+Shared project guidance for coding agents.
+Provider-specific instruction files should include this file rather than copy its content.
+Skills are available in the [`skills`](.claude/skills) folder.
 
 ## What this is
 
