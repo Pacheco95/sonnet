@@ -20,7 +20,23 @@
       ]
     },
     "vulkan-headers",
-    "vulkan-loader",
+    {
+      "name": "vulkan-loader",
+      "features": [
+        {
+          "name": "xcb",
+          "platform": "linux"
+        },
+        {
+          "name": "xlib",
+          "platform": "linux"
+        },
+        {
+          "name": "wayland",
+          "platform": "linux"
+        }
+      ]
+    },
     "vk-bootstrap",
     "vulkan-memory-allocator-hpp",
     "shader-slang",

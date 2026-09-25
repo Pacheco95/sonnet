@@ -24,6 +24,26 @@ Other prerequisites:
 - Vulkan SDK on developer machines for the validation layers, RenderDoc-friendly tooling and `slangc`. The SDK is not needed to build: headers and loader come from vcpkg.
 - Android: NDK r27+, `ANDROID_NDK_HOME` set. iOS: Xcode on a macOS host.
 
+### Linux setup
+
+vcpkg builds the libraries, but SDL3, the Vulkan loader and miniaudio compile against the system's window and audio headers, so a Linux machine needs them installed. On Ubuntu 24.04 the list is the one the CI workflow installs:
+
+```bash
+wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
+sudo apt-get install -y ninja-build gcc-14 g++-14 clang-20 clang-tidy-20 clang-format-20 vulkan-tools \
+  libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
+  libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl-dev libdrm-dev libgbm-dev \
+  libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
+```
+
+Neither of Ubuntu 24.04's own compilers meets the table above: GCC is 13, and Clang 18 sees libstdc++ 13. Clang 20 from apt.llvm.org is what CI uses, and `g++-14` is there for its libstdc++ 14, which Clang picks up on its own. Select the compiler on the first configure, because vcpkg builds every port with it and keeps it for the build directory; changing it later needs `--fresh`:
+
+```bash
+CC=clang-20 CXX=clang++-20 cmake --preset linux-debug
+```
+
+Ubuntu's `vulkan-validationlayers` package is 1.3.275, older than the Vulkan 1.4 the engine requires, so the layers come from the Vulkan SDK. Without them a Debug build logs that validation was requested but is not installed, and runs without it.
+
 ## Dependency policy
 
 vcpkg manifest mode is the default for every dependency. `FetchContent` is allowed only when a library has no vcpkg port, or when a pinned fork carrying local patches is needed and an overlay port is more work than it is worth. A library is never provided by both; if a `FetchContent` dependency later gets a port, it moves. The rationale is in [ADR-0004](decisions/0004-vcpkg-first.md).
@@ -32,7 +52,7 @@ vcpkg manifest mode is the default for every dependency. `FetchContent` is allow
 
 | Milestone | Ports |
 |---|---|
-| M0 | `sdl3` (features `vulkan`, and `x11` and `wayland` on Linux; default features off so `ibus` and `dbus` do not pull in `libsystemd`), `vulkan-headers`, `vulkan-loader`, `vk-bootstrap`, `vulkan-memory-allocator-hpp`, `shader-slang`, `glm`, `spdlog`, `tracy`, `catch2` |
+| M0 | `sdl3` (features `vulkan`, and `x11` and `wayland` on Linux; default features off so `ibus` and `dbus` do not pull in `libsystemd`), `vulkan-headers`, `vulkan-loader` (features `xcb`, `xlib` and `wayland` on Linux, for now: the engine means to use the system's loader, but the binaries that link Slang find this one through their RUNPATH, and without these features it has no window surface extensions whatever the driver supports; see [the known gap](roadmap.md#linux-binaries-load-vcpkgs-vulkan-loader)), `vk-bootstrap`, `vulkan-memory-allocator-hpp`, `shader-slang`, `glm`, `spdlog`, `tracy`, `catch2` |
 | M1 | `imgui` with `docking-experimental`, `sdl3-binding`, `vulkan-binding` |
 | M2 | `flecs`, `nlohmann-json` |
 | M3 | `fastgltf`, `stb`, `ktx` |

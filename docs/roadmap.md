@@ -366,6 +366,12 @@ Reproduced by the follow-up run. `vcpkg install` of `vk-bootstrap` alone, with b
 
 What would close it: that check, then either keeping `/usr/local/include` out of the ports' builds or not installing the SDK's headers system-wide, whichever the check points at.
 
+### Linux binaries load vcpkg's Vulkan loader
+
+Open ([issue #27](https://github.com/Pacheco95/sonnet/issues/27)), a spike. On a fresh Ubuntu 24.04 setup the editor stopped before opening a window: `SDL_CreateWindow failed: Installed Vulkan doesn't implement either the VK_KHR_xcb_surface extension or the VK_KHR_xlib_surface extension`. SDL's `dlopen("libvulkan.so.1")` found `build/<preset>/vcpkg_installed/x64-linux/lib/libvulkan.so.1`, not the system's. That undoes item 7 of [M1](#m1-editor-shell): the loader SDL opens is meant to be the distribution's ([rendering.md](rendering.md#platform-notes)). Nothing links `Vulkan::Loader`. `assets` links Slang's shared `libslang-compiler.so`, and that gives every binary above it a RUNPATH into the vcpkg directory, which also holds the loader that the `vulkan` stub port pulls in. So the editor, the player, `sonnet_cook` and the suites from `assets_tests` up use vcpkg's loader, while `core_tests` to `renderer_tests` and `ui_tests` use the system's. CI tests use headless surfaces only, so it never saw this.
+
+At the baseline the `vulkan-loader` port has no default features, and a loader built without `xcb`, `xlib` and `wayland` hides those surface extensions whatever the driver offers. For now the manifest asks for them, so the loader that is found works ([build.md](build.md#dependency-policy)). That is not the fix. What would close this entry: a way to keep vcpkg's loader out of the binaries' search path on Linux, with a test that fails when a binary that links `assets` finds it (a `platform_tests` case can't catch it: that binary has no RUNPATH), and then removing the interim features. The issue lists the candidates and a related question: the exported player needs `libslang-compiler.so` at runtime and nothing copies it.
+
 ## Later
 
 Temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.
