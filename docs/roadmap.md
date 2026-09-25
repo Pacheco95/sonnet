@@ -200,6 +200,7 @@ In `linux-debug`, the editor, the player, `sonnet_cook` and the test suites from
 2. The editor and `editor_tests` keep Slang. Its libraries are copied beside those binaries, and those binaries' RUNPATH becomes `$ORIGIN` instead of the vcpkg directory. Two alternatives get measured against this first: `platform` naming the system loader explicitly, and an overlay of the `vulkan` stub port that keeps the loader out of the install tree.
 3. A test in `editor_tests` asserts that the loader `Platform` keeps mapped is not under `vcpkg_installed`. It must fail on the build before the change. `platform_tests` cannot catch this, since it has no RUNPATH.
 4. PR [#28](https://github.com/Pacheco95/sonnet/pull/28) is closed in favour of this one. Its Linux setup section in [build.md](build.md) is kept, and its loader features are dropped because they no longer reach anything.
+5. The `LD_LIBRARY_PATH` workaround in `/setup-sonnet` (`.claude/skills/setup-sonnet/SKILL.md`, step 4) is removed with the fix, so a new machine is never told to work around a bug that is gone.
 
 Done when `readelf -d` shows no RUNPATH into `vcpkg_installed` on any binary, and when the editor, with the SDK's variables cleared and `vcpkg.json` without loader features, opens a window on the system's loader, as `LD_DEBUG=libs` shows. If the choice in step 2 moves a cross-module decision ([ADR-0004](decisions/0004-vcpkg-first.md) on where the loader comes from, [ADR-0006](decisions/0006-vulkan-object-ownership.md) on which one the process uses), it gets an ADR.
 
