@@ -1,0 +1,144 @@
+[23:37:23.665] [info] [platform] [SdlEntryPoint.cpp:44] Sonnet 0.10.0
+[23:37:23.687] [info] [platform] [Platform.cpp:90] SDL 3.4.16 initialised, video driver "x11"
+[23:37:23.812] [debug] [platform] [SdlWindow.cpp:28] window "Sonnet Editor" created: 1600x900 logical, 1600x900 pixels
+[23:37:23.812] [debug] [platform] [Platform.cpp:68] Vulkan loader "<repo>/build/linux-debug/vcpkg_installed/x64-linux/lib/libvulkan.so.1" kept mapped for the process
+[23:37:23.820] [warn] [rhi] [VulkanDevice.cpp:136] validation requested but VK_LAYER_KHRONOS_validation is not installed
+[23:37:23.828] [debug] [rhi] [VulkanDevice.cpp:177] Vulkan loader 1.4.357
+[23:37:23.881] [info] [rhi] [VulkanDevice.cpp:99] Vulkan 1.4.318 device "llvmpipe (LLVM 20.1.2, 256 bits)", driver llvmpipe Mesa 25.2.8-0ubuntu0.24.04.2 (LLVM 20.1.2), loader 1.4.357
+[23:37:23.885] [debug] [rhi] [VulkanSwapchain.cpp:103] swapchain 1600x900, 4 images, B8G8R8A8Unorm, Mailbox
+[23:37:23.887] [debug] [core] [JobSystem.cpp:78] job system started with 11 workers
+[23:37:23.933] [debug] [ui] [ImGuiLayer.cpp:115] Dear ImGui 1.92.9b with SDL3 and Vulkan backends, docking, viewports
+[23:37:23.945] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "light clustering" from shader "cluster"
+[23:37:23.954] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "cull" from shader "cull"
+[23:37:23.956] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "clear draw commands" from shader "cull"
+[23:37:23.958] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "debug lines" from shader "debug"
+[23:37:23.962] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "depth" from shader "depth"
+[23:37:23.966] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "shadow" from shader "depth"
+[23:37:23.970] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "depth double sided" from shader "depth"
+[23:37:23.973] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "shadow" from shader "depth"
+[23:37:24.011] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "forward" from shader "forward"
+[23:37:24.050] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "forward blend" from shader "forward"
+[23:37:24.083] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "forward double sided" from shader "forward"
+[23:37:24.120] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "forward blend double sided" from shader "forward"
+[23:37:24.124] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "equirect to cube" from shader "ibl"
+[23:37:24.128] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "cube mip" from shader "ibl"
+[23:37:24.132] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "irradiance" from shader "ibl"
+[23:37:24.138] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "prefilter" from shader "ibl"
+[23:37:24.141] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "brdf lut" from shader "ibl"
+[23:37:24.144] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "id" from shader "id"
+[23:37:24.146] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "selection mask" from shader "id"
+[23:37:24.148] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "id double sided" from shader "id"
+[23:37:24.150] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "selection mask double sided" from shader "id"
+[23:37:24.153] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "outline" from shader "outline"
+[23:37:24.155] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "bloom downsample" from shader "post"
+[23:37:24.157] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "bloom upsample" from shader "post"
+[23:37:24.159] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "tonemap" from shader "post"
+[23:37:24.163] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "fxaa" from shader "post"
+[23:37:24.165] [debug] [rhi] [VulkanDevice.cpp:941] compute pipeline "skinning" from shader "skin"
+[23:37:24.167] [debug] [rhi] [VulkanDevice.cpp:925] pipeline "skybox" from shader "skybox"
+[23:37:24.168] [debug] [renderer] [Renderer.cpp:569] texture "white": 1x1, 1 levels
+[23:37:24.168] [debug] [renderer] [Renderer.cpp:569] texture "flat normal": 1x1, 1 levels
+[23:37:24.168] [debug] [renderer] [Renderer.cpp:325] renderer ready, shaders from <repo>/build/linux-debug/apps/editor/shaders
+[23:37:24.200] [info] [world] [World.cpp:46] flecs explorer enabled: https://www.flecs.dev/explorer
+[23:37:24.204] [debug] [world] [World.cpp:103] world ready with 13 components
+[23:37:24.209] [debug] [physics] [JoltPhysicsWorld.cpp:227] physics ready
+[23:37:24.211] [debug] [scripting] [LuaScriptRuntime.cpp:216] scripting ready, Lua 5.5.1
+[23:37:24.211] [debug] [world] [Animation.cpp:59] animation ready
+[23:37:24.240] [debug] [audio] [MiniaudioDevice.cpp:71] audio ready: 48000 Hz, 2 channels, output device
+[23:37:24.270] [debug] [world] [World.cpp:103] world ready with 13 components
+[23:37:24.276] [info] [editor] [Editor.cpp:64] editor ready
+[23:37:24.276] [info] [assets] [Project.cpp:39] opened project "Basic" at <repo>/apps/samples/basic
+[23:37:24.278] [info] [assets] [AssetDatabase.cpp:210] asset database: 27 assets in <repo>/apps/samples/basic
+[23:37:24.279] [info] [world] [Scene.cpp:313] loaded prefab c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a from <repo>/apps/samples/basic/prefabs/crate.prefab.json
+[23:37:24.279] [info] [world] [Scene.cpp:313] loaded prefab c0a7e4d2-5b1f-4c3e-9a8d-2f3e4d5c6b7a from <repo>/apps/samples/basic/prefabs/physics-crate.prefab.json
+[23:37:24.285] [info] [world] [Scene.cpp:255] loaded 15 entities from <repo>/apps/samples/basic/scenes/main.scene.json
+[23:37:24.291] [debug] [renderer] [RenderTarget.cpp:38] render target "viewport" 32x13
+[23:37:24.293] [debug] [assets] [GltfImporter.cpp:436] <repo>/apps/samples/basic/assets/models/reed.glb: 1 meshes, 1 materials, 0 images, 6 nodes, 1 skins, 1 animations
+[23:37:24.294] [debug] [renderer] [Renderer.cpp:514] mesh "Sphere": 561 vertices, 960 triangles, 1 submeshes
+[23:37:24.295] [debug] [renderer] [Renderer.cpp:514] mesh "Cylinder": 134 vertices, 128 triangles, 1 submeshes
+[23:37:24.297] [debug] [renderer] [Renderer.cpp:514] mesh "Capsule": 594 vertices, 1024 triangles, 1 submeshes
+[23:37:24.297] [debug] [renderer] [Renderer.cpp:514] mesh "Plane": 4 vertices, 2 triangles, 1 submeshes
+[23:37:24.298] [debug] [renderer] [Renderer.cpp:569] texture "pending": 1x1, 1 levels
+[23:37:24.298] [debug] [renderer] [Renderer.cpp:514] mesh "Box": 24 vertices, 12 triangles, 1 submeshes
+[23:37:24.300] [debug] [assets] [GltfImporter.cpp:436] <repo>/apps/samples/basic/assets/models/beacon.glb: 2 meshes, 2 materials, 0 images, 3 nodes, 0 skins, 1 animations
+[23:37:24.301] [debug] [assets] [GltfImporter.cpp:436] <repo>/apps/samples/basic/assets/models/crate.glb: 2 meshes, 2 materials, 2 images, 2 nodes, 0 skins, 0 animations
+[23:37:24.305] [debug] [renderer] [Renderer.cpp:678] environment "sky" from a 256x128 map
+[23:37:24.307] [debug] [rhi] [VulkanSwapchain.cpp:103] swapchain 1600x900, 4 images, B8G8R8A8Unorm, Mailbox
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "ids" 32x13 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow cascade 0" 2048x2048 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow cascade 1" 2048x2048 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow cascade 2" 2048x2048 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow cascade 3" 2048x2048 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene hdr" 32x13 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 0" 16x6 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 1" 8x3 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 2" 4x1 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 3" 2x1 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 4" 1x1 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 3" 2x1 allocated
+[23:37:24.308] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 2" 4x1 allocated
+[23:37:24.309] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 1" 8x3 allocated
+[23:37:24.309] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 0" 16x6 allocated
+[23:37:24.309] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene ldr" 32x13 allocated
+[23:37:24.974] [debug] [renderer] [RenderTarget.cpp:38] render target "viewport" 954x662
+[23:37:24.975] [debug] [renderer] [Renderer.cpp:514] mesh "reed/StemMesh": 91 vertices, 144 triangles, 1 submeshes
+[23:37:24.975] [debug] [renderer] [Renderer.cpp:514] mesh "beacon/LampMesh": 24 vertices, 12 triangles, 1 submeshes
+[23:37:24.976] [debug] [renderer] [Renderer.cpp:514] mesh "beacon/HaloMesh": 325 vertices, 528 triangles, 1 submeshes
+[23:37:24.976] [debug] [renderer] [Renderer.cpp:569] texture "checker": 64x64, 7 levels
+[23:37:24.976] [debug] [renderer] [Renderer.cpp:569] texture "crate/image 0": 128x128, 8 levels
+[23:37:24.976] [debug] [renderer] [Renderer.cpp:569] texture "crate/image 1": 128x128, 8 levels
+[23:37:24.976] [debug] [renderer] [Renderer.cpp:514] mesh "crate/CrateMesh": 24 vertices, 12 triangles, 1 submeshes
+[23:37:24.976] [debug] [renderer] [Renderer.cpp:514] mesh "crate/BallMesh": 561 vertices, 960 triangles, 1 submeshes
+[23:37:24.978] [debug] [renderer] [RenderGraph.cpp:176] transient image "ids" 954x662 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene hdr" 954x662 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 0" 477x331 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 1" 238x165 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 2" 119x82 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 3" 59x41 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 4" 29x20 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 3" 59x41 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 2" 119x82 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 1" 238x165 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 0" 477x331 allocated
+[23:37:24.979] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene ldr" 954x662 allocated
+[23:37:25.565] [debug] [renderer] [RenderTarget.cpp:38] render target "viewport" 968x662
+[23:37:25.568] [debug] [renderer] [RenderGraph.cpp:176] transient image "ids" 968x662 allocated
+[23:37:25.568] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene hdr" 968x662 allocated
+[23:37:25.568] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 0" 484x331 allocated
+[23:37:25.568] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 1" 242x165 allocated
+[23:37:25.568] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 2" 121x82 allocated
+[23:37:25.569] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 3" 60x41 allocated
+[23:37:25.569] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 4" 30x20 allocated
+[23:37:25.569] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 3" 60x41 allocated
+[23:37:25.569] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 2" 121x82 allocated
+[23:37:25.569] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 1" 242x165 allocated
+[23:37:25.569] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 0" 484x331 allocated
+[23:37:25.569] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene ldr" 968x662 allocated
+[23:37:25.954] [debug] [renderer] [RenderTarget.cpp:38] render target "viewport" 954x662
+[23:37:26.181] [debug] [renderer] [RenderTarget.cpp:38] render target "viewport" 968x662
+[23:37:26.184] [debug] [renderer] [RenderGraph.cpp:192] transient image "ids" released
+[23:37:26.184] [debug] [renderer] [RenderGraph.cpp:192] transient image "scene hdr" released
+[23:37:26.184] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 0" released
+[23:37:26.184] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 1" released
+[23:37:26.184] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 2" released
+[23:37:26.185] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 3" released
+[23:37:26.185] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 4" released
+[23:37:26.185] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 3" released
+[23:37:26.185] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 2" released
+[23:37:26.185] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 1" released
+[23:37:26.185] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 0" released
+[23:37:26.185] [debug] [renderer] [RenderGraph.cpp:192] transient image "scene ldr" released
+[23:37:26.914] [debug] [renderer] [RenderGraph.cpp:192] transient image "ids" released
+[23:37:26.914] [debug] [renderer] [RenderGraph.cpp:192] transient image "scene hdr" released
+[23:37:26.914] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 0" released
+[23:37:26.914] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 1" released
+[23:37:26.914] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 2" released
+[23:37:26.914] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 3" released
+[23:37:26.914] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 4" released
+[23:37:26.914] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 3" released
+[23:37:26.915] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 2" released
+[23:37:26.915] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 1" released
+[23:37:26.915] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 0" released
+[23:37:26.915] [debug] [renderer] [RenderGraph.cpp:192] transient image "scene ldr" released
+[23:37:28.303] [info] [editor] [Editor.cpp:683] screenshot 968x662 written to <out>/view-lavapipe.png
+[23:37:28.375] [info] [platform] [SdlEntryPoint.cpp:83] exit ok
