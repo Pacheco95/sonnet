@@ -174,13 +174,12 @@ void ImGuiLayer::renderPlatformWindows() {
 }
 
 ImTextureID ImGuiLayer::registerImage(rhi::ImageHandle image) {
-  const rhi::VulkanImage *resource = m_backend->device.findImage(image);
-  SONNET_ASSERT(resource != nullptr, "registering a stale image handle {}:{}", image.index, image.generation);
-  SONNET_ASSERT(rhi::has(resource->desc.usage, rhi::ImageUsage::Sampled), "image \"{}\" is not sampled-capable",
-                resource->desc.debugName);
+  const rhi::VulkanImage &resource = m_backend->device.getImage(image);
+  SONNET_ASSERT(rhi::has(resource.desc.usage, rhi::ImageUsage::Sampled), "image \"{}\" is not sampled-capable",
+                resource.desc.debugName);
   // ImTextureID is 64 bits, as is a non-dispatchable handle on every target.
   return std::bit_cast<ImTextureID>(
-      ImGui_ImplVulkan_AddTexture(*resource->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+      ImGui_ImplVulkan_AddTexture(*resource.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
 }
 
 void ImGuiLayer::unregisterImage(ImTextureID texture) {
