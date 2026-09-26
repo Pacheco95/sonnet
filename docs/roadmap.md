@@ -186,7 +186,7 @@ What M8 left behind, with what each would take, is in [Known gaps](#known-gaps):
 
 ## Before M9
 
-Five issues were queued before M9. [#27](https://github.com/Pacheco95/sonnet/issues/27), [#14](https://github.com/Pacheco95/sonnet/issues/14), [#11](https://github.com/Pacheco95/sonnet/issues/11) and [#13](https://github.com/Pacheco95/sonnet/issues/13) are implemented below. [#29](https://github.com/Pacheco95/sonnet/issues/29) remains: its shadow artifacts appear in the screenshots that M9's device checks compare against by eye. Each issue has its own branch and pull request. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)), planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
+Five issues were queued before M9. [#27](https://github.com/Pacheco95/sonnet/issues/27), [#14](https://github.com/Pacheco95/sonnet/issues/14), [#11](https://github.com/Pacheco95/sonnet/issues/11) and [#13](https://github.com/Pacheco95/sonnet/issues/13) are implemented below. [#29](https://github.com/Pacheco95/sonnet/issues/29) is implemented and checked on Intel and Lavapipe; its RTX 4090 screenshot check remains. Each issue has its own branch and pull request. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)), planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
 
 ### 1. Linux binaries load vcpkg's Vulkan loader ([#27](https://github.com/Pacheco95/sonnet/issues/27))
 
@@ -201,13 +201,16 @@ Checked with GCC 14 and Clang 22. `readelf -d` shows `$ORIGIN` for the editor an
 
 ### 2. Shadow seam and dashed shadow edge in the basic sample ([#29](https://github.com/Pacheco95/sonnet/issues/29))
 
-Two artifacts in the basic sample come from the shadows, since both show in the `shadow-factor` shading term. One is a straight seam across the ground at a fixed depth, with evenly spaced ticks, on Intel and on Lavapipe. The other is a row of lit dashes along a cube's shadow edge, on Intel only. `forward.slang` switches cascades hard at each view-depth split, samples a 3×3 kernel with no margin at a cascade's edge, and multiplies the bias by the cascade's index, so the bias jumps at every split.
+The reported ground seam and dashed cube-shadow edge both appeared in the `shadow-factor` term. The new `cascade` term colours the nominal view-depth slices red, green, blue and yellow, exposing the split boundaries in both the editor menu and `--shading-term cascade`.
 
-1. A `cascade` shading term, the cascade index as a colour, confirms whether the seam lies on a split. It stays, since the phones will need it too.
-2. The fix follows what that shows. Likely changes: a cascade is chosen only if the kernel's footprint fits inside its bounds, the last stretch before a split blends with the next cascade, and a normal-offset bias scaled by each cascade's texel size replaces the per-cascade multiplier.
-3. A `renderer_tests` GPU test renders a sun-lit plane with no occluders across every split and asserts a shadow factor of 1 everywhere on it. It must fail before the fix.
+Implemented in the renderer:
 
-Done when the test passes on Lavapipe, and screenshots of both samples on the RTX 4090 and Lavapipe show neither artifact. The dashes appear only on the reporter's Intel GPU, so that machine confirms them.
+1. Statically unroll the four comparison-image sampling branches. The GPU regression initially found 768 incorrectly shadowed pixels on an unobstructed plane on Lavapipe, in rows at the splits. Bias and blending alone left a faint row; keeping the image index uniform within each branch removed it. A non-uniform descriptor-index annotation alone did not fix the dynamic path.
+2. Overlap cascades over the last 10% of each slice and blend across that range; fade the last cascade to lit at `shadowDistance`. Sample only when the entire bilinear 3×3 footprint fits, otherwise try a farther cascade.
+3. Offset the receiver along its geometric normal in world-space shadow texels, replacing the cascade-index bias multiplier with a constant depth bias. Pad the projection for the filter and offset, and fix texel snapping: an NDC position must snap by the map resolution, not by world-space texels per metre.
+4. The GPU test compares every pixel of an unoccluded plane against shadows disabled, at 256 and 1024 shadow-map resolutions, and verifies that its camera spans all four cascade colours. It fails before the fix and passes on Intel ADL GT2, Lavapipe and the RTX 2050, with validation enabled. Restoring the original sampling shader also reproduces 768 bad pixels at each test resolution on Intel.
+
+All 12 test suites pass on Lavapipe. Final-colour and shadow-factor captures of the basic and playground scenes on Intel ADL GT2, Lavapipe and the RTX 2050 show neither reported artifact. RTX 4090 screenshot verification remains for a machine with that GPU.
 
 ### 3. The mouse leaks into the UI while flying the viewport camera ([#14](https://github.com/Pacheco95/sonnet/issues/14))
 

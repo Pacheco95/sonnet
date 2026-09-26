@@ -48,8 +48,9 @@ enum class DebugView : std::uint32_t {
   IblDiffuse,
   IblSpecular,
   BrdfLut, // the split-sum scale and bias at the fragment's n.v and roughness, in red and green
+  Cascade, // the view-depth cascade, red, green, blue, then yellow
 };
-constexpr std::uint32_t DebugViewCount = 8;
+constexpr std::uint32_t DebugViewCount = 9;
 // What the editor's View > Shading term menu calls a term: "Final", "Sun direct", "BRDF LUT".
 [[nodiscard]] const char *debugViewName(DebugView view) noexcept;
 
@@ -58,7 +59,7 @@ struct RendererSettings {
   bool shadows{true};
   std::uint32_t shadowMapSize{2048}; // per cascade
   float shadowDistance{80.0f};       // metres of view depth the cascades cover
-  float shadowBias{0.0015f};         // in reversed-Z depth units, scaled by the cascade
+  float shadowBias{0.0015f};         // in reversed-Z depth units; receiver offset also follows the texel size
   DebugView debugView{DebugView::Final};
   bool bloom{true};
   std::uint32_t bloomLevels{5};
@@ -277,6 +278,8 @@ private:
   struct Cascade {
     glm::mat4 matrix{1.0f};
     float split{0.0f};
+    float blendStart{0.0f};
+    float texelSize{0.0f};
   };
   // The persistent images the forward pass reads, imported into the frame's graph.
   struct FrameImages {
