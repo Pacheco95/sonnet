@@ -266,6 +266,20 @@ A follow-up run (`agents/mac-m9-followup`) closed what the first run left open:
 
 The Android half of question 9 waits for the first APK. The Galaxy S25 Ultra's Vulkan report is in ADR-0018's open question 6 and led to [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md).
 
+### The Android build
+
+The first Android step is the build alone, as ADR-0018's "Builds" section decides it ([build.md](build.md#presets)):
+
+- **Manifest:** `shader-slang` is declared as a host tool and again as a desktop-only library, and `vulkan-loader` and `imgui` are desktop only. There is no `vulkan-memory-allocator-hpp` overlay, because the iOS install did not need one (above).
+- **`slangc` comes from the host triplet.** vcpkg's toolchain searches the host triplet's tools only when `VCPKG_HOST_TRIPLET` is set, and it never sets it, so the first configure found no `slangc` under `arm64-android` and took the Vulkan SDK's from the environment. On a machine without the SDK it would have failed. `cmake/SonnetShaders.cmake` now adds `vcpkg_installed/<host triplet>/tools/shader-slang` to `CMAKE_PROGRAM_PATH` in a cross build.
+- **Presets:** `android-debug` and `android-release`, with build presets and no test presets. They configure only `core` to `runtime` and the player.
+- **The player is `libsonnet_player.so`.** `sonnet_add_executable` makes a shared library on Android. It exports `SDL_main`, the four `SDL_App*` callbacks and SDL's JNI entry points (`JNI_OnLoad`, `Java_org_libsdl_app_*`), which is what SDL's Java side loads.
+- **CI:** an Android job configures `android-release` with the runner's NDK r27.3 and builds the player library.
+
+Verified with NDK r30 (30.0.16248370, Clang 21) on Linux: the `arm64-android` install of the committed manifest has all 28 ports, the host `x64-linux` `shader-slang` among them. 26 were restored from the binary cache left by the ADR's own install run, and `joltphysics` and `ktx` were rebuilt. Both presets configure and build every target with no warnings and no change to engine code. Configuring with the Vulkan SDK's `PATH` and `CMAKE_PREFIX_PATH` in the environment, and again without them, picks the host triplet's `slangc` both times. The desktop is unchanged: the same ports for `x64-linux`, `slangc` from the same place, and all 13 suites pass on Lavapipe with GCC 14 and with Clang 22.
+
+Still to do for the player on a phone, in ADR-0018's order: the APK (`cmake/SonnetAndroid.cmake`, SDL's Java sources, the manifest, debug signing), ASTC cooking, touch input, `Platform::openContent`, the swapchain's suspend and resume, and the capture in the player. None of them blocks the build.
+
 ## M10: iOS export
 
 - Xcode build of the player from a macOS host, MoltenVK linked statically, packaging into an app bundle.
