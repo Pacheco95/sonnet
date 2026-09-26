@@ -191,6 +191,7 @@ Prerequisites, besides the NDK:
 - The Android SDK with `platforms;android-36` and `build-tools;36.1.0` (`sdkmanager "platforms;android-36" "build-tools;36.1.0"`), and `ANDROID_HOME` pointing at it. The configure caches `ANDROID_HOME`, so a later regeneration does not need the environment. `SONNET_ANDROID_BUILD_TOOLS_VERSION` selects another build-tools version.
 - A JDK 17 or later: `javac`, `java` and `keytool` from `JAVA_HOME/bin`, or from `PATH`. `d8` and `apksigner` run on the same JDK.
 - `zip`.
+- Python 3, which runs `tools/spirv_for_adreno.py` over every shader module after `slangc` ([rendering.md](rendering.md#shaders)).
 
 A missing one fails the configure with a message naming it.
 
