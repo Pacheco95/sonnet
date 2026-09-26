@@ -186,7 +186,7 @@ What M8 left behind, with what each would take, is in [Known gaps](#known-gaps):
 
 ## Before M9
 
-Three open issues remain before M9. [#27](https://github.com/Pacheco95/sonnet/issues/27) is implemented below: Slang lives with the editor and Linux uses the system Vulkan loader. [#29](https://github.com/Pacheco95/sonnet/issues/29) is a shadow artifact in the screenshots that M9's device checks compare against by eye. The other two are small editor bugs. Each is its own branch and pull request, in the order below: the first changes the build under everything else, and the second changes the reference screenshots the rest are checked with. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)), planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
+Five issues were queued before M9. [#27](https://github.com/Pacheco95/sonnet/issues/27), [#14](https://github.com/Pacheco95/sonnet/issues/14), [#11](https://github.com/Pacheco95/sonnet/issues/11) and [#13](https://github.com/Pacheco95/sonnet/issues/13) are implemented below. [#29](https://github.com/Pacheco95/sonnet/issues/29) remains: its shadow artifacts appear in the screenshots that M9's device checks compare against by eye. Each issue has its own branch and pull request. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)), planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
 
 ### 1. Linux binaries load vcpkg's Vulkan loader ([#27](https://github.com/Pacheco95/sonnet/issues/27))
 
@@ -211,7 +211,7 @@ Done when the test passes on Lavapipe, and screenshots of both samples on the RT
 
 ### 3. The mouse leaks into the UI while flying the viewport camera ([#14](https://github.com/Pacheco95/sonnet/issues/14))
 
-Right-drag in the viewport switches on relative mouse mode, but every SDL event still reaches Dear ImGui. SDL keeps reporting a moving cursor position in relative mode, so ImGui's cursor wanders over the other panels and hovers them. It was reproduced on Linux. While the camera looks, mouse motion is kept from ImGui but still turns the camera, and button events still pass, so releasing the button ends the look. When the look ends, ImGui is given the real cursor position once. An `editor_tests` case feeds a motion event while the camera is active, and checks that ImGui's cursor did not move and the look delta did.
+Right-drag in the viewport switches on relative mouse mode, but every SDL event still reached Dear ImGui. SDL kept reporting a moving cursor position in relative mode, so ImGui's cursor wandered over the other panels and hovered them. It was reproduced on Linux. Fixed in the editor: while the camera looks, mouse motion is kept from ImGui but still turns the camera, and button events still pass, so releasing the button ends the look. When the look ends, ImGui is given the cursor position restored by SDL once. An `editor_tests` case feeds a motion event while the camera is active and checks that ImGui's cursor did not move and the look delta did, then checks the cursor position after release.
 
 ### 4. The export dialog does not close on OK ([#11](https://github.com/Pacheco95/sonnet/issues/11)) — closed
 

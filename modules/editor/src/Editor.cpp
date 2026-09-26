@@ -9,6 +9,9 @@
 #include <sonnet/core/Version.h>
 #include <sonnet/world/Scene.h>
 
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_video.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_stdlib.h>
@@ -69,7 +72,9 @@ Editor::~Editor() {
 }
 
 void Editor::nativeEvent(const SDL_Event &event) {
-  m_imgui.processEvent(event);
+  if (event.type != SDL_EVENT_MOUSE_MOTION || !m_viewportPanel.cameraActive()) {
+    m_imgui.processEvent(event);
+  }
 }
 
 void Editor::event(const platform::Event &event) {
@@ -136,6 +141,17 @@ void Editor::update(float dt) {
     if (wantsRelativeMouse != m_relativeMouseRequested) {
       m_relativeMouseRequested = wantsRelativeMouse;
       static_cast<void>(m_window.setRelativeMouseMode(wantsRelativeMouse));
+      if (!wantsRelativeMouse) {
+        float x = 0.0f;
+        float y = 0.0f;
+        SDL_GetMouseState(&x, &y);
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.windowID = SDL_GetWindowID(m_window.nativeHandle());
+        motion.motion.x = x;
+        motion.motion.y = y;
+        m_imgui.processEvent(motion);
+      }
     }
   }
   m_lookDelta = {0.0f, 0.0f};
