@@ -267,7 +267,8 @@ renderer::MeshData cookMesh(const MeshData &mesh, MeshCookStatistics *statistics
   if (skinned) {
     cooked.skin.reserve(welded.skin.size());
   }
-  cooked.indices.resize(welded.indices.size());
+  // Sized at construction: resize() on the empty vector trips GCC 14's -Wnull-dereference at -O3.
+  cooked.indices = std::vector<std::uint32_t>(welded.indices.size());
   for (std::size_t slot = 0; slot < welded.indices.size(); ++slot) {
     const std::uint32_t index = welded.indices[slot];
     if (fetch[index] == Unused) {
