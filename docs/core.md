@@ -36,7 +36,7 @@ Work that may only happen on the main thread — creating an `rhi` resource, abo
 
 ## Assertions and errors
 
-`SONNET_ASSERT(expr, fmt, args...)` is compiled in when `SONNET_ASSERTS_ENABLED` is defined, which the build does for Debug and RelWithDebInfo; `SONNET_VERIFY` always evaluates its expression. A failure logs the expression and the `std::source_location` of the site at `critical`, raises `SIGTRAP` (or `__debugbreak`) so an attached debugger stops there, then aborts.
+`SONNET_ASSERT(expr, fmt, args...)` is compiled in when `SONNET_ASSERTS_ENABLED` is defined, which the build does for Debug and RelWithDebInfo; `SONNET_VERIFY` always evaluates its expression. Compiled out, an assertion still names its expression and message inside `sizeof`, so nothing runs but a value that only an assertion reads does not break the Release build as unused. A failure logs the expression and the `std::source_location` of the site at `critical`, raises `SIGTRAP` (or `__debugbreak`) so an attached debugger stops there, then aborts.
 
 `Error` and `Exception` capture `std::source_location` at construction by a defaulted parameter, so the reported line is where the problem was created. Return `Result<T>` from recoverable operations, throw `Exception` from initialisation. The category says which layer failed: platform, graphics, shader, I/O or script.
 
