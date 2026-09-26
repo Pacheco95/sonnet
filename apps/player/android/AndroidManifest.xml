@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The player's APK manifest (docs/player.md, "Running on Android"). cmake/SonnetAndroid.cmake
+     links it with aapt2 against platforms/android-36. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.pacheco95.sonnet"
+    android:versionCode="1"
+    android:versionName="0.10.0">
+
+    <uses-sdk android:minSdkVersion="36" android:targetSdkVersion="36" />
+
+    <!-- Vulkan 1.3 rather than ADR-0018's 1.4: ADR-0019 accepts a 1.3 device that has the engine's
+         four 1.4 features as extensions, and the device selector checks those at run time. -->
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x403000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- extractNativeLibs="false": the library is stored uncompressed and 16 KB-aligned in the APK
+         and mapped from there. -->
+    <application
+        android:label="Sonnet"
+        android:icon="@drawable/ic_launcher"
+        android:allowBackup="false"
+        android:extractNativeLibs="false"
+        android:hasCode="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
+        android:enableOnBackInvokedCallback="false"
+        android:hardwareAccelerated="true">
+
+        <activity
+            android:name=".SonnetActivity"
+            android:label="Sonnet"
+            android:alwaysRetainTaskState="true"
+            android:launchMode="singleInstance"
+            android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:preferMinimalPostProcessing="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
