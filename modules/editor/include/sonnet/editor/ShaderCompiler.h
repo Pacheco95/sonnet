@@ -16,7 +16,7 @@ namespace sonnet::editor {
 class ShaderCompiler {
 public:
   // `includeDirectories` is where `import sonnet` and the other modules resolve.
-  explicit ShaderCompiler(std::vector<std::filesystem::path> includeDirectories);
+  explicit ShaderCompiler(const std::vector<std::filesystem::path> &includeDirectories);
   ~ShaderCompiler();
   ShaderCompiler(const ShaderCompiler &) = delete;
   ShaderCompiler &operator=(const ShaderCompiler &) = delete;

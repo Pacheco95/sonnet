@@ -4,9 +4,16 @@
 
 #include <dlfcn.h>
 
+#include <cstdlib>
 #include <filesystem>
+#include <string_view>
 
 TEST_CASE("the editor keeps a Vulkan loader outside vcpkg mapped", "[editor][loader]") {
+  // The TSan preset disables every Vulkan driver so GPU work does not enter uninstrumented code.
+  if (const char *driverFiles = std::getenv("VK_DRIVER_FILES");
+      driverFiles != nullptr && std::string_view{driverFiles} == "/dev/null") {
+    SKIP("Vulkan drivers are disabled by this preset");
+  }
   PFN_vkGetInstanceProcAddr entry = nullptr;
   {
     sonnet::platform::Platform platform{{.headless = true}};

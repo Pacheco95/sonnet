@@ -32,8 +32,8 @@ std::string blobText(slang::IBlob *blob) {
   }
   // Slang writes `file(line): message`; `file:line:column` is what the log panel links to
   // (docs/conventions.md, "Logging").
-  static const std::regex location{R"(^(.*?)\((\d+)\): )", std::regex::multiline};
-  return std::regex_replace(text, location, "$1:$2:1: ");
+  static const std::regex Location{R"(^(.*?)\((\d+)\): )", std::regex::multiline};
+  return std::regex_replace(text, Location, "$1:$2:1: ");
 }
 
 core::Error compileError(const std::filesystem::path &file, std::string_view what, const std::string &diagnostics) {
@@ -43,7 +43,7 @@ core::Error compileError(const std::filesystem::path &file, std::string_view wha
 
 } // namespace
 
-ShaderCompiler::ShaderCompiler(std::vector<std::filesystem::path> includeDirectories)
+ShaderCompiler::ShaderCompiler(const std::vector<std::filesystem::path> &includeDirectories)
     : m_session(std::make_unique<Session>()) {
   SONNET_ZONE();
   for (const std::filesystem::path &directory : includeDirectories) {
@@ -91,6 +91,7 @@ core::Result<std::vector<std::byte>> ShaderCompiler::compile(const std::filesyst
   std::vector<std::string> searchPaths = m_session->includeDirectories;
   searchPaths.push_back(file.parent_path().string());
   std::vector<const char *> searchPathPointers;
+  searchPathPointers.reserve(searchPaths.size());
   for (const std::string &path : searchPaths) {
     searchPathPointers.push_back(path.c_str());
   }
