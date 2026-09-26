@@ -54,6 +54,8 @@ function(sonnet_add_shaders TARGET)
     list(APPEND outputs "${rule_output}")
   endforeach()
   add_custom_target(${TARGET}_shaders DEPENDS ${outputs})
+  # The APK packages the modules from here (cmake/SonnetAndroid.cmake).
+  set_target_properties(${TARGET}_shaders PROPERTIES OUTPUTS "${outputs}")
   add_dependencies(${TARGET} ${TARGET}_shaders)
 endfunction()
 
