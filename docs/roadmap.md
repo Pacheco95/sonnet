@@ -337,9 +337,14 @@ Verified on Linux:
 - The device is rejected before anything reads the shaders or the bundle. A probe added to a local build for this one run (not committed) showed that the reads work from the APK. It read `shaders/cluster.spv` through `openContent`, 41812 bytes, the size `unzip -v` lists. It also opened the packaged `assets/game.sbundle` (the basic sample, cooked by the Linux `sonnet_cook`) with its 27 assets, and read its start scene.
 - A bundle pushed to `/data/local/tmp` and copied with `run-as ... cp` into `files/` opens when `--es args` gives its absolute path. A missing absolute path is an `Io` error naming it.
 
-**On the Galaxy S25 Ultra:** not run. The phone was not connected for this step. Still to check there: the log in logcat from startup, the shaders loading from the APK and how far startup then gets, the desktop-cooked basic sample on screen, and a pushed bundle.
+**On the Galaxy S25 Ultra** (Android 16, the `android-debug` APK with the basic sample cooked by the Linux `sonnet_cook` and packaged as `assets/game.sbundle`):
 
-Still to do before the basic sample runs on the phone: ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
+- `adb logcat -s Sonnet` shows the engine's log from its first line. The Adreno 830 is taken on ADR-0019's path ("Vulkan 1.3.284 device ... with the 1.4 features as extensions"), the swapchain is created (1080×2340, 5 images, `R8G8B8A8Unorm`, Mailbox), and the job system starts with 7 workers.
+- The shaders now load from the APK. The earlier `cannot open ./shaders/cluster.spv` is gone, and startup gets one step further, into `Renderer::createPipelines`.
+- **There the process dies with a SIGSEGV**, a null-pointer read inside the driver's shader compiler (`/vendor/lib64/libllvm-qgl.so`), called from `vkCreateComputePipelines` through `VulkanDevice::createComputePipeline`. Nothing is logged first, since the crash is in the driver. `cluster.spv` is the first module the renderer builds, and its one pipeline is the compute pipeline `light clustering`, so that pipeline is the likely one. The crash happens before the bundle is opened, so the basic sample does not reach the screen. This step does not investigate it, as scoped. It is the next blocker on the phone.
+- A bundle pushed to `/data/local/tmp` and copied with `run-as ... cp` into `files/` gets its absolute path through `--es args` (the log shows `arguments: [/data/user/0/io.github.pacheco95.sonnet/files/pushed.sbundle]`). The run then stops at the same crash, since `Game` builds the renderer before it opens the bundle. The emulator run above showed that the bundle opens by absolute path.
+
+Still to do before the basic sample runs on the phone: the Adreno compiler crash in `createComputePipeline`, then ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
 
 ## M10: iOS export
 
