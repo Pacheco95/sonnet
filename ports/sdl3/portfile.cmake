@@ -91,10 +91,15 @@ vcpkg_cmake_configure(
         -DSDL_X11_XSCRNSAVER=ON
         -DSDL_X11_XSYNC=OFF
         -DSDL_X11_XTEST=OFF
+        # Sonnet overlay: no SDL3.jar. SDL builds it only when it finds a JDK and the Android SDK in
+        # the environment, so the install would depend on the machine; the Java sources below are
+        # installed instead, and the APK compiles them (ADR-0018, "Packaging").
+        -DSDL_ANDROID_JAR=OFF
         -DSDL_INSTALL_CMAKEDIR_ROOT=share/${PORT}
         # Specifying the revision skips the need to use git to determine a version
         -DSDL_REVISION=vcpkg
     MAYBE_UNUSED_VARIABLES
+        SDL_ANDROID_JAR
         SDL_FORCE_STATIC_VCRT
 )
 
@@ -110,6 +115,13 @@ vcpkg_copy_pdbs()
 vcpkg_fixup_pkgconfig()
 
 file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+
+# Sonnet overlay: SDL's Java glue, which an APK compiles next to its activity (ADR-0018, "Packaging").
+# Installing it from the same source as the native library keeps the two versions matched.
+if(VCPKG_TARGET_IS_ANDROID)
+    file(GLOB SDL_ANDROID_JAVA "${SOURCE_PATH}/android-project/app/src/main/java/org/libsdl/app/*.java")
+    file(INSTALL ${SDL_ANDROID_JAVA} DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}/android-java")
+endif()
 vcpkg_install_copyright(
     FILE_LIST
         "${SOURCE_PATH}/LICENSE.txt"
