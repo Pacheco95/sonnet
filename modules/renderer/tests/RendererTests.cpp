@@ -494,6 +494,70 @@ TEST_CASE("a graph built where an earlier one stood does not inherit its frame",
   renderer.destroyMesh(box);
 }
 
+// An unobstructed receiver must not shadow itself at a split or a PCF tap.
+TEST_CASE("an unoccluded plane stays lit across every shadow cascade", "[renderer][gpu][shadow]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.debugView = DebugView::ShadowFactor;
+    settings.shadowMapSize = GENERATE(256u, 1024u);
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const auto plane = renderer.createMesh(primitives::plane({400.0f, 400.0f}), "receiver");
+    const std::array draws{DrawItem{.mesh = plane}};
+    SceneView view;
+    view.draws = draws;
+    view.camera.position = {0.0f, 1.0f, 0.0f};
+    view.camera.rotation = glm::angleAxis(glm::radians(-10.0f), glm::vec3{1, 0, 0});
+    view.sun.direction = glm::normalize(glm::vec3{0.5f, -1.0f, -0.3f});
+    GpuScene scene{*device, renderer, {256, 256}};
+    scene.render(view);
+    std::vector<int> shadowed;
+    for (unsigned y = 0; y < 256; ++y) {
+      for (unsigned x = 0; x < 256; ++x) {
+        shadowed.push_back(scene.pixel(x, y).r);
+      }
+    }
+    settings.shadows = false;
+    renderer.setSettings(settings);
+    scene.render(view);
+    unsigned mismatches = 0;
+    for (unsigned y = 0; y < 256; ++y) {
+      for (unsigned x = 0; x < 256; ++x) {
+        mismatches += std::abs(shadowed[y * 256 + x] - scene.pixel(x, y).r) > 1;
+      }
+    }
+    REQUIRE(mismatches == 0);
+
+    // Prove this camera actually exercises all four cascades, including their boundaries.
+    settings.shadows = true;
+    settings.debugView = DebugView::Cascade;
+    renderer.setSettings(settings);
+    scene.render(view);
+    std::array<unsigned, 4> coverage{};
+    for (unsigned y = 0; y < 256; ++y) {
+      const Pixel pixel = scene.pixel(128, y);
+      if (pixel.r > 200 && pixel.g < 5 && pixel.b < 5) {
+        ++coverage[0];
+      }
+      if (pixel.g > 200 && pixel.r < 5 && pixel.b < 5) {
+        ++coverage[1];
+      }
+      if (pixel.b > 200 && pixel.r < 5 && pixel.g < 5) {
+        ++coverage[2];
+      }
+      if (pixel.r > 200 && pixel.g > 200 && pixel.b < 5) {
+        ++coverage[3];
+      }
+    }
+    for (unsigned rows : coverage) {
+      REQUIRE(rows > 0);
+    }
+    renderer.destroyMesh(plane);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);

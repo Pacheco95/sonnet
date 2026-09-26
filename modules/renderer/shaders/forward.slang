@@ -73,38 +73,67 @@ float3 shade(float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float
   return (kd * albedo / Pi + specular) * radiance * nDotL;
 }
 
-// Reversed-Z comparison: the sampler passes where the reference (the fragment, pushed towards
-// the light by the bias) is at least the stored depth. A 3x3 kernel on top of the hardware's
-// bilinear comparison. The cascades are read from the depth array (ADR-0017).
-float sunShadow(float3 worldPosition, float viewDepth, float nDotL) {
-  if (frame.cascadeImages[0] == 0xFFFFFFFF) {
-    return 1.0;
-  }
-  uint cascade = CascadeCount - 1;
-  for (uint i = 0; i < CascadeCount - 1; ++i) {
-    if (viewDepth < frame.cascadeSplits[i]) {
-      cascade = i;
-      break;
-    }
-  }
-  const float4 clip = mul(frame.cascadeMatrices[cascade], float4(worldPosition, 1.0));
+uint shadowCascade(float viewDepth) {
+  return uint(viewDepth >= frame.cascadeSplits[0]) + uint(viewDepth >= frame.cascadeSplits[1]) +
+         uint(viewDepth >= frame.cascadeSplits[2]);
+}
+
+// A geometric-normal offset follows the filter's world-space footprint, independently of
+// normal mapping. Reversed-Z's small depth bias is the same in every cascade.
+bool sampleCascade(uint cascade, float3 worldPosition, float3 normal, out float lit) {
+  const float nDotL = saturate(dot(normal, -frame.sunDirection.xyz));
+  const float offset = 3.0 * frame.cascadeTexelSizes[cascade] * sqrt(saturate(1.0 - nDotL * nDotL));
+  const float4 clip = mul(frame.cascadeMatrices[cascade], float4(worldPosition + normal * offset, 1.0));
   const float3 ndc = clip.xyz / clip.w;
-  if (any(abs(ndc.xy) > 1.0) || ndc.z < 0.0 || ndc.z > 1.0) {
-    return 1.0;
-  }
   const float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
   uint width, height;
   depthTextures[frame.cascadeImages[cascade]].GetDimensions(width, height);
   const float2 texel = 1.0 / float2(width, height);
-  const float bias = frame.shadowBias * (1.0 + 2.0 * (1.0 - nDotL)) * (cascade + 1);
-  float lit = 0.0;
+  // The outer tap also bilinearly reads its neighbour. Never clamp an incomplete kernel.
+  const float2 margin = 1.5 * texel;
+  lit = 1.0;
+  if (any(uv < margin) || any(uv > 1.0 - margin) || ndc.z < 0.0 || ndc.z > 1.0) {
+    return false;
+  }
+  lit = 0.0;
   for (int y = -1; y <= 1; ++y) {
     for (int x = -1; x <= 1; ++x) {
       lit += depthTextures[frame.cascadeImages[cascade]].SampleCmpLevelZero(
-          comparisonSamplers[frame.shadowSampler], uv + float2(x, y) * texel, ndc.z + bias);
+          comparisonSamplers[frame.shadowSampler], uv + float2(x, y) * texel, ndc.z + frame.shadowBias);
     }
   }
-  return lit / 9.0;
+  lit /= 9.0;
+  return true;
+}
+
+float sunShadow(float3 worldPosition, float viewDepth, float3 normal) {
+  if (frame.cascadeImages[0] == 0xFFFFFFFF || viewDepth >= frame.cascadeSplits[CascadeCount - 1]) {
+    return 1.0;
+  }
+  // Keep the sampled image index uniform within each branch. Dynamically indexing the
+  // comparison images across a split produced a dark row on both Intel and Lavapipe.
+  [unroll]
+  for (uint cascade = 0; cascade < CascadeCount; ++cascade) {
+    if (cascade < shadowCascade(viewDepth)) {
+      continue;
+    }
+    float lit;
+    if (!sampleCascade(cascade, worldPosition, normal, lit)) {
+      continue;
+    }
+    const float blend = smoothstep(frame.cascadeBlendStarts[cascade], frame.cascadeSplits[cascade], viewDepth);
+    if (blend > 0.0) {
+      float nextLit = 1.0;
+      if (cascade + 1 < CascadeCount) {
+        if (!sampleCascade(cascade + 1, worldPosition, normal, nextLit)) {
+          return lit;
+        }
+      }
+      lit = lerp(lit, nextLit, blend);
+    }
+    return lit;
+  }
+  return 1.0;
 }
 
 // The parameters are not named `texture` or `sampler`: those are Metal types, and a parameter of
@@ -135,6 +164,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   if (!frontFacing) {
     n = -n;
   }
+  const float3 geometricNormal = n;
   const float3 t = normalize(input.tangent.xyz - n * dot(n, input.tangent.xyz));
   const float3 b = cross(n, t) * input.tangent.w;
   float3 tangentNormal = sampleMaterial(material.normalTexture, material.sampler, input.uv).xyz * 2.0 - 1.0;
@@ -151,7 +181,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   float shadow = 1.0;
   if (frame.sunDirection.w > 0.0) {
     const float3 l = -frame.sunDirection.xyz;
-    shadow = sunShadow(input.worldPosition, viewDepth, saturate(dot(n, l)));
+    shadow = sunShadow(input.worldPosition, viewDepth, geometricNormal);
     sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0);
     color += sunDirect * shadow;
   }
@@ -206,6 +236,11 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   case 5: color = iblDiffuse; break;
   case 6: color = iblSpecular; break;
   case 7: color = float3(brdf, 0.0); break;
+  case 8: {
+    const float3 colors[4] = {float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1), float3(1, 1, 0)};
+    color = colors[shadowCascade(viewDepth)];
+    break;
+  }
   default: break;
   }
 

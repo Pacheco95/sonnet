@@ -18,7 +18,7 @@ namespace sonnet::renderer {
 
 const char *debugViewName(DebugView view) noexcept {
   static constexpr std::array<const char *, DebugViewCount> Names{
-      "Final", "Albedo", "Normal", "Sun direct", "Shadow factor", "IBL diffuse", "IBL specular", "BRDF LUT"};
+      "Final", "Albedo", "Normal", "Sun direct", "Shadow factor", "IBL diffuse", "IBL specular", "BRDF LUT", "Cascade"};
   const auto index = static_cast<std::size_t>(view);
   return index < Names.size() ? Names[index] : "";
 }
@@ -84,6 +84,8 @@ struct FrameConstants {
   glm::mat4 inverseViewProjection;
   glm::mat4 cascadeMatrices[Renderer::CascadeCount];
   glm::vec4 cascadeSplits;
+  glm::vec4 cascadeBlendStarts;
+  glm::vec4 cascadeTexelSizes;
   glm::vec4 cameraPosition;
   glm::vec4 sunDirection;
   glm::vec4 sunColor;
@@ -107,7 +109,7 @@ struct FrameConstants {
   std::uint64_t lights;
   std::uint64_t clusters;
 };
-static_assert(sizeof(FrameConstants) == 784);
+static_assert(sizeof(FrameConstants) == 816);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -847,6 +849,7 @@ void Renderer::computeCascades(const SceneView &view, float aspect) {
   const glm::vec3 up = std::abs(lightDirection.y) > 0.99f ? glm::vec3{0.0f, 0.0f, 1.0f} : glm::vec3{0.0f, 1.0f, 0.0f};
   constexpr float lambda = 0.75f; // between logarithmic and uniform splits
   float previousSplit = nearPlane;
+  float sliceNear = nearPlane;
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
     const float p = static_cast<float>(c + 1) / static_cast<float>(CascadeCount);
     const float logarithmic = nearPlane * std::pow(farPlane / nearPlane, p);
@@ -854,7 +857,7 @@ void Renderer::computeCascades(const SceneView &view, float aspect) {
     const float split = lambda * logarithmic + (1.0f - lambda) * uniform;
 
     // The slice's eight corners in world space, from a finite projection over the slice.
-    const glm::mat4 sliceProjection = glm::perspectiveRH_ZO(view.camera.fovY, aspect, previousSplit, split);
+    const glm::mat4 sliceProjection = glm::perspectiveRH_ZO(view.camera.fovY, aspect, sliceNear, split);
     const glm::mat4 inverse = glm::inverse(sliceProjection * cameraView);
     std::array<glm::vec3, 8> corners;
     std::size_t index = 0;
@@ -878,16 +881,22 @@ void Renderer::computeCascades(const SceneView &view, float aspect) {
       radius = std::max(radius, glm::length(corner - centre));
     }
     radius = std::ceil(radius * 16.0f) / 16.0f;
+    // Leave room for the 3x3 bilinear filter and receiver offset after texel snapping.
+    radius *= static_cast<float>(m_settings.shadowMapSize) /
+              std::max(1.0f, static_cast<float>(m_settings.shadowMapSize) - 10.0f);
     const float extension = farPlane; // casters this far behind the slice still count
     const glm::mat4 lightView = glm::lookAt(centre - lightDirection * (radius + extension), centre, up);
     glm::mat4 lightProjection = orthoReversedZ(-radius, radius, -radius, radius, 0.0f, 2.0f * radius + extension);
-    const float texelsPerUnit = static_cast<float>(m_settings.shadowMapSize) / (2.0f * radius);
+    const float halfResolution = static_cast<float>(m_settings.shadowMapSize) * 0.5f;
     const glm::vec4 origin = lightProjection * lightView * glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
-    const glm::vec2 snapped = glm::round(glm::vec2{origin} * texelsPerUnit * 0.5f) / (texelsPerUnit * 0.5f);
+    const glm::vec2 snapped = glm::round(glm::vec2{origin} * halfResolution) / halfResolution;
     const glm::vec2 offset = snapped - glm::vec2{origin};
     lightProjection[3][0] += offset.x;
     lightProjection[3][1] += offset.y;
-    m_cascades[c] = Cascade{lightProjection * lightView, split};
+    const float blendStart = split - (split - previousSplit) * 0.1f;
+    m_cascades[c] = Cascade{lightProjection * lightView, split, blendStart,
+                            2.0f * radius / static_cast<float>(m_settings.shadowMapSize)};
+    sliceNear = blendStart;
     previousSplit = split;
   }
 }
@@ -1401,6 +1410,8 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
       .inverseViewProjection = glm::inverse(projection * cameraView),
       .cascadeMatrices = {},
       .cascadeSplits = {},
+      .cascadeBlendStarts = {},
+      .cascadeTexelSizes = {},
       .cameraPosition = glm::vec4{view.camera.position, 1.0f},
       .sunDirection = glm::vec4{glm::normalize(view.sun.direction), view.hasSun ? 1.0f : 0.0f},
       .sunColor = glm::vec4{view.sun.color * view.sun.intensity, 0.0f},
@@ -1430,6 +1441,8 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
     frame.cascadeMatrices[c] = m_cascades[c].matrix;
     frame.cascadeSplits[static_cast<int>(c)] = m_cascades[c].split;
+    frame.cascadeBlendStarts[static_cast<int>(c)] = m_cascades[c].blendStart;
+    frame.cascadeTexelSizes[static_cast<int>(c)] = m_cascades[c].texelSize;
     frame.cascadeImages[c] =
         m_cascadesActive ? sampledIndex(resources.image(m_cascadeImages[c])) : rhi::InvalidBindlessIndex;
   }
