@@ -344,7 +344,39 @@ Verified on Linux:
 - **There the process dies with a SIGSEGV**, a null-pointer read inside the driver's shader compiler (`/vendor/lib64/libllvm-qgl.so`), called from `vkCreateComputePipelines` through `VulkanDevice::createComputePipeline`. Nothing is logged first, since the crash is in the driver. `cluster.spv` is the first module the renderer builds, and its one pipeline is the compute pipeline `light clustering`, so that pipeline is the likely one. The crash happens before the bundle is opened, so the basic sample does not reach the screen. This step does not investigate it, as scoped. It is the next blocker on the phone.
 - A bundle pushed to `/data/local/tmp` and copied with `run-as ... cp` into `files/` gets its absolute path through `--es args` (the log shows `arguments: [/data/user/0/io.github.pacheco95.sonnet/files/pushed.sbundle]`). The run then stops at the same crash, since `Game` builds the renderer before it opens the bundle. The emulator run above showed that the bundle opens by absolute path.
 
-Still to do before the basic sample runs on the phone: the Adreno compiler crash in `createComputePipeline`, then ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
+Still to do before the basic sample runs on the phone: the Adreno compiler crash in `createComputePipeline` ([the next step](#the-adreno-shader-compiler)), then ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
+
+### The Adreno shader compiler
+
+The fourth Android step finds and works around the crash above.
+
+**Finding the pipeline.** `Renderer::createPipelines` now logs each module and each pipeline at debug level before creating it, so the last line before a driver crash names the pipeline. On the phone it is `pipeline "light clustering" from cluster`. On Android, SDL reads a relative path from the app's internal storage before the APK, so a module copied into `files/shaders/` with `run-as` replaces the packaged one without a rebuild. That made every experiment below a copy and a restart:
+
+- A compute module that does not read `frame` builds, and the next pipeline, `cull`, crashes at the same address. So the crash is not about clustering. It is about how `FrameConstants` is declared.
+- **Debug information is ruled out.** The module built with `-O2` and no debug information (what Release ships) crashes the same way, as do `-g0` and `-g1`.
+- **Validity is ruled out.** `spirv-val --target-env vulkan1.3 --scalar-block-layout` accepts every module. They declare SPIR-V 1.6, which the device takes as a 1.3 device, and they use only the `Shader` and `PhysicalStorageBufferAddresses` capabilities, both of which the device has. The engine requires `bufferDeviceAddress` and `scalarBlockLayout`.
+- **A minimal repro.** A uniform block with a pointer to a `uint`, a scalar array or an array of matrices builds, but a block with a pointer to a struct crashes. Slang emits `OpTypeForwardPointer` for every pointer to a struct it has not emitted yet, and defines the pointer after the block that uses it. The same module, with the pointer and its struct defined before the block and nothing else changed, builds. So does one that keeps the `OpTypeForwardPointer` but defines everything in order. What the driver cannot take is a struct member whose pointer type is only declared forward, not the instruction itself.
+
+With the types reordered, `light clustering` fails differently: `vkCreateComputePipelines` returns `VK_ERROR_UNKNOWN`. Reducing again:
+
+| Read through `Light *lights` | Adreno 830 |
+|---|---|
+| `lights[i].position` (the first member) | builds |
+| `lights[0].range`, a whole `lights[1]` | builds |
+| `lights[i].range`, `lights[i].color`, a whole `lights[i]`, `clusters[i].lights[0]` | `VK_ERROR_UNKNOWN` |
+| `lights[i].range` as one `OpPtrAccessChain lights i 1` | builds |
+
+A pointer to a struct computed with a dynamic index cannot be read past its first member or loaded whole. Slang writes `lights[i].range` as an `OpPtrAccessChain` to the element followed by an `OpAccessChain` to the member. Decorating the struct `Block`, as glslang does for a `buffer_reference`, doesn't help. Neither does glslang's shape, a block with a runtime array and one chain through it, and Slang lowers an unsized array behind a pointer to an `OpPtrAccessChain` anyway. No Slang option or source form avoids either shape, and the `shader-slang` port installs prebuilt binaries, so Slang cannot be patched through an overlay port either.
+
+**The fix** is `tools/spirv_for_adreno.py`, which the Android build runs over every module after `slangc` ([rendering.md](rendering.md#shaders)). It folds chained access chains on a buffer pointer into one chain from the root pointer, splits a whole struct or array loaded through one into a load per member with an `OpCompositeConstruct`, removes the chains left unused, and sorts the types so no pointer is used before it is defined. It rewrites 7 of the 11 engine modules, and the output passes `spirv-val`. The desktop is unchanged: its modules are not rewritten, and the editor's screenshots of the basic sample's main scene and of the playground after `--play 3` are byte-identical with the rewritten modules in place of the originals. The editor was checked to read those files by giving it a truncated one. The rewrite needs no C++ and no device check. Its test, `renderer_spirv_for_adreno`, runs it over the engine's modules on every desktop build and checks that neither shape is left, that a second run changes nothing, and that `spirv-val` accepts the result when the SDK is installed.
+
+**On the Galaxy S25 Ultra**, with the `android-debug` APK and the basic sample cooked by the Linux `sonnet_cook` packaged:
+
+- All 29 pipelines from the 11 modules build. The bundle opens (27 assets), the game plays `Basic` with 15 entities, the render graph allocates its targets at 1080×2340, and **the basic sample renders**: lit and shadowed, the sky from the environment, bloom and tonemapping, with the crate turning. Nothing is logged at warning level or above, apart from the missing validation layer, which is expected.
+- A bundle pushed to `/data/local/tmp`, copied into `files/` and given through `--es args` as `/data/user/0/io.github.pacheco95.sonnet/files/game.sbundle` opens and plays the same way.
+- `android-release`, with the same bundle, also plays.
+
+Still to do before the phone runs a game as the desktop does: ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
 
 ## M10: iOS export
 

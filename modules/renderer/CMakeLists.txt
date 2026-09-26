@@ -38,4 +38,13 @@ sonnet_add_module_test(renderer
 )
 if(TARGET renderer_tests)
   sonnet_add_engine_shaders(renderer_tests)
+  # The Android build rewrites every engine module for Adreno (tools/spirv_for_adreno.py); this
+  # runs the rewrite over the desktop modules, which are the same SPIR-V, on every platform.
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME renderer_spirv_for_adreno
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/test_spirv_for_adreno.py"
+              "$<TARGET_FILE_DIR:renderer_tests>/shaders")
+    set_tests_properties(renderer_spirv_for_adreno PROPERTIES LABELS renderer TIMEOUT 120)
+  endif()
 endif()

@@ -76,9 +76,12 @@ TEST_CASE("openContent opens an absolute path as an ordinary file", "[platform][
     out.write(reinterpret_cast<const char *>(bytes.data()), 100);
   }
   REQUIRE(path.is_absolute());
-  auto stream = Platform::openContent(path);
-  REQUIRE(stream);
-  REQUIRE(stream->size() == 100);
+  {
+    auto stream = Platform::openContent(path);
+    REQUIRE(stream);
+    REQUIRE(stream->size() == 100);
+  }
+  // After the stream is closed: Windows cannot remove a file that is still open.
   std::filesystem::remove(path);
 }
 
