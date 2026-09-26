@@ -9,6 +9,9 @@
 #include <sonnet/core/Version.h>
 #include <sonnet/world/Scene.h>
 
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_video.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_stdlib.h>
@@ -69,7 +72,9 @@ Editor::~Editor() {
 }
 
 void Editor::nativeEvent(const SDL_Event &event) {
-  m_imgui.processEvent(event);
+  if (event.type != SDL_EVENT_MOUSE_MOTION || !m_viewportPanel.cameraActive()) {
+    m_imgui.processEvent(event);
+  }
 }
 
 void Editor::event(const platform::Event &event) {
@@ -135,7 +140,22 @@ void Editor::update(float dt) {
     // mode would otherwise be asked, and would warn, every frame.
     if (wantsRelativeMouse != m_relativeMouseRequested) {
       m_relativeMouseRequested = wantsRelativeMouse;
+      if (wantsRelativeMouse) {
+        SDL_GetMouseState(&m_mouseBeforeLook.x, &m_mouseBeforeLook.y);
+      } else {
+        // SDL's relative cursor has wandered; warp before disabling the mode so the visible
+        // cursor returns to the position where the look began.
+        SDL_WarpMouseInWindow(m_window.nativeHandle(), m_mouseBeforeLook.x, m_mouseBeforeLook.y);
+      }
       static_cast<void>(m_window.setRelativeMouseMode(wantsRelativeMouse));
+      if (!wantsRelativeMouse) {
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.windowID = SDL_GetWindowID(m_window.nativeHandle());
+        motion.motion.x = m_mouseBeforeLook.x;
+        motion.motion.y = m_mouseBeforeLook.y;
+        m_imgui.processEvent(motion);
+      }
     }
   }
   m_lookDelta = {0.0f, 0.0f};

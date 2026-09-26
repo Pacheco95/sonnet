@@ -14,10 +14,14 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_video.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <initializer_list>
 #include <memory>
@@ -91,6 +95,56 @@ TEST_CASE("the editor runs frames headless without validation errors", "[editor]
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("viewport mouse look keeps motion out of ImGui while turning the camera", "[editor][gpu]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  fixture.frame(editor);
+  fixture.frame(editor); // the dock builder settles the viewport's size on its second frame
+
+  const editor::ViewportInput &input = editor.viewport().input();
+  const ImVec2 start{std::floor(input.origin.x + input.size.x * 0.5f),
+                     std::floor(input.origin.y + input.size.y * 0.5f)};
+  SDL_WarpMouseInWindow(fixture.window->nativeHandle(), start.x, start.y);
+  SDL_Event motion{};
+  motion.type = SDL_EVENT_MOUSE_MOTION;
+  motion.motion.windowID = SDL_GetWindowID(fixture.window->nativeHandle());
+  motion.motion.x = start.x;
+  motion.motion.y = start.y;
+  editor.nativeEvent(motion);
+
+  SDL_Event button{};
+  button.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+  button.button.windowID = motion.motion.windowID;
+  button.button.button = SDL_BUTTON_RIGHT;
+  editor.nativeEvent(button);
+  fixture.frame(editor);
+  REQUIRE(editor.viewport().cameraActive());
+  const ImVec2 heldPosition = ImGui::GetIO().MousePos;
+  const float initialYaw = editor.viewport().camera().yaw();
+
+  motion.motion.x += 200.0f;
+  motion.motion.y += 100.0f;
+  editor.nativeEvent(motion);
+  editor.event(platform::MouseMoved{{motion.motion.x, motion.motion.y}, {200.0f, 100.0f}});
+  fixture.frame(editor);
+  REQUIRE(ImGui::GetIO().MousePos.x == Approx(heldPosition.x));
+  REQUIRE(ImGui::GetIO().MousePos.y == Approx(heldPosition.y));
+  REQUIRE(editor.viewport().camera().yaw() != Approx(initialYaw));
+
+  button.type = SDL_EVENT_MOUSE_BUTTON_UP;
+  editor.nativeEvent(button);
+  fixture.frame(editor);
+  REQUIRE_FALSE(editor.viewport().cameraActive());
+  float x = 0.0f;
+  float y = 0.0f;
+  SDL_GetMouseState(&x, &y);
+  REQUIRE(x == Approx(start.x));
+  REQUIRE(y == Approx(start.y));
+  fixture.frame(editor);
+  REQUIRE(ImGui::GetIO().MousePos.x == Approx(start.x));
+  REQUIRE(ImGui::GetIO().MousePos.y == Approx(start.y));
 }
 
 TEST_CASE("the editor opens a project, edits, plays, stops and saves", "[editor][gpu]") {

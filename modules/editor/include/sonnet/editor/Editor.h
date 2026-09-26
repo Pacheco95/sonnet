@@ -264,6 +264,7 @@ private:
   AssetBrowserPanel m_assetBrowserPanel;
 
   glm::vec2 m_lookDelta{0.0f, 0.0f};
+  glm::vec2 m_mouseBeforeLook{0.0f, 0.0f};
   std::optional<Selection::Mode> m_pendingPickMode;
   Modal m_modal{Modal::None};
   std::string m_modalPath;
