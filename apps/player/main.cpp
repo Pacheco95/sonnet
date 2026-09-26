@@ -23,13 +23,15 @@ namespace {
 
 using namespace sonnet;
 
-// What to run: the argument, or the bundle an export puts beside the binary (docs/player.md).
-[[nodiscard]] std::filesystem::path contentPath(const platform::Platform &platform,
-                                                std::span<const std::string_view> args) {
+// What to run (docs/player.md): the argument, a path from the working directory, or else
+// `game.sbundle` in the content root, which is beside the binary on desktop and the APK's
+// assets/ on Android. The argument is made absolute because a relative path is read from the
+// content root, not the working directory.
+[[nodiscard]] std::filesystem::path contentPath(std::span<const std::string_view> args) {
   if (!args.empty()) {
-    return std::filesystem::path{args[0]};
+    return std::filesystem::absolute(std::filesystem::path{args[0]});
   }
-  return platform.basePath() / std::filesystem::path{std::string{"game"} + std::string{assets::BundleExtension}};
+  return std::filesystem::path{std::string{"game"} + std::string{assets::BundleExtension}};
 }
 
 // The frame order lives here (docs/architecture.md, "Application lifecycle"), the same four
@@ -41,8 +43,8 @@ public:
       : m_window(platform.createWindow({.title = "Sonnet", .size = {1280, 720}})),
         m_device(rhi::createDevice({.platform = &platform, .applicationName = "Sonnet Player"})),
         m_swapchain(m_device->createSwapchain(*m_window)),
-        m_game(std::make_unique<runtime::Game>(platform, *m_window, *m_device, *m_swapchain)) {
-    const std::filesystem::path content = contentPath(platform, args);
+        m_game(std::make_unique<runtime::Game>(*m_window, *m_device, *m_swapchain)) {
+    const std::filesystem::path content = contentPath(args);
     if (const auto opened = m_game->open(content); !opened) {
       // Nothing to run is the end of the program, not a window showing an empty scene.
       SONNET_LOG_ERROR("{}", opened.error().toString());

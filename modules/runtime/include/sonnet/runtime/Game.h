@@ -8,7 +8,6 @@
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/InputState.h>
-#include <sonnet/platform/Platform.h>
 #include <sonnet/platform/Window.h>
 #include <sonnet/renderer/RenderGraph.h>
 #include <sonnet/renderer/RenderTarget.h>
@@ -43,8 +42,7 @@ public:
   // The swapchain's format decides the present pipeline's; the game renders into a target of the
   // renderer's own formats and copies it into the acquired image
   // (docs/rendering.md, "Frame structure").
-  Game(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchain &swapchain,
-       const GameDesc &desc = {});
+  Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchain &swapchain, const GameDesc &desc = {});
   ~Game();
   Game(const Game &) = delete;
   Game &operator=(const Game &) = delete;

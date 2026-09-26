@@ -99,7 +99,9 @@ public:
   static constexpr std::uint32_t CullJobsOpaque = CascadeCount + 2;
   static constexpr std::uint32_t CullJobsAll = 2;
 
-  // shaderDir holds the modules compiled by sonnet_add_engine_shaders (`forward.spv`, ...).
+  // shaderDir holds the modules compiled by sonnet_add_engine_shaders (`forward.spv`, ...). It is
+  // read through platform::Platform::openContent: a relative directory is in the content root
+  // (the APK's assets/ on Android, beside the binary elsewhere), an absolute one is on disk.
   Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir, const RendererSettings &settings = {});
   ~Renderer();
   Renderer(const Renderer &) = delete;

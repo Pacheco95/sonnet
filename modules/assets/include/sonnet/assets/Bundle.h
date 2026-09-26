@@ -5,6 +5,7 @@
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Uuid.h>
+#include <sonnet/platform/Content.h>
 #include <sonnet/renderer/Mesh.h>
 #include <sonnet/renderer/Texture.h>
 
@@ -61,7 +62,9 @@ struct BundleAsset {
 };
 
 // Reads a bundle: the index at open, a payload when it is asked for. Cheap to keep open, since
-// nothing but the index is held in memory.
+// nothing but the index is held in memory. The file is read through platform::Platform::
+// openContent, so a relative path is in the content root (the APK's assets/ on Android, beside
+// the binary elsewhere) and an absolute one is an ordinary file (docs/assets.md, "The bundle").
 class Bundle {
 public:
   [[nodiscard]] static core::Result<Bundle> open(const std::filesystem::path &file);
@@ -94,7 +97,8 @@ private:
   [[nodiscard]] core::Result<std::vector<std::byte>> readSpan(const Span &span) const;
 
   std::filesystem::path m_path;
-  mutable std::ifstream m_file;
+  // Reading moves its position, which is not the bundle's observable state.
+  mutable std::optional<platform::ContentStream> m_file;
   BundleManifest m_manifest;
   std::vector<BundleAsset> m_assets;
   std::unordered_map<core::Uuid, Span> m_assetSpans;
