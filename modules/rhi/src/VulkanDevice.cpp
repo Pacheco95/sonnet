@@ -18,6 +18,7 @@
 #include <limits>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace sonnet::rhi {
 
@@ -60,6 +61,69 @@ template <typename T> [[nodiscard]] T unwrap(vkb::Result<T> result, std::string_
   return std::move(result.value());
 }
 
+// What a device's commands and structures are validated against: its own version, unless the
+// instance asked for an earlier minor version. Compared without the patch, which a driver reports
+// and an instance does not.
+std::uint32_t effectiveVersion(std::uint32_t device, std::uint32_t instance) {
+  const std::uint32_t deviceMinor =
+      VK_MAKE_API_VERSION(0, VK_API_VERSION_MAJOR(device), VK_API_VERSION_MINOR(device), 0);
+  return deviceMinor > instance ? instance : device;
+}
+
+// Enables the four Vulkan 1.4 features the engine uses (docs/rendering.md, "Vulkan baseline") on
+// a device at `version`: as core on 1.4, or as the extensions 1.4 promoted on 1.3 (ADR-0019).
+// Returns what the device lacks, empty when it has all four.
+std::vector<std::string> enableVulkan14Features(vkb::PhysicalDevice &device, std::uint32_t version) {
+  if (version >= VK_API_VERSION_1_4) {
+    VkPhysicalDeviceVulkan14Features features14{};
+    features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+    features14.pushDescriptor = VK_TRUE;
+    features14.dynamicRenderingLocalRead = VK_TRUE;
+    features14.maintenance5 = VK_TRUE;
+    features14.maintenance6 = VK_TRUE;
+    if (device.enable_extension_features_if_present(features14)) {
+      return {};
+    }
+    return {"one of VkPhysicalDeviceVulkan14Features' pushDescriptor, dynamicRenderingLocalRead, maintenance5 and "
+            "maintenance6"};
+  }
+
+  std::vector<std::string> missing;
+  const std::vector<std::string> available = device.get_available_extensions();
+  for (const char *extension :
+       {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, VK_KHR_DYNAMIC_RENDERING_LOCAL_READ_EXTENSION_NAME,
+        VK_KHR_MAINTENANCE_5_EXTENSION_NAME, VK_KHR_MAINTENANCE_6_EXTENSION_NAME}) {
+    if (std::ranges::find(available, extension) == available.end()) {
+      missing.emplace_back(extension);
+    } else {
+      device.enable_extension_if_present(extension);
+    }
+  }
+  if (!missing.empty()) {
+    return missing; // the feature structures of an absent extension cannot be queried
+  }
+  // Push descriptors have no feature structure; the extension is the feature.
+  VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR localRead{};
+  localRead.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
+  localRead.dynamicRenderingLocalRead = VK_TRUE;
+  if (!device.enable_extension_features_if_present(localRead)) {
+    missing.emplace_back("dynamicRenderingLocalRead");
+  }
+  VkPhysicalDeviceMaintenance5FeaturesKHR maintenance5{};
+  maintenance5.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR;
+  maintenance5.maintenance5 = VK_TRUE;
+  if (!device.enable_extension_features_if_present(maintenance5)) {
+    missing.emplace_back("maintenance5");
+  }
+  VkPhysicalDeviceMaintenance6FeaturesKHR maintenance6{};
+  maintenance6.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_6_FEATURES_KHR;
+  maintenance6.maintenance6 = VK_TRUE;
+  if (!device.enable_extension_features_if_present(maintenance6)) {
+    missing.emplace_back("maintenance6");
+  }
+  return missing;
+}
+
 template <typename T> std::uint64_t objectHandle(T object) {
   return reinterpret_cast<std::uint64_t>(static_cast<typename T::NativeType>(object));
 }
@@ -94,8 +158,9 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
   createPipelineLayout();
   createBindlessSet();
   createFrames();
-  SONNET_LOG_INFO("Vulkan {} device \"{}\", driver {} {}, loader {}{}", versionString(m_info.apiVersion),
-                  m_info.deviceName, m_info.driverName, m_info.driverInfo, versionString(m_info.loaderVersion),
+  SONNET_LOG_INFO("Vulkan {} device \"{}\"{}, driver {} {}, loader {}{}", versionString(m_info.apiVersion),
+                  m_info.deviceName, m_info.vulkan14FeaturesAsExtensions ? " with the 1.4 features as extensions" : "",
+                  m_info.driverName, m_info.driverInfo, versionString(m_info.loaderVersion),
                   m_info.validationEnabled ? ", validation on" : "");
 }
 
@@ -139,12 +204,16 @@ void VulkanDevice::createInstance(const DeviceDesc &desc) {
   const bool debugUtils = systemInfo.is_extension_available(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
   vkb::InstanceBuilder builder{loader};
-  // 1.4 is required of the device, not of the loader: distributions ship older loaders (Ubuntu
-  // 24.04 has 1.3) in front of 1.4 drivers, and the engine uses no 1.4 instance-level entry
-  // points. 1.1 gives vkEnumerateInstanceVersion and the properties2 queries the selector needs.
+  // 1.4 is asked for, not required of the loader: distributions ship older loaders (Ubuntu 24.04
+  // has 1.3) in front of 1.4 drivers, and the engine uses no 1.4 instance-level entry points. 1.1
+  // gives vkEnumerateInstanceVersion and the properties2 queries the selector needs. A cap asks
+  // for less, and the version asked for bounds the device's, so the validation layer then treats
+  // a 1.4 device as 1.3 and flags any 1.4 command used without its extension (ADR-0019).
+  const std::uint32_t apiVersion =
+      desc.apiVersionCap != 0 ? std::min(desc.apiVersionCap, VK_API_VERSION_1_4) : VK_API_VERSION_1_4;
   builder.set_app_name(desc.applicationName.c_str())
       .set_engine_name("Sonnet")
-      .require_api_version(1, 4, 0)
+      .require_api_version(apiVersion)
       .set_minimum_instance_version(1, 1, 0)
       .enable_validation_layers(validation);
   for (const char *extension : desc.platform->vulkanInstanceExtensions()) {
@@ -211,12 +280,6 @@ void VulkanDevice::selectAndCreateDevice() {
   // Slang lowers a fragment shader's discard to OpDemoteToHelperInvocation.
   features13.shaderDemoteToHelperInvocation = VK_TRUE;
 
-  VkPhysicalDeviceVulkan14Features features14{};
-  features14.pushDescriptor = VK_TRUE;
-  features14.dynamicRenderingLocalRead = VK_TRUE;
-  features14.maintenance5 = VK_TRUE;
-  features14.maintenance6 = VK_TRUE;
-
   vkb::Instance instanceRef{};
   instanceRef.instance = *m_instance;
   instanceRef.fp_vkGetInstanceProcAddr = m_context.getDispatcher()->vkGetInstanceProcAddr;
@@ -224,16 +287,34 @@ void VulkanDevice::selectAndCreateDevice() {
   instanceRef.api_version = m_info.apiVersion;
 
   vkb::PhysicalDeviceSelector selector{instanceRef};
-  // Surfaces come later, from windows; selection only needs the swapchain extension.
-  vkb::PhysicalDevice physicalDevice = unwrap(selector.set_minimum_version(1, 4)
-                                                  .defer_surface_initialization()
-                                                  .set_required_features(features)
-                                                  .set_required_features_11(features11)
-                                                  .set_required_features_12(features12)
-                                                  .set_required_features_13(features13)
-                                                  .set_required_features_14(features14)
-                                                  .select(),
-                                              "selecting a Vulkan 1.4 device");
+  // Surfaces come later, from windows; selection only needs the swapchain extension. The four 1.4
+  // features are checked per device below, since a 1.3 device offers them as extensions.
+  std::vector<vkb::PhysicalDevice> candidates = unwrap(selector.set_minimum_version(1, 3)
+                                                           .defer_surface_initialization()
+                                                           .set_required_features(features)
+                                                           .set_required_features_11(features11)
+                                                           .set_required_features_12(features12)
+                                                           .set_required_features_13(features13)
+                                                           .select_devices(),
+                                                       "selecting a Vulkan device");
+  std::string rejections;
+  const auto accepted = std::ranges::find_if(candidates, [&](vkb::PhysicalDevice &candidate) {
+    const std::uint32_t version = effectiveVersion(candidate.properties.apiVersion, m_info.apiVersion);
+    const std::vector<std::string> missing = enableVulkan14Features(candidate, version);
+    for (const std::string &feature : missing) {
+      rejections += std::format("\n  {} (Vulkan {}) lacks {}", candidate.name, versionString(version), feature);
+    }
+    return missing.empty();
+  });
+  if (accepted == candidates.end()) {
+    throw core::Exception{std::format("selecting a Vulkan device: none has the engine's Vulkan 1.4 features, as core "
+                                      "on 1.4 or as extensions on 1.3 (ADR-0019){}",
+                                      rejections),
+                          core::ErrorCategory::Graphics};
+  }
+  vkb::PhysicalDevice physicalDevice = std::move(*accepted);
+  m_info.apiVersion = effectiveVersion(physicalDevice.properties.apiVersion, m_info.apiVersion);
+  m_info.vulkan14FeaturesAsExtensions = m_info.apiVersion < VK_API_VERSION_1_4;
   physicalDevice.enable_extension_if_present(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 
   // Block compression is what cooked textures use on desktop; mobile GPUs bring ASTC instead
@@ -248,7 +329,6 @@ void VulkanDevice::selectAndCreateDevice() {
   m_graphicsFamily = unwrap(device.get_queue_index(vkb::QueueType::graphics), "finding the graphics queue");
   m_graphicsQueue = vk::raii::Queue{m_device, m_graphicsFamily, 0};
   m_info.deviceName = physicalDevice.name;
-  m_info.apiVersion = physicalDevice.properties.apiVersion;
   const auto properties =
       m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceDriverProperties>();
   const auto &driver = properties.get<vk::PhysicalDeviceDriverProperties>();
@@ -273,7 +353,8 @@ void VulkanDevice::createAllocator() {
   info.physicalDevice = *m_physicalDevice;
   info.device = *m_device;
   info.instance = *m_instance;
-  info.vulkanApiVersion = VK_API_VERSION_1_4;
+  // The device's version, never above 1.4, so VMA calls nothing a 1.3 device lacks (ADR-0019).
+  info.vulkanApiVersion = VK_MAKE_API_VERSION(0, 1, VK_API_VERSION_MINOR(m_info.apiVersion), 0);
   info.pVulkanFunctions = &functions;
   m_allocator = vma::createAllocatorUnique(info);
 }

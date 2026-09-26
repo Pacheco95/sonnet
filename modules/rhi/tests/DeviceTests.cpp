@@ -6,20 +6,40 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include <vulkan/vulkan_core.h>
 
 using namespace sonnet::rhi;
 
-TEST_CASE("device reports a Vulkan 1.4 implementation", "[rhi][device]") {
+TEST_CASE("device reports Vulkan 1.3 or later, with the 1.4 features as extensions below 1.4", "[rhi][device]") {
   test::TestDevice device;
   const DeviceInfo &info = device->info();
   REQUIRE(!info.deviceName.empty());
   REQUIRE(VK_API_VERSION_MAJOR(info.apiVersion) == 1);
-  REQUIRE(VK_API_VERSION_MINOR(info.apiVersion) >= 4);
+  REQUIRE(VK_API_VERSION_MINOR(info.apiVersion) >= 3);
+  REQUIRE(info.vulkan14FeaturesAsExtensions == (VK_API_VERSION_MINOR(info.apiVersion) == 3));
+  if (const std::uint32_t cap = test::apiVersionCap(); cap != 0) {
+    REQUIRE(VK_API_VERSION_MINOR(info.apiVersion) <= VK_API_VERSION_MINOR(cap));
+  }
   REQUIRE(!info.driverName.empty());
   REQUIRE(info.loaderVersion >= VK_API_VERSION_1_1);
+}
+
+TEST_CASE("a device capped at Vulkan 1.3 takes the 1.4 features as extensions", "[rhi][device]") {
+  // ADR-0019's path for phones whose driver is 1.3: a 1.4 device under the cap stands in for one.
+  // Skips where a device lacks the four extensions, which Lavapipe and desktop drivers have.
+  test::TestDevice device{VK_API_VERSION_1_3};
+  const DeviceInfo &info = device->info();
+  REQUIRE(VK_API_VERSION_MAJOR(info.apiVersion) == 1);
+  REQUIRE(VK_API_VERSION_MINOR(info.apiVersion) == 3);
+  REQUIRE(info.vulkan14FeaturesAsExtensions);
+  for (int i = 0; i < 2 * static_cast<int>(FramesInFlight) + 1; ++i) {
+    static_cast<void>(device->beginFrame());
+    device->endFrame();
+  }
+  device->waitIdle();
 }
 
 TEST_CASE("frames can be begun and ended without work", "[rhi][device]") {
@@ -55,7 +75,8 @@ TEST_CASE("a buffer uploaded but never submitted is destroyed without a complain
 TEST_CASE("two devices can coexist in one process", "[rhi][device]") {
   test::TestDevice first;
   sonnet::platform::Platform &platform = first.platform;
-  const auto second = createDevice({.platform = &platform, .applicationName = "rhi_tests_second"});
+  const auto second = createDevice(
+      {.platform = &platform, .applicationName = "rhi_tests_second", .apiVersionCap = test::apiVersionCap()});
   REQUIRE(second->info().deviceName == first->info().deviceName);
 }
 
