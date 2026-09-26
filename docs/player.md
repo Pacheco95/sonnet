@@ -56,7 +56,7 @@ adb logcat -s Sonnet SDL                                                        
 adb shell run-as io.github.pacheco95.sonnet ls                                     # the app's data, in a debuggable APK
 ```
 
-The activity logs the arguments it passes under the `Sonnet` tag. The engine's own log does not reach logcat yet, and the player cannot yet read a bundle or shaders from the APK: `Platform::openContent`, ASTC cooking, touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#the-android-apk)).
+On a phone with a second user profile (a Samsung Secure Folder, for one), add `--user 0` to `adb install` and `am start`. The activity logs the arguments it passes under the `Sonnet` tag. The engine's own log does not reach logcat yet, and the player cannot yet read a bundle or shaders from the APK: `Platform::openContent`, ASTC cooking, touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#the-android-apk)).
 
 ## What an export is
 
