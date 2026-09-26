@@ -11,9 +11,9 @@ C++23 is required. Minimum compilers, chosen for `std::expected`, `std::print`, 
 | Linux | GCC 14+, or Clang 19+ with libstdc++ 14+, or Clang 18+ with libc++ 18+ (libstdc++ hides `std::expected` from Clang 18 because it reports `__cpp_concepts` below 202002L) |
 | Windows | MSVC 17.10+ (Visual Studio 2022) or clang-cl of the same LLVM version |
 | macOS, iOS | Apple Clang from Xcode 16.3+ |
-| Android | NDK r27+ (Clang 18) |
+| Android | NDK r30+ (Clang 21), the first NDK whose sysroot reaches API 36 (Android 16); r27 to r29 stop at 35 |
 
-libc++ from LLVM 19 on, which NDKs newer than r27 ship, is stricter than libstdc++ and Xcode's libc++ in one place the code met: it has no `std::char_traits<std::byte>`, so JSON and CBOR are read through `assets::parseJson` and `parseCbor` rather than handing nlohmann bytes ([assets.md](assets.md#reading-json-and-cbor)).
+libc++ from LLVM 19 on, which every supported NDK ships, is stricter than libstdc++ and Xcode's libc++ in one place the code met: it has no `std::char_traits<std::byte>`, so JSON and CBOR are read through `assets::parseJson` and `parseCbor` rather than handing nlohmann bytes ([assets.md](assets.md#reading-json-and-cbor)).
 
 C++23 features not relied on until every toolchain above ships them: `std::generator`, `std::flat_map`, `import std`. C++20 modules are not used for engine code. Vulkan-HPP's `vulkan.cppm` module is an optional experiment for compile times, behind a CMake option, never required.
 
@@ -22,7 +22,7 @@ Other prerequisites:
 - CMake 3.28+ and Ninja.
 - vcpkg, with `VCPKG_ROOT` set. The presets read it.
 - Vulkan SDK on developer machines for the validation layers, RenderDoc-friendly tooling and `slangc`. The SDK is not needed to build: headers and the shader compiler come from vcpkg. On Linux, SDL loads the system Vulkan loader (`libvulkan1` on Ubuntu).
-- Android: NDK r27+, with `ANDROID_NDK_HOME` pointing at it (the presets chain-load `$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake`), from a Linux or macOS host. Building the player library needs nothing else; the APK in M9 will also need the Android SDK with platform `android-36` and its build tools, and `ANDROID_HOME` set. iOS: Xcode on a macOS host.
+- Android: NDK r30+, with `ANDROID_NDK_HOME` pointing at it (the presets chain-load `$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake`), from a Linux or macOS host. Building the player library needs nothing else; the APK in M9 will also need the Android SDK with platform `android-36` and its build tools, and `ANDROID_HOME` set. iOS: Xcode on a macOS host.
 
 ### Linux setup
 
@@ -182,7 +182,7 @@ GitHub Actions, one workflow with a matrix:
 - The same toolchains, plus clang-cl on `windows-latest`, again in plain Release: the `*-release` preset with `CMAKE_BUILD_TYPE=Release`. That is the configuration that compiles `SONNET_ASSERT` out, and warnings are errors, so a value only an assertion reads, or a warning only GCC's `-O3` inlining finds, fails there first ([#36](https://github.com/Pacheco95/sonnet/issues/36)).
 - Vulkan-dependent tests run on Linux under Lavapipe (Mesa's CPU Vulkan implementation, which supports 1.4) so the renderer is exercised without a GPU.
 - `linux-asan` job on every pull request.
-- An Android job on `ubuntu-24.04` configures `android-release` with the runner's default NDK (r27.3, the oldest supported) and builds the player library. The debug-signed APK, the cooked sample and the uploaded artifact join it later in M9 ([ADR-0018](decisions/0018-mobile-export.md#ci)).
+- An Android job on `ubuntu-24.04` installs NDK r30 (the runner's default, r27.3, cannot target API 36), configures `android-release` and builds the player library. The debug-signed APK, the cooked sample and the uploaded artifact join it later in M9 ([ADR-0018](decisions/0018-mobile-export.md#ci)).
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated.
 - A lint job runs first, and every build matrix job waits for it to pass; a lint failure skips the entire build matrix. It runs `clang-format --dry-run` on every tracked source (`.clang-format` lists only the differences from LLVM style, so it parses with clang-format 18 and newer; CI uses 20), `tools/check_docs.py`, `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
 - Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe. CI takes the first `lvp_icd*.json` it finds, which is right on its runners because they have only the 64-bit Mesa. On a machine that also has the 32-bit one, `lvp_icd.i686.json` sorts first and a 64-bit test process finds no device, so `tools/check_setup.py` picks the manifest named for the host's architecture instead. Tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.

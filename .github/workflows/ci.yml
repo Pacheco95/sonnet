@@ -183,13 +183,16 @@ jobs:
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
             core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
 
-      # The runner's default NDK (ANDROID_NDK_HOME, r27.3) is the oldest docs/build.md supports.
+      # NDK r30 is the oldest that targets android-36, the presets' API level (docs/build.md, "Toolchains").
+      # The runner's default, r27.3, stops at API 35, so r30 is installed next to it.
       - name: Install packages
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build
-          echo "NDK: $ANDROID_NDK_HOME"
-          grep Pkg.Revision "$ANDROID_NDK_HOME/source.properties"
+          ndk=30.0.16248370
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ndk" >> "$GITHUB_ENV"
+          grep Pkg.Revision "$ANDROID_HOME/ndk/$ndk/source.properties"
 
       - name: Set up vcpkg
         run: |
