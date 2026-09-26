@@ -21,8 +21,29 @@ Other prerequisites:
 
 - CMake 3.28+ and Ninja.
 - vcpkg, with `VCPKG_ROOT` set. The presets read it.
-- Vulkan SDK on developer machines for the validation layers, RenderDoc-friendly tooling and `slangc`. The SDK is not needed to build: headers and loader come from vcpkg.
+- Vulkan SDK on developer machines for the validation layers, RenderDoc-friendly tooling and `slangc`. The SDK is not needed to build: headers and the shader compiler come from vcpkg. On Linux, SDL loads the system Vulkan loader (`libvulkan1` on Ubuntu).
 - Android: NDK r27+, `ANDROID_NDK_HOME` set. iOS: Xcode on a macOS host.
+
+### Linux setup
+
+vcpkg builds the libraries, but SDL3, the Vulkan loader and miniaudio compile against the system's window and audio headers, so a Linux machine needs them installed. On Ubuntu 24.04 the list is the one the CI workflow installs:
+
+```bash
+wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
+sudo apt-get install -y ninja-build gcc-14 g++-14 clang-20 clang-tidy-20 clang-format-20 vulkan-tools \
+  libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
+  libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl-dev libdrm-dev libgbm-dev \
+  libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
+```
+
+Neither of Ubuntu 24.04's own compilers meets the table above: GCC is 13, and Clang 18 sees libstdc++ 13. Clang 20 from apt.llvm.org is what CI uses, and `g++-14` is there for its libstdc++ 14, which Clang picks up on its own. Select the compiler on the first configure, because vcpkg builds every port with it and keeps it for the build directory; changing it later needs `--fresh`:
+
+```bash
+CC=clang-20 CXX=clang++-20 cmake --preset linux-debug
+```
+
+Ubuntu's `vulkan-validationlayers` package is 1.3.275, older than the Vulkan 1.4 the engine requires, so the layers come from the Vulkan SDK. Without them a Debug build logs that validation was requested but is not installed, and runs without it.
+
 
 ## Dependency policy
 
@@ -50,6 +71,12 @@ miniaudio and stb_vorbis are single-file libraries without CMake packages: `audi
 The `joltphysics` port builds Jolt with AVX2 and its companions on x64; its instruction-set flags are an interface property of `Jolt::Jolt`, which `physics` links privately so they stay on that module's sources. The manifest asks for the port's `rtti` feature, so Jolt and every module are compiled with RTTI and the sanitizer build keeps UBSan's `vptr` check everywhere ([physics.md](physics.md#jolt)).
 
 Triplets: `x64-windows`, `x64-linux` (and `x64-linux-tsan` for the thread sanitizer, see [Presets](#presets)), `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M9.
+
+## Linux runtime libraries
+
+Only `editor` links the Slang library. `ShaderCompiler` and its tests live there; the player, cook and lower modules need only the SPIR-V compiled by the build. `SonnetShaders.cmake` finds the host `slangc` executable without importing the Slang library package.
+
+`sonnet_copy_slang_runtime` copies the compiler and its loadable Slang modules beside the Linux editor and `editor_tests`, and sets their RUNPATH to `$ORIGIN`. CMake's automatic build RUNPATH is replaced, so it cannot expose the vcpkg library directory and its Vulkan loader to SDL. The other Linux binaries have no Slang RUNPATH. SDL keeps its usual library lookup, using the distribution's loader unless the user explicitly overrides it ([ADR-0020](decisions/0020-linux-runtime-libraries.md)). The `editor_tests` loader case checks the retained library after `Platform` shuts down; CTest clears `LD_LIBRARY_PATH` and `SDL_VULKAN_LIBRARY` so SDK settings cannot hide a regression. It skips under `linux-tsan`, whose test preset explicitly sets `VK_DRIVER_FILES=/dev/null` to disable Vulkan drivers.
 
 ## Presets
 
@@ -156,7 +183,7 @@ GitHub Actions, one workflow with a matrix:
 - `linux-asan` job on every pull request.
 - Android job that builds the player with the NDK, added in M9.
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated.
-- A lint job runs `clang-format --dry-run` on every tracked source (`.clang-format` lists only the differences from LLVM style, so it parses with clang-format 18 and newer; CI uses 20), `tools/check_docs.py`, `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
+- A lint job runs first, and every build matrix job waits for it to pass; a lint failure skips the entire build matrix. It runs `clang-format --dry-run` on every tracked source (`.clang-format` lists only the differences from LLVM style, so it parses with clang-format 18 and newer; CI uses 20), `tools/check_docs.py`, `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
 - Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe. CI takes the first `lvp_icd*.json` it finds, which is right on its runners because they have only the 64-bit Mesa. On a machine that also has the 32-bit one, `lvp_icd.i686.json` sorts first and a 64-bit test process finds no device, so `tools/check_setup.py` picks the manifest named for the host's architecture instead. Tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.
 
 Tests that need a Vulkan 1.4 device skip themselves when none is present, which is the case on the Windows and macOS runners.

@@ -88,3 +88,22 @@ function(sonnet_add_executable NAME)
   set_target_properties(${target} PROPERTIES FOLDER "Apps" COMPILE_WARNING_AS_ERROR ON OUTPUT_NAME sonnet_${NAME})
   sonnet_copy_tracy_client(${target})
 endfunction()
+
+# Keep Slang available without exposing the vcpkg loader to SDL's dlopen (issue #27).
+function(sonnet_copy_slang_runtime TARGET)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    return()
+  endif()
+  set_target_properties(${TARGET} PROPERTIES
+    BUILD_WITH_INSTALL_RPATH ON
+    INSTALL_RPATH "$ORIGIN"
+    INSTALL_RPATH_USE_LINK_PATH OFF)
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "$<TARGET_FILE:slang::slang>"
+      "$<TARGET_FILE:slang::slang-glsl-module>"
+      "$<TARGET_FILE:slang::slang-glslang>"
+      "$<TARGET_FILE:slang::slang-llvm>"
+      "$<TARGET_FILE_DIR:${TARGET}>"
+    VERBATIM)
+endfunction()

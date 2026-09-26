@@ -33,6 +33,7 @@ jobs:
 
   build:
     name: ${{ matrix.name }}
+    needs: lint
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:

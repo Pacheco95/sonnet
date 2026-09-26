@@ -1,6 +1,6 @@
 # ADR-0004: vcpkg first, FetchContent for edge cases
 
-- **Status:** Accepted
+- **Status:** Accepted, Linux runtime loader superseded by [ADR-0020](0020-linux-runtime-libraries.md)
 - **Date:** 2026-09-12
 
 ## Context

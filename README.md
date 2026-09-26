@@ -168,7 +168,7 @@ ctest --preset linux-debug
 | [0001](docs/decisions/0001-vulkan-1.4-only.md) | Vulkan 1.4 is the only graphics backend and a hard minimum | Accepted, amended by 0019 |
 | [0002](docs/decisions/0002-sdl3-over-glfw.md) | SDL3 for windowing, input and the main loop | Accepted |
 | [0003](docs/decisions/0003-ecs-library.md) | flecs as the entity component system | Accepted, EnTT recorded as the alternative |
-| [0004](docs/decisions/0004-vcpkg-first.md) | vcpkg first, FetchContent for edge cases | Accepted |
+| [0004](docs/decisions/0004-vcpkg-first.md) | vcpkg first, FetchContent for edge cases | Accepted, amended by 0020 |
 | [0005](docs/decisions/0005-slang.md) | Slang as the only shading language | Accepted |
 | [0006](docs/decisions/0006-vulkan-object-ownership.md) | vk-bootstrap creates, Vulkan-HPP RAII owns | Accepted |
 | [0007](docs/decisions/0007-data-driven-game-structure.md) | Games are data-driven projects run by a generic player | Accepted |
@@ -184,6 +184,7 @@ ctest --preset linux-debug
 | [0017](docs/decisions/0017-depth-images-in-their-own-bindless-array.md) | Depth images in their own bindless array | Accepted |
 | [0018](docs/decisions/0018-mobile-export.md) | Mobile export: builds, ASTC, packaging and device checks | Accepted |
 | [0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) | Vulkan 1.3 devices that carry the engine's 1.4 features as extensions | Accepted |
+| [0020](docs/decisions/0020-linux-runtime-libraries.md) | Linux runtime libraries beside the editor | Accepted |
 
 ## License
 

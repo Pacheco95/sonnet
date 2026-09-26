@@ -10,16 +10,16 @@ Modules are listed in dependency order. A module may depend only on modules earl
 |---|---|---|
 | `core` | Fundamental types, `Handle<Tag>`, logging (spdlog), assertions, UUIDs, hashing, GLM configuration macros, Tracy zones | GLM, spdlog, Tracy |
 | `platform` | `IWindow`, input event types, the application callback interface, file-system paths. Contains the SDL3 implementation | `core`, SDL3, Vulkan headers (surface handle types only) |
-| `rhi` | Render hardware interface: device, swapchain, buffers, images, samplers, pipelines, command recording. Contains the Vulkan 1.4 implementation | `platform`, Vulkan-HPP, vk-bootstrap, VMA, Slang (runtime compile) |
+| `rhi` | Render hardware interface: device, swapchain, buffers, images, samplers, pipelines, command recording. Contains the Vulkan 1.4 implementation | `platform`, Vulkan-HPP, vk-bootstrap, VMA |
 | `renderer` | Render graph, frame resources, materials, meshes, cameras, lights, the rendering passes, engine shaders | `rhi` |
-| `assets` | Asset identity, database, importers (glTF, images, KTX2, Slang), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
+| `assets` | Asset identity, database, importers (glTF, images, KTX2), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
 | `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save, skeletal animation ([world.md](world.md)) | `assets`, flecs, nlohmann-json |
 | `physics` | Rigid bodies, colliders, raycasts and debug outlines behind `IPhysicsWorld`, with the Jolt implementation ([physics.md](physics.md)) | `world`, Jolt |
 | `scripting` | Lua scripts on entities behind `IScriptRuntime`, with the Lua and sol2 implementation ([scripting.md](scripting.md)) | `physics`, Lua, sol2 |
 | `audio` | Sounds on entities behind `IAudioDevice`, with the miniaudio implementation ([audio.md](audio.md)) | `world`, miniaudio |
 | `runtime` | `Game`: the world and its subsystems running a project or a cooked bundle, for the player ([player.md](player.md)) | `audio`, `scripting` |
 | `ui` | Dear ImGui layer: context, SDL3 and Vulkan backends, texture display, fonts. Editor and debug builds only | `rhi`, `platform`, ImGui |
-| `editor` | Editor framework: panels, selection, commands with undo/redo, gizmos, picking, play mode, project handling. Desktop only | everything above |
+| `editor` | Slang runtime compilation and editor framework: panels, selection, commands with undo/redo, gizmos, picking, play mode, project handling. Desktop only | everything above, Slang |
 
 Applications live under `apps/`:
 

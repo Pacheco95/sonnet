@@ -7,7 +7,7 @@
 #include <memory>
 #include <vector>
 
-namespace sonnet::assets {
+namespace sonnet::editor {
 
 // Compiles Slang entry-point files at runtime the way `sonnet_add_shaders` does at build time
 // (docs/rendering.md, "Shaders"): one SPIR-V 1.6 module per file holding every entry point under
@@ -16,7 +16,7 @@ namespace sonnet::assets {
 class ShaderCompiler {
 public:
   // `includeDirectories` is where `import sonnet` and the other modules resolve.
-  explicit ShaderCompiler(std::vector<std::filesystem::path> includeDirectories);
+  explicit ShaderCompiler(const std::vector<std::filesystem::path> &includeDirectories);
   ~ShaderCompiler();
   ShaderCompiler(const ShaderCompiler &) = delete;
   ShaderCompiler &operator=(const ShaderCompiler &) = delete;
@@ -30,4 +30,4 @@ private:
   std::unique_ptr<Session> m_session;
 };
 
-} // namespace sonnet::assets
+} // namespace sonnet::editor

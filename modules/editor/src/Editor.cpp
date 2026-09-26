@@ -927,7 +927,7 @@ core::Result<void> Editor::reloadShader(std::string_view name) {
                                        core::ErrorCategory::Shader});
   }
   if (!m_shaderCompiler) {
-    m_shaderCompiler = std::make_unique<assets::ShaderCompiler>(std::vector<std::filesystem::path>{*directory});
+    m_shaderCompiler = std::make_unique<ShaderCompiler>(std::vector<std::filesystem::path>{*directory});
   }
 #ifdef SONNET_ASSERTS_ENABLED
   constexpr bool debug = true;
