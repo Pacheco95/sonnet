@@ -4,7 +4,8 @@ Window, input events, the application callback interface and file-system paths, 
 
 | Header | Contents |
 |---|---|
-| `Platform.h` | `Platform`: owns the SDL video subsystem, creates windows, exposes paths and the Vulkan loader |
+| `Platform.h` | `Platform`: owns the SDL video subsystem, creates windows, exposes paths, opens content and exposes the Vulkan loader |
+| `Content.h` | `ContentStream`: a seekable, read-only stream over the game's content |
 | `Window.h` | `IWindow` and `WindowDesc`; the SDL window handle for Dear ImGui's backend and relative mouse mode |
 | `Input.h` | `Key` (physical positions), `MouseButton`, `Modifiers`, and their names both ways |
 | `InputState.h` | `InputState`: the keyboard and mouse as state, fed from events |
@@ -16,7 +17,7 @@ Window, input events, the application callback interface and file-system paths, 
 
 The engine does not own `main()`. `EntryPoint.h` defines SDL's `SDL_AppInit`, `SDL_AppIterate`, `SDL_AppEvent` and `SDL_AppQuit` and forwards them to `platform`, which:
 
-1. On init, initialises logging, constructs `Platform` (SDL video subsystem only), converts the arguments (without the program name) and calls the executable's `createApplication`. An exception here is logged at `critical` and ends the process with a failure code.
+1. On init, initialises logging ([Logging](#logging)), constructs `Platform` (SDL video subsystem only), converts the arguments (without the program name) and calls the executable's `createApplication`. An exception here is logged at `critical` and ends the process with a failure code.
 2. On iterate, calls `IApplication::iterate` and emits the Tracy frame mark.
 3. On event, hands the raw SDL event to `IApplication::nativeEvent` (Dear ImGui's SDL3 backend consumes it in `ui`), then translates it and calls `IApplication::event` when the engine has a type for it; SDL events without an engine type go no further.
 4. On quit, destroys the application, then `Platform`.
@@ -24,6 +25,10 @@ The engine does not own `main()`. `EntryPoint.h` defines SDL's `SDL_AppInit`, `S
 `IApplication::iterate` and `event` return `AppResult`: `Continue`, or `Success` and `Failure` to end the loop. On desktop SDL calls iterate in a loop; on iOS and Android the OS calls it, which is why frame ordering lives in the application and not in a loop the engine writes.
 
 `EntryPoint.h` is the one public header that includes SDL, because `SDL_main.h` has to be compiled into the executable's translation unit. It is the reason `SDL3::SDL3` is a public dependency of the module; no other public header includes SDL. `Application.h` and `Window.h` forward-declare `SDL_Event` and `SDL_Window` so that `ui` can hand both to Dear ImGui's SDL3 backend without the headers.
+
+## Logging
+
+The log itself is `core`'s ([core.md](core.md#logging)); `platform` only adds to where it goes. On Android the entry point adds spdlog's `android_sink_mt` through `core::Log::addSink` before the first line is logged, with the tag `Sonnet`, the one `SonnetActivity` logs its arguments under, so `adb logcat -s Sonnet` shows the engine's log from startup. Android discards a process's stdout, which is why the sink is needed. The console sink stays. `platform` links `liblog` for it on Android. Nothing changes on desktop.
 
 ## Window
 
@@ -47,6 +52,13 @@ Events are values of the `Event` variant: window resize (pixel size), minimise a
 
 `Platform::basePath` is the directory next to the executable on desktop and the bundle on mobile; `Platform::prefPath` is the per-user writable directory, created on demand. Both come from SDL so the mobile milestone does not change them.
 
+`Platform::openContent(path)` opens the game's content read-only, as [ADR-0018](decisions/0018-mobile-export.md#packaging) decides. It returns a `ContentStream` over an `SDL_IOStream`, which `Content.h` forward-declares so SDL stays out of the header. The stream has `read` (up to a buffer's size, short only at the end), `readExactly`, `seek` (from the start; past the end is an error), `tell`, `size` and `readAll`. Errors are `Io` errors naming the path. A stream has one position, so it is not shared between threads. The rules for the path:
+
+- **A relative path** resolves against the content root. On Android that is the APK's `assets/`, which SDL reads in place, since the APK stores the content uncompressed. SDL first tries the relative path in the app's internal storage, so a file of that name there takes precedence. On every other platform the content root is `basePath()`.
+- **An absolute path** is an ordinary file on every platform. On a phone, this is how a bundle pushed into the app's data directory runs.
+
+`openContent` is static because it needs nothing that SDL initialises, and so `Bundle` and the renderer, which are handed a path rather than the `Platform`, can reach it. What reads through it: the bundle ([assets.md](assets.md#the-bundle)), the renderer's shaders ([rendering.md](rendering.md#shaders)) and the player's default `game.sbundle` ([player.md](player.md)). The desktop tools, project folders and the tests stay on `core::readFile`.
+
 ## Tests
 
-`platform_tests` covers the input state's held keys and one-frame edges, motion and wheel, the release on focus loss and the key names, the headless platform, window creation and sizes, paths, the Vulkan loader hook (skipped where no loader is installed) and, white-box through `src/SdlEvents.h`, the scancode and modifier mapping and the translation of every event type.
+`platform_tests` covers `openContent` over plain files (relative and absolute paths, a missing file, seek, tell, size, a read at an offset, a short read, a move), the input state's held keys and one-frame edges, motion and wheel, the release on focus loss and the key names, the headless platform, window creation and sizes, paths, the Vulkan loader hook (skipped where no loader is installed) and, white-box through `src/SdlEvents.h`, the scancode and modifier mapping and the translation of every event type.

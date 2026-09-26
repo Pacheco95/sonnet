@@ -38,9 +38,9 @@ using nlohmann::json;
 
 } // namespace
 
-Game::Game(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
-           const rhi::ISwapchain &swapchain, const GameDesc &desc)
-    : m_window(window), m_device(device), m_renderer(device, platform.basePath() / "shaders",
+Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchain &swapchain, const GameDesc &desc)
+    // The shaders are content: beside the binary on desktop, in the APK on Android.
+    : m_window(window), m_device(device), m_renderer(device, "shaders",
                                                      [&] {
                                                        // The present pass writes the acquired image, so its pipeline is
                                                        // built for the swapchain's format (docs/rendering.md, "Frame

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sonnet/core/Error.h>
+#include <sonnet/platform/Content.h>
 #include <sonnet/platform/Window.h>
 
 #include <vulkan/vulkan_core.h>
@@ -37,6 +39,12 @@ public:
   [[nodiscard]] std::filesystem::path basePath() const;
   // Per-user writable directory for preferences and saves, created if missing.
   [[nodiscard]] std::filesystem::path prefPath(std::string_view organisation, std::string_view application) const;
+
+  // The game's content, read-only (docs/platform.md, "Paths"). A relative path resolves against
+  // the content root: the APK's assets/ on Android, basePath() elsewhere. An absolute path is an
+  // ordinary file on every platform. Static because it needs nothing SDL initialises, so readers
+  // that are handed a path rather than the Platform (Bundle, Renderer) can reach it.
+  [[nodiscard]] static core::Result<ContentStream> openContent(const std::filesystem::path &path);
 
   // Both load the Vulkan library through SDL on first use so the whole process shares one loader
   // (ADR-0006). They throw core::Exception when no Vulkan loader is available.

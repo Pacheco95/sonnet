@@ -116,7 +116,7 @@ A bundle is one file, `<name>.sbundle` ([ADR-0011](decisions/0011-cooked-bundles
 - `assets`: one entry per asset with its `uuid`, `type`, `name`, the `parent` it is a sub-asset of, a mesh's default `materials`, and the `offset` and `size` of its payload.
 - `files`: the scene and prefab paths, each with an offset and size. Scenes keep their project-relative path because that is how `project.json` and the editor name them.
 
-`Bundle::open` reads the index and nothing else; a payload is read when it is asked for. `BundleWriter` streams payloads out as they arrive, so a project's textures never all sit in memory at once, and `finish` writes the index and rewrites the header.
+`Bundle::open` reads the index and nothing else; a payload is read when it is asked for, as a seek and a read on the stream the bundle keeps open. The bundle is read through `platform::Platform::openContent` ([platform.md](platform.md#paths)), so a relative path is in the content root (the APK's `assets/` on Android, beside the binary elsewhere) and an absolute one is an ordinary file. The desktop callers, the editor's export check, the cook and the tests, pass absolute paths. A payload's offset and size are checked against the stream's size before anything is allocated, so a corrupt index is an `Io` error rather than a huge allocation. `BundleWriter` streams payloads out as they arrive, so a project's textures never all sit in memory at once, and `finish` writes the index and rewrites the header.
 
 ### What each payload is
 

@@ -119,7 +119,7 @@ TEST_CASE("the player runs a project folder's start scene", "[runtime][gpu]") {
 
   const auto sink = std::make_shared<ProblemSink>();
   core::Log::addSink(sink);
-  runtime::Game game{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
   REQUIRE(game.open(project).has_value());
   REQUIRE(game.name() == "Basic");
   REQUIRE(game.world().isPlaying()); // a player has no edit mode
@@ -154,7 +154,7 @@ TEST_CASE("the player runs the same project cooked into a bundle", "[runtime][gp
   std::size_t projectEntities = 0;
   {
     // Cooked through a Game, so the cook and the run use one database as they do in the editor.
-    runtime::Game game{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
     REQUIRE(game.open(project).has_value());
     projectEntities = game.world().roots().size();
     const auto opened = assets::Project::open(project);
@@ -167,7 +167,7 @@ TEST_CASE("the player runs the same project cooked into a bundle", "[runtime][gp
   const auto sink = std::make_shared<ProblemSink>();
   core::Log::addSink(sink);
   {
-    runtime::Game game{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
     REQUIRE(game.open(out / "game.sbundle").has_value());
     REQUIRE(game.name() == "Basic");
     REQUIRE(game.assets().bundle() != nullptr);
@@ -200,7 +200,7 @@ TEST_CASE("a scene without a camera is drawn from the fallback view", "[runtime]
   REQUIRE(core::writeFile(root / "scenes" / "main.scene.json", std::string_view{R"({"version": 2, "entities": []})"})
               .has_value());
 
-  runtime::Game game{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
   REQUIRE(game.open(root).has_value());
   fixture.frame(game);
   // The fallback looks at the origin from up and to the side, so it is not the identity.
@@ -211,7 +211,7 @@ TEST_CASE("a scene without a camera is drawn from the fallback view", "[runtime]
 
 TEST_CASE("a path that is neither a project nor a bundle is an error", "[runtime][gpu]") {
   Fixture fixture;
-  runtime::Game game{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
   REQUIRE(!game.open(std::filesystem::temp_directory_path() / "sonnet_runtime_nowhere").has_value());
   REQUIRE(!game.open(std::filesystem::temp_directory_path() / "sonnet_runtime_nowhere.sbundle").has_value());
   // A failed open still leaves a game that renders an empty frame rather than crashing.

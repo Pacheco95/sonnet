@@ -2,9 +2,9 @@
 
 #include <sonnet/core/Assert.h>
 #include <sonnet/core/Error.h>
-#include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
+#include <sonnet/platform/Platform.h>
 
 #include <algorithm>
 #include <array>
@@ -407,8 +407,9 @@ rhi::PipelineHandle Renderer::createPipeline(const PipelineSlot &slot, rhi::Shad
 
 void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
   for (const std::string_view name : shaderNames()) {
-    const std::filesystem::path path = shaderDir / std::format("{}.spv", name);
-    const auto spirv = core::readFile(path);
+    // Through the platform's content, so a relative shaderDir is read from the APK on Android.
+    auto stream = platform::Platform::openContent(shaderDir / std::format("{}.spv", name));
+    const auto spirv = stream ? stream->readAll() : std::unexpected(stream.error());
     if (!spirv) {
       throw core::Exception{spirv.error()};
     }

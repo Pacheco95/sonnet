@@ -194,7 +194,7 @@ Prerequisites, besides the NDK:
 
 A missing one fails the configure with a message naming it.
 
-The APK carries no game unless a cooked bundle is given: `-DSONNET_ANDROID_BUNDLE=<path>/game.sbundle` at configure, or `BUNDLE` in the call. The build does not cook. Cooking for Android needs ASTC, and the player cannot yet read from the APK, both later M9 steps ([roadmap.md](roadmap.md#the-android-apk)).
+The APK carries no game unless a cooked bundle is given: `-DSONNET_ANDROID_BUNDLE=<path>/game.sbundle` at configure, or `BUNDLE` in the call. The build does not cook. The player reads the packaged bundle and shaders from the APK through `Platform::openContent` ([platform.md](platform.md#paths)). Cooking for Android needs ASTC, a later M9 step. Until then a desktop cook (`sonnet_cook --platform linux`) can be packaged, since the player transcodes its UASTC textures to RGBA8 on a device without BC ([roadmap.md](roadmap.md#reading-content-from-the-apk)).
 
 ```bash
 export VCPKG_ROOT=$HOME/vcpkg ANDROID_NDK_HOME=$HOME/Android/ndk/30.0.16248370 ANDROID_HOME=$HOME/Android
