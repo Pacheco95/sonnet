@@ -413,9 +413,14 @@ void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
     if (!spirv) {
       throw core::Exception{spirv.error()};
     }
+    // Logged before each creation, so the last line names the module or pipeline a driver crashed in.
+    SONNET_LOG_DEBUG("shader module {}: {} bytes", name, spirv->size());
     const rhi::ShaderHandle shader = m_device.createShader({.spirv = *spirv, .debugName = std::string{name}});
     for (const PipelineSlot &slot : m_pipelineSlots) {
       if (slot.shader == name) {
+        SONNET_LOG_DEBUG("pipeline \"{}\" from {}",
+                         std::visit([](const auto &desc) -> const std::string & { return desc.debugName; }, slot.desc),
+                         name);
         *slot.target = createPipeline(slot, shader);
       }
     }
