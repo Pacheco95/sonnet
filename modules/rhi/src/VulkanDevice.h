@@ -104,6 +104,16 @@ public:
   const VulkanPipeline *findPipeline(PipelineHandle handle) const noexcept {
     return m_pipelines.find(handle);
   }
+  // A stale handle is a programmer error: these assert, where the find functions return null.
+  const VulkanBuffer &getBuffer(BufferHandle handle) const noexcept {
+    return m_buffers.get(handle);
+  }
+  const VulkanImage &getImage(ImageHandle handle) const noexcept {
+    return m_images.get(handle);
+  }
+  const VulkanPipeline &getPipeline(PipelineHandle handle) const noexcept {
+    return m_pipelines.get(handle);
+  }
   vk::PipelineLayout pipelineLayout() const noexcept {
     return *m_pipelineLayout;
   }

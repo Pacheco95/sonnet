@@ -1023,8 +1023,9 @@ void Editor::openLocation(const std::string &path, int line) {
   }
   const std::string command = m_preferences.editorCommand(*file, line);
   SONNET_LOG_INFO("opening {}:{} with: {}", file->string(), line, command);
-  // Detached so a slow editor start never blocks the frame; the exit code is not interesting.
-  std::thread{[command] { static_cast<void>(std::system(command.c_str())); }}.detach();
+  // Detached so a slow editor start never blocks the frame; the exit code is not interesting, but
+  // GCC ignores a void cast on a warn_unused_result call, so it is held in an unused variable.
+  std::thread{[command] { [[maybe_unused]] const int exitCode = std::system(command.c_str()); }}.detach();
 }
 
 } // namespace sonnet::editor

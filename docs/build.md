@@ -179,6 +179,7 @@ ctest --preset linux-debug --output-on-failure
 GitHub Actions, one workflow with a matrix:
 
 - `ubuntu-latest` (GCC and Clang), `windows-latest` (MSVC), `macos-latest` (Apple Clang): configure, build, run tests.
+- The same toolchains, plus clang-cl on `windows-latest`, again in plain Release: the `*-release` preset with `CMAKE_BUILD_TYPE=Release`. That is the configuration that compiles `SONNET_ASSERT` out, and warnings are errors, so a value only an assertion reads, or a warning only GCC's `-O3` inlining finds, fails there first ([#36](https://github.com/Pacheco95/sonnet/issues/36)).
 - Vulkan-dependent tests run on Linux under Lavapipe (Mesa's CPU Vulkan implementation, which supports 1.4) so the renderer is exercised without a GPU.
 - `linux-asan` job on every pull request.
 - Android job that builds the player with the NDK, added in M9.

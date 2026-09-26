@@ -255,10 +255,14 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   AssetDatabase player{fixture.renderer, fixture.jobs};
   REQUIRE(player.openBundle(out / "game.sbundle").has_value());
   REQUIRE(player.isOpen());
-  REQUIRE(player.bundle() != nullptr);
-  REQUIRE(player.bundle()->manifest().name == "Cooked");
-  REQUIRE(player.bundle()->manifest().platform == CookPlatform::Windows);
-  REQUIRE(player.bundle()->manifest().startScene == "scenes/main.scene.json");
+  const Bundle *bundle = player.bundle();
+  REQUIRE(bundle != nullptr);
+  if (bundle == nullptr) {
+    return; // REQUIRE has already failed; GCC 14 cannot tell and reports the null path at -O3
+  }
+  REQUIRE(bundle->manifest().name == "Cooked");
+  REQUIRE(bundle->manifest().platform == CookPlatform::Windows);
+  REQUIRE(bundle->manifest().startScene == "scenes/main.scene.json");
   REQUIRE(player.assets().size() == sourceAssetCount); // the built-ins are back too
   REQUIRE(player.pollChanges().empty());               // nothing to watch in a bundle
 

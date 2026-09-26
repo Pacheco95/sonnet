@@ -142,7 +142,8 @@ void World::registerComponents() {
       .serialize([](const flecs::serializer *serializer, const core::Uuid *uuid) {
         const std::string text = uuid->toString();
         const char *chars = text.c_str();
-        return serializer->value(flecs::String, &chars);
+        // flecs reads a string value through a pointer to the char pointer.
+        return serializer->value(flecs::String, static_cast<const void *>(&chars));
       })
       .assign_string([](core::Uuid *uuid, const char *value) {
         *uuid = core::Uuid::parse(value != nullptr ? value : "").value_or(core::Uuid{});
@@ -410,9 +411,10 @@ nlohmann::json World::valueToJson(flecs::entity_t component, const void *value) 
 }
 
 void World::componentFromJson(flecs::entity entity, flecs::entity_t component, const nlohmann::json &value) {
-  const ComponentInfo *info = findComponent(component);
-  SONNET_ASSERT(info != nullptr, "component {} is not registered", component);
-  if (info->tag) {
+  const auto it = std::ranges::find(m_components, component, &ComponentInfo::id);
+  SONNET_ASSERT(it != m_components.end(), "component {} is not registered", component);
+  const ComponentInfo &info = *it;
+  if (info.tag) {
     entity.add(component);
     return;
   }
@@ -420,9 +422,9 @@ void World::componentFromJson(flecs::entity entity, flecs::entity_t component, c
   if (!value.is_null()) {
     const std::string text = value.dump();
     ecs_from_json_desc_t desc{};
-    desc.name = info->name.c_str();
+    desc.name = info.name.c_str();
     if (ecs_ptr_from_json(m_world, component, target, text.c_str(), &desc) == nullptr) {
-      SONNET_LOG_ERROR("component \"{}\": {} is not a valid value", info->name, text);
+      SONNET_LOG_ERROR("component \"{}\": {} is not a valid value", info.name, text);
     }
   }
   entity.modified(component);

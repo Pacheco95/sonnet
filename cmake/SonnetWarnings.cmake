@@ -6,7 +6,9 @@ add_library(sonnet::warnings ALIAS sonnet_warnings)
 
 if(MSVC)
   target_compile_options(sonnet_warnings INTERFACE
-    /W4 /permissive- /Zc:__cplusplus /Zc:preprocessor /utf-8 /EHsc
+    /W4 /permissive- /Zc:__cplusplus /utf-8 /EHsc
+    # clang-cl's preprocessor is always conforming and rejects the flag as unused, fatal under /WX.
+    $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>
     /w14242 /w14254 /w14263 /w14265 /w14287 /w14296 /w14311 /w14545 /w14546 /w14547 /w14549 /w14555
     /w14619 /w14640 /w14826 /w14905 /w14906 /w14928)
 else()

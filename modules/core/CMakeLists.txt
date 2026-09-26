@@ -37,6 +37,7 @@ target_compile_definitions(sonnet_core PRIVATE
 
 sonnet_add_module_test(core
   SOURCES
+    tests/AssertTests.cpp
     tests/ErrorTests.cpp
     tests/FileTests.cpp
     tests/HandlePoolTests.cpp
