@@ -186,7 +186,7 @@ What M8 left behind, with what each would take, is in [Known gaps](#known-gaps):
 
 ## Before M9
 
-Five issues were queued before M9. [#27](https://github.com/Pacheco95/sonnet/issues/27), [#14](https://github.com/Pacheco95/sonnet/issues/14), [#11](https://github.com/Pacheco95/sonnet/issues/11) and [#13](https://github.com/Pacheco95/sonnet/issues/13) are implemented below. [#29](https://github.com/Pacheco95/sonnet/issues/29) is implemented and checked on Intel and Lavapipe; its RTX 4090 screenshot check remains. Each issue has its own branch and pull request. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)), planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
+Five issues were queued before M9. [#27](https://github.com/Pacheco95/sonnet/issues/27), [#14](https://github.com/Pacheco95/sonnet/issues/14), [#11](https://github.com/Pacheco95/sonnet/issues/11) and [#13](https://github.com/Pacheco95/sonnet/issues/13) are implemented below. [#29](https://github.com/Pacheco95/sonnet/issues/29) is implemented and checked on Intel, Lavapipe, the RTX 2050 and the RTX 4090. Each issue has its own branch and pull request. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)), planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
 
 ### 1. Linux binaries load vcpkg's Vulkan loader ([#27](https://github.com/Pacheco95/sonnet/issues/27))
 
@@ -210,7 +210,9 @@ Implemented in the renderer:
 3. Offset the receiver along its geometric normal in world-space shadow texels, replacing the cascade-index bias multiplier with a constant depth bias. Pad the projection for the filter and offset, and fix texel snapping: an NDC position must snap by the map resolution, not by world-space texels per metre.
 4. The GPU test compares every pixel of an unoccluded plane against shadows disabled, at 256 and 1024 shadow-map resolutions, and verifies that its camera spans all four cascade colours. It fails before the fix and passes on Intel ADL GT2, Lavapipe and the RTX 2050, with validation enabled. Restoring the original sampling shader also reproduces 768 bad pixels at each test resolution on Intel.
 
-All 12 test suites pass on Lavapipe. Final-colour and shadow-factor captures of the basic and playground scenes on Intel ADL GT2, Lavapipe and the RTX 2050 show neither reported artifact. RTX 4090 screenshot verification remains for a machine with that GPU.
+All 12 test suites pass on Lavapipe. Final-colour and shadow-factor captures of the basic and playground scenes on Intel ADL GT2, Lavapipe and the RTX 2050 show neither reported artifact.
+
+On the RTX 4090 (NVIDIA 595.71.05), the shadow regression passes at both resolutions and all 48 `renderer_tests` cases pass with validation on. Final, shadow-factor and cascade captures of both scenes show neither artifact, and the shadow-factor image is continuous across the splits the cascade term shows. The seam did not appear on this GPU before the fix either, so the RTX 4090 confirms the fix regresses nothing there rather than that it removes the seam. Against `main` on the same GPU, the final images differ only along shadow edges, where shadows now meet their casters instead of floating clear of them. The shadow-factor term now darkens faces turned away from the sun, whose direct light is already zero. The jagged edge of the crate stack's shadow in the playground's farthest cascade is the same before and after.
 
 ### 3. The mouse leaks into the UI while flying the viewport camera ([#14](https://github.com/Pacheco95/sonnet/issues/14))
 
