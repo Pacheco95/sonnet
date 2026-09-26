@@ -316,6 +316,31 @@ Verified on Linux with NDK r30, build-tools 36.1.0 and JDK 25 (`--release 17`):
 
 Still to do before the basic sample runs on the phone: ASTC cooking and `CookPlatform::android`, `Platform::openContent` (the player cannot read the APK's assets without it), spdlog's logcat sink, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player. After those, the CI job cooks the sample into the APK.
 
+### Reading content from the APK
+
+The third Android step reads the content the APK stores, as ADR-0018's "Packaging" section decides, and puts the engine's log in logcat ([platform.md](platform.md#paths)):
+
+- **The logcat sink.** On Android the entry point adds spdlog's `android_sink_mt` through `core::Log::addSink` before the first line is logged, under the tag `Sonnet`, the one `SonnetActivity` logs its arguments under. The console sink stays, `core` stays platform-agnostic, and `platform` links `liblog` itself on Android. It already reached the link through spdlog's and SDL's interface libraries.
+- **`Platform::openContent`** returns a `ContentStream`, a seekable, read-only stream over `SDL_IOStream` with `read`, `readExactly`, `seek`, `tell`, `size` and `readAll`. `Content.h` forward-declares `SDL_IOStream`, so SDL stays out of the header. A relative path resolves against the content root, which is the APK's `assets/` on Android and `basePath()` elsewhere. An absolute path is an ordinary file everywhere. On Android, SDL looks a relative path up in the app's internal storage before the assets. `openContent` is static, since it needs nothing SDL initialises.
+- **The readers.** `Bundle` holds a `ContentStream` instead of an `std::ifstream`, and checks a payload's span against the stream's size before allocating. `Bundle::open` and `AssetDatabase::openBundle` still take a path, because `openContent` is static and every desktop caller passes an absolute path. The renderer reads its shaders through `openContent`. `Game` passes the relative `shaders` and so no longer takes the `Platform`, while the editor, the cook and the tests pass the absolute `basePath() / "shaders"` as before. With no argument the player opens `game.sbundle` from the content root. It makes an argument absolute first, so on desktop an argument is still a path from the working directory. Import, cook, `Project` and the editor's files stay on `core::readFile`.
+- **No new dependency.** `assets` and `renderer` reach `platform` through `rhi`, which links it publicly.
+
+Verified on Linux:
+
+- `build/linux-debug` (GCC 14) and `build/clang22` (Clang 22) build with no warnings. All 13 suites pass on Lavapipe, including the five new `openContent` cases in `platform_tests`, and `runtime_tests` loads the basic sample as a folder and as a bundle.
+- The desktop player runs the basic sample from a project folder, from a relative bundle argument given in another working directory, and from `game.sbundle` beside a copied binary started from `/`. An export the editor wrote (`Editor::exportProject` with the real player: 27 assets, 22 support files) runs the same way.
+- `android-debug` and `android-release` build with no warnings. `libsonnet_player.so` lists `liblog.so` as `NEEDED`.
+
+**On the emulator** (`sonnet36`, `-gpu swiftshader_indirect`), since the phone was not connected:
+
+- `adb logcat -s Sonnet` shows the engine's log from its first line (`Sonnet 0.10.0`), with spdlog's levels as logcat's (`I`, `D`, `W`, `F`). The log reaches the device selector, which rejects SwiftShader: `Missing feature VkPhysicalDeviceVulkan11Features::shaderDrawParameters`. That is a 1.1 feature, checked before the four 1.4 extensions the APK step expected to be the reason. The player then exits with a failure.
+- The device is rejected before anything reads the shaders or the bundle. A probe added to a local build for this one run (not committed) showed that the reads work from the APK. It read `shaders/cluster.spv` through `openContent`, 41812 bytes, the size `unzip -v` lists. It also opened the packaged `assets/game.sbundle` (the basic sample, cooked by the Linux `sonnet_cook`) with its 27 assets, and read its start scene.
+- A bundle pushed to `/data/local/tmp` and copied with `run-as ... cp` into `files/` opens when `--es args` gives its absolute path. A missing absolute path is an `Io` error naming it.
+
+**On the Galaxy S25 Ultra:** not run. The phone was not connected for this step. Still to check there: the log in logcat from startup, the shaders loading from the APK and how far startup then gets, the desktop-cooked basic sample on screen, and a pushed bundle.
+
+Still to do before the basic sample runs on the phone: ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
+
 ## M10: iOS export
 
 - Xcode build of the player from a macOS host, MoltenVK linked statically, packaging into an app bundle.

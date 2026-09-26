@@ -37,7 +37,7 @@ Either way every model is loaded as a prefab under its own identity, so a scene 
 ./sonnet_player                                               # game.sbundle beside the binary
 ```
 
-With no argument it looks for `game.sbundle` next to itself, which is what an export writes, so an exported game starts by being double-clicked. The window closes on its close button or the platform's quit; everything else the window receives is the game's.
+With no argument it opens `game.sbundle` through `Platform::openContent`, from the content root: next to the binary on desktop, which is what an export writes, so an exported game starts by being double-clicked, and the APK's `assets/game.sbundle` on Android ([platform.md](platform.md#paths)). An argument is a path from the working directory, which the player makes absolute before opening it, since a relative path would be read from the content root. The shaders are content too, read from `shaders/` in the same root. The window closes on its close button or the platform's quit; everything else the window receives is the game's.
 
 `SONNET_BUILD_PLAYER` builds it, on by default on every platform ([build.md](build.md#options)).
 
@@ -50,13 +50,25 @@ The player's arguments come from the launch intent's string extra `args`, split 
 ```bash
 adb install -r build/android-debug/apps/player/sonnet_player.apk
 adb shell am start -n io.github.pacheco95.sonnet/.SonnetActivity                   # no arguments
-adb shell am start -n io.github.pacheco95.sonnet/.SonnetActivity --es args game.sbundle
+adb shell am start -n io.github.pacheco95.sonnet/.SonnetActivity --es args /data/user/0/io.github.pacheco95.sonnet/files/game.sbundle
 adb shell "am start -n io.github.pacheco95.sonnet/.SonnetActivity --es args '\"my game.sbundle\" --flag'"
-adb logcat -s Sonnet SDL                                                           # the arguments as the activity passed them
+adb logcat -s Sonnet SDL                                                           # the arguments and the engine's log
 adb shell run-as io.github.pacheco95.sonnet ls                                     # the app's data, in a debuggable APK
 ```
 
-On a phone with a second user profile (a Samsung Secure Folder, for one), add `--user 0` to `adb install` and `am start`. The activity logs the arguments it passes under the `Sonnet` tag. The engine's own log does not reach logcat yet, and the player cannot yet read a bundle or shaders from the APK: `Platform::openContent`, ASTC cooking, touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#the-android-apk)).
+On a phone with a second user profile (a Samsung Secure Folder, for one), add `--user 0` to `adb install` and `am start`. The activity logs the arguments it passes under the `Sonnet` tag, and the engine's own log goes to logcat under the same tag from its first line ([platform.md](platform.md#logging)).
+
+With no argument the player runs the APK's `assets/game.sbundle`, which is there when the APK was built with `SONNET_ANDROID_BUNDLE` ([build.md](build.md#android)), and it reads its shaders from `assets/shaders/`. An argument must be an absolute path, since the working directory of an Android app is `/`. That runs a bundle pushed into the app's data directory:
+
+```bash
+adb push game.sbundle /data/local/tmp/
+adb shell run-as io.github.pacheco95.sonnet cp /data/local/tmp/game.sbundle files/
+adb shell am start --user 0 -n io.github.pacheco95.sonnet/.SonnetActivity \
+  --es args /data/user/0/io.github.pacheco95.sonnet/files/game.sbundle
+adb logcat -s Sonnet
+```
+
+ASTC cooking, touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#reading-content-from-the-apk)).
 
 ## What an export is
 
