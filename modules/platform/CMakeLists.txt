@@ -3,6 +3,7 @@ find_package(VulkanHeaders CONFIG REQUIRED)
 
 sonnet_add_module(platform
   SOURCES
+    src/Content.cpp
     src/Input.cpp
     src/InputState.cpp
     src/Platform.cpp
@@ -24,6 +25,7 @@ endif()
 
 sonnet_add_module_test(platform
   SOURCES
+    tests/ContentTests.cpp
     tests/EventTests.cpp
     tests/InputStateTests.cpp
     tests/PlatformTests.cpp
