@@ -34,6 +34,19 @@
       "cacheVariables": { "VCPKG_TARGET_TRIPLET": "arm64-osx" }
     },
     {
+      "name": "android-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "inList", "string": "${hostSystemName}", "list": ["Linux", "Darwin"] },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm64-android",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-36",
+        "SONNET_BUILD_TESTS": "OFF"
+      }
+    },
+    {
       "name": "linux-debug",
       "inherits": "linux-base",
       "displayName": "Linux Debug",
@@ -91,6 +104,18 @@
       "inherits": "macos-base",
       "displayName": "macOS Release",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "android-debug",
+      "inherits": "android-base",
+      "displayName": "Android arm64 Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "android-release",
+      "inherits": "android-base",
+      "displayName": "Android arm64 Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     }
   ],
   "buildPresets": [
@@ -103,7 +128,9 @@
     { "name": "windows-debug", "configurePreset": "windows-debug" },
     { "name": "windows-release", "configurePreset": "windows-release" },
     { "name": "macos-debug", "configurePreset": "macos-debug" },
-    { "name": "macos-release", "configurePreset": "macos-release" }
+    { "name": "macos-release", "configurePreset": "macos-release" },
+    { "name": "android-debug", "configurePreset": "android-debug" },
+    { "name": "android-release", "configurePreset": "android-release" }
   ],
   "testPresets": [
     { "name": "linux-debug", "configurePreset": "linux-debug", "output": { "outputOnFailure": true } },
