@@ -20,17 +20,22 @@ struct DeviceDesc {
   std::string applicationName{"Sonnet"};
   // Requests the validation layer when it is installed; absent layers are logged, not fatal.
   bool enableValidation{SONNET_ENABLE_VALIDATION != 0};
+  // For tests: a packed Vulkan version every device is treated as, at most, so a 1.4 device takes
+  // the 1.3 path of ADR-0019 under the validation layer. 0 leaves devices at their own version.
+  std::uint32_t apiVersionCap{0};
 };
 
 struct DeviceInfo {
   std::string deviceName;
   std::string driverName;         // e.g. "NVIDIA", "radv", "llvmpipe"
   std::string driverInfo;         // driver version string as the driver reports it
-  std::uint32_t apiVersion{0};    // packed Vulkan version of the device
+  std::uint32_t apiVersion{0};    // packed Vulkan version of the device, 1.3 or later (ADR-0019)
   std::uint32_t loaderVersion{0}; // packed Vulkan version of the loader in the process
   bool validationEnabled{false};
   bool timestampsSupported{false};
   bool blockCompressionSupported{false}; // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
+  // A 1.3 device whose four Vulkan 1.4 features came as the extensions 1.4 promoted (ADR-0019).
+  bool vulkan14FeaturesAsExtensions{false};
 };
 
 constexpr std::uint32_t FramesInFlight = 2;

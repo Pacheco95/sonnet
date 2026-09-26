@@ -43,7 +43,7 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 | Windows 10/11 x64 | yes | yes | GPU vendor drivers |
 | Linux x64 | yes | yes | Mesa (RADV, ANV, Lavapipe) or NVIDIA drivers |
 | macOS 12+ (arm64, x64) | yes | yes | MoltenVK 1.4+ over Metal; portability-subset rules apply |
-| Android | no | yes | Devices launching with Android 16+, where 1.4 is mandatory. Older devices are not supported. |
+| Android | no | yes | Devices launching with Android 16+, where 1.4 is mandatory, and 1.3 devices that carry the engine's four 1.4 features as extensions ([ADR-0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md)). |
 | iOS 15+ | no | yes | MoltenVK 1.4+; built from a macOS host |
 
 Vulkan 1.4 is the minimum, or 1.3 with the four 1.4 features the engine uses as extensions ([ADR-0001](docs/decisions/0001-vulkan-1.4-only.md), amended by [ADR-0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md)). Per-platform consequences are in [docs/rendering.md](docs/rendering.md#platform-notes).

@@ -237,6 +237,16 @@ Mobile export was one milestone and is now two, because each platform is blocked
 
 Done when the basic sample runs on an Android 16 device.
 
+### Vulkan 1.3 devices
+
+The Galaxy S25 Ultra's driver is Vulkan 1.3.284, which the selector rejected. [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) is implemented in `rhi`, before any of the Android work, since it can be checked on the desktop:
+
+1. The selector takes devices at 1.3 or later with the 1.0 to 1.3 features, then checks the four 1.4 features per device: through `VkPhysicalDeviceVulkan14Features` at 1.4, through their extensions and feature structures at 1.3. The first device with all four is taken, in vk-bootstrap's order; if none has them, the error names what each device lacks.
+2. A device's version is its own, bounded by the one the instance asked for. VMA takes that version, and `DeviceInfo` reports it with `vulkan14FeaturesAsExtensions`; the device log line says when the features came as extensions. Dear ImGui's backend takes the device's version rather than 1.4.
+3. `DeviceDesc::apiVersionCap` lowers the version the instance asks for. CTest runs `rhi_tests` a second time as `rhi_tests_vulkan_1_3`, with every test device capped at 1.3.
+
+Checked on Lavapipe and on the RTX 4090, each with and without the cap: every `rhi_tests` case passes with validation on, and the capped runs report a 1.3 device with the features as extensions. The RTX 4090 skips the three headless swapchain cases, as before. Enabling `VkPhysicalDeviceVulkan14Features` under the cap instead fails validation at `vkCreateDescriptorSetLayout`, so the capped run does catch a 1.4 structure used on the 1.3 path. The phone itself waits for the first APK.
+
 ### Checked before the code
 
 ADR-0018 was accepted with open questions. Questions 1 (Android), 3, 6, 7 and 8 were answered in it before acceptance. The rest were answered afterwards by a run on the Mac (macOS 26.7, Xcode 26.3 with the iOS 26.2 SDK) and an iPhone 15 Pro Max (`iPhone16,2`, A17 Pro), reported on `agents/mac-m9-questions`. The ADR itself stays as accepted.
