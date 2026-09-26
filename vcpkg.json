@@ -20,10 +20,20 @@
       ]
     },
     "vulkan-headers",
-    "vulkan-loader",
+    {
+      "name": "vulkan-loader",
+      "platform": "!android & !ios"
+    },
     "vk-bootstrap",
     "vulkan-memory-allocator-hpp",
-    "shader-slang",
+    {
+      "name": "shader-slang",
+      "host": true
+    },
+    {
+      "name": "shader-slang",
+      "platform": "!android & !ios"
+    },
     "glm",
     "spdlog",
     "tracy",
@@ -49,6 +59,7 @@
     "miniaudio",
     {
       "name": "imgui",
+      "platform": "!android & !ios",
       "features": [
         "docking-experimental",
         "sdl3-binding",

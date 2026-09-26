@@ -11,9 +11,9 @@ C++23 is required. Minimum compilers, chosen for `std::expected`, `std::print`, 
 | Linux | GCC 14+, or Clang 19+ with libstdc++ 14+, or Clang 18+ with libc++ 18+ (libstdc++ hides `std::expected` from Clang 18 because it reports `__cpp_concepts` below 202002L) |
 | Windows | MSVC 17.10+ (Visual Studio 2022) or clang-cl of the same LLVM version |
 | macOS, iOS | Apple Clang from Xcode 16.3+ |
-| Android | NDK r27+ (Clang 18) |
+| Android | NDK r30+ (Clang 21), the first NDK whose sysroot reaches API 36 (Android 16); r27 to r29 stop at 35 |
 
-libc++ from LLVM 19 on, which NDKs newer than r27 ship, is stricter than libstdc++ and Xcode's libc++ in one place the code met: it has no `std::char_traits<std::byte>`, so JSON and CBOR are read through `assets::parseJson` and `parseCbor` rather than handing nlohmann bytes ([assets.md](assets.md#reading-json-and-cbor)).
+libc++ from LLVM 19 on, which every supported NDK ships, is stricter than libstdc++ and Xcode's libc++ in one place the code met: it has no `std::char_traits<std::byte>`, so JSON and CBOR are read through `assets::parseJson` and `parseCbor` rather than handing nlohmann bytes ([assets.md](assets.md#reading-json-and-cbor)).
 
 C++23 features not relied on until every toolchain above ships them: `std::generator`, `std::flat_map`, `import std`. C++20 modules are not used for engine code. Vulkan-HPP's `vulkan.cppm` module is an optional experiment for compile times, behind a CMake option, never required.
 
@@ -22,7 +22,7 @@ Other prerequisites:
 - CMake 3.28+ and Ninja.
 - vcpkg, with `VCPKG_ROOT` set. The presets read it.
 - Vulkan SDK on developer machines for the validation layers, RenderDoc-friendly tooling and `slangc`. The SDK is not needed to build: headers and the shader compiler come from vcpkg. On Linux, SDL loads the system Vulkan loader (`libvulkan1` on Ubuntu).
-- Android: NDK r27+, `ANDROID_NDK_HOME` set. iOS: Xcode on a macOS host.
+- Android: NDK r30+, with `ANDROID_NDK_HOME` pointing at it (the presets chain-load `$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake`), from a Linux or macOS host. Building the player library needs nothing else; the APK in M9 will also need the Android SDK with platform `android-36` and its build tools, and `ANDROID_HOME` set. iOS: Xcode on a macOS host.
 
 ### Linux setup
 
@@ -70,7 +70,7 @@ miniaudio and stb_vorbis are single-file libraries without CMake packages: `audi
 
 The `joltphysics` port builds Jolt with AVX2 and its companions on x64; its instruction-set flags are an interface property of `Jolt::Jolt`, which `physics` links privately so they stay on that module's sources. The manifest asks for the port's `rtti` feature, so Jolt and every module are compiled with RTTI and the sanitizer build keeps UBSan's `vptr` check everywhere ([physics.md](physics.md#jolt)).
 
-Triplets: `x64-windows`, `x64-linux` (and `x64-linux-tsan` for the thread sanitizer, see [Presets](#presets)), `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios`. Mobile triplets are wired in M9.
+Triplets: `x64-windows`, `x64-linux` (and `x64-linux-tsan` for the thread sanitizer, see [Presets](#presets)), `arm64-osx` (and `x64-osx`), `arm64-android`, `arm64-ios` (M10). The manifest declares `shader-slang` twice, once as a host tool for `slangc` and once for the library, desktop only, since only `editor` links it; `vulkan-loader` and `imgui` are desktop only too ([ADR-0018](decisions/0018-mobile-export.md#builds)). `arm64-android` therefore installs `slangc` under the host triplet, `vcpkg_installed/<host triplet>/tools/shader-slang`. vcpkg's toolchain puts only the target triplet's tools on `CMAKE_PROGRAM_PATH` unless `VCPKG_HOST_TRIPLET` is set, which it never sets itself, so a cross build's `cmake/SonnetShaders.cmake` adds the host directory. A Vulkan SDK on `PATH` or `CMAKE_PREFIX_PATH` is not used, since its `slangc` is not the pinned version.
 
 ## Linux runtime libraries
 
@@ -90,7 +90,7 @@ Only `editor` links the Slang library. `ShaderCompiler` and its tests live there
 | `linux-coverage` | gcov instrumentation, `coverage` target runs gcovr (same shape as the previous iteration) |
 | `windows-debug`, `windows-release` | Ninja with MSVC from a developer prompt |
 | `macos-debug`, `macos-release` | Ninja, Apple Clang |
-| `android-debug` | Chain-loads the NDK toolchain through `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`, player only. Added in M9 |
+| `android-debug`, `android-release` | Linux or macOS host. Ninja, the `arm64-android` triplet, and the NDK's `android.toolchain.cmake` chain-loaded through `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`, with `ANDROID_ABI=arm64-v8a` and `ANDROID_PLATFORM=android-36` (Android 16). Player only: `SONNET_BUILD_EDITOR` is forced off, so `ui`, `editor` and `apps/cook` are not configured, and `SONNET_BUILD_TESTS` is off. Build presets but no test presets, since a device cannot run `ctest`. The player is `libsonnet_player.so` (see [Module helpers](#module-helpers)); packaging it into an APK comes later in M9 |
 | `ios-debug` | Xcode generator, `CMAKE_SYSTEM_NAME=iOS`, player only. Added in M10 |
 
 Binary directories are `build/<preset>/`. In-source builds are rejected. Configuring without a preset still works when `VCPKG_ROOT` is set or a checkout exists at `~/vcpkg`: the root `CMakeLists.txt` picks the toolchain file up itself, and otherwise stops with a message saying so.
@@ -144,7 +144,7 @@ Per-configuration definitions applied by `sonnet_add_module`: `SONNET_ASSERTS_EN
 - `sonnet_add_module(<name> SOURCES ... DEPENDS ... PUBLIC_DEPENDS ...)` creates the static library `sonnet_<name>` with alias `sonnet::<name>`, sets the include directory to `modules/<name>/include`, applies the shared warning flags, and links the declared dependencies. Dependencies are the only way a module reaches another, which is what enforces the one-way rule.
 - `sonnet_add_module_test(<name> SOURCES ... DEPENDS ...)` creates `<name>_tests` linked against the module and `Catch2::Catch2WithMain`, registers it with CTest under the label `<name>` (so `ctest -L core` runs one module) with a five-minute timeout and `--allow-running-no-tests` (a suite whose every case skipped, such as `rhi_tests` without a Vulkan device, is a pass), compiles in `tests/support/TestSupport.cpp` (which turns Windows crash and assertion dialogs into stderr output and a non-zero exit), and allows including the module's `src/` directory for white-box tests.
 
-- `sonnet_add_executable(<name> SOURCES ... DEPENDS ...)` creates the target `sonnet_<name>_app`, whose binary is `sonnet_<name>`, with the same flags and definitions as a module. The target name carries the suffix because an app shares its name with the module it fronts (`editor`), and the module owns `sonnet_<name>`.
+- `sonnet_add_executable(<name> SOURCES ... DEPENDS ...)` creates the target `sonnet_<name>_app`, whose binary is `sonnet_<name>`, with the same flags and definitions as a module. The target name carries the suffix because an app shares its name with the module it fronts (`editor`), and the module owns `sonnet_<name>`. On Android the target is a shared library, `libsonnet_<name>.so`, since SDL's Java side loads the app with `System.loadLibrary` and calls its `SDL_main`.
 - `sonnet_add_shaders(<target> SHADERS ...)` and `sonnet_add_engine_shaders(<target>)` compile Slang shaders next to a target's binary ([Shaders in the build](#shaders-in-the-build)).
 - `sonnet_copy_tracy_client(<target>)`, applied by the test and executable helpers, copies `TracyClient.dll` next to Windows binaries. vcpkg's tracy port installs the Debug DLL under `debug/bin/Debug`, where vcpkg's own applocal copy step does not look, so a binary that references Tracy symbols would otherwise fail to start with `STATUS_DLL_NOT_FOUND` before reaching `main`, which no in-process setting can catch. `find_package(Tracy)` is `GLOBAL` for that reason.
 
@@ -182,7 +182,7 @@ GitHub Actions, one workflow with a matrix:
 - The same toolchains, plus clang-cl on `windows-latest`, again in plain Release: the `*-release` preset with `CMAKE_BUILD_TYPE=Release`. That is the configuration that compiles `SONNET_ASSERT` out, and warnings are errors, so a value only an assertion reads, or a warning only GCC's `-O3` inlining finds, fails there first ([#36](https://github.com/Pacheco95/sonnet/issues/36)).
 - Vulkan-dependent tests run on Linux under Lavapipe (Mesa's CPU Vulkan implementation, which supports 1.4) so the renderer is exercised without a GPU.
 - `linux-asan` job on every pull request.
-- Android job that builds the player with the NDK, added in M9.
+- An Android job on `ubuntu-24.04` installs NDK r30 (the runner's default, r27.3, cannot target API 36), configures `android-release` and builds the player library. The debug-signed APK, the cooked sample and the uploaded artifact join it later in M9 ([ADR-0018](decisions/0018-mobile-export.md#ci)).
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated.
 - A lint job runs first, and every build matrix job waits for it to pass; a lint failure skips the entire build matrix. It runs `clang-format --dry-run` on every tracked source (`.clang-format` lists only the differences from LLVM style, so it parses with clang-format 18 and newer; CI uses 20), `tools/check_docs.py`, `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
 - Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe. CI takes the first `lvp_icd*.json` it finds, which is right on its runners because they have only the 64-bit Mesa. On a machine that also has the 32-bit one, `lvp_icd.i686.json` sorts first and a 64-bit test process finds no device, so `tools/check_setup.py` picks the manifest named for the host's architecture instead. Tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.

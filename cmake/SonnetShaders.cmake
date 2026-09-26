@@ -6,7 +6,20 @@
 # C++ unchanged (docs/rendering.md, "Vulkan baseline"). Release builds therefore carry no shader
 # compiler. The depfile makes edits to imported modules rebuild their users.
 # Only the editor imports the target library; all rendering binaries need this host tool.
-# vcpkg puts its tools (host tools when cross-compiling) in CMAKE_PROGRAM_PATH.
+# vcpkg puts the target triplet's tools in CMAKE_PROGRAM_PATH, and the host triplet's only when
+# VCPKG_HOST_TRIPLET is set, which its toolchain never does itself. On Android the manifest installs
+# shader-slang for the host triplet alone, so a cross build adds that directory here. It has to be
+# CMAKE_PROGRAM_PATH rather than HINTS: the Vulkan SDK's environment exports CMAKE_PREFIX_PATH, which
+# CMake searches before HINTS, and the SDK's slangc is not the version the manifest pins.
+if(CMAKE_CROSSCOMPILING AND DEFINED VCPKG_INSTALLED_DIR)
+  if(VCPKG_HOST_TRIPLET)
+    set(_sonnet_host_slang "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/tools/shader-slang")
+  else()
+    file(GLOB _sonnet_host_slang LIST_DIRECTORIES true "${VCPKG_INSTALLED_DIR}/*/tools/shader-slang")
+  endif()
+  list(APPEND CMAKE_PROGRAM_PATH ${_sonnet_host_slang})
+  unset(_sonnet_host_slang)
+endif()
 find_program(SLANGC_EXECUTABLE NAMES slangc REQUIRED)
 
 # Engine shader modules import each other by name; every compilation sees this directory.
