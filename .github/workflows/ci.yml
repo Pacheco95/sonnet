@@ -66,6 +66,34 @@ jobs:
           - name: macOS Clang
             os: macos-latest
             preset: macos-debug
+          # Plain Release, not the presets' RelWithDebInfo: it compiles assertions out and GCC's -O3 inlining
+          # reports places -O2 does not, and warnings are errors (#36).
+          - name: Linux GCC Release
+            os: ubuntu-24.04
+            preset: linux-release
+            build-type: Release
+            cc: gcc-14
+            cxx: g++-14
+          - name: Linux Clang Release
+            os: ubuntu-24.04
+            preset: linux-release
+            build-type: Release
+            cc: clang-20
+            cxx: clang++-20
+          - name: Windows MSVC Release
+            os: windows-latest
+            preset: windows-release
+            build-type: Release
+          - name: Windows clang-cl Release
+            os: windows-latest
+            preset: windows-release
+            build-type: Release
+            cc: clang-cl
+            cxx: clang-cl
+          - name: macOS Clang Release
+            os: macos-latest
+            preset: macos-release
+            build-type: Release
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
@@ -122,7 +150,7 @@ jobs:
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }} ${{ matrix.build-type && format('-DCMAKE_BUILD_TYPE={0}', matrix.build-type) || '' }}
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
