@@ -41,6 +41,23 @@ With no argument it looks for `game.sbundle` next to itself, which is what an ex
 
 `SONNET_BUILD_PLAYER` builds it, on by default on every platform ([build.md](build.md#options)).
 
+## Running on Android
+
+On Android the player is `libsonnet_player.so` inside `sonnet_player.apk`, which the `android-debug` and `android-release` presets build ([build.md](build.md#android)). The APK's package is `io.github.pacheco95.sonnet` and its one activity is `io.github.pacheco95.sonnet.SonnetActivity`, in `apps/player/android/` with the manifest and the icon. The activity extends SDL's `SDLActivity`. SDL is linked into the player statically, so `getLibraries()` names the player alone, and SDL's Java side loads it and calls its `SDL_main` on its own thread. The manifest requires Vulkan 1.3 (`android.hardware.vulkan.version` `0x403000`), since [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) accepts a 1.3 device with the engine's 1.4 features as extensions, and the device selector checks those features when the player starts. Android 16 (API 36) is the minimum and the target.
+
+The player's arguments come from the launch intent's string extra `args`, split on whitespace, with double quotes keeping an argument with spaces together. `adb shell` hands its command to the device's shell, which removes one level of quoting, so an argument with spaces needs two:
+
+```bash
+adb install -r build/android-debug/apps/player/sonnet_player.apk
+adb shell am start -n io.github.pacheco95.sonnet/.SonnetActivity                   # no arguments
+adb shell am start -n io.github.pacheco95.sonnet/.SonnetActivity --es args game.sbundle
+adb shell "am start -n io.github.pacheco95.sonnet/.SonnetActivity --es args '\"my game.sbundle\" --flag'"
+adb logcat -s Sonnet SDL                                                           # the arguments as the activity passed them
+adb shell run-as io.github.pacheco95.sonnet ls                                     # the app's data, in a debuggable APK
+```
+
+The activity logs the arguments it passes under the `Sonnet` tag. The engine's own log does not reach logcat yet, and the player cannot yet read a bundle or shaders from the APK: `Platform::openContent`, ASTC cooking, touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#the-android-apk)).
+
 ## What an export is
 
 An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](roadmap.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).

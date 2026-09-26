@@ -280,6 +280,37 @@ Verified with NDK r30 (30.0.16248370, Clang 21) on Linux: the `arm64-android` in
 
 Still to do for the player on a phone, in ADR-0018's order: the APK (`cmake/SonnetAndroid.cmake`, SDL's Java sources, the manifest, debug signing), ASTC cooking, touch input, `Platform::openContent`, the swapchain's suspend and resume, and the capture in the player. None of them blocks the build.
 
+### The Android APK
+
+The second Android step packages the player, as ADR-0018's "Packaging" section decides it ([build.md](build.md#android), [player.md](player.md#running-on-android)):
+
+- **`cmake/SonnetAndroid.cmake`** adapts SDL's `SdlAndroidFunctions.cmake` (zlib licence, attributed in the file) into `sonnet_add_apk`, with no Gradle: `aapt2` compiles and links the resources and manifest against `platforms/android-36`, `javac --release 17` compiles SDL's Java sources and the activity, `d8` dexes them, `zip` stores the stripped `libsonnet_player.so` and `assets/shaders/` uncompressed, `zipalign -P 16` puts the library on a 16 KB page, and `apksigner` signs with a debug keystore `keytool` generates once in the build directory. `sonnet_player_apk` is its own target; `sonnet_player_app` still builds alone. A cooked bundle is packaged as `assets/game.sbundle` only when `SONNET_ANDROID_BUNDLE` names one. The build does not cook.
+- **The `sdl3` overlay port** installs SDL's Java sources into `share/sdl3/android-java/` for Android triplets, and turns off `SDL3.jar`, which SDL otherwise builds only when the environment happens to have a JDK and the Android SDK. Desktop triplets install the same files as before.
+- **`apps/player/android/`** holds the manifest (package `io.github.pacheco95.sonnet`, API 36 minimum and target, `extractNativeLibs="false"`), `SonnetActivity` and a vector icon. `getLibraries()` returns `sonnet_player` alone. `getArguments()` splits the intent's `args` extra and logs the result under the `Sonnet` tag.
+- **The manifest requires Vulkan 1.3, not 1.4.** ADR-0018 has `android.hardware.vulkan.version` `0x404000`, written before [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) accepted 1.3 devices with the four 1.4 features as extensions. The Galaxy S25 Ultra reports 1.3.284, so it could not have installed a 1.4 APK. The manifest asks for `0x403000` with `required="true"` and leaves the features to the device selector. The ADR's text stays as accepted.
+- **CI:** the Android job builds the APK after the player library with the runner's JDK 17 (`JAVA_HOME` pinned to `JAVA_HOME_17_X64` and checked) and build-tools 36.1.0, verifies its signature, alignment and badging, and uploads it as `sonnet_player-android`.
+
+Verified on Linux with NDK r30, build-tools 36.1.0 and JDK 25 (`--release 17`):
+
+- Both `android-debug` and `android-release` build the APK: 34 MB and 14 MB, nearly all of it the library.
+- `apksigner verify` passes with the v3 scheme, the only one a `minSdkVersion` of 36 needs.
+- `aapt2 dump badging` shows the package, `minSdkVersion` and `targetSdkVersion` 36, `uses-feature: name='android.hardware.vulkan.version' version='4206592'` (`0x403000`), `native-code: 'arm64-v8a'` and `application-debuggable`. Both presets are debuggable, since RelWithDebInfo counts as debuggable, so `run-as` works on both.
+- `zipalign -c -P 16 -v 4` passes, with the library at offset 49152, three 16 KB pages.
+- `unzip -v` lists `lib/arm64-v8a/libsonnet_player.so`, every `assets/shaders/*.spv` and, when given, `assets/game.sbundle` as `Stored`.
+- A configure without `ANDROID_HOME`, or with a build-tools version that is not installed, fails with a message naming it.
+- The desktop is unaffected: `build/linux-debug` (GCC 14) and `build/clang22` (Clang 22) rebuilt `sdl3` at the new port-version, installed the same files, and build with no warnings, and all 13 suites pass on Lavapipe.
+
+**An emulator can stand in for the phone for packaging, install, launch and arguments, not for rendering.** Probed with emulator 37.1.11 and the `android-36;google_apis_ps16k;x86_64` image (Android 16 with 16 KB pages) under KVM:
+
+- `-gpu host` crashed the emulator (SIGSEGV) a minute into boot, twice, once with the Vulkan SDK's environment cleared. Before crashing it took the RTX 4090 and logged `guestVulkanMaxApiVersion: 1.3.0`, so host mode would offer the guest 1.3 at most.
+- `-gpu swiftshader_indirect` boots in 24 s. `pm list features` has `android.hardware.vulkan.version=4206592` (1.3) and `vulkan.level=1`. `cmd gpu vkjson` reports an instance at 1.4.0 and one device, "SwiftShader Device (Subzero)", at **1.3.0**, with ASTC LDR but **none** of `VK_KHR_push_descriptor`, `VK_KHR_dynamic_rendering_local_read`, `VK_KHR_maintenance5` and `VK_KHR_maintenance6`. ADR-0019's selector rejects it.
+- The arm64-only APK installs, from both presets, through ARM translation. The image's `abilist` is `x86_64,arm64-v8a`, and Berberis does the translating. The library loads in place from `base.apk!/lib/arm64-v8a`, which confirms it is stored and page-aligned. `am start` with `--es args` launches it, and the activity logs the arguments split as intended (`[my game.sbundle, --flag]`). SDL runs `SDL_main`, which returns after about 0.6 s. Berberis logs the Vulkan entry points it has no wrapper for (`vkGetPhysicalDeviceDescriptorSizeEXT` and others). The reason for the exit is not visible, since the engine's log does not reach logcat yet, and routing stdout through `wrap.<package>` disables the native bridge. The selector rejecting SwiftShader is the likely cause. `run-as` works.
+- One APK signed in one build directory cannot update an install from the other (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`), since each has its own debug key. `adb uninstall` first.
+
+The phone was not connected, so the Android half of ADR-0018's question 9 is answered on the emulator only: `am start --es` passes the arguments and `run-as` reaches the app's data. The phone's install and launch wait for it.
+
+Still to do before the basic sample runs on the phone: ASTC cooking and `CookPlatform::android`, `Platform::openContent` (the player cannot read the APK's assets without it), spdlog's logcat sink, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player. After those, the CI job cooks the sample into the APK.
+
 ## M10: iOS export
 
 - Xcode build of the player from a macOS host, MoltenVK linked statically, packaging into an app bundle.

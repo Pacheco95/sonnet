@@ -22,7 +22,7 @@ Other prerequisites:
 - CMake 3.28+ and Ninja.
 - vcpkg, with `VCPKG_ROOT` set. The presets read it.
 - Vulkan SDK on developer machines for the validation layers, RenderDoc-friendly tooling and `slangc`. The SDK is not needed to build: headers and the shader compiler come from vcpkg. On Linux, SDL loads the system Vulkan loader (`libvulkan1` on Ubuntu).
-- Android: NDK r30+, with `ANDROID_NDK_HOME` pointing at it (the presets chain-load `$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake`), from a Linux or macOS host. Building the player library needs nothing else; the APK in M9 will also need the Android SDK with platform `android-36` and its build tools, and `ANDROID_HOME` set. iOS: Xcode on a macOS host.
+- Android: NDK r30+, with `ANDROID_NDK_HOME` pointing at it (the presets chain-load `$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake`), from a Linux or macOS host. The presets also package the APK, which needs the Android SDK with platform `android-36` and build-tools 36.1.0, `ANDROID_HOME` pointing at it, a JDK 17 or later through `JAVA_HOME` or `PATH`, and `zip` ([Android](#android)). iOS: Xcode on a macOS host.
 
 ### Linux setup
 
@@ -90,7 +90,7 @@ Only `editor` links the Slang library. `ShaderCompiler` and its tests live there
 | `linux-coverage` | gcov instrumentation, `coverage` target runs gcovr (same shape as the previous iteration) |
 | `windows-debug`, `windows-release` | Ninja with MSVC from a developer prompt |
 | `macos-debug`, `macos-release` | Ninja, Apple Clang |
-| `android-debug`, `android-release` | Linux or macOS host. Ninja, the `arm64-android` triplet, and the NDK's `android.toolchain.cmake` chain-loaded through `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`, with `ANDROID_ABI=arm64-v8a` and `ANDROID_PLATFORM=android-36` (Android 16). Player only: `SONNET_BUILD_EDITOR` is forced off, so `ui`, `editor` and `apps/cook` are not configured, and `SONNET_BUILD_TESTS` is off. Build presets but no test presets, since a device cannot run `ctest`. The player is `libsonnet_player.so` (see [Module helpers](#module-helpers)); packaging it into an APK comes later in M9 |
+| `android-debug`, `android-release` | Linux or macOS host. Ninja, the `arm64-android` triplet, and the NDK's `android.toolchain.cmake` chain-loaded through `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`, with `ANDROID_ABI=arm64-v8a` and `ANDROID_PLATFORM=android-36` (Android 16). Player only: `SONNET_BUILD_EDITOR` is forced off, so `ui`, `editor` and `apps/cook` are not configured, and `SONNET_BUILD_TESTS` is off. Build presets but no test presets, since a device cannot run `ctest`. The player is `libsonnet_player.so` (see [Module helpers](#module-helpers)), packaged into `apps/player/sonnet_player.apk` ([Android](#android)) |
 | `ios-debug` | Xcode generator, `CMAKE_SYSTEM_NAME=iOS`, player only. Added in M10 |
 
 Binary directories are `build/<preset>/`. In-source builds are rejected. Configuring without a preset still works when `VCPKG_ROOT` is set or a checkout exists at `~/vcpkg`: the root `CMakeLists.txt` picks the toolchain file up itself, and otherwise stops with a message saying so.
@@ -146,6 +146,7 @@ Per-configuration definitions applied by `sonnet_add_module`: `SONNET_ASSERTS_EN
 
 - `sonnet_add_executable(<name> SOURCES ... DEPENDS ...)` creates the target `sonnet_<name>_app`, whose binary is `sonnet_<name>`, with the same flags and definitions as a module. The target name carries the suffix because an app shares its name with the module it fronts (`editor`), and the module owns `sonnet_<name>`. On Android the target is a shared library, `libsonnet_<name>.so`, since SDL's Java side loads the app with `System.loadLibrary` and calls its `SDL_main`.
 - `sonnet_add_shaders(<target> SHADERS ...)` and `sonnet_add_engine_shaders(<target>)` compile Slang shaders next to a target's binary ([Shaders in the build](#shaders-in-the-build)).
+- `sonnet_add_apk(<target> MANIFEST ... RESOURCES ... JAVA_SOURCES ... [BUNDLE ...])`, in `cmake/SonnetAndroid.cmake`, packages an Android shared library into a debug-signed APK ([Android](#android)).
 - `sonnet_copy_tracy_client(<target>)`, applied by the test and executable helpers, copies `TracyClient.dll` next to Windows binaries. vcpkg's tracy port installs the Debug DLL under `debug/bin/Debug`, where vcpkg's own applocal copy step does not look, so a binary that references Tracy symbols would otherwise fail to start with `STATUS_DLL_NOT_FOUND` before reaching `main`, which no in-process setting can catch. `find_package(Tracy)` is `GLOBAL` for that reason.
 
 The helpers live in `cmake/SonnetFunctions.cmake`; options are in `SonnetOptions.cmake`, warning flags in `SonnetWarnings.cmake` and the coverage target in `SonnetCoverage.cmake`.
@@ -174,6 +175,36 @@ ctest --preset linux-debug --output-on-failure
 ./build/linux-debug/apps/player/sonnet_player /tmp/basic/game.sbundle
 ```
 
+## Android
+
+`cmake/SonnetAndroid.cmake` packages the player into an APK without Gradle ([ADR-0018](decisions/0018-mobile-export.md#packaging)). It is adapted from SDL's `SdlAndroidFunctions.cmake`, whose zlib licence it carries. `apps/player/CMakeLists.txt` calls `sonnet_add_apk(sonnet_player_app ...)` on Android only, which adds the target `sonnet_player_apk`, part of the default build, producing `build/android-*/apps/player/sonnet_player.apk`. The player library still builds alone as `sonnet_player_app`. The steps:
+
+1. `aapt2` compiles `apps/player/android/res/` and links it with `apps/player/android/AndroidManifest.xml` against `platforms/android-36/android.jar`. In Debug and RelWithDebInfo, which both presets are, the APK is debuggable, so `adb shell run-as` works.
+2. `javac --release 17` compiles SDL's Java glue, which the `sdl3` overlay port installs into `share/sdl3/android-java/` for Android triplets ([ports/README.md](../ports/README.md)), with `SonnetActivity.java`. The release flag gives the same bytecode from the JDK 17 on CI and a newer local JDK.
+3. `d8` dexes the classes.
+4. `zip` adds `classes.dex`, then stores `lib/arm64-v8a/libsonnet_player.so`, stripped with the NDK's `llvm-strip` (the unstripped library stays in the build directory for symbols), `assets/shaders/` and, when given, `assets/game.sbundle`, all uncompressed, so they are read in place.
+5. `zipalign -P 16 4` aligns the entries and puts the library on a 16 KB page, which the manifest's `extractNativeLibs="false"` relies on.
+6. `apksigner` signs with `build/android-*/android/debug.keystore`, which `keytool` generates on the first build and keeps. Each build directory has its own key, so switching an installed APK between `android-debug` and `android-release` needs `adb uninstall io.github.pacheco95.sonnet` first.
+
+Prerequisites, besides the NDK:
+
+- The Android SDK with `platforms;android-36` and `build-tools;36.1.0` (`sdkmanager "platforms;android-36" "build-tools;36.1.0"`), and `ANDROID_HOME` pointing at it. The configure caches `ANDROID_HOME`, so a later regeneration does not need the environment. `SONNET_ANDROID_BUILD_TOOLS_VERSION` selects another build-tools version.
+- A JDK 17 or later: `javac`, `java` and `keytool` from `JAVA_HOME/bin`, or from `PATH`. `d8` and `apksigner` run on the same JDK.
+- `zip`.
+
+A missing one fails the configure with a message naming it.
+
+The APK carries no game unless a cooked bundle is given: `-DSONNET_ANDROID_BUNDLE=<path>/game.sbundle` at configure, or `BUNDLE` in the call. The build does not cook. Cooking for Android needs ASTC, and the player cannot yet read from the APK, both later M9 steps ([roadmap.md](roadmap.md#the-android-apk)).
+
+```bash
+export VCPKG_ROOT=$HOME/vcpkg ANDROID_NDK_HOME=$HOME/Android/ndk/30.0.16248370 ANDROID_HOME=$HOME/Android
+cmake --preset android-debug
+cmake --build --preset android-debug            # the library and the APK
+$ANDROID_HOME/platform-tools/adb install -r build/android-debug/apps/player/sonnet_player.apk
+```
+
+Running it is in [player.md](player.md#running-on-android).
+
 ## Continuous integration
 
 GitHub Actions, one workflow with a matrix:
@@ -182,7 +213,7 @@ GitHub Actions, one workflow with a matrix:
 - The same toolchains, plus clang-cl on `windows-latest`, again in plain Release: the `*-release` preset with `CMAKE_BUILD_TYPE=Release`. That is the configuration that compiles `SONNET_ASSERT` out, and warnings are errors, so a value only an assertion reads, or a warning only GCC's `-O3` inlining finds, fails there first ([#36](https://github.com/Pacheco95/sonnet/issues/36)).
 - Vulkan-dependent tests run on Linux under Lavapipe (Mesa's CPU Vulkan implementation, which supports 1.4) so the renderer is exercised without a GPU.
 - `linux-asan` job on every pull request.
-- An Android job on `ubuntu-24.04` installs NDK r30 (the runner's default, r27.3, cannot target API 36), configures `android-release` and builds the player library. The debug-signed APK, the cooked sample and the uploaded artifact join it later in M9 ([ADR-0018](decisions/0018-mobile-export.md#ci)).
+- An Android job on `ubuntu-24.04` installs NDK r30 (the runner's default, r27.3, cannot target API 36), configures `android-release`, builds the player library and then the debug-signed APK with the runner's JDK 17 and build-tools 36.1.0, and uploads the APK as the `sonnet_player-android` artifact. Cooking the sample into it waits for ASTC ([ADR-0018](decisions/0018-mobile-export.md#ci)).
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated.
 - A lint job runs first, and every build matrix job waits for it to pass; a lint failure skips the entire build matrix. It runs `clang-format --dry-run` on every tracked source (`.clang-format` lists only the differences from LLVM style, so it parses with clang-format 18 and newer; CI uses 20), `tools/check_docs.py`, `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
 - Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe. CI takes the first `lvp_icd*.json` it finds, which is right on its runners because they have only the 64-bit Mesa. On a machine that also has the 32-bit one, `lvp_icd.i686.json` sorts first and a 64-bit test process finds no device, so `tools/check_setup.py` picks the manifest named for the host's architecture instead. Tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.
