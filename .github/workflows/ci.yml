@@ -194,6 +194,12 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ndk" >> "$GITHUB_ENV"
           grep Pkg.Revision "$ANDROID_HOME/ndk/$ndk/source.properties"
 
+      # The APK takes javac, java and keytool from JAVA_HOME (docs/build.md, "Android"); pin the runner's JDK 17.
+      - name: Check the JDK
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          "$JAVA_HOME_17_X64/bin/javac" -version 2>&1 | tee /dev/stderr | grep -q '^javac 17\.'
+
       - name: Set up vcpkg
         run: |
           baseline=$(python3 -c "import json; print(json.load(open('vcpkg.json'))['builtin-baseline'])")
@@ -205,6 +211,25 @@ jobs:
       - name: Configure
         run: cmake --preset android-release
 
-      # The player library alone: the APK, the cooked sample and the artifact follow in M9 (ADR-0018).
+      # The player library first, then the APK packaged from it. Cooking the sample into the APK waits
+      # for ASTC (ADR-0018, "CI").
       - name: Build
         run: cmake --build --preset android-release --target sonnet_player_app
+
+      - name: Package the APK
+        run: cmake --build --preset android-release --target sonnet_player_apk
+
+      - name: Verify the APK
+        run: |
+          apk=build/android-release/apps/player/sonnet_player.apk
+          tools="$ANDROID_HOME/build-tools/36.1.0"
+          "$tools/apksigner" verify --verbose "$apk"
+          "$tools/zipalign" -c -P 16 4 "$apk"
+          "$tools/aapt2" dump badging "$apk" | grep -E "^package|Sdk|vulkan|native-code"
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonnet_player-android
+          path: build/android-release/apps/player/sonnet_player.apk
+          if-no-files-found: error

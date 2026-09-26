@@ -8,6 +8,16 @@ sonnet_add_executable(player
 )
 sonnet_add_engine_shaders(sonnet_player_app)
 
+if(ANDROID)
+  # build/android-*/apps/player/sonnet_player.apk, built by sonnet_player_apk (docs/player.md).
+  include(SonnetAndroid)
+  sonnet_add_apk(sonnet_player_app
+    MANIFEST android/AndroidManifest.xml
+    RESOURCES android/res
+    JAVA_SOURCES android/SonnetActivity.java
+  )
+endif()
+
 if(SONNET_BUILD_EDITOR)
   # The export dialog looks for the player binary in the editor's directory (docs/editor.md#export).
   add_custom_command(TARGET sonnet_player_app POST_BUILD
