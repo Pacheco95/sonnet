@@ -21,6 +21,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <initializer_list>
 #include <memory>
@@ -103,7 +104,9 @@ TEST_CASE("viewport mouse look keeps motion out of ImGui while turning the camer
   fixture.frame(editor); // the dock builder settles the viewport's size on its second frame
 
   const editor::ViewportInput &input = editor.viewport().input();
-  const ImVec2 start{input.origin.x + input.size.x * 0.5f, input.origin.y + input.size.y * 0.5f};
+  const ImVec2 start{std::floor(input.origin.x + input.size.x * 0.5f),
+                     std::floor(input.origin.y + input.size.y * 0.5f)};
+  SDL_WarpMouseInWindow(fixture.window->nativeHandle(), start.x, start.y);
   SDL_Event motion{};
   motion.type = SDL_EVENT_MOUSE_MOTION;
   motion.motion.windowID = SDL_GetWindowID(fixture.window->nativeHandle());
@@ -137,9 +140,11 @@ TEST_CASE("viewport mouse look keeps motion out of ImGui while turning the camer
   float x = 0.0f;
   float y = 0.0f;
   SDL_GetMouseState(&x, &y);
+  REQUIRE(x == Approx(start.x));
+  REQUIRE(y == Approx(start.y));
   fixture.frame(editor);
-  REQUIRE(ImGui::GetIO().MousePos.x == Approx(x));
-  REQUIRE(ImGui::GetIO().MousePos.y == Approx(y));
+  REQUIRE(ImGui::GetIO().MousePos.x == Approx(start.x));
+  REQUIRE(ImGui::GetIO().MousePos.y == Approx(start.y));
 }
 
 TEST_CASE("the editor opens a project, edits, plays, stops and saves", "[editor][gpu]") {

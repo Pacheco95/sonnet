@@ -140,16 +140,20 @@ void Editor::update(float dt) {
     // mode would otherwise be asked, and would warn, every frame.
     if (wantsRelativeMouse != m_relativeMouseRequested) {
       m_relativeMouseRequested = wantsRelativeMouse;
+      if (wantsRelativeMouse) {
+        SDL_GetMouseState(&m_mouseBeforeLook.x, &m_mouseBeforeLook.y);
+      } else {
+        // SDL's relative cursor has wandered; warp before disabling the mode so the visible
+        // cursor returns to the position where the look began.
+        SDL_WarpMouseInWindow(m_window.nativeHandle(), m_mouseBeforeLook.x, m_mouseBeforeLook.y);
+      }
       static_cast<void>(m_window.setRelativeMouseMode(wantsRelativeMouse));
       if (!wantsRelativeMouse) {
-        float x = 0.0f;
-        float y = 0.0f;
-        SDL_GetMouseState(&x, &y);
         SDL_Event motion{};
         motion.type = SDL_EVENT_MOUSE_MOTION;
         motion.motion.windowID = SDL_GetWindowID(m_window.nativeHandle());
-        motion.motion.x = x;
-        motion.motion.y = y;
+        motion.motion.x = m_mouseBeforeLook.x;
+        motion.motion.y = m_mouseBeforeLook.y;
         m_imgui.processEvent(motion);
       }
     }
