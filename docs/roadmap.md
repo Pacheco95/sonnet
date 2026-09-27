@@ -430,7 +430,7 @@ Verified on Linux: `build/linux-debug` (GCC 14) and `build/clang22` (Clang 22) b
 - An `adb shell input swipe` over three seconds moved the ground point from (−2.4, −2.4) to (1.4, 4.6), and the ball followed it.
 - Nothing was logged at warning level or above but the missing validation layer, and there was no native crash.
 
-ADR-0018's check 5 needs a person's hand on the device; the `adb` run above was the agent's, and the check by hand is recorded when it is done. ADR-0018 says "window pixels" for a touch's position. The engine uses window coordinates, the mouse's, which are pixels on Android and logical coordinates on a high-density desktop display.
+ADR-0018's check 5 needs a person's hand on the device. The `adb` run above was the agent's. Michael then confirmed the check by hand on the Galaxy S25 Ultra: a finger held on the playground rolls the ball towards it. ADR-0018 says "window pixels" for a touch's position. The engine uses window coordinates, the mouse's, which are pixels on Android and logical coordinates on a high-density desktop display.
 
 Still to do before the phone runs a game as the desktop does: the swapchain's suspend and resume with the lifecycle, and the capture in the player.
 
@@ -466,7 +466,7 @@ Verified on Linux:
 - **`adb exec-out screencap -p` frames** before and after each trip show the playground drawing, with the sweeper turned further and the cube pile it knocks over moved on. In the 65 s trip the ball, rolling towards a held finger when the player left, carried its momentum on after the return.
 - **Time away is not simulated.** With a debug line in `player.lua` for one run only (not committed), in a bundle copied into `files/` to override the packaged one and removed afterwards, the ball jumped from the ground at game time 11.92 s and was at 1.48 m, the top of the jump, when the player went to the background at 12.34 s. After 64.8 s away, its first frame back was at 12.36 s, with a `dt` of 15 ms and the ball still at 1.48 m. It then fell and landed at 13.01 s: a jump of about 1.1 s of game time across 65 s of real time.
 
-ADR-0018's check 4 needs a person's hand on the device. The runs above were the agent's, through `adb`. The check by hand is recorded when it is done.
+ADR-0018's check 4 needs a person's hand on the device. The runs above were the agent's, through `adb`, apart from unlocking the phone after the screen-off. Michael then confirmed the check by hand on the Galaxy S25 Ultra: the player goes to the background and comes back, still drawing.
 
 Still to do before the phone runs a game as the desktop does: the capture in the player.
 
