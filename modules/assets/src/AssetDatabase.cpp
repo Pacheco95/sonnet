@@ -503,7 +503,7 @@ std::optional<AssetDatabase::TextureRequest> AssetDatabase::textureRequest(const
                         .name = info.name,
                         .sourceTime = record->second.sourceTime,
                         .settings = TextureSettings::fromJson(record->second.settings),
-                        .blockCompression = m_renderer.blockCompressionSupported()};
+                        .device = m_renderer.deviceInfo()};
 }
 
 std::optional<renderer::TextureData> AssetDatabase::importFileTexture(const TextureRequest &request) {
@@ -514,7 +514,7 @@ std::optional<renderer::TextureData> AssetDatabase::importFileTexture(const Text
       SONNET_LOG_ERROR("{}", bytes.error().toString());
       return std::nullopt;
     }
-    auto data = readKtx2(*bytes, request.blockCompression);
+    auto data = readKtx2(*bytes, request.device);
     if (!data) {
       SONNET_LOG_ERROR("{}: {}", request.source.string(), data.error().toString());
       return std::nullopt;
@@ -554,7 +554,7 @@ std::optional<renderer::TextureData> AssetDatabase::importFileTexture(const Text
     SONNET_LOG_ERROR("{}", bytes.error().toString());
     return std::nullopt;
   }
-  auto data = readKtx2(*bytes, request.blockCompression);
+  auto data = readKtx2(*bytes, request.device);
   if (!data) {
     SONNET_LOG_ERROR("{}: {}", cooked.string(), data.error().toString());
     return std::nullopt;
@@ -615,7 +615,7 @@ std::optional<AssetDatabase::GltfRequest> AssetDatabase::gltfRequest(const core:
                      .cache = cacheDirectory(),
                      .name = info->name,
                      .sourceTime = record->second.sourceTime,
-                     .blockCompression = m_renderer.blockCompressionSupported()};
+                     .device = m_renderer.deviceInfo()};
 }
 
 AssetDatabase::GltfLoad AssetDatabase::importGltfFiles(const GltfRequest &request) {
@@ -651,7 +651,7 @@ AssetDatabase::GltfLoad AssetDatabase::importGltfFiles(const GltfRequest &reques
       }
     }
     const auto bytes = core::readFile(cooked);
-    auto data = bytes ? readKtx2(*bytes, request.blockCompression) : std::unexpected(bytes.error());
+    auto data = bytes ? readKtx2(*bytes, request.device) : std::unexpected(bytes.error());
     if (!data) {
       SONNET_LOG_ERROR("{}: image \"{}\": {}", request.source.string(), image.name, data.error().toString());
       continue;
@@ -948,7 +948,7 @@ renderer::TextureHandle AssetDatabase::texture(const core::Uuid &uuid) {
   if (m_bundle) {
     // A cooked texture is the KTX2 the editor caches, sub-asset or file asset alike.
     if (const auto payload = bundlePayload(uuid)) {
-      const auto data = readKtx2(*payload, m_renderer.blockCompressionSupported());
+      const auto data = readKtx2(*payload, m_renderer.deviceInfo());
       if (data) {
         handle = uploadTexture(uuid, *data, info->name);
       } else {

@@ -4,10 +4,12 @@
 #include <sonnet/rhi/Device.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -403,6 +405,105 @@ TEST_CASE("an upload larger than the staging ring reaches the image", "[rhi][bin
   device->endFrame();
   REQUIRE(target.pixel(0, 0).r == 255);
   REQUIRE(target.pixel(0, 0).b == 255);
+
+  device->destroyImage(texture);
+  device->destroySampler(nearest);
+  device->destroyPipeline(pipeline);
+}
+
+namespace {
+
+// One 128-bit block of one colour, so a compressed image of any size can be filled without an
+// encoder. BC7 mode 6 with both endpoints equal and every index 0 decodes to the endpoint, whose
+// channels are seven bits and a shared p-bit, hence the odd values below. An ASTC void-extent
+// block carries its colour as four 16-bit UNORM channels.
+constexpr std::array<std::uint8_t, 4> SolidColor{201, 101, 51, 255};
+
+std::array<std::byte, 16> solidBlock(Format format) {
+  std::array<std::byte, 16> block{};
+  if (isAstcFormat(format)) {
+    const std::array<std::uint8_t, 8> header{0xFC, 0xFD, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    for (std::size_t i = 0; i < header.size(); ++i) {
+      block[i] = std::byte{header[i]};
+    }
+    for (std::size_t c = 0; c < 4; ++c) {
+      block[8 + c * 2] = std::byte{SolidColor[c]};
+      block[8 + c * 2 + 1] = std::byte{SolidColor[c]};
+    }
+    return block;
+  }
+  std::size_t bit = 0;
+  const auto put = [&](std::uint32_t value, std::size_t bits) {
+    for (std::size_t i = 0; i < bits; ++i, ++bit) {
+      if (((value >> i) & 1u) != 0) {
+        block[bit / 8] |= std::byte{static_cast<std::uint8_t>(1u << (bit % 8))};
+      }
+    }
+  };
+  put(1u << 6, 7); // mode 6
+  for (std::size_t c = 0; c < 4; ++c) {
+    put(SolidColor[c] >> 1, 7);
+    put(SolidColor[c] >> 1, 7);
+  }
+  put(1, 1); // the p-bits, which make every channel odd
+  put(1, 1);
+  return block; // the indices stay 0
+}
+
+} // namespace
+
+// Uploads a solid colour into a compressed image whose size is no multiple of the block, with
+// every mip level, and samples its first and last levels. BC7 runs wherever there is block
+// compression; the ASTC formats need astcSupported, which no desktop GPU and no Lavapipe reports,
+// so they run on Apple silicon and phones (ADR-0018, "CI").
+TEST_CASE("a compressed image of any size uploads every level and samples its colour",
+          "[rhi][bindless][upload][compressed][gpu]") {
+  test::TestDevice device;
+  const auto format = GENERATE(Format::BC7Unorm, Format::ASTC4x4Unorm, Format::ASTC6x6Unorm);
+  if (!formatSupported(device->info(), format)) {
+    SKIP("the device cannot sample " << toString(format));
+  }
+  const ShaderHandle shader = loadShader(device, "texture");
+  const PipelineHandle pipeline = device->createGraphicsPipeline(
+      {.shader = shader, .colorFormats = {Format::R8G8B8A8Unorm}, .cullMode = CullMode::None, .debugName = "texture"});
+  device->destroyShader(shader);
+  const SamplerHandle nearest =
+      device->createSampler({.filter = Filter::Nearest, .mipFilter = Filter::Nearest, .debugName = "nearest"});
+  constexpr glm::uvec2 size{13, 7};
+  const std::uint32_t levels = fullMipCount(size);
+  const ImageHandle texture = device->createImage({.size = size,
+                                                   .format = format,
+                                                   .usage = ImageUsage::Sampled | ImageUsage::TransferDst,
+                                                   .mipLevels = levels,
+                                                   .debugName = std::string{toString(format)}});
+  const std::array<std::byte, 16> block = solidBlock(format);
+  std::vector<std::vector<std::byte>> data;
+  std::vector<ImageUpload> uploads;
+  for (std::uint32_t level = 0; level < levels; ++level) {
+    auto &bytes = data.emplace_back();
+    const std::uint64_t byteSize = levelByteSize(format, mipSize(size, level));
+    for (std::uint64_t offset = 0; offset < byteSize; offset += block.size()) {
+      bytes.insert(bytes.end(), block.begin(), block.end());
+    }
+  }
+  uploads.reserve(levels);
+  for (std::uint32_t level = 0; level < levels; ++level) {
+    uploads.push_back({.mipLevel = level, .data = data[level]});
+  }
+  device->uploadImage(texture, uploads);
+
+  Target target{device, {2, 2}};
+  for (const float lod : {0.0f, static_cast<float>(levels - 1)}) {
+    const TexturePush push{
+        .texture = device->sampledImageIndex(texture), .sampler = device->samplerIndex(nearest), .lod = lod};
+    target.draw(device->beginFrame(), pipeline, push);
+    device->endFrame();
+    const Pixel pixel = target.pixel(1, 1);
+    CHECK(std::abs(pixel.r - SolidColor[0]) <= 1);
+    CHECK(std::abs(pixel.g - SolidColor[1]) <= 1);
+    CHECK(std::abs(pixel.b - SolidColor[2]) <= 1);
+    CHECK(pixel.a == SolidColor[3]);
+  }
 
   device->destroyImage(texture);
   device->destroySampler(nearest);

@@ -123,6 +123,22 @@ void writeBoxGltf(const std::filesystem::path &gltf, const std::string &imageFil
 
 } // namespace sonnet::assets::test
 
+namespace {
+
+// What readKtx2 is asked for: a desktop GPU, which has BC and no ASTC, and a phone, which has
+// ASTC and here no BC.
+rhi::DeviceInfo deviceWith(bool blockCompression, bool astc) {
+  rhi::DeviceInfo info;
+  info.blockCompressionSupported = blockCompression;
+  info.astcSupported = astc;
+  return info;
+}
+
+const rhi::DeviceInfo BlockCompression = deviceWith(true, false);
+const rhi::DeviceInfo AstcOnly = deviceWith(false, true);
+
+} // namespace
+
 TEST_CASE("a PNG imports to RGBA8 with a mip chain in the requested colour space", "[assets][texture]") {
   const std::vector<std::byte> png = test::encodePng({2, 2}, test::quadPixels());
   const auto srgb = importImage(png, TextureSettings{});
@@ -163,7 +179,7 @@ TEST_CASE("a texture cooks into KTX2 and reads back compressed or not", "[assets
 
   const auto uncompressed = cookKtx2(*texture, false);
   REQUIRE(uncompressed.has_value());
-  const auto plain = readKtx2(*uncompressed, true);
+  const auto plain = readKtx2(*uncompressed, BlockCompression);
   REQUIRE(plain.has_value());
   REQUIRE(plain->format == rhi::Format::R8G8B8A8Srgb);
   REQUIRE(plain->mipLevels == 4);
@@ -171,13 +187,18 @@ TEST_CASE("a texture cooks into KTX2 and reads back compressed or not", "[assets
 
   const auto compressed = cookKtx2(*texture, true);
   REQUIRE(compressed.has_value());
-  const auto bc7 = readKtx2(*compressed, true);
+  const auto bc7 = readKtx2(*compressed, BlockCompression);
   REQUIRE(bc7.has_value());
   REQUIRE(bc7->format == rhi::Format::BC7Srgb);
   REQUIRE(bc7->mipLevels == 4);
   REQUIRE(bc7->data.size() == bc7->expectedSize());
   REQUIRE(bc7->level(3).size() == 16); // one 4x4 block for the 1x1 level
-  const auto fallback = readKtx2(*compressed, false);
+  const auto astc = readKtx2(*compressed, AstcOnly);
+  REQUIRE(astc.has_value());
+  REQUIRE(astc->format == rhi::Format::ASTC4x4Srgb);
+  REQUIRE(astc->mipLevels == 4);
+  REQUIRE(astc->data.size() == astc->expectedSize());
+  const auto fallback = readKtx2(*compressed, rhi::DeviceInfo{});
   REQUIRE(fallback.has_value());
   REQUIRE(fallback->format == rhi::Format::R8G8B8A8Srgb);
   // Grey survives the round trip closely.
@@ -185,7 +206,7 @@ TEST_CASE("a texture cooks into KTX2 and reads back compressed or not", "[assets
   REQUIRE(std::to_integer<int>(fallback->level(0)[0]) <= 205);
 
   const std::array<std::byte, 16> garbage{};
-  REQUIRE(!readKtx2(garbage, true).has_value());
+  REQUIRE(!readKtx2(garbage, BlockCompression).has_value());
 }
 
 // Issue #24. basisu's job pool, which libktx builds and tears down around every compression, set

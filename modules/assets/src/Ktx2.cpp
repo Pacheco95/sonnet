@@ -24,6 +24,10 @@ constexpr std::uint32_t VkFormatBc4Unorm = 139;
 constexpr std::uint32_t VkFormatBc5Unorm = 141;
 constexpr std::uint32_t VkFormatBc7Unorm = 145;
 constexpr std::uint32_t VkFormatBc7Srgb = 146;
+constexpr std::uint32_t VkFormatAstc4x4Unorm = 157;
+constexpr std::uint32_t VkFormatAstc4x4Srgb = 158;
+constexpr std::uint32_t VkFormatAstc6x6Unorm = 165;
+constexpr std::uint32_t VkFormatAstc6x6Srgb = 166;
 
 rhi::Format fromVkFormat(std::uint32_t format) noexcept {
   switch (format) {
@@ -41,6 +45,14 @@ rhi::Format fromVkFormat(std::uint32_t format) noexcept {
     return rhi::Format::BC7Unorm;
   case VkFormatBc7Srgb:
     return rhi::Format::BC7Srgb;
+  case VkFormatAstc4x4Unorm:
+    return rhi::Format::ASTC4x4Unorm;
+  case VkFormatAstc4x4Srgb:
+    return rhi::Format::ASTC4x4Srgb;
+  case VkFormatAstc6x6Unorm:
+    return rhi::Format::ASTC6x6Unorm;
+  case VkFormatAstc6x6Srgb:
+    return rhi::Format::ASTC6x6Srgb;
   default:
     return rhi::Format::Undefined;
   }
@@ -64,7 +76,7 @@ core::Error ktxError(std::string_view what, ktx_error_code_e code) {
 
 } // namespace
 
-core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, bool blockCompression) {
+core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, const rhi::DeviceInfo &device) {
   SONNET_ZONE();
   ktxTexture2 *raw = nullptr;
   ktx_error_code_e result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t *>(bytes.data()),
@@ -74,7 +86,12 @@ core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, b
   }
   KtxTexture texture{raw};
   if (ktxTexture2_NeedsTranscoding(texture.get())) {
-    result = ktxTexture2_TranscodeBasis(texture.get(), blockCompression ? KTX_TTF_BC7_RGBA : KTX_TTF_RGBA32, 0);
+    // UASTC is a restricted ASTC 4x4, so a phone without BC takes it at 8 bits per texel rather
+    // than the 32 of RGBA8 (docs/assets.md, "Textures").
+    const ktx_transcode_fmt_e target = device.blockCompressionSupported ? KTX_TTF_BC7_RGBA
+                                       : device.astcSupported           ? KTX_TTF_ASTC_4x4_RGBA
+                                                                        : KTX_TTF_RGBA32;
+    result = ktxTexture2_TranscodeBasis(texture.get(), target, 0);
     if (result != KTX_SUCCESS) {
       return std::unexpected(ktxError("transcoding the KTX2 file", result));
     }
@@ -83,6 +100,10 @@ core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, b
   if (format == rhi::Format::Undefined) {
     return std::unexpected(core::Error{std::format("KTX2 format {} is not one the engine reads", texture->vkFormat),
                                        core::ErrorCategory::Io});
+  }
+  if (!rhi::formatSupported(device, format)) {
+    return std::unexpected(core::Error{
+        std::format("KTX2 format {} is not one the device samples", rhi::toString(format)), core::ErrorCategory::Io});
   }
   if (texture->numDimensions != 2 || texture->numLayers != 1 || (texture->numFaces != 1 && texture->numFaces != 6)) {
     return std::unexpected(core::Error{"KTX2 file is not a 2D image or a cube map", core::ErrorCategory::Io});

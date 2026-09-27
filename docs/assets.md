@@ -32,7 +32,7 @@ Materials request their textures rather than load them, so neither `material` no
 | glTF 2.0 (`.gltf`, `.glb`) | fastgltf | Meshes (one submesh per triangle primitive, flat normals and tangents generated when missing), PBR materials, the images they use, skins, animation clips, and a `Model` with the node hierarchy that `world` turns into a prefab |
 | PNG, JPEG, TGA, BMP | stb_image | Textures, decoded to RGBA8 with a box-filtered mip chain and cooked to KTX2 |
 | `.hdr` | stb_image | Environments, decoded to RGBA16F for the renderer's cubes |
-| KTX2 | KTX-Software | Textures, used directly; Basis Universal data is transcoded on load |
+| KTX2 | KTX-Software | Textures, used directly; Basis Universal data is transcoded on load, and a format the device cannot sample fails the import |
 | `.material.json` | assets | Materials ([Materials](#materials)) |
 | `.slang` | Slang, through `editor::ShaderCompiler` | SPIR-V modules for the editor's shader hot reload ([rendering.md](rendering.md#shaders)) |
 | `.lua` | assets | Script assets: the source text, run by `scripting` ([scripting.md](scripting.md)) |
@@ -43,7 +43,7 @@ Import settings live in the sidecar file and are edited in the inspector. A text
 
 ## Textures
 
-Import decodes to RGBA8, generates mipmaps, and cooks to KTX2 in the project's cache (`.sonnet/cache/<uuid>.ktx2`, ignored by git), which is rebuilt when the source or its sidecar is newer. A compressed texture is stored as Basis Universal UASTC with zstd supercompression, the portable form, and transcoded on load to BC7 where the device supports block compression (`DeviceInfo::blockCompressionSupported`: desktop GPUs and Lavapipe) and to RGBA8 otherwise; ASTC for mobile joins in M9. The UASTC encode runs on a thread pool of Basis Universal's own, one thread per core, created and torn down around each texture; the `ktx` port patches its shutdown, which could hang ([ports/README.md](../ports/README.md)). An uncompressed texture is stored as plain RGBA8. Colour textures are sRGB, data textures (normals, roughness, metallic, occlusion) are linear; the glTF importer decides per image from how the materials use it, and a file texture's sidecar says.
+Import decodes to RGBA8, generates mipmaps, and cooks to KTX2 in the project's cache (`.sonnet/cache/<uuid>.ktx2`, ignored by git), which is rebuilt when the source or its sidecar is newer. A compressed texture is stored as Basis Universal UASTC with zstd supercompression, the portable form, and transcoded on load to BC7 where the device supports block compression (`DeviceInfo::blockCompressionSupported`: desktop GPUs and Lavapipe), to ASTC 4×4 where it has ASTC but no BC (`astcSupported`), and to RGBA8 where it has neither. UASTC is a restricted form of ASTC 4×4, so the second costs a phone 8 bits per texel rather than RGBA8's 32. The UASTC encode runs on a thread pool of Basis Universal's own, one thread per core, created and torn down around each texture; the `ktx` port patches its shutdown, which could hang ([ports/README.md](../ports/README.md)). An uncompressed texture is stored as plain RGBA8. Colour textures are sRGB, data textures (normals, roughness, metallic, occlusion) are linear; the glTF importer decides per image from how the materials use it, and a file texture's sidecar says.
 
 ## Meshes
 

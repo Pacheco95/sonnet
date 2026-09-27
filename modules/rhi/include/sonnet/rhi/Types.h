@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -40,6 +41,10 @@ enum class Format : std::uint8_t {
   BC5Unorm,           // two channels, cooked normal maps
   BC7Unorm,           // colour, cooked textures
   BC7Srgb,
+  ASTC4x4Unorm, // linear data in a mobile bundle, and UASTC transcoded without BC
+  ASTC4x4Srgb,
+  ASTC6x6Unorm,
+  ASTC6x6Srgb, // colour in a mobile bundle
   D32Sfloat,
 };
 
@@ -52,7 +57,8 @@ enum class Format : std::uint8_t {
   return format == Format::R32Uint;
 }
 
-// Texel block dimensions and size: 1x1 blocks for plain formats, 4x4 for the compressed ones.
+// Texel block dimensions and size: 1x1 blocks for plain formats, 4x4 for BC and ASTC 4x4, 6x6
+// for ASTC 6x6.
 struct FormatInfo {
   std::uint32_t blockWidth{1};
   std::uint32_t blockHeight{1};
@@ -80,9 +86,68 @@ struct FormatInfo {
   case Format::BC5Unorm:
   case Format::BC7Unorm:
   case Format::BC7Srgb:
+  case Format::ASTC4x4Unorm:
+  case Format::ASTC4x4Srgb:
     return {4, 4, 16};
+  case Format::ASTC6x6Unorm:
+  case Format::ASTC6x6Srgb:
+    return {6, 6, 16};
   }
   return {1, 1, 0};
+}
+
+// The BC formats need DeviceInfo::blockCompressionSupported, the ASTC ones astcSupported.
+[[nodiscard]] constexpr bool isBlockCompressedFormat(Format format) noexcept {
+  return format == Format::BC4Unorm || format == Format::BC5Unorm || format == Format::BC7Unorm ||
+         format == Format::BC7Srgb;
+}
+
+[[nodiscard]] constexpr bool isAstcFormat(Format format) noexcept {
+  return format == Format::ASTC4x4Unorm || format == Format::ASTC4x4Srgb || format == Format::ASTC6x6Unorm ||
+         format == Format::ASTC6x6Srgb;
+}
+
+// The format's name as the engine's enum spells it, for logs.
+[[nodiscard]] constexpr std::string_view toString(Format format) noexcept {
+  switch (format) {
+  case Format::Undefined:
+    return "Undefined";
+  case Format::R8Unorm:
+    return "R8Unorm";
+  case Format::R8G8B8A8Unorm:
+    return "R8G8B8A8Unorm";
+  case Format::R8G8B8A8Srgb:
+    return "R8G8B8A8Srgb";
+  case Format::B8G8R8A8Unorm:
+    return "B8G8R8A8Unorm";
+  case Format::B8G8R8A8Srgb:
+    return "B8G8R8A8Srgb";
+  case Format::R16G16Sfloat:
+    return "R16G16Sfloat";
+  case Format::R16G16B16A16Sfloat:
+    return "R16G16B16A16Sfloat";
+  case Format::R32Uint:
+    return "R32Uint";
+  case Format::BC4Unorm:
+    return "BC4Unorm";
+  case Format::BC5Unorm:
+    return "BC5Unorm";
+  case Format::BC7Unorm:
+    return "BC7Unorm";
+  case Format::BC7Srgb:
+    return "BC7Srgb";
+  case Format::ASTC4x4Unorm:
+    return "ASTC4x4Unorm";
+  case Format::ASTC4x4Srgb:
+    return "ASTC4x4Srgb";
+  case Format::ASTC6x6Unorm:
+    return "ASTC6x6Unorm";
+  case Format::ASTC6x6Srgb:
+    return "ASTC6x6Srgb";
+  case Format::D32Sfloat:
+    return "D32Sfloat";
+  }
+  return "Undefined";
 }
 
 [[nodiscard]] constexpr bool isCompressedFormat(Format format) noexcept {

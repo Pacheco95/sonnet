@@ -180,7 +180,7 @@ private:
     std::filesystem::path cache;
     std::string name;
     std::filesystem::file_time_type sourceTime;
-    bool blockCompression{false};
+    rhi::DeviceInfo device; // what the texture is read for
   };
   // The result of that import: everything decoded, nothing created. Images line up with
   // `import.images`; an image that failed to decode has no data.
@@ -207,7 +207,7 @@ private:
     std::string name;
     std::filesystem::file_time_type sourceTime;
     TextureSettings settings;
-    bool blockCompression{false};
+    rhi::DeviceInfo device; // what the texture is read for
   };
   [[nodiscard]] static std::optional<renderer::TextureData> importFileTexture(const TextureRequest &request);
   [[nodiscard]] std::optional<TextureRequest> textureRequest(const core::Uuid &uuid, const AssetInfo &info);

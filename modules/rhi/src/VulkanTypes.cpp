@@ -30,6 +30,14 @@ vk::Format toVk(Format format) noexcept {
     return vk::Format::eBc7UnormBlock;
   case Format::BC7Srgb:
     return vk::Format::eBc7SrgbBlock;
+  case Format::ASTC4x4Unorm:
+    return vk::Format::eAstc4x4UnormBlock;
+  case Format::ASTC4x4Srgb:
+    return vk::Format::eAstc4x4SrgbBlock;
+  case Format::ASTC6x6Unorm:
+    return vk::Format::eAstc6x6UnormBlock;
+  case Format::ASTC6x6Srgb:
+    return vk::Format::eAstc6x6SrgbBlock;
   case Format::D32Sfloat:
     return vk::Format::eD32Sfloat;
   }
@@ -62,6 +70,14 @@ Format fromVk(vk::Format format) noexcept {
     return Format::BC7Unorm;
   case vk::Format::eBc7SrgbBlock:
     return Format::BC7Srgb;
+  case vk::Format::eAstc4x4UnormBlock:
+    return Format::ASTC4x4Unorm;
+  case vk::Format::eAstc4x4SrgbBlock:
+    return Format::ASTC4x4Srgb;
+  case vk::Format::eAstc6x6UnormBlock:
+    return Format::ASTC6x6Unorm;
+  case vk::Format::eAstc6x6SrgbBlock:
+    return Format::ASTC6x6Srgb;
   case vk::Format::eD32Sfloat:
     return Format::D32Sfloat;
   default:
