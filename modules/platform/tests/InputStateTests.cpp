@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
+
 using namespace sonnet::platform;
 
 TEST_CASE("keys and buttons are held between their press and release", "[platform][input]") {
@@ -59,6 +61,54 @@ TEST_CASE("losing the focus releases everything held", "[platform][input]") {
   REQUIRE(input.keyReleased(Key::Space));
   REQUIRE_FALSE(input.mouseDown(MouseButton::Right));
   REQUIRE(input.mouseReleased(MouseButton::Right));
+}
+
+TEST_CASE("touches appear, move by a per-frame motion and end", "[platform][input]") {
+  InputState input;
+  input.beginFrame();
+  REQUIRE(input.touches().empty());
+  input.handle(TouchDown{.id = 4, .position = {10.0f, 20.0f}});
+  input.handle(TouchDown{.id = 9, .position = {100.0f, 50.0f}});
+  REQUIRE(input.touches().size() == 2);
+  REQUIRE(input.touches()[0].id == 4);
+  REQUIRE(input.touches()[0].position == glm::vec2{10.0f, 20.0f});
+  REQUIRE(input.touches()[0].delta == glm::vec2{0.0f, 0.0f});
+  REQUIRE(input.touches()[1].id == 9);
+
+  input.handle(TouchMotion{.id = 4, .position = {12.0f, 21.0f}, .delta = {2.0f, 1.0f}});
+  input.handle(TouchMotion{.id = 4, .position = {15.0f, 21.0f}, .delta = {3.0f, 0.0f}});
+  REQUIRE(input.touches()[0].position == glm::vec2{15.0f, 21.0f});
+  REQUIRE(input.touches()[0].delta == glm::vec2{5.0f, 1.0f});
+  REQUIRE(input.touches()[1].delta == glm::vec2{0.0f, 0.0f});
+
+  // The motion is this frame's; the position stays.
+  input.beginFrame();
+  REQUIRE(input.touches()[0].delta == glm::vec2{0.0f, 0.0f});
+  REQUIRE(input.touches()[0].position == glm::vec2{15.0f, 21.0f});
+
+  // The first finger lifts; the second keeps its place as the only one.
+  input.handle(TouchUp{.id = 4, .position = {15.0f, 21.0f}});
+  REQUIRE(input.touches().size() == 1);
+  REQUIRE(input.touches()[0].id == 9);
+  // A finger that went down before anyone listened is ignored until it lifts.
+  input.handle(TouchMotion{.id = 5, .position = {1.0f, 1.0f}, .delta = {1.0f, 1.0f}});
+  input.handle(TouchUp{.id = 5, .position = {1.0f, 1.0f}});
+  REQUIRE(input.touches().size() == 1);
+  input.handle(TouchUp{.id = 9, .position = {100.0f, 50.0f}});
+  REQUIRE(input.touches().empty());
+}
+
+TEST_CASE("touches end with the focus and past the most fingers kept", "[platform][input]") {
+  InputState input;
+  for (std::uint64_t id = 0; id <= InputState::MaxTouches; ++id) {
+    input.handle(TouchDown{.id = id, .position = {}});
+  }
+  REQUIRE(input.touches().size() == InputState::MaxTouches);
+  input.handle(WindowFocusChanged{.focused = false});
+  REQUIRE(input.touches().empty());
+  input.handle(TouchDown{.id = 1, .position = {}});
+  input.releaseAll();
+  REQUIRE(input.touches().empty());
 }
 
 TEST_CASE("keys and buttons have names scripts can use", "[platform][input]") {

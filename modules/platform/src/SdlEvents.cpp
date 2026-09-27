@@ -1,6 +1,9 @@
 #include "SdlEvents.h"
 
 #include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_pen.h>
+#include <SDL3/SDL_touch.h>
+#include <SDL3/SDL_video.h>
 
 #include <array>
 #include <utility>
@@ -143,6 +146,36 @@ MouseButton mouseButtonFromSdl(Uint8 button) noexcept {
   }
 }
 
+// SDL's finger positions are fractions of the window; the engine's are in window coordinates, as
+// SDL scales the mouse events it synthesises from the same finger. A window SDL no longer knows has
+// no size, and its touches land at the origin.
+glm::vec2 windowSize(SDL_WindowID id) noexcept {
+  int width = 0;
+  int height = 0;
+  if (SDL_Window *window = SDL_GetWindowFromID(id); window == nullptr || !SDL_GetWindowSize(window, &width, &height)) {
+    return {0.0f, 0.0f};
+  }
+  return {static_cast<float>(width), static_cast<float>(height)};
+}
+
+std::optional<Event> translateFinger(const SDL_TouchFingerEvent &finger) {
+  // SDL reports a mouse and a pen as touches too on Android and iOS; they already arrive as the
+  // mouse, and a touch is a finger (docs/platform.md, "Events").
+  if (finger.touchID == SDL_MOUSE_TOUCHID || finger.touchID == SDL_PEN_TOUCHID) {
+    return std::nullopt;
+  }
+  const glm::vec2 size = windowSize(finger.windowID);
+  const glm::vec2 position = glm::vec2{finger.x, finger.y} * size;
+  switch (finger.type) {
+  case SDL_EVENT_FINGER_DOWN:
+    return TouchDown{finger.fingerID, position};
+  case SDL_EVENT_FINGER_MOTION:
+    return TouchMotion{finger.fingerID, position, glm::vec2{finger.dx, finger.dy} * size};
+  default:
+    return TouchUp{finger.fingerID, position};
+  }
+}
+
 } // namespace
 
 Key keyFromScancode(SDL_Scancode scancode) noexcept {
@@ -195,8 +228,13 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
     return KeyReleased{keyFromScancode(event.key.scancode), modifiersFromSdl(event.key.mod)};
   case SDL_EVENT_TEXT_INPUT:
     return TextInput{event.text.text};
-  case SDL_EVENT_MOUSE_MOTION:
-    return MouseMoved{{event.motion.x, event.motion.y}, {event.motion.xrel, event.motion.yrel}};
+  case SDL_EVENT_MOUSE_MOTION: {
+    // A finger works as the left button: SDL moves its mouse to where the finger lands before
+    // pressing. That move is a jump from wherever the last finger lifted, not motion.
+    const bool landing = event.motion.which == SDL_TOUCH_MOUSEID && (event.motion.state & SDL_BUTTON_LMASK) == 0;
+    const glm::vec2 delta = landing ? glm::vec2{0.0f, 0.0f} : glm::vec2{event.motion.xrel, event.motion.yrel};
+    return MouseMoved{{event.motion.x, event.motion.y}, delta};
+  }
   case SDL_EVENT_MOUSE_BUTTON_DOWN:
   case SDL_EVENT_MOUSE_BUTTON_UP: {
     const MouseButton button = mouseButtonFromSdl(event.button.button);
@@ -213,6 +251,11 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
     const float sign = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;
     return MouseWheel{{event.wheel.x * sign, event.wheel.y * sign}};
   }
+  case SDL_EVENT_FINGER_DOWN:
+  case SDL_EVENT_FINGER_UP:
+  case SDL_EVENT_FINGER_MOTION:
+  case SDL_EVENT_FINGER_CANCELED:
+    return translateFinger(event.tfinger);
   default:
     return std::nullopt;
   }

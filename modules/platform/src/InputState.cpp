@@ -1,5 +1,6 @@
 #include <sonnet/platform/InputState.h>
 
+#include <algorithm>
 #include <variant>
 
 namespace sonnet::platform {
@@ -23,6 +24,9 @@ void InputState::beginFrame() noexcept {
   m_buttonsReleased.reset();
   m_mouseDelta = {0.0f, 0.0f};
   m_wheel = {0.0f, 0.0f};
+  for (Touch &touch : std::span{m_touches}.first(m_touchCount)) {
+    touch.delta = {0.0f, 0.0f};
+  }
 }
 
 void InputState::handle(const Event &event) noexcept {
@@ -52,6 +56,23 @@ void InputState::handle(const Event &event) noexcept {
     m_mouseDelta += moved->delta;
   } else if (const auto *wheel = std::get_if<MouseWheel>(&event)) {
     m_wheel += wheel->delta;
+  } else if (const auto *touchDown = std::get_if<TouchDown>(&event)) {
+    if (findTouch(touchDown->id) == nullptr && m_touchCount < MaxTouches) {
+      m_touches[m_touchCount++] = Touch{.id = touchDown->id, .position = touchDown->position, .delta = {0.0f, 0.0f}};
+    }
+  } else if (const auto *touchMotion = std::get_if<TouchMotion>(&event)) {
+    // A finger that went down before the game was listening is not the game's.
+    if (Touch *touch = findTouch(touchMotion->id)) {
+      touch->position = touchMotion->position;
+      touch->delta += touchMotion->delta;
+    }
+  } else if (const auto *touchUp = std::get_if<TouchUp>(&event)) {
+    if (const Touch *touch = findTouch(touchUp->id)) {
+      // Keeps the order the others went down in.
+      const auto at = static_cast<std::ptrdiff_t>(touch - m_touches.data());
+      std::shift_left(m_touches.begin() + at, m_touches.begin() + static_cast<std::ptrdiff_t>(m_touchCount), 1);
+      --m_touchCount;
+    }
   } else if (const auto *focus = std::get_if<WindowFocusChanged>(&event)) {
     // The release of a key held while the focus leaves never arrives.
     if (!focus->focused) {
@@ -65,6 +86,13 @@ void InputState::releaseAll() noexcept {
   m_keysDown.reset();
   m_buttonsReleased |= m_buttonsDown;
   m_buttonsDown.reset();
+  m_touchCount = 0;
+}
+
+Touch *InputState::findTouch(std::uint64_t id) noexcept {
+  const auto active = std::span{m_touches}.first(m_touchCount);
+  const auto it = std::ranges::find(active, id, &Touch::id);
+  return it != active.end() ? &*it : nullptr;
 }
 
 bool InputState::keyDown(Key key) const noexcept {

@@ -8,7 +8,7 @@ Window, input events, the application callback interface and file-system paths, 
 | `Content.h` | `ContentStream`: a seekable, read-only stream over the game's content |
 | `Window.h` | `IWindow` and `WindowDesc`; the SDL window handle for Dear ImGui's backend and relative mouse mode |
 | `Input.h` | `Key` (physical positions), `MouseButton`, `Modifiers`, and their names both ways |
-| `InputState.h` | `InputState`: the keyboard and mouse as state, fed from events |
+| `InputState.h` | `InputState` and `Touch`: the keyboard, mouse and touches as state, fed from events |
 | `Event.h` | The event structs and the `Event` variant |
 | `Application.h` | `IApplication` (`iterate`, `event`, `nativeEvent`), `AppResult`, the `createApplication` declaration every executable defines |
 | `EntryPoint.h` | Included once per executable; provides `main()` through SDL's callbacks |
@@ -38,11 +38,21 @@ The Vulkan loader is reached through `Platform::vulkanGetInstanceProcAddr` and `
 
 ## Events
 
-Events are values of the `Event` variant: window resize (pixel size), minimise and restore, focus, close request, quit request, key press and release with modifiers and repeat, UTF-8 text input, mouse motion with delta, mouse buttons with click count, and wheel. `Key` names physical positions with US-layout names, so game bindings survive keyboard layouts; text input carries the layout-aware characters. There is no window id on events until the engine has more than one window that receives input.
+Events are values of the `Event` variant: window resize (pixel size), minimise and restore, focus, close request, quit request, key press and release with modifiers and repeat, UTF-8 text input, mouse motion with delta, mouse buttons with click count, wheel, and a finger's `TouchDown`, `TouchMotion` with delta and `TouchUp` ([ADR-0018](decisions/0018-mobile-export.md#where-it-lives)). `Key` names physical positions with US-layout names, so game bindings survive keyboard layouts; text input carries the layout-aware characters. There is no window id on events until the engine has more than one window that receives input.
+
+Positions, the mouse's and the touches' alike, are in window coordinates: SDL's for the mouse, and for a finger SDL's fraction of the window times the window's size, which is how SDL places the mouse it synthesises from the same finger. On Android the window's size is its surface's in pixels, so these are pixels there. On a desktop with a high-density display they are the logical coordinates, smaller than the pixel size. A touch carries SDL's finger id, which stays the same from down to up. A cancelled finger, which Android sends when a system gesture takes it, ends with a `TouchUp`.
+
+**Touches and the mouse.** SDL's synthesised mouse events stay on (`SDL_HINT_TOUCH_MOUSE_EVENTS`), so one finger works as the left button for scripts written against the mouse. A finger therefore arrives twice, once as a touch and once as the mouse, and the rules keep each report whole:
+
+- **Only the first finger drives the mouse.** SDL tracks one finger at a time, so a second finger is a touch and nothing else.
+- **A finger's landing is not motion.** Before pressing the left button, SDL moves its mouse to where the finger lands. That move (`which` is `SDL_TOUCH_MOUSEID`, the left button not yet held) keeps its position with a zero delta, since it is a jump from wherever the last finger lifted. Its moves while held are motion like a mouse's.
+- **A mouse or a pen is never a touch.** On Android and iOS SDL reports a mouse as a touch too (`SDL_HINT_MOUSE_TOUCH_EVENTS` defaults on there, under `SDL_MOUSE_TOUCHID`), and a pen as a touch everywhere (`SDL_PEN_TOUCHID`). Both already arrive as the mouse, so their finger events are dropped.
+
+`InputState` keeps the two apart: the mouse's buttons and position, and the touches. A script reading the left button sees the first finger, and a script reading the touches sees every finger. A script that reads both sees the first finger in each and should use one or the other.
 
 ## Input state
 
-`InputState` turns the event stream into what a game asks for: which keys and buttons are held, which went down or up this frame, where the pointer is and how far it and the wheel moved this frame. The application hands it the events the game should see and calls `beginFrame` once its frame has consumed them; a key's repeats are not new presses, and losing the window's focus, or `releaseAll`, releases everything held, since those releases would never arrive. `toString` and `keyFromName` convert keys to and from their enumerator names (`"A"`, `"Digit1"`, `"LeftShift"`), and likewise for mouse buttons, which is how scripts name them ([scripting.md](scripting.md#input)).
+`InputState` turns the event stream into what a game asks for: which keys and buttons are held, which went down or up this frame, where the pointer and the fingers are and how far they and the wheel moved this frame. The application hands it the events the game should see and calls `beginFrame` once its frame has consumed them; a key's repeats are not new presses, and losing the window's focus, or `releaseAll`, releases everything held, since those releases would never arrive. The touches are the fingers down now, in the order they went down, each with its id, position and this frame's motion (`touches()`, a span of `Touch`). `beginFrame` zeroes the motion as it does the mouse's, and a `TouchUp` removes the finger. A finger whose down the state never saw, because it landed before the game was listening, is ignored until it lifts, and losing the focus or `releaseAll` ends every touch. A tap shorter than a frame shows as the left button's press and release, not as a touch. At most `InputState::MaxTouches` (10) fingers are kept, in a fixed array, so handling an event never allocates. `toString` and `keyFromName` convert keys to and from their enumerator names (`"A"`, `"Digit1"`, `"LeftShift"`), and likewise for mouse buttons, which is how scripts name them ([scripting.md](scripting.md#input)).
 
 ## Headless
 
@@ -61,4 +71,4 @@ Events are values of the `Event` variant: window resize (pixel size), minimise a
 
 ## Tests
 
-`platform_tests` covers `openContent` over plain files (relative and absolute paths, a missing file, seek, tell, size, a read at an offset, a short read, a move), the input state's held keys and one-frame edges, motion and wheel, the release on focus loss and the key names, the headless platform, window creation and sizes, paths, the Vulkan loader hook (skipped where no loader is installed) and, white-box through `src/SdlEvents.h`, the scancode and modifier mapping and the translation of every event type.
+`platform_tests` covers `openContent` over plain files (relative and absolute paths, a missing file, seek, tell, size, a read at an offset, a short read, a move), the input state's held keys and one-frame edges, motion and wheel, the release on focus loss, touches appearing, moving with a motion that resets each frame and ending, and the key names, the headless platform, window creation and sizes, paths, the Vulkan loader hook (skipped where no loader is installed) and, white-box through `src/SdlEvents.h`, the scancode and modifier mapping and the translation of every event type. The finger events go through the same translation in a headless window of known size: two fingers down at once, motion, up and cancel, scaled from SDL's fractions to window coordinates. So do a mouse and a pen reported as touches, which are dropped, and the landing of a finger's synthesised mouse.
