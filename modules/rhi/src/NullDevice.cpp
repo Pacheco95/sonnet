@@ -159,19 +159,17 @@ public:
     create();
   }
   ~NullSwapchain() override {
-    for (const ImageHandle image : m_images) {
-      m_device.destroyImage(image);
-    }
+    release();
   }
   NullSwapchain(const NullSwapchain &) = delete;
   NullSwapchain &operator=(const NullSwapchain &) = delete;
 
   std::optional<SwapchainImage> acquire() override {
+    if (m_suspended) {
+      return std::nullopt;
+    }
     if (m_needsRecreate) {
-      for (const ImageHandle image : m_images) {
-        m_device.destroyImage(image);
-      }
-      m_images.clear();
+      release();
       create();
     }
     if (m_extent.x == 0 || m_extent.y == 0) {
@@ -183,6 +181,24 @@ public:
   }
   void requestResize() override {
     m_needsRecreate = true;
+  }
+  // The Vulkan swapchain's rules without a surface: the images go on suspend and come back at
+  // the window's size on resume.
+  void suspend() override {
+    if (!m_suspended) {
+      release();
+      m_suspended = true;
+    }
+  }
+  core::Result<void> resume() override {
+    if (m_suspended) {
+      m_suspended = false;
+      create();
+    }
+    return {};
+  }
+  bool suspended() const override {
+    return m_suspended;
   }
   Format format() const override {
     return Format::B8G8R8A8Unorm;
@@ -198,6 +214,12 @@ public:
   }
 
 private:
+  void release() {
+    for (const ImageHandle image : m_images) {
+      m_device.destroyImage(image);
+    }
+    m_images.clear();
+  }
   void create() {
     m_extent = m_window.pixelSize();
     m_needsRecreate = false;
@@ -219,6 +241,7 @@ private:
   glm::uvec2 m_extent{0, 0};
   std::uint32_t m_next{0};
   bool m_needsRecreate{false};
+  bool m_suspended{false};
 };
 
 } // namespace
