@@ -506,7 +506,7 @@ The phone's screen stayed on through the runs, with "stay awake while charging" 
 
 On the phone the forward pass is 68 to 73 % of the GPU frame, then FXAA (0.31–0.39 ms), the first bloom downsample (about 0.3 ms) and tone mapping (0.15 ms): the full-screen work at 2.5 million pixels. Every shadow cascade and the culling pass together stay under 0.3 ms. Frames came 5.3 to 7.6 ms apart, just above the GPU time and well above the CPU's 2 to 4.5 ms, so the phone is GPU-bound in these runs. The desktop and Mac numbers recorded above measure something else: [M7](#m7-gpu-driven-rendering)'s `renderer_tests "[benchmark]"`, ten thousand draws and a hundred lights at 1080p in Release. That is 0.50 ms of GPU time a frame on the RTX 4090 and 2.1 ms on the M4 Max ([macOS could not create a device](#macos-could-not-create-a-device)). The Mac has not made a capture run yet, which is M10's Mac check.
 
-**M9's "done".** "Done when the basic sample runs on an Android 16 device." ADR-0018 defines running as its six checks, and on the Galaxy S25 Ultra all six now pass: 1, 2, 3 and 6 by the agent in this step, and 4 and 5 by Michael by hand. That holds in portrait only. Turned to landscape, the swapchain takes the surface's 90° pre-transform and the scene is drawn rotated and stretched ([#47](https://github.com/Pacheco95/sonnet/issues/47)). Every run here kept auto-rotate off and the phone in portrait. The checks do not ask for landscape, so the criterion holds as the ADR words it. But a player on a phone gets a broken image by turning it, which is not a game that runs, so M9 stays open until #47 is fixed.
+**M9's "done".** "Done when the basic sample runs on an Android 16 device." ADR-0018 defines running as its six checks, and on the Galaxy S25 Ultra all six now pass: 1, 2, 3 and 6 by the agent in this step, and 4 and 5 by Michael by hand. That holds in portrait only. Turned to landscape, the swapchain takes the surface's 90° pre-transform and the scene is drawn rotated and stretched ([#47](https://github.com/Pacheco95/sonnet/issues/47)). Every run here kept auto-rotate off and the phone in portrait. The checks do not ask for landscape, so the criterion holds as the ADR words it. But a player on a phone got a broken image by turning it, which is not a game that runs, so M9 stayed open until #47 was fixed ([Rotation](#rotation)).
 
 What ADR-0018 got wrong, besides the NDK floor, the manifest's version and touch coordinates recorded above:
 
@@ -515,6 +515,22 @@ What ADR-0018 got wrong, besides the NDK floor, the manifest's version and touch
 - `am start` hands new arguments to a player that is running only with `-S`, which stops it first, and `adb shell` needs the whole command in one pair of quotes so that the `args` extra stays one string.
 - SDL's pref path on Android is `/data/data/<package>/files/`, the same directory as `/data/user/0/<package>/files/` for the first user.
 - The desktop and Mac numbers check 6 sets the phone's beside are a benchmark of another workload, so this step measured the desktop player's capture runs as well.
+
+### Rotation
+
+The last Android step fixes [#47](https://github.com/Pacheco95/sonnet/issues/47): turned to landscape, the player drew the scene rotated and stretched. vk-bootstrap takes the surface's current transform as the swapchain's pre-transform when none is set, and in landscape the S25 reports `Rotate90` with a 2340×1080 extent. The swapchain told Android its frames were already rotated, and the compositor turned them again. The swapchain now asks for the identity pre-transform where the surface supports it and lets the compositor rotate. With identity, every present in landscape reports suboptimal, which recreated the swapchain every frame when the fix was first tried: 321 times in 4.4 s. So a suboptimal whose surface extent is the swapchain's and whose transform alone differs keeps the swapchain ([rendering.md](rendering.md#rotation)). The change is in `rhi` alone. The window already had the landscape size, so the renderer, the capture and the touches needed nothing.
+
+Verified on Linux: `build/linux-debug` (GCC 14) builds with no warnings and all 14 suites pass on Lavapipe. The editor's viewport `--screenshot` of the playground is byte-identical to one from `main`. Its `--screenshot-window` is not, and neither are two window captures from the same build, which differ in the same few digits of text.
+
+**On the Galaxy S25 Ultra**, with the playground cooked for `android`, packaged into the `android-debug` APK and turned with `adb shell settings put system user_rotation` (auto-rotate off):
+
+- **Every orientation is upright and undistorted**: portrait, both landscapes and upside down, from `adb exec-out screencap -p`, with the whole playground in view in landscape.
+- **The swapchain is created once per turn**: portrait to landscape made one 2340×1080 swapchain, and landscape back to portrait one 1080×2340 swapchain. Landscape to the other landscape and portrait to upside down made none. In each orientation, no further swapchain appeared in the log.
+- **The compositor rotates in hardware**: `dumpsys SurfaceFlinger` lists the player's layer as `DEVICE` composition with `ROT_90` in landscape and `ROT_180` upside down, so the rotation costs no GPU pass.
+- **Check 5 in landscape**: a finger held with `adb shell input motionevent DOWN` on the left of the board pulled the ball to the point under it.
+- **Check 4 in landscape**: a trip to the recents screen and back, which stays in landscape, suspended the swapchain and resumed it at 2340×1080, upright. The home screen is portrait only, so a trip there comes back in portrait, which also resumed correctly.
+
+With the scene upright in every orientation, and ADR-0018's six checks passing, M9 is done.
 
 ## M10: iOS export
 
