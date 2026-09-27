@@ -182,6 +182,22 @@ adb logcat -s Sonnet | grep -E "background|swapchain|audio"
 
 A second `KEYCODE_APP_SWITCH` goes to the application used before the one in front, so from the player it opens another app and the next pair comes back. After `KEYCODE_WAKEUP` a locked phone stays on its lock screen, with the player in the background, until it is unlocked by hand.
 
+### Frame rate
+
+On Android the player runs at 60 fps. Its window asks the display for 60 Hz ([platform.md](platform.md#window)), and the swapchain presents with FIFO there, so each frame waits for the display ([rendering.md](rendering.md#frame-structure)). The Galaxy S25 Ultra's display runs at 120 Hz otherwise. While the player is in front, `adb shell dumpsys display | grep renderFrameRate` shows 60.
+
+Measured on that phone with the basic sample and the debug APK, 10 minutes from a cool phone each time, with `dumpsys thermalservice` and the GPU's `gpu_busy_percentage` and clock sampled every 20 s:
+
+| After 10 minutes | Mailbox, 120 Hz | FIFO, 120 Hz | FIFO, 60 Hz |
+|---|---|---|---|
+| SoC | 50.6 °C | 49.3 °C | 41.4 °C |
+| Skin | 43.3 °C | 42.6 °C | 37.6 °C |
+| Battery | 41.5 °C | 40.9 °C | 37.3 °C |
+| Thermal status | moderate after 80 s | moderate after 7 min | none throughout |
+| GPU clock | 1200 MHz, throttled to 734 | 832 MHz, throttled to 734 | 389 MHz |
+
+The phone started at about 35 °C each time. With Mailbox the GPU drew every frame it could and the display showed at most 120 of them each second. FIFO removed those extra frames, but 120 frames a second of the basic sample still kept the GPU over 80 % busy. At 60 Hz the GPU keeps up at its lowest clocks, and the skin stayed under the 38 °C of the phone's first thermal threshold.
+
 ## What an export is
 
 An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. An Android or iOS export is the bundle alone: the player there is an APK or an app bundle, which the build packages the bundle into ([Running on Android](#running-on-android)), and the editor builds neither. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](roadmap.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).

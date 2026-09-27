@@ -19,6 +19,9 @@ struct WindowDesc {
   glm::uvec2 size{1280, 720}; // logical size; the pixel size may be larger on high-density displays
   bool resizable{true};
   bool hidden{false};
+  // The display rate the window asks for, in frames per second; 0 leaves it to the system. Only
+  // Android honours it, where a FIFO swapchain then paces the frames to it (docs/platform.md).
+  float frameRate{0.0F};
 };
 
 class IWindow {

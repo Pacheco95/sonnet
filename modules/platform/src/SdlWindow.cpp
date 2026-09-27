@@ -5,13 +5,18 @@
 
 #include <SDL3/SDL_error.h>
 #include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_properties.h>
 #include <SDL3/SDL_vulkan.h>
+
+#if defined(__ANDROID__)
+#include <android/native_window.h>
+#endif
 
 #include <format>
 
 namespace sonnet::platform {
 
-SdlWindow::SdlWindow(const WindowDesc &desc) : m_title(desc.title) {
+SdlWindow::SdlWindow(const WindowDesc &desc) : m_title(desc.title), m_frameRate(desc.frameRate) {
   SDL_WindowFlags flags = SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
   if (desc.resizable) {
     flags |= SDL_WINDOW_RESIZABLE;
@@ -81,6 +86,24 @@ VkSurfaceKHR SdlWindow::createVulkanSurface(VkInstance instance) const {
     throw core::Exception{std::format("SDL_Vulkan_CreateSurface failed: {}", SDL_GetError()),
                           core::ErrorCategory::Platform};
   }
+#if defined(__ANDROID__)
+  // Android replaces the ANativeWindow on every resume, and the swapchain creates a surface for
+  // each one, so the rate is asked for here rather than once with the window.
+  if (m_frameRate > 0.0F) {
+    auto *nativeWindow = static_cast<ANativeWindow *>(
+        SDL_GetPointerProperty(SDL_GetWindowProperties(m_window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
+    if (nativeWindow == nullptr) {
+      SONNET_LOG_WARN("no ANativeWindow to ask for {} fps", m_frameRate);
+    } else if (const int result = ANativeWindow_setFrameRateWithChangeStrategy(
+                   nativeWindow, m_frameRate, ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_DEFAULT,
+                   ANATIVEWINDOW_CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+               result != 0) {
+      SONNET_LOG_WARN("ANativeWindow_setFrameRateWithChangeStrategy({} fps) failed: {}", m_frameRate, result);
+    } else {
+      SONNET_LOG_DEBUG("window asks the display for {} fps", m_frameRate);
+    }
+  }
+#endif
   return surface;
 }
 
