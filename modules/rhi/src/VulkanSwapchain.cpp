@@ -143,7 +143,11 @@ void VulkanSwapchain::releaseSurface() {
 }
 
 void VulkanSwapchain::requestResize() {
-  m_needsRecreate = true;
+  // SDL reports a pixel size change at startup, on Android and X11 alike, for a size the swapchain
+  // was already created at; a resize to the swapchain's own size recreates nothing (issue #51).
+  if (m_window.pixelSize() != m_extent) {
+    m_needsRecreate = true;
+  }
 }
 
 void VulkanSwapchain::suspend() {

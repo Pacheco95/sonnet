@@ -5,6 +5,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <SDL3/SDL_video.h>
+
+#include <vector>
+
 using namespace sonnet::rhi;
 
 namespace {
@@ -68,19 +72,46 @@ TEST_CASE("acquired images are cleared and presented over several frames", "[rhi
   device->waitIdle();
 }
 
-TEST_CASE("a resize request recreates the swapchain at the next acquire", "[rhi][swapchain][gpu]") {
+TEST_CASE("a resize request recreates the swapchain at the window's new size", "[rhi][swapchain][gpu]") {
   test::TestDevice device;
   const auto window = device.platform.createWindow({.title = "resize", .size = {320, 200}});
   const auto swapchain = makeSwapchain(device, *window);
   const std::uint32_t before = swapchain->imageCount();
 
+  REQUIRE(SDL_SetWindowSize(window->nativeHandle(), 256, 160));
+  REQUIRE(window->pixelSize() == glm::uvec2{256, 160});
   swapchain->requestResize();
   ICommandList &commands = device->beginFrame();
   const std::optional<SwapchainImage> image = swapchain->acquire();
   REQUIRE(image.has_value());
+  REQUIRE(image->extent == glm::uvec2{256, 160});
+  REQUIRE(swapchain->extent() == glm::uvec2{256, 160});
   REQUIRE(swapchain->imageCount() == before);
   test::transition(commands, test::toPresent(image->image, ImageLayout::Undefined));
   device->endFrame();
+  device->waitIdle();
+}
+
+// SDL reports a pixel size change at startup for the size the swapchain was created at (issue #51).
+TEST_CASE("a resize request at the swapchain's own size keeps the swapchain", "[rhi][swapchain][gpu]") {
+  test::TestDevice device;
+  const auto window = device.platform.createWindow({.title = "resize", .size = {320, 200}});
+  const auto swapchain = makeSwapchain(device, *window);
+  std::vector<ImageHandle> images;
+  for (std::uint32_t frame = 0; frame < swapchain->imageCount(); ++frame) {
+    ICommandList &commands = device->beginFrame();
+    const std::optional<SwapchainImage> image = swapchain->acquire();
+    REQUIRE(image.has_value());
+    images.push_back(image->image);
+    test::transition(commands, test::toPresent(image->image, ImageLayout::Undefined));
+    device->endFrame();
+  }
+
+  swapchain->requestResize();
+  REQUIRE(drawFrame(device, *swapchain));
+  for (const ImageHandle image : images) {
+    REQUIRE(device->isValid(image));
+  }
   device->waitIdle();
 }
 

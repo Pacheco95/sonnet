@@ -7,6 +7,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <SDL3/SDL_video.h>
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -158,6 +160,36 @@ TEST_CASE("null swapchain releases its images while suspended", "[rhi][null]") {
   REQUIRE(after.has_value());
   REQUIRE(after->extent == glm::uvec2{64, 48});
   device->endFrame();
+}
+
+TEST_CASE("null swapchain recreates only when the window's size changed", "[rhi][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<sonnet::platform::IWindow> window;
+  try {
+    window = platform.createWindow({.title = "null", .size = {64, 48}});
+  } catch (const sonnet::core::Exception &e) {
+    SKIP("no window on this machine: " << e.what());
+  }
+  const auto device = createNullDevice();
+  const auto swapchain = device->createSwapchain(*window);
+  static_cast<void>(device->beginFrame());
+  const ImageHandle before = swapchain->acquire()->image;
+  device->endFrame();
+
+  swapchain->requestResize(); // the size the swapchain already has (issue #51)
+  static_cast<void>(device->beginFrame());
+  REQUIRE(swapchain->acquire().has_value());
+  device->endFrame();
+  REQUIRE(device->isValid(before));
+
+  REQUIRE(SDL_SetWindowSize(window->nativeHandle(), 32, 24));
+  swapchain->requestResize();
+  static_cast<void>(device->beginFrame());
+  const auto after = swapchain->acquire();
+  REQUIRE(after.has_value());
+  REQUIRE(after->extent == glm::uvec2{32, 24});
+  device->endFrame();
+  REQUIRE(!device->isValid(before));
 }
 
 TEST_CASE("null device reports a memory budget from its live resources", "[rhi][null]") {
