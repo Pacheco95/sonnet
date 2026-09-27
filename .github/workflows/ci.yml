@@ -184,11 +184,16 @@ jobs:
             core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
 
       # NDK r30 is the oldest that targets android-36, the presets' API level (docs/build.md, "Toolchains").
-      # The runner's default, r27.3, stops at API 35, so r30 is installed next to it.
+      # The runner's default, r27.3, stops at API 35, so r30 is installed next to it. GCC 14 and the SDL
+      # headers are for the host build of sonnet_cook; the same compiler as the Linux GCC jobs lets vcpkg
+      # restore their x64-linux ports from the binary cache.
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build
+          sudo apt-get install -y ninja-build gcc-14 g++-14 \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
+            libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
           ndk=30.0.16248370
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" > /dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ndk" >> "$GITHUB_ENV"
@@ -208,11 +213,24 @@ jobs:
           "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
 
-      - name: Configure
-        run: cmake --preset android-release
+      # ADR-0018, "CI": the basic sample cooked for android by a Linux sonnet_cook, with ASTC textures.
+      # Built here rather than taken from the Linux jobs, which would hold this job until the whole
+      # matrix finished.
+      - name: Build the host cook tool
+        env:
+          CC: gcc-14
+          CXX: g++-14
+        run: |
+          cmake --preset linux-release -DSONNET_BUILD_TESTS=OFF
+          cmake --build --preset linux-release --target sonnet_cook_app
 
-      # The player library first, then the APK packaged from it. Cooking the sample into the APK waits
-      # for ASTC (ADR-0018, "CI").
+      - name: Cook the basic sample for Android
+        run: build/linux-release/apps/cook/sonnet_cook apps/samples/basic --platform android --out build/android-bundle
+
+      - name: Configure
+        run: cmake --preset android-release -DSONNET_ANDROID_BUNDLE="$PWD/build/android-bundle/game.sbundle"
+
+      # The player library first, then the APK packaged from it with the cooked bundle.
       - name: Build
         run: cmake --build --preset android-release --target sonnet_player_app
 
@@ -226,6 +244,7 @@ jobs:
           "$tools/apksigner" verify --verbose "$apk"
           "$tools/zipalign" -c -P 16 4 "$apk"
           "$tools/aapt2" dump badging "$apk" | grep -E "^package|Sdk|vulkan|native-code"
+          unzip -v "$apk" | grep -E ' Stored .* assets/game\.sbundle$'
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
