@@ -256,6 +256,17 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
   case SDL_EVENT_FINGER_MOTION:
   case SDL_EVENT_FINGER_CANCELED:
     return translateFinger(event.tfinger);
+  // SDL's DidEnterBackground and WillEnterForeground have no engine type: on Android each
+  // arrives straight after its partner with nothing in between, and on iOS the application has
+  // already stopped drawing at WillEnterBackground and starts again at DidEnterForeground.
+  case SDL_EVENT_WILL_ENTER_BACKGROUND:
+    return WillEnterBackground{};
+  case SDL_EVENT_DID_ENTER_FOREGROUND:
+    return DidEnterForeground{};
+  case SDL_EVENT_LOW_MEMORY:
+    return LowMemory{};
+  case SDL_EVENT_TERMINATING:
+    return Terminating{};
   default:
     return std::nullopt;
   }

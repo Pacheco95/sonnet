@@ -53,7 +53,7 @@ Backend selection is compile-time. The CMake option `SONNET_RHI` accepts only `V
 
 ## Application lifecycle
 
-The engine does not own `main()`. It implements the SDL3 callback model (`SDL_MAIN_USE_CALLBACKS`): init, iterate, event and quit callbacks. On desktop SDL calls iterate in a loop; on iOS and Android the OS owns the loop and calls back. Designing for callbacks from day one is what makes the mobile milestone a packaging job rather than a rewrite. An executable includes `sonnet/platform/EntryPoint.h` once and defines `platform::createApplication`; the mechanics are in [platform.md](platform.md#lifecycle).
+The engine does not own `main()`. It implements the SDL3 callback model (`SDL_MAIN_USE_CALLBACKS`): init, iterate, event and quit callbacks. On desktop SDL calls iterate in a loop; on iOS and Android the OS owns the loop and calls back. Designing for callbacks from day one is what makes the mobile milestone a packaging job rather than a rewrite. An executable includes `sonnet/platform/EntryPoint.h` once and defines `platform::createApplication`; the mechanics are in [platform.md](platform.md#lifecycle). On a phone the OS also sends the application to the background and back, which arrives as events between two iterations ([platform.md](platform.md#background-and-foreground)).
 
 Per iteration:
 

@@ -124,6 +124,16 @@ TEST_CASE("window and quit events translate", "[platform][input]") {
   REQUIRE(std::get<WindowFocusChanged>(*translateEvent(makeEvent(SDL_EVENT_WINDOW_FOCUS_LOST))).focused == false);
 }
 
+TEST_CASE("the mobile lifecycle events translate", "[platform][input]") {
+  REQUIRE(std::holds_alternative<WillEnterBackground>(*translateEvent(makeEvent(SDL_EVENT_WILL_ENTER_BACKGROUND))));
+  REQUIRE(std::holds_alternative<DidEnterForeground>(*translateEvent(makeEvent(SDL_EVENT_DID_ENTER_FOREGROUND))));
+  REQUIRE(std::holds_alternative<LowMemory>(*translateEvent(makeEvent(SDL_EVENT_LOW_MEMORY))));
+  REQUIRE(std::holds_alternative<Terminating>(*translateEvent(makeEvent(SDL_EVENT_TERMINATING))));
+  // Each arrives beside its partner above, which is the one an application acts on.
+  REQUIRE(!translateEvent(makeEvent(SDL_EVENT_DID_ENTER_BACKGROUND)).has_value());
+  REQUIRE(!translateEvent(makeEvent(SDL_EVENT_WILL_ENTER_FOREGROUND)).has_value());
+}
+
 TEST_CASE("text input copies the UTF-8 text", "[platform][input]") {
   SDL_Event text = makeEvent(SDL_EVENT_TEXT_INPUT);
   text.text.text = "héllo";

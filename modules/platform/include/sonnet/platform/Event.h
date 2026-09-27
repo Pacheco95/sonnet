@@ -72,8 +72,19 @@ struct TouchMotion {
   glm::vec2 delta;
 };
 
+// The mobile lifecycle (docs/platform.md, "Lifecycle"). They arrive inside SDL_AppEvent, between
+// frames, and the application acts on them before returning: going to the background, release
+// what draws to the window and stop the sound; coming back, create them again.
+struct WillEnterBackground {};
+struct DidEnterForeground {};
+// The OS wants memory back: iOS's memory warning, Android's onTrimMemory.
+struct LowMemory {};
+// The OS is ending the application; SDL ends the loop after this event.
+struct Terminating {};
+
 using Event = std::variant<WindowResized, WindowMinimized, WindowRestored, WindowFocusChanged, WindowCloseRequested,
                            QuitRequested, KeyPressed, KeyReleased, TextInput, MouseMoved, MouseButtonPressed,
-                           MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion>;
+                           MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion, WillEnterBackground,
+                           DidEnterForeground, LowMemory, Terminating>;
 
 } // namespace sonnet::platform
