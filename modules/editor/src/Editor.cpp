@@ -1,7 +1,5 @@
 #include <sonnet/editor/Editor.h>
 
-#include "Screenshot.h"
-
 #include <sonnet/editor/EntityCommands.h>
 
 #include <sonnet/core/Log.h>
@@ -58,7 +56,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                                                 .view = &m_scriptView})),
       m_animation(m_world, m_assets),
       // A headless editor is a test's: it mixes without a device rather than making a sound.
-      m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})),
+      m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})), m_screenshots(device),
       m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_hierarchyPanel(m_world, m_selection, m_commands), m_inspectorPanel(m_world, m_assets, m_selection, m_commands),
@@ -670,7 +668,7 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
   const bool capture = m_screenshotRequest && (m_screenshotRequest->first.empty() || sceneColor.isValid()) &&
                        (m_screenshotRequest->second.empty() || swapchainImage.has_value());
   if (capture && !m_screenshotRequest->first.empty()) {
-    addReadback(sceneColor, target.size(), renderer::Renderer::ColorFormat, m_screenshotRequest->first);
+    m_screenshots.add(m_graph, sceneColor, target.size(), renderer::Renderer::ColorFormat, m_screenshotRequest->first);
   }
   if (swapchainImage) {
     const renderer::GraphImage backbuffer = m_graph.importImage(swapchainImage->image, rhi::ImageLayout::Present);
@@ -684,7 +682,7 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
         },
         [this](rhi::ICommandList &cmd, const renderer::PassResources &) { m_imgui.draw(cmd); });
     if (capture && !m_screenshotRequest->second.empty()) {
-      addReadback(backbuffer, swapchainImage->extent, m_swapchain.format(), m_screenshotRequest->second);
+      m_screenshots.add(m_graph, backbuffer, swapchainImage->extent, m_swapchain.format(), m_screenshotRequest->second);
     }
   }
   if (capture) {
@@ -700,8 +698,8 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
 
 void Editor::afterPresent() {
   m_imgui.renderPlatformWindows();
-  if (!m_readbacks.empty()) {
-    writeReadbacks();
+  if (m_screenshots.pending()) {
+    m_screenshotResult = m_screenshots.write();
   }
 }
 
@@ -718,36 +716,6 @@ void Editor::requestScreenshots(std::filesystem::path viewport, std::filesystem:
 
 std::optional<core::Result<void>> Editor::takeScreenshotResult() {
   return std::exchange(m_screenshotResult, std::nullopt);
-}
-
-void Editor::addReadback(renderer::GraphImage image, glm::uvec2 size, rhi::Format format, std::filesystem::path file) {
-  const rhi::BufferHandle buffer = m_device.createBuffer({.size = std::uint64_t{size.x} * size.y * 4,
-                                                          .usage = rhi::BufferUsage::TransferDst,
-                                                          .memory = rhi::MemoryUsage::GpuToCpu,
-                                                          .debugName = "screenshot"});
-  m_readbacks.push_back({.file = std::move(file), .buffer = buffer, .size = size, .format = format});
-  m_graph.addPass(
-      "screenshot", [&](renderer::PassBuilder &builder) { builder.transferSrc(image); },
-      [image, buffer](rhi::ICommandList &cmd, const renderer::PassResources &resources) {
-        cmd.copyImageToBuffer(resources.image(image), buffer);
-      });
-}
-
-void Editor::writeReadbacks() {
-  // A screenshot is a one-off: waiting for the frame is simpler than tracking its fence.
-  m_device.waitIdle();
-  core::Result<void> result;
-  for (const Readback &readback : m_readbacks) {
-    if (result) {
-      result = writeScreenshot(readback.file, readback.size, readback.format, m_device.mappedRange(readback.buffer));
-      if (result) {
-        SONNET_LOG_INFO("screenshot {}x{} written to {}", readback.size.x, readback.size.y, readback.file.string());
-      }
-    }
-    m_device.destroyBuffer(readback.buffer);
-  }
-  m_readbacks.clear();
-  m_screenshotResult = std::move(result);
 }
 
 core::Result<ExportReport> Editor::exportProject(const ExportOptions &options) {

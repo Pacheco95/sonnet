@@ -23,13 +23,12 @@ sonnet_add_module(editor
     src/ViewportPanel.cpp
   PUBLIC_DEPENDS
     sonnet::audio
+    sonnet::runtime
     sonnet::scripting
     sonnet::ui
   DEPENDS
     slang::slang
 )
-# stb_image_write for the screenshots (docs/editor.md, "Screenshots").
-target_include_directories(sonnet_editor SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 
 sonnet_add_module_test(editor
   SOURCES

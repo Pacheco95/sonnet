@@ -73,11 +73,12 @@ for missing in sorted(on_disk - listed):
     problems.append(f"ADR          {missing} exists but is not listed in README")
 
 # Every capture flag the editor accepts must be in the Screenshots section of docs/editor.md, and
-# AGENTS.md must point agents at it: agents and scripts are who the flags are for.
-capture_source = (ROOT / "modules/editor/src/Capture.cpp").read_text()
+# AGENTS.md must point agents at it: agents and scripts are who the flags are for. The table is
+# runtime's, which the editor shares.
+capture_source = (ROOT / "modules/runtime/src/Capture.cpp").read_text()
 flags = re.findall(r'^\s*\{"(--[a-z\-]+)"', capture_source, re.M)
 if not flags:
-    problems.append("CAPTURE      no flags found in modules/editor/src/Capture.cpp's option table")
+    problems.append("CAPTURE      no flags found in modules/runtime/src/Capture.cpp's option table")
 editor_doc = (ROOT / "docs/editor.md").read_text()
 screenshots = editor_doc.split("## Screenshots", 1)[1].split("\n## ", 1)[0] if "## Screenshots" in editor_doc else ""
 if not screenshots:
