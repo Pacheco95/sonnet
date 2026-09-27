@@ -25,7 +25,7 @@ A sound that is missing from the project or cannot be decoded is reported once a
 
 ## Pausing
 
-`pause` stops the output and `resume` starts it again, for an application going to the background and coming back. With an output device they are `ma_engine_stop` and `ma_engine_start`, which stop and start the device, so its thread pulls nothing in between: nothing is heard and every sound, the preview included, carries on from where it was. Without one, no frame is mixed while paused and `lastMix` is empty. Both log at `info`; pausing twice or resuming without a pause does nothing. The system goes on meanwhile, so a voice can start or end while paused, and a new one starts with the output. On Android miniaudio has its own AAudio stream, which SDL's pause does not reach.
+`pause` stops the output and `resume` starts it again, for an application going to the background and coming back ([player.md](player.md#the-lifecycle)). With an output device they are `ma_engine_stop` and `ma_engine_start`, which stop and start the device, so its thread pulls nothing in between: nothing is heard and every sound, the preview included, carries on from where it was. Without one, no frame is mixed while paused and `lastMix` is empty. Both log at `info`; pausing twice or resuming without a pause does nothing. The system goes on meanwhile, so a voice can start or end while paused, and a new one starts with the output. On Android miniaudio has its own AAudio stream, which SDL's pause does not reach.
 
 ## miniaudio
 

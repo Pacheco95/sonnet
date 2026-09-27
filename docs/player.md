@@ -43,6 +43,20 @@ With no argument it opens `game.sbundle` through `Platform::openContent`, from t
 
 `SONNET_BUILD_PLAYER` builds it, on by default on every platform ([build.md](build.md#options)).
 
+## The lifecycle
+
+A phone sends the player to the background and brings it back, and the player handles the events `platform` translates for it ([platform.md](platform.md#background-and-foreground)), between two frames:
+
+- **`WillEnterBackground`**: it waits for the device to go idle, suspends the swapchain, which releases the surface the OS is taking away ([rendering.md](rendering.md#suspend-and-resume)), and pauses the audio ([audio.md](audio.md#pausing)).
+- **`DidEnterForeground`**: it resumes the swapchain at the window's size and then the audio, and restarts its frame clock. If the swapchain cannot be created again, the error is logged and the player ends, since it has nothing left to show.
+- **`LowMemory` and `Terminating`** are logged at `info`, and that is all: the player holds nothing it could give back, and SDL ends the loop after `Terminating`, whose quit tears the player down as a quit does.
+
+Each step logs at `info`, and coming back says how long the player was away and how many frames ran meanwhile: `back from the background after 64.8 s, 0 frames in it`.
+
+**Time away is not simulated.** A frame's `dt` is the time since the previous frame, clamped to 0.1 s, and the world runs at most four fixed steps a frame ([world.md](world.md#phases-and-play-mode)). Without the clock restarting, the first frame back would have simulated 0.1 s whatever the time away, of which the world keeps four steps. With it, that frame simulates its own time. On Android nothing iterates in the background at all, so the game stops where it was. A ball the player sent to the background at the top of a jump, and brought back 65 s later, was at the same height on its first frame back, 15 ms of game time later, and landed 0.65 s of game time after that. The sound stops while away, and a sound carries on from where it stopped.
+
+The events do not arrive on the desktop, where minimising the window is what stops the drawing, as it always did. The editor has no lifecycle handling, since it runs only on the desktop. `runtime_tests` plays the basic sample through the player's steps on Lavapipe, since the handling itself lives in `apps/player/main.cpp`, which no test reaches: three frames, the swapchain suspended and the audio paused, three frames that simulate but acquire nothing and mix nothing, then both resumed and three frames that draw into the present pass again, with nothing warned about.
+
 ## Running on Android
 
 On Android the player is `libsonnet_player.so` inside `sonnet_player.apk`, which the `android-debug` and `android-release` presets build ([build.md](build.md#android)). The APK's package is `io.github.pacheco95.sonnet` and its one activity is `io.github.pacheco95.sonnet.SonnetActivity`, in `apps/player/android/` with the manifest and the icon. The activity extends SDL's `SDLActivity`. SDL is linked into the player statically, so `getLibraries()` names the player alone, and SDL's Java side loads it and calls its `SDL_main` on its own thread. The manifest requires Vulkan 1.3 (`android.hardware.vulkan.version` `0x403000`), since [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) accepts a 1.3 device with the engine's 1.4 features as extensions, and the device selector checks those features when the player starts. Android 16 (API 36) is the minimum and the target.
@@ -80,7 +94,7 @@ adb uninstall --user 0 io.github.pacheco95.sonnet   # when the installed APK cam
 adb install --user 0 build/android-debug/apps/player/sonnet_player.apk
 ```
 
-A desktop bundle runs on the phone too, with its UASTC transcoded on load ([Opening a game](#opening-a-game)). The device's log line says `ASTC` when the device has it, and each texture's debug line names its format. The lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#touch-input)).
+A desktop bundle runs on the phone too, with its UASTC transcoded on load ([Opening a game](#opening-a-game)). The device's log line says `ASTC` when the device has it, and each texture's debug line names its format. The capture is a later M9 step ([roadmap.md](roadmap.md#the-mobile-lifecycle)).
 
 The player takes no `--scene` yet, so a bundle that starts on another scene is cooked with `sonnet_cook --scene`. Fingers are the game's through `input.touches()` ([scripting.md](scripting.md#input)), and `adb` can send them. `input motionevent` sends one event at a time, so a finger stays down between a `DOWN` and its `UP` for as long as the commands take, while `input swipe` is a timed drag and `input tap` a tap. Coordinates are the screen's pixels, which are the window's in a full-screen app:
 
@@ -93,6 +107,19 @@ adb shell input motionevent UP 560 1450
 adb shell input swipe 540 1500 900 1200 2000   # from one point to another over 2 s
 adb exec-out screencap -p > frame.png
 ```
+
+`adb` sends the player to the background and back ([The lifecycle](#the-lifecycle)) the ways a hand does. `adb logcat -v threadtime -s Sonnet SDL` shows the engine's lines between SDL's Java side's (`surfaceDestroyed()`, `nativePause()`, `nativeResume()`), and `adb logcat -d -b crash` has any native crash:
+
+```bash
+adb shell input keyevent KEYCODE_HOME                     # the home button
+adb shell am start --user 0 -n io.github.pacheco95.sonnet/.SonnetActivity   # back
+adb shell input keyevent KEYCODE_APP_SWITCH               # recents; a second press switches to the previous app
+adb shell input keyevent KEYCODE_SLEEP                    # screen off
+adb shell input keyevent KEYCODE_WAKEUP                   # screen on: the lock screen, if the phone has one
+adb logcat -s Sonnet | grep -E "background|swapchain|audio"
+```
+
+A second `KEYCODE_APP_SWITCH` goes to the application used before the one in front, so from the player it opens another app and the next pair comes back. After `KEYCODE_WAKEUP` a locked phone stays on its lock screen, with the player in the background, until it is unlocked by hand.
 
 ## What an export is
 

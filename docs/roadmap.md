@@ -434,6 +434,42 @@ ADR-0018's check 5 needs a person's hand on the device; the `adb` run above was 
 
 Still to do before the phone runs a game as the desktop does: the swapchain's suspend and resume with the lifecycle, and the capture in the player.
 
+### The mobile lifecycle
+
+The seventh Android step lets the player go to the background and come back, as ADR-0018's "Where it lives" decides for `platform`, `rhi` and the player:
+
+- **`platform`** translates SDL's lifecycle events into `WillEnterBackground`, `DidEnterForeground`, `LowMemory` and `Terminating`. `DidEnterBackground` and `WillEnterForeground` get no type, since on Android each comes straight after its partner and on iOS nothing is left to do at either ([platform.md](platform.md#background-and-foreground)).
+- **`rhi`.** `ISwapchain::suspend` waits for the device to go idle and releases the images, the swapchain and the surface. `resume` creates the surface and the swapchain again from the window and returns an `Error` rather than throwing into the event. While suspended `acquire` returns nothing, as for a minimised window. A surface lost before the suspend, which Android can do (below), is caught in `acquire` and present: one warning, no image, and the `suspend` and `resume` that follow recover it. Both transitions log at `info`, the resume with its extent. The null device's swapchain has the same calls ([rendering.md](rendering.md#suspend-and-resume)).
+- **`audio`.** `IAudioDevice::pause` and `resume` stop and start miniaudio's device, so nothing is heard in the background and every sound carries on where it was. Without an output device nothing is mixed while paused ([audio.md](audio.md#pausing)).
+- **The player** waits for idle, suspends the swapchain and pauses the audio on `WillEnterBackground`, and resumes both on `DidEnterForeground`, where it also restarts its frame clock. `LowMemory` and `Terminating` are logged. The editor, which runs only on the desktop, is unchanged ([player.md](player.md#the-lifecycle)).
+
+**What SDL's source and the phone said**, where ADR-0018 assumed:
+
+- **The surface goes before the event.** ADR-0018 says the events arrive "before the OS takes the surface away". On Android they do not: SDL's `surfaceDestroyed` queues the pause for the native thread and releases the `ANativeWindow` in the same call, on the UI thread, without waiting for a Vulkan window. In the two trips logged with SDL's own lines, `surfaceDestroyed()` came 3 and 6 ms before the engine heard `WillEnterBackground`. Once in ten trips, on the screen-off, a frame fell in between, and `vkAcquireNextImageKHR` returned `VK_ERROR_SURFACE_LOST_KHR`. The swapchain logged the warning, drew nothing that frame and recovered through the suspend and resume. Before this step the recreate path in `acquire` would have thrown on a lost surface.
+- **Nothing iterates in the background.** With `SDL_HINT_ANDROID_BLOCK_ON_PAUSE` at its default, SDL's event pump blocks until the resume, so `SDL_AppIterate` is not called. The player counted no frame in any of the ten background periods.
+- **The window keeps its size.** 1080×2340 before and after, with no `WindowResized`, in portrait.
+- **`LowMemory` comes every time.** SDL maps every `onTrimMemory` to it, and Android trims a hidden application's UI.
+- **`dt`.** The frame clock clamps to 0.1 s and the world to four fixed steps a frame, so without the restart the first frame back would have simulated 1/15 s of the time away. With it, that frame simulates its own time.
+
+**Tests.** `platform_tests` translates the four events and drops the other two. `rhi_tests` suspends a Lavapipe headless swapchain after three frames, acquires nothing while it is suspended, even after a resize request, resumes it at 320×200 and draws three more frames, and checks that a second `suspend` and a `resume` without a suspend do nothing more, all with validation silent. Both cases skip where the other swapchain cases skip, which includes the RTX 4090. The null device's swapchain gets the same checks. `audio_tests` pauses a quarter-second sound a tenth of a second in, mixes nothing for a second, and hears its remaining 0.15 s after the resume. The player's handling is in `apps/player/main.cpp`, which no test reaches, so `runtime_tests` plays the basic sample through the same steps on Lavapipe instead: frames that simulate while acquiring nothing and mixing nothing, then draw into the present pass again, with nothing warned about.
+
+Verified on Linux:
+
+- `build/linux-debug` (GCC 14) and `build/clang22` (Clang 22) build with no warnings, and all 14 suites pass on Lavapipe.
+- The editor's `--screenshot` of the main scene, and of the playground after `--play 3`, are byte-identical to `main`'s on the RTX 4090.
+- The desktop player minimised and restored twice through the window manager (GNOME on X11) behaves as `main`'s does: the same swapchain lines, nothing warned about, the scene drawn after each restore and a clean exit. No lifecycle event arrives there.
+
+**On the Galaxy S25 Ultra**, with the `android-debug` APK and the basic sample cooked for `android` with `--scene scenes/playground.scene.json`:
+
+- **Ten trips to the background**, sent by `adb`: seven with the home button and `am start` to come back (two of them 65 s long, the second on a probe bundle, below), two pairs of `KEYCODE_APP_SWITCH` (the second press switches to the previous app, so each pair is one trip), and a screen-off with `KEYCODE_SLEEP`. After `KEYCODE_WAKEUP` the phone stayed on its lock screen with the player in the background until it was unlocked by hand, and then the player came back.
+- **Every trip logged** `entering the background`, `swapchain suspended` and `audio paused`, then `back from the background after N s, 0 frames in it`, `swapchain resumed at 1080x2340` and `audio resumed`, with no error. The one warning was the lost surface above, on the screen-off. `adb logcat -b crash` stayed empty throughout. Suspending took about 5 ms and resuming about 3 ms, the audio's stop and start 10 to 20 ms more. The audio output was miniaudio's own device (`audio ready: 48000 Hz, 2 channels, output device`), stopped and started with no warning.
+- **`adb exec-out screencap -p` frames** before and after each trip show the playground drawing, with the sweeper turned further and the cube pile it knocks over moved on. In the 65 s trip the ball, rolling towards a held finger when the player left, carried its momentum on after the return.
+- **Time away is not simulated.** With a debug line in `player.lua` for one run only (not committed), in a bundle copied into `files/` to override the packaged one and removed afterwards, the ball jumped from the ground at game time 11.92 s and was at 1.48 m, the top of the jump, when the player went to the background at 12.34 s. After 64.8 s away, its first frame back was at 12.36 s, with a `dt` of 15 ms and the ball still at 1.48 m. It then fell and landed at 13.01 s: a jump of about 1.1 s of game time across 65 s of real time.
+
+ADR-0018's check 4 needs a person's hand on the device. The runs above were the agent's, through `adb`. The check by hand is recorded when it is done.
+
+Still to do before the phone runs a game as the desktop does: the capture in the player.
+
 ## M10: iOS export
 
 - Xcode build of the player from a macOS host, MoltenVK linked statically, packaging into an app bundle.

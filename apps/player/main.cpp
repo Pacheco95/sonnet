@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -62,9 +63,13 @@ public:
     }
     const auto now = std::chrono::steady_clock::now();
     // A long stall must not be simulated in one step; the world's accumulator caps the catch-up
-    // too, but the frame's own delta is clamped first (ADR-0009).
+    // too, but the frame's own delta is clamped first (ADR-0009). Time in the background is not
+    // a stall: coming back restarts the clock.
     const float dt = std::min(std::chrono::duration<float>(now - m_lastFrame).count(), 0.1f);
     m_lastFrame = now;
+    if (m_swapchain->suspended()) {
+      ++m_backgroundFrames;
+    }
 
     m_game->update(dt);
     rhi::ICommandList &commands = m_device->beginFrame();
@@ -81,6 +86,16 @@ public:
     }
     if (std::holds_alternative<platform::WindowResized>(event)) {
       m_swapchain->requestResize();
+    } else if (std::holds_alternative<platform::WillEnterBackground>(event)) {
+      enterBackground();
+    } else if (std::holds_alternative<platform::DidEnterForeground>(event)) {
+      if (!enterForeground()) {
+        return platform::AppResult::Failure;
+      }
+    } else if (std::holds_alternative<platform::LowMemory>(event)) {
+      SONNET_LOG_INFO("the system is low on memory");
+    } else if (std::holds_alternative<platform::Terminating>(event)) {
+      SONNET_LOG_INFO("the system is ending the application");
     }
     m_game->event(event);
     return platform::AppResult::Continue;
@@ -91,6 +106,34 @@ public:
   }
 
 private:
+  // The mobile lifecycle (docs/player.md, "The lifecycle"). Both arrive inside SDL_AppEvent,
+  // between frames. Going to the background releases what draws to the window, which the OS is
+  // taking away, and stops the sound.
+  void enterBackground() {
+    SONNET_LOG_INFO("entering the background");
+    m_device->waitIdle();
+    m_swapchain->suspend();
+    m_game->audio().pause();
+    m_background = std::chrono::steady_clock::now();
+    m_backgroundFrames = 0;
+  }
+
+  // Coming back creates them again from the window. A swapchain that cannot be created again
+  // ends the application, which has nothing left to show.
+  [[nodiscard]] bool enterForeground() {
+    const auto now = std::chrono::steady_clock::now();
+    SONNET_LOG_INFO("back from the background after {:.1f} s, {} frames in it",
+                    std::chrono::duration<float>(now - m_background).count(), m_backgroundFrames);
+    if (const auto resumed = m_swapchain->resume(); !resumed) {
+      SONNET_LOG_ERROR("{}", resumed.error().toString());
+      return false;
+    }
+    m_game->audio().resume();
+    // The next frame simulates its own time, not the time away.
+    m_lastFrame = now;
+    return true;
+  }
+
   // Declared in creation order: the game dies before the swapchain, the swapchain before the
   // device, the device before the window.
   std::unique_ptr<platform::IWindow> m_window;
@@ -98,6 +141,8 @@ private:
   std::unique_ptr<rhi::ISwapchain> m_swapchain;
   std::unique_ptr<runtime::Game> m_game;
   std::chrono::steady_clock::time_point m_lastFrame{std::chrono::steady_clock::now()};
+  std::chrono::steady_clock::time_point m_background;
+  std::uint64_t m_backgroundFrames{0};
   bool m_failed{false};
 };
 
