@@ -409,6 +409,31 @@ A mobile bundle's ASTC is stored without supercompression, while the desktop's U
 
 Still to do before the phone runs a game as the desktop does: touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
 
+### Touch input
+
+The sixth Android step gives the game the fingers, as ADR-0018's "Where it lives" decides for `platform` and `scripting`:
+
+- **`platform`** translates SDL's finger events into `TouchDown`, `TouchMotion` and `TouchUp`, with SDL's finger id, a cancelled finger ending as a lifted one. Positions are in window coordinates, SDL's fraction of the window times its size, which is where SDL puts the mouse it synthesises from the same finger ([platform.md](platform.md#events)). `InputState` keeps up to ten fingers in the order they went down, each with this frame's motion, which `beginFrame` zeroes like the mouse's.
+- **Touches and the mouse.** The synthesised mouse stays on, so the first finger is still the left button. A finger reaches `InputState` twice, as a touch and as the mouse, and each report stays whole: SDL moves the mouse for the first finger only, the move to where a finger lands keeps its position with a zero delta rather than counting as motion from where the last finger lifted, and the touches SDL makes from a mouse (on by default on Android and iOS) or a pen are dropped, since those arrive as the mouse already.
+- **`scripting`.** `input.touches()` returns `{id, position, delta}` for each finger, with the mouse's coordinates and table shape. Lua had no way to turn a screen point into a world ray, so `camera.ray(point)` returns `{origin, direction}` through a point of the view, for `physics.raycast` ([scripting.md](scripting.md#camera)). The application hands the runtime the camera it draws through and the view's size every frame: the player the scene camera over its window, the editor its viewport camera over the image. The unprojection is the editor gizmo's, moved into `renderer::rayDirection` so both use it.
+- **The editor** hands a touchscreen's fingers to the game as it does the mouse, relative to the viewport image, and only a finger that lands on the image ([editor.md](editor.md#play-mode)). Dear ImGui and the viewport see only the synthesised mouse.
+- **`player.lua`** rolls the ball towards the point on the ground under the first finger held, with the same force as a key, alongside W, A, S, D and Space.
+
+**Tests.** `platform_tests` translates synthetic finger events (two fingers down at once, motion, up and cancel) in a headless window of known size, drops a mouse's and a pen's touches, and zeroes a finger's landing motion. `InputState` touches appear, move with a motion that resets each frame and end, and end with the focus. `scripting_tests` reads `input.touches()` with its fields and types and `camera.ray` through a known view, and `renderer_tests` checks the ray through the centre and a corner of a known camera and where a pitched camera's centre meets the ground.
+
+Verified on Linux: `build/linux-debug` (GCC 14) and `build/clang22` (Clang 22) build with no warnings, and all 14 suites pass on Lavapipe. The editor's `--screenshot` of the main scene, and of the playground after `--play 3`, are byte-identical to `main`'s on the RTX 4090.
+
+**On the Galaxy S25 Ultra**, with the `android-debug` APK and the basic sample cooked for `android` with `--scene scenes/playground.scene.json`, since the player takes no `--scene` yet:
+
+- The player draws the playground in portrait at 1080×2340. The window's creation logs the 1280×720 it asked for, and Android resizes it to the surface: from then on its size and pixel size are both 1080×2340, so positions are pixels on the phone.
+- A finger held with `adb shell input motionevent DOWN 300 1100`, moved a pixel at a time for about three seconds and lifted, arrived as one touch at (300.3, 1100.5) with the synthesised mouse at the same point and the left button down. A debug line in `player.lua`, for the run only, showed the ray from the scene camera meeting the ground at (−2.42, 0, −2.42) and the ball rolling from (0, 0.5, 5) to (−2.43, 0.5, −0.02) while the finger was held. `adb exec-out screencap -p` frames before, during and after show the ball leaving the bottom of the screen and reaching the finger.
+- An `adb shell input swipe` over three seconds moved the ground point from (−2.4, −2.4) to (1.4, 4.6), and the ball followed it.
+- Nothing was logged at warning level or above but the missing validation layer, and there was no native crash.
+
+ADR-0018's check 5 needs a person's hand on the device; the `adb` run above was the agent's, and the check by hand is recorded when it is done. ADR-0018 says "window pixels" for a touch's position. The engine uses window coordinates, the mouse's, which are pixels on Android and logical coordinates on a high-density desktop display.
+
+Still to do before the phone runs a game as the desktop does: the swapchain's suspend and resume with the lifecycle, and the capture in the player.
+
 ## M10: iOS export
 
 - Xcode build of the player from a macOS host, MoltenVK linked statically, packaging into an app bundle.

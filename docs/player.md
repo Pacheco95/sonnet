@@ -80,7 +80,19 @@ adb uninstall --user 0 io.github.pacheco95.sonnet   # when the installed APK cam
 adb install --user 0 build/android-debug/apps/player/sonnet_player.apk
 ```
 
-A desktop bundle runs on the phone too, with its UASTC transcoded on load ([Opening a game](#opening-a-game)). The device's log line says `ASTC` when the device has it, and each texture's debug line names its format. Touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#astc-texture-cooking)).
+A desktop bundle runs on the phone too, with its UASTC transcoded on load ([Opening a game](#opening-a-game)). The device's log line says `ASTC` when the device has it, and each texture's debug line names its format. The lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#touch-input)).
+
+The player takes no `--scene` yet, so a bundle that starts on another scene is cooked with `sonnet_cook --scene`. Fingers are the game's through `input.touches()` ([scripting.md](scripting.md#input)), and `adb` can send them. `input motionevent` sends one event at a time, so a finger stays down between a `DOWN` and its `UP` for as long as the commands take, while `input swipe` is a timed drag and `input tap` a tap. Coordinates are the screen's pixels, which are the window's in a full-screen app:
+
+```bash
+./build/linux-debug/apps/cook/sonnet_cook apps/samples/basic --platform android --out build/android-bundle \
+    --scene scenes/playground.scene.json
+adb shell input motionevent DOWN 540 1500   # a finger held on the playground
+adb shell input motionevent MOVE 560 1450
+adb shell input motionevent UP 560 1450
+adb shell input swipe 540 1500 900 1200 2000   # from one point to another over 2 s
+adb exec-out screencap -p > frame.png
+```
 
 ## What an export is
 
