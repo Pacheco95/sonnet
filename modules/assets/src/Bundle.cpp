@@ -86,6 +86,10 @@ bool isMobile(CookPlatform platform) noexcept {
   return platform == CookPlatform::Android || platform == CookPlatform::IOS;
 }
 
+bool canRun(const rhi::DeviceInfo &device, CookPlatform platform) noexcept {
+  return !isMobile(platform) || device.astcSupported;
+}
+
 CookPlatform hostPlatform() noexcept {
 #if defined(_WIN32)
   return CookPlatform::Windows;

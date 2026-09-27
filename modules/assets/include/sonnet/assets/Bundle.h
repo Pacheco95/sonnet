@@ -8,6 +8,7 @@
 #include <sonnet/platform/Content.h>
 #include <sonnet/renderer/Mesh.h>
 #include <sonnet/renderer/Texture.h>
+#include <sonnet/rhi/Device.h>
 
 #include <nlohmann/json.hpp>
 
@@ -46,6 +47,11 @@ enum class CookPlatform : std::uint8_t {
 [[nodiscard]] std::optional<CookPlatform> cookPlatformFromString(std::string_view name) noexcept;
 // Android and iOS, whose bundles carry ASTC.
 [[nodiscard]] bool isMobile(CookPlatform platform) noexcept;
+// Whether a device can sample every texture a bundle cooked for `platform` holds (docs/player.md,
+// "Opening a game"). A desktop bundle's UASTC transcodes to whatever the device has, down to
+// RGBA8, and its other textures are RGBA8 and RGBA16F, which every device samples. A mobile
+// bundle's ASTC is uploaded as it is, so it needs `astcSupported`.
+[[nodiscard]] bool canRun(const rhi::DeviceInfo &device, CookPlatform platform) noexcept;
 // The platform the running binary was built for, the default an export offers.
 [[nodiscard]] CookPlatform hostPlatform() noexcept;
 
