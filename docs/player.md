@@ -70,7 +70,17 @@ adb shell am start --user 0 -n io.github.pacheco95.sonnet/.SonnetActivity \
 adb logcat -s Sonnet
 ```
 
-ASTC cooking, touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#reading-content-from-the-apk)).
+A game for the phone is cooked for `android`, which encodes its compressed textures as ASTC ([assets.md](assets.md#textures)), and packaged into the APK at configure ([build.md](build.md#android)):
+
+```bash
+./build/linux-debug/apps/cook/sonnet_cook apps/samples/basic --platform android --out build/android-bundle
+cmake --preset android-debug -DSONNET_ANDROID_BUNDLE=$PWD/build/android-bundle/game.sbundle
+cmake --build --preset android-debug
+adb uninstall --user 0 io.github.pacheco95.sonnet   # when the installed APK came from the other build directory
+adb install --user 0 build/android-debug/apps/player/sonnet_player.apk
+```
+
+A desktop bundle runs on the phone too, with its UASTC transcoded on load ([Opening a game](#opening-a-game)). The device's log line says `ASTC` when the device has it, and each texture's debug line names its format. Touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#astc-texture-cooking)).
 
 ## What an export is
 

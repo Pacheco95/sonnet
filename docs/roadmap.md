@@ -378,6 +378,37 @@ A pointer to a struct computed with a dynamic index cannot be read past its firs
 
 Still to do before the phone runs a game as the desktop does: ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
 
+### ASTC texture cooking
+
+The fifth Android step cooks a phone's textures as ASTC, as ADR-0018's "Textures" section decides ([assets.md](assets.md#textures)):
+
+- **`rhi`** has `ASTC4x4Unorm`, `ASTC4x4Srgb`, `ASTC6x6Unorm` and `ASTC6x6Srgb`, and `DeviceInfo::astcSupported`, enabled where `textureCompressionASTC_LDR` is present, apart from BC, since vk-bootstrap enables a feature structure only when all of it is there. `formatSupported` says whether a device samples a format, and `createImage` asserts it. The device's log line lists `BC` and `ASTC`, and the renderer's debug line for each texture names its format ([rendering.md](rendering.md#the-rhi-module-today)).
+- **Loading.** `readKtx2` takes the device's `DeviceInfo`. It transcodes UASTC to BC7 with block compression, to ASTC 4×4 with ASTC and no BC, and to RGBA8 with neither, uploads an ASTC file as it is, and refuses a format the device cannot sample, which falls back as a failed import does.
+- **The cook.** `CookPlatform` has `android` and `ios`, taken by `sonnet_cook --platform` and the export dialog. For them the cook asks `AssetDatabase::mobileTexture`, which encodes a compressed texture's RGBA8 levels, decoded from the source, with `ktxTexture2_CompressAstcEx`: 6×6 perceptual for sRGB, 4×4 for linear, medium quality, no normal-map mode. It caches the result as `<uuid>.astc.ktx2` under the UASTC entry's freshness rule. Uncompressed textures stay RGBA8 and the environment RGBA16F. Android and iOS cook the same bytes.
+- **`Game::open`** refuses a bundle whose platform's textures the device cannot sample, before anything in it loads, and names the platform. A desktop bundle runs everywhere and a mobile one needs `astcSupported` (`assets::canRun`, [player.md](player.md#opening-a-game)).
+- **Export.** Exporting for Android or iOS writes the bundle alone, and the dialog says the editor builds no APK or app bundle ([editor.md](editor.md#export)).
+- **CI.** The Android job builds `sonnet_cook` for the host, cooks the basic sample for `android` and packages it into the APK ([build.md](build.md#continuous-integration)).
+
+**Tests.** `assets_tests` encodes FlightHelmet's glass-and-plastic base colour (sRGB, 6×6) and normal map (linear, 4×4), downscaled to 512×512, decodes them back with `ktxTexture2_DecodeAstc` and holds each above a PSNR floor. At 2048×2048 the base colour measures 48.7 dB, ADR-0018's figure. At 512×512 the two measure 45.4 dB and 48.8 dB, the same with GCC 14 and Clang 22, and the floors are 44.4 dB and 47.7 dB. The test uses FlightHelmet (CC0) rather than DamagedHelmet, whose textures come from an original under CC BY-NC 4.0 as well as the CC BY 4.0 that ADR-0018 names. The ADR measured this base colour too. A mobile cook of the basic sample has ASTC texture payloads (read from the KTX2 header, not transcoded) and names `android`. A second mobile cook rewrites no cache entry and gives iOS the same bytes, and a newer source is encoded again. The test that proved the second cook read the cache found a bug on the way: the freshness check's default sidecar time was the filesystem clock's epoch, which libstdc++ puts in 2174, so a glTF image was never fresh. `runtime_tests` has the null device, which reports BC and no ASTC as a desktop GPU does, refuse an Android and an iOS bundle and open the Linux one. `rhi_tests` uploads a solid-colour image of 13×7 texels with every mip level and samples its first and last levels, in BC7 and in ASTC 4×4 and 6×6. The ASTC cases skip without `astcSupported`. The RTX 4090, RADV and Lavapipe all report `textureCompressionASTC_LDR = false`, as ADR-0018 says, so neither this machine nor CI runs them. They run on Apple silicon and phones.
+
+Verified on Linux:
+
+- `build/linux-debug` (GCC 14) and `build/clang22` (Clang 22) build with no warnings, and all 14 suites pass on Lavapipe.
+- The desktop is unchanged. A Linux cook of the basic sample is byte-identical to the one packaged in the previous step. The editor's `--screenshot` of the main scene, and of the playground after `--play 3`, are byte-identical to `main`'s on the RTX 4090.
+- The basic sample's Android bundle is 702 367 bytes against the Linux one's 682 714. Its three textures are small, so the first cook, which encodes them, takes 0.38 s and a second one 0.32 s.
+
+**On the Galaxy S25 Ultra**, with the `android-debug` APK and the basic sample cooked for `android` by the Linux `sonnet_cook`:
+
+- The device's line ends `BC, ASTC`: **the phone has BC as well as ASTC**, as ADR-0018's question 6 recorded. So a Linux bundle's UASTC was transcoded to BC7 on it, not to RGBA8, both before this step and after it. The ASTC 4×4 target applies to a device with ASTC and no BC.
+- The bundle opens ("cooked for android"), and the textures upload as ASTC: the checker and the crate's base colour as `ASTC6x6Srgb`, the crate's normal map as `ASTC4x4Unorm`. The sample plays with 15 entities, and nothing is logged at warning level or above but the missing validation layer.
+- `adb exec-out screencap -p` shows the sample drawn as with the Linux bundle, compared by eye: the same lighting, shadows, sky and checker. Only the crate's turn and the reed's sway differ, with the moment of the capture.
+- The Linux bundle, copied into `files/` to override the packaged one, uploads its textures as `BC7Srgb` and `BC7Unorm`.
+- A build of this step with `blockCompressionSupported` forced off, for one run and not committed, transcoded the same Linux bundle to `ASTC4x4Srgb` and `ASTC4x4Unorm` and drew the same frame. That is the path a phone without BC takes.
+
+A mobile bundle's ASTC is stored without supercompression, while the desktop's UASTC has zstd, so a texture can take more of the APK than it does of a desktop bundle. The crate's flat 128×128 normal map is 22 KB of ASTC 4×4 against 0.8 KB of UASTC. On the GPU a colour texture takes less than half: 3.56 bits per texel against BC7's 8. zstd over ASTC is a possible later change, which `readKtx2` would read as it is.
+
+Still to do before the phone runs a game as the desktop does: touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
+
 ## M10: iOS export
 
 - Xcode build of the player from a macOS host, MoltenVK linked statically, packaging into an app bundle.
