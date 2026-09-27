@@ -211,6 +211,52 @@ TEST_CASE("a scene without a camera is drawn from the fallback view", "[runtime]
   std::filesystem::remove_all(root);
 }
 
+// What the player does on WillEnterBackground and DidEnterForeground (docs/player.md, "The
+// lifecycle"), which lives in apps/player/main.cpp: the game goes on without an image and without
+// sound, and draws again once both are back.
+TEST_CASE("the game survives its swapchain suspended and its audio paused", "[runtime][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  const auto sink = std::make_shared<ProblemSink>();
+  core::Log::addSink(sink);
+  for (int i = 0; i < 3; ++i) {
+    fixture.frame(game);
+  }
+
+  fixture.device->waitIdle();
+  fixture.swapchain->suspend();
+  game.audio().pause();
+  const auto frames = game.world().ecs().get_info()->frame_count_total;
+  for (int i = 0; i < 3; ++i) {
+    game.update(1.0f / 60.0f);
+    rhi::ICommandList &commands = fixture.device->beginFrame();
+    const auto image = fixture.swapchain->acquire();
+    REQUIRE_FALSE(image.has_value());
+    game.render(commands, image);
+    fixture.device->endFrame();
+    REQUIRE(game.audio().lastMix().empty());
+  }
+  // The world ran its frames; only the drawing and the sound stopped.
+  REQUIRE(game.world().ecs().get_info()->frame_count_total == frames + 3);
+
+  REQUIRE(fixture.swapchain->resume().has_value());
+  game.audio().resume();
+  REQUIRE(fixture.swapchain->extent() == glm::uvec2{640, 480});
+  for (int i = 0; i < 3; ++i) {
+    fixture.frame(game);
+  }
+  const auto passes = game.graph().statistics().passes;
+  REQUIRE(std::ranges::any_of(passes, [](const auto &pass) { return pass.name == "present"; }));
+  REQUIRE_FALSE(game.audio().lastMix().empty());
+  REQUIRE(sink->problems.empty());
+  core::Log::removeSink(sink);
+}
+
 TEST_CASE("a path that is neither a project nor a bundle is an error", "[runtime][gpu]") {
   Fixture fixture;
   runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};

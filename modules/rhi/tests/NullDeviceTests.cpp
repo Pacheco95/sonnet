@@ -126,6 +126,40 @@ TEST_CASE("null swapchain cycles through images of the window's size", "[rhi][nu
   REQUIRE(seen == std::array<std::uint32_t, 3>{0, 1, 2});
 }
 
+TEST_CASE("null swapchain releases its images while suspended", "[rhi][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<sonnet::platform::IWindow> window;
+  try {
+    window = platform.createWindow({.title = "null", .size = {64, 48}});
+  } catch (const sonnet::core::Exception &e) {
+    SKIP("no window on this machine: " << e.what());
+  }
+  const auto device = createNullDevice();
+  const auto swapchain = device->createSwapchain(*window);
+  static_cast<void>(device->beginFrame());
+  const ImageHandle before = swapchain->acquire()->image;
+  device->endFrame();
+
+  swapchain->suspend();
+  swapchain->suspend();
+  REQUIRE(swapchain->suspended());
+  REQUIRE(!device->isValid(before));
+  REQUIRE(swapchain->imageCount() == 0);
+  static_cast<void>(device->beginFrame());
+  REQUIRE(!swapchain->acquire().has_value());
+  device->endFrame();
+
+  REQUIRE(swapchain->resume().has_value());
+  REQUIRE(!swapchain->suspended());
+  REQUIRE(swapchain->resume().has_value()); // without a suspend: nothing to do
+  REQUIRE(swapchain->imageCount() == 3);
+  static_cast<void>(device->beginFrame());
+  const auto after = swapchain->acquire();
+  REQUIRE(after.has_value());
+  REQUIRE(after->extent == glm::uvec2{64, 48});
+  device->endFrame();
+}
+
 TEST_CASE("null device reports a memory budget from its live resources", "[rhi][null]") {
   const auto device = createNullDevice();
   const MemoryBudget before = device->memoryBudget();

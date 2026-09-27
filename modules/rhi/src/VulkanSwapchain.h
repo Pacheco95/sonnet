@@ -7,6 +7,7 @@
 #include <vulkan/vulkan_raii.hpp>
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace sonnet::rhi {
@@ -22,6 +23,11 @@ public:
 
   std::optional<SwapchainImage> acquire() override;
   void requestResize() override;
+  void suspend() override;
+  core::Result<void> resume() override;
+  bool suspended() const override {
+    return m_suspended;
+  }
   Format format() const override {
     return m_format;
   }
@@ -45,11 +51,18 @@ public:
   void markOutOfDate() noexcept {
     m_needsRecreate = true;
   }
+  // Called by acquire and by the device when the surface is gone, which on Android can happen
+  // before the application hears it is going to the background: nothing is drawn until resume.
+  void markSurfaceLost(std::string_view where);
 
 private:
+  // Creates the surface from the window and checks the graphics queue can present to it.
+  void createSurface();
   // Returns false when the window has no drawable area.
   bool create(vk::SwapchainKHR oldSwapchain);
   void releaseImages();
+  // The images, the swapchain, then the surface; the device must be idle.
+  void releaseSurface();
 
   VulkanDevice &m_device;
   platform::IWindow &m_window;
@@ -62,6 +75,8 @@ private:
   glm::uvec2 m_extent{0, 0};
   bool m_needsRecreate{false};
   bool m_readable{false};
+  bool m_suspended{false};
+  bool m_surfaceLost{false};
 };
 
 } // namespace sonnet::rhi

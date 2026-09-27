@@ -1233,6 +1233,8 @@ void VulkanDevice::endFrame() {
         *m_graphicsQueue, reinterpret_cast<const VkPresentInfoKHR *>(&presentInfo));
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
       present.swapchain->markOutOfDate();
+    } else if (presentResult == VK_ERROR_SURFACE_LOST_KHR) {
+      present.swapchain->markSurfaceLost("vkQueuePresentKHR");
     } else if (presentResult != VK_SUCCESS) {
       SONNET_LOG_ERROR("vkQueuePresentKHR failed: {}", vk::to_string(static_cast<vk::Result>(presentResult)));
     }

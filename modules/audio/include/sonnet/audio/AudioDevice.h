@@ -61,13 +61,22 @@ public:
   // next frame in play mode.
   virtual void stopAll() = 0;
 
+  // Stops and starts the output for an application going to the background and coming back
+  // (docs/audio.md, "Pausing"): nothing is heard or mixed while paused, and every sound carries
+  // on from where it was. Without an output device, no frame is mixed while paused. Pausing twice
+  // or resuming without a pause does nothing.
+  virtual void pause() = 0;
+  virtual void resume() = 0;
+  [[nodiscard]] virtual bool paused() const = 0;
+
   // The sound's format, decoding it if needed; nothing when it is missing or not decodable.
   [[nodiscard]] virtual std::optional<SoundInfo> soundInfo(const core::Uuid &sound) = 0;
   // Sounds playing, the preview included.
   [[nodiscard]] virtual std::uint32_t playingCount() const = 0;
   [[nodiscard]] virtual bool isPlaying(flecs::entity entity) const = 0;
   // Without an output device: the interleaved frames mixed by the last frame, as many as its time
-  // at the sample rate. Empty with an output device, whose mix never reaches the main thread.
+  // at the sample rate, and none while paused. Empty with an output device, whose mix never
+  // reaches the main thread.
   [[nodiscard]] virtual std::span<const float> lastMix() const = 0;
 };
 
