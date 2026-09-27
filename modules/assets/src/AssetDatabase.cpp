@@ -503,7 +503,7 @@ std::optional<AssetDatabase::TextureRequest> AssetDatabase::textureRequest(const
                         .name = info.name,
                         .sourceTime = record->second.sourceTime,
                         .settings = TextureSettings::fromJson(record->second.settings),
-                        .blockCompression = m_renderer.blockCompressionSupported()};
+                        .device = m_renderer.deviceInfo()};
 }
 
 std::optional<renderer::TextureData> AssetDatabase::importFileTexture(const TextureRequest &request) {
@@ -514,7 +514,7 @@ std::optional<renderer::TextureData> AssetDatabase::importFileTexture(const Text
       SONNET_LOG_ERROR("{}", bytes.error().toString());
       return std::nullopt;
     }
-    auto data = readKtx2(*bytes, request.blockCompression);
+    auto data = readKtx2(*bytes, request.device);
     if (!data) {
       SONNET_LOG_ERROR("{}: {}", request.source.string(), data.error().toString());
       return std::nullopt;
@@ -554,7 +554,7 @@ std::optional<renderer::TextureData> AssetDatabase::importFileTexture(const Text
     SONNET_LOG_ERROR("{}", bytes.error().toString());
     return std::nullopt;
   }
-  auto data = readKtx2(*bytes, request.blockCompression);
+  auto data = readKtx2(*bytes, request.device);
   if (!data) {
     SONNET_LOG_ERROR("{}: {}", cooked.string(), data.error().toString());
     return std::nullopt;
@@ -572,6 +572,97 @@ renderer::TextureHandle AssetDatabase::loadFileTexture(const core::Uuid &uuid, c
     return {};
   }
   return uploadTexture(uuid, *data, info.name);
+}
+
+namespace {
+
+// Encodes one image's RGBA8 levels as ASTC into its cache entry (ADR-0018, "Textures").
+core::Result<void> cookAstcEntry(std::span<const std::byte> encoded, const TextureSettings &settings,
+                                 const std::filesystem::path &cached) {
+  const auto imported = importImage(encoded, settings);
+  if (!imported) {
+    return std::unexpected(imported.error());
+  }
+  const auto astc = cookAstcKtx2(*imported);
+  if (!astc) {
+    return std::unexpected(astc.error());
+  }
+  if (const auto written = core::writeFile(cached, *astc); !written) {
+    return std::unexpected(written.error());
+  }
+  SONNET_LOG_INFO("encoded {} as ASTC", cached.filename().string());
+  return {};
+}
+
+// Fresh as the UASTC entry is: no older than the source and, for a file texture, its sidecar.
+// The default is the clock's minimum, not its epoch, which libstdc++ puts in 2174.
+bool fresh(const std::filesystem::path &cached, std::filesystem::file_time_type sourceTime,
+           std::filesystem::file_time_type sidecarTime = std::filesystem::file_time_type::min()) {
+  const auto cachedTime = modificationTime(cached);
+  return cachedTime != std::filesystem::file_time_type{} && cachedTime >= sourceTime && cachedTime >= sidecarTime;
+}
+
+} // namespace
+
+core::Result<std::vector<std::byte>> AssetDatabase::mobileTexture(const core::Uuid &uuid) {
+  SONNET_ZONE();
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Texture || m_bundle) {
+    return std::unexpected(
+        core::Error{std::format("{}: not a texture of the open project", uuid.toString()), core::ErrorCategory::Io});
+  }
+  const std::filesystem::path cached = cacheDirectory() / (uuid.toString() + ".astc.ktx2");
+  if (info->parent.isNil()) {
+    const auto record = m_files.find(uuid);
+    if (record == m_files.end()) {
+      return std::unexpected(core::Error{std::format("{}: no source", info->name), core::ErrorCategory::Io});
+    }
+    if (kindOf(info->source) == SourceKind::Ktx2) {
+      return core::readFile(info->source);
+    }
+    const TextureSettings settings = TextureSettings::fromJson(record->second.settings);
+    if (!settings.compress) {
+      // Uncompressed is RGBA8 on every platform: the entry the editor already cooks.
+      if (!texture(uuid)) {
+        return std::unexpected(core::Error{std::format("{}: the import failed", info->name), core::ErrorCategory::Io});
+      }
+      return core::readFile(cacheDirectory() / (uuid.toString() + ".ktx2"));
+    }
+    if (!fresh(cached, record->second.sourceTime, modificationTime(record->second.sidecar))) {
+      const auto bytes = core::readFile(info->source);
+      const auto encoded = bytes ? cookAstcEntry(*bytes, settings, cached) : std::unexpected(bytes.error());
+      if (!encoded) {
+        return std::unexpected(encoded.error());
+      }
+    }
+    return core::readFile(cached);
+  }
+
+  // A glTF image: every image of the file is encoded at once, since reading one means importing
+  // the file, and each keeps the colour space the importer gave it.
+  const auto record = m_files.find(info->parent);
+  const AssetInfo *file = find(info->parent);
+  if (record == m_files.end() || file == nullptr) {
+    return std::unexpected(core::Error{std::format("{}: no source", info->name), core::ErrorCategory::Io});
+  }
+  if (!fresh(cached, record->second.sourceTime)) {
+    const auto import = importGltf(file->source);
+    if (!import) {
+      return std::unexpected(import.error());
+    }
+    for (std::size_t i = 0; i < import->images.size(); ++i) {
+      const GltfImage &image = import->images[i];
+      const core::Uuid imageUuid = core::Uuid::derive(info->parent, std::format("image/{}", i));
+      const std::filesystem::path imageCache = cacheDirectory() / (imageUuid.toString() + ".astc.ktx2");
+      if (image.bytes.empty() || fresh(imageCache, record->second.sourceTime)) {
+        continue;
+      }
+      if (const auto encoded = cookAstcEntry(image.bytes, TextureSettings{.srgb = image.srgb}, imageCache); !encoded) {
+        SONNET_LOG_ERROR("{}: image \"{}\": {}", file->source.string(), image.name, encoded.error().toString());
+      }
+    }
+  }
+  return core::readFile(cached);
 }
 
 renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
@@ -615,7 +706,7 @@ std::optional<AssetDatabase::GltfRequest> AssetDatabase::gltfRequest(const core:
                      .cache = cacheDirectory(),
                      .name = info->name,
                      .sourceTime = record->second.sourceTime,
-                     .blockCompression = m_renderer.blockCompressionSupported()};
+                     .device = m_renderer.deviceInfo()};
 }
 
 AssetDatabase::GltfLoad AssetDatabase::importGltfFiles(const GltfRequest &request) {
@@ -651,7 +742,7 @@ AssetDatabase::GltfLoad AssetDatabase::importGltfFiles(const GltfRequest &reques
       }
     }
     const auto bytes = core::readFile(cooked);
-    auto data = bytes ? readKtx2(*bytes, request.blockCompression) : std::unexpected(bytes.error());
+    auto data = bytes ? readKtx2(*bytes, request.device) : std::unexpected(bytes.error());
     if (!data) {
       SONNET_LOG_ERROR("{}: image \"{}\": {}", request.source.string(), image.name, data.error().toString());
       continue;
@@ -948,7 +1039,7 @@ renderer::TextureHandle AssetDatabase::texture(const core::Uuid &uuid) {
   if (m_bundle) {
     // A cooked texture is the KTX2 the editor caches, sub-asset or file asset alike.
     if (const auto payload = bundlePayload(uuid)) {
-      const auto data = readKtx2(*payload, m_renderer.blockCompressionSupported());
+      const auto data = readKtx2(*payload, m_renderer.deviceInfo());
       if (data) {
         handle = uploadTexture(uuid, *data, info->name);
       } else {

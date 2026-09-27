@@ -5,6 +5,7 @@
 
 #include <ktx.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <format>
@@ -24,6 +25,10 @@ constexpr std::uint32_t VkFormatBc4Unorm = 139;
 constexpr std::uint32_t VkFormatBc5Unorm = 141;
 constexpr std::uint32_t VkFormatBc7Unorm = 145;
 constexpr std::uint32_t VkFormatBc7Srgb = 146;
+constexpr std::uint32_t VkFormatAstc4x4Unorm = 157;
+constexpr std::uint32_t VkFormatAstc4x4Srgb = 158;
+constexpr std::uint32_t VkFormatAstc6x6Unorm = 165;
+constexpr std::uint32_t VkFormatAstc6x6Srgb = 166;
 
 rhi::Format fromVkFormat(std::uint32_t format) noexcept {
   switch (format) {
@@ -41,6 +46,14 @@ rhi::Format fromVkFormat(std::uint32_t format) noexcept {
     return rhi::Format::BC7Unorm;
   case VkFormatBc7Srgb:
     return rhi::Format::BC7Srgb;
+  case VkFormatAstc4x4Unorm:
+    return rhi::Format::ASTC4x4Unorm;
+  case VkFormatAstc4x4Srgb:
+    return rhi::Format::ASTC4x4Srgb;
+  case VkFormatAstc6x6Unorm:
+    return rhi::Format::ASTC6x6Unorm;
+  case VkFormatAstc6x6Srgb:
+    return rhi::Format::ASTC6x6Srgb;
   default:
     return rhi::Format::Undefined;
   }
@@ -62,54 +75,9 @@ core::Error ktxError(std::string_view what, ktx_error_code_e code) {
   return core::Error{std::format("{}: {}", what, ktxErrorString(code)), core::ErrorCategory::Io};
 }
 
-} // namespace
-
-core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, bool blockCompression) {
-  SONNET_ZONE();
-  ktxTexture2 *raw = nullptr;
-  ktx_error_code_e result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t *>(bytes.data()),
-                                                         bytes.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &raw);
-  if (result != KTX_SUCCESS) {
-    return std::unexpected(ktxError("reading the KTX2 file", result));
-  }
-  KtxTexture texture{raw};
-  if (ktxTexture2_NeedsTranscoding(texture.get())) {
-    result = ktxTexture2_TranscodeBasis(texture.get(), blockCompression ? KTX_TTF_BC7_RGBA : KTX_TTF_RGBA32, 0);
-    if (result != KTX_SUCCESS) {
-      return std::unexpected(ktxError("transcoding the KTX2 file", result));
-    }
-  }
-  const rhi::Format format = fromVkFormat(texture->vkFormat);
-  if (format == rhi::Format::Undefined) {
-    return std::unexpected(core::Error{std::format("KTX2 format {} is not one the engine reads", texture->vkFormat),
-                                       core::ErrorCategory::Io});
-  }
-  if (texture->numDimensions != 2 || texture->numLayers != 1 || (texture->numFaces != 1 && texture->numFaces != 6)) {
-    return std::unexpected(core::Error{"KTX2 file is not a 2D image or a cube map", core::ErrorCategory::Io});
-  }
-  renderer::TextureData data{.size = {texture->baseWidth, texture->baseHeight},
-                             .format = format,
-                             .mipLevels = texture->numLevels,
-                             .cube = texture->numFaces == 6,
-                             .data = {}};
-  data.data.reserve(static_cast<std::size_t>(data.expectedSize()));
-  for (std::uint32_t level = 0; level < texture->numLevels; ++level) {
-    const std::uint64_t levelBytes = rhi::levelByteSize(format, rhi::mipSize(data.size, level));
-    for (std::uint32_t face = 0; face < texture->numFaces; ++face) {
-      ktx_size_t offset = 0;
-      result = ktxTexture_GetImageOffset(asBase(texture.get()), level, 0, face, &offset);
-      if (result != KTX_SUCCESS || offset + levelBytes > texture->dataSize) {
-        return std::unexpected(ktxError(std::format("reading level {} of the KTX2 file", level), result));
-      }
-      const auto *source = reinterpret_cast<const std::byte *>(texture->pData) + offset;
-      data.data.insert(data.data.end(), source, source + levelBytes);
-    }
-  }
-  return data;
-}
-
-core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &source, bool compress) {
-  SONNET_ZONE();
+// An RGBA8 texture as an uncompressed KTX2 texture with the same levels, the input both encoders
+// take.
+core::Result<KtxTexture> createKtx2(const renderer::TextureData &source) {
   if (source.format != rhi::Format::R8G8B8A8Unorm && source.format != rhi::Format::R8G8B8A8Srgb) {
     return std::unexpected(core::Error{"only RGBA8 textures are cooked", core::ErrorCategory::Io});
   }
@@ -143,6 +111,85 @@ core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &sourc
       }
     }
   }
+  return texture;
+}
+
+core::Result<std::vector<std::byte>> writeKtx2(ktxTexture2 *texture) {
+  ktx_uint8_t *bytes = nullptr;
+  ktx_size_t size = 0;
+  const ktx_error_code_e result = ktxTexture_WriteToMemory(asBase(texture), &bytes, &size);
+  if (result != KTX_SUCCESS) {
+    return std::unexpected(ktxError("writing the KTX2 file", result));
+  }
+  std::vector<std::byte> out(reinterpret_cast<const std::byte *>(bytes),
+                             reinterpret_cast<const std::byte *>(bytes) + size);
+  std::free(bytes);
+  return out;
+}
+
+} // namespace
+
+core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, const rhi::DeviceInfo &device) {
+  SONNET_ZONE();
+  ktxTexture2 *raw = nullptr;
+  ktx_error_code_e result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t *>(bytes.data()),
+                                                         bytes.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &raw);
+  if (result != KTX_SUCCESS) {
+    return std::unexpected(ktxError("reading the KTX2 file", result));
+  }
+  KtxTexture texture{raw};
+  if (ktxTexture2_NeedsTranscoding(texture.get())) {
+    // UASTC is a restricted ASTC 4x4, so a phone without BC takes it at 8 bits per texel rather
+    // than the 32 of RGBA8 (docs/assets.md, "Textures").
+    const ktx_transcode_fmt_e target = device.blockCompressionSupported ? KTX_TTF_BC7_RGBA
+                                       : device.astcSupported           ? KTX_TTF_ASTC_4x4_RGBA
+                                                                        : KTX_TTF_RGBA32;
+    result = ktxTexture2_TranscodeBasis(texture.get(), target, 0);
+    if (result != KTX_SUCCESS) {
+      return std::unexpected(ktxError("transcoding the KTX2 file", result));
+    }
+  }
+  const rhi::Format format = fromVkFormat(texture->vkFormat);
+  if (format == rhi::Format::Undefined) {
+    return std::unexpected(core::Error{std::format("KTX2 format {} is not one the engine reads", texture->vkFormat),
+                                       core::ErrorCategory::Io});
+  }
+  if (!rhi::formatSupported(device, format)) {
+    return std::unexpected(core::Error{
+        std::format("KTX2 format {} is not one the device samples", rhi::toString(format)), core::ErrorCategory::Io});
+  }
+  if (texture->numDimensions != 2 || texture->numLayers != 1 || (texture->numFaces != 1 && texture->numFaces != 6)) {
+    return std::unexpected(core::Error{"KTX2 file is not a 2D image or a cube map", core::ErrorCategory::Io});
+  }
+  renderer::TextureData data{.size = {texture->baseWidth, texture->baseHeight},
+                             .format = format,
+                             .mipLevels = texture->numLevels,
+                             .cube = texture->numFaces == 6,
+                             .data = {}};
+  data.data.reserve(static_cast<std::size_t>(data.expectedSize()));
+  for (std::uint32_t level = 0; level < texture->numLevels; ++level) {
+    const std::uint64_t levelBytes = rhi::levelByteSize(format, rhi::mipSize(data.size, level));
+    for (std::uint32_t face = 0; face < texture->numFaces; ++face) {
+      ktx_size_t offset = 0;
+      result = ktxTexture_GetImageOffset(asBase(texture.get()), level, 0, face, &offset);
+      if (result != KTX_SUCCESS || offset + levelBytes > texture->dataSize) {
+        return std::unexpected(ktxError(std::format("reading level {} of the KTX2 file", level), result));
+      }
+      const auto *source = reinterpret_cast<const std::byte *>(texture->pData) + offset;
+      data.data.insert(data.data.end(), source, source + levelBytes);
+    }
+  }
+  return data;
+}
+
+core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &source, bool compress) {
+  SONNET_ZONE();
+  auto created = createKtx2(source);
+  if (!created) {
+    return std::unexpected(created.error());
+  }
+  KtxTexture texture = std::move(*created);
+  ktx_error_code_e result = KTX_SUCCESS;
   if (compress) {
     // UASTC keeps quality high and transcodes to BC7 and ASTC alike (docs/assets.md, "Textures");
     // the faster level is a good trade for an editor that cooks on demand.
@@ -160,16 +207,32 @@ core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &sourc
       return std::unexpected(ktxError("supercompressing the KTX2 texture", result));
     }
   }
-  ktx_uint8_t *bytes = nullptr;
-  ktx_size_t size = 0;
-  result = ktxTexture_WriteToMemory(asBase(texture.get()), &bytes, &size);
-  if (result != KTX_SUCCESS) {
-    return std::unexpected(ktxError("writing the KTX2 file", result));
+  return writeKtx2(texture.get());
+}
+
+core::Result<std::vector<std::byte>> cookAstcKtx2(const renderer::TextureData &source) {
+  SONNET_ZONE();
+  auto created = createKtx2(source);
+  if (!created) {
+    return std::unexpected(created.error());
   }
-  std::vector<std::byte> out(reinterpret_cast<const std::byte *>(bytes),
-                             reinterpret_cast<const std::byte *>(bytes) + size);
-  std::free(bytes);
-  return out;
+  KtxTexture texture = std::move(*created);
+  // ADR-0018, "Textures": colour at 6x6 in perceptual mode, data at 4x4, the size BC7 has on
+  // desktop, since its error becomes shading error. No normal-map mode: forward.slang reads a
+  // normal map's three channels, and that mode keeps two.
+  const bool srgb = source.format == rhi::Format::R8G8B8A8Srgb;
+  ktxAstcParams params{};
+  params.structSize = sizeof(params);
+  params.threadCount = std::max(1u, std::thread::hardware_concurrency());
+  params.blockDimension = srgb ? KTX_PACK_ASTC_BLOCK_DIMENSION_6x6 : KTX_PACK_ASTC_BLOCK_DIMENSION_4x4;
+  params.mode = KTX_PACK_ASTC_ENCODER_MODE_LDR;
+  params.qualityLevel = KTX_PACK_ASTC_QUALITY_LEVEL_MEDIUM;
+  params.perceptual = srgb ? KTX_TRUE : KTX_FALSE;
+  const ktx_error_code_e result = ktxTexture2_CompressAstcEx(texture.get(), &params);
+  if (result != KTX_SUCCESS) {
+    return std::unexpected(ktxError("encoding the KTX2 texture as ASTC", result));
+  }
+  return writeKtx2(texture.get());
 }
 
 } // namespace sonnet::assets

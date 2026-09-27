@@ -6,6 +6,7 @@
 #include <sonnet/core/Error.h>
 #include <sonnet/renderer/Mesh.h>
 #include <sonnet/renderer/Texture.h>
+#include <sonnet/rhi/Device.h>
 
 #include <cstddef>
 #include <filesystem>
@@ -24,12 +25,18 @@ namespace sonnet::assets {
 // Radiance .hdr, decoded to RGBA16F for an environment.
 [[nodiscard]] core::Result<renderer::TextureData> importHdr(std::span<const std::byte> bytes);
 
-// A KTX2 file: Basis Universal data is transcoded to BC7 when the device supports block
-// compression, to RGBA8 otherwise; other formats are taken as they are.
-[[nodiscard]] core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, bool blockCompression);
+// A KTX2 file: Basis Universal data is transcoded to BC7 when the device has block compression,
+// to ASTC 4x4 when it has ASTC instead, and to RGBA8 otherwise; other formats are taken as they
+// are. A format the device cannot sample is an error, which the caller treats as a failed import.
+[[nodiscard]] core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes,
+                                                           const rhi::DeviceInfo &device);
 // An RGBA8 texture cooked into a KTX2 file: UASTC with zstd supercompression when `compress`
 // is set, uncompressed otherwise (docs/assets.md, "Textures").
 [[nodiscard]] core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &texture, bool compress);
+// An RGBA8 texture encoded as ASTC for a mobile bundle (ADR-0018): 6x6 in perceptual mode for an
+// sRGB texture, 4x4 for a linear one, at astcenc's medium quality, every level encoded from the
+// level given rather than from a lossy form of it.
+[[nodiscard]] core::Result<std::vector<std::byte>> cookAstcKtx2(const renderer::TextureData &texture);
 
 // What a glTF file yields. Materials and meshes refer to each other by index; the database
 // gives every one a derived identity.

@@ -106,7 +106,21 @@ core::Result<void> Game::openBundle(const std::filesystem::path &file) {
   if (const auto opened = m_assets.openBundle(file); !opened) {
     return std::unexpected(opened.error());
   }
+  if (m_assets.bundle() == nullptr) {
+    return std::unexpected(
+        core::Error{std::format("{}: no bundle was opened", file.string()), core::ErrorCategory::Io});
+  }
   const assets::Bundle &bundle = *m_assets.bundle();
+  // Refused before anything loads: a bundle whose textures the device cannot sample would draw
+  // every surface with the fallback (docs/player.md, "Opening a game").
+  if (!assets::canRun(m_device.info(), bundle.manifest().platform)) {
+    const std::string_view platform = assets::toString(bundle.manifest().platform);
+    m_assets.close();
+    return std::unexpected(
+        core::Error{std::format("{}: the bundle was cooked for {}, whose ASTC textures this device ({}) cannot sample",
+                                file.string(), platform, m_device.info().deviceName),
+                    core::ErrorCategory::Io});
+  }
   m_name = bundle.manifest().name;
   loadPrefabs();
   const auto payload = bundle.read(bundle.manifest().startScene);

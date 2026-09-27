@@ -158,10 +158,11 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
   createPipelineLayout();
   createBindlessSet();
   createFrames();
-  SONNET_LOG_INFO("Vulkan {} device \"{}\"{}, driver {} {}, loader {}{}", versionString(m_info.apiVersion),
+  SONNET_LOG_INFO("Vulkan {} device \"{}\"{}, driver {} {}, loader {}{}{}{}", versionString(m_info.apiVersion),
                   m_info.deviceName, m_info.vulkan14FeaturesAsExtensions ? " with the 1.4 features as extensions" : "",
                   m_info.driverName, m_info.driverInfo, versionString(m_info.loaderVersion),
-                  m_info.validationEnabled ? ", validation on" : "");
+                  m_info.validationEnabled ? ", validation on" : "", m_info.blockCompressionSupported ? ", BC" : "",
+                  m_info.astcSupported ? ", ASTC" : "");
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -317,11 +318,15 @@ void VulkanDevice::selectAndCreateDevice() {
   m_info.vulkan14FeaturesAsExtensions = m_info.apiVersion < VK_API_VERSION_1_4;
   physicalDevice.enable_extension_if_present(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 
-  // Block compression is what cooked textures use on desktop; mobile GPUs bring ASTC instead
-  // (docs/assets.md, "Textures"), so it is enabled where present rather than required.
-  VkPhysicalDeviceFeatures optional{};
-  optional.textureCompressionBC = VK_TRUE;
-  m_info.blockCompressionSupported = physicalDevice.enable_features_if_present(optional);
+  // Block compression is what cooked textures use on desktop and ASTC what they use on mobile
+  // (docs/assets.md, "Textures"). Each is enabled where present rather than required, and apart,
+  // since vk-bootstrap enables a feature structure only when all of it is present.
+  VkPhysicalDeviceFeatures blockCompression{};
+  blockCompression.textureCompressionBC = VK_TRUE;
+  m_info.blockCompressionSupported = physicalDevice.enable_features_if_present(blockCompression);
+  VkPhysicalDeviceFeatures astc{};
+  astc.textureCompressionASTC_LDR = VK_TRUE;
+  m_info.astcSupported = physicalDevice.enable_features_if_present(astc);
 
   const vkb::Device device = unwrap(vkb::DeviceBuilder{physicalDevice}.build(), "creating the Vulkan device");
   m_physicalDevice = vk::raii::PhysicalDevice{m_instance, physicalDevice.physical_device};
@@ -576,6 +581,8 @@ ImageHandle VulkanDevice::createImage(const ImageDesc &desc) {
   SONNET_ASSERT(desc.size.x > 0 && desc.size.y > 0, "image \"{}\" has no size", desc.debugName);
   SONNET_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size), "image \"{}\": {} mip levels",
                 desc.debugName, desc.mipLevels);
+  SONNET_ASSERT(formatSupported(m_info, desc.format), "image \"{}\": the device cannot sample {}", desc.debugName,
+                toString(desc.format));
   SONNET_ASSERT(!desc.cube || desc.size.x == desc.size.y, "cube image \"{}\" is not square", desc.debugName);
   vk::ImageCreateInfo imageInfo{desc.cube ? vk::ImageCreateFlagBits::eCubeCompatible : vk::ImageCreateFlags{},
                                 vk::ImageType::e2D,

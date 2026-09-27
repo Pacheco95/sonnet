@@ -573,8 +573,8 @@ TextureHandle Renderer::createTexture(const TextureData &data, std::string debug
   }
   m_device.uploadImage(image, uploads);
   const TextureHandle handle = m_textures.emplace(Texture{std::move(debugName), image});
-  SONNET_LOG_DEBUG("texture \"{}\": {}x{}, {} levels{}", m_textures.get(handle).debugName, data.size.x, data.size.y,
-                   data.mipLevels, data.cube ? ", cube" : "");
+  SONNET_LOG_DEBUG("texture \"{}\": {}x{} {}, {} levels{}", m_textures.get(handle).debugName, data.size.x, data.size.y,
+                   rhi::toString(data.format), data.mipLevels, data.cube ? ", cube" : "");
   return handle;
 }
 

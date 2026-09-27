@@ -500,6 +500,20 @@ TEST_CASE("exporting a project writes a bundle and what runs it", "[editor][gpu]
     REQUIRE(selectedBundle->manifest().startScene == "scenes/other.scene.json");
     REQUIRE(selectedBundle->contains("scenes/other.scene.json"));
     REQUIRE_FALSE(selectedBundle->contains("scenes/main.scene.json"));
+    // A phone's export is the bundle alone, even from a directory that holds a desktop player.
+    const std::filesystem::path phone = out / "android";
+    const auto mobile = editor.exportProject(
+        {.outputDirectory = phone, .platform = assets::CookPlatform::Android, .playerDirectory = players});
+    REQUIRE(mobile.has_value());
+    REQUIRE(mobile->player.empty());
+    REQUIRE(mobile->supportFileCount == 0);
+    REQUIRE(mobile->warnings.empty());
+    REQUIRE(std::filesystem::exists(phone / "game.sbundle"));
+    REQUIRE_FALSE(std::filesystem::exists(phone / "sonnet_player"));
+    REQUIRE_FALSE(std::filesystem::exists(phone / "shaders"));
+    const auto mobileBundle = assets::Bundle::open(mobile->cook.bundle);
+    REQUIRE(mobileBundle.has_value());
+    REQUIRE(mobileBundle->manifest().platform == assets::CookPlatform::Android);
     std::filesystem::remove_all(players);
 
     fixture.frame(editor);

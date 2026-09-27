@@ -135,6 +135,14 @@ public:
   // what changed. Returns the identities re-imported.
   std::vector<core::Uuid> pollChanges();
 
+  // The KTX2 file a mobile bundle carries for a texture (ADR-0018). A compressed texture is
+  // encoded as ASTC from its source's RGBA8 levels, never from the UASTC in the cache, and the
+  // result is cached as `.sonnet/cache/<uuid>.astc.ktx2`, encoded again only when the source or
+  // its sidecar is newer, as the UASTC entry is. A glTF file's images are encoded together, the
+  // first time one of them is asked for. An uncompressed texture is its RGBA8 cache entry, and a
+  // KTX2 source is itself. Project mode only.
+  [[nodiscard]] core::Result<std::vector<std::byte>> mobileTexture(const core::Uuid &uuid);
+
   [[nodiscard]] std::filesystem::path cacheDirectory() const {
     return m_projectRoot / ".sonnet" / "cache";
   }
@@ -180,7 +188,7 @@ private:
     std::filesystem::path cache;
     std::string name;
     std::filesystem::file_time_type sourceTime;
-    bool blockCompression{false};
+    rhi::DeviceInfo device; // what the texture is read for
   };
   // The result of that import: everything decoded, nothing created. Images line up with
   // `import.images`; an image that failed to decode has no data.
@@ -207,7 +215,7 @@ private:
     std::string name;
     std::filesystem::file_time_type sourceTime;
     TextureSettings settings;
-    bool blockCompression{false};
+    rhi::DeviceInfo device; // what the texture is read for
   };
   [[nodiscard]] static std::optional<renderer::TextureData> importFileTexture(const TextureRequest &request);
   [[nodiscard]] std::optional<TextureRequest> textureRequest(const core::Uuid &uuid, const AssetInfo &info);

@@ -41,7 +41,8 @@ struct ExportReport {
 // (docs/player.md, "What an export is"): the bundle, the player binary, the compiled engine
 // shaders and, on Windows, the libraries beside the binary. A missing player is a warning and
 // leaves the bundle written, so an export can be finished by hand or by CI; only a failed cook
-// fails the export.
+// fails the export. For Android and iOS it writes the bundle alone, which the APK or the app
+// bundle is built around; the editor builds neither.
 [[nodiscard]] core::Result<ExportReport> exportProject(assets::AssetDatabase &database, const assets::Project &project,
                                                        const ExportOptions &options);
 

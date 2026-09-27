@@ -46,7 +46,7 @@ struct AssetInfo {
 struct TextureSettings {
   bool srgb{true}; // colour data; off for normal, roughness, metallic and occlusion maps
   bool mipmaps{true};
-  bool compress{true}; // cooked to UASTC, transcoded to BC7 on desktop; uncompressed RGBA8 otherwise
+  bool compress{true}; // UASTC, or ASTC in a mobile bundle (docs/assets.md, "Textures"); RGBA8 otherwise
 
   [[nodiscard]] static TextureSettings fromJson(const nlohmann::json &json);
   [[nodiscard]] nlohmann::json toJson() const;

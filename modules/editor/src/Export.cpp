@@ -83,6 +83,13 @@ core::Result<ExportReport> exportProject(assets::AssetDatabase &database, const 
   }
   report.cook = std::move(*cooked);
   report.warnings = report.cook.warnings;
+  if (assets::isMobile(options.platform)) {
+    // A phone runs the player from an APK or an app bundle, which the build makes around a cooked
+    // bundle (docs/player.md, "Running on Android"); a desktop player beside it would be no use.
+    SONNET_LOG_INFO("exported \"{}\" for {} into {}: {} assets, the bundle alone", project.name,
+                    assets::toString(options.platform), options.outputDirectory.string(), report.cook.assetCount);
+    return report;
+  }
 
   const fs::path source = options.playerDirectory;
   const fs::path player = source / playerFileName(options.platform);

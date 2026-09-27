@@ -23,6 +23,8 @@ The scene is drawn through its first `Camera` ([world.md](world.md#components)).
 - A **project folder** is opened through `assets::Project`, its asset roots scanned, its `.prefab.json` files loaded, and its `startScene` read as JSON. Sources are polled for changes as the editor polls them, so running a project folder is a usable way to try a change without the editor.
 - A **bundle** is opened through `AssetDatabase::openBundle`; the prefabs and the start scene are the CBOR file entries the cook put in it ([assets.md](assets.md#the-bundle)). There are no sidecars, no re-import and no hot reload.
 
+A bundle is refused before anything in it loads when the device cannot sample the textures its platform was cooked with, and the error names the platform. A desktop bundle (`windows`, `linux`, `macos`) runs on every device: its compressed textures are UASTC, which `readKtx2` transcodes to BC7, ASTC 4×4 or RGBA8, whichever the device has, and the rest are RGBA8 and the environment's RGBA16F, which every device samples. An Android or iOS bundle holds ASTC, uploaded as it is, so it needs `DeviceInfo::astcSupported` ([assets.md](assets.md#textures)). Phones and Apple silicon have ASTC and desktop GPUs do not, so a desktop bundle runs on a phone and a phone's bundle does not run on a desktop. `assets::canRun` is the rule, and the null device, which reports BC and no ASTC like a desktop GPU, is what `runtime_tests` checks it on. A texture a bundle holds in a format the device lacks, such as a KTX2 source cooked as it is in BC7, fails on its own when it loads and falls back like a failed import.
+
 Either way every model is loaded as a prefab under its own identity, so a scene can place one ([world.md](world.md#prefabs)), and the window takes the project's name as its title. A failure to open leaves an empty world and returns the error; the application stops rather than showing an empty scene.
 
 `runtime_tests` runs the basic sample headless on Lavapipe, as a project folder and then cooked into a bundle, and checks that both load the same scene, that the scene and present passes run, that a scene without a camera falls back, and that neither path logs a warning — including past the game's destruction, where a bundle that released nothing would show up as the renderer's leak warnings.
@@ -68,11 +70,21 @@ adb shell am start --user 0 -n io.github.pacheco95.sonnet/.SonnetActivity \
 adb logcat -s Sonnet
 ```
 
-ASTC cooking, touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#reading-content-from-the-apk)).
+A game for the phone is cooked for `android`, which encodes its compressed textures as ASTC ([assets.md](assets.md#textures)), and packaged into the APK at configure ([build.md](build.md#android)):
+
+```bash
+./build/linux-debug/apps/cook/sonnet_cook apps/samples/basic --platform android --out build/android-bundle
+cmake --preset android-debug -DSONNET_ANDROID_BUNDLE=$PWD/build/android-bundle/game.sbundle
+cmake --build --preset android-debug
+adb uninstall --user 0 io.github.pacheco95.sonnet   # when the installed APK came from the other build directory
+adb install --user 0 build/android-debug/apps/player/sonnet_player.apk
+```
+
+A desktop bundle runs on the phone too, with its UASTC transcoded on load ([Opening a game](#opening-a-game)). The device's log line says `ASTC` when the device has it, and each texture's debug line names its format. Touch input, the lifecycle and the capture are later M9 steps ([roadmap.md](roadmap.md#astc-texture-cooking)).
 
 ## What an export is
 
-An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](roadmap.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
+An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. An Android or iOS export is the bundle alone: the player there is an APK or an app bundle, which the build packages the bundle into ([Running on Android](#running-on-android)), and the editor builds neither. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](roadmap.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
 
 ## See also
 

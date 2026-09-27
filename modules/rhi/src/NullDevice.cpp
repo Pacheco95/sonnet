@@ -228,7 +228,10 @@ NullDevice::NullDevice() : m_commandList(std::make_unique<NullCommandList>(*this
   m_info.driverName = "null";
   m_info.apiVersion = 0;
   m_info.timestampsSupported = true;
+  // BC and no ASTC, as every desktop GPU and Lavapipe report, so a cook on it transcodes the way
+  // the editor does and a mobile bundle is refused as on a desktop.
   m_info.blockCompressionSupported = true;
+  m_info.astcSupported = false;
   for (std::uint32_t i = 0; i < FramesInFlight; ++i) {
     m_frames[i].transientBuffer = createBuffer({.size = TransientBufferSize,
                                                 .usage = BufferUsage::Uniform | BufferUsage::Storage,
@@ -293,6 +296,8 @@ ImageHandle NullDevice::createImage(const ImageDesc &desc) {
   SONNET_ASSERT(desc.size.x > 0 && desc.size.y > 0, "image \"{}\" has no size", desc.debugName);
   SONNET_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size), "image \"{}\": {} mip levels",
                 desc.debugName, desc.mipLevels);
+  SONNET_ASSERT(formatSupported(m_info, desc.format), "image \"{}\": the device cannot sample {}", desc.debugName,
+                toString(desc.format));
   Image image{desc, InvalidBindlessIndex, {}};
   if (has(desc.usage, ImageUsage::Sampled)) {
     image.sampledIndex = desc.cube                    ? m_nextCubeIndex++

@@ -7,6 +7,7 @@
 #include <sonnet/physics/Components.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
+#include <sonnet/rhi/NullDevice.h>
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/world/Components.h>
 
@@ -15,6 +16,7 @@
 #include <spdlog/sinks/base_sink.h>
 
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -216,4 +218,52 @@ TEST_CASE("a path that is neither a project nor a bundle is an error", "[runtime
   REQUIRE(!game.open(std::filesystem::temp_directory_path() / "sonnet_runtime_nowhere.sbundle").has_value());
   // A failed open still leaves a game that renders an empty frame rather than crashing.
   fixture.frame(game);
+}
+
+// The null device reports what a desktop GPU does, BC and no ASTC, so a phone's bundle is refused
+// on it and the same project cooked for Linux is not (docs/player.md, "Opening a game").
+TEST_CASE("a bundle cooked for a phone is refused on a device without ASTC", "[runtime]") {
+  platform::Platform platform{{.headless = true}};
+  // SDL's windows are Vulkan windows, so even the null device's needs a Vulkan loader with surfaces.
+  std::unique_ptr<platform::IWindow> window;
+  try {
+    window = platform.createWindow({.title = "runtime_tests", .size = {64, 64}});
+  } catch (const core::Exception &e) {
+    SKIP("no window: " << e.what());
+  }
+  const auto device = rhi::createNullDevice();
+  REQUIRE_FALSE(device->info().astcSupported);
+  const auto swapchain = device->createSwapchain(*window);
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_runtime_mobile";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "scenes");
+  assets::Project project;
+  project.root = root;
+  project.name = "Phone";
+  project.assetRoots = {};
+  REQUIRE(project.save().has_value());
+  REQUIRE(core::writeFile(root / "scenes" / "main.scene.json", std::string_view{R"({"version": 2, "entities": []})"})
+              .has_value());
+
+  runtime::GameDesc desc;
+  desc.audioOutput = false;
+  runtime::Game game{*window, *device, *swapchain, desc};
+  REQUIRE(game.open(root).has_value());
+  for (const assets::CookPlatform target :
+       {assets::CookPlatform::Android, assets::CookPlatform::IOS, assets::CookPlatform::Linux}) {
+    REQUIRE(
+        assets::cook(game.assets(), project,
+                     {.outputDirectory = root / "export" / std::string{assets::toString(target)}, .platform = target})
+            .has_value());
+  }
+
+  for (const char *mobile : {"android", "ios"}) {
+    const auto opened = game.open(root / "export" / mobile / "game.sbundle");
+    REQUIRE_FALSE(opened.has_value());
+    REQUIRE(opened.error().message.contains(std::format("cooked for {}", mobile)));
+    REQUIRE_FALSE(game.assets().isOpen()); // nothing of it stays loaded
+  }
+  REQUIRE(game.open(root / "export" / "linux" / "game.sbundle").has_value());
+  REQUIRE(game.name() == "Phone");
+  std::filesystem::remove_all(root);
 }
