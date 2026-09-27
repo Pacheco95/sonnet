@@ -316,6 +316,68 @@ Verified on Linux with NDK r30, build-tools 36.1.0 and JDK 25 (`--release 17`):
 
 Still to do before the basic sample runs on the phone: ASTC cooking and `CookPlatform::android`, `Platform::openContent` (the player cannot read the APK's assets without it), spdlog's logcat sink, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player. After those, the CI job cooks the sample into the APK.
 
+### Reading content from the APK
+
+The third Android step reads the content the APK stores, as ADR-0018's "Packaging" section decides, and puts the engine's log in logcat ([platform.md](platform.md#paths)):
+
+- **The logcat sink.** On Android the entry point adds spdlog's `android_sink_mt` through `core::Log::addSink` before the first line is logged, under the tag `Sonnet`, the one `SonnetActivity` logs its arguments under. The console sink stays, `core` stays platform-agnostic, and `platform` links `liblog` itself on Android. It already reached the link through spdlog's and SDL's interface libraries.
+- **`Platform::openContent`** returns a `ContentStream`, a seekable, read-only stream over `SDL_IOStream` with `read`, `readExactly`, `seek`, `tell`, `size` and `readAll`. `Content.h` forward-declares `SDL_IOStream`, so SDL stays out of the header. A relative path resolves against the content root, which is the APK's `assets/` on Android and `basePath()` elsewhere. An absolute path is an ordinary file everywhere. On Android, SDL looks a relative path up in the app's internal storage before the assets. `openContent` is static, since it needs nothing SDL initialises.
+- **The readers.** `Bundle` holds a `ContentStream` instead of an `std::ifstream`, and checks a payload's span against the stream's size before allocating. `Bundle::open` and `AssetDatabase::openBundle` still take a path, because `openContent` is static and every desktop caller passes an absolute path. The renderer reads its shaders through `openContent`. `Game` passes the relative `shaders` and so no longer takes the `Platform`, while the editor, the cook and the tests pass the absolute `basePath() / "shaders"` as before. With no argument the player opens `game.sbundle` from the content root. It makes an argument absolute first, so on desktop an argument is still a path from the working directory. Import, cook, `Project` and the editor's files stay on `core::readFile`.
+- **No new dependency.** `assets` and `renderer` reach `platform` through `rhi`, which links it publicly.
+
+Verified on Linux:
+
+- `build/linux-debug` (GCC 14) and `build/clang22` (Clang 22) build with no warnings. All 13 suites pass on Lavapipe, including the five new `openContent` cases in `platform_tests`, and `runtime_tests` loads the basic sample as a folder and as a bundle.
+- The desktop player runs the basic sample from a project folder, from a relative bundle argument given in another working directory, and from `game.sbundle` beside a copied binary started from `/`. An export the editor wrote (`Editor::exportProject` with the real player: 27 assets, 22 support files) runs the same way.
+- `android-debug` and `android-release` build with no warnings. `libsonnet_player.so` lists `liblog.so` as `NEEDED`.
+
+**On the emulator** (`sonnet36`, `-gpu swiftshader_indirect`), since the phone was not connected:
+
+- `adb logcat -s Sonnet` shows the engine's log from its first line (`Sonnet 0.10.0`), with spdlog's levels as logcat's (`I`, `D`, `W`, `F`). The log reaches the device selector, which rejects SwiftShader: `Missing feature VkPhysicalDeviceVulkan11Features::shaderDrawParameters`. That is a 1.1 feature, checked before the four 1.4 extensions the APK step expected to be the reason. The player then exits with a failure.
+- The device is rejected before anything reads the shaders or the bundle. A probe added to a local build for this one run (not committed) showed that the reads work from the APK. It read `shaders/cluster.spv` through `openContent`, 41812 bytes, the size `unzip -v` lists. It also opened the packaged `assets/game.sbundle` (the basic sample, cooked by the Linux `sonnet_cook`) with its 27 assets, and read its start scene.
+- A bundle pushed to `/data/local/tmp` and copied with `run-as ... cp` into `files/` opens when `--es args` gives its absolute path. A missing absolute path is an `Io` error naming it.
+
+**On the Galaxy S25 Ultra** (Android 16, the `android-debug` APK with the basic sample cooked by the Linux `sonnet_cook` and packaged as `assets/game.sbundle`):
+
+- `adb logcat -s Sonnet` shows the engine's log from its first line. The Adreno 830 is taken on ADR-0019's path ("Vulkan 1.3.284 device ... with the 1.4 features as extensions"), the swapchain is created (1080×2340, 5 images, `R8G8B8A8Unorm`, Mailbox), and the job system starts with 7 workers.
+- The shaders now load from the APK. The earlier `cannot open ./shaders/cluster.spv` is gone, and startup gets one step further, into `Renderer::createPipelines`.
+- **There the process dies with a SIGSEGV**, a null-pointer read inside the driver's shader compiler (`/vendor/lib64/libllvm-qgl.so`), called from `vkCreateComputePipelines` through `VulkanDevice::createComputePipeline`. Nothing is logged first, since the crash is in the driver. `cluster.spv` is the first module the renderer builds, and its one pipeline is the compute pipeline `light clustering`, so that pipeline is the likely one. The crash happens before the bundle is opened, so the basic sample does not reach the screen. This step does not investigate it, as scoped. It is the next blocker on the phone.
+- A bundle pushed to `/data/local/tmp` and copied with `run-as ... cp` into `files/` gets its absolute path through `--es args` (the log shows `arguments: [/data/user/0/io.github.pacheco95.sonnet/files/pushed.sbundle]`). The run then stops at the same crash, since `Game` builds the renderer before it opens the bundle. The emulator run above showed that the bundle opens by absolute path.
+
+Still to do before the basic sample runs on the phone: the Adreno compiler crash in `createComputePipeline` ([the next step](#the-adreno-shader-compiler)), then ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
+
+### The Adreno shader compiler
+
+The fourth Android step finds and works around the crash above.
+
+**Finding the pipeline.** `Renderer::createPipelines` now logs each module and each pipeline at debug level before creating it, so the last line before a driver crash names the pipeline. On the phone it is `pipeline "light clustering" from cluster`. On Android, SDL reads a relative path from the app's internal storage before the APK, so a module copied into `files/shaders/` with `run-as` replaces the packaged one without a rebuild. That made every experiment below a copy and a restart:
+
+- A compute module that does not read `frame` builds, and the next pipeline, `cull`, crashes at the same address. So the crash is not about clustering. It is about how `FrameConstants` is declared.
+- **Debug information is ruled out.** The module built with `-O2` and no debug information (what Release ships) crashes the same way, as do `-g0` and `-g1`.
+- **Validity is ruled out.** `spirv-val --target-env vulkan1.3 --scalar-block-layout` accepts every module. They declare SPIR-V 1.6, which the device takes as a 1.3 device, and they use only the `Shader` and `PhysicalStorageBufferAddresses` capabilities, both of which the device has. The engine requires `bufferDeviceAddress` and `scalarBlockLayout`.
+- **A minimal repro.** A uniform block with a pointer to a `uint`, a scalar array or an array of matrices builds, but a block with a pointer to a struct crashes. Slang emits `OpTypeForwardPointer` for every pointer to a struct it has not emitted yet, and defines the pointer after the block that uses it. The same module, with the pointer and its struct defined before the block and nothing else changed, builds. So does one that keeps the `OpTypeForwardPointer` but defines everything in order. What the driver cannot take is a struct member whose pointer type is only declared forward, not the instruction itself.
+
+With the types reordered, `light clustering` fails differently: `vkCreateComputePipelines` returns `VK_ERROR_UNKNOWN`. Reducing again:
+
+| Read through `Light *lights` | Adreno 830 |
+|---|---|
+| `lights[i].position` (the first member) | builds |
+| `lights[0].range`, a whole `lights[1]` | builds |
+| `lights[i].range`, `lights[i].color`, a whole `lights[i]`, `clusters[i].lights[0]` | `VK_ERROR_UNKNOWN` |
+| `lights[i].range` as one `OpPtrAccessChain lights i 1` | builds |
+
+A pointer to a struct computed with a dynamic index cannot be read past its first member or loaded whole. Slang writes `lights[i].range` as an `OpPtrAccessChain` to the element followed by an `OpAccessChain` to the member. Decorating the struct `Block`, as glslang does for a `buffer_reference`, doesn't help. Neither does glslang's shape, a block with a runtime array and one chain through it, and Slang lowers an unsized array behind a pointer to an `OpPtrAccessChain` anyway. No Slang option or source form avoids either shape, and the `shader-slang` port installs prebuilt binaries, so Slang cannot be patched through an overlay port either.
+
+**The fix** is `tools/spirv_for_adreno.py`, which the Android build runs over every module after `slangc` ([rendering.md](rendering.md#shaders)). It folds chained access chains on a buffer pointer into one chain from the root pointer, splits a whole struct or array loaded through one into a load per member with an `OpCompositeConstruct`, removes the chains left unused, and sorts the types so no pointer is used before it is defined. It rewrites 7 of the 11 engine modules, and the output passes `spirv-val`. The desktop is unchanged: its modules are not rewritten, and the editor's screenshots of the basic sample's main scene and of the playground after `--play 3` are byte-identical with the rewritten modules in place of the originals. The editor was checked to read those files by giving it a truncated one. The rewrite needs no C++ and no device check. Its test, `renderer_spirv_for_adreno`, runs it over the engine's modules on every desktop build and checks that neither shape is left, that a second run changes nothing, and that `spirv-val` accepts the result when the SDK is installed.
+
+**On the Galaxy S25 Ultra**, with the `android-debug` APK and the basic sample cooked by the Linux `sonnet_cook` packaged:
+
+- All 29 pipelines from the 11 modules build. The bundle opens (27 assets), the game plays `Basic` with 15 entities, the render graph allocates its targets at 1080×2340, and **the basic sample renders**: lit and shadowed, the sky from the environment, bloom and tonemapping, with the crate turning. Nothing is logged at warning level or above, apart from the missing validation layer, which is expected.
+- A bundle pushed to `/data/local/tmp`, copied into `files/` and given through `--es args` as `/data/user/0/io.github.pacheco95.sonnet/files/game.sbundle` opens and plays the same way.
+- `android-release`, with the same bundle, also plays.
+
+Still to do before the phone runs a game as the desktop does: ASTC cooking and `CookPlatform::android`, touch input, the swapchain's suspend and resume with the lifecycle, and the capture in the player.
+
 ## M10: iOS export
 
 - Xcode build of the player from a macOS host, MoltenVK linked statically, packaging into an app bundle.

@@ -9,6 +9,10 @@
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_init.h>
 
+#if defined(__ANDROID__)
+#include <spdlog/sinks/android_sink.h>
+#endif
+
 #include <algorithm>
 #include <exception>
 #include <memory>
@@ -37,10 +41,19 @@ SDL_AppResult toSdl(AppResult result) noexcept {
   return SDL_APP_FAILURE;
 }
 
+// Android discards a process's stdout, so there the log also goes to logcat, under the tag the
+// activity logs its arguments with. The console sink stays: it is what `wrap.<package>` shows.
+void initLogging() {
+  core::Log::init();
+#if defined(__ANDROID__)
+  core::Log::addSink(std::make_shared<spdlog::sinks::android_sink_mt>("Sonnet"));
+#endif
+}
+
 } // namespace
 
 SDL_AppResult appInit(void **state, int argc, char **argv) {
-  core::Log::init();
+  initLogging();
   SONNET_LOG_INFO("Sonnet {}", core::engineVersion().toString());
   try {
     auto appState = std::make_unique<AppState>();

@@ -22,6 +22,13 @@ if(CMAKE_CROSSCOMPILING AND DEFINED VCPKG_INSTALLED_DIR)
 endif()
 find_program(SLANGC_EXECUTABLE NAMES slangc REQUIRED)
 
+# Adreno's shader compiler rejects two valid shapes Slang emits for the buffer pointers in
+# FrameConstants, so on Android every module goes through tools/spirv_for_adreno.py, which rewrites
+# them into equivalent ones (docs/rendering.md, "Shaders"). Desktop modules are left as slangc wrote them.
+if(ANDROID)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+endif()
+
 # Engine shader modules import each other by name; every compilation sees this directory.
 set(SONNET_ENGINE_SHADER_DIR "${CMAKE_SOURCE_DIR}/modules/renderer/shaders")
 
@@ -36,6 +43,10 @@ function(sonnet_add_shaders TARGET)
     # A stable path for the depfile and the output rule: the generator expression is resolved
     # by the command, the rule itself is keyed on this path under the binary directory.
     set(rule_output "${CMAKE_CURRENT_BINARY_DIR}/shaders/${name}.spv")
+    set(adreno)
+    if(ANDROID)
+      set(adreno COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/spirv_for_adreno.py" "${rule_output}" "${rule_output}")
+    endif()
     add_custom_command(
       OUTPUT "${rule_output}"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:${TARGET}>/shaders"
@@ -46,8 +57,9 @@ function(sonnet_add_shaders TARGET)
               $<IF:$<CONFIG:Debug>,-g2,-O2>
               -depfile "${rule_output}.d"
               -o "${rule_output}"
+      ${adreno}
       COMMAND ${CMAKE_COMMAND} -E copy_if_different "${rule_output}" "${output}"
-      DEPENDS "${absolute}"
+      DEPENDS "${absolute}" $<$<BOOL:${ANDROID}>:${CMAKE_SOURCE_DIR}/tools/spirv_for_adreno.py>
       DEPFILE "${rule_output}.d"
       COMMENT "slangc ${name}.slang"
       VERBATIM)

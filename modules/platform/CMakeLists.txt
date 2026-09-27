@@ -3,6 +3,7 @@ find_package(VulkanHeaders CONFIG REQUIRED)
 
 sonnet_add_module(platform
   SOURCES
+    src/Content.cpp
     src/Input.cpp
     src/InputState.cpp
     src/Platform.cpp
@@ -17,9 +18,14 @@ sonnet_add_module(platform
     SDL3::SDL3
     Vulkan::Headers
 )
+if(ANDROID)
+  # spdlog's logcat sink calls __android_log_write (docs/platform.md, "Logging").
+  target_link_libraries(sonnet_platform PRIVATE log)
+endif()
 
 sonnet_add_module_test(platform
   SOURCES
+    tests/ContentTests.cpp
     tests/EventTests.cpp
     tests/InputStateTests.cpp
     tests/PlatformTests.cpp

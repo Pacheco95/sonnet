@@ -2,9 +2,9 @@
 
 #include <sonnet/core/Assert.h>
 #include <sonnet/core/Error.h>
-#include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
+#include <sonnet/platform/Platform.h>
 
 #include <algorithm>
 #include <array>
@@ -407,14 +407,20 @@ rhi::PipelineHandle Renderer::createPipeline(const PipelineSlot &slot, rhi::Shad
 
 void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
   for (const std::string_view name : shaderNames()) {
-    const std::filesystem::path path = shaderDir / std::format("{}.spv", name);
-    const auto spirv = core::readFile(path);
+    // Through the platform's content, so a relative shaderDir is read from the APK on Android.
+    auto stream = platform::Platform::openContent(shaderDir / std::format("{}.spv", name));
+    const auto spirv = stream ? stream->readAll() : std::unexpected(stream.error());
     if (!spirv) {
       throw core::Exception{spirv.error()};
     }
+    // Logged before each creation, so the last line names the module or pipeline a driver crashed in.
+    SONNET_LOG_DEBUG("shader module {}: {} bytes", name, spirv->size());
     const rhi::ShaderHandle shader = m_device.createShader({.spirv = *spirv, .debugName = std::string{name}});
     for (const PipelineSlot &slot : m_pipelineSlots) {
       if (slot.shader == name) {
+        SONNET_LOG_DEBUG("pipeline \"{}\" from {}",
+                         std::visit([](const auto &desc) -> const std::string & { return desc.debugName; }, slot.desc),
+                         name);
         *slot.target = createPipeline(slot, shader);
       }
     }

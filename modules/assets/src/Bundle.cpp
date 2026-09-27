@@ -6,6 +6,7 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 #include <sonnet/core/Version.h>
+#include <sonnet/platform/Platform.h>
 
 #include <algorithm>
 #include <array>
@@ -87,20 +88,22 @@ core::Result<Bundle> Bundle::open(const std::filesystem::path &file) {
   SONNET_ZONE();
   Bundle bundle;
   bundle.m_path = file;
-  bundle.m_file.open(file, std::ios::binary);
-  if (!bundle.m_file) {
-    return std::unexpected(ioError(file, "cannot open the bundle"));
+  auto stream = platform::Platform::openContent(file);
+  if (!stream) {
+    // The stream's error already names the path, resolved against the content root.
+    return std::unexpected(
+        core::Error{std::format("cannot open the bundle: {}", stream.error().message), core::ErrorCategory::Io});
   }
+  bundle.m_file = std::move(*stream);
 
-  std::array<char, HeaderSize> header{};
-  bundle.m_file.read(header.data(), static_cast<std::streamsize>(header.size()));
-  if (bundle.m_file.gcount() != static_cast<std::streamsize>(header.size())) {
+  std::array<std::byte, HeaderSize> header{};
+  if (!bundle.m_file->readExactly(header)) {
     return std::unexpected(ioError(file, "not a bundle: the header is short"));
   }
-  if (std::string_view{header.data(), Magic.size()} != Magic) {
+  if (std::string_view{reinterpret_cast<const char *>(header.data()), Magic.size()} != Magic) {
     return std::unexpected(ioError(file, "not a bundle: wrong magic"));
   }
-  const ByteReader fields{std::as_bytes(std::span{header}).subspan(Magic.size())};
+  const ByteReader fields{std::span<const std::byte>{header}.subspan(Magic.size())};
   ByteReader reader = fields;
   const std::uint32_t version = reader.u32();
   if (version != BundleVersion) {
@@ -152,9 +155,9 @@ core::Result<Bundle> Bundle::open(const std::filesystem::path &file) {
     bundle.m_fileSpans[path] = {.offset = entry.value("offset", std::uint64_t{0}),
                                 .size = entry.value("size", std::uint64_t{0})};
   }
-  SONNET_LOG_INFO("opened bundle \"{}\" ({} assets, {} files, cooked for {} by {})", bundle.m_manifest.name,
-                  bundle.m_assets.size(), bundle.m_fileSpans.size(), toString(bundle.m_manifest.platform),
-                  bundle.m_manifest.engineVersion);
+  SONNET_LOG_INFO("opened bundle \"{}\" at {} ({} assets, {} files, cooked for {} by {})", bundle.m_manifest.name,
+                  bundle.m_file->path(), bundle.m_assets.size(), bundle.m_fileSpans.size(),
+                  toString(bundle.m_manifest.platform), bundle.m_manifest.engineVersion);
   return bundle;
 }
 
@@ -192,15 +195,20 @@ core::Result<std::vector<std::byte>> Bundle::read(std::string_view path) const {
 }
 
 core::Result<std::vector<std::byte>> Bundle::readSpan(const Span &span) const {
+  // Checked before anything is allocated, so a corrupt index cannot ask for more than the file.
+  const std::uint64_t fileSize = m_file->size();
+  if (span.offset > fileSize || span.size > fileSize - span.offset) {
+    return std::unexpected(ioError(m_path, "the bundle ends inside a payload"));
+  }
   std::vector<std::byte> bytes(span.size);
   if (span.size == 0) {
     return bytes;
   }
-  m_file.clear();
-  m_file.seekg(static_cast<std::streamoff>(span.offset));
-  m_file.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(span.size));
-  if (m_file.gcount() != static_cast<std::streamsize>(span.size)) {
-    return std::unexpected(ioError(m_path, "the bundle ends inside a payload"));
+  if (auto sought = m_file->seek(span.offset); !sought) {
+    return std::unexpected(sought.error());
+  }
+  if (auto read = m_file->readExactly(bytes); !read) {
+    return std::unexpected(read.error());
   }
   return bytes;
 }
