@@ -13,6 +13,7 @@ Per frame, in the order `apps/player/main.cpp` calls them:
 1. `event` for every translated platform event, which all becomes game input; there is no panel to compete for it, so the whole window is the game's.
 2. `update(dt)` polls the database for changed sources (nothing in bundle mode), hands the audio device the camera as its fallback listener, runs `World::progress` — the fixed steps with physics and the scripts' `fixedUpdate`, the scripts' `update`, the animators, physics interpolation, the transform system, the skin palettes and the audio — and then builds the draw list, the light list, the sun and the environment from the world ([world.md](world.md#draw-list)).
 3. `render(commands, swapchainImage)` resets the graph, sizes the target to the acquired image, declares the scene passes into it and the present pass into the swapchain image, and executes ([rendering.md](rendering.md#frame-structure)). Without an image — minimised, or a swapchain being recreated — the simulation still ran and nothing is drawn.
+4. `afterPresent`, once the frame is submitted, writes the screenshot the frame copied, when a capture asked for one ([Capture runs](#capture-runs)).
 
 The scene is drawn through its first `Camera` ([world.md](world.md#components)). A scene with none is drawn from a fallback view above and to the side of the origin, warned about once rather than every frame, so a scene that forgot a camera shows something rather than nothing.
 
@@ -34,14 +35,75 @@ Either way every model is loaded as a prefab under its own identity, so a scene 
 `apps/player/main.cpp` owns the window, device and swapchain and calls the four steps in order, like `apps/editor/main.cpp` ([architecture.md](architecture.md#application-lifecycle)). It runs:
 
 ```bash
-./build/linux-debug/apps/player/sonnet_player samples/basic   # a project folder
-./build/linux-debug/apps/player/sonnet_player game.sbundle    # a cooked bundle
-./sonnet_player                                               # game.sbundle beside the binary
+./build/linux-debug/apps/player/sonnet_player apps/samples/basic   # a project folder
+./build/linux-debug/apps/player/sonnet_player game.sbundle         # a cooked bundle
+./sonnet_player                                                    # game.sbundle beside the binary
+./sonnet_player --help                                             # the capture flags and the exit codes
 ```
 
-With no argument it opens `game.sbundle` through `Platform::openContent`, from the content root: next to the binary on desktop, which is what an export writes, so an exported game starts by being double-clicked, and the APK's `assets/game.sbundle` on Android ([platform.md](platform.md#paths)). An argument is a path from the working directory, which the player makes absolute before opening it, since a relative path would be read from the content root. The shaders are content too, read from `shaders/` in the same root. The window closes on its close button or the platform's quit; everything else the window receives is the game's.
+Its command line is `sonnet_player [game] [capture flags]`, in any order. With no game it opens `game.sbundle` through `Platform::openContent`, from the content root: next to the binary on desktop, which is what an export writes, so an exported game starts by being double-clicked, and the APK's `assets/game.sbundle` on Android ([platform.md](platform.md#paths)). The game is the one argument that is not a flag, a path from the working directory, which the player makes absolute before opening it, since a relative path would be read from the content root. The flags make the run a capture ([Capture runs](#capture-runs)). A mistake in the arguments is logged, since a phone shows only the log, and ends the run with exit code 1 before a window opens. The shaders are content too, read from `shaders/` in the same root. The window closes on its close button or the platform's quit; everything else the window receives is the game's.
 
 `SONNET_BUILD_PLAYER` builds it, on by default on every platform ([build.md](build.md#options)).
+
+## Capture runs
+
+The player writes a screenshot of its scene and quits, from the command line, as the editor does ([editor.md](editor.md#screenshots)), so that a run on a phone repeats and an agent that cannot see the screen can read it ([ADR-0018](decisions/0018-mobile-export.md)):
+
+```bash
+sonnet_player apps/samples/basic --scene scenes/playground.scene.json --play 3 --screenshot playground.png
+sonnet_player --play 3 --shading-term albedo --screenshot albedo.png   # game.sbundle beside the binary
+```
+
+The flags are the editor's, with the editor's meaning, from one table and one parser in `runtime` (`sonnet/runtime/Capture.h`) that both applications use. The player takes five of the seven:
+
+| Flag | Effect |
+|---|---|
+| `--screenshot FILE` | The scene, at the window's size, as a PNG. A relative path is under the preferences directory (below) |
+| `--scene FILE` | Opens this scene instead of the start scene, relative to the project: a file of a project folder, or the scene of that path a bundle holds, since the cook keeps every scene under its project-relative path. Alone, without a screenshot, it makes a plain run of that scene |
+| `--play SECONDS` | Plays for this many seconds, not steps, before the capture, and captures while playing: `--play 3` is 180 steps of 1/60 s |
+| `--shading-term TERM` | One term of the forward shading instead of the final image: `final`, `albedo`, `normal`, `sun-direct`, `shadow-factor`, `ibl-diffuse`, `ibl-specular`, `brdf-lut` or `cascade`, in any case |
+| `--settle-frames N` | Frames drawn after the assets have loaded, before playing or capturing; 10 by default |
+
+`--screenshot-window` and `--select` are the editor's alone, since the player has no panels and no selection, and the player refuses them as unknown flags. A capture needs `--screenshot`, and any other flag without one is an error, apart from `--scene` alone, which runs that scene and captures nothing. The game is optional, as in a plain run. `sonnet_player --help` prints the list from the table, and `tools/check_docs.py` fails when a flag the player takes is missing here.
+
+**The run** is the editor's, stepped through the player's game rather than the editor: the same `runtime::CaptureRun`, which the editor drives through `editor::CaptureRun` and the player through `runtime::GameCaptureTarget`. The game opens paused (`GameDesc::paused`), so the world does not simulate while the run waits for the assets, giving up after two minutes, and draws the settle frames. The run then seeds the scripts' `math.random` with a fixed value and plays (`Game::play`) at a fixed 1/60 s a frame whatever the frame rate, and the next frame copies the scene out (`Game::requestScreenshot`, written by `afterPresent`, reported by `takeScreenshotResult`). The image is the game's render target after tone mapping, as the present pass reads it: opaque, at the window's size. Without `--play` it is the scene as it loads, unsimulated, as in the editor. The same flags give the same image run after run on one GPU; two runs of the playground with `--play 3` on the RTX 4090 were byte-identical. The exit code is 0 once the file is written and 1 on any failure, which the log says.
+
+The editor's image of the same flags is not the player's. The editor draws through its fly camera into its viewport, 968×662 in its 1600×900 window, and the player through the scene's first camera into its whole window, 1280×720 on the desktop and 1080×2340 on the phone in portrait. Only the simulation they capture is the same.
+
+**Where the file goes.** A relative `--screenshot` resolves against `Platform::prefPath("sonnet", "player")`, the one directory a phone lets the player write: `~/.local/share/sonnet/player/` on Linux, `%APPDATA%\sonnet\player\` on Windows, `~/Library/Application Support/sonnet/player/` on macOS, and the app's internal storage, `files/` in its data directory, on Android, where SDL ignores the two names. An absolute path is written where it says.
+
+**What the log says.** Besides the usual lines, a capture run logs:
+
+- `capture run on "Adreno (TM) 830", Vulkan 1.3.284, writing /data/data/io.github.pacheco95.sonnet/files/final.png`: the device, its Vulkan version and the file.
+- `screenshot 1080x2340 written to ...` once it is.
+- `capture frame times over the last 100 frames: CPU 2.04 ms a frame, 5.27 ms apart; GPU 4.961 ms: skinning 0.002 ms, cull 0.008 ms, ...`: over the last hundred frames before the one that copies the screenshot, or fewer when the run drew fewer, the mean CPU time of a frame, the mean time between frames, and each render-graph pass's mean GPU time with their sum ([rendering.md](rendering.md#render-graph)). The CPU time is the simulation and the recording, without the waits for a frame slot and a swapchain image, which are the GPU's and the display's. The frame that copies the screenshot is left out, since that copy is the capture's work, not the game's.
+- `capture failed: <reason>` when it fails.
+- The last line, `exit ok` for exit code 0 or `exit with failure` for 1. On a phone nobody sees the exit code, and this line is how the run reports it.
+
+**On a phone.** The arguments go in the `args` extra, split on whitespace ([Running on Android](#running-on-android)). The whole `am start` is quoted once for `adb shell`, so the phone's shell keeps the extra as one string, and `-S` stops a player that is running first, since an activity already running takes no new arguments. The file is in the app's `files/`, which `run-as` reads, byte for byte through `adb shell` or `adb exec-out`:
+
+```bash
+adb logcat -c
+adb shell "am start -S -W --user 0 -n io.github.pacheco95.sonnet/.SonnetActivity --es args '--play 3 --shading-term albedo --screenshot albedo.png'"
+adb logcat -d -s Sonnet | tail -3        # wait for "exit ok" or "exit with failure"
+adb shell run-as io.github.pacheco95.sonnet cat files/albedo.png > albedo.png
+adb shell run-as io.github.pacheco95.sonnet rm files/albedo.png
+```
+
+A packaged bundle's other scenes are a flag away: `--es args '--scene scenes/playground.scene.json --play 3 --screenshot playground.png'`. Keep the phone's screen on and the player in front during a run: on Android nothing iterates in the background ([The lifecycle](#the-lifecycle)), so a run that loses the foreground waits and carries on when it comes back rather than failing. Only the two minutes it may wait for the assets count time away. Settings > Developer options > Stay awake, or `adb shell svc power stayon usb`, keeps the screen on while the phone is plugged in.
+
+### Reporting a device run
+
+ADR-0018 decides what counts as running on a device and how a device's agent reports it. On Android, with the `android-debug` or `android-release` APK and the basic sample cooked for `android` and packaged ([Running on Android](#running-on-android)):
+
+1. **The Vulkan description.** `adb shell cmd gpu vkjson`, checked against every feature and limit in [rendering.md](rendering.md#vulkan-baseline); a 1.3 device takes [ADR-0019](decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md)'s path, which the device's log line names.
+2. **The launcher.** The app starts from its icon, or from `adb shell monkey -p io.github.pacheco95.sonnet -c android.intent.category.LAUNCHER 1`, which sends the launcher's intent, and draws the start scene (`adb exec-out screencap -p`).
+3. **Capture runs** of the start scene with `--play 3` for the `final`, `albedo` and `normal` shading terms, and one of the playground (`--scene scenes/playground.scene.json --play 3`), each ending in `exit ok` with no error and no warning in the log. The debug APK's warning that the validation layer is missing is the one exception, since a phone has no layer.
+4. **The background** and back, by hand ([The lifecycle](#the-lifecycle)).
+5. **A finger** held on the playground, by hand ([scripting.md](scripting.md#input)).
+6. **The frame times** of step 3, from the capture runs' logs, recorded in the roadmap beside the desktop's and the Mac's.
+
+The report returns the PNGs, the logs (`adb logcat -d -s Sonnet`, and `adb logcat -d -b crash`, which should be empty), the Vulkan description, the device model and OS version (`adb shell getprop ro.product.model` and `ro.build.version.release`), and one line per check saying pass or fail, and for checks 4 and 5 who did them. The PNGs are compared by eye with a Linux capture of the same arguments, not byte for byte, since the GPUs differ and the phone's window is portrait. Serial numbers, build fingerprints and home paths stay out of it.
 
 ## The lifecycle
 
@@ -94,13 +156,12 @@ adb uninstall --user 0 io.github.pacheco95.sonnet   # when the installed APK cam
 adb install --user 0 build/android-debug/apps/player/sonnet_player.apk
 ```
 
-A desktop bundle runs on the phone too, with its UASTC transcoded on load ([Opening a game](#opening-a-game)). The device's log line says `ASTC` when the device has it, and each texture's debug line names its format. The capture is a later M9 step ([roadmap.md](roadmap.md#the-mobile-lifecycle)).
+A desktop bundle runs on the phone too, with its UASTC transcoded on load ([Opening a game](#opening-a-game)). The device's log line says `ASTC` when the device has it, and each texture's debug line names its format. A capture run on the phone is in [Capture runs](#capture-runs).
 
-The player takes no `--scene` yet, so a bundle that starts on another scene is cooked with `sonnet_cook --scene`. Fingers are the game's through `input.touches()` ([scripting.md](scripting.md#input)), and `adb` can send them. `input motionevent` sends one event at a time, so a finger stays down between a `DOWN` and its `UP` for as long as the commands take, while `input swipe` is a timed drag and `input tap` a tap. Coordinates are the screen's pixels, which are the window's in a full-screen app:
+A default cook puts every scene of the project in the bundle, so the packaged bundle runs another of them with `--scene` in `args`, rather than a cook with `sonnet_cook --scene`, which makes a bundle of that scene alone. Fingers are the game's through `input.touches()` ([scripting.md](scripting.md#input)), and `adb` can send them. `input motionevent` sends one event at a time, so a finger stays down between a `DOWN` and its `UP` for as long as the commands take, while `input swipe` is a timed drag and `input tap` a tap. Coordinates are the screen's pixels, which are the window's in a full-screen app:
 
 ```bash
-./build/linux-debug/apps/cook/sonnet_cook apps/samples/basic --platform android --out build/android-bundle \
-    --scene scenes/playground.scene.json
+adb shell "am start -S --user 0 -n io.github.pacheco95.sonnet/.SonnetActivity --es args '--scene scenes/playground.scene.json'"
 adb shell input motionevent DOWN 540 1500   # a finger held on the playground
 adb shell input motionevent MOVE 560 1450
 adb shell input motionevent UP 560 1450

@@ -59,6 +59,14 @@ Do not screen-capture the editor: macOS needs a permission an agent cannot grant
 
 `--screenshot` is the viewport's scene and `--screenshot-window` the whole window with its panels. `--scene` is relative to the project, `--play` takes seconds, not steps (`--play 3` is 180 fixed 1/60 s steps, so a run repeats exactly), `--select` takes an entity path of names (`Parent/Child`) and outlines it, and `--shading-term` shows one lighting term (`albedo`, `normal`, `shadow-factor`, ...). Then read the PNG. A task for another machine's agent asks for these files rather than for screenshots of the screen. `sonnet_editor --help` lists every flag, and `tools/check_docs.py` fails if one is missing from the docs.
 
+The player takes the same flags but `--screenshot-window` and `--select`, from the same table in `runtime`, and captures its whole window through the scene's camera. That is how a phone's run is taken: the arguments go in the `args` intent extra, a relative path lands in the app's `files/`, and the log's last line says `exit ok` or `exit with failure`, since nobody sees a phone's exit code ([docs/player.md](docs/player.md#capture-runs)):
+
+```bash
+./build/linux-debug/apps/player/sonnet_player apps/samples/basic --play 3 --shading-term albedo --screenshot albedo.png
+adb shell "am start -S -W --user 0 -n io.github.pacheco95.sonnet/.SonnetActivity --es args '--play 3 --screenshot final.png'"
+adb shell run-as io.github.pacheco95.sonnet cat files/final.png > final.png
+```
+
 Machine-specific notes (tool locations, checkouts of the previous iterations to adapt patterns from) live in `CLAUDE.local.md`, which is gitignored.
 
 ## Architecture in one page

@@ -147,7 +147,7 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 
 ### Maths
 
-`math.random` is Lua's own, which seeds itself differently in every process, so a game's randomness differs run to run. `IScriptRuntime::seedRandom` seeds it as `math.randomseed` would; the editor's captures call it before playing, so a scene that draws random numbers repeats exactly ([editor.md](editor.md#screenshots)).
+`math.random` is Lua's own, which seeds itself differently in every process, so a game's randomness differs run to run. `IScriptRuntime::seedRandom` seeds it as `math.randomseed` would; the editor's and the player's captures call it before playing, so a scene that draws random numbers repeats exactly ([editor.md](editor.md#screenshots), [player.md](player.md#capture-runs)).
 
 `vec3(x, y, z)` and `quat(x, y, z, w)` make values with the same metatables component values carry:
 

@@ -28,6 +28,7 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
+#include <sonnet/runtime/Screenshot.h>
 #include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/ui/ImGuiLayer.h>
 #include <sonnet/world/Animation.h>
@@ -172,14 +173,6 @@ public:
   }
 
 private:
-  // A screenshot's copy, waiting in a host-visible buffer for its frame to finish.
-  struct Readback {
-    std::filesystem::path file;
-    rhi::BufferHandle buffer;
-    glm::uvec2 size;
-    rhi::Format format;
-  };
-
   enum class Modal : std::uint8_t {
     None,
     NewProject,
@@ -203,9 +196,6 @@ private:
   [[nodiscard]] std::optional<std::filesystem::path> shaderSourceDirectory();
   [[nodiscard]] core::Result<void> reloadShader(std::string_view name);
   void pollShaders();
-  // Declares a pass copying `image` into a new readback buffer for `file`.
-  void addReadback(renderer::GraphImage image, glm::uvec2 size, rhi::Format format, std::filesystem::path file);
-  void writeReadbacks();
   // Whether game input goes to the scripts: playing, with the viewport focused and the camera idle.
   [[nodiscard]] bool gameInputActive() const;
 
@@ -240,7 +230,7 @@ private:
   renderer::SceneView m_view;
   std::vector<std::uint32_t> m_outlineIds;
   std::optional<std::pair<std::filesystem::path, std::filesystem::path>> m_screenshotRequest; // viewport, window
-  std::vector<Readback> m_readbacks;
+  runtime::Screenshots m_screenshots;
   std::optional<core::Result<void>> m_screenshotResult;
 
   Selection m_selection;
