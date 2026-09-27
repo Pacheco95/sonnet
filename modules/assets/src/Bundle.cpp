@@ -55,6 +55,10 @@ std::string_view toString(CookPlatform platform) noexcept {
     return "linux";
   case CookPlatform::MacOS:
     return "macos";
+  case CookPlatform::Android:
+    return "android";
+  case CookPlatform::IOS:
+    return "ios";
   }
   return "linux";
 }
@@ -69,7 +73,17 @@ std::optional<CookPlatform> cookPlatformFromString(std::string_view name) noexce
   if (name == "macos") {
     return CookPlatform::MacOS;
   }
+  if (name == "android") {
+    return CookPlatform::Android;
+  }
+  if (name == "ios") {
+    return CookPlatform::IOS;
+  }
   return std::nullopt;
+}
+
+bool isMobile(CookPlatform platform) noexcept {
+  return platform == CookPlatform::Android || platform == CookPlatform::IOS;
 }
 
 CookPlatform hostPlatform() noexcept {

@@ -24,7 +24,7 @@ namespace {
 using namespace sonnet;
 
 constexpr const char *Usage =
-    "usage: sonnet_cook <project> [--platform windows|linux|macos] [--out <directory>] [--scene <scene>]";
+    "usage: sonnet_cook <project> [--platform windows|linux|macos|android|ios] [--out <directory>] [--scene <scene>]";
 
 struct Arguments {
   std::filesystem::path project;

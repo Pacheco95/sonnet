@@ -25,8 +25,9 @@ constexpr const char *BundleFileName = "game.sbundle";
   return {data, data + text.size()};
 }
 
-// A texture is cooked the moment it is loaded, into `.sonnet/cache/<uuid>.ktx2`; a source that
-// is already KTX2 is used as it is and never reaches the cache (docs/assets.md, "Textures").
+// A desktop bundle's texture is the one the editor cooks the moment it is loaded, into
+// `.sonnet/cache/<uuid>.ktx2`; a source that is already KTX2 is used as it is and never reaches
+// the cache (docs/assets.md, "Textures"). A mobile bundle's is `AssetDatabase::mobileTexture`.
 [[nodiscard]] std::optional<std::vector<std::byte>> cookedTexture(AssetDatabase &database, const AssetInfo &info) {
   if (!database.texture(info.uuid)) {
     return std::nullopt;
@@ -94,7 +95,15 @@ core::Result<CookReport> cook(AssetDatabase &database, const Project &project, c
       }
       break;
     case AssetType::Texture:
-      payload = cookedTexture(database, *info);
+      if (isMobile(options.platform)) {
+        if (auto bytes = database.mobileTexture(info->uuid)) {
+          payload = std::move(*bytes);
+        } else {
+          SONNET_LOG_ERROR("{}: {}", info->name, bytes.error().toString());
+        }
+      } else {
+        payload = cookedTexture(database, *info);
+      }
       break;
     case AssetType::Material:
       if (const MaterialSource *source = database.materialSource(info->uuid)) {

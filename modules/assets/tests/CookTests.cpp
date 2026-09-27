@@ -13,10 +13,15 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <set>
+#include <span>
 #include <tuple>
 #include <vector>
 
@@ -312,18 +317,7 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {
   platform::Platform platform{{.headless = true}};
-  std::filesystem::path sample;
-  for (std::filesystem::path base = std::filesystem::absolute(platform.basePath()); !base.empty();
-       base = base.parent_path()) {
-    const auto candidate = base / "apps" / "samples" / "basic";
-    if (std::filesystem::is_regular_file(candidate / "project.json")) {
-      sample = candidate;
-      break;
-    }
-    if (base == base.root_path()) {
-      break;
-    }
-  }
+  const std::filesystem::path sample = test::findInSource(platform.basePath(), "apps/samples/basic");
   REQUIRE_FALSE(sample.empty());
   const auto project = Project::open(sample);
   REQUIRE(project.has_value());
@@ -350,4 +344,115 @@ TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][coo
   }
   REQUIRE_FALSE(cook(database, *project, {.outputDirectory = out, .scene = "scenes/missing.scene.json"}).has_value());
   REQUIRE(std::filesystem::remove_all(out) > 0);
+}
+
+namespace {
+
+// A KTX2 payload's vkFormat, read from its header (the KTX 2.0 specification, "Header"), so a test
+// sees what was cooked rather than what readKtx2 would transcode it to.
+[[nodiscard]] std::uint32_t ktx2Format(std::span<const std::byte> payload) {
+  constexpr std::array<std::uint8_t, 12> identifier{0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, '\r', '\n', 0x1A, '\n'};
+  REQUIRE(payload.size() >= 16);
+  for (std::size_t i = 0; i < identifier.size(); ++i) {
+    REQUIRE(std::to_integer<std::uint8_t>(payload[i]) == identifier[i]);
+  }
+  std::uint32_t format = 0;
+  std::memcpy(&format, payload.data() + 12, sizeof(format));
+  return format;
+}
+
+// VK_FORMAT_ASTC_4x4_UNORM_BLOCK and the three after the 5x4 to 6x5 sizes: 4x4 and 6x6, UNORM and sRGB.
+[[nodiscard]] bool isAstc(std::uint32_t vkFormat) {
+  return vkFormat == 157 || vkFormat == 158 || vkFormat == 165 || vkFormat == 166;
+}
+
+} // namespace
+
+TEST_CASE("a mobile cook of the basic sample has ASTC textures and names its platform", "[assets][cook][astc]") {
+  platform::Platform platform{{.headless = true}};
+  const std::filesystem::path sample = test::findInSource(platform.basePath(), "apps/samples/basic");
+  REQUIRE_FALSE(sample.empty());
+  const auto project = Project::open(sample);
+  REQUIRE(project.has_value());
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  AssetDatabase database{renderer, jobs};
+  database.open(project->root, project->assetRoots);
+  const auto out = test::freshDirectory("sonnet_android_cook");
+  const auto report = cook(database, *project, {.outputDirectory = out, .platform = CookPlatform::Android});
+  REQUIRE(report.has_value());
+  REQUIRE(report->warnings.empty());
+
+  std::size_t textures = 0;
+  {
+    // Closed before the directory is removed, which Windows refuses while the file is open.
+    const auto bundle = Bundle::open(report->bundle);
+    REQUIRE(bundle.has_value());
+    REQUIRE(bundle->manifest().platform == CookPlatform::Android);
+    for (const BundleAsset &asset : bundle->assets()) {
+      if (asset.type != AssetType::Texture) {
+        continue;
+      }
+      const auto payload = bundle->read(asset.uuid);
+      REQUIRE(payload.has_value());
+      INFO(asset.name);
+      CHECK(isAstc(ktx2Format(*payload))); // every texture of the sample is compressed
+      ++textures;
+    }
+  }
+  REQUIRE(textures > 1); // the checker and the models' images
+  REQUIRE(std::filesystem::remove_all(out) > 0);
+}
+
+TEST_CASE("a second mobile cook takes its ASTC from the cache", "[assets][cook][astc]") {
+  ProjectFixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.project.assetRoots);
+  const std::filesystem::path android = fixture.root / "export" / "android";
+  const std::filesystem::path ios = fixture.root / "export" / "ios";
+  REQUIRE(cook(database, fixture.project, {.outputDirectory = android, .platform = CookPlatform::Android}).has_value());
+
+  // One entry per texture: the PNG file and the glTF file's image.
+  std::map<std::filesystem::path, std::filesystem::file_time_type> encoded;
+  for (const auto &entry : std::filesystem::directory_iterator{database.cacheDirectory()}) {
+    if (entry.path().filename().string().ends_with(".astc.ktx2")) {
+      encoded[entry.path()] = entry.last_write_time();
+    }
+  }
+  REQUIRE(encoded.size() == 2);
+
+  // iOS cooks the same bytes, and none of them is encoded again.
+  REQUIRE(cook(database, fixture.project, {.outputDirectory = ios, .platform = CookPlatform::IOS}).has_value());
+  for (const auto &[file, time] : encoded) {
+    const bool unchanged = std::filesystem::last_write_time(file) == time; // Catch2 cannot print the time
+    REQUIRE(unchanged);
+  }
+  {
+    // Closed before the next cook rewrites the file, which Windows refuses while it is open.
+    const auto first = Bundle::open(android / "game.sbundle");
+    const auto second = Bundle::open(ios / "game.sbundle");
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    REQUIRE(second->manifest().platform == CookPlatform::IOS);
+    for (const BundleAsset &asset : first->assets()) {
+      if (asset.type == AssetType::Texture) {
+        const auto a = first->read(asset.uuid);
+        const auto b = second->read(asset.uuid);
+        REQUIRE(a.has_value());
+        REQUIRE(b.has_value());
+        REQUIRE(*a == *b);
+      }
+    }
+  }
+
+  // A source newer than its entry is encoded again, as the UASTC entry would be.
+  const std::filesystem::path png = fixture.root / "assets" / "models" / "wood.png";
+  const std::filesystem::path pngEntry =
+      database.cacheDirectory() / (database.findByPath(png)->uuid.toString() + ".astc.ktx2");
+  std::filesystem::last_write_time(png, encoded.at(pngEntry) + std::chrono::seconds{5});
+  database.open(fixture.root, fixture.project.assetRoots);
+  REQUIRE(cook(database, fixture.project, {.outputDirectory = ios, .platform = CookPlatform::IOS}).has_value());
+  const bool reencoded = std::filesystem::last_write_time(pngEntry) != encoded.at(pngEntry);
+  REQUIRE(reencoded);
 }

@@ -33,6 +33,10 @@ namespace sonnet::assets {
 // An RGBA8 texture cooked into a KTX2 file: UASTC with zstd supercompression when `compress`
 // is set, uncompressed otherwise (docs/assets.md, "Textures").
 [[nodiscard]] core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &texture, bool compress);
+// An RGBA8 texture encoded as ASTC for a mobile bundle (ADR-0018): 6x6 in perceptual mode for an
+// sRGB texture, 4x4 for a linear one, at astcenc's medium quality, every level encoded from the
+// level given rather than from a lossy form of it.
+[[nodiscard]] core::Result<std::vector<std::byte>> cookAstcKtx2(const renderer::TextureData &texture);
 
 // What a glTF file yields. Materials and meshes refer to each other by index; the database
 // gives every one a derived identity.

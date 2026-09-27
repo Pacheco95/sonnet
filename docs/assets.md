@@ -39,11 +39,13 @@ Materials request their textures rather than load them, so neither `material` no
 | `.wav`, `.ogg`, `.mp3`, `.flac` | assets | Sound assets: the encoded file, decoded and played by `audio` ([audio.md](audio.md)) |
 | `.scene.json`, `.prefab.json` | world | Scenes and prefabs |
 
-Import settings live in the sidecar file and are edited in the inspector. A texture's are `TextureSettings`: sRGB or linear, mipmaps, compression; changing them rewrites the sidecar and re-imports at once. The importers are also plain functions in `Importers.h` (`importImage`, `importHdr`, `importGltf`, `readKtx2`, `cookKtx2`) for tools and tests.
+Import settings live in the sidecar file and are edited in the inspector. A texture's are `TextureSettings`: sRGB or linear, mipmaps, compression; changing them rewrites the sidecar and re-imports at once. The importers are also plain functions in `Importers.h` (`importImage`, `importHdr`, `importGltf`, `readKtx2`, `cookKtx2`, `cookAstcKtx2`) for tools and tests.
 
 ## Textures
 
 Import decodes to RGBA8, generates mipmaps, and cooks to KTX2 in the project's cache (`.sonnet/cache/<uuid>.ktx2`, ignored by git), which is rebuilt when the source or its sidecar is newer. A compressed texture is stored as Basis Universal UASTC with zstd supercompression, the portable form, and transcoded on load to BC7 where the device supports block compression (`DeviceInfo::blockCompressionSupported`: desktop GPUs and Lavapipe), to ASTC 4×4 where it has ASTC but no BC (`astcSupported`), and to RGBA8 where it has neither. UASTC is a restricted form of ASTC 4×4, so the second costs a phone 8 bits per texel rather than RGBA8's 32. The UASTC encode runs on a thread pool of Basis Universal's own, one thread per core, created and torn down around each texture; the `ktx` port patches its shutdown, which could hang ([ports/README.md](../ports/README.md)). An uncompressed texture is stored as plain RGBA8. Colour textures are sRGB, data textures (normals, roughness, metallic, occlusion) are linear; the glTF importer decides per image from how the materials use it, and a file texture's sidecar says.
+
+A mobile bundle carries ASTC instead of UASTC ([ADR-0018](decisions/0018-mobile-export.md#textures)). `AssetDatabase::mobileTexture` encodes a compressed texture's RGBA8 mip chain, decoded from its source, with KTX-Software's `ktxTexture2_CompressAstcEx`, never from the UASTC in the cache, which would stack two lossy encodings. An sRGB texture is 6×6 blocks (3.56 bits per texel) in perceptual mode, and a linear one 4×4 (8 bits per texel, as BC7), since its error turns into shading error; both are at astcenc's medium quality, without its normal-map mode, which keeps two channels where `forward.slang` reads three. The result is cached as `.sonnet/cache/<uuid>.astc.ktx2` under the UASTC entry's rule: encoded again when the source or its sidecar is newer, and a glTF file's images all at once, since reading one imports the file. A second mobile cook reads the cache, and Android and iOS cook the same bytes. An uncompressed texture is RGBA8 on every platform, a KTX2 source goes in as it is, and an environment stays RGBA16F. A 2048×2048 colour map encodes in 0.01 to 0.4 s on 16 threads. `readKtx2` uploads an ASTC file as it is, and a KTX2 file in a format the device cannot sample (`rhi::formatSupported`) is an error at load, which falls back as a failed import does ([Database](#database)). `assets_tests` decodes an encode of each kind back with `ktxTexture2_DecodeAstc` and holds it above a PSNR floor, on two 512×512 maps in `modules/assets/tests/data` ([README](../modules/assets/tests/data/README.md)).
 
 ## Meshes
 
@@ -102,11 +104,11 @@ Every JSON text and CBOR document the engine reads arrives as bytes, from `core:
 
 ## Cooking and export
 
-`assets::cook` writes a project into `<out>/game.sbundle`, the name the player looks for beside its own binary. `sonnet_cook <project> [--platform windows|linux|macos] [--out <dir>] [--scene <scene>]` is its command line, and the editor's export dialog is the other caller, which also copies a player next to the bundle ([editor.md](editor.md#export)). `--scene` accepts a project-relative scene path (or an absolute path within the project). It makes that scene the bundle's start scene and leaves other scenes out; all prefabs and assets remain available to scripts at run time. Without it, the project start scene and all scenes are cooked. Mobile targets join in M9. The tool returns 2 for invalid arguments and 1 for a failed cook or an exception, including during argument parsing; exceptions are reported to standard error.
+`assets::cook` writes a project into `<out>/game.sbundle`, the name the player looks for beside its own binary. `sonnet_cook <project> [--platform windows|linux|macos|android|ios] [--out <dir>] [--scene <scene>]` is its command line, and the editor's export dialog is the other caller, which also copies a player next to a desktop bundle ([editor.md](editor.md#export)). `--scene` accepts a project-relative scene path (or an absolute path within the project). It makes that scene the bundle's start scene and leaves other scenes out; all prefabs and assets remain available to scripts at run time. Without it, the project start scene and all scenes are cooked. The tool returns 2 for invalid arguments and 1 for a failed cook or an exception, including during argument parsing; exceptions are reported to standard error.
 
 The cook asks the open `AssetDatabase` for every asset, so the importers run in the code that already runs them and the texture cache is reused rather than rebuilt ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). `sonnet_cook` opens the project in a database on a null device, so cooking needs no GPU and no window; the editor cooks from the database it already has open, which means an exported material is the one on screen. An asset that will not cook is a warning in the `CookReport` and is left out, the way a missing asset is logged and skipped at run time; only a database open on another project, an invalid selected scene, or a bundle that cannot be written, fails the cook outright. The built-in primitives are never written: every database registers them.
 
-The three desktop platforms cook the same bytes today and differ only in which player binary export copies; the manifest records which one it was cooked for.
+The three desktop platforms cook the same bytes and differ only in which player binary export copies. Android and iOS cook the same bytes as each other, with their compressed textures in ASTC ([Textures](#textures)), which a device without ASTC cannot run ([player.md](player.md#opening-a-game)). The manifest records the platform a bundle was cooked for.
 
 ### The bundle
 
@@ -122,7 +124,7 @@ A bundle is one file, `<name>.sbundle` ([ADR-0011](decisions/0011-cooked-bundles
 
 | Type | Cooked as |
 |---|---|
-| Texture | The KTX2 file the editor already cooks into its cache ([Textures](#textures)) |
+| Texture | The KTX2 file the editor already cooks into its cache, or on Android and iOS the ASTC one `mobileTexture` caches ([Textures](#textures)) |
 | Mesh | A binary block of the renderer's vertex layout, welded and reordered ([Meshes](#meshes)) |
 | Environment | The equirectangular map's `TextureData`, uncompressed: it is RGBA16F, which the KTX2 path does not cook |
 | Skin, Animation, Model | Binary: the joints and matrices, the channels and their keys, the node hierarchy |

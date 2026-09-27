@@ -31,16 +31,21 @@ namespace sonnet::assets {
 constexpr std::uint32_t BundleVersion = 1;
 constexpr std::string_view BundleExtension = ".sbundle";
 
-// What a bundle is cooked for. The desktop platforms cook the same bytes and differ only in
-// which player binary export copies; mobile joins in M9 with its own texture format.
+// What a bundle is cooked for. The desktop platforms cook the same bytes, with compressed
+// textures in UASTC, and differ only in which player binary export copies. The mobile platforms
+// cook the same bytes as each other, with compressed textures in ASTC (ADR-0018).
 enum class CookPlatform : std::uint8_t {
   Windows,
   Linux,
   MacOS,
+  Android,
+  IOS,
 };
 
 [[nodiscard]] std::string_view toString(CookPlatform platform) noexcept;
 [[nodiscard]] std::optional<CookPlatform> cookPlatformFromString(std::string_view name) noexcept;
+// Android and iOS, whose bundles carry ASTC.
+[[nodiscard]] bool isMobile(CookPlatform platform) noexcept;
 // The platform the running binary was built for, the default an export offers.
 [[nodiscard]] CookPlatform hostPlatform() noexcept;
 

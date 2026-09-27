@@ -135,6 +135,14 @@ public:
   // what changed. Returns the identities re-imported.
   std::vector<core::Uuid> pollChanges();
 
+  // The KTX2 file a mobile bundle carries for a texture (ADR-0018). A compressed texture is
+  // encoded as ASTC from its source's RGBA8 levels, never from the UASTC in the cache, and the
+  // result is cached as `.sonnet/cache/<uuid>.astc.ktx2`, encoded again only when the source or
+  // its sidecar is newer, as the UASTC entry is. A glTF file's images are encoded together, the
+  // first time one of them is asked for. An uncompressed texture is its RGBA8 cache entry, and a
+  // KTX2 source is itself. Project mode only.
+  [[nodiscard]] core::Result<std::vector<std::byte>> mobileTexture(const core::Uuid &uuid);
+
   [[nodiscard]] std::filesystem::path cacheDirectory() const {
     return m_projectRoot / ".sonnet" / "cache";
   }

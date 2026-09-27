@@ -1,9 +1,11 @@
 #include "AssetTestSupport.h"
 
 #include <sonnet/assets/Importers.h>
+#include <sonnet/platform/Platform.h>
 #include <sonnet/renderer/Primitives.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 // The macro is stb's name.
 // NOLINTNEXTLINE(readability-identifier-naming)
@@ -15,8 +17,11 @@
 #include <ktx.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <future>
+#include <memory>
+#include <span>
 #include <thread>
 
 using namespace sonnet;
@@ -207,6 +212,82 @@ TEST_CASE("a texture cooks into KTX2 and reads back compressed or not", "[assets
 
   const std::array<std::byte, 16> garbage{};
   REQUIRE(!readKtx2(garbage, BlockCompression).has_value());
+}
+
+namespace {
+
+// An image of the source tree's test data (modules/assets/tests/data, with its attribution),
+// imported as the database imports a file texture.
+renderer::TextureData importTestImage(const char *name, bool srgb) {
+  const platform::Platform platform{{.headless = true}};
+  const std::filesystem::path file = test::findInSource(platform.basePath(), "modules/assets/tests/data") / name;
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  auto texture = importImage(*bytes, TextureSettings{.srgb = srgb});
+  REQUIRE(texture.has_value());
+  return std::move(*texture);
+}
+
+// PSNR over RGB, in dB, between a texture's first level and a decoded one of the same size.
+double psnr(std::span<const std::byte> expected, std::span<const std::byte> actual) {
+  REQUIRE(expected.size() == actual.size());
+  double squared = 0.0;
+  std::size_t count = 0;
+  for (std::size_t i = 0; i < expected.size(); ++i) {
+    if (i % 4 == 3) {
+      continue;
+    }
+    const double difference = std::to_integer<int>(expected[i]) - std::to_integer<int>(actual[i]);
+    squared += difference * difference;
+    ++count;
+  }
+  const double mse = squared / static_cast<double>(count);
+  return mse == 0.0 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
+}
+
+} // namespace
+
+// ADR-0018, "CI": the mobile encode of each kind, decoded back on the CPU, since no GPU in CI
+// samples ASTC. The images are FlightHelmet's glass-and-plastic base colour and normal map, which
+// ADR-0018 measured at 2048x2048 (48.7 dB for the base colour at 6x6, which this test gives too
+// at that size), downscaled to 512x512. At 512x512 they measure 45.4 dB and 48.8 dB, and each
+// floor is that less 1 dB, so a change to the encoder's settings that costs quality fails here
+// while the encoder's x64 and NEON variants may still differ a little.
+TEST_CASE("an ASTC cook decodes back above its quality floor", "[assets][texture][ktx][astc]") {
+  struct Case {
+    const char *file;
+    bool srgb;
+    rhi::Format format;
+    double floor;
+  };
+  const Case c = GENERATE(Case{"flight_helmet_base_color.png", true, rhi::Format::ASTC6x6Srgb, 44.4},
+                          Case{"flight_helmet_normal.png", false, rhi::Format::ASTC4x4Unorm, 47.7});
+  const renderer::TextureData source = importTestImage(c.file, c.srgb);
+  REQUIRE(source.size == glm::uvec2{512, 512});
+  const auto cooked = cookAstcKtx2(source);
+  REQUIRE(cooked.has_value());
+
+  // Uploaded as it is where the device has ASTC, and refused where it has only BC.
+  const auto loaded = readKtx2(*cooked, AstcOnly);
+  REQUIRE(loaded.has_value());
+  REQUIRE(loaded->format == c.format);
+  REQUIRE(loaded->mipLevels == source.mipLevels);
+  REQUIRE(loaded->data.size() == loaded->expectedSize());
+  REQUIRE(!readKtx2(*cooked, BlockCompression).has_value());
+
+  ktxTexture2 *raw = nullptr;
+  REQUIRE(ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t *>(cooked->data()), cooked->size(),
+                                       KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &raw) == KTX_SUCCESS);
+  const std::unique_ptr<ktxTexture2, void (*)(ktxTexture2 *)> texture{
+      raw, [](ktxTexture2 *t) { ktxTexture_Destroy(reinterpret_cast<ktxTexture *>(t)); }};
+  REQUIRE(ktxTexture2_DecodeAstc(texture.get()) == KTX_SUCCESS);
+  ktx_size_t offset = 0;
+  REQUIRE(ktxTexture_GetImageOffset(reinterpret_cast<ktxTexture *>(texture.get()), 0, 0, 0, &offset) == KTX_SUCCESS);
+  const std::span<const std::byte> level0 = source.level(0);
+  const std::span<const std::byte> decoded{reinterpret_cast<const std::byte *>(texture->pData) + offset, level0.size()};
+  const double measured = psnr(level0, decoded);
+  INFO(c.file << ": " << measured << " dB");
+  CHECK(measured >= c.floor);
 }
 
 // Issue #24. basisu's job pool, which libktx builds and tears down around every compression, set

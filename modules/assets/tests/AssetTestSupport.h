@@ -25,6 +25,22 @@ namespace sonnet::assets::test {
   return path;
 }
 
+// A path of the source tree, `apps/samples/basic` or `modules/assets/tests/data`, found by walking
+// up from `from`, the test binary's directory, which is inside the build tree; empty when no
+// ancestor has it.
+[[nodiscard]] inline std::filesystem::path findInSource(const std::filesystem::path &from,
+                                                        const std::filesystem::path &relative) {
+  for (std::filesystem::path base = std::filesystem::absolute(from); !base.empty(); base = base.parent_path()) {
+    if (std::filesystem::exists(base / relative)) {
+      return base / relative;
+    }
+    if (base == base.root_path()) {
+      break;
+    }
+  }
+  return {};
+}
+
 // A 2x2 image: red, green, blue, white.
 [[nodiscard]] inline std::vector<std::uint8_t> quadPixels() {
   return {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
