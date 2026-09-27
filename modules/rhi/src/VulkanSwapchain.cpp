@@ -57,6 +57,13 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
   if (m_readable) {
     usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
   }
+  // Mailbox never waits for the display, so the GPU draws frames nobody sees. On a phone that
+  // kept the Adreno 830 99 % busy and throttled within two minutes, so Android waits for vsync.
+#if defined(__ANDROID__)
+  constexpr VkPresentModeKHR desiredPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+#else
+  constexpr VkPresentModeKHR desiredPresentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+#endif
   vkb::SwapchainBuilder builder{static_cast<VkPhysicalDevice>(*m_device.physicalDevice()),
                                 static_cast<VkDevice>(*m_device.device()), static_cast<VkSurfaceKHR>(*m_surface),
                                 m_device.graphicsFamily(), m_device.graphicsFamily()};
@@ -66,7 +73,7 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
       .add_fallback_format({VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
       .add_fallback_format({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
       .add_fallback_format({VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-      .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
+      .set_desired_present_mode(desiredPresentMode)
       .add_fallback_present_mode(VK_PRESENT_MODE_FIFO_KHR)
       .set_desired_extent(size.x, size.y)
       .set_desired_min_image_count(3)
