@@ -19,8 +19,9 @@ sonnet_add_module(platform
     Vulkan::Headers
 )
 if(ANDROID)
-  # spdlog's logcat sink calls __android_log_write (docs/platform.md, "Logging").
-  target_link_libraries(sonnet_platform PRIVATE log)
+  # spdlog's logcat sink calls __android_log_write (docs/platform.md, "Logging"), and the window
+  # asks for its frame rate through libnativewindow (docs/platform.md, "Window").
+  target_link_libraries(sonnet_platform PRIVATE log nativewindow)
 endif()
 
 sonnet_add_module_test(platform

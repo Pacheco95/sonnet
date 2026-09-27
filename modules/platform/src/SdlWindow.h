@@ -31,6 +31,7 @@ public:
 private:
   SDL_Window *m_window{nullptr};
   std::string m_title;
+  float m_frameRate{0.0F};
 };
 
 } // namespace sonnet::platform

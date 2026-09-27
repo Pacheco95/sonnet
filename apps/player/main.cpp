@@ -77,8 +77,10 @@ private:
 // then the screenshot a capture asked the frame for.
 class PlayerApp final : public platform::IApplication {
 public:
+  // The window asks for 60 fps, which only Android honours: at a phone's 120 Hz the GPU stayed
+  // over 80 % busy and the phone throttled within minutes (docs/player.md, "Running on Android").
   PlayerApp(platform::Platform &platform, const runtime::CommandLine &line)
-      : m_window(platform.createWindow({.title = "Sonnet", .size = {1280, 720}})),
+      : m_window(platform.createWindow({.title = "Sonnet", .size = {1280, 720}, .frameRate = 60.0F})),
         m_device(rhi::createDevice({.platform = &platform, .applicationName = "Sonnet Player"})),
         m_swapchain(m_device->createSwapchain(*m_window)),
         m_game(std::make_unique<runtime::Game>(*m_window, *m_device, *m_swapchain, gameDesc(line))) {
