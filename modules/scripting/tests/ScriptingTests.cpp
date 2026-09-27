@@ -76,6 +76,7 @@ struct Fixture {
   core::JobSystem jobs{{.workerCount = 2}};
   std::unique_ptr<physics::IPhysicsWorld> physics = physics::createPhysicsWorld(world, assets, jobs);
   platform::InputState input;
+  scripting::ScriptView view;
   std::unique_ptr<scripting::IScriptRuntime> scripts;
   std::shared_ptr<RecordingSink> sink = std::make_shared<RecordingSink>();
 
@@ -87,8 +88,8 @@ struct Fixture {
     }
     const std::vector<std::string> roots{"assets"};
     assets.open(root, roots);
-    scripts =
-        scripting::createScriptRuntime({.world = &world, .assets = &assets, .physics = physics.get(), .input = &input});
+    scripts = scripting::createScriptRuntime(
+        {.world = &world, .assets = &assets, .physics = physics.get(), .input = &input, .view = &view});
     core::Log::addSink(sink);
   }
   ~Fixture() {
@@ -352,6 +353,62 @@ TEST_CASE("scripts read input and drive physics after its step", "[scripting]") 
   fixture.run(20);
   REQUIRE(ball.get<world::Transform>().position.y > 1.0f);
   REQUIRE(ball.get<world::Spin>().speed == 0.0f);
+}
+
+TEST_CASE("scripts read the touches with their positions and this frame's motion", "[scripting]") {
+  Fixture fixture;
+  REQUIRE(fixture.scripts->run("assert(#input.touches() == 0)", "=none").has_value());
+  fixture.input.beginFrame();
+  fixture.input.handle(platform::TouchDown{.id = 3, .position = {10.0f, 20.0f}});
+  fixture.input.handle(platform::TouchDown{.id = 8, .position = {300.0f, 40.0f}});
+  fixture.input.handle(platform::TouchMotion{.id = 3, .position = {12.5f, 19.0f}, .delta = {2.5f, -1.0f}});
+  REQUIRE(fixture.scripts
+              ->run(R"lua(
+    local touches = input.touches()
+    assert(#touches == 2, #touches)
+    local first, second = touches[1], touches[2]
+    assert(math.type(first.id) == "integer" and first.id == 3, tostring(first.id))
+    assert(first.position.x == 12.5 and first.position.y == 19, first.position.x)
+    assert(first.delta.x == 2.5 and first.delta.y == -1, first.delta.x)
+    assert(second.id == 8 and second.position.x == 300 and second.delta.x == 0)
+    -- The same shape as the mouse's.
+    local mouse = input.mousePosition()
+    assert(type(mouse.x) == type(first.position.x))
+  )lua",
+                    "=touches")
+              .has_value());
+  fixture.input.beginFrame();
+  fixture.input.handle(platform::TouchUp{.id = 3, .position = {12.5f, 19.0f}});
+  REQUIRE(fixture.scripts
+              ->run(R"lua(
+    local touches = input.touches()
+    assert(#touches == 1 and touches[1].id == 8 and touches[1].delta.x == 0)
+  )lua",
+                    "=lifted")
+              .has_value());
+}
+
+TEST_CASE("the camera turns a point of the view into a ray", "[scripting]") {
+  Fixture fixture;
+  // A 90-degree camera over a 200x100 view: its corners are one unit up and two across at a
+  // distance of one.
+  fixture.view.camera.position = {1.0f, 2.0f, 3.0f};
+  fixture.view.camera.fovY = glm::radians(90.0f);
+  fixture.view.size = {200.0f, 100.0f};
+  REQUIRE(fixture.scripts
+              ->run(R"lua(
+    local centre = camera.ray({ x = 100, y = 50 })
+    assert(centre.origin == vec3(1, 2, 3), tostring(centre.origin))
+    assert((centre.direction - vec3(0, 0, -1)):length() < 1e-6, tostring(centre.direction))
+    local corner = camera.ray({ x = 0, y = 0 }).direction
+    assert((corner - vec3(-2, 1, -1):normalized()):length() < 1e-6, tostring(corner))
+    -- What a script does with it: the point on the ground under a touch.
+    local ray = camera.ray(input.mousePosition())
+    assert(getmetatable(ray.direction) == getmetatable(vec3(0, 0, 0)))
+    assert(not pcall(camera.ray, 5))
+  )lua",
+                    "=ray")
+              .has_value());
 }
 
 TEST_CASE("script log calls carry the script's file and line", "[scripting]") {

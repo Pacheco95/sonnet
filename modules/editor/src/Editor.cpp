@@ -51,8 +51,11 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_renderer(device, platform.basePath() / "shaders", {.jobs = &m_jobs}), m_graph(device), m_picker(device),
       m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
-      m_scripts(scripting::createScriptRuntime(
-          {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
+      m_scripts(scripting::createScriptRuntime({.world = &m_world,
+                                                .assets = &m_assets,
+                                                .physics = m_physics.get(),
+                                                .input = &m_input,
+                                                .view = &m_scriptView})),
       m_animation(m_world, m_assets),
       // A headless editor is a test's: it mixes without a device rather than making a sound.
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})),
@@ -185,6 +188,8 @@ void Editor::update(float dt) {
   // that is where a scene without an AudioListener is heard from.
   const renderer::Camera &camera = m_viewportPanel.camera().camera();
   m_audio->setFallbackListener(camera.position, camera.rotation);
+  // Scripts see the game through the viewport, in the coordinates game input has.
+  m_scriptView = {.camera = camera, .size = m_viewportPanel.input().size};
   m_world.progress(dt);
   m_input.beginFrame();
   world::buildDrawList(m_world, m_assets, m_draws, m_joints);

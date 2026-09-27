@@ -95,15 +95,36 @@ Entities compare equal when they are the same entity. An unknown component name 
 
 ### input
 
-The keyboard and mouse as state ([platform.md](platform.md#input-state)), when the runtime was given one; the editor feeds it while playing with the viewport focused ([editor.md](editor.md#play-mode)). Keys and buttons are named as in `platform::Key` and `platform::MouseButton`: `"A"`, `"Digit1"`, `"Space"`, `"LeftShift"`, `"Left"`, `"Right"`. An unknown name raises an error, so a typo does not read as a key never pressed.
+The keyboard, mouse and touches as state ([platform.md](platform.md#input-state)), when the runtime was given one; the editor feeds it while playing with the viewport focused ([editor.md](editor.md#play-mode)). Keys and buttons are named as in `platform::Key` and `platform::MouseButton`: `"A"`, `"Digit1"`, `"Space"`, `"LeftShift"`, `"Left"`, `"Right"`. An unknown name raises an error, so a typo does not read as a key never pressed.
 
 | Function | |
 |---|---|
 | `input.keyDown(key)`, `input.keyPressed(key)`, `input.keyReleased(key)` | Held now; went down or up this frame |
 | `input.mouseDown(button)`, `input.mousePressed(button)`, `input.mouseReleased(button)` | The same for mouse buttons |
 | `input.mousePosition()`, `input.mouseDelta()`, `input.wheel()` | Tables `{x, y}`: the position relative to the view, this frame's motion and wheel |
+| `input.touches()` | An array of the fingers down now, in the order they went down, each `{id, position, delta}`: an integer that stays the finger's until it lifts, and tables `{x, y}` for the position relative to the view and this frame's motion, as the mouse's |
 
-Presses and releases last one frame, which may pass without a fixed step: a script that reacts in `fixedUpdate` should note the press in `update`.
+Presses and releases last one frame, which may pass without a fixed step: a script that reacts in `fixedUpdate` should note the press in `update`. Touches are state, not edges, so `fixedUpdate` can read them. The first finger is also the left mouse button ([platform.md](platform.md#events)), so a script written against the mouse works on a phone, and a script that reads the touches should not read the left button as well.
+
+### camera
+
+The view the game is drawn into, when the runtime was given one: the player's scene camera over its window, or in the editor the viewport's camera over the viewport image ([editor.md](editor.md#play-mode)). The application hands it over every frame, before the scripts run.
+
+| Function | |
+|---|---|
+| `camera.ray(point)` | `{origin, direction}`, `vec3`s: the ray from the camera through a point of the view, a table `{x, y}` in the coordinates of `input.mousePosition()` and a touch's `position`. `direction` is unit length |
+
+With `physics.raycast` it finds what is under a pointer or a finger:
+
+```lua
+local touch = input.touches()[1]
+if touch then
+  local ray = camera.ray(touch.position)
+  local hit = physics.raycast(ray.origin, ray.direction, 100, self.entity)
+end
+```
+
+The ray is the one the editor's gizmo drags along (`renderer::rayDirection`, [rendering.md](rendering.md#the-renderer-module-today)).
 
 ### physics
 
@@ -135,4 +156,4 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 
 ## Tests
 
-`scripting_tests` covers the maths and the missing libraries, a seeded `math.random` repeating its draws, errors from `run`, an instance's start and updates in play mode only, an error in `start` reported at the script's line and a reload that fixes it while keeping the instance's state, components through reflection including enums, identities, tags and malformed values, finding, creating, instantiating and destroying entities, input and physics from scripts with the fixed update after the step, log records with the script's location, scripts that fail to load or are missing, and instances following their entities, with `reset` starting the scripts over.
+`scripting_tests` covers the maths and the missing libraries, a seeded `math.random` repeating its draws, errors from `run`, an instance's start and updates in play mode only, an error in `start` reported at the script's line and a reload that fixes it while keeping the instance's state, components through reflection including enums, identities, tags and malformed values, finding, creating, instantiating and destroying entities, input and physics from scripts with the fixed update after the step, `input.touches()` with its fields and their types, `camera.ray` through the centre and a corner of a known view, log records with the script's location, scripts that fail to load or are missing, and instances following their entities, with `reset` starting the scripts over.
