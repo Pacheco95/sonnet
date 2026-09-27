@@ -135,6 +135,8 @@ TEST_CASE("play mode runs physics and scripts and stop puts everything back", "[
     // Game input stays empty while the viewport does not have the focus.
     editor.event(platform::KeyPressed{.key = platform::Key::Space, .modifiers = {}, .repeat = false});
     REQUIRE(!editor.gameInput().keyDown(platform::Key::Space));
+    editor.event(platform::TouchDown{.id = 1, .position = {10.0f, 10.0f}});
+    REQUIRE(editor.gameInput().touches().empty());
 
     editor.stop();
     const flecs::entity restored = world.find(boxUuid);
