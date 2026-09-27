@@ -25,7 +25,8 @@ public:
   // every image acquired.
   [[nodiscard]] virtual std::optional<SwapchainImage> acquire() = 0;
 
-  // Marks the swapchain for recreation at the next acquire, e.g. from a resize event.
+  // Marks the swapchain for recreation at the next acquire, e.g. from a resize event, unless the
+  // window's pixel size is already the swapchain's extent.
   virtual void requestResize() = 0;
 
   // The mobile lifecycle (docs/rendering.md, "Suspend and resume"). `suspend` waits for the

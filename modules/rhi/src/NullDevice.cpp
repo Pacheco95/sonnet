@@ -180,7 +180,9 @@ public:
     return SwapchainImage{m_images[index], m_extent, index};
   }
   void requestResize() override {
-    m_needsRecreate = true;
+    if (m_window.pixelSize() != m_extent) {
+      m_needsRecreate = true;
+    }
   }
   // The Vulkan swapchain's rules without a surface: the images go on suspend and come back at
   // the window's size on resume.
