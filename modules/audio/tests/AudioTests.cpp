@@ -181,6 +181,37 @@ TEST_CASE("a sound that does not loop ends, clears playing, and plays again when
   REQUIRE(loudness(fixture.audio->lastMix()) > 0.2f);
 }
 
+TEST_CASE("a paused device mixes nothing and carries on where it was", "[audio]") {
+  Fixture fixture;
+  const flecs::entity beep = fixture.source("Beep", {.sound = fixture.beep, .spatial = false});
+  fixture.world.setPlaying(true);
+  fixture.world.progress(0.1f);
+  REQUIRE(loudness(fixture.audio->lastMix()) > 0.2f);
+
+  fixture.audio->pause();
+  fixture.audio->pause();
+  REQUIRE(fixture.audio->paused());
+  // A second, four times the quarter second the beep holds: it would have ended unpaused.
+  for (int i = 0; i < 10; ++i) {
+    fixture.world.progress(0.1f);
+    REQUIRE(fixture.audio->lastMix().empty());
+  }
+  REQUIRE(fixture.audio->isPlaying(beep));
+
+  fixture.audio->resume();
+  fixture.audio->resume();
+  REQUIRE_FALSE(fixture.audio->paused());
+  // The 0.15 s left: a whole frame of it, then the last 0.05 s, then the end.
+  fixture.world.progress(0.1f);
+  REQUIRE(fixture.audio->lastMix().size() == std::size_t{4800} * 2);
+  REQUIRE(loudness(fixture.audio->lastMix()) > 0.2f);
+  fixture.world.progress(0.1f);
+  REQUIRE(loudness(fixture.audio->lastMix()) > 0.0f);
+  fixture.world.progress(0.1f);
+  REQUIRE_FALSE(beep.get<audio::AudioSource>().playing);
+  REQUIRE_FALSE(fixture.audio->isPlaying(beep));
+}
+
 TEST_CASE("spatial sources are panned and attenuated from the listener", "[audio]") {
   Fixture fixture;
   // The listener at the origin facing -Z: +X is to its right.

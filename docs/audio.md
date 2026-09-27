@@ -23,6 +23,10 @@ A sound that is missing from the project or cannot be decoded is reported once a
 
 `preview` plays a sound once, unspatialised, in edit mode too: the asset inspector's Play button ([editor.md](editor.md#asset-browser)). `stopAll` ends everything, which is what stopping play mode does.
 
+## Pausing
+
+`pause` stops the output and `resume` starts it again, for an application going to the background and coming back. With an output device they are `ma_engine_stop` and `ma_engine_start`, which stop and start the device, so its thread pulls nothing in between: nothing is heard and every sound, the preview included, carries on from where it was. Without one, no frame is mixed while paused and `lastMix` is empty. Both log at `info`; pausing twice or resuming without a pause does nothing. The system goes on meanwhile, so a voice can start or end while paused, and a new one starts with the output. On Android miniaudio has its own AAudio stream, which SDL's pause does not reach.
+
 ## miniaudio
 
 - One `ma_engine` mixes, resamples and spatialises, on its own audio thread when there is an output device. The main thread only starts, stops and moves sounds, which miniaudio's setters allow from any thread.
@@ -32,4 +36,4 @@ A sound that is missing from the project or cannot be decoded is reported once a
 
 ## Tests
 
-`audio_tests` covers sources playing in play mode only and falling silent when it stops, with the entity disabled or with `playing` cleared; a sound that ends clearing `playing` and playing again when it is set; panning and attenuation from a listener entity, from a turned listener and from the fallback; sounds that cannot be decoded or found; a changed file restarting its sources; the preview in edit mode; and the components' registration and scene round trip. They run without an output device and assert on the mixed frames.
+`audio_tests` covers sources playing in play mode only and falling silent when it stops, with the entity disabled or with `playing` cleared; a sound that ends clearing `playing` and playing again when it is set; panning and attenuation from a listener entity, from a turned listener and from the fallback; sounds that cannot be decoded or found; a changed file restarting its sources; the preview in edit mode; a paused device mixing nothing for four times a sound's length and the sound finishing its remaining 0.15 s after the resume; and the components' registration and scene round trip. They run without an output device and assert on the mixed frames.

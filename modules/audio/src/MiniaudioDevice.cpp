@@ -117,6 +117,38 @@ public:
     m_preview.reset();
   }
 
+  void pause() override {
+    if (m_paused) {
+      return;
+    }
+    m_paused = true;
+    // ma_engine_stop stops the device, whose thread then pulls nothing, so the sounds hold their
+    // place. Without a device there is nothing to stop: update skips the mix instead.
+    if (m_hasOutput) {
+      if (const ma_result result = ma_engine_stop(&m_engine); result != MA_SUCCESS) {
+        SONNET_LOG_WARN("stopping the audio output: {}", ma_result_description(result));
+      }
+    }
+    SONNET_LOG_INFO("audio paused");
+  }
+
+  void resume() override {
+    if (!m_paused) {
+      return;
+    }
+    m_paused = false;
+    if (m_hasOutput) {
+      if (const ma_result result = ma_engine_start(&m_engine); result != MA_SUCCESS) {
+        SONNET_LOG_WARN("starting the audio output: {}", ma_result_description(result));
+      }
+    }
+    SONNET_LOG_INFO("audio resumed");
+  }
+
+  bool paused() const override {
+    return m_paused;
+  }
+
   std::optional<SoundInfo> soundInfo(const core::Uuid &sound) override {
     const Clip *clip = load(sound);
     if (clip == nullptr) {
@@ -286,7 +318,9 @@ private:
         play(entity);
       }
     }
-    if (!m_hasOutput) {
+    if (m_paused) {
+      m_mix.clear();
+    } else if (!m_hasOutput) {
       mix(dt);
     }
   }
@@ -363,6 +397,7 @@ private:
   std::unordered_map<core::Uuid, Clip> m_clips;
   ma_engine m_engine{};
   bool m_hasOutput{false};
+  bool m_paused{false};
   std::uint32_t m_sampleRate{0};
   std::uint32_t m_channels{0};
   std::unordered_map<flecs::entity_t, std::unique_ptr<Voice>> m_voices;
