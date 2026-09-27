@@ -44,6 +44,15 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
     return false;
   }
 
+  // Android reports the display's rotation as the surface's current transform, and a swapchain
+  // that takes it promises frames already drawn rotated. The engine draws them upright at the
+  // window's size, so it asks for identity and the compositor turns the frame (issue #47).
+  const vk::SurfaceCapabilitiesKHR capabilities = m_device.physicalDevice().getSurfaceCapabilitiesKHR(*m_surface);
+  const vk::SurfaceTransformFlagBitsKHR preTransform =
+      (capabilities.supportedTransforms & vk::SurfaceTransformFlagBitsKHR::eIdentity)
+          ? vk::SurfaceTransformFlagBitsKHR::eIdentity
+          : capabilities.currentTransform;
+
   VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   if (m_readable) {
     usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -62,6 +71,7 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
       .set_desired_extent(size.x, size.y)
       .set_desired_min_image_count(3)
       .set_image_usage_flags(usage)
+      .set_pre_transform_flags(static_cast<VkSurfaceTransformFlagBitsKHR>(preTransform))
       .set_old_swapchain(static_cast<VkSwapchainKHR>(oldSwapchain));
 
   vkb::Result<vkb::Swapchain> built = builder.build();
@@ -84,6 +94,7 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
   m_swapchain = vk::raii::SwapchainKHR{m_device.device(), swapchain.swapchain};
   m_format = format;
   m_extent = {swapchain.extent.width, swapchain.extent.height};
+  m_preTransform = preTransform;
 
   vkb::Result<std::vector<VkImage>> images = swapchain.get_images();
   if (!images) {
@@ -103,9 +114,10 @@ bool VulkanSwapchain::create(vk::SwapchainKHR oldSwapchain) {
                           std::format("swapchain image {} render finished", i));
   }
   m_needsRecreate = false;
-  SONNET_LOG_DEBUG("swapchain {}x{}, {} images, {}, {}", m_extent.x, m_extent.y, m_images.size(),
+  SONNET_LOG_DEBUG("swapchain {}x{}, {} images, {}, {}, surface transform {}", m_extent.x, m_extent.y, m_images.size(),
                    vk::to_string(static_cast<vk::Format>(swapchain.image_format)),
-                   vk::to_string(static_cast<vk::PresentModeKHR>(swapchain.present_mode)));
+                   vk::to_string(static_cast<vk::PresentModeKHR>(swapchain.present_mode)),
+                   vk::to_string(capabilities.currentTransform));
   return true;
 }
 
@@ -171,6 +183,28 @@ core::Result<void> VulkanSwapchain::resume() {
   return {};
 }
 
+void VulkanSwapchain::markSuboptimal() {
+  if (m_needsRecreate || m_surfaceLost || m_suspended) {
+    return;
+  }
+  // With an identity pre-transform, Android reports suboptimal on every present while the display
+  // is turned, and recreating would not stop it. The swapchain stays unless the surface's size
+  // changed too, which the window's resize event also reports, maybe a frame later.
+  vk::SurfaceCapabilitiesKHR capabilities;
+  try {
+    capabilities = m_device.physicalDevice().getSurfaceCapabilitiesKHR(*m_surface);
+  } catch (const vk::SystemError &) {
+    m_needsRecreate = true; // let the recreate report what went wrong
+    return;
+  }
+  const bool transformOnly = capabilities.currentTransform != m_preTransform &&
+                             capabilities.currentExtent.width == m_extent.x &&
+                             capabilities.currentExtent.height == m_extent.y;
+  if (!transformOnly) {
+    m_needsRecreate = true;
+  }
+}
+
 void VulkanSwapchain::markSurfaceLost(std::string_view where) {
   if (m_surfaceLost) {
     return;
@@ -216,7 +250,7 @@ std::optional<SwapchainImage> VulkanSwapchain::acquire() {
       return std::nullopt;
     }
     if (result == VK_SUBOPTIMAL_KHR) {
-      m_needsRecreate = true; // the image was acquired and must be presented; recreate next frame
+      markSuboptimal(); // the image was acquired and must be presented; any recreate is next frame
     }
     m_device.addPendingPresent(*this, index, imageAvailable);
     return SwapchainImage{m_images[index], m_extent, index};

@@ -47,10 +47,13 @@ public:
   vk::Semaphore renderFinished(std::uint32_t imageIndex) const noexcept {
     return *m_renderFinished[imageIndex];
   }
-  // Called by the device after a present that reported out of date or suboptimal.
+  // Called by the device after a present that reported out of date.
   void markOutOfDate() noexcept {
     m_needsRecreate = true;
   }
+  // Called by acquire and by the device after VK_SUBOPTIMAL_KHR. Recreates at the next acquire
+  // unless the only thing that differs is a surface transform the swapchain chose not to follow.
+  void markSuboptimal();
   // Called by acquire and by the device when the surface is gone, which on Android can happen
   // before the application hears it is going to the background: nothing is drawn until resume.
   void markSurfaceLost(std::string_view where);
@@ -73,6 +76,8 @@ private:
   std::vector<vk::raii::Semaphore> m_renderFinished;
   Format m_format{Format::Undefined};
   glm::uvec2 m_extent{0, 0};
+  // Identity where the surface supports it: the compositor rotates (docs/rendering.md, "Rotation").
+  vk::SurfaceTransformFlagBitsKHR m_preTransform{vk::SurfaceTransformFlagBitsKHR::eIdentity};
   bool m_needsRecreate{false};
   bool m_readable{false};
   bool m_suspended{false};
