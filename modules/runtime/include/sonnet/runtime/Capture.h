@@ -13,6 +13,8 @@
 
 namespace sonnet::runtime {
 
+class Game;
+
 // The two applications that take the capture flags. They share the table and the parser; the
 // editor takes every flag, the player those it has a use for (ADR-0018).
 enum class CaptureApplication : std::uint8_t {
@@ -138,6 +140,22 @@ private:
   Stage m_stage{Stage::Start};
   std::uint32_t m_frames{0};
   std::chrono::steady_clock::time_point m_loadStart;
+};
+
+// The player's side of a capture: its game, which has no selection and no panels.
+class GameCaptureTarget final : public ICaptureTarget {
+public:
+  explicit GameCaptureTarget(Game &game) : m_game(game) {
+  }
+  [[nodiscard]] core::Result<void> begin(const CaptureOptions &options) override;
+  [[nodiscard]] bool loaded() override;
+  void play(std::uint64_t randomSeed) override;
+  [[nodiscard]] core::Result<void> select(std::string_view path) override;
+  void requestScreenshots(const std::filesystem::path &viewport, const std::filesystem::path &window) override;
+  [[nodiscard]] std::optional<core::Result<void>> takeScreenshotResult() override;
+
+private:
+  Game &m_game;
 };
 
 } // namespace sonnet::runtime

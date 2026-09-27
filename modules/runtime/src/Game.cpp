@@ -58,9 +58,11 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                 .input = &m_input,
                                                 .view = &m_scriptView})),
       m_animation(m_world, m_assets),
-      m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})) {
-  // A player is always playing: there is no edit mode to switch out of.
-  m_world.setPlaying(true);
+      m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})), m_screenshots(device),
+      m_paused(desc.paused) {
+  // A player is always playing: there is no edit mode to switch out of. A capture run holds the
+  // simulation until its settle frames are drawn.
+  m_world.setPlaying(!m_paused);
   m_view.camera = fallbackCamera();
 }
 
@@ -101,6 +103,37 @@ core::Result<void> Game::openProject(const std::filesystem::path &directory) {
     return std::unexpected(scene.error());
   }
   return startScene(*scene);
+}
+
+core::Result<void> Game::openScene(const std::filesystem::path &scene) {
+  SONNET_ZONE();
+  core::Result<json> document;
+  if (const assets::Bundle *bundle = m_assets.bundle()) {
+    // The cook keeps each scene's project-relative path with forward slashes.
+    const std::string entry = scene.lexically_normal().generic_string();
+    const auto payload = bundle->read(entry);
+    document = payload ? assets::decodeJson(*payload) : std::unexpected(payload.error());
+  } else if (m_assets.isOpen()) {
+    document = parseJsonFile(m_assets.projectRoot() / scene);
+  } else {
+    return std::unexpected(core::Error{std::format("{}: no game is open to take the scene from", scene.string()),
+                                       core::ErrorCategory::Io});
+  }
+  if (!document) {
+    return std::unexpected(document.error());
+  }
+  // The running scene goes with its script instances and sounds, as a new game's does.
+  m_world.setPlaying(false);
+  m_world.clearScene();
+  m_scripts->reset();
+  m_audio->stopAll();
+  m_warnedAboutCamera = false;
+  return startScene(*document);
+}
+
+void Game::play() {
+  m_paused = false;
+  m_world.setPlaying(true);
 }
 
 core::Result<void> Game::openBundle(const std::filesystem::path &file) {
@@ -179,7 +212,7 @@ core::Result<void> Game::startScene(const json &scene) {
   if (!loaded) {
     return std::unexpected(loaded.error());
   }
-  m_world.setPlaying(true);
+  m_world.setPlaying(!m_paused);
   m_window.setTitle(m_name.empty() ? std::string_view{"Sonnet"} : std::string_view{m_name});
   SONNET_LOG_INFO("playing \"{}\": {} entities", m_name, loaded->size());
   return {};
@@ -245,9 +278,35 @@ void Game::render(rhi::ICommandList &commands, const std::optional<rhi::Swapchai
     const renderer::GraphImage color = m_graph.importImage(m_target.color());
     const renderer::GraphImage depth = m_graph.importImage(m_target.depth());
     m_renderer.addScenePasses(m_graph, m_view, color, depth);
+    // The scene as the present pass reads it: tone mapped and display-encoded already.
+    if (m_screenshotRequest) {
+      m_screenshots.add(m_graph, color, m_target.size(), renderer::Renderer::ColorFormat,
+                        *std::exchange(m_screenshotRequest, std::nullopt));
+    }
     m_renderer.addPresentPass(m_graph, color, backbuffer);
   }
   m_graph.execute(commands);
+}
+
+void Game::afterPresent() {
+  if (m_screenshots.pending()) {
+    m_screenshotResult = m_screenshots.write();
+  }
+}
+
+void Game::setShadingTerm(renderer::DebugView view) {
+  renderer::RendererSettings settings = m_renderer.settings();
+  settings.debugView = view;
+  m_renderer.setSettings(settings);
+}
+
+void Game::requestScreenshot(std::filesystem::path file) {
+  m_screenshotRequest = std::move(file);
+  m_screenshotResult.reset();
+}
+
+std::optional<core::Result<void>> Game::takeScreenshotResult() {
+  return std::exchange(m_screenshotResult, std::nullopt);
 }
 
 } // namespace sonnet::runtime

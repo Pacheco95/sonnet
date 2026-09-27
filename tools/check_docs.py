@@ -72,26 +72,43 @@ on_disk = {p.name for p in adr_dir.glob("0*.md")}
 for missing in sorted(on_disk - listed):
     problems.append(f"ADR          {missing} exists but is not listed in README")
 
-# Every capture flag the editor accepts must be in the Screenshots section of docs/editor.md, and
-# AGENTS.md must point agents at it: agents and scripts are who the flags are for. The table is
-# runtime's, which the editor shares.
+# Every capture flag must be in the Screenshots section of docs/editor.md, and every flag the
+# player takes in the Capture runs section of docs/player.md; AGENTS.md must point agents at both:
+# agents and scripts are who the flags are for. The table is runtime's, shared by both
+# applications, and an entry's fifth field says whether the player takes it.
 capture_source = (ROOT / "modules/runtime/src/Capture.cpp").read_text()
-flags = re.findall(r'^\s*\{"(--[a-z\-]+)"', capture_source, re.M)
+entries = re.findall(r'^\s*\{"(--[a-z\-]+)",(.*?)\},?\s*$', capture_source, re.M | re.S)
+flags = [flag for flag, _ in entries]
 if not flags:
     problems.append("CAPTURE      no flags found in modules/runtime/src/Capture.cpp's option table")
-editor_doc = (ROOT / "docs/editor.md").read_text()
-screenshots = editor_doc.split("## Screenshots", 1)[1].split("\n## ", 1)[0] if "## Screenshots" in editor_doc else ""
-if not screenshots:
-    problems.append("CAPTURE      docs/editor.md has no '## Screenshots' section")
-for flag in flags:
-    if f"`{flag} " not in screenshots and f"`{flag}`" not in screenshots:
-        problems.append(f"CAPTURE      {flag} is an editor flag but not in docs/editor.md, Screenshots")
+player_flags = []
+for flag, body in entries:
+    fields = re.findall(r'"(?:[^"\\]|\\.)*"|\btrue\b|\bfalse\b', body)
+    if len(fields) != 5 or fields[3] not in ("true", "false"):
+        problems.append(f"CAPTURE      {flag}: cannot read whether the player takes it from its table entry")
+    elif fields[3] == "true":
+        player_flags.append(flag)
+
+
+def doc_section(path, heading):
+    text = (ROOT / path).read_text()
+    marker = f"## {heading}"
+    return text.split(marker, 1)[1].split("\n## ", 1)[0] if marker in text else ""
+
+
+for path, heading, listed in (("docs/editor.md", "Screenshots", flags), ("docs/player.md", "Capture runs", player_flags)):
+    section = doc_section(path, heading)
+    if not section:
+        problems.append(f"CAPTURE      {path} has no '## {heading}' section")
+    for flag in listed:
+        if f"`{flag} " not in section and f"`{flag}`" not in section:
+            problems.append(f"CAPTURE      {flag} is a capture flag but not in {path}, {heading}")
 agents = (ROOT / "AGENTS.md").read_text()
-for needle in ("--screenshot", "--help", "docs/editor.md#screenshots"):
+for needle in ("--screenshot", "--help", "docs/editor.md#screenshots", "docs/player.md#capture-runs"):
     if needle not in agents:
         problems.append(f"CAPTURE      AGENTS.md does not mention {needle}, which is how agents find the screenshots")
 
-print(f"checked {len(md_files)} markdown files, modules={modules}, ports={len(ports)}, capture flags={len(flags)}")
+print(f"checked {len(md_files)} markdown files, modules={modules}, ports={len(ports)}, capture flags={len(flags)}, player={len(player_flags)}")
 if problems:
     print("\n".join(problems))
     sys.exit(1)

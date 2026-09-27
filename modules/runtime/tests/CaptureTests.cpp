@@ -1,6 +1,8 @@
 #include <sonnet/runtime/Capture.h>
+#include <sonnet/runtime/FrameTimes.h>
 
 #include <sonnet/core/Error.h>
+#include <sonnet/renderer/RenderGraph.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -183,4 +185,26 @@ TEST_CASE("a relative screenshot lands under the preferences directory", "[runti
   options.viewport = absolute;
   runtime::resolveOutputs(options, pref);
   REQUIRE(options.viewport == absolute);
+}
+
+TEST_CASE("frame times are the means of the last hundred frames", "[runtime][capture]") {
+  runtime::FrameTimes times;
+  REQUIRE(times.summary() == "no frames recorded");
+  const auto graph = [](float shadow, float forward) {
+    renderer::GraphStatistics statistics;
+    statistics.passes = {{.name = "shadow", .cpuMilliseconds = 0.0f, .gpuMilliseconds = shadow},
+                         {.name = "forward", .cpuMilliseconds = 0.0f, .gpuMilliseconds = forward}};
+    return statistics;
+  };
+  // Fifty slow frames that the next hundred push out, then a hundred of known times.
+  for (int i = 0; i < 50; ++i) {
+    times.record(100.0f, 100.0f, graph(100.0f, 100.0f));
+  }
+  for (int i = 0; i < 100; ++i) {
+    times.record(i % 2 == 0 ? 1.0f : 3.0f, 16.0f, graph(0.5f, i % 2 == 0 ? 1.0f : 2.0f));
+  }
+  REQUIRE(times.count() == runtime::FrameTimes::Capacity);
+  REQUIRE(
+      times.summary() ==
+      "over the last 100 frames: CPU 2.00 ms a frame, 16.00 ms apart; GPU 2.000 ms: shadow 0.500 ms, forward 1.500 ms");
 }

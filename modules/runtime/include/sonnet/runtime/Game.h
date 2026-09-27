@@ -14,6 +14,7 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
+#include <sonnet/runtime/Screenshot.h>
 #include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/world/Animation.h>
 #include <sonnet/world/DrawList.h>
@@ -30,6 +31,9 @@ struct GameDesc {
   // Off for a test, which mixes audio without an output device and expects no window on screen.
   bool audioOutput{true};
   renderer::RendererSettings renderer;
+  // Opens scenes without simulating them until play(): a capture run draws its settle frames
+  // first, as the editor does before it plays (docs/player.md, "Capture runs").
+  bool paused{false};
 };
 
 // The generic runtime (docs/player.md): the world and its subsystems, running the start scene of
@@ -52,6 +56,11 @@ public:
   [[nodiscard]] core::Result<void> open(const std::filesystem::path &path);
   [[nodiscard]] core::Result<void> openProject(const std::filesystem::path &directory);
   [[nodiscard]] core::Result<void> openBundle(const std::filesystem::path &file);
+  // Replaces the running scene with another of the open game's: relative to a project folder,
+  // or a bundle's file entry, which keeps the path it had in the project.
+  [[nodiscard]] core::Result<void> openScene(const std::filesystem::path &scene);
+  // Starts the simulation of a game opened paused; a game not paused is playing already.
+  void play();
 
   // 1. Every event, as the platform delivers it, becomes game input.
   void event(const platform::Event &event);
@@ -60,6 +69,16 @@ public:
   void update(float dt);
   // 3. The scene into the game's target, then the copy into the swapchain image when there is one.
   void render(rhi::ICommandList &commands, const std::optional<rhi::SwapchainImage> &swapchainImage);
+  // 4. After the frame is submitted: writes the screenshot it copied, if it copied one.
+  void afterPresent();
+
+  // One term of the forward shading instead of the final image (docs/rendering.md).
+  void setShadingTerm(renderer::DebugView view);
+  // The next frame that draws copies the scene, at the window's size and as the present pass
+  // takes it, into `file` as a PNG; afterPresent writes it and takeScreenshotResult reports it,
+  // once.
+  void requestScreenshot(std::filesystem::path file);
+  [[nodiscard]] std::optional<core::Result<void>> takeScreenshotResult();
 
   [[nodiscard]] world::World &world() noexcept {
     return m_world;
@@ -89,6 +108,10 @@ public:
   }
   [[nodiscard]] const renderer::RenderGraph &graph() const noexcept {
     return m_graph;
+  }
+  // What the scene is drawn into; valid once a frame has drawn.
+  [[nodiscard]] const renderer::RenderTarget &target() const noexcept {
+    return m_target;
   }
 
 private:
@@ -124,6 +147,10 @@ private:
   std::vector<renderer::Light> m_lights;
   renderer::SceneView m_view;
   std::string m_name;
+  Screenshots m_screenshots;
+  std::optional<std::filesystem::path> m_screenshotRequest;
+  std::optional<core::Result<void>> m_screenshotResult;
+  bool m_paused{false};
   // Logged once: a scene with no Camera is drawn from the fallback instead of not at all.
   bool m_warnedAboutCamera{false};
 };

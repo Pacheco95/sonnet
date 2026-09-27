@@ -1,6 +1,8 @@
 #include <sonnet/runtime/Capture.h>
 
+#include <sonnet/core/Assert.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/runtime/Game.h>
 
 #include <algorithm>
 #include <array>
@@ -363,6 +365,41 @@ CaptureRun::Status CaptureRun::step(ICaptureTarget &target) {
     return Status::Running;
   }
   return Status::Running;
+}
+
+core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
+  if (!options.scene.empty()) {
+    if (const auto opened = m_game.openScene(options.scene); !opened) {
+      return opened;
+    }
+  }
+  if (options.shadingTerm) {
+    m_game.setShadingTerm(*options.shadingTerm);
+  }
+  return {};
+}
+
+bool GameCaptureTarget::loaded() {
+  return m_game.target().isValid() && !m_game.assets().loading();
+}
+
+void GameCaptureTarget::play(std::uint64_t randomSeed) {
+  m_game.scripts().seedRandom(randomSeed);
+  m_game.play();
+}
+
+core::Result<void> GameCaptureTarget::select(std::string_view path) {
+  return std::unexpected(captureError(std::format("the player has no selection to put \"{}\" in", path)));
+}
+
+void GameCaptureTarget::requestScreenshots(const std::filesystem::path &viewport, const std::filesystem::path &window) {
+  // The parser gives the player no --screenshot-window: its window is the scene.
+  SONNET_ASSERT(window.empty(), "the player captures no window apart from its scene");
+  m_game.requestScreenshot(viewport);
+}
+
+std::optional<core::Result<void>> GameCaptureTarget::takeScreenshotResult() {
+  return m_game.takeScreenshotResult();
 }
 
 } // namespace sonnet::runtime

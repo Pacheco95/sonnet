@@ -1,3 +1,4 @@
+#include <sonnet/runtime/Capture.h>
 #include <sonnet/runtime/Game.h>
 
 #include <sonnet/assets/Cook.h>
@@ -15,11 +16,15 @@
 
 #include <spdlog/sinks/base_sink.h>
 
+#include <stb_image.h>
+
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace sonnet;
@@ -107,8 +112,54 @@ struct Fixture {
     REQUIRE(image.has_value());
     game.render(commands, image);
     device->endFrame();
+    game.afterPresent();
+  }
+
+  // Frames at the capture's fixed step, as the player runs them, until the run ends.
+  runtime::CaptureRun::Status capture(runtime::Game &game, runtime::CaptureRun &run) {
+    runtime::GameCaptureTarget target{game};
+    runtime::CaptureRun::Status status = runtime::CaptureRun::Status::Running;
+    for (int i = 0; i < 600 && status == runtime::CaptureRun::Status::Running; ++i) {
+      frame(game, runtime::CaptureRun::FrameSeconds);
+      status = run.step(target);
+    }
+    // No statement after a FAIL: MSVC reads it as unreachable, which is an error there.
+    REQUIRE(status != runtime::CaptureRun::Status::Running); // finished within 600 frames
+    return status;
   }
 };
+
+// The player's capture flags, parsed as the player parses them, with the output resolved as it
+// resolves it: under the preferences directory.
+[[nodiscard]] runtime::CaptureOptions playerCapture(platform::Platform &platform,
+                                                    std::initializer_list<std::string_view> flags) {
+  const std::vector<std::string_view> args{flags};
+  const auto line = runtime::parseCommandLine(args, runtime::CaptureApplication::Player);
+  REQUIRE(line.has_value());
+  REQUIRE(line->capture.has_value());
+  runtime::CaptureOptions options = *line->capture;
+  runtime::resolveOutputs(options, platform.prefPath("sonnet", "runtime_tests"));
+  return options;
+}
+
+struct Png {
+  int width{0};
+  int height{0};
+  std::vector<unsigned char> rgba;
+};
+
+[[nodiscard]] Png readPng(const std::filesystem::path &file) {
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  Png png;
+  int channels = 0;
+  unsigned char *pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char *>(bytes->data()),
+                                                static_cast<int>(bytes->size()), &png.width, &png.height, &channels, 4);
+  REQUIRE(pixels != nullptr);
+  png.rgba.assign(pixels, pixels + static_cast<std::size_t>(png.width) * static_cast<std::size_t>(png.height) * 4);
+  stbi_image_free(pixels);
+  return png;
+}
 
 } // namespace
 
@@ -255,6 +306,98 @@ TEST_CASE("the game survives its swapchain suspended and its audio paused", "[ru
   REQUIRE_FALSE(game.audio().lastMix().empty());
   REQUIRE(sink->problems.empty());
   core::Log::removeSink(sink);
+}
+
+// ADR-0018's "CI": the player's capture flags, headless, on the path apps/player/main.cpp takes
+// through runtime. The main.cpp around it, the window and the log's last line, no test reaches.
+TEST_CASE("a player's capture run writes the scene under the preferences directory", "[runtime][capture][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const runtime::CaptureOptions options =
+      playerCapture(fixture.platform, {"--play", "0.25", "--shading-term", "albedo", "--settle-frames", "2",
+                                       "--screenshot", "shots/albedo.png"});
+  const std::filesystem::path written = fixture.platform.prefPath("sonnet", "runtime_tests") / "shots" / "albedo.png";
+  REQUIRE(options.viewport == written);
+  std::filesystem::remove(written);
+
+  const auto sink = std::make_shared<ProblemSink>();
+  core::Log::addSink(sink);
+  {
+    runtime::GameDesc desc = fixture.desc();
+    desc.paused = true;
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(project).has_value());
+    // Nothing simulates before the settle frames are drawn, as in the editor before it plays.
+    REQUIRE_FALSE(game.world().isPlaying());
+    runtime::CaptureRun run{options};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
+    REQUIRE(game.world().isPlaying()); // captured while playing, as asked
+    REQUIRE(game.graph().statistics().passes.size() > 2);
+  }
+  REQUIRE(sink->problems.empty());
+  core::Log::removeSink(sink);
+
+  // The window's size, and something lit in the middle rather than the clear colour.
+  const Png png = readPng(written);
+  REQUIRE(png.width == static_cast<int>(fixture.swapchain->extent().x));
+  REQUIRE(png.height == static_cast<int>(fixture.swapchain->extent().y));
+  const std::size_t centre = (static_cast<std::size_t>(png.height / 2) * static_cast<std::size_t>(png.width) +
+                              static_cast<std::size_t>(png.width / 2)) *
+                             4;
+  REQUIRE(png.rgba[centre] + png.rgba[centre + 1] + png.rgba[centre + 2] > 30);
+  std::filesystem::remove(written);
+}
+
+TEST_CASE("--scene opens another of a bundle's scenes for the capture", "[runtime][capture][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const std::filesystem::path out = std::filesystem::temp_directory_path() / "sonnet_runtime_capture_bundle";
+  std::filesystem::remove_all(out);
+  {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(project).has_value());
+    const auto opened = assets::Project::open(project);
+    REQUIRE(opened.has_value());
+    REQUIRE(assets::cook(game.assets(), *opened, {.outputDirectory = out}).has_value());
+  }
+  const std::filesystem::path shot = out / "playground.png"; // absolute, so it stays where it is
+
+  runtime::GameDesc desc = fixture.desc();
+  desc.paused = true;
+  {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(out / "game.sbundle").has_value());
+    const auto hasBall = [&] {
+      return std::ranges::any_of(game.world().roots(), [](const flecs::entity root) {
+        const world::Name *name = root.try_get<world::Name>();
+        return name != nullptr && name->value == "Ball";
+      });
+    };
+    REQUIRE_FALSE(hasBall()); // the start scene is the main one
+    runtime::CaptureRun run{playerCapture(fixture.platform, {"--scene", "scenes/playground.scene.json",
+                                                             "--settle-frames", "1", "--screenshot", shot.string()})};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
+    REQUIRE(hasBall());
+    REQUIRE_FALSE(game.world().isPlaying()); // no --play: the scene as it loads, as in the editor
+  }
+  REQUIRE(std::filesystem::is_regular_file(shot));
+
+  // A scene the bundle does not hold fails the run, with nothing written.
+  {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(out / "game.sbundle").has_value());
+    runtime::CaptureRun run{playerCapture(
+        fixture.platform, {"--scene", "scenes/nowhere.scene.json", "--screenshot", (out / "no.png").string()})};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Failed);
+  }
+  REQUIRE_FALSE(std::filesystem::exists(out / "no.png"));
+  std::filesystem::remove_all(out);
 }
 
 TEST_CASE("a path that is neither a project nor a bundle is an error", "[runtime][gpu]") {

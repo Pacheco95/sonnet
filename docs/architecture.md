@@ -17,7 +17,7 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | `physics` | Rigid bodies, colliders, raycasts and debug outlines behind `IPhysicsWorld`, with the Jolt implementation ([physics.md](physics.md)) | `world`, Jolt |
 | `scripting` | Lua scripts on entities behind `IScriptRuntime`, with the Lua and sol2 implementation ([scripting.md](scripting.md)) | `physics`, Lua, sol2 |
 | `audio` | Sounds on entities behind `IAudioDevice`, with the miniaudio implementation ([audio.md](audio.md)) | `world`, miniaudio |
-| `runtime` | `Game`: the world and its subsystems running a project or a cooked bundle, for the player ([player.md](player.md)) | `audio`, `scripting` |
+| `runtime` | `Game`: the world and its subsystems running a project or a cooked bundle, for the player; the capture flags, their parser and the screenshots, shared with the editor ([player.md](player.md#capture-runs)) | `audio`, `scripting` |
 | `ui` | Dear ImGui layer: context, SDL3 and Vulkan backends, texture display, fonts. Editor and debug builds only | `rhi`, `platform`, ImGui |
 | `editor` | Slang runtime compilation and editor framework: panels, selection, commands with undo/redo, gizmos, picking, play mode, project handling. Desktop only | everything above, Slang |
 
