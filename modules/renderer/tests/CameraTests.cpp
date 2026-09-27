@@ -3,6 +3,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
+
 using namespace sonnet::renderer;
 using Catch::Approx;
 
@@ -54,4 +56,32 @@ TEST_CASE("a rotated camera rotates its basis", "[renderer][camera]") {
   REQUIRE(forward.z == Approx(0.0f).margin(1e-5f));
   const glm::vec4 origin = camera.view() * glm::vec4{camera.position, 1.0f};
   REQUIRE(glm::length(glm::vec3{origin}) == Approx(0.0f).margin(1e-5f));
+}
+
+TEST_CASE("a point of the view unprojects to the ray through it", "[renderer][camera]") {
+  // At 90 degrees and an aspect of 2, the view's corners are one unit up or down and two across
+  // at a distance of one.
+  Camera camera;
+  camera.fovY = glm::radians(90.0f);
+  const glm::vec3 centre = camera.rayDirection({0.5f, 0.5f}, 2.0f);
+  REQUIRE(centre.x == Approx(0.0f).margin(1e-6f));
+  REQUIRE(centre.y == Approx(0.0f).margin(1e-6f));
+  REQUIRE(centre.z == Approx(-1.0f));
+  const glm::vec3 topLeft = camera.rayDirection({0.0f, 0.0f}, 2.0f);
+  const glm::vec3 expected = glm::normalize(glm::vec3{-2.0f, 1.0f, -1.0f});
+  REQUIRE(topLeft.x == Approx(expected.x));
+  REQUIRE(topLeft.y == Approx(expected.y));
+  REQUIRE(topLeft.z == Approx(expected.z));
+
+  // Pitched down by 30 degrees from 9 m up: the centre's ray meets the ground 18 m along it,
+  // 9 * sqrt(3) m ahead. Inverting the infinite projection costs precision, to a few tenths of a
+  // millimetre on Apple silicon, so these hold to a millimetre.
+  camera.position = {0.0f, 9.0f, 16.0f};
+  camera.rotation = glm::angleAxis(glm::radians(-30.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+  const glm::vec3 down = camera.rayDirection({0.5f, 0.5f}, 16.0f / 9.0f);
+  const float t = -camera.position.y / down.y;
+  REQUIRE(t == Approx(18.0f).margin(1e-3f));
+  const glm::vec3 ground = camera.position + down * t;
+  REQUIRE(ground.x == Approx(0.0f).margin(1e-4f));
+  REQUIRE(ground.z == Approx(16.0f - 9.0f * std::sqrt(3.0f)).margin(1e-3f));
 }

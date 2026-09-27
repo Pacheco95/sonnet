@@ -1,5 +1,7 @@
 #include <sonnet/editor/Gizmo.h>
 
+#include <sonnet/renderer/Camera.h>
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -57,17 +59,8 @@ ImU32 axisColor(GizmoAxis axis, bool highlighted) {
 } // namespace
 
 glm::vec3 Gizmo::rayDirection(const GizmoView &view, glm::vec2 pixel) {
-  const glm::vec2 relative = (pixel - view.origin) / glm::max(view.size, glm::vec2{1.0f});
-  // Clip-space Y points up on screen (the negative-height viewport undoes Vulkan's flip).
-  const glm::vec2 ndc{relative.x * 2.0f - 1.0f, 1.0f - relative.y * 2.0f};
-  const glm::mat4 inverse = glm::inverse(view.projection * view.view);
-  // Reversed-Z: depth 1 is the near plane; 0 is at infinity, so a point between them gives the
-  // direction.
-  const glm::vec4 nearPoint = inverse * glm::vec4{ndc, 1.0f, 1.0f};
-  const glm::vec4 farPoint = inverse * glm::vec4{ndc, 0.5f, 1.0f};
-  const glm::vec3 a = glm::vec3{nearPoint} / nearPoint.w;
-  const glm::vec3 b = glm::vec3{farPoint} / farPoint.w;
-  return glm::normalize(b - a);
+  const glm::vec2 fraction = (pixel - view.origin) / glm::max(view.size, glm::vec2{1.0f});
+  return renderer::rayDirection(view.projection * view.view, fraction);
 }
 
 std::optional<glm::vec2> Gizmo::project(const GizmoView &view, glm::vec3 point) {

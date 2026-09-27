@@ -168,7 +168,7 @@ std::optional<std::pair<int, std::string_view>> locate(std::string_view message,
 class LuaScriptRuntime final : public IScriptRuntime {
 public:
   explicit LuaScriptRuntime(const ScriptDesc &desc)
-      : m_world(*desc.world), m_assets(*desc.assets), m_physics(desc.physics), m_input(desc.input) {
+      : m_world(*desc.world), m_assets(*desc.assets), m_physics(desc.physics), m_input(desc.input), m_view(desc.view) {
     registerComponents(m_world);
     // No io, os, package or debug: scripts reach the engine through its tables only, the same on
     // every platform the player runs on (ADR-0009).
@@ -197,6 +197,9 @@ public:
     }
     if (m_physics != nullptr) {
       bindPhysics();
+    }
+    if (m_view != nullptr) {
+      bindCamera();
     }
 
     m_scripts = ecs.query_builder<const Script>("Scripts").without<world::Disabled>().build();
@@ -657,6 +660,31 @@ private:
     table.set_function("mousePosition", [this, vec2] { return vec2(m_input->mousePosition()); });
     table.set_function("mouseDelta", [this, vec2] { return vec2(m_input->mouseDelta()); });
     table.set_function("wheel", [this, vec2] { return vec2(m_input->wheel()); });
+    table.set_function("touches", [this, vec2] {
+      sol::table touches = m_lua.create_table(static_cast<int>(m_input->touches().size()), 0);
+      int index = 1;
+      for (const platform::Touch &touch : m_input->touches()) {
+        // Lua's integers are signed; an id only has to stay the same while its finger is down.
+        touches[index++] = m_lua.create_table_with("id", static_cast<std::int64_t>(touch.id), "position",
+                                                   vec2(touch.position), "delta", vec2(touch.delta));
+      }
+      return touches;
+    });
+  }
+
+  void bindCamera() {
+    sol::table table = m_lua.create_named_table("camera");
+    table.set_function("ray", [this](const sol::object &point, sol::this_state state) {
+      if (point.get_type() != sol::type::table) {
+        raise(state, "point: expected a table {x, y}");
+      }
+      const sol::table xy = point.as<sol::table>();
+      const glm::vec2 size = glm::max(m_view->size, glm::vec2{1.0f});
+      const glm::vec2 fraction = glm::vec2{xy.get_or("x", 0.0f), xy.get_or("y", 0.0f)} / size;
+      const renderer::Camera &camera = m_view->camera;
+      return m_lua.create_table_with("origin", makeVec3(camera.position), "direction",
+                                     makeVec3(camera.rayDirection(fraction, size.x / size.y)));
+    });
   }
 
   void bindPhysics() {
@@ -702,6 +730,7 @@ private:
   assets::AssetDatabase &m_assets;
   physics::IPhysicsWorld *m_physics;
   const platform::InputState *m_input;
+  const ScriptView *m_view;
   // Declared first so it is destroyed last: every sol reference below points into it.
   sol::state m_lua;
   LuaTypes m_types;

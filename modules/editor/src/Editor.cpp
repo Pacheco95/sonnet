@@ -51,8 +51,11 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_renderer(device, platform.basePath() / "shaders", {.jobs = &m_jobs}), m_graph(device), m_picker(device),
       m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
-      m_scripts(scripting::createScriptRuntime(
-          {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
+      m_scripts(scripting::createScriptRuntime({.world = &m_world,
+                                                .assets = &m_assets,
+                                                .physics = m_physics.get(),
+                                                .input = &m_input,
+                                                .view = &m_scriptView})),
       m_animation(m_world, m_assets),
       // A headless editor is a test's: it mixes without a device rather than making a sound.
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})),
@@ -97,6 +100,19 @@ void Editor::event(const platform::Event &event) {
     }
   } else if (const auto *released = std::get_if<platform::MouseButtonReleased>(&event)) {
     m_input.handle(platform::MouseButtonReleased{.button = released->button, .position = released->position + offset});
+  } else if (const auto *down = std::get_if<platform::TouchDown>(&event)) {
+    // A finger elsewhere in the editor is not the game's. The image's own rectangle decides, not
+    // ImGui's hover, which follows the finger's synthesised mouse only from the next frame.
+    const glm::vec2 position = down->position + offset;
+    const glm::vec2 size = m_viewportPanel.input().size;
+    if (position.x >= 0.0f && position.y >= 0.0f && position.x < size.x && position.y < size.y) {
+      m_input.handle(platform::TouchDown{.id = down->id, .position = position});
+    }
+  } else if (const auto *motion = std::get_if<platform::TouchMotion>(&event)) {
+    m_input.handle(
+        platform::TouchMotion{.id = motion->id, .position = motion->position + offset, .delta = motion->delta});
+  } else if (const auto *up = std::get_if<platform::TouchUp>(&event)) {
+    m_input.handle(platform::TouchUp{.id = up->id, .position = up->position + offset});
   } else {
     m_input.handle(event);
   }
@@ -185,6 +201,8 @@ void Editor::update(float dt) {
   // that is where a scene without an AudioListener is heard from.
   const renderer::Camera &camera = m_viewportPanel.camera().camera();
   m_audio->setFallbackListener(camera.position, camera.rotation);
+  // Scripts see the game through the viewport, in the coordinates game input has.
+  m_scriptView = {.camera = camera, .size = m_viewportPanel.input().size};
   m_world.progress(dt);
   m_input.beginFrame();
   world::buildDrawList(m_world, m_assets, m_draws, m_joints);

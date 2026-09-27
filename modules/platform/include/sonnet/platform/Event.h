@@ -11,7 +11,8 @@
 namespace sonnet::platform {
 
 // Events are values the platform pushes up through IApplication::event. Positions are in window
-// coordinates, pixel sizes are the drawable size the swapchain has to match.
+// coordinates, the mouse's and the touches' alike; pixel sizes are the drawable size the swapchain
+// has to match.
 
 struct WindowResized {
   glm::uvec2 pixelSize;
@@ -55,8 +56,24 @@ struct MouseWheel {
   glm::vec2 delta; // +y away from the user
 };
 
+// A finger on a touch screen, known by its id from down to up (docs/platform.md, "Events"). A
+// cancelled finger ends with a TouchUp.
+struct TouchDown {
+  std::uint64_t id;
+  glm::vec2 position;
+};
+struct TouchUp {
+  std::uint64_t id;
+  glm::vec2 position;
+};
+struct TouchMotion {
+  std::uint64_t id;
+  glm::vec2 position;
+  glm::vec2 delta;
+};
+
 using Event = std::variant<WindowResized, WindowMinimized, WindowRestored, WindowFocusChanged, WindowCloseRequested,
                            QuitRequested, KeyPressed, KeyReleased, TextInput, MouseMoved, MouseButtonPressed,
-                           MouseButtonReleased, MouseWheel>;
+                           MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion>;
 
 } // namespace sonnet::platform

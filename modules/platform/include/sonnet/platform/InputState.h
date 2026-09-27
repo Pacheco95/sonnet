@@ -5,16 +5,30 @@
 
 #include <sonnet/core/Math.h>
 
+#include <array>
 #include <bitset>
 #include <cstddef>
+#include <cstdint>
+#include <span>
 
 namespace sonnet::platform {
 
-// The keyboard and mouse as state rather than as a stream of events: what is held, what went
-// down or up since the last beginFrame, and where the pointer is. The application feeds it the
-// events it wants the game to see (docs/architecture.md, "Application lifecycle").
+// A finger held on the screen: where it is and how far it moved this frame.
+struct Touch {
+  std::uint64_t id{0};
+  glm::vec2 position{0.0f, 0.0f};
+  glm::vec2 delta{0.0f, 0.0f};
+};
+
+// The keyboard, mouse and touches as state rather than as a stream of events: what is held, what
+// went down or up since the last beginFrame, and where the pointer and the fingers are. The
+// application feeds it the events it wants the game to see (docs/architecture.md, "Application
+// lifecycle").
 class InputState {
 public:
+  // More fingers than any screen the engine runs on reports; one past it is ignored.
+  static constexpr std::size_t MaxTouches = 10;
+
   // Starts a frame: forgets the presses, releases, motion and wheel of the previous one.
   void beginFrame() noexcept;
   void handle(const Event &event) noexcept;
@@ -36,8 +50,14 @@ public:
   [[nodiscard]] glm::vec2 wheel() const noexcept {
     return m_wheel;
   }
+  // The fingers down now, in the order they went down.
+  [[nodiscard]] std::span<const Touch> touches() const noexcept {
+    return std::span{m_touches}.first(m_touchCount);
+  }
 
 private:
+  [[nodiscard]] Touch *findTouch(std::uint64_t id) noexcept;
+
   static constexpr std::size_t KeyCount = static_cast<std::size_t>(Key::Count);
   static constexpr std::size_t ButtonCount = static_cast<std::size_t>(MouseButton::Count);
 
@@ -50,6 +70,8 @@ private:
   glm::vec2 m_mousePosition{0.0f, 0.0f};
   glm::vec2 m_mouseDelta{0.0f, 0.0f};
   glm::vec2 m_wheel{0.0f, 0.0f};
+  std::array<Touch, MaxTouches> m_touches{};
+  std::size_t m_touchCount{0};
 };
 
 } // namespace sonnet::platform

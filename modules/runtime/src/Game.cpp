@@ -52,8 +52,11 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                      }()),
       m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
-      m_scripts(scripting::createScriptRuntime(
-          {.world = &m_world, .assets = &m_assets, .physics = m_physics.get(), .input = &m_input})),
+      m_scripts(scripting::createScriptRuntime({.world = &m_world,
+                                                .assets = &m_assets,
+                                                .physics = m_physics.get(),
+                                                .input = &m_input,
+                                                .view = &m_scriptView})),
       m_animation(m_world, m_assets),
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})) {
   // A player is always playing: there is no edit mode to switch out of.
@@ -204,6 +207,8 @@ void Game::update(float dt) {
   const renderer::Camera camera = scene.value_or(fallbackCamera());
   // A scene without an AudioListener is heard from the camera, as it is in the editor.
   m_audio->setFallbackListener(camera.position, camera.rotation);
+  // Input positions are in window coordinates, so the view's size is the window's.
+  m_scriptView = {.camera = camera, .size = glm::vec2{m_window.size()}};
 
   m_world.progress(dt);
   m_input.beginFrame();

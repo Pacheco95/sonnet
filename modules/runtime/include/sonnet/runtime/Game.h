@@ -110,6 +110,8 @@ private:
   // After the world, which they register into and have to be destroyed before; scripts after
   // physics so their fixed update follows the physics step (ADR-0009).
   platform::InputState m_input;
+  // The camera and the window's size, for scripts turning a pointer into a ray.
+  scripting::ScriptView m_scriptView;
   std::unique_ptr<physics::IPhysicsWorld> m_physics;
   std::unique_ptr<scripting::IScriptRuntime> m_scripts;
   // After the scripts, so a pose a script sets this frame is sampled over; the audio device,

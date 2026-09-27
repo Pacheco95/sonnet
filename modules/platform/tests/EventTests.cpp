@@ -1,7 +1,14 @@
 #include "SdlEvents.h"
 
 #include <sonnet/platform/Event.h>
+#include <sonnet/platform/Platform.h>
+#include <sonnet/platform/Window.h>
 
+#include <sonnet/core/Error.h>
+
+#include <SDL3/SDL_pen.h>
+#include <SDL3/SDL_touch.h>
+#include <SDL3/SDL_video.h>
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstring>
@@ -15,6 +22,16 @@ SDL_Event makeEvent(SDL_EventType type) {
   SDL_Event event;
   std::memset(&event, 0, sizeof(event));
   event.type = type;
+  return event;
+}
+
+SDL_Event makeFinger(SDL_EventType type, SDL_WindowID window, SDL_FingerID finger, float x, float y) {
+  SDL_Event event = makeEvent(type);
+  event.tfinger.touchID = 7;
+  event.tfinger.fingerID = finger;
+  event.tfinger.windowID = window;
+  event.tfinger.x = x;
+  event.tfinger.y = y;
   return event;
 }
 
@@ -116,4 +133,68 @@ TEST_CASE("text input copies the UTF-8 text", "[platform][input]") {
 TEST_CASE("events the engine does not use are dropped", "[platform][input]") {
   REQUIRE(!translateEvent(makeEvent(SDL_EVENT_CLIPBOARD_UPDATE)).has_value());
   REQUIRE(!translateEvent(makeEvent(SDL_EVENT_WINDOW_RESIZED)).has_value());
+}
+
+TEST_CASE("finger events become touches in window coordinates", "[platform][input]") {
+  Platform platform{{.headless = true}};
+  // Windows are created Vulkan-capable, which needs the Vulkan library (WindowTests.cpp).
+  try {
+    static_cast<void>(platform.vulkanGetInstanceProcAddr());
+  } catch (const sonnet::core::Exception &e) {
+    SKIP("no Vulkan loader on this machine: " << e.what());
+  }
+  const auto window = platform.createWindow({.title = "touch", .size = {640, 360}});
+  const SDL_WindowID id = SDL_GetWindowID(window->nativeHandle());
+
+  // Two fingers at once, each scaled from SDL's fractions of the window.
+  const auto first = std::get<TouchDown>(*translateEvent(makeFinger(SDL_EVENT_FINGER_DOWN, id, 1, 0.5f, 0.25f)));
+  REQUIRE(first.id == 1);
+  REQUIRE(first.position == glm::vec2{320.0f, 90.0f});
+  const auto second = std::get<TouchDown>(*translateEvent(makeFinger(SDL_EVENT_FINGER_DOWN, id, 2, 0.1f, 0.5f)));
+  REQUIRE(second.id == 2);
+  REQUIRE(second.position == glm::vec2{64.0f, 180.0f});
+
+  SDL_Event motion = makeFinger(SDL_EVENT_FINGER_MOTION, id, 1, 0.75f, 0.5f);
+  motion.tfinger.dx = 0.25f;
+  motion.tfinger.dy = -0.25f;
+  const auto moved = std::get<TouchMotion>(*translateEvent(motion));
+  REQUIRE(moved.id == 1);
+  REQUIRE(moved.position == glm::vec2{480.0f, 180.0f});
+  REQUIRE(moved.delta == glm::vec2{160.0f, -90.0f});
+
+  const auto up = std::get<TouchUp>(*translateEvent(makeFinger(SDL_EVENT_FINGER_UP, id, 1, 0.75f, 0.5f)));
+  REQUIRE(up.id == 1);
+  REQUIRE(up.position == glm::vec2{480.0f, 180.0f});
+  // A cancelled finger ends as a lifted one does.
+  const auto cancelled = std::get<TouchUp>(*translateEvent(makeFinger(SDL_EVENT_FINGER_CANCELED, id, 2, 0.0f, 1.0f)));
+  REQUIRE(cancelled.id == 2);
+  REQUIRE(cancelled.position == glm::vec2{0.0f, 360.0f});
+}
+
+TEST_CASE("a mouse or pen reported as a touch stays the mouse", "[platform][input]") {
+  SDL_Event mouse = makeFinger(SDL_EVENT_FINGER_DOWN, 0, 1, 0.5f, 0.5f);
+  mouse.tfinger.touchID = SDL_MOUSE_TOUCHID;
+  REQUIRE(!translateEvent(mouse).has_value());
+  SDL_Event pen = makeFinger(SDL_EVENT_FINGER_MOTION, 0, 1, 0.5f, 0.5f);
+  pen.tfinger.touchID = SDL_PEN_TOUCHID;
+  REQUIRE(!translateEvent(pen).has_value());
+}
+
+TEST_CASE("the mouse a finger moves jumps to where it lands", "[platform][input]") {
+  // SDL moves its mouse to the finger before pressing the left button: a jump, not motion.
+  SDL_Event landing = makeEvent(SDL_EVENT_MOUSE_MOTION);
+  landing.motion.which = SDL_TOUCH_MOUSEID;
+  landing.motion.x = 100.0f;
+  landing.motion.xrel = 90.0f;
+  const auto jumped = std::get<MouseMoved>(*translateEvent(landing));
+  REQUIRE(jumped.position == glm::vec2{100.0f, 0.0f});
+  REQUIRE(jumped.delta == glm::vec2{0.0f, 0.0f});
+  // Once the finger holds the button, its moves are motion like a mouse's.
+  SDL_Event dragging = landing;
+  dragging.motion.state = SDL_BUTTON_LMASK;
+  dragging.motion.xrel = 4.0f;
+  REQUIRE(std::get<MouseMoved>(*translateEvent(dragging)).delta == glm::vec2{4.0f, 0.0f});
+  // A real mouse's first move keeps its delta.
+  landing.motion.which = 1;
+  REQUIRE(std::get<MouseMoved>(*translateEvent(landing)).delta == glm::vec2{90.0f, 0.0f});
 }

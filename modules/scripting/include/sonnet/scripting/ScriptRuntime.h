@@ -3,6 +3,8 @@
 #include <sonnet/scripting/Components.h>
 
 #include <sonnet/core/Error.h>
+#include <sonnet/core/Math.h>
+#include <sonnet/renderer/Camera.h>
 
 #include <cstdint>
 #include <memory>
@@ -23,13 +25,22 @@ class World;
 
 namespace sonnet::scripting {
 
-// What scripts reach. The world and the assets are required; without physics or input the
-// `physics` and `input` tables are absent. Everything has to outlive the runtime.
+// The view the game is drawn into, which the application updates before the world's frame: the
+// camera it draws through and its size in the coordinates of the input's positions, so a script
+// can turn a pointer or a touch into a ray (docs/scripting.md, "camera").
+struct ScriptView {
+  renderer::Camera camera;
+  glm::vec2 size{0.0f, 0.0f};
+};
+
+// What scripts reach. The world and the assets are required; without physics, input or a view
+// the `physics`, `input` and `camera` tables are absent. Everything has to outlive the runtime.
 struct ScriptDesc {
   world::World *world{nullptr};
   assets::AssetDatabase *assets{nullptr};
   physics::IPhysicsWorld *physics{nullptr};
   const platform::InputState *input{nullptr};
+  const ScriptView *view{nullptr};
 };
 
 // Runs the Script components of a world (ADR-0009, docs/scripting.md). In play mode every
