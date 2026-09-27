@@ -493,10 +493,11 @@ void Editor::drawModal() {
     ImGui::InputText("Name", &m_modalName);
   }
   if (m_modal == Modal::Export) {
-    // The three desktop targets; a target that is not this machine needs its player put beside
-    // the bundle afterwards (docs/editor.md, "Export").
-    const std::array<assets::CookPlatform, 3> platforms{assets::CookPlatform::Windows, assets::CookPlatform::Linux,
-                                                        assets::CookPlatform::MacOS};
+    // A desktop target that is not this machine needs its player put beside the bundle
+    // afterwards; a mobile target gets the bundle alone (docs/editor.md, "Export").
+    const std::array<assets::CookPlatform, 5> platforms{assets::CookPlatform::Windows, assets::CookPlatform::Linux,
+                                                        assets::CookPlatform::MacOS, assets::CookPlatform::Android,
+                                                        assets::CookPlatform::IOS};
     if (ImGui::BeginCombo("Platform", std::string{assets::toString(m_exportPlatform)}.c_str())) {
       for (const assets::CookPlatform platform : platforms) {
         const std::string name{assets::toString(platform)};
@@ -508,6 +509,10 @@ void Editor::drawModal() {
         }
       }
       ImGui::EndCombo();
+    }
+    if (assets::isMobile(m_exportPlatform)) {
+      ImGui::TextWrapped("Writes the cooked bundle only, with ASTC textures. The editor builds no APK or app bundle: "
+                         "build the player with the bundle packaged, as docs/player.md describes.");
     }
     ImGui::BeginDisabled(m_scenePath.empty());
     ImGui::Checkbox("Current scene only", &m_exportCurrentScene);
