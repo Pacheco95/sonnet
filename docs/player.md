@@ -198,9 +198,34 @@ Measured on that phone with the basic sample and the debug APK, 10 minutes from 
 
 The phone started at about 35 °C each time. With Mailbox the GPU drew every frame it could and the display showed at most 120 of them each second. FIFO removed those extra frames, but 120 frames a second of the basic sample still kept the GPU over 80 % busy. At 60 Hz the GPU keeps up at its lowest clocks, and the skin stayed under the 38 °C of the phone's first thermal threshold.
 
+## Running on iOS
+
+On iOS the player is `sonnet_player.app`, an Xcode-signed bundle the `ios-debug` and `ios-release` presets build ([build.md](build.md#ios)). Its bundle identifier is `io.github.pacheco95.sonnet`, the same as the Android package. A game is cooked for `ios` the same way as `android`, with ASTC textures, and packaged into the bundle at configure:
+
+```bash
+./build/macos-release/apps/cook/sonnet_cook apps/samples/basic --platform ios --out build/ios-bundle
+cmake --preset ios-debug -DSONNET_IOS_BUNDLE=$PWD/build/ios-bundle/game.sbundle
+cmake --build --preset ios-debug
+```
+
+Installing to a device and reading its files back is `xcrun devicectl` rather than `adb`, and a first launch needs the developer profile trusted on the phone once, under Settings > General > VPN & Device Management ([ADR-0018, "Checked before the code"](roadmap.md#checked-before-the-code)):
+
+```bash
+cmake --build --preset ios-debug -- -allowProvisioningUpdates -allowProvisioningDeviceRegistration
+xcrun devicectl device install app --device <device-id> \
+  build/ios-debug/apps/player/Debug-iphoneos/sonnet_player.app
+xcrun devicectl device process launch --console --device <device-id> io.github.pacheco95.sonnet --scene scenes/playground.scene.json
+xcrun devicectl device copy from --device <device-id> --domain-type appDataContainer --domain-identifier io.github.pacheco95.sonnet \
+  --source "Library/Application Support/sonnet/player/screenshot.png" --destination screenshot.png
+```
+
+`Platform::prefPath("sonnet", "player")` is `Library/Application Support/sonnet/player/` inside the app's data container on iOS, the same path a capture run's relative output resolves against ([Capture runs](#capture-runs)). `devicectl device process launch`'s trailing arguments arrive the same way `am start`'s `args` extra does on Android, split on whitespace. Reporting a device run follows ADR-0018's six checks the same way Android's does ([Reporting a device run](#reporting-a-device-run)): the Vulkan description comes from the device-selection log line instead of `adb shell cmd gpu vkjson`, and checks 4 and 5 (the lifecycle and touch) need a person's hand on the phone, since no tool sends it a touch or a trip to the background the way `adb shell input` and `adb shell input keyevent KEYCODE_HOME` do for Android.
+
+The `devicectl` commands and `Platform::prefPath` above were run against a hand-built `vkprobe`, not this player, on the Mac task that answered ADR-0018's open questions ([roadmap.md](roadmap.md#checked-before-the-code)); the built app's exact output path under `build/ios-*/` is not yet confirmed against a real `cmake --build --preset ios-debug`, which needs the Mac and Xcode this repository's Linux checkout does not have. M10 is not done until that run happens.
+
 ## What an export is
 
-An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. An Android or iOS export is the bundle alone: the player there is an APK or an app bundle, which the build packages the bundle into ([Running on Android](#running-on-android)), and the editor builds neither. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](roadmap.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
+An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. An Android or iOS export is the bundle alone: the player there is an APK or an app bundle, which the build packages the bundle into ([Running on Android](#running-on-android), [Running on iOS](#running-on-ios)), and the editor builds neither. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](roadmap.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
 
 ## See also
 

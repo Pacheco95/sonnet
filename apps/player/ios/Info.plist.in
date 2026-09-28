@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The player's iOS bundle Info.plist (docs/player.md, "Running on iOS"). cmake/SonnetIOS.cmake
+     configures it with @ONLY and sets it as sonnet_player_app's MACOSX_BUNDLE_INFO_PLIST; Xcode
+     substitutes every $(...) build setting when it compiles the bundle. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Sonnet</string>
+	<key>CFBundleDisplayName</key>
+	<string>Sonnet</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@PROJECT_VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@PROJECT_VERSION@</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>@SONNET_IOS_LAUNCH_STORYBOARD_NAME@</string>
+	<!-- Every orientation: the swapchain's identity pre-transform lets the compositor rotate
+	     (docs/rendering.md#rotation), so the player itself has no orientation it cannot draw. -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<!-- arm64 and metal, so a device without either cannot install the app (ADR-0018, mirroring
+	     the Android manifest's android:required vulkan.version feature). -->
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+		<string>metal</string>
+	</array>
+</dict>
+</plist>

@@ -353,3 +353,78 @@ jobs:
           name: sonnet_player-android
           path: build/android-release/apps/player/sonnet_player.apk
           if-no-files-found: error
+
+  ios:
+    name: iOS
+    needs: lint
+    permissions:
+      contents: read
+      actions: write # deletes the vcpkg binary cache entries a new one replaces
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up vcpkg
+        run: |
+          baseline=$(python3 -c "import json; print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+          git clone https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" checkout "$baseline"
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      # vcpkg's binary cache (docs/build.md, "vcpkg binary cache"): the files backend in a folder restored
+      # from the newest entry of the job's group, which pull requests read from main.
+      - name: Restore the vcpkg binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-cache
+          key: vcpkg-ios-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: vcpkg-ios-
+
+      - name: Point vcpkg at the binary cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/vcpkg-cache"
+          touch "$RUNNER_TEMP/vcpkg-cache.marker"
+          echo "VCPKG_BINARY_SOURCES=clear;files,$RUNNER_TEMP/vcpkg-cache,readwrite" >> "$GITHUB_ENV"
+
+      # ADR-0018, "CI": proves the player compiles and links against MoltenVK on the device SDK.
+      # No CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM is set, so CODE_SIGNING_ALLOWED=NO skips the
+      # codesign build phase instead of failing for want of a team; there is no simulator run,
+      # since the release's iOS archive MoltenVK links has no simulator slice (ports/moltenvk).
+      - name: Configure
+        run: cmake --preset ios-release
+
+      # Saved right after the configure that installs the ports, so a failing build still saves it,
+      # and only from main, so pull requests cannot evict main's entries. Pruned to the archives this
+      # configure used, saved only if vcpkg wrote new ones, and then the group's older entries are deleted.
+      - name: Prune the vcpkg binary cache
+        id: vcpkg-cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python3 tools/prune_vcpkg_cache.py "$RUNNER_TEMP/vcpkg-cache" --since "$RUNNER_TEMP/vcpkg-cache.marker"
+
+      - name: Save the vcpkg binary cache
+        if: steps.vcpkg-cache.outputs.changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-cache
+          key: vcpkg-ios-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Delete the older vcpkg binary caches
+        if: steps.vcpkg-cache.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: vcpkg-ios-${{ github.run_id }}-${{ github.run_attempt }}
+          PREFIX: vcpkg-ios-
+        run: |
+          caches=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$PREFIX" --limit 100 --json id,key)
+          # Only once the new entry is there, so a save that failed does not leave the group empty.
+          if jq -e --arg key "$KEY" 'any(.key == $key)' <<< "$caches" > /dev/null; then
+            jq -r --arg key "$KEY" '.[] | select(.key != $key) | .id' <<< "$caches" \
+              | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY"
+          else
+            echo "::warning::$KEY is not in the cache list; keeping the older entries"
+          fi
+
+      - name: Build
+        run: cmake --build --preset ios-release --target sonnet_player_app -- CODE_SIGNING_ALLOWED=NO
