@@ -41,4 +41,4 @@ configure_file(
   @ONLY
 )
 
-vcpkg_install_copyright(FILE_LIST "${SONNET_MVK_SOURCE}/MoltenVK/LICENSE")
+vcpkg_install_copyright(FILE_LIST "${SONNET_MVK_SOURCE}/LICENSE")
