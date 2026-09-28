@@ -14,7 +14,7 @@ struct Job;
 }
 
 // A scheduled job. Handles are cheap to copy and outlive the job itself, so one can be waited on
-// after it has finished. A default-constructed handle is not valid and waiting on it returns at once.
+// after it has finished. A default-constructed handle is not valid and waiting on it returns immediately.
 class JobHandle {
 public:
   JobHandle() = default;
