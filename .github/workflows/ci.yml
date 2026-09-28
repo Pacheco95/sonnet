@@ -447,9 +447,8 @@ jobs:
 
       - name: Verify the app bundle
         run: |
-          app=$(find build/ios-release -name sonnet_player.app)
-          echo "app=$app"
-          test -d "$app/Resources/shaders"
-          test -f "$app/Resources/shaders/forward.spv"
-          test -f "$app/Resources/game.sbundle"
+          app=build/ios-release/apps/player/RelWithDebInfo-iphoneos/sonnet_player.app
+          test -f "$app/shaders/forward.spv"
+          test -f "$app/game.sbundle"
           test -f "$app/Info.plist"
+          test -f "$app/sonnet_player"
