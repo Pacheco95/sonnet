@@ -448,6 +448,11 @@ jobs:
       - name: Verify the app bundle
         run: |
           app=build/ios-release/apps/player/RelWithDebInfo-iphoneos/sonnet_player.app
+          echo "--- $app ---"; ls -la "$app" || true
+          echo "--- $app/shaders ---"; ls -la "$app/shaders" 2>&1 || true
+          echo "--- every sonnet_player.app under build/ios-release ---"; find build/ios-release -iname 'sonnet_player.app'
+          echo "--- every game.sbundle under build/ios-release ---"; find build/ios-release -iname 'game.sbundle'
+          echo "--- every *.spv under build/ios-release ---"; find build/ios-release -iname '*.spv'
           test -f "$app/shaders/forward.spv"
           test -f "$app/game.sbundle"
           test -f "$app/Info.plist"
