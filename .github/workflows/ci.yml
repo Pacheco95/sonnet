@@ -365,6 +365,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install macOS packages
+        run: brew install ninja
+
       - name: Set up vcpkg
         run: |
           baseline=$(python3 -c "import json; print(json.load(open('vcpkg.json'))['builtin-baseline'])")
@@ -388,12 +391,25 @@ jobs:
           touch "$RUNNER_TEMP/vcpkg-cache.marker"
           echo "VCPKG_BINARY_SOURCES=clear;files,$RUNNER_TEMP/vcpkg-cache,readwrite" >> "$GITHUB_ENV"
 
-      # ADR-0018, "CI": proves the player compiles and links against MoltenVK on the device SDK.
-      # No CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM is set, so CODE_SIGNING_ALLOWED=NO skips the
-      # codesign build phase instead of failing for want of a team; there is no simulator run,
-      # since the release's iOS archive MoltenVK links has no simulator slice (ports/moltenvk).
+      # Built here, as the Android job builds sonnet_cook for its own host, so the iOS job stays
+      # independent of the desktop matrix. This triplet (arm64-osx) shares the "ios" cache group
+      # with arm64-ios, the same way the Android job's group holds x64-linux and arm64-android.
+      - name: Build the host cook tool
+        run: |
+          cmake --preset macos-release -DSONNET_BUILD_TESTS=OFF
+          cmake --build --preset macos-release --target sonnet_cook_app
+
+      - name: Cook the basic sample for iOS
+        run: build/macos-release/apps/cook/sonnet_cook apps/samples/basic --platform ios --out build/ios-bundle
+
+      # ADR-0018, "CI": proves the player compiles and links against MoltenVK on the device SDK,
+      # with a real cooked bundle so the SONNET_IOS_BUNDLE copy step in cmake/SonnetIOS.cmake runs
+      # too, not just the shaders half of it. No CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM is set, so
+      # CODE_SIGNING_ALLOWED=NO skips the codesign build phase instead of failing for want of a
+      # team; there is no simulator run, since the release's iOS archive MoltenVK links has no
+      # simulator slice (ports/moltenvk).
       - name: Configure
-        run: cmake --preset ios-release
+        run: cmake --preset ios-release -DSONNET_IOS_BUNDLE="$PWD/build/ios-bundle/game.sbundle"
 
       # Saved right after the configure that installs the ports, so a failing build still saves it,
       # and only from main, so pull requests cannot evict main's entries. Pruned to the archives this
@@ -428,3 +444,12 @@ jobs:
 
       - name: Build
         run: cmake --build --preset ios-release --target sonnet_player_app -- CODE_SIGNING_ALLOWED=NO
+
+      - name: Verify the app bundle
+        run: |
+          app=$(find build/ios-release -name sonnet_player.app)
+          echo "app=$app"
+          test -d "$app/Resources/shaders"
+          test -f "$app/Resources/shaders/forward.spv"
+          test -f "$app/Resources/game.sbundle"
+          test -f "$app/Info.plist"

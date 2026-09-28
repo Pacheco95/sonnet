@@ -64,8 +64,13 @@ function(sonnet_add_ios_bundle TARGET)
     list(APPEND copy_commands
       COMMAND ${CMAKE_COMMAND} -E copy_if_different "${bundle}" "${resources_dir}/game.sbundle")
   endif()
+  # No VERBATIM: for the Xcode generator, TARGET_BUNDLE_CONTENT_DIR expands to a path built from
+  # Xcode's own build settings (${EFFECTIVE_PLATFORM_NAME} and friends), meant to be substituted
+  # by the shell when Xcode runs this as a script-phase shell script. VERBATIM escapes the '$' so
+  # that never happens, and the resources are copied next to a directory literally named
+  # "Debug${EFFECTIVE_PLATFORM_NAME}" instead of "Debug-iphoneos" (found by a Mac run of
+  # docs/agent-tasks/m10-mac-checks.md, section 2).
   add_custom_command(TARGET ${TARGET} POST_BUILD
     ${copy_commands}
-    COMMENT "Copying ${name}'s resources into the app bundle$<$<BOOL:${bundle}>: with ${bundle}>"
-    VERBATIM)
+    COMMENT "Copying ${name}'s resources into the app bundle$<$<BOOL:${bundle}>: with ${bundle}>")
 endfunction()
