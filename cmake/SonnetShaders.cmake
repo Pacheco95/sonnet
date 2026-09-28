@@ -34,12 +34,26 @@ set(SONNET_ENGINE_SHADER_DIR "${CMAKE_SOURCE_DIR}/modules/renderer/shaders")
 
 function(sonnet_add_shaders TARGET)
   cmake_parse_arguments(ARG "" "" "SHADERS" ${ARGN})
+  if(IOS)
+    # Not TARGET_FILE_DIR: under the Xcode generator, a custom command's COMMAND arguments never
+    # get its per-platform build setting (${EFFECTIVE_PLATFORM_NAME}) substituted by the
+    # script-phase shell that is supposed to do it, the same bug cmake/SonnetIOS.cmake's
+    # game.sbundle copy hit and fixed the same way (a Mac run of
+    # docs/agent-tasks/m10-mac-checks.md). The only iOS target this ever runs for is the player,
+    # always a bundle (apps/player/CMakeLists.txt), and this project only ever targets the device
+    # SDK (ports/moltenvk ships no simulator slice), so the suffix is always "-iphoneos", built
+    # from pieces CMake resolves on its own instead.
+    get_target_property(bundle_name ${TARGET} OUTPUT_NAME)
+    set(target_dir "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>-iphoneos/${bundle_name}.app")
+  else()
+    set(target_dir "$<TARGET_FILE_DIR:${TARGET}>")
+  endif()
   set(outputs)
   foreach(source IN LISTS ARG_SHADERS)
     get_filename_component(name "${source}" NAME_WE)
     get_filename_component(absolute "${source}" ABSOLUTE)
     get_filename_component(source_dir "${absolute}" DIRECTORY)
-    set(output "$<TARGET_FILE_DIR:${TARGET}>/shaders/${name}.spv")
+    set(output "${target_dir}/shaders/${name}.spv")
     # A stable path for the depfile and the output rule: the generator expression is resolved
     # by the command, the rule itself is keyed on this path under the binary directory.
     set(rule_output "${CMAKE_CURRENT_BINARY_DIR}/shaders/${name}.spv")
@@ -49,7 +63,7 @@ function(sonnet_add_shaders TARGET)
     endif()
     add_custom_command(
       OUTPUT "${rule_output}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:${TARGET}>/shaders"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "${target_dir}/shaders"
       COMMAND "${SLANGC_EXECUTABLE}" "${absolute}"
               -target spirv -profile spirv_1_6 -fvk-use-entrypoint-name -fvk-use-scalar-layout
               -matrix-layout-column-major
