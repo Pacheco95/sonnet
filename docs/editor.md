@@ -123,7 +123,7 @@ To capture instead of looking, see [Screenshots](#screenshots). Right-drag in th
 
 The start scene has the animated models and the sound: a skinned reed that sways and a beacon that turns, humming, which play when you do.
 
-File, Open scene, `scenes/playground.scene.json` is the physics and scripting sample: play it, click into the viewport, and roll the ball with W/A/S/D and Space while a sweeper, an elevator and a spawner run their scripts, the spawner ringing a chime for every crate it drops.
+File, Open scene, `scenes/playground.scene.json` is the physics and scripting sample: play it, click into the viewport, and roll the ball with W/A/S/D and Space while a sweeper, an elevator and a spawner run their scripts, the spawner ringing a chime for every crate it drops, each one a child of the spawner so the hierarchy root stays tidy.
 
 ## Screenshots
 

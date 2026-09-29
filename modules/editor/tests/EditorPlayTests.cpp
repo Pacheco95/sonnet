@@ -178,10 +178,8 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
     REQUIRE(editor.openProject(directory).has_value());
     REQUIRE(editor.openScene(directory / "scenes" / "playground.scene.json").has_value());
     world::World &world = editor.world();
-    const auto crates = [&] {
-      return std::ranges::count_if(
-          world.roots(), [&](flecs::entity root) { return root.get<world::Name>().value == "Physics crate"; });
-    };
+    // The spawner's crates are its children, not new roots.
+    const auto crates = [&] { return world.children(byName(world, "Spawner")).size(); };
     const std::size_t entities = world.roots().size();
     const core::Uuid ball = world.uuidOf(byName(world, "Ball"));
     const core::Uuid top = world.uuidOf(byName(world, "Stacked crate 6"));
@@ -194,6 +192,7 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
     REQUIRE(sink->problems.empty());
     REQUIRE(editor.scripts().instanceCount() == 4);
     REQUIRE(crates() == 2); // one every 1.5 s
+    REQUIRE(world.roots().size() == entities);
     // The ball rests on the floor, and the pyramid's top crate still stands on the others.
     REQUIRE(world.find(ball).get<world::Transform>().position.y < 0.6f);
     REQUIRE(world.find(top).get<world::Transform>().position.y > 2.3f);

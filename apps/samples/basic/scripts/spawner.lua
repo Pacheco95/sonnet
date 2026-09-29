@@ -1,4 +1,5 @@
 -- Drops a physics crate from the spawner every few seconds and keeps the newest few.
+-- The crates are children of the spawner, so the hierarchy root stays as the scene left it.
 local Spawner = {
   interval = 1.5, -- seconds
   limit = 12,
@@ -17,10 +18,11 @@ function Spawner:update(dt)
   end
   self.timer = self.timer - self.interval
 
-  local crate = world.instantiate("Physics crate")
+  local crate = world.instantiate("Physics crate", nil, self.entity)
   local transform = crate:get("Transform")
   local jitter = vec3((math.random() - 0.5) * self.spread, 0, (math.random() - 0.5) * self.spread)
-  transform.position = self.entity:worldPosition() + jitter
+  -- The spawner is unscaled, so its child's local position is the jitter.
+  transform.position = jitter
   transform.rotation = quat.euler(math.random() * math.pi, math.random() * math.pi, 0)
   crate:set("Transform", transform)
   table.insert(self.crates, crate)
