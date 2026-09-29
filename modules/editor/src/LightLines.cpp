@@ -48,9 +48,8 @@ void appendSpotLightLines(std::span<const renderer::Light> lights, std::vector<r
     ring(base, u, v, inner, glm::vec4{light.color * InnerDimming, 1.0f}, lines);
     for (int i = 0; i < SideLines; ++i) {
       const float angle = Tau * static_cast<float>(i) / static_cast<float>(SideLines);
-      lines.push_back({.from = light.position,
-                       .to = base + outer * (std::cos(angle) * u + std::sin(angle) * v),
-                       .color = color});
+      lines.push_back(
+          {.from = light.position, .to = base + outer * (std::cos(angle) * u + std::sin(angle) * v), .color = color});
     }
   }
 }
