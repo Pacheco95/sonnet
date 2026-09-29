@@ -70,7 +70,7 @@ TEST_CASE("the light list holds the point and spot lights placed by their transf
   point.set<world::PointLight>({.color = {1.0f, 0.5f, 0.0f}, .intensity = 6.0f, .range = 4.0f});
   point.set<world::Transform>({.position = {1.0f, 2.0f, 3.0f}});
   const flecs::entity spot = world.createEntity("Spot");
-  spot.set<world::SpotLight>({.range = 8.0f, .innerAngle = 0.2f, .outerAngle = 0.4f});
+  spot.set<world::SpotLight>({.range = 8.0f, .innerAngle = 0.2f, .outerAngle = 0.4f, .castsShadows = true});
   // Pitched down 90 degrees: -Z turns into -Y.
   spot.set<world::Transform>({.rotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3{1.0f, 0.0f, 0.0f})});
   const flecs::entity off = world.createEntity("Off");
@@ -89,6 +89,8 @@ TEST_CASE("the light list holds the point and spot lights placed by their transf
   REQUIRE(spotLight != lights.end());
   REQUIRE(spotLight->direction.y == Approx(-1.0f).margin(1e-5f));
   REQUIRE(spotLight->outerAngle == Approx(0.4f));
+  REQUIRE(spotLight->castsShadows);
+  REQUIRE(!pointLight->castsShadows);
 }
 
 TEST_CASE("the scene light and camera come from their entities' transforms", "[world][drawlist]") {
