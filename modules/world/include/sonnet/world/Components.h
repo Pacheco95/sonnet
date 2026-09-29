@@ -19,6 +19,12 @@ struct Identity {
   core::Uuid uuid;
 };
 
+// Position among the siblings, from a counter in World: creation order, so a scene loaded in
+// file order lists in file order however flecs recycles entity ids. Not serialized.
+struct SiblingOrder {
+  std::uint64_t value = 0;
+};
+
 struct Name {
   std::string value;
 };

@@ -30,6 +30,7 @@ void adoptInstantiatedChildren(World &world, flecs::entity node) {
     if (!child.has<Identity>()) {
       child.set<Identity>({core::Uuid::generate()});
     }
+    world.assignOrder(child);
     child.add<WorldTransform>();
     adoptInstantiatedChildren(world, child);
   }
@@ -134,6 +135,7 @@ void World::registerComponents() {
   // instance's children show until renamed.
   m_world.component<Identity>("Identity").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<WorldTransform>("WorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
+  m_world.component<SiblingOrder>("SiblingOrder").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<Name>("Name").add(flecs::OnInstantiate, flecs::Inherit);
 
   // Asset references serialize as their canonical string; an unparsable string is nil.
@@ -219,11 +221,29 @@ flecs::entity World::createEntity(std::string_view name, flecs::entity parent, c
   entity.set<Name>({std::string{name}});
   entity.add<Transform>();
   entity.add<WorldTransform>();
+  assignOrder(entity);
   if (parent) {
     entity.child_of(parent);
   }
   return entity;
 }
+
+void World::assignOrder(flecs::entity entity) {
+  entity.set<SiblingOrder>({m_nextSiblingOrder++});
+}
+
+namespace {
+
+// Creation order first; the id only breaks ties (prefab children not yet adopted have no order).
+bool siblingBefore(flecs::entity a, flecs::entity b) {
+  const SiblingOrder *orderA = a.try_get<SiblingOrder>();
+  const SiblingOrder *orderB = b.try_get<SiblingOrder>();
+  const std::uint64_t valueA = orderA != nullptr ? orderA->value : 0;
+  const std::uint64_t valueB = orderB != nullptr ? orderB->value : 0;
+  return valueA != valueB ? valueA < valueB : World::pickId(a) < World::pickId(b);
+}
+
+} // namespace
 
 void World::destroyEntity(flecs::entity entity) {
   if (entity && entity.is_alive()) {
@@ -253,15 +273,15 @@ std::vector<flecs::entity> World::roots() const {
       .without(flecs::ChildOf, flecs::Wildcard)
       .build()
       .each([&](flecs::entity entity, const Identity &) { result.push_back(entity); });
-  // Table order is not creation order; ids nearly are, and a stable order is what a panel needs.
-  std::ranges::sort(result, [](flecs::entity a, flecs::entity b) { return pickId(a) < pickId(b); });
+  // Table order is not creation order, and ids are recycled: a stable order is what a panel needs.
+  std::ranges::sort(result, siblingBefore);
   return result;
 }
 
 std::vector<flecs::entity> World::children(flecs::entity entity) const {
   std::vector<flecs::entity> result;
   entity.children([&](flecs::entity child) { result.push_back(child); });
-  std::ranges::sort(result, [](flecs::entity a, flecs::entity b) { return pickId(a) < pickId(b); });
+  std::ranges::sort(result, siblingBefore);
   return result;
 }
 
@@ -362,6 +382,7 @@ flecs::entity World::instantiate(flecs::entity prefab, std::string_view name, fl
   const Transform *transform = prefab.try_get<Transform>();
   entity.set<Transform>(transform != nullptr ? *transform : Transform{});
   entity.add<WorldTransform>();
+  assignOrder(entity);
   if (parent) {
     entity.child_of(parent);
   }

@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 using namespace sonnet;
 using Catch::Approx;
@@ -216,4 +217,34 @@ TEST_CASE("a model becomes a prefab with its node hierarchy and meshes", "[world
   const nlohmann::json scene = world::saveScene(world);
   REQUIRE(scene["entities"].size() == 1);
   REQUIRE(scene["entities"][0]["prefab"] == modelUuid.toString());
+}
+
+TEST_CASE("siblings keep their order through repeated save and load", "[world][scene]") {
+  world::World world;
+  std::vector<std::string> names;
+  for (int i = 0; i < 12; ++i) {
+    names.push_back("Root " + std::to_string(i));
+    const flecs::entity root = world.createEntity(names.back());
+    world.createEntity("A", root);
+    world.createEntity("B", root);
+  }
+  const auto rootNames = [&] {
+    std::vector<std::string> result;
+    for (const flecs::entity root : world.roots()) {
+      result.push_back(root.get<world::Name>().value);
+    }
+    return result;
+  };
+  for (int round = 0; round < 3; ++round) {
+    const nlohmann::json scene = world::saveScene(world);
+    for (const flecs::entity root : world.roots()) {
+      world.destroyEntity(root); // frees the ids in an order flecs is free to reuse
+    }
+    REQUIRE(world::loadScene(world, scene));
+    REQUIRE(rootNames() == names);
+    const std::vector<flecs::entity> kids = world.children(world.roots().front());
+    REQUIRE(kids.size() == 2);
+    REQUIRE(kids[0].get<world::Name>().value == "A");
+    REQUIRE(kids[1].get<world::Name>().value == "B");
+  }
 }
