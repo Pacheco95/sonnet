@@ -73,6 +73,7 @@ void buildLightList(const World &world, std::vector<renderer::Light> &lights) {
         .direction = glm::normalize(glm::mat3{transform.matrix} * glm::vec3{0.0f, 0.0f, -1.0f}),
         .innerAngle = light.innerAngle,
         .outerAngle = light.outerAngle,
+        .castsShadows = light.castsShadows,
     });
   });
 }

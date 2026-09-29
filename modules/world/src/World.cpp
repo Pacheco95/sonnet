@@ -170,7 +170,8 @@ void World::registerComponents() {
       .member<float>("intensity")
       .member<float>("range")
       .member<float, Radians>("innerAngle")
-      .member<float, Radians>("outerAngle");
+      .member<float, Radians>("outerAngle")
+      .member<bool>("castsShadows");
   registerComponent<Environment>("Environment");
   m_world.component<Environment>().member<core::Uuid>("map").member<float>("intensity").member<float>("exposure");
   registerComponent<SkinnedMesh>("SkinnedMesh").member<core::Uuid>("skin");
