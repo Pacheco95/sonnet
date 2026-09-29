@@ -4,10 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   lint:
     name: Lint
+    # A draft pull request skips every job: the others wait for lint. Marking it ready runs them.
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
