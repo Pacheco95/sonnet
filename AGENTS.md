@@ -95,3 +95,14 @@ Full rules are in `docs/conventions.md`; these are the ones that differ from com
 - No compatibility shims, feature flags or future-proofing ahead of need. Third-party code is never edited in place; patches go through vcpkg overlay ports. vcpkg first, `FetchContent` only for libraries without a port, never both for one library.
 - Two naming rules differ from common habit: `m_` applies only to members of classes with behaviour, plain data structs have no prefix; and implementations are named after their technology (`SdlWindow`, `VulkanDevice`) behind an `I`-prefixed interface.
 - Every module has `tests/` built through `sonnet_add_module_test`; a bug fix comes with the test that would have caught it.
+
+## The issue backlog
+
+Open issues are ranked on the private GitHub project "Sonnet Issue Prioritization" (project 1 of the repository owner). Each card carries a Priority Tier (Quick Win, Medium Fit, Deferred), an Effort in hours (the rounded midpoint of the estimated range) and a Target Release. Read it before choosing what to work on next:
+
+```sh
+gh project item-list 1 --owner Pacheco95 --limit 100 --format json   # needs `gh auth refresh -s project,read:project`
+gh issue list --state open                                           # the issues alone, without the ranking
+```
+
+The board is private, so an agent without the owner's `gh` login sees only the issues. Hard blockers are GitHub "blocked by" links on the issue (`gh api repos/Pacheco95/sonnet/issues/N/dependencies/blocked_by`); soft relations are comments. The `/sonnet-issues` skill (`.claude/skills/sonnet-issues`) re-ranks the backlog and updates the board after the owner approves.

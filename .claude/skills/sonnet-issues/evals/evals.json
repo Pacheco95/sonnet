@@ -1,0 +1,26 @@
+{
+  "skill_name": "sonnet-issues",
+  "evals": [
+    {
+      "id": 1,
+      "name": "prioritize-all-open-issues",
+      "prompt": "Analyze and prioritize all open issues in the sonnet GitHub repo. Use the skill to fetch issues, understand our current engine status from AGENTS.md and CLAUDE.md, and produce a prioritized report. Separate issues into: Quick Wins (high UX impact, low code change), Medium Fit (align with current/next milestone), and Deferred (blocked by future work or architectural constraints). Don't post comments yet—just show me the report so I can review it.",
+      "expected_output": "A markdown report with issues grouped into three priority tiers, each with impact/effort/blocker analysis and reasoning",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "quick-win-identification",
+      "prompt": "Focus on finding quick wins in the open issues. What are the highest-impact, lowest-effort issues we can tackle to improve user experience without major engine changes? List them with specific reasoning about why they're quick wins.",
+      "expected_output": "A filtered list of issues in Priority 1 (Quick Wins) with clear impact and effort justification",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "roadmap-mismatch-detection",
+      "prompt": "Identify which open issues don't fit our current roadmap. For each misaligned issue, explain why (blocked by future milestone, architectural mismatch, out-of-scope) and draft a GitHub comment that would help the issue author understand where this fits in our plans.",
+      "expected_output": "Issues in Priority 3 with reasons and suggested comment text for each one",
+      "files": []
+    }
+  ]
+}
