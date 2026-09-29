@@ -147,9 +147,9 @@ void Editor::update(float dt) {
     m_assetBrowserPanel.draw(m_showAssets);
   }
   if (m_showViewport) {
-    const bool wantsRelativeMouse =
-        m_viewportPanel.draw(m_showViewport, dt, m_lookDelta, m_showOverlay ? &m_statisticsPanel : nullptr,
-                             [this](const ViewportInput &input) { drawViewportOverlay(input); });
+    const bool wantsRelativeMouse = m_viewportPanel.draw(
+        m_showViewport, dt, m_lookDelta, m_showOverlay ? &m_statisticsPanel : nullptr,
+        [this](const ViewportInput &input) { drawViewportOverlay(input); }, [this] { drawTabBar(); });
     // Requested on change, not by comparing with the window's state: a platform that refuses the
     // mode would otherwise be asked, and would warn, every frame.
     if (wantsRelativeMouse != m_relativeMouseRequested) {
@@ -303,6 +303,9 @@ void Editor::handleShortcuts() {
       SONNET_LOG_ERROR("{}", saved.error().toString());
     }
   }
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W)) {
+    requestCloseTab(m_activeTab);
+  }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_P)) {
     isPlaying() ? stop() : play();
   }
@@ -378,6 +381,9 @@ void Editor::drawMenuBar() {
     }
     if (ImGui::MenuItem("Save scene as...")) {
       m_modal = Modal::SaveSceneAs;
+    }
+    if (ImGui::MenuItem("Close scene", "Ctrl+W")) {
+      requestCloseTab(m_activeTab);
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Export...", nullptr, false, m_project.has_value())) {
@@ -500,6 +506,11 @@ void Editor::drawModal() {
   if (!ImGui::BeginPopupModal(ModalId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     return;
   }
+  if (m_modal == Modal::CloseTab) {
+    drawCloseTabModal();
+    ImGui::EndPopup();
+    return;
+  }
   const char *title = m_modal == Modal::NewProject    ? "Create a project folder"
                       : m_modal == Modal::OpenProject ? "Open a project folder"
                       : m_modal == Modal::Export      ? "Export the project"
@@ -589,6 +600,7 @@ void Editor::drawModal() {
       }
       break;
     }
+    case Modal::CloseTab:
     case Modal::None:
       break;
     }
@@ -743,6 +755,8 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
     SONNET_LOG_WARN("{}", saved.error().toString());
   }
+  // The project's scenes replace the previous project's: its tabs go, unsaved changes with them.
+  m_tabs.clear();
   m_world.clearScene();
   m_world.clearPrefabs();
   m_assets.open(m_project->root, m_project->assetRoots);
@@ -780,26 +794,210 @@ void Editor::loadPrefabs() {
   }
 }
 
-core::Result<void> Editor::loadSceneFile(const std::filesystem::path &file) {
+void Editor::addTab() {
+  m_tabs.push_back(SceneTab{.id = m_nextTabId++});
+  m_activeTab = m_tabs.size() - 1;
+  m_selectActiveTab = true;
+}
+
+void Editor::stashActiveTab() {
+  if (m_tabs.empty()) {
+    return;
+  }
+  // The running scene is not the edited one: stopping puts the snapshot back before it is saved.
   if (isPlaying()) {
     stop();
   }
+  SceneTab &tab = m_tabs[m_activeTab];
+  tab.content = world::saveScene(m_world);
+  tab.path = m_scenePath;
+  tab.commands = std::move(m_commands);
+  tab.selection = std::move(m_selection);
+  tab.savedRevision = m_savedRevision;
+  m_commands = CommandStack{};
+  m_selection = Selection{};
+}
+
+void Editor::restoreTab(std::size_t index) {
+  SceneTab &tab = m_tabs[index];
   m_world.clearScene();
-  m_selection.clear();
-  m_commands.clear();
-  const auto loaded = world::loadSceneFile(m_world, file);
-  if (!loaded) {
-    return std::unexpected(loaded.error());
+  if (const auto restored = world::loadScene(m_world, tab.content); !restored) {
+    SONNET_LOG_ERROR("{}: {}", tabTitle(index), restored.error().toString());
   }
-  return {};
+  m_commands = std::move(tab.commands);
+  m_selection = std::move(tab.selection);
+  m_savedRevision = tab.savedRevision;
+  m_scenePath = tab.path;
+  m_activeTab = index;
+  m_selectActiveTab = true;
+  tab.content = nlohmann::json{};
+  tab.commands = CommandStack{};
+  tab.selection = Selection{};
+  m_selection.prune(m_world);
+}
+
+std::string Editor::tabTitle(std::size_t index) const {
+  const std::filesystem::path &path = index == m_activeTab ? m_scenePath : m_tabs.at(index).path;
+  return path.empty() ? std::string{"untitled"} : path.filename().string();
+}
+
+bool Editor::tabDirty(std::size_t index) const {
+  if (index == m_activeTab) {
+    return isDirty();
+  }
+  const SceneTab &tab = m_tabs.at(index);
+  return tab.commands.revision() != tab.savedRevision;
+}
+
+void Editor::switchToTab(std::size_t index) {
+  if (index >= m_tabs.size() || index == m_activeTab) {
+    return;
+  }
+  stashActiveTab();
+  restoreTab(index);
+}
+
+void Editor::closeTab(std::size_t index) {
+  if (index >= m_tabs.size()) {
+    return;
+  }
+  if (m_tabs.size() == 1) {
+    // There is always a scene: closing the last one leaves a fresh starter scene.
+    m_tabs.clear();
+    newScene();
+    return;
+  }
+  if (index == m_activeTab) {
+    if (isPlaying()) {
+      stop();
+    }
+    m_tabs.erase(m_tabs.begin() + static_cast<std::ptrdiff_t>(index));
+    restoreTab(std::min(index, m_tabs.size() - 1));
+    return;
+  }
+  m_tabs.erase(m_tabs.begin() + static_cast<std::ptrdiff_t>(index));
+  if (index < m_activeTab) {
+    --m_activeTab;
+  }
+}
+
+void Editor::requestCloseTab(std::size_t index) {
+  if (index >= m_tabs.size()) {
+    return;
+  }
+  if (!tabDirty(index)) {
+    closeTab(index);
+    return;
+  }
+  // The scene being asked about is shown while the dialog asks.
+  switchToTab(index);
+  m_closingTab = index;
+  m_modal = Modal::CloseTab;
+}
+
+void Editor::drawTabBar() {
+  if (!ImGui::BeginTabBar("SceneTabs", ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_TabListPopupButton)) {
+    return;
+  }
+  std::optional<std::size_t> select;
+  std::optional<std::size_t> close;
+  bool add = false;
+  // While the bar is being told which tab is selected, what it reports is last frame's.
+  const bool following = m_selectActiveTab;
+  for (std::size_t index = 0; index < m_tabs.size(); ++index) {
+    const std::string label = std::format("{}###scene{}", tabTitle(index), m_tabs[index].id);
+    ImGuiTabItemFlags flags = tabDirty(index) ? ImGuiTabItemFlags_UnsavedDocument : ImGuiTabItemFlags_None;
+    if (index == m_activeTab && m_selectActiveTab) {
+      flags |= ImGuiTabItemFlags_SetSelected;
+    }
+    bool open = true;
+    if (ImGui::BeginTabItem(label.c_str(), &open, flags)) {
+      // A tab the bar shows that the editor does not is one the user clicked.
+      if (index != m_activeTab && !following) {
+        select = index;
+      }
+      ImGui::EndTabItem();
+    }
+    if (!open) {
+      close = index;
+    }
+  }
+  if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip)) {
+    add = true;
+  }
+  ImGui::EndTabBar();
+  m_selectActiveTab = false;
+  // Changed after the bar is built: the tabs it iterates are not touched while it is.
+  if (close) {
+    requestCloseTab(*close);
+  } else if (add) {
+    newScene();
+  } else if (select) {
+    switchToTab(*select);
+  }
+}
+
+void Editor::drawCloseTabModal() {
+  const std::string name = tabTitle(m_closingTab);
+  ImGui::Text("%s has unsaved changes.", name.c_str());
+  const bool canSave = !m_scenePath.empty();
+  if (!canSave) {
+    ImGui::TextUnformatted("It has no file yet: cancel and use Save scene as first.");
+  }
+  ImGui::BeginDisabled(!canSave);
+  const bool save = ImGui::Button("Save", ImVec2{120.0f, 0.0f});
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  const bool discard = ImGui::Button("Discard", ImVec2{120.0f, 0.0f});
+  ImGui::SameLine();
+  const bool cancel = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  if (save) {
+    if (const auto saved = saveScene(); !saved) {
+      m_modalError = saved.error().message;
+      return;
+    }
+  }
+  if (save || discard) {
+    m_modal = Modal::None;
+    ImGui::CloseCurrentPopup();
+    closeTab(m_closingTab);
+  } else if (cancel) {
+    m_modal = Modal::None;
+    ImGui::CloseCurrentPopup();
+  }
+  if (!m_modalError.empty()) {
+    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+  }
 }
 
 core::Result<void> Editor::openScene(const std::filesystem::path &file) {
-  if (const auto loaded = loadSceneFile(file); !loaded) {
-    newScene();
-    return loaded;
+  const std::filesystem::path path = std::filesystem::absolute(file).lexically_normal();
+  for (std::size_t index = 0; index < m_tabs.size(); ++index) {
+    const std::filesystem::path &open = index == m_activeTab ? m_scenePath : m_tabs[index].path;
+    if (open == path) {
+      switchToTab(index);
+      return {};
+    }
   }
-  m_scenePath = std::filesystem::absolute(file).lexically_normal();
+  if (isPlaying()) {
+    stop();
+  }
+  const bool hadTabs = !m_tabs.empty();
+  stashActiveTab();
+  m_world.clearScene();
+  m_selection.clear();
+  m_commands = CommandStack{};
+  if (const auto loaded = world::loadSceneFile(m_world, file); !loaded) {
+    // The tab the user was in comes back; with none open, a starter scene stands in.
+    if (hadTabs) {
+      restoreTab(m_activeTab);
+    } else {
+      newScene();
+    }
+    return std::unexpected(loaded.error());
+  }
+  addTab();
+  m_scenePath = path;
   markSaved();
   return {};
 }
@@ -840,12 +1038,14 @@ void Editor::newScene() {
   if (isPlaying()) {
     stop();
   }
+  stashActiveTab();
   m_world.clearScene();
   m_selection.clear();
-  m_commands.clear();
+  m_commands = CommandStack{};
   if (const auto loaded = world::loadScene(m_world, starterScene()); !loaded) {
     SONNET_LOG_ERROR("starter scene: {}", loaded.error().toString());
   }
+  addTab();
   m_scenePath.clear();
   markSaved();
 }

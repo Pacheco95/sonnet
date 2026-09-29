@@ -186,7 +186,7 @@ What M8 left behind, with what each would take, is in [Known gaps](#known-gaps):
 
 ## Before M9
 
-Five issues were queued before M9. [#27](https://github.com/Pacheco95/sonnet/issues/27), [#14](https://github.com/Pacheco95/sonnet/issues/14), [#11](https://github.com/Pacheco95/sonnet/issues/11) and [#13](https://github.com/Pacheco95/sonnet/issues/13) are implemented below. [#29](https://github.com/Pacheco95/sonnet/issues/29) is implemented and checked on Intel, Lavapipe, the RTX 2050, the RTX 4090 and an Apple M4 Max through MoltenVK. Each issue has its own branch and pull request. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)), planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
+Five issues were queued before M9. [#27](https://github.com/Pacheco95/sonnet/issues/27), [#14](https://github.com/Pacheco95/sonnet/issues/14), [#11](https://github.com/Pacheco95/sonnet/issues/11) and [#13](https://github.com/Pacheco95/sonnet/issues/13) are implemented below. [#29](https://github.com/Pacheco95/sonnet/issues/29) is implemented and checked on Intel, Lavapipe, the RTX 2050, the RTX 4090 and an Apple M4 Max through MoltenVK. Each issue has its own branch and pull request. Scene tabs ([#12](https://github.com/Pacheco95/sonnet/issues/12)) landed after M10. Planar translate handles ([#15](https://github.com/Pacheco95/sonnet/issues/15)) and snapping ([#16](https://github.com/Pacheco95/sonnet/issues/16)) are features and wait until after M9.
 
 ### 1. Linux binaries load vcpkg's Vulkan loader ([#27](https://github.com/Pacheco95/sonnet/issues/27))
 
