@@ -14,6 +14,7 @@ sonnet_add_module(editor
     src/Gizmo.cpp
     src/HierarchyPanel.cpp
     src/InspectorPanel.cpp
+    src/LightLines.cpp
     src/LogPanel.cpp
     src/Preferences.cpp
     src/Project.cpp
@@ -40,6 +41,7 @@ sonnet_add_module_test(editor
     tests/GizmoTests.cpp
     tests/HierarchyPanelTests.cpp
     tests/InspectorTests.cpp
+    tests/LightLinesTests.cpp
     tests/LogPanelTests.cpp
     tests/ProjectTests.cpp
     tests/ShaderTests.cpp

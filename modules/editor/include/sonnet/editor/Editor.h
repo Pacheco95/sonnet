@@ -150,6 +150,10 @@ public:
   void setShowColliders(bool show) noexcept {
     m_showColliders = show;
   }
+  // Wireframe cones for the spot lights in edit mode, from the View menu.
+  void setShowLightGizmos(bool show) noexcept {
+    m_showLightGizmos = show;
+  }
   // The term of the forward shading the viewport shows, from View > Shading term.
   void setShadingTerm(renderer::DebugView view);
 
@@ -331,6 +335,7 @@ private:
   bool m_showStatistics{true};
   bool m_showOverlay{true};
   bool m_showColliders{false};
+  bool m_showLightGizmos{false};
   bool m_gameInputWasActive{false};
   glm::vec2 m_mainViewportOrigin{0.0f, 0.0f};
   bool m_quitRequested{false};

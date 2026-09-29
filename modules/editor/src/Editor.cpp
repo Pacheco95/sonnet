@@ -1,6 +1,7 @@
 #include <sonnet/editor/Editor.h>
 
 #include <sonnet/editor/EntityCommands.h>
+#include <sonnet/editor/LightLines.h>
 
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
@@ -245,6 +246,9 @@ void Editor::update(float dt) {
   m_debugLines.clear();
   if (m_showColliders) {
     m_physics->debugLines(m_debugLines);
+  }
+  if (m_showLightGizmos && !m_world.isPlaying()) {
+    appendSpotLightLines(m_lights, m_debugLines);
   }
   m_view.debugLines = m_debugLines;
   // The selection and everything under it: selecting a parent outlines its whole subtree.
@@ -491,6 +495,7 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
     ImGui::MenuItem("Statistics overlay", nullptr, &m_showOverlay);
     ImGui::MenuItem("Physics colliders", nullptr, &m_showColliders);
+    ImGui::MenuItem("Light gizmos", nullptr, &m_showLightGizmos);
     ImGui::Separator();
     if (ImGui::MenuItem("Reset layout")) {
       resetLayout();
