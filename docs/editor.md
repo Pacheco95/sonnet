@@ -25,7 +25,7 @@ Per frame, in this order:
 |---|---|
 | `Editor.h` | `Editor`: the world being edited with its physics world, script runtime, animation systems and audio device, the panels, the undo history, play mode and the project; `nativeEvent`, `event`, `update`, `render`, `afterPresent` in that order per frame |
 | `ViewportPanel.h` | The dockable scene view: a `renderer::RenderTarget` sized to the panel, displayed with `ImGui::Image`, the fly camera while the right mouse button is held over it, and `ViewportInput`, what the mouse did over the image this frame, for the gizmo and picking |
-| `FlyCamera.h` | Mouse look, W/A/S/D on the camera's plane, Q/E along the world's up, Shift for four times the speed, the wheel to scale it |
+| `FlyCamera.h` | Mouse look, W/A/S/D on the camera's plane, Q/E along the world's up, Shift for four times the speed, the wheel to scale it, `dolly` for the wheel's step with the right button up |
 | `HierarchyPanel.h` | The scene tree with selection, drag-and-drop reparenting, Expand all and Collapse all for a subtree or the whole tree, a drop target for models from the asset browser, and the context menu that focuses, creates, duplicates and deletes |
 | `InspectorPanel.h` | The primary selection's name and components, with widgets generated from reflection; with nothing selected, the asset the browser inspects |
 | `AssetBrowserPanel.h` | The project's assets by type and name, drag sources for the inspector's pickers and the hierarchy, and the buttons that create a material or a script |
@@ -121,7 +121,7 @@ Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "edit
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic
 ```
 
-To capture instead of looking, see [Screenshots](#screenshots). Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+W to close the scene tab, Ctrl+P to play and stop. The View menu toggles the panels, the overlay and the collider outlines, and View > Shading term shows one term of the forward shading instead of the final image (docs/rendering.md, "Debugging"), Tools reloads the shaders; Ctrl+Q quits.
+To capture instead of looking, see [Screenshots](#screenshots). Right-drag in the viewport to look around, W/A/S/D/Q/E to move, Shift to go faster, the wheel to change the speed. With the right button up the wheel over the viewport moves the camera forward (up) or back (down) by a tenth of the distance to the last focused object (a fifth of the fly speed before any focus), four times that with Shift; playing with the viewport focused leaves the wheel to the game. Left-click to select, W/E/R for the gizmo mode, F to focus, Delete, Ctrl+D, Ctrl+Z and Ctrl+Y as usual, Ctrl+S to save, Ctrl+W to close the scene tab, Ctrl+P to play and stop. The View menu toggles the panels, the overlay and the collider outlines, and View > Shading term shows one term of the forward shading instead of the final image (docs/rendering.md, "Debugging"), Tools reloads the shaders; Ctrl+Q quits.
 
 The start scene has the animated models and the sound: a skinned reed that sways and a beacon that turns, humming, which play when you do.
 

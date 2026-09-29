@@ -172,6 +172,7 @@ void Editor::update(float dt) {
     m_assetBrowserPanel.draw(m_showAssets);
   }
   if (m_showViewport) {
+    m_viewportPanel.setWheelForGame(gameInputActive());
     const bool wantsRelativeMouse = m_viewportPanel.draw(
         m_showViewport, dt, m_lookDelta, m_showOverlay ? &m_statisticsPanel : nullptr,
         [this](const ViewportInput &input) { drawViewportOverlay(input); }, [this] { drawTabBar(); });

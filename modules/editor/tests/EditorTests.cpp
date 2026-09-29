@@ -391,6 +391,48 @@ TEST_CASE("focusing frames the meshes under the selection by their bounds", "[ed
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("the wheel over the viewport dollies the camera unless the right button or the game has it",
+          "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    for (int i = 0; i < 4; ++i) {
+      fixture.frame(editor);
+    }
+    ImGuiIO &io = ImGui::GetIO();
+    const editor::ViewportInput &input = editor.viewport().input();
+    REQUIRE(input.visible);
+    editor.viewport().camera().lookAt({0.0f, 0.0f, 10.0f}, {0.0f, 0.0f, 0.0f});
+    // Hover a point in the image, away from the gizmo and the overlay.
+    io.AddMousePosEvent(input.origin.x + input.size.x * 0.9f, input.origin.y + input.size.y * 0.9f);
+    fixture.frame(editor);
+    REQUIRE(input.hovered);
+    const auto z = [&] { return editor.viewport().camera().camera().position.z; };
+
+    io.AddMouseWheelEvent(0.0f, -1.0f);
+    fixture.frame(editor);
+    REQUIRE(z() > 10.0f); // scrolling down moves back
+    io.AddMouseWheelEvent(0.0f, 1.0f);
+    fixture.frame(editor);
+    REQUIRE(z() == Approx(10.0f)); // and up moves forward again by the same step
+
+    // Playing with the viewport focused: the wheel is the game's.
+    editor.viewport().camera().lookAt({0.0f, 0.0f, 10.0f}, {0.0f, 0.0f, 0.0f});
+    editor.play();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true); // clicking into the viewport focuses it
+    fixture.frame(editor);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE(editor.viewport().input().focused);
+    io.AddMouseWheelEvent(0.0f, 1.0f);
+    fixture.frame(editor);
+    REQUIRE(z() == Approx(10.0f));
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 // Each member of a component is a two-column table: the name at 90 px, then the widget told to
 // fill the rest. On the first frame after a selection the value column used to fall to ImGui's
 // minimum width, so every field drew as a sliver, and grew back over the next frames.

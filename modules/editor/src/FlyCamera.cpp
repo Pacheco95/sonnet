@@ -10,6 +10,8 @@ namespace {
 constexpr glm::vec3 WorldUp{0.0f, 1.0f, 0.0f};
 constexpr float PitchLimit = glm::radians(89.0f);
 constexpr float FastMultiplier = 4.0f;
+constexpr float DollyFraction = 0.1f;
+constexpr float MinDollyStep = 0.05f;
 
 } // namespace
 
@@ -57,6 +59,12 @@ void FlyCamera::lookAt(glm::vec3 position, glm::vec3 target) {
 
 void FlyCamera::scaleSpeed(float factor) {
   m_speed = std::clamp(m_speed * factor, 0.1f, 200.0f);
+}
+
+void FlyCamera::dolly(float notches, float referenceDistance, bool fast) {
+  const float step =
+      referenceDistance > 0.0f ? std::max(referenceDistance * DollyFraction, MinDollyStep) : m_speed * 0.2f;
+  m_camera.position += m_camera.forward() * (notches * step * (fast ? FastMultiplier : 1.0f));
 }
 
 void FlyCamera::applyOrientation() {

@@ -69,3 +69,22 @@ TEST_CASE("speed scaling is clamped", "[editor][camera]") {
   camera.scaleSpeed(0.0001f);
   REQUIRE(camera.speed() == Approx(0.1f));
 }
+
+TEST_CASE("dolly moves along the view by a fraction of the distance", "[editor][camera]") {
+  FlyCamera camera;
+  camera.lookAt({0.0f, 0.0f, 10.0f}, {0.0f, 0.0f, 0.0f});
+  camera.dolly(1.0f, 10.0f, false); // a tenth of the distance, forward
+  requireClose(camera.camera().position, {0.0f, 0.0f, 9.0f});
+  camera.dolly(-2.0f, 10.0f, false); // back, two notches
+  requireClose(camera.camera().position, {0.0f, 0.0f, 11.0f});
+  camera.dolly(1.0f, 10.0f, true); // Shift is four times as far
+  requireClose(camera.camera().position, {0.0f, 0.0f, 7.0f});
+
+  camera.lookAt({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f});
+  camera.dolly(1.0f, 0.1f, false); // a close-up still moves a little
+  requireClose(camera.camera().position, {0.0f, 0.0f, -0.05f});
+
+  camera.lookAt({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f});
+  camera.dolly(1.0f, 0.0f, false); // without a reference the step follows the fly speed
+  requireClose(camera.camera().position, {0.0f, 0.0f, -0.2f * camera.speed()});
+}

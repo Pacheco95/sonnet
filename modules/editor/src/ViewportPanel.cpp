@@ -37,7 +37,9 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
                          const std::function<void()> &header) {
   m_input = {};
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0.0f, 0.0f});
-  const bool visible = ImGui::Begin("Viewport", &open);
+  // The image fills the window, so the wheel must not scroll it: it dollies the camera.
+  const bool visible =
+      ImGui::Begin("Viewport", &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
   ImGui::PopStyleVar();
   if (!visible) {
     ImGui::End();
@@ -80,8 +82,12 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
   if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
     m_cameraActive = false;
   }
+  const float wheel = ImGui::GetIO().MouseWheel;
+  if (!m_cameraActive && hovered && !m_wheelForGame && wheel != 0.0f) {
+    const float distance = m_hasFocusTarget ? glm::length(m_focusTarget - m_camera.camera().position) : 0.0f;
+    m_camera.dolly(wheel, distance, ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift));
+  }
   if (m_cameraActive) {
-    const float wheel = ImGui::GetIO().MouseWheel;
     if (wheel != 0.0f) {
       m_camera.scaleSpeed(std::pow(1.2f, wheel));
     }
@@ -114,6 +120,8 @@ void ViewportPanel::focus(glm::vec3 target, float radius) {
   const float pitch = std::min(m_camera.pitch(), MinFocusPitch);
   const glm::vec3 forward{-std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch)};
   m_camera.lookAt(target - forward * distance, target);
+  m_focusTarget = target;
+  m_hasFocusTarget = true;
 }
 
 glm::uvec2 ViewportPanel::targetPixel(glm::vec2 screen) const {
