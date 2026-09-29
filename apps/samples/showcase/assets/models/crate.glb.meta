@@ -1,0 +1,49 @@
+{
+  "settings": {},
+  "sourceHash": "f8b9386264f68488",
+  "subAssets": [
+    {
+      "materials": [],
+      "name": "Brass",
+      "type": "Material",
+      "uuid": "0a8b4604-fbbe-8a62-8d90-e68d13482a0c"
+    },
+    {
+      "materials": [],
+      "name": "image 0",
+      "type": "Texture",
+      "uuid": "4fa611e5-7d75-8aa0-9691-34edf2eb631e"
+    },
+    {
+      "materials": [
+        "bd8c4604-fbbf-8a62-9a8f-e68d13472a0c"
+      ],
+      "name": "CrateMesh",
+      "type": "Mesh",
+      "uuid": "91eaee5e-2f53-8a0a-ae64-d3657aaa8174"
+    },
+    {
+      "materials": [],
+      "name": "image 1",
+      "type": "Texture",
+      "uuid": "9ca411e5-7d74-8aa0-8992-34edf2ec631e"
+    },
+    {
+      "materials": [],
+      "name": "Planks",
+      "type": "Material",
+      "uuid": "bd8c4604-fbbf-8a62-9a8f-e68d13472a0c"
+    },
+    {
+      "materials": [
+        "0a8b4604-fbbe-8a62-8d90-e68d13482a0c"
+      ],
+      "name": "BallMesh",
+      "type": "Mesh",
+      "uuid": "dee8ee5e-2f52-8a0a-a165-d3657aab8174"
+    }
+  ],
+  "type": "Model",
+  "uuid": "32ddf52c-e9dc-4ec4-bbac-404f801dc84a",
+  "version": 2
+}

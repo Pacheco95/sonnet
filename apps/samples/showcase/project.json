@@ -1,0 +1,9 @@
+{
+  "name": "Showcase",
+  "engineVersion": "0.11.0",
+  "startScene": "scenes/main.scene.json",
+  "assetRoots": [
+    "assets",
+    "scripts"
+  ]
+}

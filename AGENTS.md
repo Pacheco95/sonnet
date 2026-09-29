@@ -40,6 +40,7 @@ ctest --preset linux-debug -R core_tests            # one module's tests
 # one case or tag: run the <module>_tests binary directly, e.g. core_tests "[handle]"
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic   # right-drag the viewport, WASD/QE; W/E/R gizmos, Ctrl+P play
 ./build/linux-debug/apps/editor/sonnet_editor --help                # the capture flags below, the shading terms, the exit codes
+./build/linux-debug/apps/player/sonnet_player apps/samples/showcase --play 20 --screenshot showcase.png   # the sunset courtyard: a slow camera dolly, 500 entities, 67 lights
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset linux-debug -R rhi_tests   # what CI runs: Lavapipe
 python3 tools/check_docs.py            # after editing any Markdown: links, anchors, cross-doc consistency
 python3 tools/check_version.py         # vcpkg.json must mirror project(sonnet VERSION ...)

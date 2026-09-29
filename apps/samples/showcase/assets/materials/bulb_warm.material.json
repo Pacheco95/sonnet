@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "baseColor": [
+    1.0,
+    0.75,
+    0.4,
+    1.0
+  ],
+  "emissive": [
+    16.0,
+    7.5,
+    2.4
+  ],
+  "metallic": 0.0,
+  "roughness": 0.4,
+  "normalScale": 1.0,
+  "occlusionStrength": 1.0,
+  "alphaCutoff": 0.5,
+  "alphaMode": "Opaque",
+  "wrap": "Repeat",
+  "doubleSided": true,
+  "textures": {}
+}
