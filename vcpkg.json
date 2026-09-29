@@ -27,6 +27,10 @@
     "vk-bootstrap",
     "vulkan-memory-allocator-hpp",
     {
+      "name": "moltenvk",
+      "platform": "ios | osx"
+    },
+    {
       "name": "shader-slang",
       "host": true
     },

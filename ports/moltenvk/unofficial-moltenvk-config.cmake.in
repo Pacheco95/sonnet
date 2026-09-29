@@ -1,0 +1,34 @@
+# unofficial::moltenvk::moltenvk: the static library alone. SDL finds vkGetInstanceProcAddr in
+# the process before it searches the machine for a loader (ADR-0018), so nothing else links
+# against the target's include directories; this port installs no headers.
+if(NOT TARGET unofficial::moltenvk::moltenvk)
+  add_library(unofficial::moltenvk::moltenvk STATIC IMPORTED)
+  find_library(SONNET_MOLTENVK_LIBRARY NAMES MoltenVK PATHS "${CMAKE_CURRENT_LIST_DIR}/../../lib" NO_DEFAULT_PATH)
+  if(NOT SONNET_MOLTENVK_LIBRARY)
+    message(FATAL_ERROR "unofficial-moltenvk-config.cmake could not find libMoltenVK.a next to itself")
+  endif()
+
+  # The frameworks MoltenVK 1.4.2's release notes document beyond what SDL already links: Metal
+  # and Foundation for the driver itself, QuartzCore and IOSurface for the swapchain, CoreGraphics
+  # for colour spaces, and UIKit or AppKit plus IOKit for the platform windowing MoltenVK queries.
+  find_library(SONNET_MVK_METAL Metal REQUIRED)
+  find_library(SONNET_MVK_FOUNDATION Foundation REQUIRED)
+  find_library(SONNET_MVK_QUARTZCORE QuartzCore REQUIRED)
+  find_library(SONNET_MVK_IOSURFACE IOSurface REQUIRED)
+  find_library(SONNET_MVK_COREGRAPHICS CoreGraphics REQUIRED)
+  set(SONNET_MVK_FRAMEWORKS
+    "${SONNET_MVK_METAL}" "${SONNET_MVK_FOUNDATION}" "${SONNET_MVK_QUARTZCORE}"
+    "${SONNET_MVK_IOSURFACE}" "${SONNET_MVK_COREGRAPHICS}")
+  if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    find_library(SONNET_MVK_UIKIT UIKit REQUIRED)
+    list(APPEND SONNET_MVK_FRAMEWORKS "${SONNET_MVK_UIKIT}")
+  else()
+    find_library(SONNET_MVK_IOKIT IOKit REQUIRED)
+    find_library(SONNET_MVK_APPKIT AppKit REQUIRED)
+    list(APPEND SONNET_MVK_FRAMEWORKS "${SONNET_MVK_IOKIT}" "${SONNET_MVK_APPKIT}")
+  endif()
+
+  set_target_properties(unofficial::moltenvk::moltenvk PROPERTIES
+    IMPORTED_LOCATION "${SONNET_MOLTENVK_LIBRARY}"
+    INTERFACE_LINK_LIBRARIES "${SONNET_MVK_FRAMEWORKS}")
+endif()

@@ -47,6 +47,20 @@
       }
     },
     {
+      "name": "ios-base",
+      "hidden": true,
+      "inherits": "base",
+      "generator": "Xcode",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm64-ios",
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "16.3",
+        "SONNET_BUILD_TESTS": "OFF"
+      }
+    },
+    {
       "name": "linux-debug",
       "inherits": "linux-base",
       "displayName": "Linux Debug",
@@ -116,6 +130,16 @@
       "inherits": "android-base",
       "displayName": "Android arm64 Release",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "ios-debug",
+      "inherits": "ios-base",
+      "displayName": "iOS arm64 Debug"
+    },
+    {
+      "name": "ios-release",
+      "inherits": "ios-base",
+      "displayName": "iOS arm64 Release"
     }
   ],
   "buildPresets": [
@@ -130,7 +154,9 @@
     { "name": "macos-debug", "configurePreset": "macos-debug" },
     { "name": "macos-release", "configurePreset": "macos-release" },
     { "name": "android-debug", "configurePreset": "android-debug" },
-    { "name": "android-release", "configurePreset": "android-release" }
+    { "name": "android-release", "configurePreset": "android-release" },
+    { "name": "ios-debug", "configurePreset": "ios-debug", "configuration": "Debug" },
+    { "name": "ios-release", "configurePreset": "ios-release", "configuration": "RelWithDebInfo" }
   ],
   "testPresets": [
     { "name": "linux-debug", "configurePreset": "linux-debug", "output": { "outputOnFailure": true } },

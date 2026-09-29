@@ -4,6 +4,15 @@ find_path(MINIAUDIO_INCLUDE_DIR miniaudio.h REQUIRED)
 find_package(Stb REQUIRED)
 find_package(Threads REQUIRED)
 
+# On iOS miniaudio's Core Audio backend configures the session through AVAudioSession, Objective-C
+# (miniaudio.h's own "2.2. macOS and iOS": "The macOS build should compile cleanly without...any
+# frameworks. The iOS build needs to be compiled as Objective-C and will need to link the relevant
+# frameworks."). macOS takes the plain-C CoreAudio path instead and needs neither.
+if(IOS)
+  enable_language(OBJCXX)
+  set_source_files_properties(src/MiniaudioImplementation.cpp PROPERTIES LANGUAGE OBJCXX)
+endif()
+
 sonnet_add_module(audio
   SOURCES
     src/Components.cpp
@@ -17,6 +26,9 @@ sonnet_add_module(audio
     ${CMAKE_DL_LIBS}
 )
 target_include_directories(sonnet_audio SYSTEM PRIVATE ${MINIAUDIO_INCLUDE_DIR} ${Stb_INCLUDE_DIR})
+if(IOS)
+  target_link_libraries(sonnet_audio PRIVATE "-framework AVFoundation" "-framework AudioToolbox" "-framework CoreFoundation")
+endif()
 
 sonnet_add_module_test(audio
   SOURCES

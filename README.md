@@ -57,6 +57,7 @@ Vulkan 1.4 is the minimum, or 1.3 with the four 1.4 features the engine uses as 
 | Vulkan 1.4 + Vulkan-HPP (RAII) | GPU API | vcpkg `vulkan-headers`, `vulkan-loader`; Vulkan SDK on dev machines for validation layers |
 | [vk-bootstrap](https://github.com/charles-lunarg/vk-bootstrap) | Instance, device and swapchain creation | vcpkg `vk-bootstrap` |
 | [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) (Hpp bindings) | GPU memory allocation, budgets, leak tracking | vcpkg `vulkan-memory-allocator-hpp` |
+| [MoltenVK](https://github.com/KhronosGroup/MoltenVK) | Vulkan on Metal, linked statically into the player on iOS and macOS (M10) | vcpkg `moltenvk` |
 | [Slang](https://shader-slang.org) | Shading language, compiler, reflection | vcpkg `shader-slang` |
 | [GLM](https://github.com/g-truc/glm) | Math | vcpkg `glm` |
 | [flecs](https://www.flecs.dev) | Entity component system, hierarchy, prefabs, reflection | vcpkg `flecs` ([ADR-0003](docs/decisions/0003-ecs-library.md)) |
