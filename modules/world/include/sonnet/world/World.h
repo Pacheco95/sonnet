@@ -69,12 +69,15 @@ public:
 
   // Scene entities: an Identity (fresh or given), a Name, a Transform and a WorldTransform.
   flecs::entity createEntity(std::string_view name, flecs::entity parent = {}, core::Uuid uuid = {});
+  // Puts the entity after its siblings in roots() and children().
+  void assignOrder(flecs::entity entity);
   // Also deletes the children.
   void destroyEntity(flecs::entity entity);
   // Reparents (a null parent moves to the root) keeping the world transform, so the entity
   // stays where it is on screen.
   void setParent(flecs::entity entity, flecs::entity parent);
   [[nodiscard]] flecs::entity parentOf(flecs::entity entity) const;
+  // Both list in creation order, which is file order for a loaded scene.
   [[nodiscard]] std::vector<flecs::entity> roots() const;
   [[nodiscard]] std::vector<flecs::entity> children(flecs::entity entity) const;
   [[nodiscard]] bool isDescendant(flecs::entity entity, flecs::entity ancestor) const;
@@ -151,6 +154,7 @@ private:
   // Declared before m_world: its OnRemove observer runs while the world is torn down
   // (World::~World()), so the index must still be alive when the world is destroyed first.
   std::unordered_map<core::Uuid, flecs::entity_t> m_byUuid;
+  std::uint64_t m_nextSiblingOrder = 1;
   flecs::world m_world;
   std::array<flecs::entity, 5> m_phases;
   // Input, then the fixed steps, then the rest of the frame: one pipeline each, the first and
