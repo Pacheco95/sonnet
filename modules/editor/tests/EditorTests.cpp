@@ -324,6 +324,14 @@ TEST_CASE("focusing frames the meshes under the selection by their bounds", "[ed
     const glm::vec3 position = editor.viewport().camera().camera().position;
     // The box's half-diagonal is sqrt(3), and the camera sits 2.5 radii away.
     REQUIRE(glm::distance(position, glm::vec3{10.0f, 0.0f, 0.0f}) == Approx(std::sqrt(3.0f) * 2.5f).margin(0.05));
+
+    // A camera turned to the sky must not end up beneath the object.
+    editor.viewport().camera().lookAt({0.0f, 0.0f, 0.0f}, {0.0f, 10.0f, -1.0f});
+    editor.focusSelection();
+    const renderer::Camera &skyward = editor.viewport().camera().camera();
+    REQUIRE(skyward.position.y > 0.0f);
+    REQUIRE(glm::distance(skyward.position, glm::vec3{10.0f, 0.0f, 0.0f}) ==
+            Approx(std::sqrt(3.0f) * 2.5f).margin(0.05));
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

@@ -58,6 +58,9 @@ public:
   [[nodiscard]] const FlyCamera &camera() const noexcept {
     return m_camera;
   }
+  [[nodiscard]] FlyCamera &camera() noexcept {
+    return m_camera;
+  }
   [[nodiscard]] bool cameraActive() const noexcept {
     return m_cameraActive;
   }

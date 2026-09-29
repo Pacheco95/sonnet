@@ -182,6 +182,9 @@ public:
   [[nodiscard]] const ViewportPanel &viewport() const noexcept {
     return m_viewportPanel;
   }
+  [[nodiscard]] ViewportPanel &viewport() noexcept {
+    return m_viewportPanel;
+  }
   [[nodiscard]] bool quitRequested() const noexcept {
     return m_quitRequested;
   }
