@@ -35,8 +35,9 @@ std::string nameOf(flecs::entity entity) {
 
 } // namespace
 
-HierarchyPanel::HierarchyPanel(world::World &world, Selection &selection, CommandStack &commands)
-    : m_world(world), m_selection(selection), m_commands(commands) {
+HierarchyPanel::HierarchyPanel(world::World &world, Selection &selection, CommandStack &commands,
+                               std::function<void()> focus)
+    : m_world(world), m_selection(selection), m_commands(commands), m_focus(std::move(focus)) {
 }
 
 void HierarchyPanel::draw(bool &open) {
@@ -66,8 +67,8 @@ void HierarchyPanel::draw(bool &open) {
 void HierarchyPanel::drawNode(flecs::entity entity) {
   const core::Uuid uuid = m_world.uuidOf(entity);
   const std::vector<flecs::entity> children = m_world.children(entity);
-  ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick |
-                             ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+  ImGuiTreeNodeFlags flags =
+      ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
   if (children.empty()) {
     flags |= ImGuiTreeNodeFlags_Leaf;
   }
@@ -85,6 +86,9 @@ void HierarchyPanel::drawNode(flecs::entity entity) {
   const bool opened = ImGui::TreeNodeEx("node", flags, "%s", label.c_str());
   if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
     selectClicked(entity);
+  }
+  if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
+    m_focus();
   }
   if (ImGui::BeginDragDropSource()) {
     ImGui::SetDragDropPayload(DragPayload, uuid.bytes().data(), uuid.bytes().size());
@@ -184,6 +188,10 @@ void HierarchyPanel::drawCreateMenu(core::Uuid parent) {
 }
 
 void HierarchyPanel::drawContextMenu(flecs::entity entity) {
+  if (ImGui::MenuItem("Focus", "F")) {
+    m_focus();
+  }
+  ImGui::Separator();
   if (ImGui::BeginMenu("Create child")) {
     drawCreateMenu(m_world.uuidOf(entity));
     ImGui::EndMenu();

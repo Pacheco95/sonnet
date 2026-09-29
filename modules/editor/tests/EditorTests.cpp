@@ -305,6 +305,38 @@ TEST_CASE("selecting a parent outlines its whole subtree", "[editor][gpu]") {
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("focusing frames the meshes under the selection by their bounds", "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    world::World &world = editor.world();
+    // An empty parent with a box two metres wide ten metres away: the scale of the parent says
+    // nothing about where the geometry is.
+    const flecs::entity parent = world.createEntity("Parent");
+    const flecs::entity child = world.createEntity("Child", parent);
+    child.set(world::MeshRenderer{});
+    child.set(world::Transform{.position = {10.0f, 0.0f, 0.0f}, .scale = glm::vec3{2.0f}});
+    for (int i = 0; i < 4; ++i) {
+      fixture.frame(editor);
+    }
+    editor.selection().select(world.uuidOf(parent));
+    editor.focusSelection();
+    const glm::vec3 position = editor.viewport().camera().camera().position;
+    // The box's half-diagonal is sqrt(3), and the camera sits 2.5 radii away.
+    REQUIRE(glm::distance(position, glm::vec3{10.0f, 0.0f, 0.0f}) == Approx(std::sqrt(3.0f) * 2.5f).margin(0.05));
+
+    // A camera turned to the sky must not end up beneath the object.
+    editor.viewport().camera().lookAt({0.0f, 0.0f, 0.0f}, {0.0f, 10.0f, -1.0f});
+    editor.focusSelection();
+    const renderer::Camera &skyward = editor.viewport().camera().camera();
+    REQUIRE(skyward.position.y > 0.0f);
+    REQUIRE(glm::distance(skyward.position, glm::vec3{10.0f, 0.0f, 0.0f}) ==
+            Approx(std::sqrt(3.0f) * 2.5f).margin(0.05));
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 // Each member of a component is a two-column table: the name at 90 px, then the widget told to
 // fill the rest. On the first frame after a selection the value column used to fall to ImGui's
 // minimum width, so every field drew as a sliver, and grew back over the next frames.

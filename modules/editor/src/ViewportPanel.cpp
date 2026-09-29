@@ -5,6 +5,13 @@
 
 namespace sonnet::editor {
 
+namespace {
+
+// Focusing never views the object from lower than this many radians below the horizon.
+constexpr float MinFocusPitch = glm::radians(-15.0f);
+
+} // namespace
+
 ViewportPanel::ViewportPanel(rhi::IDevice &device, ui::ImGuiLayer &imgui)
     : m_imgui(imgui), m_target(device, "viewport") {
 }
@@ -62,6 +69,7 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
                           .size = {available.x, available.y},
                           .mouse = {mouse.x, mouse.y},
                           .leftClicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                          .leftDoubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left),
                           .leftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left),
                           .drawList = ImGui::GetWindowDrawList()};
 
@@ -100,7 +108,12 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
 
 void ViewportPanel::focus(glm::vec3 target, float radius) {
   const float distance = std::max(radius, 0.5f) * 2.5f;
-  m_camera.lookAt(target - m_camera.camera().forward() * distance, target);
+  // Keep the heading but look down at least a little, so a camera turned to the sky ends above
+  // the object rather than beneath it.
+  const float yaw = m_camera.yaw();
+  const float pitch = std::min(m_camera.pitch(), MinFocusPitch);
+  const glm::vec3 forward{-std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch)};
+  m_camera.lookAt(target - forward * distance, target);
 }
 
 glm::uvec2 ViewportPanel::targetPixel(glm::vec2 screen) const {
