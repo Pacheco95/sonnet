@@ -26,7 +26,8 @@ void ViewportPanel::resizeTarget(glm::uvec2 size) {
 }
 
 bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPanel *statistics,
-                         const std::function<void(const ViewportInput &)> &overlay) {
+                         const std::function<void(const ViewportInput &)> &overlay,
+                         const std::function<void()> &header) {
   m_input = {};
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0.0f, 0.0f});
   const bool visible = ImGui::Begin("Viewport", &open);
@@ -38,6 +39,9 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     return false;
   }
 
+  if (header) {
+    header();
+  }
   const ImVec2 available = ImGui::GetContentRegionAvail();
   const glm::uvec2 size{static_cast<unsigned>(std::max(available.x, 0.0f)),
                         static_cast<unsigned>(std::max(available.y, 0.0f))};

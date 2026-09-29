@@ -97,6 +97,63 @@ TEST_CASE("the editor runs frames headless without validation errors", "[editor]
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("scenes open in tabs that keep their own edits, undo history and selection", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("tabs");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Tabs").has_value());
+    REQUIRE(editor.tabCount() == 1);
+    world::World &world = editor.world();
+    const std::size_t startRoots = world.roots().size();
+    const std::filesystem::path first = editor.scenePath();
+    fixture.frame(editor);
+
+    // A second scene opens beside the first, and opening the first again switches back to it.
+    editor.newScene();
+    REQUIRE(editor.tabCount() == 2);
+    REQUIRE(editor.activeTab() == 1);
+    REQUIRE(editor.scenePath().empty());
+    REQUIRE(editor.saveSceneAs(directory / "scenes" / "second.scene.json").has_value());
+    editor.commands().push(editor::deleteEntityCommand(world.uuidOf(world.roots().front())), world);
+    REQUIRE(world.roots().size() == startRoots - 1);
+    REQUIRE(editor.tabDirty(1));
+    fixture.frame(editor);
+
+    editor.switchToTab(0);
+    REQUIRE(editor.scenePath() == first);
+    REQUIRE(world.roots().size() == startRoots);
+    REQUIRE(!editor.commands().canUndo());
+    REQUIRE(editor.tabDirty(1));
+    fixture.frame(editor);
+    REQUIRE(editor.openScene(directory / "scenes" / "second.scene.json").has_value());
+    REQUIRE(editor.tabCount() == 2); // switched, not reopened
+    REQUIRE(editor.activeTab() == 1);
+    REQUIRE(world.roots().size() == startRoots - 1); // the unsaved edit is still there
+    REQUIRE(editor.commands().canUndo());
+    REQUIRE(editor.commands().undo(world));
+    REQUIRE(world.roots().size() == startRoots);
+
+    // A scene that fails to load leaves the tabs as they were.
+    REQUIRE(!editor.openScene(directory / "scenes" / "missing.scene.json").has_value());
+    REQUIRE(editor.tabCount() == 2);
+    REQUIRE(editor.activeTab() == 1);
+    REQUIRE(world.roots().size() == startRoots);
+
+    // Closing the active tab shows its neighbour; closing the last one leaves a fresh scene.
+    editor.closeTab(1);
+    REQUIRE(editor.tabCount() == 1);
+    REQUIRE(editor.scenePath() == first);
+    REQUIRE(world.roots().size() == startRoots);
+    editor.closeTab(0);
+    REQUIRE(editor.tabCount() == 1);
+    REQUIRE(editor.scenePath().empty());
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("viewport mouse look keeps motion out of ImGui while turning the camera", "[editor][gpu]") {
   Fixture fixture;
   editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
@@ -332,7 +389,9 @@ TEST_CASE("a mouse drag on the gizmo's X handle moves the selected entity", "[ed
     }
     REQUIRE(box.is_valid());
     editor.selection().select(world.uuidOf(box));
-    // Two frames so the dock layout settles and the viewport reports its rectangle.
+    // Three frames so the dock layout and the scene tab bar settle and the viewport reports its
+    // rectangle.
+    fixture.frame(editor);
     fixture.frame(editor);
     fixture.frame(editor);
     const editor::ViewportInput &input = editor.viewport().input();

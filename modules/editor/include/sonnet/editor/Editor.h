@@ -82,11 +82,26 @@ public:
   // the current scene in place and is reported to the log.
   [[nodiscard]] core::Result<void> openProject(const std::filesystem::path &directory);
   [[nodiscard]] core::Result<void> createProject(const std::filesystem::path &directory, std::string name);
+  // Opens the scene in a tab of its own, or switches to the tab that already has it. A failure
+  // leaves the current tab as it was.
   [[nodiscard]] core::Result<void> openScene(const std::filesystem::path &file);
   [[nodiscard]] core::Result<void> saveScene();
   [[nodiscard]] core::Result<void> saveSceneAs(const std::filesystem::path &file);
-  // The starter scene, unsaved.
+  // The starter scene, unsaved, in a new tab.
   void newScene();
+
+  // The open scenes (docs/editor.md, "Scene tabs"). Switching or closing while playing stops play
+  // mode first. Closing here discards unsaved changes; the tab's close button asks first.
+  [[nodiscard]] std::size_t tabCount() const noexcept {
+    return m_tabs.size();
+  }
+  [[nodiscard]] std::size_t activeTab() const noexcept {
+    return m_activeTab;
+  }
+  [[nodiscard]] std::string tabTitle(std::size_t index) const;
+  [[nodiscard]] bool tabDirty(std::size_t index) const;
+  void switchToTab(std::size_t index);
+  void closeTab(std::size_t index);
 
   // Cooks the open project and assembles a runnable directory beside the bundle
   // (docs/editor.md, "Export"). The dialog is this with the fields it collected.
@@ -179,10 +194,29 @@ private:
     OpenProject,
     SaveSceneAs,
     Export,
+    CloseTab,
+  };
+
+  // An open scene. The active tab's state lives in the editor's own members (the world, the
+  // undo history, the selection, the path); the others hold theirs here, the world as scene JSON,
+  // which is what play mode's snapshot round-trips too.
+  struct SceneTab {
+    std::uint64_t id{0};
+    std::filesystem::path path;
+    nlohmann::json content;
+    CommandStack commands;
+    Selection selection;
+    std::uint64_t savedRevision{0};
   };
 
   void drawMenuBar();
   void drawModal();
+  void drawCloseTabModal();
+  void drawTabBar();
+  void requestCloseTab(std::size_t index);
+  void stashActiveTab();
+  void restoreTab(std::size_t index);
+  void addTab();
   void handleShortcuts();
   void drawViewportOverlay(const ViewportInput &input);
   void buildDefaultLayout(unsigned dockspace);
@@ -241,6 +275,11 @@ private:
   std::optional<assets::Project> m_project;
   std::filesystem::path m_scenePath;
   std::uint64_t m_savedRevision{0};
+  std::vector<SceneTab> m_tabs;
+  std::size_t m_activeTab{0};
+  std::size_t m_closingTab{0};
+  std::uint64_t m_nextTabId{1};
+  bool m_selectActiveTab{false}; // the tab bar follows a change the editor made, not the user's click
   nlohmann::json m_snapshot;
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;
   std::filesystem::path m_shaderSources;

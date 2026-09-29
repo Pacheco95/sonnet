@@ -37,10 +37,11 @@ public:
   ViewportPanel &operator=(const ViewportPanel &) = delete;
 
   // Builds the window. lookDelta is this frame's relative mouse motion; the camera consumes it
-  // only while it is active. `overlay` runs inside the window, over the image, for the gizmo.
-  // Returns whether the camera wants relative mouse mode.
+  // only while it is active. `overlay` runs inside the window, over the image, for the gizmo;
+  // `header` runs at the top of the window, above the image, for the scene tabs. Returns whether
+  // the camera wants relative mouse mode.
   bool draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPanel *statistics,
-            const std::function<void(const ViewportInput &)> &overlay = {});
+            const std::function<void(const ViewportInput &)> &overlay = {}, const std::function<void()> &header = {});
 
   // Turns the camera towards `target` from a distance that fits `radius`.
   void focus(glm::vec3 target, float radius);
