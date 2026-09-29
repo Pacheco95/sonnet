@@ -101,7 +101,8 @@ void AssetBrowserPanel::draw(bool &open) {
         ImGui::EndDragDropSource();
       }
       ImGui::TableNextColumn();
-      ImGui::TextUnformatted(assets::toString(info->type).data());
+      const std::string_view type = assets::toString(info->type);
+      ImGui::TextUnformatted(type.data(), type.data() + type.size());
       ImGui::TableNextColumn();
       const std::string source = info->source == "builtin"
                                      ? std::string{"built-in"}
