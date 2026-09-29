@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <format>
 #include <fstream>
+#include <limits>
 #include <thread>
 #include <utility>
 #include <variant>
@@ -59,8 +60,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})), m_screenshots(device),
       m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
-      m_hierarchyPanel(m_world, m_selection, m_commands), m_inspectorPanel(m_world, m_assets, m_selection, m_commands),
-      m_assetBrowserPanel(m_assets, m_selection) {
+      m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
+      m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_selection) {
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_inspectorPanel.setAudio(m_audio.get());
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
@@ -264,6 +265,10 @@ void Editor::drawViewportOverlay(const ViewportInput &input) {
                                      std::make_optional(m_world.componentToJson(primary, transform->id)),
                                      std::format("{} {}", verb, nameOf(primary))),
                     m_world);
+  }
+  if (input.leftDoubleClicked && !gizmo.hovered && !gizmo.active && !cameraActive) {
+    // The click that started the double click has already asked for the pick under the cursor.
+    focusSelection();
   }
   if (input.leftClicked && !gizmo.hovered && !gizmo.active && !cameraActive) {
     const ImGuiIO &io = ImGui::GetIO();
@@ -1124,6 +1129,44 @@ void Editor::focusSelection() {
   if (!primary) {
     return;
   }
+  // The world-space box of every mesh under the entity, so an imported model is framed by its
+  // geometry rather than by its scale.
+  glm::vec3 low{std::numeric_limits<float>::max()};
+  glm::vec3 high{std::numeric_limits<float>::lowest()};
+  const auto grow = [&](flecs::entity entity) {
+    const world::MeshRenderer *meshRenderer = entity.try_get<world::MeshRenderer>();
+    const world::WorldTransform *transform = entity.try_get<world::WorldTransform>();
+    if (meshRenderer == nullptr || transform == nullptr) {
+      return;
+    }
+    const renderer::MeshHandle mesh = m_assets.requestMesh(meshRenderer->mesh);
+    if (!m_renderer.isValid(mesh)) {
+      return;
+    }
+    const renderer::Bounds bounds = m_renderer.meshBounds(mesh);
+    for (int corner = 0; corner < 8; ++corner) {
+      const glm::vec3 local{(corner & 1) != 0 ? bounds.max.x : bounds.min.x,
+                            (corner & 2) != 0 ? bounds.max.y : bounds.min.y,
+                            (corner & 4) != 0 ? bounds.max.z : bounds.min.z};
+      const glm::vec3 point = glm::vec3{transform->matrix * glm::vec4{local, 1.0f}};
+      low = glm::min(low, point);
+      high = glm::max(high, point);
+    }
+  };
+  std::vector<flecs::entity> pending{primary};
+  while (!pending.empty()) {
+    const flecs::entity entity = pending.back();
+    pending.pop_back();
+    grow(entity);
+    for (const flecs::entity child : m_world.children(entity)) {
+      pending.push_back(child);
+    }
+  }
+  if (low.x <= high.x) {
+    m_viewportPanel.focus((low + high) * 0.5f, glm::length(high - low) * 0.5f);
+    return;
+  }
+  // Nothing to measure (a light, a camera, an empty): the entity's position and scale.
   const world::WorldTransform *transform = primary.try_get<world::WorldTransform>();
   const glm::mat4 matrix = transform != nullptr ? transform->matrix : glm::mat4{1.0f};
   const world::Transform placed = world::Transform::fromMatrix(matrix);

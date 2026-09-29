@@ -23,6 +23,7 @@ struct ViewportInput {
   glm::vec2 size{0.0f};
   glm::vec2 mouse{0.0f};
   bool leftClicked{false};
+  bool leftDoubleClicked{false};
   bool leftDown{false};
   ImDrawList *drawList{nullptr}; // the window's, valid inside the overlay callback
 };

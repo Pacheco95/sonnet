@@ -26,7 +26,7 @@ Per frame, in this order:
 | `Editor.h` | `Editor`: the world being edited with its physics world, script runtime, animation systems and audio device, the panels, the undo history, play mode and the project; `nativeEvent`, `event`, `update`, `render`, `afterPresent` in that order per frame |
 | `ViewportPanel.h` | The dockable scene view: a `renderer::RenderTarget` sized to the panel, displayed with `ImGui::Image`, the fly camera while the right mouse button is held over it, and `ViewportInput`, what the mouse did over the image this frame, for the gizmo and picking |
 | `FlyCamera.h` | Mouse look, W/A/S/D on the camera's plane, Q/E along the world's up, Shift for four times the speed, the wheel to scale it |
-| `HierarchyPanel.h` | The scene tree with selection, drag-and-drop reparenting, a drop target for models from the asset browser, and the context menu that creates, duplicates and deletes |
+| `HierarchyPanel.h` | The scene tree with selection, drag-and-drop reparenting, a drop target for models from the asset browser, and the context menu that focuses, creates, duplicates and deletes |
 | `InspectorPanel.h` | The primary selection's name and components, with widgets generated from reflection; with nothing selected, the asset the browser inspects |
 | `AssetBrowserPanel.h` | The project's assets by type and name, drag sources for the inspector's pickers and the hierarchy, and the buttons that create a material or a script |
 | `AssetCommands.h` | The material edit and texture import settings commands |
@@ -54,7 +54,7 @@ The engine's shader sources are found in the checkout the way the log's source l
 
 ## Selection and picking
 
-The selection holds UUIDs, so it survives undo, play mode and reloads; the last selected entity is the primary one, what the inspector shows and the gizmo moves. Clicking in the hierarchy selects, Ctrl toggles, Shift adds. Clicking in the viewport, away from a gizmo handle and with the camera idle, asks the `renderer::Picker` for the id under the cursor; the answer comes two frames later, when the readback of that frame has completed, and the selection changes then, with the same modifiers. Selected entities and their descendants are drawn into the selection mask and outlined from it ([rendering.md](rendering.md#the-renderer-module-today)), so an object in front of a selected one is never outlined itself. Escape clears the selection, F turns the camera towards it.
+The selection holds UUIDs, so it survives undo, play mode and reloads; the last selected entity is the primary one, what the inspector shows and the gizmo moves. Clicking in the hierarchy selects, Ctrl toggles, Shift adds. Clicking in the viewport, away from a gizmo handle and with the camera idle, asks the `renderer::Picker` for the id under the cursor; the answer comes two frames later, when the readback of that frame has completed, and the selection changes then, with the same modifiers. Selected entities and their descendants are drawn into the selection mask and outlined from it ([rendering.md](rendering.md#the-renderer-module-today)), so an object in front of a selected one is never outlined itself. Escape clears the selection. F, a double-click on a hierarchy row, the row's context menu (Focus) and a double-click on an object in the viewport turn the camera towards it, from a distance that fits the world-space bounds of every mesh under the entity (its position and scale when there is none, as for a light).
 
 ## Gizmos
 

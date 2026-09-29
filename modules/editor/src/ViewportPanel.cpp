@@ -62,6 +62,7 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
                           .size = {available.x, available.y},
                           .mouse = {mouse.x, mouse.y},
                           .leftClicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                          .leftDoubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left),
                           .leftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left),
                           .drawList = ImGui::GetWindowDrawList()};
 

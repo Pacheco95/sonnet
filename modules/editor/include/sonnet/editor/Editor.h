@@ -158,6 +158,9 @@ public:
   [[nodiscard]] AssetBrowserPanel &assetBrowser() noexcept {
     return m_assetBrowserPanel;
   }
+  // Turns the viewport's camera towards the primary selected entity, from a distance that fits the
+  // bounds of the meshes under it (F, a double-click in the hierarchy or the viewport).
+  void focusSelection();
   [[nodiscard]] Selection &selection() noexcept {
     return m_selection;
   }
@@ -224,12 +227,12 @@ private:
   void markSaved();
   void updateTitle();
   void loadPrefabs();
-  void focusSelection();
   void openLocation(const std::string &path, int line);
   [[nodiscard]] core::Result<void> loadSceneFile(const std::filesystem::path &file);
   [[nodiscard]] std::optional<std::filesystem::path> shaderSourceDirectory();
   [[nodiscard]] core::Result<void> reloadShader(std::string_view name);
   void pollShaders();
+
   // Whether game input goes to the scripts: playing, with the viewport focused and the camera idle.
   [[nodiscard]] bool gameInputActive() const;
 
