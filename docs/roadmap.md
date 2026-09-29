@@ -540,6 +540,36 @@ It builds on M9's shared work: ASTC cooking, touch input and the SDL3 callback l
 
 Done when the basic sample runs on an iOS device.
 
+### The build
+
+`ios-debug` and `ios-release` (the Xcode generator, `arm64-ios`, iOS 16.3) and the `moltenvk` overlay port landed in [PR #58](https://github.com/Pacheco95/sonnet/pull/58), the same shape as M9's Android presets: `cmake/SonnetIOS.cmake`'s `sonnet_add_ios_bundle()` for the app bundle, `apps/player/ios/` for its `Info.plist` and launch storyboard, and an iOS CI job on `macos-latest`. MoltenVK is linked into the player on every Apple platform, not just iOS, which is also what closed [the macOS export gap](#the-macos-export-needs-the-vulkan-sdk) below.
+
+Two bugs surfaced only once a real Mac ran the build, both the same root cause and neither caught by the presets' first green CI run: under the Xcode generator, a custom command's `COMMAND` arguments never get Xcode's own per-platform build setting (`${EFFECTIVE_PLATFORM_NAME}`) substituted by the script-phase shell that is supposed to do it, no matter which generator expression asks for the target's bundle or output directory. `cmake/SonnetIOS.cmake`'s `SONNET_IOS_BUNDLE` copy and `cmake/SonnetShaders.cmake`'s own copy of the compiled shaders both built their destination that way and both landed their files next to a directory literally named `RelWithDebInfo${EFFECTIVE_PLATFORM_NAME}` instead of `RelWithDebInfo-iphoneos`. Neither was caught by CI's first pass, which never gave `sonnet_player_app` a cooked bundle to place. Both are fixed the same way: build the destination from pieces CMake resolves on its own (`CMAKE_CURRENT_BINARY_DIR` and `$<CONFIG>`) plus a hardcoded `-iphoneos`, which is exact since this project never targets the simulator (`ports/moltenvk` ships no simulator slice). The iOS CI job now cooks a bundle and asserts the built `.app`'s contents directly, so a regression here fails CI instead of needing a Mac to catch it.
+
+### The Mac-only checks
+
+Before a phone was available, `agents/m10-mac-checks` ran what only needed the Mac: the exported macOS player, with every Vulkan SDK variable cleared, got past window and device creation and wrote a screenshot, closing [the macOS export gap](#the-macos-export-needs-the-vulkan-sdk); `SONNET_IOS_BUNDLE` with a real cooked bundle landed `shaders/` and `game.sbundle` inside the built `.app`, confirming the fix above; and a build signed with a real Apple Development team, `codesign -dv` confirmed, closing over CI's `CODE_SIGNING_ALLOWED=NO` shortcut.
+
+### The device checks
+
+`agents/m10-device-checks` ran ADR-0018's six checks on an iPhone 15 Pro Max (iOS 27.0, the same phone [Checked before the code](#checked-before-the-code) probed), with `ios-release`, a real cooked bundle and a real signing team:
+
+1. **The Vulkan description**: `Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC` from the device-selection log line, matching what `vkprobe` already found for this phone. **Pass.**
+2. **The launcher**: installed and launched through `devicectl`, the start scene drawn with checkerboard, shadows, sky and every primitive in place; Michael then tapped the icon by hand for a fresh launch and confirmed the same. **Pass.**
+3. **Capture runs**, `--play 3` for `final`, `albedo` and `normal` on the start scene and one of the playground: all four exited 0 and wrote correct PNGs — `albedo` and `normal` in full colour, not MoltenVK's old red-only reads, and the playground's ball, stacked boxes and sweeper mid-motion. Each log carries an exception the same shape as M9's check 3 had: a warning neither new nor iOS-specific, `[mvk-warn] ... Blending is enabled for attachment with format VK_FORMAT_R32_UINT`, from the id pass's picking buffer, also seen on the Mac-only run. **Pass, that warning aside** ([#59](https://github.com/Pacheco95/sonnet/issues/59) tracks it).
+4. **The background and back**: confirmed by Michael by hand. The console shows `entering the background`, `swapchain suspended`, `audio paused`, 92 frames away, then `swapchain resumed`, `audio resumed`, and the scene still drawing.
+5. **A finger on the playground**: confirmed by Michael by hand — the ball rolls toward the touch point.
+6. **The frame times** of check 3, below. **Pass.**
+
+| Capture run (Release build) | iPhone 15 Pro Max, 1290×2796: CPU / apart / GPU (forward) |
+|---|---|
+| start scene, `final` | 0.50 / 16.67 / 11.29 ms (6.95 ms) |
+| start scene, `albedo` | 0.51 / 16.67 / 11.92 ms (7.34 ms) |
+| start scene, `normal` | 0.49 / 16.67 / 10.53 ms (6.40 ms) |
+| playground | 0.90 / 16.67 / 11.75 ms (5.42 ms) |
+
+With ADR-0018's six checks passing, the R32_UINT warning tracked rather than blocking, M10 is done.
+
 ## Known gaps
 
 Work M8 named rather than did, and what closing it turned up, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. A gap that has been closed keeps its entry, saying what closed it and what it measured. These are engineering debts; the feature backlog is [Later](#later).
