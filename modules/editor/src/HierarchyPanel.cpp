@@ -11,6 +11,7 @@
 #include <array>
 #include <format>
 #include <string>
+#include <utility>
 
 namespace sonnet::editor {
 
@@ -45,6 +46,8 @@ void HierarchyPanel::draw(bool &open) {
     ImGui::End();
     return;
   }
+  // A menu click lands mid-frame, so the request is applied from the next frame's first node on.
+  m_activeOpen = std::exchange(m_pendingOpen, std::nullopt);
   for (const flecs::entity root : m_world.roots()) {
     if (!root.has<world::EditorOnly>()) {
       drawNode(root);
@@ -58,10 +61,35 @@ void HierarchyPanel::draw(bool &open) {
     m_selection.clear();
   }
   if (ImGui::BeginPopupContextItem("background menu")) {
+    if (ImGui::MenuItem("Expand all")) {
+      setOpenRecursive({}, true);
+    }
+    if (ImGui::MenuItem("Collapse all")) {
+      setOpenRecursive({}, false);
+    }
+    ImGui::Separator();
     drawCreateMenu({});
     ImGui::EndPopup();
   }
   ImGui::End();
+}
+
+void HierarchyPanel::setOpenRecursive(core::Uuid root, bool open) {
+  m_pendingOpen = PendingOpen{root, open};
+}
+
+// Closed nodes do not draw their children, so the open state of a whole subtree is written to the window's
+// storage under the ids the children will have: an open tree node pushes its own id, then each child its pick id.
+void HierarchyPanel::applyOpenToDescendants(flecs::entity entity, bool open) {
+  for (const flecs::entity child : m_world.children(entity)) {
+    ImGui::PushID(static_cast<int>(world::World::pickId(child)));
+    const ImGuiID node = ImGui::GetID("node");
+    ImGui::GetStateStorage()->SetInt(node, open ? 1 : 0);
+    ImGui::PushID("node");
+    applyOpenToDescendants(child, open);
+    ImGui::PopID();
+    ImGui::PopID();
+  }
 }
 
 void HierarchyPanel::drawNode(flecs::entity entity) {
@@ -83,6 +111,12 @@ void HierarchyPanel::drawNode(flecs::entity entity) {
     label += " (disabled)";
   }
   ImGui::PushID(static_cast<int>(world::World::pickId(entity)));
+  if (m_activeOpen && (m_activeOpen->root.isNil() || m_activeOpen->root == uuid)) {
+    ImGui::SetNextItemOpen(m_activeOpen->open, ImGuiCond_Always);
+    ImGui::PushID("node");
+    applyOpenToDescendants(entity, m_activeOpen->open);
+    ImGui::PopID();
+  }
   const bool opened = ImGui::TreeNodeEx("node", flags, "%s", label.c_str());
   if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
     selectClicked(entity);
@@ -190,6 +224,12 @@ void HierarchyPanel::drawCreateMenu(core::Uuid parent) {
 void HierarchyPanel::drawContextMenu(flecs::entity entity) {
   if (ImGui::MenuItem("Focus", "F")) {
     m_focus();
+  }
+  if (ImGui::MenuItem("Expand all")) {
+    setOpenRecursive(m_world.uuidOf(entity), true);
+  }
+  if (ImGui::MenuItem("Collapse all")) {
+    setOpenRecursive(m_world.uuidOf(entity), false);
   }
   ImGui::Separator();
   if (ImGui::BeginMenu("Create child")) {

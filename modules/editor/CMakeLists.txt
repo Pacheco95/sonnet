@@ -38,6 +38,7 @@ sonnet_add_module_test(editor
     tests/EditorPlayTests.cpp
     tests/FlyCameraTests.cpp
     tests/GizmoTests.cpp
+    tests/HierarchyPanelTests.cpp
     tests/InspectorTests.cpp
     tests/LogPanelTests.cpp
     tests/ProjectTests.cpp

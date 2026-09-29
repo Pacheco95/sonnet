@@ -26,7 +26,7 @@ Per frame, in this order:
 | `Editor.h` | `Editor`: the world being edited with its physics world, script runtime, animation systems and audio device, the panels, the undo history, play mode and the project; `nativeEvent`, `event`, `update`, `render`, `afterPresent` in that order per frame |
 | `ViewportPanel.h` | The dockable scene view: a `renderer::RenderTarget` sized to the panel, displayed with `ImGui::Image`, the fly camera while the right mouse button is held over it, and `ViewportInput`, what the mouse did over the image this frame, for the gizmo and picking |
 | `FlyCamera.h` | Mouse look, W/A/S/D on the camera's plane, Q/E along the world's up, Shift for four times the speed, the wheel to scale it |
-| `HierarchyPanel.h` | The scene tree with selection, drag-and-drop reparenting, a drop target for models from the asset browser, and the context menu that focuses, creates, duplicates and deletes |
+| `HierarchyPanel.h` | The scene tree with selection, drag-and-drop reparenting, Expand all and Collapse all for a subtree or the whole tree, a drop target for models from the asset browser, and the context menu that focuses, creates, duplicates and deletes |
 | `InspectorPanel.h` | The primary selection's name and components, with widgets generated from reflection; with nothing selected, the asset the browser inspects |
 | `AssetBrowserPanel.h` | The project's assets by type and name, drag sources for the inspector's pickers and the hierarchy, and the buttons that create a material or a script |
 | `AssetCommands.h` | The material edit and texture import settings commands |
