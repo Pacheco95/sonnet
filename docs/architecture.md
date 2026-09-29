@@ -31,7 +31,7 @@ Applications live under `apps/`:
 
 ## Dependency rule
 
-Compile-time dependencies point one way: a module includes headers and links targets only from modules earlier in the dependency order. CMake enforces this because each module's target only links its declared dependencies; a cycle fails to configure.
+Compile-time dependencies point one way: a module includes headers and links targets only from modules earlier in the dependency order. CMake enforces this because each module's target only links its declared dependencies; a cycle fails to configure. A forward link that is not a cycle, and any `#include`, CMake does not catch, so `tools/check_dependencies.py` reads the order from `modules/CMakeLists.txt` and fails on either, and on the player or the cook tool reaching `ui` or `editor`. It runs in CI's lint job and as a `pre-commit` hook (`tools/install_hooks.sh`). With `--graphviz`, it also checks the configured target graph (`cmake --graphviz=deps.dot build/linux-debug`), which the Linux GCC job does after configuring, since that sees links made through variables and generator expressions.
 
 Upward communication is still needed, for example the platform layer must tell the engine about a resize, and the world must tell the renderer what to draw. It happens without a dependency, through mechanisms owned by the lower layer:
 
