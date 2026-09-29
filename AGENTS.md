@@ -43,9 +43,10 @@ ctest --preset linux-debug -R core_tests            # one module's tests
 ./build/linux-debug/apps/player/sonnet_player apps/samples/showcase --play 20 --screenshot showcase.png   # the sunset courtyard: a slow camera dolly, 500 entities, 67 lights
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset linux-debug -R rhi_tests   # what CI runs: Lavapipe
 python3 tools/check_docs.py            # after editing any Markdown: links, anchors, cross-doc consistency
+python3 tools/check_dependencies.py    # the one-way module dependency rule: includes and links only point to earlier modules (--graphviz deps.dot also checks a `cmake --graphviz` target graph)
 python3 tools/check_version.py         # vcpkg.json must mirror project(sonnet VERSION ...)
 git ls-files '*.h' '*.cpp' | xargs clang-format --dry-run --Werror   # CI rejects unformatted code
-sh tools/install_hooks.sh              # once per clone: commit-msg hook for Conventional Commits
+sh tools/install_hooks.sh              # once per clone: commit-msg (Conventional Commits) and pre-commit (dependency rule) hooks
 ```
 
 ## Seeing what the engine draws
