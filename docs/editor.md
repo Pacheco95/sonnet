@@ -37,6 +37,7 @@ Per frame, in this order:
 | `Export.h` | Cooking the project and assembling a runnable directory next to the bundle ([Export](#export)) |
 | `Capture.h` | The editor's command line, and `CaptureRun`, which steps a scripted run to its screenshots ([Screenshots](#screenshots)) |
 | `LogPanel.h` | `LogBuffer`, a spdlog sink registered with `core::Log` for the panel's lifetime, and the panel with a level threshold, text filter, auto-scroll and `file:line` links |
+| `TypeFilter.h` | The multi-select type filter shared by the panels: a set of checked names where none means all, the combo that edits it, and the asset browser's row test |
 | `StatisticsPanel.h` | Frame time history, per-pass CPU and GPU times from the graph, draw and triangle counts, VMA budget per heap; drawn as a window or as the overlay in the viewport's corner |
 
 The frame, as `apps/editor/main.cpp` orders it:
@@ -72,7 +73,7 @@ The physics components, `Script`, the audio components, `SkinnedMesh` and `Anima
 
 ## Asset browser
 
-The Assets panel lists the open project's assets ([assets.md](assets.md#database)) with a text filter and a type filter: name, type and source file, sub-assets under their glTF file. Clicking a row clears the entity selection and shows the asset in the inspector; rows are drag sources for the inspector's pickers, and a model dropped on the hierarchy becomes an instance of its prefab. "New material" writes a fresh `.material.json` in the project's `assets` folder and inspects it; "New script" writes a script with every hook, empty, in the `scripts` folder (the first asset root when the project has no `scripts` root) and inspects it.
+The Assets panel lists the open project's assets ([assets.md](assets.md#database)) with a text filter and a multi-select type filter (a combo with a checkbox per type, labelled "All", the type, or "N types"; nothing checked means all types, "Clear" unchecks everything; an asset shows when its type is checked and its name contains the text): name, type and source file, sub-assets under their glTF file. Clicking a row clears the entity selection and shows the asset in the inspector; rows are drag sources for the inspector's pickers, and a model dropped on the hierarchy becomes an instance of its prefab. "New material" writes a fresh `.material.json` in the project's `assets` folder and inspects it; "New script" writes a script with every hook, empty, in the `scripts` folder (the first asset root when the project has no `scripts` root) and inspects it.
 
 The inspector shows an asset's name, type, source and identity, with a Reimport button, and per type:
 

@@ -2,11 +2,11 @@
 
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/Selection.h>
+#include <sonnet/editor/TypeFilter.h>
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/core/Uuid.h>
 
-#include <optional>
 #include <string>
 
 namespace sonnet::editor {
@@ -19,7 +19,7 @@ constexpr const char *AssetDragPayload = "SONNET_ASSET";
 // an identity the database does not know.
 [[nodiscard]] std::string assetLabel(const assets::AssetDatabase &assets, const core::Uuid &uuid);
 
-// The project's assets by type and name (docs/editor.md, "Asset browser"): a filter, a type
+// The project's assets by type and name (docs/editor.md, "Asset browser"): a filter, a multi-select type
 // filter, one row per asset. Clicking inspects the asset; rows are drag sources; the buttons
 // create a material file in the assets folder and a script in the scripts folder.
 class AssetBrowserPanel {
@@ -44,7 +44,7 @@ private:
   Selection &m_selection;
   core::Uuid m_inspected;
   std::string m_filter;
-  std::optional<assets::AssetType> m_type;
+  TypeFilter m_types;
 };
 
 } // namespace sonnet::editor
