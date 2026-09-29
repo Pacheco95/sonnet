@@ -63,7 +63,7 @@ Per iteration:
 3. Interpolate transforms for rendering, build the frame's draw list and light list.
 4. Execute the render graph and present.
 
-Everything runs on the main thread until the job system of M8 exists. The render graph is designed so that recording can move to worker threads later without changing its API.
+The job system of M8 ([ADR-0013](decisions/0013-job-system.md)) runs physics, asset imports and other work off the main thread. Recording stays on the main thread: since GPU-driven rendering a scene pass is a handful of calls, so there is nothing to spread ([ADR-0013](decisions/0013-job-system.md)).
 
 ## Entity model
 
