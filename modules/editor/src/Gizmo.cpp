@@ -87,17 +87,14 @@ float angleInPlane(glm::vec3 point, glm::vec3 origin, glm::vec3 axis) {
 ImU32 axisColor(GizmoAxis axis, bool highlighted) {
   switch (axis) {
   case GizmoAxis::X:
+  case GizmoAxis::PlaneYZ: // a plane takes the colour of its normal
     return highlighted ? IM_COL32(255, 130, 130, 255) : IM_COL32(225, 60, 60, 255);
   case GizmoAxis::Y:
-    return highlighted ? IM_COL32(150, 255, 150, 255) : IM_COL32(70, 200, 70, 255);
-  case GizmoAxis::Z:
-    return highlighted ? IM_COL32(150, 170, 255, 255) : IM_COL32(70, 110, 255, 255);
-  case GizmoAxis::PlaneXY:
-    return highlighted ? IM_COL32(150, 170, 255, 255) : IM_COL32(70, 110, 255, 255);
-  case GizmoAxis::PlaneYZ:
-    return highlighted ? IM_COL32(255, 130, 130, 255) : IM_COL32(225, 60, 60, 255);
   case GizmoAxis::PlaneXZ:
     return highlighted ? IM_COL32(150, 255, 150, 255) : IM_COL32(70, 200, 70, 255);
+  case GizmoAxis::Z:
+  case GizmoAxis::PlaneXY:
+    return highlighted ? IM_COL32(150, 170, 255, 255) : IM_COL32(70, 110, 255, 255);
   case GizmoAxis::None:
     break;
   }
