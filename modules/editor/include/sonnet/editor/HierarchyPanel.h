@@ -35,6 +35,7 @@ public:
 
 private:
   void drawNode(flecs::entity entity);
+  void drawBackgroundMenu();
   void drawCreateMenu(core::Uuid parent);
   void drawContextMenu(flecs::entity entity);
   void acceptDrop(core::Uuid newParent);

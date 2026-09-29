@@ -60,18 +60,29 @@ void HierarchyPanel::draw(bool &open) {
   if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
     m_selection.clear();
   }
+  // Anywhere in the window away from the rows, and the drop area below them, opens the same menu, so the tree's
+  // menu never needs scrolling to.
+  if (ImGui::BeginPopupContextWindow("window menu",
+                                     ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+    drawBackgroundMenu();
+    ImGui::EndPopup();
+  }
   if (ImGui::BeginPopupContextItem("background menu")) {
-    if (ImGui::MenuItem("Expand all")) {
-      setOpenRecursive({}, true);
-    }
-    if (ImGui::MenuItem("Collapse all")) {
-      setOpenRecursive({}, false);
-    }
-    ImGui::Separator();
-    drawCreateMenu({});
+    drawBackgroundMenu();
     ImGui::EndPopup();
   }
   ImGui::End();
+}
+
+void HierarchyPanel::drawBackgroundMenu() {
+  if (ImGui::MenuItem("Expand all")) {
+    setOpenRecursive({}, true);
+  }
+  if (ImGui::MenuItem("Collapse all")) {
+    setOpenRecursive({}, false);
+  }
+  ImGui::Separator();
+  drawCreateMenu({});
 }
 
 void HierarchyPanel::setOpenRecursive(core::Uuid root, bool open) {
