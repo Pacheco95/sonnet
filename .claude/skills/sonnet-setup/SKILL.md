@@ -1,8 +1,8 @@
 ---
-name: setup-sonnet
+name: sonnet-setup
 description: Set up a Linux or Windows machine to build and test Sonnet - check the prerequisites, guide the installs, bootstrap vcpkg, configure, build, run the tests, take an editor screenshot, and on request write a VS Code configuration that builds, runs and debugs the editor and the tests. Use when someone asks to set up, bootstrap or first build the project on Linux or Windows, or when a fresh build fails for a missing prerequisite - a CMake configure or vcpkg install error, missing X11 or Wayland headers, no Visual Studio C++ workload, no C++23 compiler, no Vulkan 1.4 device, or a sanitizer or coverage preset that will not configure. Also use when someone wants VS Code set up to build, run or debug Sonnet.
 argument-hint: "[check | vscode | <preset>]"
-allowed-tools: Bash(python3 tools/check_setup.py), Bash(ldconfig -p), Bash(vulkaninfo --summary), Bash(git -C * status --porcelain), Bash(python3 .claude/skills/setup-sonnet/scripts/vscode.py *), PowerShell(python3 tools/check_setup.py), PowerShell(vulkaninfo --summary), PowerShell(git -C * status --porcelain), PowerShell(python3 .claude/skills/setup-sonnet/scripts/vscode.py *)
+allowed-tools: Bash(python3 tools/check_setup.py), Bash(ldconfig -p), Bash(vulkaninfo --summary), Bash(git -C * status --porcelain), Bash(python3 .claude/skills/sonnet-setup/scripts/vscode.py *), PowerShell(python3 tools/check_setup.py), PowerShell(vulkaninfo --summary), PowerShell(git -C * status --porcelain), PowerShell(python3 .claude/skills/sonnet-setup/scripts/vscode.py *)
 ---
 
 # Set up Sonnet on Linux or Windows
@@ -163,7 +163,7 @@ Same exit codes and PNG contents as Linux (basic sample scene: ground, spinning 
 Only if the user said yes in step 1, or passed `vscode`. It needs the preset configured, so skip it if step 3's configure did not succeed, and say so. A failed test or screenshot does not stop it: the configuration is for debugging exactly those.
 
 ```bash
-python3 .claude/skills/setup-sonnet/scripts/vscode.py --preset <preset> --icd <Lavapipe manifest from the report> [--env KEY=VALUE ...] [--editor-env KEY=VALUE ...]
+python3 .claude/skills/sonnet-setup/scripts/vscode.py --preset <preset> --icd <Lavapipe manifest from the report> [--env KEY=VALUE ...] [--editor-env KEY=VALUE ...]
 ```
 
 `--icd` is required on Linux and optional on Windows (there is usually no Lavapipe manifest to pass there; leave it out unless the user set one up).
