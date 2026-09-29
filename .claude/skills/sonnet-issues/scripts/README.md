@@ -121,6 +121,17 @@ Puts the priorities at the top of the board. Run it after `update_project.py`.
 python3 .claude/skills/sonnet-issues/scripts/reorder_project.py --project-owner USERNAME --project-number 1 [--dry-run]
 ```
 
-Order, top to bottom: open items by Priority Tier (Quick Win, Medium Fit, Deferred, no tier), smaller Effort (hours) first within a tier, then the lower issue number; Done items last. `--dry-run` prints the order without moving anything.
+Order, top to bottom: open items by Priority Tier (Quick Win, Medium Fit, Deferred, no tier), smaller Effort (hours) first within a tier, then the lower issue number; Blocked items after the other open ones; Done items last. `--dry-run` prints the order without moving anything.
 
 Items added to the board a moment earlier can be missing from the first listing, so add new issues first and run this afterwards. If the board's Table view sorts by a field, clear that sort to see the manual order.
+
+## dependencies.py
+
+Maps the dependencies between open issues, reports cycles and finds the ones the issue texts state but GitHub does not know.
+
+```bash
+python3 .claude/skills/sonnet-issues/scripts/dependencies.py           # report only
+python3 .claude/skills/sonnet-issues/scripts/dependencies.py --apply   # add the missing native links
+```
+
+An edge `A -> B` means A is blocked by B. Sources: native "blocked by" links, and `Depends on #N` / `Blocked by #N` up to the end of the sentence in an issue body. Only edges between two open issues count. Cycles are printed as `#A -> #B -> #A` and make the exit status 2. `--apply` adds native links only, skips any that would close a cycle, and never changes a card's Status.

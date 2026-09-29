@@ -8,7 +8,8 @@ Usage:
 Order, top to bottom:
   1. Open items by Priority Tier: Quick Win, Medium Fit, Deferred, then items with no tier
   2. Within a tier, smaller Effort (hours) first, then the lower issue number
-  3. Done items last, in the same order
+  3. Blocked items after every other open item, in the same order
+  4. Done items last, in the same order
 
 The board's own Table view may sort by a field and hide this order; clear its sort to see it.
 
@@ -39,9 +40,13 @@ def gh(*args: str) -> str:
     return result.stdout
 
 
+# Open work first, then cards parked as Blocked, then finished ones.
+STATUS_RANK = {"Blocked": 1, "Done": 2}
+
+
 def sort_key(item: dict) -> tuple:
     return (
-        item.get("status") == "Done",
+        STATUS_RANK.get(item.get("status"), 0),
         TIERS.get(item.get("priority Tier"), len(TIERS)),
         item.get("effort (hours)") or 0,
         item["content"].get("number", 0),

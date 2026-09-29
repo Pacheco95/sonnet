@@ -36,7 +36,9 @@ The output of this skill is designed to automatically update your [GitHub Projec
    - Never target a milestone the roadmap marks as done. If the only remaining options are for finished milestones plus Post-1.0 and M11+, use those, and tell the user which options are stale and that a new one (for example "1.0.0" for work before the release tag) would let pre-release polish be tagged properly.
 
 4. **Status** (Built-in)
-   - Options: Todo, In Progress, Done
+   - Options: Todo, In Progress, Blocked, Done. Read the live options with `gh project field-list 1 --owner Pacheco95 --format json`.
+   - **Blocked** marks a card whose work was started and then hit a blocker during development (an upstream fix, hardware or a platform not available). Whoever is developing the card sets it, and moves it back when the blocker clears. This skill never moves a card to or from Blocked and does not touch Status at all (`update_project.py` doesn't either). A blocker it finds while planning, whether another open issue or something external, goes in the report: the tier is Deferred and the dependency or external cause is named. A card already in Blocked stays there.
+   - Do not add or rename Status options through the API without care: `updateProjectV2Field` regenerates every option ID and resets every card's Status. Record all cards' Status first and restore them afterwards.
 
 **Automated Workflow:**
 1. Run the skill → get prioritized report + update summary
@@ -109,6 +111,13 @@ For each issue, estimate hours including:
 
 Be realistic: a "small" feature that spans multiple systems or has platform-specific variants costs more than it looks.
 
+**Map the dependencies between the open issues.** Run `python3 .claude/skills/sonnet-issues/scripts/dependencies.py` from the repository root. It reads every open issue's native "blocked by" links and the "Depends on #N" / "Blocked by #N" sentences in the bodies, and prints:
+- the dependency edges between open issues (a closed blocker is already satisfied and left out),
+- **missing native links**: dependencies a text states that have no native link yet,
+- **cycles**: chains such as #A → #B → #A, where nothing on the loop can start. Exit status 2.
+
+Use the edges in the report: an issue blocked by another open issue is Deferred at most, with the blocker named, and its effort is what it takes once unblocked. Always put cycles in the report, with the issues on the loop and a suggestion for the link to break (usually the one that reads as a soft "do first"). The check never changes a card's Status. Adding the missing native links is a change to the issues, so ask first, then run the script with `--apply`; it skips any link that would close a cycle.
+
 ### Step 3: Produce a Prioritized Report & Project Update Summary
 
 Create a markdown report structured like this, followed by a summary table for project updates:
@@ -156,6 +165,14 @@ Issues that don't fit now but are worth keeping.
 - **Impact**: [value if we decide to do it]
 - **Effort**: [X+ hours] – (high because architectural redesign needed)
 - **Suggested Comment**: "This is a great idea, but it would require rearchitecting..."
+
+---
+
+## 🔗 Dependencies
+
+- Edges between open issues (`#75` blocked by `#79`), from the dependency check
+- Missing native links, to add after approval
+- **Cycles**: each loop written out, or "none"
 
 ---
 
@@ -239,7 +256,7 @@ When the user approves the suggestions from the "Improvements & Comments" sectio
 
 - **Quick Wins Don't Stay Quick**: If an issue seems simple but touches multiple systems, it's not a quick win. Be honest about scope.
 
-- **Blockers Are Real**: If an issue depends on another milestone's work, mark it clearly. Don't say "could maybe do this" if the foundation isn't there.
+- **Blockers Are Real**: If an issue depends on another milestone's work, mark it clearly, and say so in the report and use the Deferred tier; never change Status. Don't say "could maybe do this" if the foundation isn't there.
 
 - **User Context Matters**: A one-line bug report that blocks 50 users is higher priority than a polished feature request from one person.
 
@@ -262,7 +279,7 @@ Your [Sonnet Issue Prioritization project](https://github.com/users/Pacheco95/pr
 
 **View options in project:**
 - **Table**: See all fields side-by-side; best for reviewing updates
-- **Kanban**: Drag issues through Todo → In Progress → Done
+- **Kanban**: Drag issues through Todo → In Progress → Blocked/Done
 - **Filter**: "Priority Tier is Quick Win" to see high-priority items
 
 **Manual override:**
@@ -287,7 +304,7 @@ To update the project:
    - Set **Effort (hours)** to the hour estimate
    - Set **Milestone** if specified
 4. Filter by Priority Tier to see **Quick Wins** at the top
-5. Use the project's kanban view to track progress as work moves from Backlog → Ready → In Progress → Done
+5. Use the project's kanban view to track progress as work moves from Todo → In Progress → Done (Blocked when waiting on something)
 
 ## Example
 
