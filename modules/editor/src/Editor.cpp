@@ -795,7 +795,7 @@ void Editor::loadPrefabs() {
 }
 
 void Editor::addTab() {
-  m_tabs.push_back(SceneTab{.id = m_nextTabId++});
+  m_tabs.emplace_back().id = m_nextTabId++;
   m_activeTab = m_tabs.size() - 1;
   m_selectActiveTab = true;
 }
