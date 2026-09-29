@@ -3,12 +3,17 @@
 #include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/EntityCommands.h>
 
+#include <sonnet/audio/Components.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/physics/Components.h>
+#include <sonnet/scripting/Components.h>
 
 #include <imgui.h>
+#include <imgui_stdlib.h>
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <format>
 #include <string>
 #include <utility>
@@ -34,7 +39,87 @@ std::string nameOf(flecs::entity entity) {
   return name != nullptr && !name->value.empty() ? name->value : "(unnamed)";
 }
 
+// The kinds of entity the filter offers, each decided by which components the entity has.
+// The order matches KindNames.
+using KindTest = bool (*)(flecs::entity);
+const std::array<KindTest, 10> Kinds{{
+    [](flecs::entity e) { return e.has<world::MeshRenderer>(); },
+    [](flecs::entity e) { return e.has<world::SkinnedMesh>(); },
+    [](flecs::entity e) { return e.has<world::Animator>(); },
+    [](flecs::entity e) {
+      return e.has<world::PointLight>() || e.has<world::SpotLight>() || e.has<world::DirectionalLight>();
+    },
+    [](flecs::entity e) { return e.has<world::Camera>(); },
+    [](flecs::entity e) { return e.has<audio::AudioSource>() || e.has<audio::AudioListener>(); },
+    [](flecs::entity e) { return e.has<scripting::Script>(); },
+    [](flecs::entity e) { return e.has<physics::RigidBody>(); },
+    [](flecs::entity e) {
+      return e.has<physics::BoxCollider>() || e.has<physics::SphereCollider>() || e.has<physics::CapsuleCollider>() ||
+             e.has<physics::MeshCollider>();
+    },
+    [](flecs::entity e) { return e.has<world::Environment>(); },
+}};
+
+constexpr std::array<const char *, 10> KindNames{"Meshes",    "Skinned meshes", "Animators", "Lights",
+                                                 "Cameras",   "Audio",          "Scripts",   "Rigid bodies",
+                                                 "Colliders", "Environments"};
+
+bool containsIgnoringCase(std::string_view text, std::string_view needle) {
+  const auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+  return std::ranges::search(text, needle, [&](char a, char b) {
+           return lower(static_cast<unsigned char>(a)) == lower(static_cast<unsigned char>(b));
+         }).begin() != text.end();
+}
+
 } // namespace
+
+std::span<const char *const> HierarchyPanel::kindNames() noexcept {
+  return KindNames;
+}
+
+bool HierarchyPanel::matchesFilter(flecs::entity entity) const {
+  if (!m_filter.empty() && !containsIgnoringCase(nameOf(entity), m_filter)) {
+    return false;
+  }
+  if (m_kinds.empty()) {
+    return true;
+  }
+  for (std::size_t i = 0; i < Kinds.size(); ++i) {
+    if (m_kinds.checked(i) && Kinds[i](entity)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// True when the entity or anything under it matches: the rows the pruned tree keeps.
+bool HierarchyPanel::subtreeMatches(flecs::entity entity) const {
+  if (matchesFilter(entity)) {
+    return true;
+  }
+  const std::vector<flecs::entity> children = m_world.children(entity);
+  return std::ranges::any_of(children, [&](flecs::entity child) { return subtreeMatches(child); });
+}
+
+void HierarchyPanel::collectVisible(flecs::entity entity, std::vector<core::Uuid> &out) const {
+  if (filtering() && !subtreeMatches(entity)) {
+    return;
+  }
+  out.push_back(m_world.uuidOf(entity));
+  for (const flecs::entity child : m_world.children(entity)) {
+    collectVisible(child, out);
+  }
+}
+
+std::vector<core::Uuid> HierarchyPanel::visibleEntities() const {
+  std::vector<core::Uuid> out;
+  for (const flecs::entity root : m_world.roots()) {
+    if (!root.has<world::EditorOnly>()) {
+      collectVisible(root, out);
+    }
+  }
+  return out;
+}
 
 HierarchyPanel::HierarchyPanel(world::World &world, Selection &selection, CommandStack &commands,
                                std::function<void()> focus)
@@ -53,8 +138,12 @@ void HierarchyPanel::draw(bool &open) {
     drawBackgroundMenu();
     ImGui::EndPopup();
   }
+  ImGui::SetNextItemWidth(160.0f);
+  ImGui::InputTextWithHint("##filter", "filter", &m_filter);
+  ImGui::SameLine();
+  typeFilterCombo("##kind", 130.0f, kindNames(), m_kinds);
   for (const flecs::entity root : m_world.roots()) {
-    if (!root.has<world::EditorOnly>()) {
+    if (!root.has<world::EditorOnly>() && (!filtering() || subtreeMatches(root))) {
       drawNode(root);
     }
   }
@@ -110,7 +199,12 @@ void HierarchyPanel::applyOpenToDescendants(flecs::entity entity, bool open) {
 
 void HierarchyPanel::drawNode(flecs::entity entity) {
   const core::Uuid uuid = m_world.uuidOf(entity);
-  const std::vector<flecs::entity> children = m_world.children(entity);
+  std::vector<flecs::entity> children = m_world.children(entity);
+  const bool filtered = filtering();
+  if (filtered) {
+    std::erase_if(children, [&](flecs::entity child) { return !subtreeMatches(child); });
+  }
+  const bool ancestorOnly = filtered && !matchesFilter(entity);
   ImGuiTreeNodeFlags flags =
       ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
   if (children.empty()) {
@@ -133,7 +227,17 @@ void HierarchyPanel::drawNode(flecs::entity entity) {
     applyOpenToDescendants(entity, m_activeOpen->open);
     ImGui::PopID();
   }
+  // While filtering, the ancestors of matches are open, and those that do not match are greyed.
+  if (filtered && !children.empty()) {
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+  }
+  if (ancestorOnly) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+  }
   const bool opened = ImGui::TreeNodeEx("node", flags, "%s", label.c_str());
+  if (ancestorOnly) {
+    ImGui::PopStyleColor();
+  }
   if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
     selectClicked(entity);
   }

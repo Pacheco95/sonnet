@@ -1,5 +1,7 @@
 #include <sonnet/editor/AssetBrowserPanel.h>
 
+#include <sonnet/editor/TypeFilter.h>
+
 #include <sonnet/core/Log.h>
 
 #include <imgui.h>
@@ -17,19 +19,6 @@ namespace sonnet::editor {
 
 namespace {
 
-constexpr std::array<std::pair<const char *, std::optional<assets::AssetType>>, 10> TypeFilters{{
-    {"All", std::nullopt},
-    {"Textures", assets::AssetType::Texture},
-    {"Meshes", assets::AssetType::Mesh},
-    {"Materials", assets::AssetType::Material},
-    {"Models", assets::AssetType::Model},
-    {"Environments", assets::AssetType::Environment},
-    {"Scripts", assets::AssetType::Script},
-    {"Sounds", assets::AssetType::Sound},
-    {"Skins", assets::AssetType::Skin},
-    {"Animations", assets::AssetType::Animation},
-}};
-
 // What "New script" writes: every hook, empty, and the shape a script has to return.
 constexpr std::string_view ScriptTemplate = R"lua(-- Runs on its entity in play mode; see docs/scripting.md.
 local Script = {}
@@ -45,16 +34,6 @@ end
 
 return Script
 )lua";
-
-bool containsIgnoringCase(std::string_view text, std::string_view needle) {
-  if (needle.empty()) {
-    return true;
-  }
-  const auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
-  return std::ranges::search(text, needle, [&](char a, char b) {
-           return lower(static_cast<unsigned char>(a)) == lower(static_cast<unsigned char>(b));
-         }).begin() != text.end();
-}
 
 } // namespace
 
@@ -86,21 +65,7 @@ void AssetBrowserPanel::draw(bool &open) {
   ImGui::SetNextItemWidth(160.0f);
   ImGui::InputTextWithHint("##filter", "filter", &m_filter);
   ImGui::SameLine();
-  const char *current = "All";
-  for (const auto &[name, type] : TypeFilters) {
-    if (type == m_type) {
-      current = name;
-    }
-  }
-  ImGui::SetNextItemWidth(130.0f);
-  if (ImGui::BeginCombo("##type", current)) {
-    for (const auto &[name, type] : TypeFilters) {
-      if (ImGui::Selectable(name, type == m_type)) {
-        m_type = type;
-      }
-    }
-    ImGui::EndCombo();
-  }
+  typeFilterCombo("##type", 130.0f, filterableAssetTypeNames(), m_types);
   ImGui::SameLine();
   if (ImGui::Button("New material")) {
     createMaterial();
@@ -117,8 +82,8 @@ void AssetBrowserPanel::draw(bool &open) {
     ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 90.0f);
     ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthStretch, 3.0f);
     ImGui::TableHeadersRow();
-    for (const assets::AssetInfo *info : m_assets.assets(m_type)) {
-      if (!containsIgnoringCase(info->name, m_filter)) {
+    for (const assets::AssetInfo *info : m_assets.assets()) {
+      if (!assetPassesFilter(*info, m_filter, m_types)) {
         continue;
       }
       ImGui::TableNextRow();
@@ -136,7 +101,8 @@ void AssetBrowserPanel::draw(bool &open) {
         ImGui::EndDragDropSource();
       }
       ImGui::TableNextColumn();
-      ImGui::TextUnformatted(assets::toString(info->type).data());
+      const std::string_view type = assets::toString(info->type);
+      ImGui::TextUnformatted(type.data(), type.data() + type.size());
       ImGui::TableNextColumn();
       const std::string source = info->source == "builtin"
                                      ? std::string{"built-in"}
