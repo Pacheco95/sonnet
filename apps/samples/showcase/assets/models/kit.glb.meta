@@ -1,0 +1,507 @@
+{
+  "settings": {},
+  "sourceHash": "4e657ef07883c323",
+  "subAssets": [
+    {
+      "materials": [
+        "271985af-d78a-8465-a4b2-33f84c9351bb"
+      ],
+      "name": "PavingWest",
+      "type": "Mesh",
+      "uuid": "002ddb48-4e05-8c69-9b6e-2e939611c67d"
+    },
+    {
+      "materials": [
+        "741785af-d789-8465-97b4-33f84c9451bb"
+      ],
+      "name": "Cornice",
+      "type": "Mesh",
+      "uuid": "091d73cc-05bd-80f2-9c0e-ec17dc7c05e6"
+    },
+    {
+      "materials": [],
+      "name": "image 5",
+      "type": "Texture",
+      "uuid": "0ba904e9-d88f-8e41-8ed8-dc933eee0c36"
+    },
+    {
+      "materials": [],
+      "name": "Terracotta",
+      "type": "Material",
+      "uuid": "0e1485af-d787-8465-b1b0-33f84c9251bb"
+    },
+    {
+      "materials": [
+        "5b1285af-d786-8465-98ab-33f84c8f51bb"
+      ],
+      "name": "HangingLantern",
+      "type": "Mesh",
+      "uuid": "113f76cc-0548-84f2-b422-e917dc1102e6"
+    },
+    {
+      "materials": [
+        "c11585af-d788-8465-beae-33f84c9151bb"
+      ],
+      "name": "CanopySmall",
+      "type": "Mesh",
+      "uuid": "132e76cc-053e-84f2-8218-e917dc0b02e6"
+    },
+    {
+      "materials": [],
+      "name": "Grass",
+      "type": "Material",
+      "uuid": "15a2293f-7f03-81ea-bc04-d8bfc99f4f7f"
+    },
+    {
+      "materials": [
+        "271985af-d78a-8465-a4b2-33f84c9351bb"
+      ],
+      "name": "PavingSouth",
+      "type": "Mesh",
+      "uuid": "1932db48-4e08-8c69-8e70-2e939612c67d"
+    },
+    {
+      "materials": [],
+      "name": "image 12",
+      "type": "Texture",
+      "uuid": "1fe2f6f2-931e-8590-b89d-4f405508dfb4"
+    },
+    {
+      "materials": [
+        "741785af-d789-8465-97b4-33f84c9451bb"
+      ],
+      "name": "ArcadeArch",
+      "type": "Mesh",
+      "uuid": "222273cc-05c0-80f2-8309-ec17dc7905e6"
+    },
+    {
+      "materials": [],
+      "name": "image 0",
+      "type": "Texture",
+      "uuid": "24ae04e9-d892-8e41-8de1-dc933ef30c36"
+    },
+    {
+      "materials": [],
+      "name": "Cobbles",
+      "type": "Material",
+      "uuid": "271985af-d78a-8465-a4b2-33f84c9351bb"
+    },
+    {
+      "materials": [
+        "c11585af-d788-8465-beae-33f84c9151bb"
+      ],
+      "name": "Canopy",
+      "type": "Mesh",
+      "uuid": "2a4476cc-054b-84f2-9b1d-e917dc0e02e6"
+    },
+    {
+      "materials": [
+        "8d1c85af-d78c-8465-8ab5-33f84c9551bb"
+      ],
+      "name": "RingC",
+      "type": "Mesh",
+      "uuid": "311670cc-0542-8df2-b0e5-e217dcfffae5"
+    },
+    {
+      "materials": [
+        "15a2293f-7f03-81ea-bc04-d8bfc99f4f7f"
+      ],
+      "name": "GrassNorth",
+      "type": "Mesh",
+      "uuid": "3237db48-4e0b-8c69-8d78-2e939617c67d"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "RimShort",
+      "type": "Mesh",
+      "uuid": "330570cc-0538-8df2-aef6-e217dc09fbe5"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "Bench",
+      "type": "Mesh",
+      "uuid": "345579cc-05cc-87f2-9562-f117dc050ce6"
+    },
+    {
+      "materials": [],
+      "name": "image 3",
+      "type": "Texture",
+      "uuid": "3db304e9-d895-8e41-b4db-dc933ef00c36"
+    },
+    {
+      "materials": [],
+      "name": "image 9",
+      "type": "Texture",
+      "uuid": "3fa204e9-d88b-8e41-82d1-dc933eea0c36"
+    },
+    {
+      "materials": [
+        "5b1285af-d786-8465-98ab-33f84c8f51bb"
+      ],
+      "name": "WindowPanel",
+      "type": "Mesh",
+      "uuid": "4b3cdb48-4e0e-8c69-905f-2e939608c67d"
+    },
+    {
+      "materials": [
+        "8d1c85af-d78c-8465-8ab5-33f84c9551bb"
+      ],
+      "name": "RingB",
+      "type": "Mesh",
+      "uuid": "4c0a70cc-053b-8df2-adfe-e217dc0efbe5"
+    },
+    {
+      "materials": [
+        "741785af-d789-8465-97b4-33f84c9451bb"
+      ],
+      "name": "Wing",
+      "type": "Mesh",
+      "uuid": "561b73cc-05bc-80f2-8f10-ec17dc7d05e6"
+    },
+    {
+      "materials": [],
+      "name": "image 4",
+      "type": "Texture",
+      "uuid": "58a704e9-d88e-8e41-81da-dc933eef0c36"
+    },
+    {
+      "materials": [],
+      "name": "Iron",
+      "type": "Material",
+      "uuid": "5b1285af-d786-8465-98ab-33f84c8f51bb"
+    },
+    {
+      "materials": [
+        "5b1285af-d786-8465-98ab-33f84c8f51bb"
+      ],
+      "name": "Bulb",
+      "type": "Mesh",
+      "uuid": "5e3d76cc-0547-84f2-a724-e917dc1202e6"
+    },
+    {
+      "materials": [
+        "c11585af-d788-8465-beae-33f84c9151bb"
+      ],
+      "name": "Cypress",
+      "type": "Mesh",
+      "uuid": "602c76cc-053d-84f2-b51a-e917dc0c02e6"
+    },
+    {
+      "materials": [],
+      "name": "Basin",
+      "type": "Material",
+      "uuid": "62a0293f-7f02-81ea-af06-d8bfc9a04f7f"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "Pedestal",
+      "type": "Mesh",
+      "uuid": "650f70cc-053e-8df2-94f9-e217dc0bfbe5"
+    },
+    {
+      "materials": [
+        "271985af-d78a-8465-a4b2-33f84c9351bb"
+      ],
+      "name": "PavingNorth",
+      "type": "Mesh",
+      "uuid": "6630db48-4e07-8c69-8172-2e939613c67d"
+    },
+    {
+      "materials": [],
+      "name": "image 13",
+      "type": "Texture",
+      "uuid": "6ce0f6f2-931d-8590-ab9f-4f405509dfb4"
+    },
+    {
+      "materials": [
+        "741785af-d789-8465-97b4-33f84c9451bb"
+      ],
+      "name": "Tower",
+      "type": "Mesh",
+      "uuid": "6d3173cc-05c9-80f2-a815-ec17dc8005e6"
+    },
+    {
+      "materials": [
+        "741785af-d789-8465-97b4-33f84c9451bb"
+      ],
+      "name": "GateJamb",
+      "type": "Mesh",
+      "uuid": "6f2073cc-05bf-80f2-b60a-ec17dc7a05e6"
+    },
+    {
+      "materials": [],
+      "name": "image 7",
+      "type": "Texture",
+      "uuid": "71ac04e9-d891-8e41-a8d5-dc933eec0c36"
+    },
+    {
+      "materials": [],
+      "name": "Sandstone",
+      "type": "Material",
+      "uuid": "741785af-d789-8465-97b4-33f84c9451bb"
+    },
+    {
+      "materials": [
+        "5b1285af-d786-8465-98ab-33f84c8f51bb"
+      ],
+      "name": "BulbSmall",
+      "type": "Mesh",
+      "uuid": "774276cc-054a-84f2-8e1f-e917dc0f02e6"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "Column",
+      "type": "Mesh",
+      "uuid": "7e1470cc-0541-8df2-a3e7-e217dc00fbe5"
+    },
+    {
+      "materials": [
+        "15a2293f-7f03-81ea-bc04-d8bfc99f4f7f"
+      ],
+      "name": "GrassEast",
+      "type": "Mesh",
+      "uuid": "7f35db48-4e0a-8c69-b473-2e939614c67d"
+    },
+    {
+      "materials": [
+        "a81085af-d785-8465-8bad-33f84c9051bb"
+      ],
+      "name": "Water",
+      "type": "Mesh",
+      "uuid": "800370cc-0537-8df2-a1f8-e217dc0afbe5"
+    },
+    {
+      "materials": [],
+      "name": "image 10",
+      "type": "Texture",
+      "uuid": "85e5f6f2-9320-8590-9ea1-4f40550adfb4"
+    },
+    {
+      "materials": [],
+      "name": "image 2",
+      "type": "Texture",
+      "uuid": "8ab104e9-d894-8e41-a7dd-dc933ef10c36"
+    },
+    {
+      "materials": [],
+      "name": "image 8",
+      "type": "Texture",
+      "uuid": "8ca004e9-d88a-8e41-b5d3-dc933eeb0c36"
+    },
+    {
+      "materials": [],
+      "name": "Gold",
+      "type": "Material",
+      "uuid": "8d1c85af-d78c-8465-8ab5-33f84c9551bb"
+    },
+    {
+      "materials": [],
+      "name": "Cloth",
+      "type": "Material",
+      "uuid": "8f0b85af-d782-8465-8ca4-33f84c8b51bb"
+    },
+    {
+      "materials": [
+        "62a0293f-7f02-81ea-af06-d8bfc9a04f7f"
+      ],
+      "name": "BasinFloor",
+      "type": "Mesh",
+      "uuid": "983adb48-4e0d-8c69-8361-2e939609c67d"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "Sill",
+      "type": "Mesh",
+      "uuid": "990870cc-053a-8df2-88f3-e217dc07fbe5"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "StepMid",
+      "type": "Mesh",
+      "uuid": "a31973cc-05bb-80f2-8211-ec17dc7e05e6"
+    },
+    {
+      "materials": [],
+      "name": "Water",
+      "type": "Material",
+      "uuid": "a81085af-d785-8465-8bad-33f84c9051bb"
+    },
+    {
+      "materials": [
+        "0e1485af-d787-8465-b1b0-33f84c9251bb"
+      ],
+      "name": "TowerRoof",
+      "type": "Mesh",
+      "uuid": "ab3b76cc-0546-84f2-9a26-e917dc1302e6"
+    },
+    {
+      "materials": [
+        "8d1c85af-d78c-8465-8ab5-33f84c9551bb"
+      ],
+      "name": "GoldSphere",
+      "type": "Mesh",
+      "uuid": "b20d70cc-053d-8df2-87fb-e217dc0cfbe5"
+    },
+    {
+      "materials": [
+        "271985af-d78a-8465-a4b2-33f84c9351bb"
+      ],
+      "name": "PavingEast",
+      "type": "Mesh",
+      "uuid": "b32edb48-4e06-8c69-a86c-2e939610c67d"
+    },
+    {
+      "materials": [],
+      "name": "image 14",
+      "type": "Texture",
+      "uuid": "b9def6f2-931c-8590-aaa7-4f40550edfb4"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "StepHigh",
+      "type": "Mesh",
+      "uuid": "ba2f73cc-05c8-80f2-9b16-ec17dc8105e6"
+    },
+    {
+      "materials": [
+        "741785af-d789-8465-97b4-33f84c9451bb"
+      ],
+      "name": "GateArch",
+      "type": "Mesh",
+      "uuid": "bc1e73cc-05be-80f2-a90c-ec17dc7b05e6"
+    },
+    {
+      "materials": [],
+      "name": "image 6",
+      "type": "Texture",
+      "uuid": "beaa04e9-d890-8e41-9bd6-dc933eed0c36"
+    },
+    {
+      "materials": [],
+      "name": "Leaves",
+      "type": "Material",
+      "uuid": "c11585af-d788-8465-beae-33f84c9151bb"
+    },
+    {
+      "materials": [
+        "0e1485af-d787-8465-b1b0-33f84c9251bb"
+      ],
+      "name": "Planter",
+      "type": "Mesh",
+      "uuid": "c44076cc-0549-84f2-8121-e917dc1002e6"
+    },
+    {
+      "materials": [
+        "15a2293f-7f03-81ea-bc04-d8bfc99f4f7f"
+      ],
+      "name": "GrassWest",
+      "type": "Mesh",
+      "uuid": "cc33db48-4e09-8c69-a775-2e939615c67d"
+    },
+    {
+      "materials": [],
+      "name": "image 11",
+      "type": "Texture",
+      "uuid": "d2e3f6f2-931f-8590-91a2-4f40550bdfb4"
+    },
+    {
+      "materials": [
+        "741785af-d789-8465-97b4-33f84c9451bb"
+      ],
+      "name": "Gallery",
+      "type": "Mesh",
+      "uuid": "d52373cc-05c1-80f2-9007-ec17dc7805e6"
+    },
+    {
+      "materials": [],
+      "name": "image 1",
+      "type": "Texture",
+      "uuid": "d7af04e9-d893-8e41-9adf-dc933ef20c36"
+    },
+    {
+      "materials": [],
+      "name": "Marble",
+      "type": "Material",
+      "uuid": "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+    },
+    {
+      "materials": [],
+      "name": "Bark",
+      "type": "Material",
+      "uuid": "dc0985af-d781-8465-bfa6-33f84c8c51bb"
+    },
+    {
+      "materials": [
+        "dc0985af-d781-8465-bfa6-33f84c8c51bb"
+      ],
+      "name": "Trunk",
+      "type": "Mesh",
+      "uuid": "dd4576cc-054c-84f2-a81b-e917dc0d02e6"
+    },
+    {
+      "materials": [
+        "15a2293f-7f03-81ea-bc04-d8bfc99f4f7f"
+      ],
+      "name": "GrassSouth",
+      "type": "Mesh",
+      "uuid": "e538db48-4e0c-8c69-9a77-2e939616c67d"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "RimLong",
+      "type": "Mesh",
+      "uuid": "e60670cc-0539-8df2-bbf4-e217dc08fbe5"
+    },
+    {
+      "materials": [
+        "8f0b85af-d782-8465-8ca4-33f84c8b51bb"
+      ],
+      "name": "Banner",
+      "type": "Mesh",
+      "uuid": "e75679cc-05cd-87f2-a261-f117dc040ce6"
+    },
+    {
+      "materials": [
+        "da1a85af-d78b-8465-bdb7-33f84c9651bb"
+      ],
+      "name": "StepLow",
+      "type": "Mesh",
+      "uuid": "f01773cc-05ba-80f2-b513-ec17dc7f05e6"
+    },
+    {
+      "materials": [
+        "5b1285af-d786-8465-98ab-33f84c8f51bb"
+      ],
+      "name": "LampPost",
+      "type": "Mesh",
+      "uuid": "f83976cc-0545-84f2-8d27-e917dc1402e6"
+    },
+    {
+      "materials": [
+        "8d1c85af-d78c-8465-8ab5-33f84c9551bb"
+      ],
+      "name": "RingA",
+      "type": "Mesh",
+      "uuid": "ff0b70cc-053c-8df2-bafd-e217dc0dfbe5"
+    }
+  ],
+  "type": "Model",
+  "uuid": "5fc85bac-019b-4394-966d-9e21f3862d00",
+  "version": 2
+}

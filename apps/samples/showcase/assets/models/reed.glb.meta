@@ -1,0 +1,35 @@
+{
+  "settings": {},
+  "sourceHash": "0c067682e524fa89",
+  "subAssets": [
+    {
+      "materials": [],
+      "name": "Sway",
+      "type": "Animation",
+      "uuid": "2d393f27-a2e7-8bab-a426-c636d2614d17"
+    },
+    {
+      "materials": [],
+      "name": "Stem",
+      "type": "Material",
+      "uuid": "5ac4c205-569f-8638-ad51-ea9e740bc228"
+    },
+    {
+      "materials": [
+        "5ac4c205-569f-8638-ad51-ea9e740bc228"
+      ],
+      "name": "StemMesh",
+      "type": "Mesh",
+      "uuid": "6ea235dc-e748-8773-a1d1-e3cbf3ac7e31"
+    },
+    {
+      "materials": [],
+      "name": "StemSkin",
+      "type": "Skin",
+      "uuid": "c23af952-8927-8a05-85a0-5ac4c34f8f29"
+    }
+  ],
+  "type": "Model",
+  "uuid": "58eb907b-417d-4dff-a2f4-16948b7d3cfd",
+  "version": 2
+}
