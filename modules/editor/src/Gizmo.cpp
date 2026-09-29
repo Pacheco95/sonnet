@@ -16,6 +16,48 @@ constexpr float HandleSizeFraction = 0.18f; // of the distance to the camera
 constexpr float PickDistancePixels = 8.0f;
 constexpr int CircleSegments = 48;
 constexpr float MinimumScale = 0.01f;
+constexpr float PlaneNear = 0.25f; // the plane handle's square spans these fractions of the length
+constexpr float PlaneFar = 0.5f;
+
+// The two axes a plane handle spans and the one it is perpendicular to.
+struct PlaneAxes {
+  int a;
+  int b;
+  int normal;
+};
+constexpr PlaneAxes Planes[3] = {{0, 1, 2}, {1, 2, 0}, {0, 2, 1}};
+
+bool isPlane(GizmoAxis axis) {
+  return axis >= GizmoAxis::PlaneXY;
+}
+
+float snapTo(float value, float step) {
+  return step > 0.0f ? std::round(value / step) * step : value;
+}
+
+bool insideConvex(glm::vec2 point, const glm::vec2 (&corners)[4]) {
+  bool positive = false;
+  bool negative = false;
+  for (int i = 0; i < 4; ++i) {
+    const glm::vec2 edge = corners[(i + 1) % 4] - corners[i];
+    const glm::vec2 toPoint = point - corners[i];
+    const float cross = edge.x * toPoint.y - edge.y * toPoint.x;
+    positive = positive || cross > 0.0f;
+    negative = negative || cross < 0.0f;
+  }
+  return !(positive && negative);
+}
+
+// The plane handle's square in world space, in winding order.
+void planeCorners(glm::vec3 origin, const glm::vec3 (&axes)[3], float length, const PlaneAxes &plane,
+                  glm::vec3 (&corners)[4]) {
+  const glm::vec3 a = axes[plane.a] * length;
+  const glm::vec3 b = axes[plane.b] * length;
+  corners[0] = origin + a * PlaneNear + b * PlaneNear;
+  corners[1] = origin + a * PlaneFar + b * PlaneNear;
+  corners[2] = origin + a * PlaneFar + b * PlaneFar;
+  corners[3] = origin + a * PlaneNear + b * PlaneFar;
+}
 
 float pointSegmentDistance(glm::vec2 point, glm::vec2 a, glm::vec2 b) {
   const glm::vec2 ab = b - a;
@@ -45,10 +87,13 @@ float angleInPlane(glm::vec3 point, glm::vec3 origin, glm::vec3 axis) {
 ImU32 axisColor(GizmoAxis axis, bool highlighted) {
   switch (axis) {
   case GizmoAxis::X:
+  case GizmoAxis::PlaneYZ: // a plane takes the colour of its normal
     return highlighted ? IM_COL32(255, 130, 130, 255) : IM_COL32(225, 60, 60, 255);
   case GizmoAxis::Y:
+  case GizmoAxis::PlaneXZ:
     return highlighted ? IM_COL32(150, 255, 150, 255) : IM_COL32(70, 200, 70, 255);
   case GizmoAxis::Z:
+  case GizmoAxis::PlaneXY:
     return highlighted ? IM_COL32(150, 170, 255, 255) : IM_COL32(70, 110, 255, 255);
   case GizmoAxis::None:
     break;
@@ -132,6 +177,22 @@ GizmoAxis Gizmo::hitTest(const GizmoView &view, glm::vec3 origin, const glm::vec
       best = axis;
     }
   }
+  if (best == GizmoAxis::None && m_mode == GizmoMode::Translate) {
+    for (int i = 0; i < 3; ++i) {
+      glm::vec3 world[4];
+      planeCorners(origin, axes, length, Planes[i], world);
+      glm::vec2 pixels[4];
+      bool visible = true;
+      for (int c = 0; c < 4; ++c) {
+        const auto pixel = project(view, world[c]);
+        visible = visible && pixel.has_value();
+        pixels[c] = pixel.value_or(glm::vec2{0.0f});
+      }
+      if (visible && insideConvex(view.mouse, pixels)) {
+        return static_cast<GizmoAxis>(static_cast<int>(GizmoAxis::PlaneXY) + i);
+      }
+    }
+  }
   return best;
 }
 
@@ -162,7 +223,9 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
   if (!m_drag) {
     m_hover = hitTest(view, origin, axes, length);
     if (view.mouseClicked && m_hover != GizmoAxis::None) {
-      const int index = static_cast<int>(m_hover) - 1;
+      const int index = isPlane(m_hover)
+                            ? Planes[static_cast<int>(m_hover) - static_cast<int>(GizmoAxis::PlaneXY)].normal
+                            : static_cast<int>(m_hover) - 1;
       Drag drag{.axis = m_hover,
                 .startLocal = entity.get<world::Transform>(),
                 .parentWorld = parentWorld,
@@ -175,6 +238,8 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
       if (m_mode == GizmoMode::Rotate) {
         const auto hit = planeRayHit(origin, drag.axisDirection, view.cameraPosition, ray);
         drag.startAngle = hit ? angleInPlane(*hit, origin, drag.axisDirection) : 0.0f;
+      } else if (isPlane(m_hover)) {
+        drag.startPoint = planeRayHit(origin, drag.axisDirection, view.cameraPosition, ray).value_or(origin);
       } else {
         drag.startParam = axisRayParam(origin, drag.axisDirection, view.cameraPosition, ray);
       }
@@ -186,19 +251,37 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
     result.active = true;
     if (view.mouseDown) {
       const Drag &drag = *m_drag;
-      const int index = static_cast<int>(drag.axis) - 1;
+      const int index = isPlane(drag.axis) ? 0 : static_cast<int>(drag.axis) - 1;
       world::Transform local = drag.startLocal;
       switch (m_mode) {
       case GizmoMode::Translate: {
         // Always from the drag's start position: a moving origin makes the object oscillate.
-        const float param = axisRayParam(drag.startPosition, drag.axisDirection, view.cameraPosition, ray);
-        const glm::vec3 worldPosition = drag.startPosition + drag.axisDirection * (param - drag.startParam);
+        glm::vec3 worldPosition = drag.startPosition;
+        if (isPlane(drag.axis)) {
+          const PlaneAxes &plane = Planes[static_cast<int>(drag.axis) - static_cast<int>(GizmoAxis::PlaneXY)];
+          if (const auto hit = planeRayHit(drag.startPosition, drag.axisDirection, view.cameraPosition, ray)) {
+            worldPosition += *hit - drag.startPoint;
+            if (view.snap) {
+              worldPosition[plane.a] = snapTo(worldPosition[plane.a], m_snap.translate);
+              worldPosition[plane.b] = snapTo(worldPosition[plane.b], m_snap.translate);
+            }
+          }
+        } else {
+          const float param = axisRayParam(drag.startPosition, drag.axisDirection, view.cameraPosition, ray);
+          worldPosition += drag.axisDirection * (param - drag.startParam);
+          if (view.snap) {
+            worldPosition[index] = snapTo(worldPosition[index], m_snap.translate);
+          }
+        }
         local.position = glm::vec3{glm::inverse(drag.parentWorld) * glm::vec4{worldPosition, 1.0f}};
         break;
       }
       case GizmoMode::Rotate: {
         if (const auto hit = planeRayHit(drag.startPosition, drag.axisDirection, view.cameraPosition, ray)) {
-          const float delta = angleInPlane(*hit, drag.startPosition, drag.axisDirection) - drag.startAngle;
+          float delta = angleInPlane(*hit, drag.startPosition, drag.axisDirection) - drag.startAngle;
+          if (view.snap) {
+            delta = snapTo(delta, m_snap.rotate);
+          }
           const glm::quat worldRotation = glm::angleAxis(delta, drag.axisDirection) * drag.startWorldRotation;
           const glm::quat parentRotation = world::Transform::fromMatrix(drag.parentWorld).rotation;
           local.rotation = glm::normalize(glm::inverse(parentRotation) * worldRotation);
@@ -208,7 +291,11 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
       case GizmoMode::Scale: {
         const float param = axisRayParam(drag.startPosition, drag.axisDirection, view.cameraPosition, ray);
         const float factor = 1.0f + (param - drag.startParam) / drag.length;
-        local.scale[index] = std::max(drag.startLocal.scale[index] * factor, MinimumScale);
+        float scale = drag.startLocal.scale[index] * factor;
+        if (view.snap) {
+          scale = snapTo(scale, m_snap.scale);
+        }
+        local.scale[index] = std::max(scale, MinimumScale);
         break;
       }
       }
@@ -236,6 +323,27 @@ void Gizmo::draw(ImDrawList *drawList, const GizmoView &view, glm::vec3 origin, 
     return;
   }
   const ImVec2 centre{originPixel->x, originPixel->y};
+  if (m_mode == GizmoMode::Translate) {
+    for (int i = 0; i < 3; ++i) {
+      const auto axis = static_cast<GizmoAxis>(static_cast<int>(GizmoAxis::PlaneXY) + i);
+      glm::vec3 world[4];
+      planeCorners(origin, axes, length, Planes[i], world);
+      ImVec2 points[4];
+      bool visible = true;
+      for (int c = 0; c < 4; ++c) {
+        const auto pixel = project(view, world[c]);
+        visible = visible && pixel.has_value();
+        points[c] = pixel ? ImVec2{pixel->x, pixel->y} : ImVec2{};
+      }
+      if (!visible) {
+        continue;
+      }
+      const ImU32 color = axisColor(axis, axis == highlighted);
+      const ImU32 fill = (color & 0x00ffffffu) | (axis == highlighted ? 0x90000000u : 0x55000000u);
+      drawList->AddConvexPolyFilled(points, 4, fill);
+      drawList->AddPolyline(points, 4, color, ImDrawFlags_Closed, 1.5f);
+    }
+  }
   for (int i = 0; i < 3; ++i) {
     const auto axis = static_cast<GizmoAxis>(i + 1);
     const ImU32 color = axisColor(axis, axis == highlighted);

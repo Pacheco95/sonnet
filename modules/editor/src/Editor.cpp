@@ -250,7 +250,8 @@ void Editor::drawViewportOverlay(const ViewportInput &input) {
                        .size = input.size,
                        .mouse = input.mouse,
                        .mouseDown = input.leftDown && !cameraActive,
-                       .mouseClicked = input.leftClicked && !cameraActive};
+                       .mouseClicked = input.leftClicked && !cameraActive,
+                       .snap = m_snapEnabled != ImGui::GetIO().KeyCtrl};
   const flecs::entity primary = m_world.find(m_selection.primary());
   const GizmoResult gizmo = m_gizmo.update(view, m_world, primary, input.drawList);
   if (gizmo.finished && primary) {
@@ -420,6 +421,20 @@ void Editor::drawMenuBar() {
     }
     if (ImGui::MenuItem("Scale", "R", m_gizmo.mode() == GizmoMode::Scale)) {
       m_gizmo.setMode(GizmoMode::Scale);
+    }
+    ImGui::Separator();
+    ImGui::MenuItem("Snap to grid", "hold Ctrl", &m_snapEnabled);
+    GizmoSnap snap = m_gizmo.snap();
+    float degrees = glm::degrees(snap.rotate);
+    ImGui::SetNextItemWidth(120.0f);
+    bool changed = ImGui::DragFloat("Move step", &snap.translate, 0.05f, 0.01f, 100.0f, "%.2f m");
+    ImGui::SetNextItemWidth(120.0f);
+    changed = ImGui::DragFloat("Rotate step", &degrees, 0.5f, 1.0f, 180.0f, "%.1f deg") || changed;
+    ImGui::SetNextItemWidth(120.0f);
+    changed = ImGui::DragFloat("Scale step", &snap.scale, 0.01f, 0.01f, 10.0f, "%.2f") || changed;
+    if (changed) {
+      snap.rotate = glm::radians(degrees);
+      m_gizmo.setSnap(snap);
     }
     ImGui::EndMenu();
   }

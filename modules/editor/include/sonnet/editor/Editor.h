@@ -270,6 +270,7 @@ private:
   Selection m_selection;
   CommandStack m_commands;
   Gizmo m_gizmo;
+  bool m_snapEnabled{false}; // Ctrl held during a drag inverts it
   std::filesystem::path m_preferencesFile;
   Preferences m_preferences;
   std::optional<assets::Project> m_project;

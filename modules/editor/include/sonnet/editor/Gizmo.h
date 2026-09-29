@@ -23,6 +23,17 @@ enum class GizmoAxis : std::uint8_t {
   X,
   Y,
   Z,
+  PlaneXY, // translate mode only: the square between two axes moves the entity in that plane
+  PlaneYZ,
+  PlaneXZ,
+};
+
+// The grid a drag snaps to while `GizmoView::snap` is set: world units for translation, radians
+// for rotation, a scale factor for scale.
+struct GizmoSnap {
+  float translate{0.5f};
+  float rotate{glm::radians(15.0f)};
+  float scale{0.1f};
 };
 
 // What the gizmo needs from the viewport for one frame. Pixels are screen coordinates, the
@@ -36,6 +47,7 @@ struct GizmoView {
   glm::vec2 mouse{0.0f};
   bool mouseDown{false};
   bool mouseClicked{false};
+  bool snap{false}; // snap this frame's drag to the gizmo's GizmoSnap grid
 };
 
 struct GizmoResult {
@@ -45,10 +57,10 @@ struct GizmoResult {
   world::Transform before{}; // the local transform when the drag started, valid with finished
 };
 
-// Translate, rotate and scale handles over the primary selection (docs/editor.md, "Gizmos").
-// Translation and rotation work along the world axes, scale along the entity's own. The handles
-// follow the object; the drag resolves the mouse ray against the axis or the rotation plane from
-// the drag's fixed start position, so the maths never chases the object it moves.
+// Translate, rotate and scale handles over the primary selection (docs/editor.md, "Gizmos"), with
+// plane handles on translate and grid snapping. Translation and rotation work along the world axes, scale along the
+// entity's own. The handles follow the object; the drag resolves the mouse ray against the axis or the rotation plane
+// from the drag's fixed start position, so the maths never chases the object it moves.
 class Gizmo {
 public:
   void setMode(GizmoMode mode) noexcept {
@@ -62,6 +74,12 @@ public:
   }
   [[nodiscard]] GizmoAxis hoveredAxis() const noexcept {
     return m_hover;
+  }
+  void setSnap(const GizmoSnap &snap) noexcept {
+    m_snap = snap;
+  }
+  [[nodiscard]] const GizmoSnap &snap() const noexcept {
+    return m_snap;
   }
   // Where the handles were drawn by the last update: the entity's world position.
   [[nodiscard]] glm::vec3 origin() const noexcept {
@@ -88,7 +106,8 @@ private:
     glm::mat4 parentWorld{1.0f};
     glm::vec3 startPosition{0.0f}; // world
     glm::quat startWorldRotation{1.0f, 0.0f, 0.0f, 0.0f};
-    glm::vec3 axisDirection{0.0f};
+    glm::vec3 axisDirection{0.0f}; // the plane's normal for a plane handle
+    glm::vec3 startPoint{0.0f};    // where the mouse ray met the plane at the start
     float startParam{0.0f};
     float startAngle{0.0f};
     float length{1.0f};
@@ -101,6 +120,7 @@ private:
 
   GizmoMode m_mode{GizmoMode::Translate};
   GizmoAxis m_hover{GizmoAxis::None};
+  GizmoSnap m_snap;
   glm::vec3 m_origin{0.0f};
   std::optional<Drag> m_drag;
 };
