@@ -41,18 +41,16 @@ jobs:
       matrix:
         # `cache` names the job's vcpkg binary cache group. vcpkg builds every port in Debug and Release
         # whatever CMAKE_BUILD_TYPE is, and the sanitizer flags do not reach the ports, so the jobs that
-        # share a triplet and a compiler share a group, and one of them (`save-cache`) saves it.
+        # share a triplet and a compiler share a group.
         include:
           - name: Linux GCC
             cache: linux-gcc
-            save-cache: true
             os: ubuntu-24.04
             preset: linux-debug
             cc: gcc-14
             cxx: g++-14
           - name: Linux Clang
             cache: linux-clang
-            save-cache: true
             os: ubuntu-24.04
             preset: linux-debug
             cc: clang-20
@@ -65,19 +63,16 @@ jobs:
             cxx: clang++-20
           - name: Linux TSan
             cache: linux-tsan
-            save-cache: true
             os: ubuntu-24.04
             preset: linux-tsan
             cc: clang-20
             cxx: clang++-20
           - name: Windows MSVC
             cache: windows-msvc
-            save-cache: true
             os: windows-latest
             preset: windows-debug
           - name: macOS Clang
             cache: macos
-            save-cache: true
             os: macos-latest
             preset: macos-debug
           # Plain Release, not the presets' RelWithDebInfo: it compiles assertions out and GCC's -O3 inlining
@@ -103,7 +98,6 @@ jobs:
             build-type: Release
           - name: Windows clang-cl Release
             cache: windows-clang-cl
-            save-cache: true
             os: windows-latest
             preset: windows-release
             build-type: Release
@@ -163,12 +157,22 @@ jobs:
 
       # vcpkg's binary cache (docs/build.md, "vcpkg binary cache"): the files backend in a folder restored
       # from the newest entry of the job's group, which pull requests read from main.
+      # The runner image version is part of the key: hosted runners serve two image versions at the same
+      # time while one rolls out, and their compilers and SDKs give the ports different ABI hashes. The
+      # runner sets `ImageVersion` as an environment variable, which expressions cannot read, so it goes
+      # through GITHUB_ENV first.
+      - name: Note the runner image
+        shell: bash
+        run: echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+
       - name: Restore the vcpkg binary cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/vcpkg-cache
-          key: vcpkg-${{ matrix.cache }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: vcpkg-${{ matrix.cache }}-
+          key: vcpkg-${{ matrix.cache }}-${{ env.RUNNER_IMAGE }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-${{ matrix.cache }}-${{ env.RUNNER_IMAGE }}-
+            vcpkg-${{ matrix.cache }}-
 
       - name: Point vcpkg at the binary cache
         shell: bash
@@ -182,10 +186,11 @@ jobs:
 
       # Saved right after the configure that installs the ports, so a failing build or test still saves it,
       # and only from main, so pull requests cannot evict main's entries. Pruned to the archives this
-      # configure used, saved only if vcpkg wrote new ones, and then the group's older entries are deleted.
+      # configure used, saved only if vcpkg wrote new ones, and then the older entries of the same group
+      # and runner image are deleted.
       - name: Prune the vcpkg binary cache
         id: vcpkg-cache
-        if: matrix.save-cache && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: python3 tools/prune_vcpkg_cache.py "$RUNNER_TEMP/vcpkg-cache" --since "$RUNNER_TEMP/vcpkg-cache.marker"
 
@@ -194,15 +199,15 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/vcpkg-cache
-          key: vcpkg-${{ matrix.cache }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-${{ matrix.cache }}-${{ env.RUNNER_IMAGE }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Delete the older vcpkg binary caches
         if: steps.vcpkg-cache.outputs.changed == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          KEY: vcpkg-${{ matrix.cache }}-${{ github.run_id }}-${{ github.run_attempt }}
-          PREFIX: vcpkg-${{ matrix.cache }}-
+          KEY: vcpkg-${{ matrix.cache }}-${{ env.RUNNER_IMAGE }}-${{ github.run_id }}-${{ github.run_attempt }}
+          PREFIX: vcpkg-${{ matrix.cache }}-${{ env.RUNNER_IMAGE }}-
         run: |
           caches=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$PREFIX" --limit 100 --json id,key)
           # Only once the new entry is there, so a save that failed does not leave the group empty.
