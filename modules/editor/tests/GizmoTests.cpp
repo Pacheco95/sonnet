@@ -135,3 +135,69 @@ TEST_CASE("a scale drag changes one axis and a rotate drag turns about it", "[ed
   REQUIRE(finished.finished);
   REQUIRE(finished.before.rotation == glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
 }
+
+TEST_CASE("a plane handle moves the entity in that plane and leaves the third axis alone", "[editor][gizmo]") {
+  world::World world;
+  const flecs::entity entity = world.createEntity("Box");
+  world.progress(0.016f);
+  editor::Gizmo gizmo;
+
+  // The XY square, which faces this camera, sits between 0.25 and 0.5 of the handle length.
+  const editor::GizmoView base = viewAt({0.0f, 0.0f});
+  const float length = glm::distance(base.cameraPosition, glm::vec3{0.0f}) * 0.18f;
+  const float mid = length * 0.375f;
+  const glm::vec2 handle = *editor::Gizmo::project(base, {mid, mid, 0.0f});
+  const editor::GizmoResult hover = gizmo.update(viewAt(handle), world, entity, nullptr);
+  REQUIRE(hover.hovered);
+  REQUIRE(gizmo.hoveredAxis() == editor::GizmoAxis::PlaneXY);
+
+  gizmo.update(viewAt(handle, true, true), world, entity, nullptr);
+  REQUIRE(gizmo.isDragging());
+  const glm::vec2 target = *editor::Gizmo::project(base, {mid + 1.0f, mid - 0.5f, 0.0f});
+  gizmo.update(viewAt(target, true, false), world, entity, nullptr);
+  const world::Transform &moved = entity.get<world::Transform>();
+  REQUIRE(moved.position.x == Approx(1.0f).margin(1e-3f));
+  REQUIRE(moved.position.y == Approx(-0.5f).margin(1e-3f));
+  REQUIRE(moved.position.z == Approx(0.0f).margin(1e-3f));
+  gizmo.update(viewAt(target, false, false), world, entity, nullptr);
+}
+
+TEST_CASE("snapping rounds a drag to the grid and only while it is asked for", "[editor][gizmo]") {
+  world::World world;
+  const flecs::entity entity = world.createEntity("Box");
+  world.progress(0.016f);
+  editor::Gizmo gizmo;
+  gizmo.setSnap({.translate = 0.5f, .rotate = glm::radians(15.0f), .scale = 0.25f});
+
+  const editor::GizmoView base = viewAt({0.0f, 0.0f});
+  const glm::vec2 handle = *editor::Gizmo::project(base, {0.3f, 0.0f, 0.0f});
+  const glm::vec2 target = *editor::Gizmo::project(base, {0.3f + 1.2f, 0.0f, 0.0f}); // 1.2 m along X
+
+  auto drag = [&](bool snap) {
+    editor::GizmoView press = viewAt(handle, true, true);
+    press.snap = snap;
+    gizmo.update(press, world, entity, nullptr);
+    editor::GizmoView move = viewAt(target, true, false);
+    move.snap = snap;
+    gizmo.update(move, world, entity, nullptr);
+    const float x = entity.get<world::Transform>().position.x;
+    gizmo.update(viewAt(target, false, false), world, entity, nullptr);
+    entity.set<world::Transform>(world::Transform{});
+    return x;
+  };
+  REQUIRE(drag(false) == Approx(1.2f).margin(1e-3f));
+  REQUIRE(drag(true) == Approx(1.0f).margin(1e-4f));
+
+  gizmo.setMode(editor::GizmoMode::Scale);
+  const float scaleLength = glm::distance(base.cameraPosition, glm::vec3{0.0f}) * 0.18f;
+  const glm::vec2 scaleTarget = *editor::Gizmo::project(base, {0.3f + scaleLength * 0.4f, 0.0f, 0.0f});
+  editor::GizmoView press = viewAt(handle, true, true);
+  press.snap = true;
+  gizmo.update(press, world, entity, nullptr);
+  editor::GizmoView move = viewAt(scaleTarget, true, false);
+  move.snap = true;
+  gizmo.update(move, world, entity, nullptr);
+  const float scaled = entity.get<world::Transform>().scale.x; // 1.4 rounded to the 0.25 grid
+  REQUIRE(scaled == Approx(1.5f).margin(1e-4f));
+  gizmo.update(viewAt(scaleTarget, false, false), world, entity, nullptr);
+}
