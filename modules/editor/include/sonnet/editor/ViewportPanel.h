@@ -29,7 +29,8 @@ struct ViewportInput {
 };
 
 // The dockable scene view: owns the render target the scene is drawn into, displays it with
-// ImGui::Image, and drives the fly camera while the right mouse button is held over it.
+// ImGui::Image, and drives the fly camera while the right mouse button is held over it; the wheel over it dollies
+// the camera when the right button is up.
 class ViewportPanel {
 public:
   ViewportPanel(rhi::IDevice &device, ui::ImGuiLayer &imgui);
@@ -43,6 +44,12 @@ public:
   // the camera wants relative mouse mode.
   bool draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPanel *statistics,
             const std::function<void(const ViewportInput &)> &overlay = {}, const std::function<void()> &header = {});
+
+  // While true the wheel belongs to the game (play mode with the viewport focused), so it does
+  // not dolly the camera.
+  void setWheelForGame(bool value) noexcept {
+    m_wheelForGame = value;
+  }
 
   // Turns the camera towards `target` from a distance that fits `radius`.
   void focus(glm::vec3 target, float radius);
@@ -77,6 +84,9 @@ private:
   FlyCamera m_camera;
   ViewportInput m_input;
   bool m_cameraActive{false};
+  bool m_wheelForGame{false};
+  glm::vec3 m_focusTarget{0.0f};
+  bool m_hasFocusTarget{false};
 };
 
 } // namespace sonnet::editor

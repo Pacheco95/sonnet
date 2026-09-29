@@ -28,6 +28,11 @@ public:
   void lookAt(glm::vec3 position, glm::vec3 target);
   // Multiplies the movement speed, e.g. from the mouse wheel; clamped to a sane range.
   void scaleSpeed(float factor);
+  // Moves along the view direction by `notches` wheel steps (positive is forward). A step is a
+  // tenth of `referenceDistance`, the distance to what the camera looks at, so a close-up creeps
+  // and a wide shot leaps; without a reference (<= 0) it is a fifth of the fly speed. `fast`
+  // multiplies the step like the keys' Shift.
+  void dolly(float notches, float referenceDistance, bool fast);
 
   [[nodiscard]] const renderer::Camera &camera() const noexcept {
     return m_camera;
