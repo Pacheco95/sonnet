@@ -76,6 +76,8 @@ Editor::~Editor() {
   m_device.waitIdle();
   if (!m_layoutFile.empty()) {
     ImGui::SaveIniSettingsToDisk(m_layoutFile.c_str());
+    // The context outlives this string and would save to the freed name when it is destroyed.
+    ImGui::GetIO().IniFilename = nullptr;
   }
 }
 
