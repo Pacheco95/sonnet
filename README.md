@@ -2,7 +2,7 @@
 
 Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android and iOS. It is a set of small modules with one-way dependencies, a Vulkan 1.4 renderer behind a thin render-hardware interface, and an editor for authoring, debugging and playing scenes.
 
-**Status: pre-alpha, milestone M7 (GPU-driven rendering) landed: build, `core`, `platform`, `rhi` with a bindless set, `renderer` with a clustered forward pipeline, PBR, cascaded shadows, image-based lighting, post-processing and GPU skinning, `assets` with glTF and image import, skins, clips and sounds, KTX2 cooking and hot reload, `world` on flecs with scenes, prefabs, a fixed timestep and skeletal animation, `physics` on Jolt, Lua `scripting` with hot reload, `audio` on miniaudio, `ui` and an `editor` that authors scenes, materials and scripts with a hierarchy, an inspector, an asset browser, gizmos, picking, undo, play mode and shader hot reload, a `runtime` with the generic player, `sonnet_cook` and export, so a sample runs from a cooked bundle with no project folder or SDK, and GPU culling into indirect draws, so ten thousand draws cost twelve calls instead of sixty thousand.** This file and [docs/](docs/) describe what is being built and which decisions are already taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
+**Status: pre-alpha, version 0.11.0, milestone M10 (iOS export) landed, so every planned milestone is done and 1.0.0 waits for the project and bundle formats to stop changing: build, `core` with a job system, `platform`, `rhi` with a bindless set, `renderer` with a clustered forward pipeline, PBR, cascaded shadows, image-based lighting, post-processing, GPU skinning and GPU culling into indirect draws, `assets` with glTF and image import, KTX2 and ASTC cooking and hot reload, `world` on flecs with scenes, prefabs, a fixed timestep and skeletal animation, `physics` on Jolt, Lua `scripting` with hot reload, `audio` on miniaudio, `ui`, an `editor` that authors scenes, materials and scripts (hierarchy, inspector, asset browser, gizmos, picking, undo, play mode, scene tabs, shader hot reload), and a `runtime` with the generic player, `sonnet_cook` and export to Windows, Linux, macOS, Android and iOS, so a sample runs from a cooked bundle with no project folder or SDK.** This file and [docs/](docs/) describe what is built and which decisions are taken. [docs/roadmap.md](docs/roadmap.md) gives the order.
 
 ## Goals
 
@@ -19,7 +19,7 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 - 2D-specific tooling, networking, consoles, other graphics backends (OpenGL, Direct3D, native Metal), managed scripting languages.
 - A general-purpose framework. Only what the editor and the sample games need gets built.
 
-## Planned features
+## Features
 
 | Feature | Milestone |
 |---|---|
