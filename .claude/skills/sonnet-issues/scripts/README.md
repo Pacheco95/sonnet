@@ -111,3 +111,16 @@ If the script fails or you prefer manual updates:
    - Select the Target Release
 
 Updates should complete in under 30 seconds for 10 issues.
+
+
+## reorder_project.py
+
+Puts the priorities at the top of the board. Run it after `update_project.py`.
+
+```bash
+python3 .claude/skills/sonnet-issues/scripts/reorder_project.py --project-owner USERNAME --project-number 1 [--dry-run]
+```
+
+Order, top to bottom: open items by Priority Tier (Quick Win, Medium Fit, Deferred, no tier), smaller Effort (hours) first within a tier, then the lower issue number; Done items last. `--dry-run` prints the order without moving anything.
+
+Items added to the board a moment earlier can be missing from the first listing, so add new issues first and run this afterwards. If the board's Table view sorts by a field, clear that sort to see the manual order.

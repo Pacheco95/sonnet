@@ -200,6 +200,7 @@ After generating the prioritized report:
    - Script dynamically fetches project configuration (no hardcoded IDs)
    - Updates each issue's fields via GitHub GraphQL API
    - Report results: "✓ Updated 10/10 issues in 8 seconds"
+   - Then put the priorities at the top of the board: `python3 .claude/skills/sonnet-issues/scripts/reorder_project.py --project-owner USERNAME --project-number 1`. It orders open items Quick Win, Medium Fit, Deferred (smaller Effort first within a tier) and Done items last. `--dry-run` prints the order without moving anything. Run it after the fields are set, and after any new issue was added to the board, so nothing lands at the bottom
 
 4. **If declined: Show report only**
    - User can copy values manually from the summary table
@@ -220,13 +221,14 @@ When the user approves the suggestions from the "Improvements & Comments" sectio
   ```
   Read them back with `GET .../dependencies/blocked_by`. Only use it for real blockers.
 - **Soft relations** ("related", "do first") have no native type: post a comment on both issues.
-- **Add each new issue to the board** with `gh project item-add 1 --owner OWNER --url <issue url>`, then run `update_project.py` again for it and for any split parent whose estimate changed.
+- **Add each new issue to the board** with `gh project item-add 1 --owner OWNER --url <issue url>`, then run `update_project.py` again for it and for any split parent whose estimate changed, and `reorder_project.py` last so the new items take their place.
 - Finish by listing the open issues and reading back the dependencies you set.
 
 **Implementation:**
 - Script uses field IDs and option IDs pre-configured from your project
 - Queries project items via GitHub API
 - Updates all fields in batch with 0.5s delays (respects rate limits)
+- `reorder_project.py` moves each item below the previous one with `updateProjectV2ItemPosition`; the board's Table view must not have its own sort on, or it hides the order
 - Handles errors gracefully with fallback to manual update option
 
 ## Tips for Accurate Prioritization
