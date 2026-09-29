@@ -97,6 +97,60 @@ TEST_CASE("the editor runs frames headless without validation errors", "[editor]
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("the panel layout is kept across sessions and resets to the default", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path file = scratch("layout") / "layout.ini";
+  std::filesystem::create_directories(file.parent_path());
+  const auto dockOf = [](const char *name) {
+    const ImGuiWindow *window = ImGui::FindWindowByName(name);
+    REQUIRE(window != nullptr);
+    return window->DockId;
+  };
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(file);
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    // The default docks the assets and the log as tabs of one node; the user splits them.
+    REQUIRE(dockOf("Assets") == dockOf("Log"));
+    ImGuiID log = dockOf("Log");
+    ImGuiDockNode *root = ImGui::DockNodeGetRootNode(ImGui::DockBuilderGetNode(log));
+    const ImGuiID rootId = root->ID;
+    const ImGuiID side = ImGui::DockBuilderSplitNode(log, ImGuiDir_Right, 0.5f, nullptr, &log);
+    ImGui::DockBuilderDockWindow("Assets", side);
+    ImGui::DockBuilderFinish(rootId);
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(dockOf("Assets") != dockOf("Log"));
+  }
+  REQUIRE(std::filesystem::exists(file));
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(file);
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(dockOf("Assets") != dockOf("Log"));
+    editor.resetLayout();
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(dockOf("Assets") == dockOf("Log"));
+  }
+  {
+    // Without a layout file the default is built, as before.
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(dockOf("Assets") == dockOf("Log"));
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("scenes open in tabs that keep their own edits, undo history and selection", "[editor][gpu]") {
   Fixture fixture;
   const std::filesystem::path directory = scratch("tabs");
