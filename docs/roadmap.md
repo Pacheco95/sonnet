@@ -697,16 +697,16 @@ Closed. The `linux-asan` preset enables the undefined-behaviour sanitizer, but a
 
 ### The macOS export needs the Vulkan SDK
 
-Open. An exported game on macOS starts only where the Vulkan SDK is installed. Run from its export directory with the SDK's variables cleared, the player stops before it opens a window:
+Closed by [M10](#m10-ios-export)'s `moltenvk` port. An exported game on macOS used to start only where the Vulkan SDK was installed. Run from its export directory with the SDK's variables cleared, the player used to stop before it opened a window:
 
 ```
 VK_ICD_FILENAMES= DYLD_LIBRARY_PATH= ./sonnet_player
 [critical] [platform] [SdlEntryPoint.cpp:54] startup failed: SDL_CreateWindow failed: Installed Vulkan Portability library doesn't implement the VK_KHR_surface extension (Platform, SdlWindow.cpp:24)
 ```
 
-The export copies the player, the shaders and the bundle, but no Vulkan driver. SDL then searches the machine: it finds no `vkGetInstanceProcAddr` in the process, and loads the first of its known library names that opens (`SDL_cocoavulkan.m`). Here that was a loader with no driver registered, which offers only its own instance extensions, so the surface extension SDL needs was missing. On a Mac with no loader at all, the same search ends in "Failed to load Vulkan Portability library". [ADR-0018](decisions/0018-mobile-export.md) closes it the way it carries MoltenVK on iOS: the player links the static MoltenVK from Khronos's pinned release, which SDL finds in the process before it searches the machine. The check that closes this entry is the command above, from an export directory, passing, and the same run on a Mac with no SDK installed.
+The export copies the player, the shaders and the bundle, but no Vulkan driver. SDL then searches the machine: it finds no `vkGetInstanceProcAddr` in the process, and loads the first of its known library names that opens (`SDL_cocoavulkan.m`). Here that was a loader with no driver registered, which offers only its own instance extensions, so the surface extension SDL needs was missing. On a Mac with no loader at all, the same search ends in "Failed to load Vulkan Portability library". [ADR-0018](decisions/0018-mobile-export.md) closes it the way it carries MoltenVK on iOS: the player links the static MoltenVK from Khronos's pinned release, which SDL finds in the process before it searches the machine.
 
-The mechanism is confirmed. On the Mac that reported this, the Vulkan SDK's system install put a loader (`libvulkan.1.dylib`, 1.4.341) and `libMoltenVK.dylib` in `/usr/local/lib`, with their driver manifests in `/usr/local/share/vulkan/icd.d`. That is where SDL's search found a loader. `vkprobe`, which links the static MoltenVK the fix uses, created an instance and passed on the M4 Max with every Vulkan SDK variable cleared ([M9, checked before the code](#checked-before-the-code)). The entry stays open until the player itself links it.
+The mechanism was confirmed on the Mac that reported this: the Vulkan SDK's system install put a loader (`libvulkan.1.dylib`, 1.4.341) and `libMoltenVK.dylib` in `/usr/local/lib`, with their driver manifests in `/usr/local/share/vulkan/icd.d`. That is where SDL's search found a loader. `vkprobe`, which links the static MoltenVK the fix uses, created an instance and passed on the M4 Max with every Vulkan SDK variable cleared ([M9, checked before the code](#checked-before-the-code)). The entry stayed open until the player itself linked it: `agents/m10-mac-checks` ran the command above, from a real export directory built by the `moltenvk`-linked player, with every Vulkan SDK variable cleared, and it got past window and device creation, found "Apple M4 Max" through MoltenVK, and wrote a screenshot.
 
 ### A fresh macOS build fails where the Vulkan SDK installed its headers system-wide
 
