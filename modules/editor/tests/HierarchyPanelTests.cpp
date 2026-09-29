@@ -84,3 +84,65 @@ TEST_CASE("expand all and collapse all open and close a whole subtree", "[editor
   CHECK(isOpen(path, 2));
   CHECK(isOpen(path, 3));
 }
+
+TEST_CASE("the hierarchy filter keeps the matches and their ancestors", "[editor][hierarchy]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const flecs::entity rig = world.createEntity("Rig");
+  const flecs::entity lamp = world.createEntity("Lamp", rig);
+  lamp.add<world::PointLight>();
+  const flecs::entity sun = world.createEntity("Sun");
+  sun.add<world::DirectionalLight>();
+  const flecs::entity eye = world.createEntity("Eye", rig);
+  eye.add<world::Camera>();
+  const flecs::entity crate = world.createEntity("Crate");
+  crate.add<world::MeshRenderer>();
+  const auto uuids = [&](std::initializer_list<flecs::entity> entities) {
+    std::vector<core::Uuid> out;
+    for (const flecs::entity e : entities) {
+      out.push_back(world.uuidOf(e));
+    }
+    return out;
+  };
+
+  // No filter: everything, in tree order.
+  REQUIRE_FALSE(panel.filtering());
+  REQUIRE(panel.visibleEntities() == uuids({rig, lamp, eye, sun, crate}));
+
+  // One kind: its entities and their ancestors.
+  const std::size_t lights = 3;
+  REQUIRE(std::string{editor::HierarchyPanel::kindNames()[lights]} == "Lights");
+  panel.kindFilter().set(lights, true);
+  REQUIRE(panel.filtering());
+  REQUIRE(panel.visibleEntities() == uuids({rig, lamp, sun}));
+  CHECK(panel.matchesFilter(lamp));
+  CHECK_FALSE(panel.matchesFilter(rig));
+
+  // Several kinds are a union.
+  panel.kindFilter().set(4, true);
+  REQUIRE(panel.visibleEntities() == uuids({rig, lamp, eye, sun}));
+
+  // The name narrows further, ignoring case.
+  panel.setNameFilter("LAM");
+  REQUIRE(panel.visibleEntities() == uuids({rig, lamp}));
+  panel.setNameFilter("crate");
+  REQUIRE(panel.visibleEntities().empty());
+
+  // The name alone matches any kind; clearing both restores the tree.
+  panel.kindFilter().clear();
+  REQUIRE(panel.visibleEntities() == uuids({crate}));
+  panel.setNameFilter("");
+  REQUIRE_FALSE(panel.filtering());
+  REQUIRE(panel.visibleEntities() == uuids({rig, lamp, eye, sun, crate}));
+
+  // Drawing a filtered tree opens the ancestors of the matches even when the user closed them.
+  panel.setOpenRecursive({}, false);
+  frame(panel);
+  panel.kindFilter().set(lights, true);
+  frame(panel);
+  flecs::entity path[] = {rig};
+  CHECK(isOpen(path, 1));
+}
