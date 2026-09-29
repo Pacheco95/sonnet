@@ -48,6 +48,11 @@ void HierarchyPanel::draw(bool &open) {
   }
   // A menu click lands mid-frame, so the request is applied from the next frame's first node on.
   m_activeOpen = std::exchange(m_pendingOpen, std::nullopt);
+  // Right after Begin the last item is the window's title bar, or its tab when docked (imgui#7914).
+  if (ImGui::BeginPopupContextItem("tab menu")) {
+    drawBackgroundMenu();
+    ImGui::EndPopup();
+  }
   for (const flecs::entity root : m_world.roots()) {
     if (!root.has<world::EditorOnly>()) {
       drawNode(root);
