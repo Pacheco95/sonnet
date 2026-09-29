@@ -139,6 +139,13 @@ public:
   [[nodiscard]] const platform::InputState &gameInput() const noexcept {
     return m_input;
   }
+  // The panel layout lives in `file` (an ImGui ini): read on the first frame, written every few
+  // seconds after a change and when the editor is destroyed. A missing or unsplit layout gets the
+  // default one. Call before the first `update`; the desktop editor sets it to `layout.ini` beside
+  // the preferences, a headless editor (a test's) keeps none unless told.
+  void setLayoutFile(const std::filesystem::path &file);
+  // View > Reset layout: every panel shown again in the default arrangement, from the next frame.
+  void resetLayout() noexcept;
   // The physics colliders' outlines over the scene, from the View menu.
   void setShowColliders(bool show) noexcept {
     m_showColliders = show;
@@ -314,6 +321,8 @@ private:
   std::string m_title;
   bool m_relativeMouseRequested{false};
   bool m_layoutBuilt{false};
+  bool m_layoutRequested{false}; // the default layout, even over a restored one
+  std::string m_layoutFile;      // io.IniFilename points at this; empty keeps no layout on disk
   bool m_showViewport{true};
   bool m_showHierarchy{true};
   bool m_showInspector{true};

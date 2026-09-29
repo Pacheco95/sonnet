@@ -62,6 +62,9 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_selection) {
+  if (!platform.isHeadless()) {
+    setLayoutFile(platform.prefPath("sonnet", "editor") / "layout.ini");
+  }
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_inspectorPanel.setAudio(m_audio.get());
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
@@ -71,6 +74,20 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
 
 Editor::~Editor() {
   m_device.waitIdle();
+  if (!m_layoutFile.empty()) {
+    ImGui::SaveIniSettingsToDisk(m_layoutFile.c_str());
+  }
+}
+
+void Editor::setLayoutFile(const std::filesystem::path &file) {
+  m_layoutFile = file.string();
+  ImGui::GetIO().IniFilename = m_layoutFile.c_str();
+}
+
+void Editor::resetLayout() noexcept {
+  m_showViewport = m_showHierarchy = m_showInspector = m_showLog = m_showAssets = m_showStatistics = true;
+  m_layoutBuilt = false;
+  m_layoutRequested = true;
 }
 
 void Editor::nativeEvent(const SDL_Event &event) {
@@ -131,8 +148,13 @@ void Editor::update(float dt) {
   m_mainViewportOrigin = {ImGui::GetMainViewport()->Pos.x, ImGui::GetMainViewport()->Pos.y};
   const ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
   if (!m_layoutBuilt) {
-    buildDefaultLayout(dockspace);
+    // A layout read from the file has split the dockspace already by now; keep it.
+    const ImGuiDockNode *node = ImGui::DockBuilderGetNode(dockspace);
+    if (m_layoutRequested || node == nullptr || !node->IsSplitNode()) {
+      buildDefaultLayout(dockspace);
+    }
     m_layoutBuilt = true;
+    m_layoutRequested = false;
   }
   drawMenuBar();
   handleShortcuts();
@@ -466,6 +488,11 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
     ImGui::MenuItem("Statistics overlay", nullptr, &m_showOverlay);
     ImGui::MenuItem("Physics colliders", nullptr, &m_showColliders);
+    ImGui::Separator();
+    if (ImGui::MenuItem("Reset layout")) {
+      resetLayout();
+    }
+    ImGui::Separator();
     if (ImGui::BeginMenu("Shading term")) {
       renderer::RendererSettings settings = m_renderer.settings();
       for (std::uint32_t i = 0; i < renderer::DebugViewCount; ++i) {
