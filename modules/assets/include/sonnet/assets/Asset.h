@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -118,6 +119,20 @@ namespace builtin {
 [[nodiscard]] core::Uuid plane() noexcept;
 [[nodiscard]] core::Uuid cylinder() noexcept;
 [[nodiscard]] core::Uuid capsule() noexcept;
+[[nodiscard]] core::Uuid cone() noexcept;
+[[nodiscard]] core::Uuid torus() noexcept;
+[[nodiscard]] core::Uuid ramp() noexcept;
+[[nodiscard]] core::Uuid stairs() noexcept;
+[[nodiscard]] core::Uuid hemisphere() noexcept;
+[[nodiscard]] core::Uuid arch() noexcept;
+[[nodiscard]] core::Uuid icosphere() noexcept;
+
+struct Entry {
+  core::Uuid (*uuid)() noexcept;
+  const char *name;
+};
+// Every built-in mesh in menu order: what a database registers and the hierarchy offers.
+[[nodiscard]] std::span<const Entry> all() noexcept;
 } // namespace builtin
 
 } // namespace sonnet::assets

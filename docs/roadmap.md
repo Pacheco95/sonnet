@@ -26,7 +26,7 @@ Done when the editor executable opens a window, clears it and draws a triangle, 
 - `ui`: ImGui with SDL3 and Vulkan backends in dynamic-rendering mode, docking, multi-viewport on desktop.
 - `renderer`: render graph with transient resources and barriers, an offscreen viewport target.
 - `editor`: docking layout, viewport panel with fly camera (right mouse plus WASD, Q/E), log panel, frame statistics overlay (CPU and GPU times per pass, draw count, VMA budget).
-- Primitives: box, sphere, plane, cylinder, capsule for testing without assets.
+- Primitives: box, sphere, plane, cylinder, capsule for testing without assets (cone, torus, ramp, stairs, hemisphere, arch and icosphere followed).
 
 Landed as six commits, plus a fix:
 
