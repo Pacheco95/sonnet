@@ -458,11 +458,13 @@ MeshData icosphere(float radius, std::uint32_t subdivisions) {
     faces = std::move(next);
   }
 
-  // Equirectangular coordinates, per triangle so none of them stretches across the seam or the poles: the
+  // Longitude and latitude coordinates, per triangle so none of them stretches across the seam or the poles: the
   // longitudes of a triangle are unwrapped to within half a turn of its first off-axis corner (past 0 or 1
   // where they must be; the sampler repeats), and a corner on the axis takes the mean of the others'.
   const auto longitude = [](glm::vec3 p) { return std::atan2(-p.z, p.x) / (2.0f * Pi); };
   const auto onAxis = [](glm::vec3 p) { return p.x * p.x + p.z * p.z < 1e-8f; };
+  // In metres like the round shapes: whole repeats round the equator, v the distance from the top pole.
+  const float repeats = repeatsAround(radius);
   MeshData mesh;
   mesh.vertices.reserve(faces.size() * 3);
   for (const auto &face : faces) {
@@ -494,7 +496,9 @@ MeshData icosphere(float radius, std::uint32_t subdivisions) {
     for (std::size_t i = 0; i < 3; ++i) {
       const glm::vec3 &p = points[face[i]];
       mesh.indices.push_back(static_cast<std::uint32_t>(mesh.vertices.size()));
-      mesh.vertices.push_back({.position = p * radius, .normal = p, .uv = {u[i] + shift, 0.5f - std::asin(p.y) / Pi}});
+      mesh.vertices.push_back({.position = p * radius,
+                               .normal = p,
+                               .uv = {(u[i] + shift) * repeats, radius * std::acos(std::clamp(p.y, -1.0f, 1.0f))}});
     }
   }
   generateTangents(mesh);

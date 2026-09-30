@@ -70,7 +70,7 @@ TEST_CASE("primitives are closed triangle lists with unit outward normals", "[re
                Case{"stairs", [] { return primitives::stairs({2.0f, 1.0f, 3.0f}, 5); }, {1.0f, 0.5f, 1.5f}, 4.0f},
                Case{"hemisphere", [] { return primitives::hemisphere(2.0f, 12, 4); }, {2.0f, 1.0f, 2.0f}, 4.0f, -4.0f},
                Case{"arch", [] { return primitives::arch({2.0f, 3.0f, 0.5f}, 6); }, {1.0f, 1.5f, 0.25f}, 4.0f, -4.0f},
-               Case{"icosphere", [] { return primitives::icosphere(2.0f, 2); }, {2.0f, 2.0f, 2.0f}, 1.5f});
+               Case{"icosphere", [] { return primitives::icosphere(2.0f, 2); }, {2.0f, 2.0f, 2.0f}, 20.0f});
   const MeshData mesh = c.make();
   requireWellFormed(mesh, c);
   requireCounterClockwise(mesh, c);
