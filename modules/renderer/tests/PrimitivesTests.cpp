@@ -62,10 +62,10 @@ TEST_CASE("primitives are closed triangle lists with unit outward normals", "[re
       GENERATE(Case{"box", [] { return primitives::box({0.5f, 1.0f, 1.5f}); }, {0.5f, 1.0f, 1.5f}},
                Case{"sphere", [] { return primitives::sphere(2.0f, 12, 6); }, {2.0f, 2.0f, 2.0f}},
                Case{"plane", [] { return primitives::plane({4.0f, 2.0f}); }, {2.0f, 0.0f, 1.0f}},
-               Case{"cylinder", [] { return primitives::cylinder(0.5f, 3.0f, 8); }, {0.5f, 1.5f, 0.5f}},
-               Case{"capsule", [] { return primitives::capsule(0.5f, 3.0f, 8, 3); }, {0.5f, 1.5f, 0.5f}},
-               Case{"cone", [] { return primitives::cone(0.5f, 3.0f, 8); }, {0.5f, 1.5f, 0.5f}},
-               Case{"torus", [] { return primitives::torus(1.0f, 0.25f, 12, 6); }, {1.25f, 0.25f, 1.25f}},
+               Case{"cylinder", [] { return primitives::cylinder(0.5f, 3.0f, 8); }, {0.5f, 1.5f, 0.5f}, 4.0f},
+               Case{"capsule", [] { return primitives::capsule(0.5f, 3.0f, 8, 3); }, {0.5f, 1.5f, 0.5f}, 4.0f},
+               Case{"cone", [] { return primitives::cone(0.5f, 3.0f, 8); }, {0.5f, 1.5f, 0.5f}, 4.0f},
+               Case{"torus", [] { return primitives::torus(1.0f, 0.25f, 12, 6); }, {1.25f, 0.25f, 1.25f}, 7.0f},
                Case{"ramp", [] { return primitives::ramp({2.0f, 1.0f, 3.0f}); }, {1.0f, 0.5f, 1.5f}, 4.0f},
                Case{"stairs", [] { return primitives::stairs({2.0f, 1.0f, 3.0f}, 5); }, {1.0f, 0.5f, 1.5f}, 4.0f},
                Case{"hemisphere", [] { return primitives::hemisphere(2.0f, 12, 4); }, {2.0f, 1.0f, 2.0f}, 4.0f, -4.0f},
@@ -194,4 +194,24 @@ TEST_CASE("the arch's texture runs unbroken from its straight sides into the cur
     }
   }
   REQUIRE(joined == 4); // two corners of the wall and two of the first curve segment
+}
+
+TEST_CASE("round sides repeat the texture a whole number of times, about once a metre", "[renderer][primitives]") {
+  // A cylinder of radius 1 and height 2: the side is 6.28 m round, so six repeats, and 2 m tall.
+  float maxU = 0.0f;
+  float maxV = 0.0f;
+  for (const Vertex &vertex : primitives::cylinder(1.0f, 2.0f, 24).vertices) {
+    if (std::abs(vertex.normal.y) < 0.5f) { // the side, not the caps
+      maxU = std::max(maxU, vertex.uv.x);
+      maxV = std::max(maxV, vertex.uv.y);
+    }
+  }
+  REQUIRE(maxU == Approx(6.0f));
+  REQUIRE(maxV == Approx(2.0f));
+  // A capsule's v covers the whole surface: two hemisphere arcs and the straight part.
+  float capsuleV = 0.0f;
+  for (const Vertex &vertex : primitives::capsule(0.5f, 3.0f, 16, 4).vertices) {
+    capsuleV = std::max(capsuleV, vertex.uv.y);
+  }
+  REQUIRE(capsuleV == Approx(2.0f + 0.5f * 3.14159265f).epsilon(1e-4f));
 }

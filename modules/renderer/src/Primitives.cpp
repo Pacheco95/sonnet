@@ -28,6 +28,12 @@ void addQuad(MeshData &mesh, glm::vec3 origin, glm::vec3 right, glm::vec3 up, gl
   mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
 }
 
+// Texture repeats around a circle of the given radius: about one a metre, but a whole number so the
+// texture meets itself at the seam.
+float repeatsAround(float radius) {
+  return std::max(1.0f, std::round(2.0f * Pi * radius));
+}
+
 // A band of stacked rings between two rows of vertices, `slices + 1` vertices per row with the
 // seam vertex duplicated for texture coordinates. A row at a pole has all its vertices in one
 // place, so the band ends in one triangle per slice instead of two degenerate ones.
@@ -48,8 +54,10 @@ void addBand(MeshData &mesh, std::uint32_t firstRow, std::uint32_t secondRow, st
 }
 
 // A row of vertices around the Y axis at height y with the given radius; the normal is the
-// direction from `normalOrigin` so hemispheres and cylinders share it.
-std::uint32_t addRing(MeshData &mesh, float y, float radius, std::uint32_t slices, glm::vec3 normalOrigin, float v) {
+// direction from `normalOrigin` so hemispheres and cylinders share it. `uScale` is how many times the
+// texture repeats around the ring (see `repeatsAround`).
+std::uint32_t addRing(MeshData &mesh, float y, float radius, std::uint32_t slices, glm::vec3 normalOrigin, float v,
+                      float uScale = 1.0f) {
   const auto first = static_cast<std::uint32_t>(mesh.vertices.size());
   for (std::uint32_t i = 0; i <= slices; ++i) {
     const float u = static_cast<float>(i) / static_cast<float>(slices);
@@ -58,21 +66,21 @@ std::uint32_t addRing(MeshData &mesh, float y, float radius, std::uint32_t slice
     const glm::vec3 position{radius * std::cos(angle), y, -radius * std::sin(angle)};
     const glm::vec3 offset = position - normalOrigin;
     const glm::vec3 normal = glm::length(offset) > 0.0f ? glm::normalize(offset) : glm::vec3{0.0f, 1.0f, 0.0f};
-    mesh.vertices.push_back({.position = position, .normal = normal, .uv = {u, v}});
+    mesh.vertices.push_back({.position = position, .normal = normal, .uv = {u * uScale, v}});
   }
   return first;
 }
 
-// A flat disc at height y facing `normal`, as a fan around a centre vertex.
+// A flat disc at height y facing `normal`, as a fan around a centre vertex, textured in metres.
 void addCap(MeshData &mesh, float y, float radius, std::uint32_t slices, glm::vec3 normal) {
   const auto centre = static_cast<std::uint32_t>(mesh.vertices.size());
-  mesh.vertices.push_back({.position = {0.0f, y, 0.0f}, .normal = normal, .uv = {0.5f, 0.5f}});
+  mesh.vertices.push_back({.position = {0.0f, y, 0.0f}, .normal = normal, .uv = {radius, radius}});
   for (std::uint32_t i = 0; i <= slices; ++i) {
     const float angle = static_cast<float>(i) / static_cast<float>(slices) * 2.0f * Pi;
     const float c = std::cos(angle);
     const float s = std::sin(angle);
     mesh.vertices.push_back(
-        {.position = {radius * c, y, -radius * s}, .normal = normal, .uv = {0.5f + 0.5f * c, 0.5f + 0.5f * s}});
+        {.position = {radius * c, y, -radius * s}, .normal = normal, .uv = {radius * (1.0f + c), radius * (1.0f + s)}});
   }
   for (std::uint32_t i = 0; i < slices; ++i) {
     const std::uint32_t a = centre + 1 + i;
@@ -87,14 +95,14 @@ void addCap(MeshData &mesh, float y, float radius, std::uint32_t slices, glm::ve
 
 // Rings of a hemisphere from the equator (ringIndex 0) to the pole, excluding the pole itself.
 void addHemisphereRings(MeshData &mesh, float centreY, float radius, std::uint32_t slices, std::uint32_t rings,
-                        bool upper, float vStart, float vEnd) {
+                        bool upper, float vStart, float vEnd, float uScale) {
   const glm::vec3 centre{0.0f, centreY, 0.0f};
   for (std::uint32_t r = 0; r <= rings; ++r) {
     const float t = static_cast<float>(r) / static_cast<float>(rings); // 0 equator, 1 pole
     const float latitude = t * Pi * 0.5f;
     const float ringRadius = radius * std::cos(latitude);
     const float y = centreY + (upper ? 1.0f : -1.0f) * radius * std::sin(latitude);
-    static_cast<void>(addRing(mesh, y, ringRadius, slices, centre, vStart + (vEnd - vStart) * t));
+    static_cast<void>(addRing(mesh, y, ringRadius, slices, centre, vStart + (vEnd - vStart) * t, uScale));
   }
 }
 
@@ -128,7 +136,7 @@ struct ProfilePoint {
 
 // Sweeps a profile (top to bottom) around the Y axis. A point on the axis is a pole: the band next to it
 // has one triangle per slice.
-void addRevolved(MeshData &mesh, const std::vector<ProfilePoint> &profile, std::uint32_t slices) {
+void addRevolved(MeshData &mesh, const std::vector<ProfilePoint> &profile, std::uint32_t slices, float uScale = 1.0f) {
   const auto first = static_cast<std::uint32_t>(mesh.vertices.size());
   for (const ProfilePoint &point : profile) {
     for (std::uint32_t i = 0; i <= slices; ++i) {
@@ -138,7 +146,7 @@ void addRevolved(MeshData &mesh, const std::vector<ProfilePoint> &profile, std::
       const float s = std::sin(angle);
       mesh.vertices.push_back({.position = {point.radius * c, point.y, -point.radius * s},
                                .normal = {point.normal.x * c, point.normal.y, -point.normal.x * s},
-                               .uv = {u, point.v}});
+                               .uv = {u * uScale, point.v}});
     }
   }
   for (std::size_t r = 0; r + 1 < profile.size(); ++r) {
@@ -193,8 +201,8 @@ MeshData cylinder(float radius, float height, std::uint32_t slices) {
   MeshData mesh;
   const float h = height * 0.5f;
   // Side normals point away from the axis: the normal origin is the ring's own centre.
-  const std::uint32_t bottom = addRing(mesh, -h, radius, slices, {0.0f, -h, 0.0f}, 0.0f);
-  const std::uint32_t top = addRing(mesh, h, radius, slices, {0.0f, h, 0.0f}, 1.0f);
+  const std::uint32_t bottom = addRing(mesh, -h, radius, slices, {0.0f, -h, 0.0f}, 0.0f, repeatsAround(radius));
+  const std::uint32_t top = addRing(mesh, h, radius, slices, {0.0f, h, 0.0f}, height, repeatsAround(radius));
   addBand(mesh, top, bottom, slices);
   addCap(mesh, h, radius, slices, {0.0f, 1.0f, 0.0f});
   addCap(mesh, -h, radius, slices, {0.0f, -1.0f, 0.0f});
@@ -207,15 +215,17 @@ MeshData capsule(float radius, float height, std::uint32_t slices, std::uint32_t
   SONNET_ASSERT(height >= 2.0f * radius, "capsule height {} is shorter than two radii", height);
   MeshData mesh;
   const float half = height * 0.5f - radius; // half length of the straight part
+  const float quarter = radius * Pi * 0.5f;  // the arc of a hemisphere; v runs in metres along the whole surface
   // Upper hemisphere from the equator up, straight part, lower hemisphere from the equator down.
   const std::uint32_t upperFirst = static_cast<std::uint32_t>(mesh.vertices.size());
-  addHemisphereRings(mesh, half, radius, slices, rings, true, 0.5f, 0.0f);
+  addHemisphereRings(mesh, half, radius, slices, rings, true, quarter, 0.0f, repeatsAround(radius));
   for (std::uint32_t r = 0; r < rings; ++r) {
     // Ring r is nearer the equator than ring r + 1; the band's first row is the upper one.
     addBand(mesh, upperFirst + (r + 1) * (slices + 1), upperFirst + r * (slices + 1), slices, r + 1 == rings, false);
   }
   const std::uint32_t lowerFirst = static_cast<std::uint32_t>(mesh.vertices.size());
-  addHemisphereRings(mesh, -half, radius, slices, rings, false, 0.5f, 1.0f);
+  addHemisphereRings(mesh, -half, radius, slices, rings, false, quarter + 2.0f * half, 2.0f * quarter + 2.0f * half,
+                     repeatsAround(radius));
   for (std::uint32_t r = 0; r < rings; ++r) {
     addBand(mesh, lowerFirst + r * (slices + 1), lowerFirst + (r + 1) * (slices + 1), slices, false, r + 1 == rings);
   }
@@ -230,7 +240,8 @@ MeshData cone(float radius, float height, std::uint32_t slices) {
   const float h = height * 0.5f;
   // The side normal leans towards +Y by the slope: perpendicular to the line from the base rim to the apex.
   const glm::vec2 side = glm::normalize(glm::vec2{height, radius});
-  addRevolved(mesh, {{0.0f, h, side, 0.0f}, {radius, -h, side, 1.0f}}, slices);
+  const float slant = std::sqrt(radius * radius + height * height);
+  addRevolved(mesh, {{0.0f, h, side, 0.0f}, {radius, -h, side, slant}}, slices, repeatsAround(radius));
   addCap(mesh, -h, radius, slices, {0.0f, -1.0f, 0.0f});
   generateTangents(mesh);
   return mesh;
@@ -240,12 +251,14 @@ MeshData torus(float majorRadius, float minorRadius, std::uint32_t majorSegments
   SONNET_ASSERT(majorSegments >= 3 && minorSegments >= 3, "torus needs at least 3 segments both ways");
   MeshData mesh;
   for (std::uint32_t i = 0; i <= majorSegments; ++i) {
-    const float u = static_cast<float>(i) / static_cast<float>(majorSegments);
-    const float angle = u * 2.0f * Pi;
+    const float turn = static_cast<float>(i) / static_cast<float>(majorSegments);
+    const float u = turn * repeatsAround(majorRadius);
+    const float angle = turn * 2.0f * Pi;
     const glm::vec3 outward{std::cos(angle), 0.0f, -std::sin(angle)};
     for (std::uint32_t j = 0; j <= minorSegments; ++j) {
-      const float v = static_cast<float>(j) / static_cast<float>(minorSegments);
-      const float tube = v * 2.0f * Pi;
+      const float turnTube = static_cast<float>(j) / static_cast<float>(minorSegments);
+      const float v = turnTube * repeatsAround(minorRadius);
+      const float tube = turnTube * 2.0f * Pi;
       const glm::vec3 normal = outward * std::cos(tube) + glm::vec3{0.0f, std::sin(tube), 0.0f};
       mesh.vertices.push_back(
           {.position = outward * majorRadius + normal * minorRadius, .normal = normal, .uv = {u, v}});
