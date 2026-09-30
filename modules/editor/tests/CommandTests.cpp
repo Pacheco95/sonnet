@@ -43,6 +43,90 @@ TEST_CASE("the selection keeps order, a primary and prunes dead entities", "[edi
   REQUIRE(selection.empty());
 }
 
+TEST_CASE("the history is saved exactly where the last save was", "[editor][commands]") {
+  world::World world;
+  editor::CommandStack commands;
+  const core::Uuid uuid = world.uuidOf(world.createEntity("a"));
+  const auto rename = [&](const char *before, const char *after) {
+    commands.push(editor::renameCommand(uuid, before, after), world);
+  };
+  REQUIRE(commands.isSaved()); // a new history is clean
+
+  rename("a", "b");
+  REQUIRE(!commands.isSaved());
+  REQUIRE(commands.undo(world)); // back to the saved point
+  REQUIRE(commands.isSaved());
+  REQUIRE(commands.redo(world));
+  REQUIRE(!commands.isSaved());
+
+  commands.markSaved();
+  REQUIRE(commands.isSaved());
+  rename("b", "c");
+  REQUIRE(!commands.isSaved());
+  REQUIRE(commands.undo(world));
+  REQUIRE(commands.isSaved());
+  REQUIRE(commands.undo(world)); // past the save
+  REQUIRE(!commands.isSaved());
+  REQUIRE(commands.redo(world));
+  REQUIRE(commands.isSaved());
+
+  // A push that drops the redo list the save sat in leaves it unreachable until the next save.
+  commands.markSaved();
+  REQUIRE(commands.undo(world));
+  rename("a", "d"); // same size as at the save, different history
+  REQUIRE(!commands.isSaved());
+  REQUIRE(commands.undo(world));
+  REQUIRE(!commands.isSaved());
+  REQUIRE(commands.redo(world));
+  REQUIRE(!commands.isSaved());
+  commands.markSaved();
+  REQUIRE(commands.isSaved());
+
+  // Clearing forgets the save; the caller decides what the remaining state is.
+  commands.clear();
+  REQUIRE(!commands.isSaved());
+  commands.markSaved();
+  REQUIRE(commands.isSaved());
+}
+
+TEST_CASE("the history limit moves the saved position or loses it", "[editor][commands]") {
+  world::World world;
+  const core::Uuid uuid = world.uuidOf(world.createEntity("a"));
+  editor::CommandStack commands;
+  const auto rename = [&] { commands.push(editor::renameCommand(uuid, "a", "a"), world); };
+
+  // Saved with room to spare: the position slides down as the oldest commands drop off.
+  rename();
+  commands.markSaved();
+  for (std::size_t i = 0; i < editor::CommandStack::Limit - 1; ++i) {
+    rename();
+  }
+  REQUIRE(commands.size() == editor::CommandStack::Limit);
+  REQUIRE(!commands.isSaved());
+  for (std::size_t i = 0; i < editor::CommandStack::Limit - 1; ++i) {
+    REQUIRE(commands.undo(world));
+  }
+  REQUIRE(commands.isSaved());
+
+  // One more push drops the oldest command; the state the save followed is now the bottom.
+  while (commands.redo(world)) {
+  }
+  rename();
+  REQUIRE(commands.size() == editor::CommandStack::Limit);
+  while (commands.undo(world)) {
+  }
+  REQUIRE(commands.isSaved());
+
+  // Saved before the first command, which then drops off: that state is gone.
+  editor::CommandStack fresh;
+  for (std::size_t i = 0; i <= editor::CommandStack::Limit; ++i) {
+    fresh.push(editor::renameCommand(uuid, "a", "a"), world);
+  }
+  while (fresh.undo(world)) {
+  }
+  REQUIRE(!fresh.isSaved());
+}
+
 TEST_CASE("create, delete and duplicate commands undo and redo with stable identities", "[editor][commands]") {
   world::World world;
   editor::CommandStack commands;
@@ -65,12 +149,10 @@ TEST_CASE("create, delete and duplicate commands undo and redo with stable ident
   REQUIRE(world.find(child).is_valid());
   REQUIRE(world.parentOf(world.find(child)) == world.find(uuid));
 
-  const std::uint64_t revision = commands.revision();
   commands.push(editor::deleteEntityCommand(uuid), world);
   REQUIRE(!world.find(uuid).is_valid());
   REQUIRE(!world.find(child).is_valid());
   REQUIRE(commands.undoDescription() == "delete Box");
-  REQUIRE(commands.revision() != revision);
   REQUIRE(commands.undo(world));
   box = world.find(uuid);
   REQUIRE(box.is_valid());

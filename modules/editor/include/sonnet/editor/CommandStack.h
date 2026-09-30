@@ -3,8 +3,8 @@
 #include <sonnet/world/World.h>
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -21,7 +21,8 @@ public:
   [[nodiscard]] virtual std::string_view description() const = 0;
 };
 
-// The undo history (docs/editor.md). push applies the command and drops the redo list.
+// The undo history (docs/editor.md). push applies the command and drops the redo list. It also
+// tracks where the last save was, which is what makes the scene dirty.
 class CommandStack {
 public:
   static constexpr std::size_t Limit = 256;
@@ -42,16 +43,25 @@ public:
   [[nodiscard]] std::size_t size() const noexcept {
     return m_done.size();
   }
-  // Moves on every push, undo and redo; comparing it with the value at the last save tells
-  // whether the scene is dirty.
-  [[nodiscard]] std::uint64_t revision() const noexcept {
-    return m_revision;
+  // Remembers the current position in the history as the saved state. The scene is clean exactly
+  // when the history is back at that position, so undo and redo across it flip the state.
+  void markSaved() noexcept {
+    m_saved = m_done.size();
+  }
+  // Forgets the saved position: the scene counts as unsaved until the next markSaved.
+  void markUnsaved() noexcept {
+    m_saved.reset();
+  }
+  // False once the saved position is unreachable: a push discarded the redo branch it was in, or
+  // the history limit trimmed the command it followed.
+  [[nodiscard]] bool isSaved() const noexcept {
+    return m_saved == m_done.size();
   }
 
 private:
   std::vector<std::unique_ptr<ICommand>> m_done;
   std::vector<std::unique_ptr<ICommand>> m_undone;
-  std::uint64_t m_revision{0};
+  std::optional<std::size_t> m_saved{0}; // commands done at the last save; a new history is clean
 };
 
 } // namespace sonnet::editor
