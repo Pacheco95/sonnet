@@ -69,7 +69,7 @@ TEST_CASE("primitives are closed triangle lists with unit outward normals", "[re
                Case{"ramp", [] { return primitives::ramp({2.0f, 1.0f, 3.0f}); }, {1.0f, 0.5f, 1.5f}, 4.0f},
                Case{"stairs", [] { return primitives::stairs({2.0f, 1.0f, 3.0f}, 5); }, {1.0f, 0.5f, 1.5f}, 4.0f},
                Case{"hemisphere", [] { return primitives::hemisphere(2.0f, 12, 4); }, {2.0f, 1.0f, 2.0f}, 4.0f, -4.0f},
-               Case{"arch", [] { return primitives::arch({2.0f, 3.0f, 0.5f}, 6); }, {1.0f, 1.5f, 0.25f}, 4.0f},
+               Case{"arch", [] { return primitives::arch({2.0f, 3.0f, 0.5f}, 6); }, {1.0f, 1.5f, 0.25f}, 4.0f, -4.0f},
                Case{"icosphere", [] { return primitives::icosphere(2.0f, 2); }, {2.0f, 2.0f, 2.0f}, 1.5f});
   const MeshData mesh = c.make();
   requireWellFormed(mesh, c);
@@ -179,4 +179,19 @@ TEST_CASE("the hemisphere's texture is laid out from its pole in metres", "[rend
     const float colatitude = std::acos(std::clamp(vertex.normal.y, -1.0f, 1.0f));
     REQUIRE(glm::length(vertex.uv) == Approx(2.0f * colatitude).margin(1e-4f));
   }
+}
+
+TEST_CASE("the arch's texture runs unbroken from its straight sides into the curve", "[renderer][primitives]") {
+  // Size 2 x 3: the opening's radius is 0.6 and its spring line at y = 0.5. Where the left side meets the
+  // curve the surface faces +X, and u is 0 on both the wall and the first segment of the curve.
+  const MeshData mesh = primitives::arch({2.0f, 3.0f, 0.5f}, 8);
+  int joined = 0;
+  for (const Vertex &vertex : mesh.vertices) {
+    if (std::abs(vertex.position.x + 0.6f) < 1e-4f && std::abs(vertex.position.y - 0.5f) < 1e-4f &&
+        vertex.normal.x > 0.999f) {
+      REQUIRE(vertex.uv.x == Approx(0.0f).margin(1e-4f));
+      ++joined;
+    }
+  }
+  REQUIRE(joined == 4); // two corners of the wall and two of the first curve segment
 }

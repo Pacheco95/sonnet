@@ -370,8 +370,15 @@ MeshData arch(glm::vec3 size, std::uint32_t segments) {
   // The tunnel: the straight sides up to the spring line, then the smooth curve overhead, all facing inward.
   const float wall = spring + h.y;
   if (wall > 1e-6f) {
-    addQuad(mesh, {-r, -h.y, h.z}, {0, 0, -2 * h.z}, {0, wall, 0}, {1, 0, 0}, true);
-    addQuad(mesh, {r, -h.y, -h.z}, {0, 0, 2 * h.z}, {0, wall, 0}, {-1, 0, 0}, true);
+    // The coordinates carry on from the curve's (u along it, v across the depth), so the texture runs
+    // unbroken from the left side up and over and down the right one.
+    const float curve = arcLength.back();
+    const glm::vec3 inward{1, 0, 0};
+    addShadedQuad(mesh, {glm::vec3{-r, -h.y, h.z}, {-r, -h.y, -h.z}, {-r, spring, -h.z}, {-r, spring, h.z}},
+                  {inward, inward, inward, inward}, {glm::vec2{-wall, 0}, {-wall, size.z}, {0, size.z}, {0, 0}});
+    addShadedQuad(mesh, {glm::vec3{r, -h.y, -h.z}, {r, -h.y, h.z}, {r, spring, h.z}, {r, spring, -h.z}},
+                  {-inward, -inward, -inward, -inward},
+                  {glm::vec2{curve + wall, size.z}, {curve + wall, 0}, {curve, 0}, {curve, size.z}});
   }
   for (std::uint32_t k = 0; k < segments; ++k) {
     const glm::vec3 inA = -glm::normalize(glm::vec3{arc[k].x, arc[k].y - spring, 0.0f});
