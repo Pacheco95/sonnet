@@ -174,14 +174,10 @@ AssetDatabase::~AssetDatabase() {
 }
 
 void AssetDatabase::registerBuiltins() {
-  const std::array<std::pair<core::Uuid, const char *>, 5> builtins{{{builtin::box(), "Box"},
-                                                                     {builtin::sphere(), "Sphere"},
-                                                                     {builtin::plane(), "Plane"},
-                                                                     {builtin::cylinder(), "Cylinder"},
-                                                                     {builtin::capsule(), "Capsule"}}};
-  for (const auto &[uuid, name] : builtins) {
+  for (const builtin::Entry &entry : builtin::all()) {
+    const core::Uuid uuid = entry.uuid();
     m_assets[uuid] = AssetInfo{
-        .uuid = uuid, .type = AssetType::Mesh, .source = "builtin", .name = name, .parent = {}, .materials = {}};
+        .uuid = uuid, .type = AssetType::Mesh, .source = "builtin", .name = entry.name, .parent = {}, .materials = {}};
   }
 }
 
@@ -856,8 +852,22 @@ renderer::MeshHandle AssetDatabase::mesh(const core::Uuid &uuid) {
       data = renderer::primitives::plane();
     } else if (uuid == builtin::cylinder()) {
       data = renderer::primitives::cylinder();
-    } else {
+    } else if (uuid == builtin::capsule()) {
       data = renderer::primitives::capsule();
+    } else if (uuid == builtin::cone()) {
+      data = renderer::primitives::cone();
+    } else if (uuid == builtin::torus()) {
+      data = renderer::primitives::torus();
+    } else if (uuid == builtin::ramp()) {
+      data = renderer::primitives::ramp();
+    } else if (uuid == builtin::stairs()) {
+      data = renderer::primitives::stairs();
+    } else if (uuid == builtin::hemisphere()) {
+      data = renderer::primitives::hemisphere();
+    } else if (uuid == builtin::arch()) {
+      data = renderer::primitives::arch();
+    } else {
+      data = renderer::primitives::icosphere();
     }
     m_meshes[uuid] = m_renderer.createMesh(data, info->name);
     m_meshData[uuid] = std::move(data);

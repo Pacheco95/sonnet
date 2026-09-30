@@ -24,16 +24,6 @@ namespace {
 
 constexpr const char *DragPayload = "sonnet_entity";
 
-struct PrimitiveEntry {
-  core::Uuid (*mesh)() noexcept;
-  const char *name;
-};
-constexpr std::array<PrimitiveEntry, 5> Primitives{{{assets::builtin::box, "Box"},
-                                                    {assets::builtin::sphere, "Sphere"},
-                                                    {assets::builtin::plane, "Plane"},
-                                                    {assets::builtin::cylinder, "Cylinder"},
-                                                    {assets::builtin::capsule, "Capsule"}}};
-
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity.try_get<world::Name>();
   return name != nullptr && !name->value.empty() ? name->value : "(unnamed)";
@@ -307,9 +297,9 @@ void HierarchyPanel::drawCreateMenu(core::Uuid parent) {
   if (ImGui::MenuItem("Empty")) {
     createEntity("Entity", parent);
   }
-  for (const PrimitiveEntry &entry : Primitives) {
+  for (const assets::builtin::Entry &entry : assets::builtin::all()) {
     if (ImGui::MenuItem(entry.name)) {
-      createMeshEntity(entry.name, entry.mesh(), parent);
+      createMeshEntity(entry.name, entry.uuid(), parent);
     }
   }
   ImGui::Separator();

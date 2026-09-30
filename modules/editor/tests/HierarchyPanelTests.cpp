@@ -2,12 +2,17 @@
 #include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/Selection.h>
 
+#include <sonnet/assets/Asset.h>
+#include <sonnet/world/Components.h>
+#include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <imgui.h>
 #include <imgui_internal.h>
+
+#include <filesystem>
 
 using namespace sonnet;
 
@@ -145,4 +150,28 @@ TEST_CASE("the hierarchy filter keeps the matches and their ancestors", "[editor
   frame(panel);
   flecs::entity path[] = {rig};
   CHECK(isOpen(path, 1));
+}
+
+TEST_CASE("every built-in shape can be created, saved and loaded again", "[editor][hierarchy]") {
+  const std::filesystem::path path = std::filesystem::temp_directory_path() / "sonnet_primitives.scene.json";
+  {
+    world::World world;
+    editor::Selection selection;
+    editor::CommandStack commands;
+    editor::HierarchyPanel panel(world, selection, commands, [] {});
+    for (const assets::builtin::Entry &entry : assets::builtin::all()) {
+      panel.createMeshEntity(entry.name, entry.uuid(), {});
+    }
+    REQUIRE(world::saveSceneFile(world, path).has_value());
+  }
+  world::World reopened;
+  REQUIRE(world::loadSceneFile(reopened, path).has_value());
+  // Roots come back in creation order, one per shape.
+  const std::vector<flecs::entity> roots = reopened.roots();
+  REQUIRE(roots.size() == assets::builtin::all().size());
+  for (std::size_t i = 0; i < roots.size(); ++i) {
+    REQUIRE(roots[i].get<world::MeshRenderer>().mesh == assets::builtin::all()[i].uuid());
+    REQUIRE(roots[i].get<world::Name>().value == assets::builtin::all()[i].name);
+  }
+  std::filesystem::remove(path);
 }

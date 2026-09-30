@@ -245,8 +245,8 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
     REQUIRE(report->warnings.empty());
     REQUIRE(report->bundle == out / "game.sbundle");
     REQUIRE(report->fileCount == 2); // the scene and the prefab
-    // Every asset but the five built-in primitives, which the player registers for itself.
-    REQUIRE(report->assetCount == sourceAssetCount - 5);
+    // Every asset but the built-in primitives, which the player registers for itself.
+    REQUIRE(report->assetCount == sourceAssetCount - builtin::all().size());
     REQUIRE(report->meshes.verticesBefore > 0);
     // bytesWritten counts the payloads; the index and header follow them in the file.
     REQUIRE(std::filesystem::file_size(report->bundle) > report->bytes);
@@ -329,7 +329,8 @@ TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][coo
   const auto out = test::freshDirectory("sonnet_playground_cook");
   const auto report = cook(database, *project, {.outputDirectory = out, .scene = "scenes/playground.scene.json"});
   REQUIRE(report.has_value());
-  REQUIRE(report->assetCount == database.assets().size() - 5); // built-in primitives are supplied by the player
+  REQUIRE(report->assetCount ==
+          database.assets().size() - builtin::all().size()); // built-in primitives are supplied by the player
   REQUIRE(report->fileCount == 1 + project->files(".prefab.json").size());
   {
     const auto bundle = Bundle::open(report->bundle);

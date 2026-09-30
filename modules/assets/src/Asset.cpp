@@ -1,5 +1,6 @@
 #include <sonnet/assets/Asset.h>
 
+#include <array>
 #include <format>
 
 namespace sonnet::assets {
@@ -207,6 +208,51 @@ core::Uuid cylinder() noexcept {
 core::Uuid capsule() noexcept {
   static const core::Uuid uuid = builtinUuid("capsule");
   return uuid;
+}
+
+core::Uuid cone() noexcept {
+  static const core::Uuid uuid = builtinUuid("cone");
+  return uuid;
+}
+core::Uuid torus() noexcept {
+  static const core::Uuid uuid = builtinUuid("torus");
+  return uuid;
+}
+core::Uuid ramp() noexcept {
+  static const core::Uuid uuid = builtinUuid("ramp");
+  return uuid;
+}
+core::Uuid stairs() noexcept {
+  static const core::Uuid uuid = builtinUuid("stairs");
+  return uuid;
+}
+core::Uuid hemisphere() noexcept {
+  static const core::Uuid uuid = builtinUuid("hemisphere");
+  return uuid;
+}
+core::Uuid arch() noexcept {
+  static const core::Uuid uuid = builtinUuid("arch");
+  return uuid;
+}
+core::Uuid icosphere() noexcept {
+  static const core::Uuid uuid = builtinUuid("icosphere");
+  return uuid;
+}
+
+std::span<const Entry> all() noexcept {
+  static constexpr std::array<Entry, 12> entries{{{box, "Box"},
+                                                  {sphere, "Sphere"},
+                                                  {plane, "Plane"},
+                                                  {cylinder, "Cylinder"},
+                                                  {capsule, "Capsule"},
+                                                  {cone, "Cone"},
+                                                  {torus, "Torus"},
+                                                  {ramp, "Ramp"},
+                                                  {stairs, "Stairs"},
+                                                  {hemisphere, "Hemisphere"},
+                                                  {arch, "Arch"},
+                                                  {icosphere, "Icosphere"}}};
+  return entries;
 }
 
 } // namespace builtin

@@ -10,9 +10,11 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <format>
 #include <memory>
 #include <string>
@@ -428,4 +430,43 @@ TEST_CASE("a pile of dynamic bodies steps faster across cores", "[.][benchmark][
   WARN(std::format("no workers        {:8.3f} ms per step", inlineMs));
   WARN(std::format("{:2} workers        {:8.3f} ms per step, {:.2f}x", hardware > 1 ? hardware - 1 : 1, pooledMs,
                    inlineMs / pooledMs));
+}
+
+TEST_CASE("every built-in solid takes a mesh collider, static or dynamic", "[physics]") {
+  struct Shape {
+    core::Uuid (*mesh)() noexcept;
+    float rayX; // where a ray from above meets the solid: not through the torus's hole or the arch's opening
+  };
+  const Shape shape = GENERATE(Shape{assets::builtin::box, 0.0f}, Shape{assets::builtin::sphere, 0.0f},
+                               Shape{assets::builtin::cylinder, 0.0f}, Shape{assets::builtin::capsule, 0.0f},
+                               Shape{assets::builtin::cone, 0.0f}, Shape{assets::builtin::torus, 0.35f},
+                               Shape{assets::builtin::ramp, 0.0f}, Shape{assets::builtin::stairs, 0.0f},
+                               Shape{assets::builtin::hemisphere, 0.0f}, Shape{assets::builtin::arch, 0.4f},
+                               Shape{assets::builtin::icosphere, 0.0f});
+  Fixture fixture;
+  fixture.ground();
+  fixture.world.progress(0.0f);
+
+  // Static: its triangles are in the way of a ray from above.
+  const flecs::entity fixed = fixture.world.createEntity("Fixed");
+  fixed.set<world::Transform>({.position = {20.0f, 1.0f, 0.0f}});
+  fixed.set<world::MeshRenderer>({.mesh = shape.mesh()});
+  fixed.set<physics::MeshCollider>({});
+  // Dynamic: its hull falls onto the ground and stays there.
+  const flecs::entity falling = fixture.world.createEntity("Falling");
+  falling.set<world::Transform>({.position = {0.0f, 3.0f, 0.0f}});
+  falling.set<world::MeshRenderer>({.mesh = shape.mesh()});
+  falling.set<physics::MeshCollider>({});
+  falling.set<physics::RigidBody>({});
+  fixture.world.setPlaying(true);
+  fixture.world.progress(Step);
+  REQUIRE(fixture.physics->bodyCount() == 3);
+
+  const auto hit = fixture.physics->raycast({20.0f + shape.rayX, 10.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, 20.0f);
+  REQUIRE((hit && hit->entity == fixed));
+
+  fixture.run(4.0f);
+  REQUIRE(positionOf(falling).y > 0.05f);
+  REQUIRE(positionOf(falling).y < 1.0f);
+  REQUIRE(std::abs(positionOf(falling).x) < 2.0f);
 }

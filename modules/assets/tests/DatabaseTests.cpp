@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <format>
+#include <set>
 #include <thread>
 
 using namespace sonnet;
@@ -109,7 +110,7 @@ TEST_CASE("opening a project writes sidecars and keeps identities across reopens
     REQUIRE(byName(database, "Wood", AssetType::Material) != nullptr);
     REQUIRE(byName(database, "painted", AssetType::Material) != nullptr);
     REQUIRE(byName(database, "sky", AssetType::Environment) != nullptr);
-    REQUIRE(database.assets(AssetType::Mesh).size() == 6); // five built-ins and the crate
+    REQUIRE(database.assets(AssetType::Mesh).size() == builtin::all().size() + 1); // the built-ins and the crate
   }
   {
     AssetDatabase database{fixture.renderer, fixture.jobs};
@@ -132,6 +133,18 @@ TEST_CASE("assets load on first use, into the cache for textures, and stay loade
   REQUIRE(fixture.renderer.isValid(box));
   REQUIRE(database.mesh(builtin::box()) == box);
   REQUIRE(!database.mesh(core::Uuid::generate()).isValid());
+
+  // Every built-in is registered, distinct, and builds its mesh and the data physics reads.
+  std::set<core::Uuid> seen;
+  for (const builtin::Entry &entry : builtin::all()) {
+    REQUIRE(seen.insert(entry.uuid()).second);
+    REQUIRE(database.find(entry.uuid()) != nullptr);
+    REQUIRE(database.find(entry.uuid())->name == entry.name);
+    REQUIRE(fixture.renderer.isValid(database.mesh(entry.uuid())));
+    const renderer::MeshData *data = database.meshData(entry.uuid());
+    REQUIRE(data != nullptr);
+    REQUIRE(data->triangleCount() > 0);
+  }
 
   const core::Uuid woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
   const renderer::TextureHandle wood = database.texture(woodUuid);
@@ -391,6 +404,13 @@ TEST_CASE("the built-in mesh identities never change, since scene files hold the
   REQUIRE(builtin::plane().toString() == "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40");
   REQUIRE(builtin::cylinder().toString() == "4982c24f-bd36-8c92-a2c1-47e047fbe1b6");
   REQUIRE(builtin::capsule().toString() == "663df5e4-bf07-8eb4-9364-2db2a5a3e28d");
+  REQUIRE(builtin::cone().toString() == "c4b13e29-7d02-88c3-bfe9-af058a179518");
+  REQUIRE(builtin::torus().toString() == "207411e3-2d40-801a-b153-bf3b0c8546e8");
+  REQUIRE(builtin::ramp().toString() == "53ca34cf-0b66-8103-9462-0a00fb9fbc2d");
+  REQUIRE(builtin::stairs().toString() == "f1fa4e76-0b71-8884-8ace-6230f9c3d074");
+  REQUIRE(builtin::hemisphere().toString() == "abc845f9-54d0-8db4-9c0f-d2dcc45a7211");
+  REQUIRE(builtin::arch().toString() == "1ff1a00b-8fc2-8825-8cfa-fd4c78a70efe");
+  REQUIRE(builtin::icosphere().toString() == "edd73868-8c8d-837e-9c97-f8de1a22a52a");
 }
 
 TEST_CASE("a requested texture arrives on a later frame, imported off the main thread", "[assets][database]") {

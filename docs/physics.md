@@ -14,7 +14,7 @@ The components are plain structs registered with the world's reflection ([world.
 - An entity with at least one collider is a body. Without a `RigidBody` it is static.
 - `RigidBody` gives the body type (static, kinematic or dynamic), the mass in kilograms, friction, restitution, linear and angular damping and a gravity scale.
 - `BoxCollider` (half extents), `SphereCollider` (radius) and `CapsuleCollider` (radius and the half height of its cylinder, along Y) each have an offset from the entity's origin. Several colliders on one entity make one compound body.
-- `MeshCollider` uses the triangles of a mesh asset for static and kinematic bodies and their convex hull for dynamic ones, since Jolt simulates triangle meshes only when they do not move by themselves. A nil mesh takes the entity's `MeshRenderer` mesh. The vertices come from `AssetDatabase::meshData` ([assets.md](assets.md#meshes)).
+- `MeshCollider` uses the triangles of a mesh asset for static and kinematic bodies and their convex hull for dynamic ones, since Jolt simulates triangle meshes only when they do not move by themselves. A nil mesh takes the entity's `MeshRenderer` mesh. Every built-in shape takes one. A dynamic body is its convex hull, so a dynamic arch loses its opening, stairs become a ramp and a torus a solid disc (a static or kinematic one keeps every triangle); make those static, or compose the shape from box colliders, when the concavity matters. The vertices come from `AssetDatabase::meshData` ([assets.md](assets.md#meshes)).
 
 Shapes are in the entity's local space and scaled by its world scale, offsets included. A child's collider belongs to its own body, not to its parent's: compound bodies from a hierarchy are not built.
 
