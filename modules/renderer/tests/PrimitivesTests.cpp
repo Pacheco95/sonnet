@@ -18,7 +18,8 @@ struct Case {
   std::string name;
   std::function<MeshData()> make;
   glm::vec3 halfExtents; // the mesh fits this box around the origin
-  float maxU{1.0f};      // a seam-crossing texture coordinate may run past 1 for the repeat sampler
+  float maxU{1.0f};      // faces textured in metres, and a seam-crossing triangle, run past 1 for the repeat sampler
+  float minU{0.0f};      // the hemisphere is textured outwards from its pole, so its coordinates are signed
 };
 
 void requireWellFormed(const MeshData &mesh, const Case &c) {
@@ -34,7 +35,7 @@ void requireWellFormed(const MeshData &mesh, const Case &c) {
     REQUIRE(std::abs(vertex.position.x) <= c.halfExtents.x + 1e-5f);
     REQUIRE(std::abs(vertex.position.y) <= c.halfExtents.y + 1e-5f);
     REQUIRE(std::abs(vertex.position.z) <= c.halfExtents.z + 1e-5f);
-    REQUIRE(vertex.uv.x >= -1e-5f);
+    REQUIRE(vertex.uv.x >= c.minU - 1e-5f);
     REQUIRE(vertex.uv.x <= c.maxU + 1e-5f);
   }
 }
@@ -57,18 +58,19 @@ void requireCounterClockwise(const MeshData &mesh, const Case &c) {
 } // namespace
 
 TEST_CASE("primitives are closed triangle lists with unit outward normals", "[renderer][primitives]") {
-  const Case c = GENERATE(Case{"box", [] { return primitives::box({0.5f, 1.0f, 1.5f}); }, {0.5f, 1.0f, 1.5f}},
-                          Case{"sphere", [] { return primitives::sphere(2.0f, 12, 6); }, {2.0f, 2.0f, 2.0f}},
-                          Case{"plane", [] { return primitives::plane({4.0f, 2.0f}); }, {2.0f, 0.0f, 1.0f}},
-                          Case{"cylinder", [] { return primitives::cylinder(0.5f, 3.0f, 8); }, {0.5f, 1.5f, 0.5f}},
-                          Case{"capsule", [] { return primitives::capsule(0.5f, 3.0f, 8, 3); }, {0.5f, 1.5f, 0.5f}},
-                          Case{"cone", [] { return primitives::cone(0.5f, 3.0f, 8); }, {0.5f, 1.5f, 0.5f}},
-                          Case{"torus", [] { return primitives::torus(1.0f, 0.25f, 12, 6); }, {1.25f, 0.25f, 1.25f}},
-                          Case{"ramp", [] { return primitives::ramp({2.0f, 1.0f, 3.0f}); }, {1.0f, 0.5f, 1.5f}},
-                          Case{"stairs", [] { return primitives::stairs({2.0f, 1.0f, 3.0f}, 5); }, {1.0f, 0.5f, 1.5f}},
-                          Case{"hemisphere", [] { return primitives::hemisphere(2.0f, 12, 4); }, {2.0f, 1.0f, 2.0f}},
-                          Case{"arch", [] { return primitives::arch({2.0f, 3.0f, 0.5f}, 6); }, {1.0f, 1.5f, 0.25f}},
-                          Case{"icosphere", [] { return primitives::icosphere(2.0f, 2); }, {2.0f, 2.0f, 2.0f}, 1.5f});
+  const Case c =
+      GENERATE(Case{"box", [] { return primitives::box({0.5f, 1.0f, 1.5f}); }, {0.5f, 1.0f, 1.5f}},
+               Case{"sphere", [] { return primitives::sphere(2.0f, 12, 6); }, {2.0f, 2.0f, 2.0f}},
+               Case{"plane", [] { return primitives::plane({4.0f, 2.0f}); }, {2.0f, 0.0f, 1.0f}},
+               Case{"cylinder", [] { return primitives::cylinder(0.5f, 3.0f, 8); }, {0.5f, 1.5f, 0.5f}},
+               Case{"capsule", [] { return primitives::capsule(0.5f, 3.0f, 8, 3); }, {0.5f, 1.5f, 0.5f}},
+               Case{"cone", [] { return primitives::cone(0.5f, 3.0f, 8); }, {0.5f, 1.5f, 0.5f}},
+               Case{"torus", [] { return primitives::torus(1.0f, 0.25f, 12, 6); }, {1.25f, 0.25f, 1.25f}},
+               Case{"ramp", [] { return primitives::ramp({2.0f, 1.0f, 3.0f}); }, {1.0f, 0.5f, 1.5f}, 4.0f},
+               Case{"stairs", [] { return primitives::stairs({2.0f, 1.0f, 3.0f}, 5); }, {1.0f, 0.5f, 1.5f}, 4.0f},
+               Case{"hemisphere", [] { return primitives::hemisphere(2.0f, 12, 4); }, {2.0f, 1.0f, 2.0f}, 4.0f, -4.0f},
+               Case{"arch", [] { return primitives::arch({2.0f, 3.0f, 0.5f}, 6); }, {1.0f, 1.5f, 0.25f}, 4.0f},
+               Case{"icosphere", [] { return primitives::icosphere(2.0f, 2); }, {2.0f, 2.0f, 2.0f}, 1.5f});
   const MeshData mesh = c.make();
   requireWellFormed(mesh, c);
   requireCounterClockwise(mesh, c);
@@ -164,5 +166,17 @@ TEST_CASE("the arch's opening is clear through its depth", "[renderer][primitive
     const auto inside = [&](glm::vec3 p) { return std::abs(p.x) < 0.6f - 1e-4f && p.y < 0.5f; };
     // The centroid of a wall triangle is never inside the straight part of the opening.
     REQUIRE(!inside((a + b + c) / 3.0f));
+  }
+}
+
+TEST_CASE("the hemisphere's texture is laid out from its pole in metres", "[renderer][primitives]") {
+  const MeshData mesh = primitives::hemisphere(2.0f, 16, 4);
+  for (const Vertex &vertex : mesh.vertices) {
+    if (vertex.normal.y < -0.999f) {
+      continue; // the base
+    }
+    // The distance from the texture's origin is the distance along the surface from the pole.
+    const float colatitude = std::acos(std::clamp(vertex.normal.y, -1.0f, 1.0f));
+    REQUIRE(glm::length(vertex.uv) == Approx(2.0f * colatitude).margin(1e-4f));
   }
 }

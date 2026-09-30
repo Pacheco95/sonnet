@@ -2,6 +2,7 @@
 
 #include <sonnet/core/Assert.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <numbers>
@@ -13,12 +14,16 @@ namespace {
 
 constexpr float Pi = std::numbers::pi_v<float>;
 
-void addQuad(MeshData &mesh, glm::vec3 origin, glm::vec3 right, glm::vec3 up, glm::vec3 normal) {
+// The texture coordinates run 0 to 1 over the quad, or with `metric` over its edge lengths in metres, so
+// faces of different sizes share one texel density and the texture repeats instead of stretching.
+void addQuad(MeshData &mesh, glm::vec3 origin, glm::vec3 right, glm::vec3 up, glm::vec3 normal, bool metric = false) {
   const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
+  const float u = metric ? glm::length(right) : 1.0f;
+  const float v = metric ? glm::length(up) : 1.0f;
   mesh.vertices.push_back({.position = origin, .normal = normal, .uv = {0.0f, 0.0f}});
-  mesh.vertices.push_back({.position = origin + right, .normal = normal, .uv = {1.0f, 0.0f}});
-  mesh.vertices.push_back({.position = origin + right + up, .normal = normal, .uv = {1.0f, 1.0f}});
-  mesh.vertices.push_back({.position = origin + up, .normal = normal, .uv = {0.0f, 1.0f}});
+  mesh.vertices.push_back({.position = origin + right, .normal = normal, .uv = {u, 0.0f}});
+  mesh.vertices.push_back({.position = origin + right + up, .normal = normal, .uv = {u, v}});
+  mesh.vertices.push_back({.position = origin + up, .normal = normal, .uv = {0.0f, v}});
   // Counter-clockwise seen from the direction the normal points to.
   mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
 }
@@ -261,13 +266,14 @@ MeshData torus(float majorRadius, float minorRadius, std::uint32_t majorSegments
 MeshData ramp(glm::vec3 size) {
   MeshData mesh;
   const glm::vec3 h = size * 0.5f;
-  addQuad(mesh, {h.x, -h.y, -h.z}, {-2 * h.x, 0, 0}, {0, 2 * h.y, 0}, {0, 0, -1}); // back wall
-  addQuad(mesh, {-h.x, -h.y, -h.z}, {2 * h.x, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0}); // bottom
-  addQuad(mesh, {-h.x, -h.y, h.z}, {2 * h.x, 0, 0}, {0, 2 * h.y, -2 * h.z},
-          glm::normalize(glm::vec3{0, h.z, h.y})); // slope
-  addTriangle(mesh, {{{h.x, -h.y, h.z}, {h.x, -h.y, -h.z}, {h.x, h.y, -h.z}}}, {{{0, 0}, {1, 0}, {1, 1}}}, {1, 0, 0});
-  addTriangle(mesh, {{{-h.x, -h.y, h.z}, {-h.x, h.y, -h.z}, {-h.x, -h.y, -h.z}}}, {{{0, 0}, {1, 1}, {1, 0}}},
-              {-1, 0, 0});
+  addQuad(mesh, {h.x, -h.y, -h.z}, {-2 * h.x, 0, 0}, {0, 2 * h.y, 0}, {0, 0, -1}, true); // back wall
+  addQuad(mesh, {-h.x, -h.y, -h.z}, {2 * h.x, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0}, true); // bottom
+  addQuad(mesh, {-h.x, -h.y, h.z}, {2 * h.x, 0, 0}, {0, 2 * h.y, -2 * h.z}, glm::normalize(glm::vec3{0, h.z, h.y}),
+          true); // slope
+  addTriangle(mesh, {{{h.x, -h.y, h.z}, {h.x, -h.y, -h.z}, {h.x, h.y, -h.z}}},
+              {{{0, 0}, {size.z, 0}, {size.z, size.y}}}, {1, 0, 0});
+  addTriangle(mesh, {{{-h.x, -h.y, h.z}, {-h.x, h.y, -h.z}, {-h.x, -h.y, -h.z}}},
+              {{{0, 0}, {size.z, size.y}, {size.z, 0}}}, {-1, 0, 0});
   generateTangents(mesh);
   return mesh;
 }
@@ -278,17 +284,17 @@ MeshData stairs(glm::vec3 size, std::uint32_t steps) {
   const glm::vec3 h = size * 0.5f;
   const float rise = size.y / static_cast<float>(steps);
   const float run = size.z / static_cast<float>(steps);
-  addQuad(mesh, {h.x, -h.y, -h.z}, {-2 * h.x, 0, 0}, {0, 2 * h.y, 0}, {0, 0, -1}); // back wall
-  addQuad(mesh, {-h.x, -h.y, -h.z}, {2 * h.x, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0}); // bottom
+  addQuad(mesh, {h.x, -h.y, -h.z}, {-2 * h.x, 0, 0}, {0, 2 * h.y, 0}, {0, 0, -1}, true); // back wall
+  addQuad(mesh, {-h.x, -h.y, -h.z}, {2 * h.x, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0}, true); // bottom
   for (std::uint32_t i = 0; i < steps; ++i) {
     const float front = h.z - static_cast<float>(i) * run;
     const float back = front - run;
     const float low = -h.y + static_cast<float>(i) * rise;
     const float top = low + rise;
-    addQuad(mesh, {-h.x, low, front}, {2 * h.x, 0, 0}, {0, rise, 0}, {0, 0, 1});   // riser
-    addQuad(mesh, {-h.x, top, front}, {2 * h.x, 0, 0}, {0, 0, -run}, {0, 1, 0});   // tread
-    addQuad(mesh, {h.x, -h.y, front}, {0, 0, -run}, {0, top + h.y, 0}, {1, 0, 0}); // right side
-    addQuad(mesh, {-h.x, -h.y, back}, {0, 0, run}, {0, top + h.y, 0}, {-1, 0, 0}); // left side
+    addQuad(mesh, {-h.x, low, front}, {2 * h.x, 0, 0}, {0, rise, 0}, {0, 0, 1}, true);   // riser
+    addQuad(mesh, {-h.x, top, front}, {2 * h.x, 0, 0}, {0, 0, -run}, {0, 1, 0}, true);   // tread
+    addQuad(mesh, {h.x, -h.y, front}, {0, 0, -run}, {0, top + h.y, 0}, {1, 0, 0}, true); // right side
+    addQuad(mesh, {-h.x, -h.y, back}, {0, 0, run}, {0, top + h.y, 0}, {-1, 0, 0}, true); // left side
   }
   generateTangents(mesh);
   return mesh;
@@ -307,6 +313,13 @@ MeshData hemisphere(float radius, std::uint32_t slices, std::uint32_t rings) {
     profile.push_back({radius * cosine, baseY + radius * std::sin(latitude), {cosine, std::sin(latitude)}, t});
   }
   addRevolved(mesh, profile, slices);
+  // Texture the dome from its pole, in metres: the distance along the surface from the pole is the radius of
+  // a disc in the texture. A latitude/longitude mapping would pinch the whole texture into the top.
+  for (Vertex &vertex : mesh.vertices) {
+    const float distance = radius * std::acos(std::clamp(vertex.normal.y, -1.0f, 1.0f));
+    const float angle = std::atan2(-vertex.position.z, vertex.position.x);
+    vertex.uv = {distance * std::cos(angle), distance * std::sin(angle)};
+  }
   addCap(mesh, baseY, radius, slices, {0.0f, -1.0f, 0.0f});
   generateTangents(mesh);
   return mesh;
@@ -319,17 +332,22 @@ MeshData arch(glm::vec3 size, std::uint32_t segments) {
   const glm::vec3 h = size * 0.5f;
   const float r = 0.6f * h.x;                // the opening's radius
   const float spring = h.y - 0.4f * h.x - r; // where the straight sides end and the round top starts
-  const auto planar = [&](glm::vec3 p) { return glm::vec2{(p.x + h.x) / size.x, (p.y + h.y) / size.y}; };
+  // Metres from the front face's lower left corner, so every face of the arch has the same texel density.
+  const auto planar = [&](glm::vec3 p) { return glm::vec2{p.x + h.x, p.y + h.y}; };
 
   // Front and back: a pier either side and, over the opening, one trapezoid per arc segment up to the top.
-  addQuad(mesh, {-h.x, -h.y, h.z}, {h.x - r, 0, 0}, {0, size.y, 0}, {0, 0, 1});
-  addQuad(mesh, {r, -h.y, h.z}, {h.x - r, 0, 0}, {0, size.y, 0}, {0, 0, 1});
-  addQuad(mesh, {-r, -h.y, -h.z}, {-(h.x - r), 0, 0}, {0, size.y, 0}, {0, 0, -1});
-  addQuad(mesh, {h.x, -h.y, -h.z}, {-(h.x - r), 0, 0}, {0, size.y, 0}, {0, 0, -1});
+  addQuad(mesh, {-h.x, -h.y, h.z}, {h.x - r, 0, 0}, {0, size.y, 0}, {0, 0, 1}, true);
+  addQuad(mesh, {r, -h.y, h.z}, {h.x - r, 0, 0}, {0, size.y, 0}, {0, 0, 1}, true);
+  addQuad(mesh, {-r, -h.y, -h.z}, {-(h.x - r), 0, 0}, {0, size.y, 0}, {0, 0, -1}, true);
+  addQuad(mesh, {h.x, -h.y, -h.z}, {-(h.x - r), 0, 0}, {0, size.y, 0}, {0, 0, -1}, true);
   std::vector<glm::vec2> arc; // from the left spring line over the crown to the right one
   for (std::uint32_t k = 0; k <= segments; ++k) {
     const float angle = Pi * (1.0f - static_cast<float>(k) / static_cast<float>(segments));
     arc.push_back({r * std::cos(angle), spring + r * std::sin(angle)});
+  }
+  std::vector<float> arcLength{0.0f};
+  for (std::uint32_t k = 0; k < segments; ++k) {
+    arcLength.push_back(arcLength.back() + glm::length(arc[k + 1] - arc[k]));
   }
   for (std::uint32_t k = 0; k < segments; ++k) {
     const glm::vec3 a{arc[k], h.z}, b{arc[k + 1], h.z};
@@ -337,31 +355,32 @@ MeshData arch(glm::vec3 size, std::uint32_t segments) {
     addShadedQuad(mesh, {a, b, c, d}, {glm::vec3{0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}},
                   {planar(a), planar(b), planar(c), planar(d)});
     const glm::vec3 a2{a.x, a.y, -h.z}, b2{b.x, b.y, -h.z}, c2{c.x, c.y, -h.z}, d2{d.x, d.y, -h.z};
-    const auto mirrored = [&](glm::vec3 p) { return glm::vec2{1.0f - planar(p).x, planar(p).y}; };
+    const auto mirrored = [&](glm::vec3 p) { return glm::vec2{size.x - planar(p).x, planar(p).y}; };
     addShadedQuad(mesh, {a2, d2, c2, b2}, {glm::vec3{0, 0, -1}, {0, 0, -1}, {0, 0, -1}, {0, 0, -1}},
                   {mirrored(a2), mirrored(d2), mirrored(c2), mirrored(b2)});
   }
 
   // The outside: both sides, the top and the feet of the piers.
-  addQuad(mesh, {h.x, -h.y, h.z}, {0, 0, -2 * h.z}, {0, size.y, 0}, {1, 0, 0});
-  addQuad(mesh, {-h.x, -h.y, -h.z}, {0, 0, 2 * h.z}, {0, size.y, 0}, {-1, 0, 0});
-  addQuad(mesh, {-h.x, h.y, h.z}, {size.x, 0, 0}, {0, 0, -2 * h.z}, {0, 1, 0});
-  addQuad(mesh, {-h.x, -h.y, -h.z}, {h.x - r, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0});
-  addQuad(mesh, {r, -h.y, -h.z}, {h.x - r, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0});
+  addQuad(mesh, {h.x, -h.y, h.z}, {0, 0, -2 * h.z}, {0, size.y, 0}, {1, 0, 0}, true);
+  addQuad(mesh, {-h.x, -h.y, -h.z}, {0, 0, 2 * h.z}, {0, size.y, 0}, {-1, 0, 0}, true);
+  addQuad(mesh, {-h.x, h.y, h.z}, {size.x, 0, 0}, {0, 0, -2 * h.z}, {0, 1, 0}, true);
+  addQuad(mesh, {-h.x, -h.y, -h.z}, {h.x - r, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0}, true);
+  addQuad(mesh, {r, -h.y, -h.z}, {h.x - r, 0, 0}, {0, 0, 2 * h.z}, {0, -1, 0}, true);
 
   // The tunnel: the straight sides up to the spring line, then the smooth curve overhead, all facing inward.
   const float wall = spring + h.y;
   if (wall > 1e-6f) {
-    addQuad(mesh, {-r, -h.y, h.z}, {0, 0, -2 * h.z}, {0, wall, 0}, {1, 0, 0});
-    addQuad(mesh, {r, -h.y, -h.z}, {0, 0, 2 * h.z}, {0, wall, 0}, {-1, 0, 0});
+    addQuad(mesh, {-r, -h.y, h.z}, {0, 0, -2 * h.z}, {0, wall, 0}, {1, 0, 0}, true);
+    addQuad(mesh, {r, -h.y, -h.z}, {0, 0, 2 * h.z}, {0, wall, 0}, {-1, 0, 0}, true);
   }
   for (std::uint32_t k = 0; k < segments; ++k) {
     const glm::vec3 inA = -glm::normalize(glm::vec3{arc[k].x, arc[k].y - spring, 0.0f});
     const glm::vec3 inB = -glm::normalize(glm::vec3{arc[k + 1].x, arc[k + 1].y - spring, 0.0f});
-    const float u0 = static_cast<float>(k) / static_cast<float>(segments);
-    const float u1 = static_cast<float>(k + 1) / static_cast<float>(segments);
+    // Along the curve in metres, across the depth in metres.
+    const float u0 = arcLength[k];
+    const float u1 = arcLength[k + 1];
     addShadedQuad(mesh, {glm::vec3{arc[k], h.z}, {arc[k], -h.z}, {arc[k + 1], -h.z}, {arc[k + 1], h.z}},
-                  {inA, inA, inB, inB}, {glm::vec2{u0, 0}, {u0, 1}, {u1, 1}, {u1, 0}});
+                  {inA, inA, inB, inB}, {glm::vec2{u0, 0}, {u0, size.z}, {u1, size.z}, {u1, 0}});
   }
   generateTangents(mesh);
   return mesh;
@@ -369,16 +388,35 @@ MeshData arch(glm::vec3 size, std::uint32_t segments) {
 
 MeshData icosphere(float radius, std::uint32_t subdivisions) {
   SONNET_ASSERT(subdivisions <= 7, "icosphere with {} subdivisions is too large", subdivisions);
-  const float t = (1.0f + std::sqrt(5.0f)) * 0.5f;
-  std::vector<glm::vec3> points{{-1, t, 0},  {1, t, 0},  {-1, -t, 0}, {1, -t, 0}, {0, -1, t},  {0, 1, t},
-                                {0, -1, -t}, {0, 1, -t}, {t, 0, -1},  {t, 0, 1},  {-t, 0, -1}, {-t, 0, 1}};
-  for (glm::vec3 &point : points) {
-    point = glm::normalize(point);
+  // An icosahedron with a vertex on each pole and two rings of five between them, so the texture's
+  // poles coincide with real vertices.
+  const float ringY = 1.0f / std::sqrt(5.0f);
+  const float ringRadius = 2.0f * ringY;
+  std::vector<glm::vec3> points{{0.0f, 1.0f, 0.0f}};
+  for (std::uint32_t k = 0; k < 10; ++k) {
+    const float angle =
+        static_cast<float>(k) * Pi / 5.0f; // even k is the upper ring, odd k the lower, offset by 36 degrees
+    points.push_back({ringRadius * std::cos(angle), k % 2 == 0 ? ringY : -ringY, -ringRadius * std::sin(angle)});
   }
-  std::vector<std::array<std::uint32_t, 3>> faces{{0, 11, 5}, {0, 5, 1},  {0, 1, 7},   {0, 7, 10}, {0, 10, 11},
-                                                  {1, 5, 9},  {5, 11, 4}, {11, 10, 2}, {10, 7, 6}, {7, 1, 8},
-                                                  {3, 9, 4},  {3, 4, 2},  {3, 2, 6},   {3, 6, 8},  {3, 8, 9},
-                                                  {4, 9, 5},  {2, 4, 11}, {6, 2, 10},  {8, 6, 7},  {9, 8, 1}};
+  points.push_back({0.0f, -1.0f, 0.0f});
+  const auto upper = [](std::uint32_t k) { return 1 + (k % 5) * 2; };
+  const auto lower = [](std::uint32_t k) { return 2 + (k % 5) * 2; };
+  std::vector<std::array<std::uint32_t, 3>> faces;
+  for (std::uint32_t k = 0; k < 5; ++k) {
+    faces.push_back({0, upper(k), upper(k + 1)});
+    faces.push_back({upper(k), lower(k), upper(k + 1)});
+    faces.push_back({upper(k + 1), lower(k), lower(k + 1)});
+    faces.push_back({11, lower(k + 1), lower(k)});
+  }
+  // Wound counter-clockwise seen from outside: the centroid direction is the outward one.
+  for (auto &face : faces) {
+    const glm::vec3 &a = points[face[0]];
+    const glm::vec3 &b = points[face[1]];
+    const glm::vec3 &c = points[face[2]];
+    if (glm::dot(glm::cross(b - a, c - a), a + b + c) < 0.0f) {
+      std::swap(face[1], face[2]);
+    }
+  }
   for (std::uint32_t level = 0; level < subdivisions; ++level) {
     std::unordered_map<std::uint64_t, std::uint32_t> midpoints;
     const auto midpoint = [&](std::uint32_t a, std::uint32_t b) {
@@ -400,26 +438,43 @@ MeshData icosphere(float radius, std::uint32_t subdivisions) {
     faces = std::move(next);
   }
 
-  // Equirectangular coordinates. A triangle across the seam takes its low-u corners past 1 (the sampler
-  // repeats), so those corners are separate vertices from the same point on the other side.
-  const auto longitude = [](glm::vec3 p) { return std::atan2(-p.z, p.x) / (2.0f * Pi) + (p.z > 0.0f ? 1.0f : 0.0f); };
+  // Equirectangular coordinates, per triangle so none of them stretches across the seam or the poles: the
+  // longitudes of a triangle are unwrapped to within half a turn of its first off-axis corner (past 0 or 1
+  // where they must be; the sampler repeats), and a corner on the axis takes the mean of the others'.
+  const auto longitude = [](glm::vec3 p) { return std::atan2(-p.z, p.x) / (2.0f * Pi); };
+  const auto onAxis = [](glm::vec3 p) { return p.x * p.x + p.z * p.z < 1e-8f; };
   MeshData mesh;
-  std::unordered_map<std::uint64_t, std::uint32_t> emitted;
-  const auto emit = [&](std::uint32_t point, bool wrapped) {
-    const auto [it, inserted] = emitted.try_emplace(static_cast<std::uint64_t>(point) * 2 + (wrapped ? 1 : 0),
-                                                    static_cast<std::uint32_t>(mesh.vertices.size()));
-    if (inserted) {
-      const glm::vec3 &p = points[point];
-      const float u = longitude(p) + (wrapped ? 1.0f : 0.0f);
-      mesh.vertices.push_back({.position = p * radius, .normal = p, .uv = {u, 0.5f - std::asin(p.y) / Pi}});
-    }
-    return it->second;
-  };
+  mesh.vertices.reserve(faces.size() * 3);
   for (const auto &face : faces) {
-    std::array<float, 3> u{longitude(points[face[0]]), longitude(points[face[1]]), longitude(points[face[2]])};
-    const bool seam = std::max({u[0], u[1], u[2]}) - std::min({u[0], u[1], u[2]}) > 0.5f;
+    std::array<float, 3> u{};
+    std::size_t reference = 0;
+    while (reference < 3 && onAxis(points[face[reference]])) {
+      ++reference;
+    }
+    const float base = longitude(points[face[reference]]);
+    float sum = 0.0f;
+    int count = 0;
     for (std::size_t i = 0; i < 3; ++i) {
-      mesh.indices.push_back(emit(face[i], seam && u[i] < 0.5f));
+      if (onAxis(points[face[i]])) {
+        continue;
+      }
+      float value = longitude(points[face[i]]);
+      value -= std::round(value - base); // within half a turn of the reference
+      u[i] = value;
+      sum += value;
+      ++count;
+    }
+    for (std::size_t i = 0; i < 3; ++i) {
+      if (onAxis(points[face[i]])) {
+        u[i] = sum / static_cast<float>(count);
+      }
+    }
+    // Keep the triangle's coordinates near [0, 1] rather than wherever atan2's branch put the reference.
+    const float shift = -std::floor(*std::ranges::min_element(u) + 1e-4f);
+    for (std::size_t i = 0; i < 3; ++i) {
+      const glm::vec3 &p = points[face[i]];
+      mesh.indices.push_back(static_cast<std::uint32_t>(mesh.vertices.size()));
+      mesh.vertices.push_back({.position = p * radius, .normal = p, .uv = {u[i] + shift, 0.5f - std::asin(p.y) / Pi}});
     }
   }
   generateTangents(mesh);
