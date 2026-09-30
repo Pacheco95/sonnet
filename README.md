@@ -186,6 +186,7 @@ ctest --preset linux-debug
 | [0018](docs/decisions/0018-mobile-export.md) | Mobile export: builds, ASTC, packaging and device checks | Accepted |
 | [0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) | Vulkan 1.3 devices that carry the engine's 1.4 features as extensions | Accepted |
 | [0020](docs/decisions/0020-linux-runtime-libraries.md) | Linux runtime libraries beside the editor | Accepted |
+| [0021](docs/decisions/0021-two-views-in-one-frame.md) | Several views in one graph frame | Accepted |
 
 ## License
 

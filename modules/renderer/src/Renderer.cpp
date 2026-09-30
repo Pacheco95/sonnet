@@ -715,15 +715,21 @@ bool Renderer::isReady(EnvironmentHandle handle) const {
 void Renderer::addPrecomputePasses(RenderGraph &graph, const SceneView &view) {
   // The lookup table and the view's environment are imported once per frame: computed by the
   // passes below when pending, and sampled by the forward pass through these images either
-  // way, so the graph orders the reads after the writes.
+  // way, so the graph orders the reads after the writes. A second view of the frame takes the
+  // first's imports rather than importing the images again as if nothing were writing them.
+  if (m_importSerial != graph.frameSerial()) {
+    m_importSerial = graph.frameSerial();
+    m_environmentImports.clear();
+    m_lutImport = graph.importImage(m_brdfLut, rhi::ImageLayout::General,
+                                    m_brdfLutPending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General);
+  }
   m_frameImages = {};
-  m_frameImages.lut = graph.importImage(m_brdfLut, rhi::ImageLayout::General,
-                                        m_brdfLutPending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General);
-  if (Environment *environment = m_environments.find(view.environment)) {
-    const rhi::ImageLayout initial = environment->pending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General;
-    m_frameImages.skybox = graph.importImage(environment->skybox, rhi::ImageLayout::General, initial);
-    m_frameImages.irradiance = graph.importImage(environment->irradiance, rhi::ImageLayout::General, initial);
-    m_frameImages.prefiltered = graph.importImage(environment->prefiltered, rhi::ImageLayout::General, initial);
+  m_frameImages.lut = m_lutImport;
+  if (const Environment *environment = m_environments.find(view.environment)) {
+    const EnvironmentImport imports = importEnvironment(graph, view.environment, *environment);
+    m_frameImages.skybox = imports.skybox;
+    m_frameImages.irradiance = imports.irradiance;
+    m_frameImages.prefiltered = imports.prefiltered;
   }
   if (m_brdfLutPending) {
     m_brdfLutPending = false;
@@ -745,23 +751,39 @@ void Renderer::addPrecomputePasses(RenderGraph &graph, const SceneView &view) {
   }
   m_environments.forEach([&](EnvironmentHandle handle, Environment &environment) {
     if (environment.pending) {
-      addEnvironmentPasses(graph, handle, environment, handle == view.environment);
+      addEnvironmentPasses(graph, handle, environment);
     }
   });
 }
 
-void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment,
-                                    bool viewed) {
+Renderer::EnvironmentImport Renderer::importEnvironment(RenderGraph &graph, EnvironmentHandle handle,
+                                                        const Environment &environment) {
+  for (const EnvironmentImport &imported : m_environmentImports) {
+    if (imported.handle == handle) {
+      return imported;
+    }
+  }
+  // Read before addEnvironmentPasses clears `pending`: a pending environment starts the frame
+  // as garbage for its own passes to fill.
+  const rhi::ImageLayout initial = environment.pending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General;
+  const EnvironmentImport imports{
+      .handle = handle,
+      .skybox = graph.importImage(environment.skybox, rhi::ImageLayout::General, initial),
+      .irradiance = graph.importImage(environment.irradiance, rhi::ImageLayout::General, initial),
+      .prefiltered = graph.importImage(environment.prefiltered, rhi::ImageLayout::General, initial)};
+  m_environmentImports.push_back(imports);
+  return imports;
+}
+
+void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment) {
+  const EnvironmentImport imports = importEnvironment(graph, handle, environment);
   environment.pending = false;
   const std::uint32_t sampler = m_device.samplerIndex(m_linearClampSampler);
   const GraphImage equirect = graph.importImage(environment.equirectangular, rhi::ImageLayout::ShaderReadOnly,
                                                 rhi::ImageLayout::ShaderReadOnly);
-  const GraphImage skybox =
-      viewed ? m_frameImages.skybox : graph.importImage(environment.skybox, rhi::ImageLayout::General);
-  const GraphImage irradiance =
-      viewed ? m_frameImages.irradiance : graph.importImage(environment.irradiance, rhi::ImageLayout::General);
-  const GraphImage prefiltered =
-      viewed ? m_frameImages.prefiltered : graph.importImage(environment.prefiltered, rhi::ImageLayout::General);
+  const GraphImage skybox = imports.skybox;
+  const GraphImage irradiance = imports.irradiance;
+  const GraphImage prefiltered = imports.prefiltered;
   const rhi::ImageHandle skyboxImage = environment.skybox;
   const rhi::ImageHandle irradianceImage = environment.irradiance;
   const rhi::ImageHandle prefilteredImage = environment.prefiltered;
@@ -847,7 +869,8 @@ void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle
 
 // ---- Frame preparation ----
 
-void Renderer::computeCascades(const SceneView &view, float aspect) {
+void Renderer::computeCascades(ViewState &v, float aspect) {
+  const SceneView &view = *v.view;
   const float nearPlane = view.camera.nearPlane;
   const float farPlane = std::max(m_settings.shadowDistance, nearPlane * 2.0f);
   const glm::mat4 cameraView = view.camera.view();
@@ -900,7 +923,7 @@ void Renderer::computeCascades(const SceneView &view, float aspect) {
     lightProjection[3][0] += offset.x;
     lightProjection[3][1] += offset.y;
     const float blendStart = split - (split - previousSplit) * 0.1f;
-    m_cascades[c] = Cascade{lightProjection * lightView, split, blendStart,
+    v.cascades[c] = Cascade{lightProjection * lightView, split, blendStart,
                             2.0f * radius / static_cast<float>(m_settings.shadowMapSize)};
     sliceNear = blendStart;
     previousSplit = split;
@@ -919,31 +942,44 @@ void Renderer::parallelFor(const char *name, std::size_t count, std::size_t grai
   m_settings.jobs->parallelFor(name, count, grain, body);
 }
 
-void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize) {
+Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize) {
   SONNET_ZONE();
-  // Once per graph frame, however many passes ask. The serial rather than the graph's address
-  // and frame count, which a graph built where an earlier one stood would repeat.
-  if (m_view == &view && m_graphSerial == graph.frameSerial() && m_targetSize == targetSize) {
-    return;
+  // A new graph frame starts the views over and shares the two cull buffers out afresh. The
+  // serial rather than the graph's address and frame count, which a graph built where an earlier
+  // one stood would repeat.
+  if (m_graphSerial != graph.frameSerial() || m_viewCount == 0) {
+    m_graphSerial = graph.frameSerial();
+    m_graphFrame = graph.frameIndex();
+    m_viewCount = 0;
+    m_commandsReserved = 0;
+    m_visibleReserved = 0;
   }
-  m_view = &view;
-  m_graphSerial = graph.frameSerial();
-  m_graphFrame = graph.frameIndex();
-  m_targetSize = targetSize;
-  m_cascadesActive = false;
-  m_frameBuffers = {};
-  m_statistics = {};
-  m_resolved.clear();
-  m_skinJobs.clear();
-  m_opaqueOrder.clear();
-  m_blendedOrder.clear();
-  m_allOrder.clear();
-  m_opaqueBatches.clear();
-  m_allBatches.clear();
-  m_cullJobs.clear();
-  m_opaqueJobsUsed = 0;
-  m_allJobsUsed = 0;
-  m_firstPendingJob = 0;
+  // Once per view, however many passes ask.
+  for (std::size_t i = 0; i < m_viewCount; ++i) {
+    if (m_views[i]->view == &view && m_views[i]->targetSize == targetSize) {
+      return *m_views[i];
+    }
+  }
+  if (m_viewCount == m_views.size()) {
+    m_views.push_back(std::make_unique<ViewState>());
+  }
+  ViewState &v = *m_views[m_viewCount++];
+  v.view = &view;
+  v.targetSize = targetSize;
+  v.cascadesActive = false;
+  v.frameBuffers = {};
+  v.statistics = {};
+  v.resolved.clear();
+  v.skinJobs.clear();
+  v.opaqueOrder.clear();
+  v.blendedOrder.clear();
+  v.allOrder.clear();
+  v.opaqueBatches.clear();
+  v.allBatches.clear();
+  v.cullJobs.clear();
+  v.opaqueJobsUsed = 0;
+  v.allJobsUsed = 0;
+  v.firstPendingJob = 0;
   const glm::mat4 cameraView = view.camera.view();
   for (std::size_t i = 0; i < view.draws.size(); ++i) {
     const DrawItem &item = view.draws[i];
@@ -967,11 +1003,11 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
       minimum = glm::min(minimum, world);
       maximum = glm::max(maximum, world);
     }
-    const std::uint32_t vertexBuffer = resolveVertices(item, *mesh, view);
+    const std::uint32_t vertexBuffer = resolveVertices(v, item, *mesh);
     if (vertexBuffer == rhi::InvalidBindlessIndex) {
       continue; // the bindless vertex-buffer array is full, which the device has logged
     }
-    m_resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
+    v.resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
                                       .mesh = mesh,
                                       .vertexBuffer = vertexBuffer,
                                       .submesh = mesh->submeshes[item.submesh],
@@ -983,16 +1019,16 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
                                       .masked = desc.alphaMode == AlphaMode::Mask,
                                       .viewDepth = -viewPosition.z});
   }
-  for (std::uint32_t i = 0; i < m_resolved.size(); ++i) {
-    m_allOrder.push_back(i);
-    (m_resolved[i].blended ? m_blendedOrder : m_opaqueOrder).push_back(i);
+  for (std::uint32_t i = 0; i < v.resolved.size(); ++i) {
+    v.allOrder.push_back(i);
+    (v.resolved[i].blended ? v.blendedOrder : v.opaqueOrder).push_back(i);
   }
   // Opaque draws grouped by pipeline, then by front face, then by mesh so index buffers stay
   // bound, then by submesh so a batch's instances share an index range (ADR-0016); blended ones
   // from the farthest to the nearest.
   const auto byBatch = [&](std::uint32_t a, std::uint32_t b) {
-    const ResolvedDraw &da = m_resolved[a];
-    const ResolvedDraw &db = m_resolved[b];
+    const ResolvedDraw &da = v.resolved[a];
+    const ResolvedDraw &db = v.resolved[b];
     if (da.doubleSided != db.doubleSided) {
       return !da.doubleSided;
     }
@@ -1007,29 +1043,31 @@ void Renderer::prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec
     }
     return da.submesh.indexCount < db.submesh.indexCount;
   };
-  std::ranges::sort(m_opaqueOrder, byBatch);
-  std::ranges::sort(m_blendedOrder, [&](std::uint32_t a, std::uint32_t b) {
-    return m_resolved[a].viewDepth > m_resolved[b].viewDepth;
+  std::ranges::sort(v.opaqueOrder, byBatch);
+  std::ranges::sort(v.blendedOrder, [&](std::uint32_t a, std::uint32_t b) {
+    return v.resolved[a].viewDepth > v.resolved[b].viewDepth;
   });
   // The id and mask passes do not care about order, so grouping them the same way turns them
   // into batches too.
-  std::ranges::sort(m_allOrder, byBatch);
-  buildBatches(m_opaqueOrder, m_opaqueBatches);
-  buildBatches(m_allOrder, m_allBatches);
-  ensureIndirectBuffers();
+  std::ranges::sort(v.allOrder, byBatch);
+  buildBatches(v, v.opaqueOrder, v.opaqueBatches);
+  buildBatches(v, v.allOrder, v.allBatches);
+  ensureIndirectBuffers(v);
 
   releaseSkinnedVertices(false);
-  if (!m_skinJobs.empty()) {
+  if (!v.skinJobs.empty()) {
     graph.addPass(
         "skinning", [](PassBuilder &) {},
-        [this](rhi::ICommandList &commands, const PassResources &) { recordSkinning(commands); });
+        [this, &v](rhi::ICommandList &commands, const PassResources &) { recordSkinning(commands, v); });
   }
+  return v;
 }
 
-void Renderer::buildBatches(std::span<const std::uint32_t> order, std::vector<Batch> &batches) const {
+void Renderer::buildBatches(const ViewState &v, std::span<const std::uint32_t> order,
+                            std::vector<Batch> &batches) const {
   batches.clear();
   for (std::uint32_t position = 0; position < order.size(); ++position) {
-    const ResolvedDraw &draw = m_resolved[order[position]];
+    const ResolvedDraw &draw = v.resolved[order[position]];
     const std::uint32_t pipeline = draw.doubleSided ? 1u : 0u;
     if (!batches.empty()) {
       Batch &last = batches.back();
@@ -1049,25 +1087,31 @@ void Renderer::buildBatches(std::span<const std::uint32_t> order, std::vector<Ba
   }
 }
 
-void Renderer::ensureIndirectBuffers() {
+void Renderer::ensureIndirectBuffers(ViewState &v) {
   // One command per batch per job, and a visible-list slot per draw per job, since culling is
   // what decides how many of a batch's slots its instances fill (ADR-0016). The direct range
-  // after the jobs' runs gives every resolved draw a slot the direct path can name.
-  const auto opaqueDraws = static_cast<std::uint32_t>(m_opaqueOrder.size());
-  const auto allDraws = static_cast<std::uint32_t>(m_allOrder.size());
-  const std::uint32_t commands = static_cast<std::uint32_t>(m_opaqueBatches.size()) * CullJobsOpaque +
-                                 static_cast<std::uint32_t>(m_allBatches.size()) * CullJobsAll;
-  m_directBase = opaqueDraws * CullJobsOpaque + allDraws * CullJobsAll;
-  const std::uint32_t visible = m_directBase + static_cast<std::uint32_t>(m_resolved.size());
+  // after the jobs' runs gives every resolved draw a slot the direct path can name. Each view of
+  // the graph frame takes a slice after the ones before it, so views never share a command or a
+  // slot, and the buffers grow to the sum of the slices (docs/decisions/0021-two-views-in-one-frame.md).
+  const auto opaqueDraws = static_cast<std::uint32_t>(v.opaqueOrder.size());
+  const auto allDraws = static_cast<std::uint32_t>(v.allOrder.size());
+  const std::uint32_t commands = static_cast<std::uint32_t>(v.opaqueBatches.size()) * CullJobsOpaque +
+                                 static_cast<std::uint32_t>(v.allBatches.size()) * CullJobsAll;
+  v.commandBase = m_commandsReserved;
+  v.visibleBase = m_visibleReserved;
+  v.directBase = v.visibleBase + opaqueDraws * CullJobsOpaque + allDraws * CullJobsAll;
+  m_commandsReserved += commands;
+  m_visibleReserved = v.directBase + static_cast<std::uint32_t>(v.resolved.size());
   if (commands == 0) {
     return;
   }
-  if (commands > m_commandCapacity) {
+  const std::uint32_t visible = m_visibleReserved;
+  if (m_commandsReserved > m_commandCapacity) {
     if (m_commandBuffer) {
       m_device.destroyBuffer(m_commandBuffer); // deferred past the frames still drawing from it
     }
-    m_commandCapacity = commands;
-    m_commandBuffer = m_device.createBuffer({.size = std::uint64_t{commands} * sizeof(rhi::IndirectCommand),
+    m_commandCapacity = m_commandsReserved;
+    m_commandBuffer = m_device.createBuffer({.size = std::uint64_t{m_commandsReserved} * sizeof(rhi::IndirectCommand),
                                              .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::Indirect,
                                              .debugName = "draw commands"});
   }
@@ -1082,44 +1126,44 @@ void Renderer::ensureIndirectBuffers() {
   }
 }
 
-std::optional<Renderer::CullJob> Renderer::reserveCullJob(bool opaque) {
+std::optional<Renderer::CullJob> Renderer::reserveCullJob(ViewState &v, bool opaque) {
   if (!m_commandBuffer || !m_visibleBuffer) {
     return std::nullopt; // nothing to draw this frame
   }
-  const auto opaqueDraws = static_cast<std::uint32_t>(m_opaqueOrder.size());
-  const auto allDraws = static_cast<std::uint32_t>(m_allOrder.size());
-  const auto opaqueBatches = static_cast<std::uint32_t>(m_opaqueBatches.size());
-  const auto allBatches = static_cast<std::uint32_t>(m_allBatches.size());
+  const auto opaqueDraws = static_cast<std::uint32_t>(v.opaqueOrder.size());
+  const auto allDraws = static_cast<std::uint32_t>(v.allOrder.size());
+  const auto opaqueBatches = static_cast<std::uint32_t>(v.opaqueBatches.size());
+  const auto allBatches = static_cast<std::uint32_t>(v.allBatches.size());
   CullJob job;
   job.opaque = opaque;
   if (opaque) {
-    if (m_opaqueJobsUsed >= CullJobsOpaque || opaqueDraws == 0) {
+    if (v.opaqueJobsUsed >= CullJobsOpaque || opaqueDraws == 0) {
       return std::nullopt;
     }
     job.drawCount = opaqueDraws;
     job.batchCount = opaqueBatches;
-    job.firstCommand = m_opaqueJobsUsed * opaqueBatches;
-    job.firstVisible = m_opaqueJobsUsed * opaqueDraws;
-    ++m_opaqueJobsUsed;
+    job.firstCommand = v.commandBase + v.opaqueJobsUsed * opaqueBatches;
+    job.firstVisible = v.visibleBase + v.opaqueJobsUsed * opaqueDraws;
+    ++v.opaqueJobsUsed;
   } else {
-    if (m_allJobsUsed >= CullJobsAll || allDraws == 0) {
+    if (v.allJobsUsed >= CullJobsAll || allDraws == 0) {
       return std::nullopt;
     }
     job.drawCount = allDraws;
     job.batchCount = allBatches;
-    job.firstCommand = CullJobsOpaque * opaqueBatches + m_allJobsUsed * allBatches;
-    job.firstVisible = CullJobsOpaque * opaqueDraws + m_allJobsUsed * allDraws;
-    ++m_allJobsUsed;
+    job.firstCommand = v.commandBase + CullJobsOpaque * opaqueBatches + v.allJobsUsed * allBatches;
+    job.firstVisible = v.visibleBase + CullJobsOpaque * opaqueDraws + v.allJobsUsed * allDraws;
+    ++v.allJobsUsed;
   }
   return job;
 }
 
-void Renderer::recordCulling(rhi::ICommandList &commands) {
+void Renderer::recordCulling(rhi::ICommandList &commands, ViewState &v) {
   SONNET_ZONE();
-  const std::span<const CullJob> pending{m_cullJobs.begin() + static_cast<std::ptrdiff_t>(m_firstPendingJob),
-                                         m_cullJobs.end()};
-  m_firstPendingJob = m_cullJobs.size();
-  if (pending.empty() || !m_frameBuffers.valid()) {
+  const std::span<const CullJob> pending{v.cullJobs.begin() + static_cast<std::ptrdiff_t>(v.firstPendingJob),
+                                         v.cullJobs.end()};
+  v.firstPendingJob = v.cullJobs.size();
+  if (pending.empty() || !v.frameBuffers.valid()) {
     return;
   }
   // The commands and the visible list this frame overwrites are the ones the previous frame's
@@ -1130,8 +1174,8 @@ void Renderer::recordCulling(rhi::ICommandList &commands) {
                           .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
   const rhi::BufferBinding commandWords{.binding = rhi::PassStorageBinding, .buffer = m_commandBuffer};
   const std::uint64_t visible = m_device.bufferAddress(m_visibleBuffer);
-  const auto candidates = [this](const CullJob &job) {
-    return job.opaque ? m_frameBuffers.opaqueCandidates : m_frameBuffers.allCandidates;
+  const auto candidates = [&v](const CullJob &job) {
+    return job.opaque ? v.frameBuffers.opaqueCandidates : v.frameBuffers.allCandidates;
   };
   const auto push = [&](const CullJob &job, std::uint32_t threads) {
     const CullConstants constants{.viewProjection = job.viewProjection,
@@ -1171,9 +1215,10 @@ void Renderer::recordCulling(rhi::ICommandList &commands) {
                           .dstAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead});
 }
 
-void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, std::span<const Batch> batches,
-                              std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t cascade) {
-  if (batches.empty() || !m_frameBuffers.valid()) {
+void Renderer::recordIndirect(rhi::ICommandList &commands, ViewState &v, const CullJob &job,
+                              std::span<const Batch> batches, std::span<const rhi::PipelineHandle, 2> pipelines,
+                              std::uint32_t cascade) {
+  if (batches.empty() || !v.frameBuffers.valid()) {
     return;
   }
   rhi::PipelineHandle bound;
@@ -1184,7 +1229,7 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
     const rhi::PipelineHandle pipeline = pipelines[batch.pipeline];
     if (pipeline != bound) {
       commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
-      bindFrame(commands);
+      bindFrame(commands, v);
       const DrawConstants push{cascade};
       commands.pushConstants(std::as_bytes(std::span{&push, 1}));
       bound = pipeline;
@@ -1201,11 +1246,12 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, const CullJob &job, s
     }
     commands.drawIndexedIndirect(m_commandBuffer,
                                  std::uint64_t{job.firstCommand + index} * sizeof(rhi::IndirectCommand), 1);
-    ++m_statistics.indirectCallCount;
+    ++v.statistics.indirectCallCount;
   }
 }
 
-std::uint32_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view) {
+std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh) {
+  const SceneView &view = *v.view;
   const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
                        std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
   if (!skinned) {
@@ -1225,10 +1271,10 @@ std::uint32_t Renderer::resolveVertices(const DrawItem &item, const Mesh &mesh, 
   // The submeshes of one instance share its vertices: deformed once.
   if (instance.lastFrame != m_graphFrame) {
     instance.lastFrame = m_graphFrame;
-    m_skinJobs.push_back(SkinJob{
+    v.skinJobs.push_back(SkinJob{
         .mesh = &mesh, .destination = instance.buffer, .firstJoint = item.firstJoint, .jointCount = item.jointCount});
-    ++m_statistics.skinnedInstanceCount;
-    m_statistics.skinnedVertexCount += mesh.vertexCount;
+    ++v.statistics.skinnedInstanceCount;
+    v.statistics.skinnedVertexCount += mesh.vertexCount;
   }
   return m_device.storageBufferIndex(instance.buffer);
 }
@@ -1245,12 +1291,12 @@ void Renderer::releaseSkinnedVertices(bool all) {
   }
 }
 
-void Renderer::recordSkinning(rhi::ICommandList &commands) {
+void Renderer::recordSkinning(rhi::ICommandList &commands, const ViewState &v) {
   SONNET_ZONE();
-  if (m_view == nullptr || m_view->joints.empty()) {
+  if (v.view == nullptr || v.view->joints.empty()) {
     return;
   }
-  const std::span<const glm::mat4> joints = m_view->joints;
+  const std::span<const glm::mat4> joints = v.view->joints;
   const rhi::TransientAllocation allocation = m_device.allocateTransient(joints.size_bytes());
   if (allocation.data.empty()) {
     return; // the allocator logged the exhaustion; the instances keep last frame's pose
@@ -1264,7 +1310,7 @@ void Renderer::recordSkinning(rhi::ICommandList &commands) {
                           .dstStage = rhi::PipelineStage::ComputeShader,
                           .dstAccess = rhi::Access::ShaderWrite});
   commands.bindPipeline(m_skinPipeline);
-  for (const SkinJob &job : m_skinJobs) {
+  for (const SkinJob &job : v.skinJobs) {
     const SkinConstants constants{.source = m_device.bufferAddress(job.mesh->vertices),
                                   .skin = m_device.bufferAddress(job.mesh->skin),
                                   .joints = jointAddress + std::uint64_t{job.firstJoint} * sizeof(glm::mat4),
@@ -1280,27 +1326,27 @@ void Renderer::recordSkinning(rhi::ICommandList &commands) {
                           .dstAccess = rhi::Access::ShaderRead});
 }
 
-void Renderer::ensureFrameUploaded(const PassResources &resources) {
-  if (m_frameBuffers.uploaded || m_view == nullptr) {
+void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources) {
+  if (v.frameBuffers.uploaded || v.view == nullptr) {
     return;
   }
-  m_frameBuffers.uploaded = true;
-  const SceneView &view = *m_view;
+  v.frameBuffers.uploaded = true;
+  const SceneView &view = *v.view;
   const std::uint32_t lightCount = static_cast<std::uint32_t>(std::min<std::size_t>(view.lights.size(), MaxLights));
   const std::uint32_t materialCount = m_materialSlots + 1;
-  m_frameBuffers.frame = m_device.allocateTransient(sizeof(FrameConstants));
-  m_frameBuffers.objects = m_device.allocateTransient(std::max<std::size_t>(view.draws.size(), 1) * sizeof(ObjectData));
+  v.frameBuffers.frame = m_device.allocateTransient(sizeof(FrameConstants));
+  v.frameBuffers.objects = m_device.allocateTransient(std::max<std::size_t>(view.draws.size(), 1) * sizeof(ObjectData));
   const rhi::TransientAllocation materials = m_device.allocateTransient(materialCount * sizeof(GpuMaterial));
   const rhi::TransientAllocation lights = m_device.allocateTransient(std::max(lightCount, 1u) * sizeof(GpuLight));
-  if (!m_frameBuffers.valid() || materials.data.empty() || lights.data.empty()) {
-    m_frameBuffers = {}; // the allocator logged the exhaustion; the passes draw nothing
-    m_frameBuffers.uploaded = true;
+  if (!v.frameBuffers.valid() || materials.data.empty() || lights.data.empty()) {
+    v.frameBuffers = {}; // the allocator logged the exhaustion; the passes draw nothing
+    v.frameBuffers.uploaded = true;
     return;
   }
 
   // Objects, in the draw list's order so the object index is the draw index. A draw whose mesh
   // handle went stale keeps a null vertex address and is never in an order list.
-  auto *objects = reinterpret_cast<ObjectData *>(m_frameBuffers.objects.data.data());
+  auto *objects = reinterpret_cast<ObjectData *>(v.frameBuffers.objects.data.data());
   // One slot per draw, written once, read by nobody until the pass records: the loop the job
   // system exists for (ADR-0013). What it costs is the bytes, not the arithmetic.
   parallelFor("frame objects", view.draws.size(), ObjectGrain, [&](std::size_t begin, std::size_t end) {
@@ -1313,7 +1359,7 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
                               .vertexBuffer = 0};
     }
   });
-  for (const ResolvedDraw &draw : m_resolved) {
+  for (const ResolvedDraw &draw : v.resolved) {
     objects[draw.objectIndex].vertexBuffer = draw.vertexBuffer;
   }
 
@@ -1336,7 +1382,7 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
         const Batch &batch = batches[index];
         for (std::uint32_t offset = 0; offset < batch.drawCount; ++offset) {
           const std::uint32_t position = batch.firstDraw + offset;
-          const ResolvedDraw &draw = m_resolved[order[position]];
+          const ResolvedDraw &draw = v.resolved[order[position]];
           const bool selected =
               !m_selected.empty() && std::ranges::binary_search(m_selected, view.draws[draw.objectIndex].id);
           candidates[position] = CullDraw{.center = draw.center,
@@ -1352,8 +1398,8 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
     });
     address = m_device.bufferAddress(allocation.buffer) + allocation.offset;
   };
-  uploadCandidates(m_opaqueOrder, m_opaqueBatches, m_frameBuffers.opaqueCandidates);
-  uploadCandidates(m_allOrder, m_allBatches, m_frameBuffers.allCandidates);
+  uploadCandidates(v.opaqueOrder, v.opaqueBatches, v.frameBuffers.opaqueCandidates);
+  uploadCandidates(v.allOrder, v.allBatches, v.frameBuffers.allCandidates);
 
   // Materials: slot 0 the default, then every live material by pool index.
   auto *gpuMaterials = reinterpret_cast<GpuMaterial *>(materials.data.data());
@@ -1399,9 +1445,9 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
                             .outerCos = std::cos(light.outerAngle),
                             .padding = {}};
   }
-  m_statistics.lightCount = lightCount;
+  v.statistics.lightCount = lightCount;
 
-  const float aspect = static_cast<float>(m_targetSize.x) / static_cast<float>(std::max(m_targetSize.y, 1u));
+  const float aspect = static_cast<float>(v.targetSize.x) / static_cast<float>(std::max(v.targetSize.y, 1u));
   const glm::mat4 cameraView = view.camera.view();
   const glm::mat4 projection = view.camera.projection(aspect);
   const float nearPlane = view.camera.nearPlane;
@@ -1425,9 +1471,9 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
       .environment = glm::vec4{view.environmentIntensity, static_cast<float>(m_settings.prefilteredLevels),
                                view.exposure, environmentReady ? 1.0f : 0.0f},
       .clusterScaleBias =
-          glm::vec4{static_cast<float>(m_targetSize.x) / ClusterGridX,
-                    static_cast<float>(m_targetSize.y) / ClusterGridY, sliceScale, -sliceScale * std::log(nearPlane)},
-      .targetSize = glm::vec2{m_targetSize},
+          glm::vec4{static_cast<float>(v.targetSize.x) / ClusterGridX,
+                    static_cast<float>(v.targetSize.y) / ClusterGridY, sliceScale, -sliceScale * std::log(nearPlane)},
+      .targetSize = glm::vec2{v.targetSize},
       .nearPlane = nearPlane,
       .shadowBias = m_settings.shadowBias,
       .cascadeImages = {},
@@ -1445,55 +1491,55 @@ void Renderer::ensureFrameUploaded(const PassResources &resources) {
       .clusters = m_device.bufferAddress(m_clusterBuffer),
   };
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
-    frame.cascadeMatrices[c] = m_cascades[c].matrix;
-    frame.cascadeSplits[static_cast<int>(c)] = m_cascades[c].split;
-    frame.cascadeBlendStarts[static_cast<int>(c)] = m_cascades[c].blendStart;
-    frame.cascadeTexelSizes[static_cast<int>(c)] = m_cascades[c].texelSize;
+    frame.cascadeMatrices[c] = v.cascades[c].matrix;
+    frame.cascadeSplits[static_cast<int>(c)] = v.cascades[c].split;
+    frame.cascadeBlendStarts[static_cast<int>(c)] = v.cascades[c].blendStart;
+    frame.cascadeTexelSizes[static_cast<int>(c)] = v.cascades[c].texelSize;
     frame.cascadeImages[c] =
-        m_cascadesActive ? sampledIndex(resources.image(m_cascadeImages[c])) : rhi::InvalidBindlessIndex;
+        v.cascadesActive ? sampledIndex(resources.image(v.cascadeImages[c])) : rhi::InvalidBindlessIndex;
   }
-  std::memcpy(m_frameBuffers.frame.data.data(), &frame, sizeof(frame));
+  std::memcpy(v.frameBuffers.frame.data.data(), &frame, sizeof(frame));
 }
 
-void Renderer::bindFrame(rhi::ICommandList &commands) {
+void Renderer::bindFrame(rhi::ICommandList &commands, const ViewState &v) {
   const std::array bindings{
       rhi::BufferBinding{.binding = rhi::PassUniformBinding,
-                         .buffer = m_frameBuffers.frame.buffer,
-                         .offset = m_frameBuffers.frame.offset,
-                         .size = m_frameBuffers.frame.data.size()},
+                         .buffer = v.frameBuffers.frame.buffer,
+                         .offset = v.frameBuffers.frame.offset,
+                         .size = v.frameBuffers.frame.data.size()},
       rhi::BufferBinding{.binding = rhi::PassStorageBinding,
-                         .buffer = m_frameBuffers.objects.buffer,
-                         .offset = m_frameBuffers.objects.offset,
-                         .size = m_frameBuffers.objects.data.size()},
+                         .buffer = v.frameBuffers.objects.buffer,
+                         .offset = v.frameBuffers.objects.offset,
+                         .size = v.frameBuffers.objects.data.size()},
   };
   commands.bindBuffers(bindings);
 }
 
-void Renderer::recordDraws(rhi::ICommandList &commands, std::span<const std::uint32_t> order,
+void Renderer::recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<const std::uint32_t> order,
                            std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t cascade) {
-  if (order.empty() || !m_frameBuffers.valid() || !m_visibleBuffer) {
+  if (order.empty() || !v.frameBuffers.valid() || !m_visibleBuffer) {
     return;
   }
   // The direct range names each resolved draw's object, written once a frame through the staging
   // ring, which lands before this frame's commands (ADR-0016).
-  if (!m_frameBuffers.directSlotsUploaded) {
-    m_frameBuffers.directSlotsUploaded = true;
-    m_directSlots.resize(m_resolved.size());
-    for (std::size_t i = 0; i < m_resolved.size(); ++i) {
-      m_directSlots[i] = m_resolved[i].objectIndex;
+  if (!v.frameBuffers.directSlotsUploaded) {
+    v.frameBuffers.directSlotsUploaded = true;
+    v.directSlots.resize(v.resolved.size());
+    for (std::size_t i = 0; i < v.resolved.size(); ++i) {
+      v.directSlots[i] = v.resolved[i].objectIndex;
     }
-    m_device.uploadBuffer(m_visibleBuffer, std::uint64_t{m_directBase} * sizeof(std::uint32_t),
-                          std::as_bytes(std::span{m_directSlots}));
+    m_device.uploadBuffer(m_visibleBuffer, std::uint64_t{v.directBase} * sizeof(std::uint32_t),
+                          std::as_bytes(std::span{v.directSlots}));
   }
   rhi::PipelineHandle bound;
   bool mirrored = false;
   const Mesh *boundMesh = nullptr;
   for (const std::uint32_t index : order) {
-    const ResolvedDraw &draw = m_resolved[index];
+    const ResolvedDraw &draw = v.resolved[index];
     const rhi::PipelineHandle pipeline = pipelines[draw.doubleSided ? 1 : 0];
     if (pipeline != bound) {
       commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
-      bindFrame(commands);
+      bindFrame(commands, v);
       // The cascade is the whole of the per-draw constants now; the draw's slot in the visible
       // list rides in its first instance, as a batch's does in an indirect command (ADR-0016).
       const DrawConstants push{cascade};
@@ -1509,16 +1555,16 @@ void Renderer::recordDraws(rhi::ICommandList &commands, std::span<const std::uin
       commands.bindIndexBuffer(draw.mesh->indices, rhi::IndexType::Uint32);
       boundMesh = draw.mesh;
     }
-    commands.drawIndexed(draw.submesh.indexCount, 1, draw.submesh.firstIndex, 0, m_directBase + index);
+    commands.drawIndexed(draw.submesh.indexCount, 1, draw.submesh.firstIndex, 0, v.directBase + index);
     if (count) {
-      ++m_statistics.drawCount;
-      m_statistics.triangleCount += draw.submesh.indexCount / 3;
+      ++v.statistics.drawCount;
+      v.statistics.triangleCount += draw.submesh.indexCount / 3;
     }
   }
 }
 
-void Renderer::recordClustering(rhi::ICommandList &commands) {
-  if (!m_frameBuffers.valid()) {
+void Renderer::recordClustering(rhi::ICommandList &commands, const ViewState &v) {
+  if (!v.frameBuffers.valid()) {
     return;
   }
   // The previous frame's fragments may still read the clusters this frame overwrites.
@@ -1527,7 +1573,7 @@ void Renderer::recordClustering(rhi::ICommandList &commands) {
                           .dstStage = rhi::PipelineStage::ComputeShader,
                           .dstAccess = rhi::Access::ShaderWrite});
   commands.bindPipeline(m_clusterPipeline);
-  bindFrame(commands);
+  bindFrame(commands, v);
   commands.dispatch(groups(ClusterGridX, 4), groups(ClusterGridY, 3), groups(ClusterGridZ, 4));
   commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
                           .srcAccess = rhi::Access::ShaderWrite,
@@ -1535,22 +1581,23 @@ void Renderer::recordClustering(rhi::ICommandList &commands) {
                           .dstAccess = rhi::Access::ShaderRead});
 }
 
-void Renderer::recordPost(rhi::ICommandList &commands, rhi::PipelineHandle pipeline, rhi::ImageHandle source,
-                          rhi::ImageHandle secondary, glm::uvec2 targetSize) {
+void Renderer::recordPost(rhi::ICommandList &commands, const SceneView *view, rhi::PipelineHandle pipeline,
+                          rhi::ImageHandle source, rhi::ImageHandle secondary, glm::uvec2 targetSize) {
   const glm::uvec2 sourceSize = m_device.imageDesc(source).size;
   const PostConstants push{.source = sampledIndex(source),
                            .secondary = secondary ? sampledIndex(secondary) : rhi::InvalidBindlessIndex,
                            .sampler = m_device.samplerIndex(m_linearClampSampler),
                            .sourceTexel = 1.0f / glm::vec2{sourceSize},
                            .targetSize = glm::vec2{targetSize},
-                           .exposure = m_view != nullptr ? m_view->exposure : 1.0f,
-                           .bloomStrength = m_view != nullptr ? m_view->bloomStrength : 0.0f};
+                           .exposure = view != nullptr ? view->exposure : 1.0f,
+                           .bloomStrength = view != nullptr ? view->bloomStrength : 0.0f};
   commands.bindPipeline(pipeline);
   commands.pushConstants(std::as_bytes(std::span{&push, 1}));
   commands.draw(3);
 }
 
-void Renderer::addBloomPasses(RenderGraph &graph, GraphImage hdr, glm::uvec2 size, GraphImage &result) {
+void Renderer::addBloomPasses(RenderGraph &graph, const SceneView &view, GraphImage hdr, glm::uvec2 size,
+                              GraphImage &result) {
   const std::uint32_t levels =
       std::min(m_settings.bloomLevels, rhi::fullMipCount(size) > 1 ? rhi::fullMipCount(size) - 1 : 1u);
   std::vector<GraphImage> down(levels);
@@ -1568,8 +1615,8 @@ void Renderer::addBloomPasses(RenderGraph &graph, GraphImage hdr, glm::uvec2 siz
           builder.sample(source);
           builder.color(down[i], rhi::LoadOp::DontCare);
         },
-        [this, source, target = sizes[i]](rhi::ICommandList &commands, const PassResources &resources) {
-          recordPost(commands, m_bloomDownPipeline, resources.image(source), {}, target);
+        [this, &view, source, target = sizes[i]](rhi::ICommandList &commands, const PassResources &resources) {
+          recordPost(commands, &view, m_bloomDownPipeline, resources.image(source), {}, target);
         });
   }
   up[levels - 1] = down[levels - 1];
@@ -1583,9 +1630,9 @@ void Renderer::addBloomPasses(RenderGraph &graph, GraphImage hdr, glm::uvec2 siz
           builder.sample(up[level + 1]);
           builder.color(up[level], rhi::LoadOp::DontCare);
         },
-        [this, source = down[level], below = up[level + 1], target = sizes[level]](rhi::ICommandList &commands,
-                                                                                   const PassResources &resources) {
-          recordPost(commands, m_bloomUpPipeline, resources.image(source), resources.image(below), target);
+        [this, &view, source = down[level], below = up[level + 1],
+         target = sizes[level]](rhi::ICommandList &commands, const PassResources &resources) {
+          recordPost(commands, &view, m_bloomUpPipeline, resources.image(source), resources.image(below), target);
         });
   }
   result = up[0];
@@ -1596,27 +1643,27 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   SONNET_ZONE();
   addPrecomputePasses(graph, view);
   const glm::uvec2 size = graph.imageDesc(color).size;
-  prepareFrame(graph, view, size);
+  ViewState &v = prepareFrame(graph, view, size);
 
   // The cascades exist only with the scene passes: the id and mask passes on their own have no
   // shadow images to sample.
-  m_cascadesActive = m_settings.shadows && view.hasSun && !m_opaqueOrder.empty();
+  v.cascadesActive = m_settings.shadows && view.hasSun && !v.opaqueOrder.empty();
   const float aspect = static_cast<float>(size.x) / static_cast<float>(std::max(size.y, 1u));
-  if (m_cascadesActive) {
-    computeCascades(view, aspect);
+  if (v.cascadesActive) {
+    computeCascades(v, aspect);
   }
   // Every opaque job of this frame is reserved before the culling pass records, so one clear
   // and one pair of barriers covers them all (ADR-0012).
   std::array<std::optional<CullJob>, CascadeCount> cascadeJobs;
-  for (std::uint32_t c = 0; c < CascadeCount && m_cascadesActive; ++c) {
-    cascadeJobs[c] = reserveCullJob(true);
+  for (std::uint32_t c = 0; c < CascadeCount && v.cascadesActive; ++c) {
+    cascadeJobs[c] = reserveCullJob(v, true);
     if (cascadeJobs[c]) {
-      cascadeJobs[c]->viewProjection = m_cascades[c].matrix;
+      cascadeJobs[c]->viewProjection = v.cascades[c].matrix;
     }
   }
   const glm::mat4 cameraViewProjection = view.camera.projection(aspect) * view.camera.view();
-  std::optional<CullJob> depthJob = reserveCullJob(true);
-  std::optional<CullJob> forwardJob = reserveCullJob(true);
+  std::optional<CullJob> depthJob = reserveCullJob(v, true);
+  std::optional<CullJob> forwardJob = reserveCullJob(v, true);
   for (std::optional<CullJob> *job : {&depthJob, &forwardJob}) {
     if (*job) {
       (*job)->viewProjection = cameraViewProjection;
@@ -1624,58 +1671,58 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   }
   for (const std::optional<CullJob> &job : cascadeJobs) {
     if (job) {
-      m_cullJobs.push_back(*job);
+      v.cullJobs.push_back(*job);
     }
   }
   for (const std::optional<CullJob> *job : {&depthJob, &forwardJob}) {
     if (*job) {
-      m_cullJobs.push_back(**job);
+      v.cullJobs.push_back(**job);
     }
   }
-  if (m_firstPendingJob < m_cullJobs.size()) {
+  if (v.firstPendingJob < v.cullJobs.size()) {
     graph.addPass(
         "cull", [](PassBuilder &) {},
-        [this](rhi::ICommandList &commands, const PassResources &resources) {
-          ensureFrameUploaded(resources);
-          recordCulling(commands);
+        [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
+          ensureFrameUploaded(v, resources);
+          recordCulling(commands, v);
         });
   }
 
-  if (m_cascadesActive) {
+  if (v.cascadesActive) {
     for (std::uint32_t c = 0; c < CascadeCount; ++c) {
-      m_cascadeImages[c] = graph.createImage({.size = {m_settings.shadowMapSize, m_settings.shadowMapSize},
+      v.cascadeImages[c] = graph.createImage({.size = {m_settings.shadowMapSize, m_settings.shadowMapSize},
                                               .format = DepthFormat,
                                               .debugName = std::format("shadow cascade {}", c)});
       graph.addPass(
           std::format("shadow cascade {}", c),
-          [&](PassBuilder &builder) { builder.depth(m_cascadeImages[c], rhi::LoadOp::Clear, 0.0f); },
-          [this, c, job = cascadeJobs[c]](rhi::ICommandList &commands, const PassResources &resources) {
-            ensureFrameUploaded(resources);
+          [&](PassBuilder &builder) { builder.depth(v.cascadeImages[c], rhi::LoadOp::Clear, 0.0f); },
+          [this, &v, c, job = cascadeJobs[c]](rhi::ICommandList &commands, const PassResources &resources) {
+            ensureFrameUploaded(v, resources);
             if (!job) {
-              recordDraws(commands, m_opaqueOrder, m_shadowPipelines, false, c);
+              recordDraws(commands, v, v.opaqueOrder, m_shadowPipelines, false, c);
               return;
             }
-            recordIndirect(commands, *job, m_opaqueBatches, m_shadowPipelines, c);
-            m_statistics.shadowDrawCount += static_cast<std::uint32_t>(m_opaqueOrder.size());
+            recordIndirect(commands, v, *job, v.opaqueBatches, m_shadowPipelines, c);
+            v.statistics.shadowDrawCount += static_cast<std::uint32_t>(v.opaqueOrder.size());
           });
     }
   }
 
   graph.addPass(
       "depth", [&](PassBuilder &builder) { builder.depth(depth, rhi::LoadOp::Clear, 0.0f); },
-      [this, job = depthJob](rhi::ICommandList &commands, const PassResources &resources) {
-        ensureFrameUploaded(resources);
+      [this, &v, job = depthJob](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
         if (job) {
-          recordIndirect(commands, *job, m_opaqueBatches, m_depthPipelines);
+          recordIndirect(commands, v, *job, v.opaqueBatches, m_depthPipelines);
         } else {
-          recordDraws(commands, m_opaqueOrder, m_depthPipelines, false);
+          recordDraws(commands, v, v.opaqueOrder, m_depthPipelines, false);
         }
       });
   graph.addPass(
       "light clustering", [](PassBuilder &) {},
-      [this](rhi::ICommandList &commands, const PassResources &resources) {
-        ensureFrameUploaded(resources);
-        recordClustering(commands);
+      [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
+        recordClustering(commands, v);
       });
 
   const GraphImage hdr = graph.createImage({.size = size, .format = HdrFormat, .debugName = "scene hdr"});
@@ -1685,8 +1732,8 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       [&](PassBuilder &builder) {
         builder.color(hdr, rhi::LoadOp::Clear, clearColor);
         builder.depth(depth, rhi::LoadOp::Load);
-        if (m_cascadesActive) {
-          for (const GraphImage cascade : m_cascadeImages) {
+        if (v.cascadesActive) {
+          for (const GraphImage cascade : v.cascadeImages) {
             builder.sample(cascade);
           }
         }
@@ -1697,29 +1744,29 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           builder.sample(m_frameImages.prefiltered);
         }
       },
-      [this, skybox, job = forwardJob](rhi::ICommandList &commands, const PassResources &resources) {
-        ensureFrameUploaded(resources);
+      [this, &v, skybox, job = forwardJob](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
         if (job) {
-          recordIndirect(commands, *job, m_opaqueBatches, m_forwardPipelines);
-          for (const std::uint32_t index : m_opaqueOrder) {
-            ++m_statistics.drawCount;
-            m_statistics.triangleCount += m_resolved[index].submesh.indexCount / 3;
+          recordIndirect(commands, v, *job, v.opaqueBatches, m_forwardPipelines);
+          for (const std::uint32_t index : v.opaqueOrder) {
+            ++v.statistics.drawCount;
+            v.statistics.triangleCount += v.resolved[index].submesh.indexCount / 3;
           }
         } else {
-          recordDraws(commands, m_opaqueOrder, m_forwardPipelines, true);
+          recordDraws(commands, v, v.opaqueOrder, m_forwardPipelines, true);
         }
-        if (skybox && m_frameBuffers.valid()) {
+        if (skybox && v.frameBuffers.valid()) {
           commands.bindPipeline(m_skyboxPipeline);
-          bindFrame(commands);
+          bindFrame(commands, v);
           commands.draw(3);
         }
         // Blended draws keep the direct path: their order is view-dependent (ADR-0012).
-        recordDraws(commands, m_blendedOrder, m_blendPipelines, true);
+        recordDraws(commands, v, v.blendedOrder, m_blendPipelines, true);
       });
 
   GraphImage bloom;
   if (m_settings.bloom && size.x >= 2 && size.y >= 2) {
-    addBloomPasses(graph, hdr, size, bloom);
+    addBloomPasses(graph, view, hdr, size, bloom);
   }
   const GraphImage ldr = m_settings.antialiasing
                              ? graph.createImage({.size = size, .format = ColorFormat, .debugName = "scene ldr"})
@@ -1733,8 +1780,8 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         }
         builder.color(ldr, rhi::LoadOp::DontCare);
       },
-      [this, hdr, bloom, size](rhi::ICommandList &commands, const PassResources &resources) {
-        recordPost(commands, m_tonemapPipeline, resources.image(hdr),
+      [this, &view, hdr, bloom, size](rhi::ICommandList &commands, const PassResources &resources) {
+        recordPost(commands, &view, m_tonemapPipeline, resources.image(hdr),
                    bloom.isValid() ? resources.image(bloom) : rhi::ImageHandle{}, size);
       });
   if (m_settings.antialiasing) {
@@ -1744,8 +1791,8 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           builder.sample(ldr);
           builder.color(color, rhi::LoadOp::DontCare);
         },
-        [this, ldr, size](rhi::ICommandList &commands, const PassResources &resources) {
-          recordPost(commands, m_fxaaPipeline, resources.image(ldr), {}, size);
+        [this, &view, ldr, size](rhi::ICommandList &commands, const PassResources &resources) {
+          recordPost(commands, &view, m_fxaaPipeline, resources.image(ldr), {}, size);
         });
   }
 }
@@ -1762,30 +1809,30 @@ void Renderer::addPresentPass(RenderGraph &graph, GraphImage source, GraphImage 
         builder.color(target, rhi::LoadOp::DontCare);
       },
       [this, source, size](rhi::ICommandList &commands, const PassResources &resources) {
-        recordPost(commands, m_presentPipeline, resources.image(source), {}, size);
+        recordPost(commands, nullptr, m_presentPipeline, resources.image(source), {}, size);
       });
 }
 
 void Renderer::addIdPass(RenderGraph &graph, const SceneView &view, GraphImage ids, GraphImage depth) {
   const glm::uvec2 size = graph.imageDesc(ids).size;
-  prepareFrame(graph, view, size);
-  std::optional<CullJob> job = addCullPass(graph, view, size, false);
+  ViewState &v = prepareFrame(graph, view, size);
+  std::optional<CullJob> job = addCullPass(graph, v, false);
   graph.addPass(
       "id",
       [&](PassBuilder &builder) {
         builder.color(ids, rhi::LoadOp::Clear, {0.0f, 0.0f, 0.0f, 0.0f});
         builder.depth(depth, rhi::LoadOp::Load, 0.0f, rhi::StoreOp::DontCare);
       },
-      [this, job](rhi::ICommandList &commands, const PassResources &resources) {
-        ensureFrameUploaded(resources);
+      [this, &v, job](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
         // Editor-only work; the statistics keep counting the scene, not the picking pass.
-        const RenderStatistics before = m_statistics;
+        const RenderStatistics before = v.statistics;
         if (job) {
-          recordIndirect(commands, *job, m_allBatches, m_idPipelines);
+          recordIndirect(commands, v, *job, v.allBatches, m_idPipelines);
         } else {
-          recordDraws(commands, m_allOrder, m_idPipelines, false);
+          recordDraws(commands, v, v.allOrder, m_idPipelines, false);
         }
-        m_statistics.indirectCallCount = before.indirectCallCount;
+        v.statistics.indirectCallCount = before.indirectCallCount;
       });
 }
 
@@ -1799,38 +1846,39 @@ void Renderer::addSelectionMaskPass(RenderGraph &graph, const SceneView &view, G
     return;
   }
   const glm::uvec2 size = graph.imageDesc(mask).size;
-  prepareFrame(graph, view, size);
+  ViewState &v = prepareFrame(graph, view, size);
   // The mask keeps every selected silhouette, occluded or not, so culling filters by selection
   // as well as by the frustum; an off-screen selection has no outline to draw anyway.
-  std::optional<CullJob> job = addCullPass(graph, view, size, true);
+  std::optional<CullJob> job = addCullPass(graph, v, true);
   graph.addPass(
       "selection mask",
       [&](PassBuilder &builder) { builder.color(mask, rhi::LoadOp::Clear, {0.0f, 0.0f, 0.0f, 0.0f}); },
-      [this, job](rhi::ICommandList &commands, const PassResources &resources) {
-        ensureFrameUploaded(resources);
-        const RenderStatistics before = m_statistics;
+      [this, &v, job](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
+        const RenderStatistics before = v.statistics;
         if (job) {
-          recordIndirect(commands, *job, m_allBatches, m_maskPipelines);
+          recordIndirect(commands, v, *job, v.allBatches, m_maskPipelines);
         }
-        m_statistics.indirectCallCount = before.indirectCallCount;
+        v.statistics.indirectCallCount = before.indirectCallCount;
       });
 }
 
-std::optional<Renderer::CullJob> Renderer::addCullPass(RenderGraph &graph, const SceneView &view, glm::uvec2 size,
-                                                       bool selectedOnly) {
-  std::optional<CullJob> job = reserveCullJob(false);
+std::optional<Renderer::CullJob> Renderer::addCullPass(RenderGraph &graph, ViewState &v, bool selectedOnly) {
+  const SceneView &view = *v.view;
+  const glm::uvec2 size = v.targetSize;
+  std::optional<CullJob> job = reserveCullJob(v, false);
   if (!job) {
     return job;
   }
   const float aspect = static_cast<float>(size.x) / static_cast<float>(std::max(size.y, 1u));
   job->viewProjection = view.camera.projection(aspect) * view.camera.view();
   job->selectedOnly = selectedOnly;
-  m_cullJobs.push_back(*job);
+  v.cullJobs.push_back(*job);
   graph.addPass(
       selectedOnly ? "selection mask cull" : "id cull", [](PassBuilder &) {},
-      [this](rhi::ICommandList &commands, const PassResources &resources) {
-        ensureFrameUploaded(resources);
-        recordCulling(commands);
+      [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
+        recordCulling(commands, v);
       });
   return job;
 }

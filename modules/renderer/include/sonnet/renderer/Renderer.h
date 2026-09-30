@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -138,7 +139,11 @@ public:
   [[nodiscard]] bool isReady(EnvironmentHandle handle) const;
 
   // Declares the passes that draw `view` into `color` and `depth` (docs/rendering.md, "Frame
-  // structure"): the shadow cascades, the depth pre-pass, light clustering, the forward pass into
+  // structure"). Several views can be declared into one graph, each into its own target: the
+  // renderer keeps what is per view (the orders, the batches, the cull jobs, the cascades, the
+  // frame constants) apart and shares the objects, materials, lights' storage, skinned vertices
+  // and cull buffers, which are sliced per view (docs/decisions/0021-two-views-in-one-frame.md).
+  // The passes: the shadow cascades, the depth pre-pass, light clustering, the forward pass into
   // an HDR image, the skybox, the blended draws, bloom, tone mapping into `color` and FXAA, plus
   // any pending environment or lookup-table precomputation. `view` and the spans it holds must
   // outlive the graph's execute. The first pass the renderer declares in a graph frame, this or
@@ -168,8 +173,10 @@ public:
   // nothing when there are no lines. Same lifetime rule as addScenePasses.
   void addDebugLinePass(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth);
 
-  [[nodiscard]] const RenderStatistics &statistics() const noexcept {
-    return m_statistics;
+  // What the scene passes of the frame's `view`th declared view submitted; the first is the one
+  // a single-view frame has.
+  [[nodiscard]] const RenderStatistics &statistics(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->statistics : m_noStatistics;
   }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
@@ -292,6 +299,34 @@ private:
     GraphImage prefiltered;
   };
 
+  // Everything one view keeps between addScenePasses and the graph's execute. The passes capture
+  // a pointer to their view's state, so a second view's declaration does not touch the first's.
+  struct ViewState {
+    const SceneView *view{nullptr};
+    glm::uvec2 targetSize{0, 0};
+    RenderStatistics statistics;
+    std::vector<ResolvedDraw> resolved;
+    std::vector<SkinJob> skinJobs;
+    std::vector<std::uint32_t> opaqueOrder;  // opaque and masked, grouped into batches
+    std::vector<std::uint32_t> blendedOrder; // back to front
+    std::vector<std::uint32_t> allOrder;     // for the id and mask passes, grouped the same way
+    std::vector<Batch> opaqueBatches;
+    std::vector<Batch> allBatches;
+    std::vector<CullJob> cullJobs;   // reserved this frame, run by the culling passes
+    std::uint32_t opaqueJobsUsed{0}; // of CullJobsOpaque
+    std::uint32_t allJobsUsed{0};    // of CullJobsAll
+    std::size_t firstPendingJob{0};  // jobs a culling pass has not recorded yet
+    std::array<Cascade, CascadeCount> cascades;
+    std::array<GraphImage, CascadeCount> cascadeImages;
+    bool cascadesActive{false};
+    FrameBuffers frameBuffers;
+    // This view's slices of the shared command and visible buffers, in commands and slots.
+    std::uint32_t commandBase{0};
+    std::uint32_t visibleBase{0};
+    std::uint32_t directBase{0};            // the direct range's first slot this frame
+    std::vector<std::uint32_t> directSlots; // its contents, the object index of each resolved draw
+  };
+
   // Every pipeline is recorded with the module it comes from, so a reload rebuilds it.
   struct PipelineSlot {
     std::string shader;
@@ -313,46 +348,55 @@ private:
   void parallelFor(const char *name, std::size_t count, std::size_t grain,
                    const std::function<void(std::size_t, std::size_t)> &body) const;
 
-  void prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
+  [[nodiscard]] ViewState &prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
   // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
   // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
   // InvalidBindlessIndex when the array is full.
-  [[nodiscard]] std::uint32_t resolveVertices(const DrawItem &item, const Mesh &mesh, const SceneView &view);
-  void recordSkinning(rhi::ICommandList &commands);
+  [[nodiscard]] std::uint32_t resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh);
+  void recordSkinning(rhi::ICommandList &commands, const ViewState &v);
   void releaseSkinnedVertices(bool all);
-  void computeCascades(const SceneView &view, float aspect);
+  void computeCascades(ViewState &v, float aspect);
   // Groups an order list, already sorted by pipeline, front face, mesh and submesh, into the runs
   // one instanced indirect command each can submit. Returns the batches; the order list's entries
   // keep their positions.
-  void buildBatches(std::span<const std::uint32_t> order, std::vector<Batch> &batches) const;
+  void buildBatches(const ViewState &v, std::span<const std::uint32_t> order, std::vector<Batch> &batches) const;
   // Grows the command buffer and the visible list to what this frame's batches and draws need.
-  void ensureIndirectBuffers();
+  void ensureIndirectBuffers(ViewState &v);
   // Allocates and fills the frame constants, objects, materials, lights and cull candidates
   // once per frame.
-  void ensureFrameUploaded(const PassResources &resources);
-  void bindFrame(rhi::ICommandList &commands);
+  void ensureFrameUploaded(ViewState &v, const PassResources &resources);
+  void bindFrame(rhi::ICommandList &commands, const ViewState &v);
   // Reserves a job's command and visible-list ranges, or nothing when the frame has no room left.
-  [[nodiscard]] std::optional<CullJob> reserveCullJob(bool opaque);
+  [[nodiscard]] std::optional<CullJob> reserveCullJob(ViewState &v, bool opaque);
   // Declares the culling pass the editor's id or selection-mask pass needs, over all draws.
-  [[nodiscard]] std::optional<CullJob> addCullPass(RenderGraph &graph, const SceneView &view, glm::uvec2 size,
-                                                   bool selectedOnly);
+  [[nodiscard]] std::optional<CullJob> addCullPass(RenderGraph &graph, ViewState &v, bool selectedOnly);
   // Empties every reserved job's commands, then runs each job's frustum test, with the barriers
   // that order the previous frame's reads and this frame's command fetch around them.
-  void recordCulling(rhi::ICommandList &commands);
+  void recordCulling(rhi::ICommandList &commands, ViewState &v);
   // One indirect command per batch, the job's own, whose instances are the batch's survivors
   // (ADR-0016).
-  void recordIndirect(rhi::ICommandList &commands, const CullJob &job, std::span<const Batch> batches,
+  void recordIndirect(rhi::ICommandList &commands, ViewState &v, const CullJob &job, std::span<const Batch> batches,
                       std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t cascade = 0);
   // The direct path, which the blended draws keep because their order is view-dependent. Each
   // draw names its slot in the visible list's direct range as its first instance.
-  void recordDraws(rhi::ICommandList &commands, std::span<const std::uint32_t> order,
+  void recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<const std::uint32_t> order,
                    std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t cascade = 0);
-  void recordClustering(rhi::ICommandList &commands);
-  void recordPost(rhi::ICommandList &commands, rhi::PipelineHandle pipeline, rhi::ImageHandle source,
-                  rhi::ImageHandle secondary, glm::uvec2 targetSize);
+  void recordClustering(rhi::ICommandList &commands, const ViewState &v);
+  void recordPost(rhi::ICommandList &commands, const SceneView *view, rhi::PipelineHandle pipeline,
+                  rhi::ImageHandle source, rhi::ImageHandle secondary, glm::uvec2 targetSize);
   void addPrecomputePasses(RenderGraph &graph, const SceneView &view);
-  void addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment, bool viewed);
-  void addBloomPasses(RenderGraph &graph, GraphImage hdr, glm::uvec2 size, GraphImage &result);
+  // The graph's imports of an environment's cubes, made once per graph frame however many views
+  // sample them, so the passes that compute them and every view's reads share one image each.
+  struct EnvironmentImport {
+    EnvironmentHandle handle;
+    GraphImage skybox;
+    GraphImage irradiance;
+    GraphImage prefiltered;
+  };
+  [[nodiscard]] EnvironmentImport importEnvironment(RenderGraph &graph, EnvironmentHandle handle,
+                                                    const Environment &environment);
+  void addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment);
+  void addBloomPasses(RenderGraph &graph, const SceneView &view, GraphImage hdr, glm::uvec2 size, GraphImage &result);
   void recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask);
   void recordDebugLines(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
 
@@ -399,8 +443,6 @@ private:
   rhi::BufferHandle m_visibleBuffer;
   std::uint32_t m_commandCapacity{0};
   std::uint32_t m_visibleCapacity{0};
-  std::uint32_t m_directBase{0};            // the direct range's first slot this frame
-  std::vector<std::uint32_t> m_directSlots; // its contents, the object index of each resolved draw
 
   core::HandlePool<Mesh, MeshTag> m_meshes;
   core::HandlePool<Texture, TextureTag> m_textures;
@@ -408,29 +450,20 @@ private:
   core::HandlePool<Environment, EnvironmentTag> m_environments;
   std::unordered_map<std::uint64_t, SkinnedVertices> m_skinned; // by DrawItem::skinInstance
   std::uint32_t m_materialSlots{0};                             // highest material index plus one, the GPU array's size
-  RenderStatistics m_statistics;
+  RenderStatistics m_noStatistics;
 
-  // Frame state between addScenePasses and the graph's execute.
-  const SceneView *m_view{nullptr};
-  std::uint64_t m_graphSerial{0}; // RenderGraph::frameSerial of the frame prepared
-  std::uint64_t m_graphFrame{0};  // its frameIndex, which the skinned buffers age by
-  glm::uvec2 m_targetSize{0, 0};
-  std::vector<ResolvedDraw> m_resolved;
-  std::vector<SkinJob> m_skinJobs;
-  std::vector<std::uint32_t> m_opaqueOrder;  // opaque and masked, grouped into batches
-  std::vector<std::uint32_t> m_blendedOrder; // back to front
-  std::vector<std::uint32_t> m_allOrder;     // for the id and mask passes, grouped the same way
-  std::vector<Batch> m_opaqueBatches;
-  std::vector<Batch> m_allBatches;
-  std::vector<CullJob> m_cullJobs;   // reserved this frame, run by the culling passes
-  std::uint32_t m_opaqueJobsUsed{0}; // of CullJobsOpaque
-  std::uint32_t m_allJobsUsed{0};    // of CullJobsAll
-  std::size_t m_firstPendingJob{0};  // jobs a culling pass has not recorded yet
-  std::array<Cascade, CascadeCount> m_cascades;
-  std::array<GraphImage, CascadeCount> m_cascadeImages;
-  FrameImages m_frameImages;
-  bool m_cascadesActive{false};
-  FrameBuffers m_frameBuffers;
+  // The views declared into the graph frame `m_graphSerial`; the states past m_viewCount are kept
+  // for their vectors' capacity.
+  std::vector<std::unique_ptr<ViewState>> m_views;
+  std::size_t m_viewCount{0};
+  std::uint64_t m_graphSerial{0};      // RenderGraph::frameSerial of the frame prepared
+  std::uint64_t m_graphFrame{0};       // its frameIndex, which the skinned buffers age by
+  std::uint32_t m_commandsReserved{0}; // slices of the two shared buffers the views so far have taken
+  std::uint32_t m_visibleReserved{0};
+  FrameImages m_frameImages;       // the view being declared's
+  std::uint64_t m_importSerial{0}; // the graph frame the imports below belong to
+  GraphImage m_lutImport;
+  std::vector<EnvironmentImport> m_environmentImports;
   std::vector<std::uint32_t> m_selected; // sorted and unique, for the binary search per draw
   glm::vec4 m_outlineColor{1.0f, 0.6f, 0.1f, 1.0f};
 };
