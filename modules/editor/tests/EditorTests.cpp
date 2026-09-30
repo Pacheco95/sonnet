@@ -208,6 +208,92 @@ TEST_CASE("scenes open in tabs that keep their own edits, undo history and selec
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("quitting asks about unsaved scenes before it exits", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("quit");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Quit").has_value());
+
+    // Nothing unsaved: quit at once, with no prompt.
+    REQUIRE(editor.dirtyTabs().empty());
+    editor.requestQuit();
+    REQUIRE(editor.quitRequested());
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory / "again", "Quit").has_value());
+    world::World &world = editor.world();
+    const auto rename = [&](std::string after) {
+      const core::Uuid root = world.uuidOf(world.roots().front());
+      const std::string before = world.roots().front().get<world::Name>().value;
+      editor.commands().push(editor::renameCommand(root, before, std::move(after)), world);
+    };
+    rename("edited");
+    editor.newScene(); // tab 1, untitled and clean
+    REQUIRE(editor.saveSceneAs(directory / "again" / "scenes" / "second.scene.json").has_value());
+    rename("edited too");
+    editor.newScene(); // tab 2, untitled, edited
+    rename("untitled edit");
+    editor.switchToTab(1);
+    REQUIRE(editor.dirtyTabs() == std::vector<std::size_t>{0, 1, 2});
+    fixture.frame(editor);
+
+    // Dirty: the prompt opens instead, once however often it is asked, and Cancel keeps running.
+    editor.requestQuit();
+    editor.requestQuit();
+    REQUIRE(!editor.quitRequested());
+    REQUIRE(editor.quitPromptOpen());
+    fixture.frame(editor);
+    editor.cancelQuit();
+    REQUIRE(!editor.quitPromptOpen());
+    REQUIRE(!editor.quitRequested());
+    REQUIRE(editor.activeTab() == 1);
+    fixture.frame(editor);
+
+    // Save All stops at the untitled scene, which stays in front, and reports it.
+    editor.requestQuit();
+    editor.saveAllAndQuit();
+    REQUIRE(!editor.quitRequested());
+    REQUIRE(editor.quitPromptOpen());
+    REQUIRE(editor.activeTab() == 2);
+    REQUIRE(!editor.tabDirty(0));
+    REQUIRE(!editor.tabDirty(1));
+    fixture.frame(editor);
+    editor.cancelQuit();
+
+    // With the untitled scene given a file, Save All saves the rest and quits.
+    REQUIRE(editor.saveSceneAs(directory / "again" / "scenes" / "third.scene.json").has_value());
+    rename("more");
+    editor.switchToTab(0);
+    rename("again");
+    REQUIRE(editor.dirtyTabs() == std::vector<std::size_t>{0, 2});
+    editor.requestQuit();
+    editor.saveAllAndQuit();
+    REQUIRE(editor.quitRequested());
+    REQUIRE(editor.dirtyTabs().empty());
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  {
+    // Discard quits with the scenes as they were.
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory / "discard", "Quit").has_value());
+    world::World &world = editor.world();
+    editor.commands().push(editor::renameCommand(world.uuidOf(world.roots().front()), "a", "b"), world);
+    editor.requestQuit();
+    REQUIRE(editor.quitPromptOpen());
+    editor.discardAndQuit();
+    REQUIRE(editor.quitRequested());
+    REQUIRE(editor.isDirty());
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("the scene is unsaved exactly when it differs from the saved one", "[editor][gpu]") {
   Fixture fixture;
   const std::filesystem::path directory = scratch("dirty");

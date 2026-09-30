@@ -107,7 +107,12 @@ public:
   platform::AppResult event(const platform::Event &event) override {
     if (std::holds_alternative<platform::WindowCloseRequested>(event) ||
         std::holds_alternative<platform::QuitRequested>(event)) {
-      return platform::AppResult::Success;
+      // A capture run has nobody to ask; otherwise the editor decides, and iterate exits.
+      if (m_capture) {
+        return platform::AppResult::Success;
+      }
+      m_editor->requestQuit();
+      return platform::AppResult::Continue;
     }
     if (std::holds_alternative<platform::WindowResized>(event)) {
       m_swapchain->requestResize();
