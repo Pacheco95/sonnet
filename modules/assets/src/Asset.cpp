@@ -190,57 +190,57 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
 namespace builtin {
 
 core::Uuid box() noexcept {
-  static const core::Uuid uuid = builtinUuid("box");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("box");
+  return Uuid;
 }
 core::Uuid sphere() noexcept {
-  static const core::Uuid uuid = builtinUuid("sphere");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("sphere");
+  return Uuid;
 }
 core::Uuid plane() noexcept {
-  static const core::Uuid uuid = builtinUuid("plane");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("plane");
+  return Uuid;
 }
 core::Uuid cylinder() noexcept {
-  static const core::Uuid uuid = builtinUuid("cylinder");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("cylinder");
+  return Uuid;
 }
 core::Uuid capsule() noexcept {
-  static const core::Uuid uuid = builtinUuid("capsule");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("capsule");
+  return Uuid;
 }
 
 core::Uuid cone() noexcept {
-  static const core::Uuid uuid = builtinUuid("cone");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("cone");
+  return Uuid;
 }
 core::Uuid torus() noexcept {
-  static const core::Uuid uuid = builtinUuid("torus");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("torus");
+  return Uuid;
 }
 core::Uuid ramp() noexcept {
-  static const core::Uuid uuid = builtinUuid("ramp");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("ramp");
+  return Uuid;
 }
 core::Uuid stairs() noexcept {
-  static const core::Uuid uuid = builtinUuid("stairs");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("stairs");
+  return Uuid;
 }
 core::Uuid hemisphere() noexcept {
-  static const core::Uuid uuid = builtinUuid("hemisphere");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("hemisphere");
+  return Uuid;
 }
 core::Uuid arch() noexcept {
-  static const core::Uuid uuid = builtinUuid("arch");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("arch");
+  return Uuid;
 }
 core::Uuid icosphere() noexcept {
-  static const core::Uuid uuid = builtinUuid("icosphere");
-  return uuid;
+  static const core::Uuid Uuid = builtinUuid("icosphere");
+  return Uuid;
 }
 
 std::span<const Entry> all() noexcept {
-  static constexpr std::array<Entry, 12> entries{{{box, "Box"},
+  static constexpr std::array<Entry, 12> Entries{{{box, "Box"},
                                                   {sphere, "Sphere"},
                                                   {plane, "Plane"},
                                                   {cylinder, "Cylinder"},
@@ -252,7 +252,7 @@ std::span<const Entry> all() noexcept {
                                                   {hemisphere, "Hemisphere"},
                                                   {arch, "Arch"},
                                                   {icosphere, "Icosphere"}}};
-  return entries;
+  return Entries;
 }
 
 } // namespace builtin
