@@ -25,6 +25,10 @@ void buildLightList(const World &world, std::vector<renderer::Light> &lights);
 [[nodiscard]] std::optional<renderer::DirectionalLight> sceneLight(const World &world);
 // The first camera, placed by its entity's world transform.
 [[nodiscard]] std::optional<renderer::Camera> sceneCamera(const World &world);
+// Where a scene with no Camera is watched from: back from the origin and looking at it, so a
+// scene that forgot one still shows something rather than nothing. The player and the editor's
+// Game view share it.
+[[nodiscard]] renderer::Camera fallbackCamera();
 
 struct SceneEnvironment {
   renderer::EnvironmentHandle environment;

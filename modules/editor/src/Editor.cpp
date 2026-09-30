@@ -62,7 +62,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})), m_screenshots(device),
       m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
-      m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
+      m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_selection) {
   if (!platform.isHeadless()) {
     setFileDialogBackend(makeSdlFileDialogBackend(window.nativeHandle()));
@@ -90,7 +90,7 @@ void Editor::setLayoutFile(const std::filesystem::path &file) {
 }
 
 void Editor::resetLayout() noexcept {
-  m_showViewport = m_showHierarchy = m_showInspector = m_showLog = m_showAssets = m_showStatistics = true;
+  m_showViewport = m_showGame = m_showHierarchy = m_showInspector = m_showLog = m_showAssets = m_showStatistics = true;
   m_layoutBuilt = false;
   m_layoutRequested = true;
 }
@@ -110,12 +110,13 @@ void Editor::event(const platform::Event &event) {
   }
   // Pointer positions become relative to the viewport image, as the player's are to its window.
   // Events are in window coordinates, ImGui's in the main viewport's screen space.
-  const glm::vec2 offset = m_mainViewportOrigin - m_viewportPanel.input().origin;
+  const ViewportInput &source = gameInputSource();
+  const glm::vec2 offset = m_mainViewportOrigin - source.origin;
   if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
     m_input.handle(platform::MouseMoved{.position = moved->position + offset, .delta = moved->delta});
   } else if (const auto *pressed = std::get_if<platform::MouseButtonPressed>(&event)) {
     // A click elsewhere in the editor is not the game's.
-    if (m_viewportPanel.input().hovered) {
+    if (source.hovered) {
       m_input.handle(platform::MouseButtonPressed{
           .button = pressed->button, .position = pressed->position + offset, .clicks = pressed->clicks});
     }
@@ -125,7 +126,7 @@ void Editor::event(const platform::Event &event) {
     // A finger elsewhere in the editor is not the game's. The image's own rectangle decides, not
     // ImGui's hover, which follows the finger's synthesised mouse only from the next frame.
     const glm::vec2 position = down->position + offset;
-    const glm::vec2 size = m_viewportPanel.input().size;
+    const glm::vec2 size = source.size;
     if (position.x >= 0.0f && position.y >= 0.0f && position.x < size.x && position.y < size.y) {
       m_input.handle(platform::TouchDown{.id = down->id, .position = position});
     }
@@ -139,8 +140,16 @@ void Editor::event(const platform::Event &event) {
   }
 }
 
+bool Editor::gameViewActive() const {
+  return isPlaying() && m_gamePanel.input().visible;
+}
+
+const ViewportInput &Editor::gameInputSource() const {
+  return gameViewActive() ? m_gamePanel.input() : m_viewportPanel.input();
+}
+
 bool Editor::gameInputActive() const {
-  const ViewportInput &input = m_viewportPanel.input();
+  const ViewportInput &input = gameInputSource();
   return isPlaying() && !isPaused() && input.visible && input.focused && !m_viewportPanel.cameraActive();
 }
 
@@ -203,6 +212,11 @@ void Editor::update(float dt) {
     }
   }
   m_lookDelta = {0.0f, 0.0f};
+  if (m_showGame) {
+    m_gamePanel.draw(m_showGame);
+  } else {
+    m_gamePanel.hide();
+  }
   if (m_showLog) {
     m_logPanel.draw(m_showLog);
   }
@@ -225,12 +239,22 @@ void Editor::update(float dt) {
   }
   m_gameInputWasActive = gameInput;
   // The world's frame after the UI edited it: systems, then what the renderer draws. The game
-  // input's presses and releases last one frame. The editor draws through its own camera, so
-  // that is where a scene without an AudioListener is heard from.
-  const renderer::Camera &camera = m_viewportPanel.camera().camera();
+  // input's presses and releases last one frame. Playing with the Game panel on screen, the game
+  // is seen through the scene's camera, and that is where a scene without an AudioListener is
+  // heard from and what scripts unproject through, over the panel's image; otherwise it is the
+  // editor's camera over the viewport's.
+  const bool gameOnScreen = m_gamePanel.input().visible;
+  const std::optional<renderer::Camera> sceneCam = world::sceneCamera(m_world);
+  if (sceneCam) {
+    m_warnedAboutCamera = false;
+  } else if (gameOnScreen && !m_warnedAboutCamera) {
+    SONNET_LOG_WARN("the scene has no Camera; the Game view draws from the fallback view");
+    m_warnedAboutCamera = true;
+  }
+  const renderer::Camera gameCamera = sceneCam.value_or(world::fallbackCamera());
+  const renderer::Camera &camera = gameViewActive() ? gameCamera : m_viewportPanel.camera().camera();
   m_audio->setFallbackListener(camera.position, camera.rotation);
-  // Scripts see the game through the viewport, in the coordinates game input has.
-  m_scriptView = {.camera = camera, .size = m_viewportPanel.input().size};
+  m_scriptView = {.camera = camera, .size = gameInputSource().size};
   m_world.progress(dt);
   m_input.beginFrame();
   world::buildDrawList(m_world, m_assets, m_draws, m_joints);
@@ -246,6 +270,11 @@ void Editor::update(float dt) {
   m_view.environment = environment ? environment->environment : renderer::EnvironmentHandle{};
   m_view.environmentIntensity = environment ? environment->intensity : 1.0f;
   m_view.exposure = environment ? environment->exposure : 1.0f;
+  // The Game view draws the same lists through the scene's camera, with no debug lines; it is a
+  // distinct SceneView because the renderer finds a view's state by its address (ADR-0021).
+  m_gameView = m_view;
+  m_gameView.camera = gameCamera;
+  m_gameView.debugLines = {};
   m_debugLines.clear();
   if (m_showColliders) {
     m_physics->debugLines(m_debugLines);
@@ -492,6 +521,7 @@ void Editor::drawMenuBar() {
   }
   if (ImGui::BeginMenu("View")) {
     ImGui::MenuItem("Viewport", nullptr, &m_showViewport);
+    ImGui::MenuItem("Game", nullptr, &m_showGame);
     ImGui::MenuItem("Hierarchy", nullptr, &m_showHierarchy);
     ImGui::MenuItem("Inspector", nullptr, &m_showInspector);
     ImGui::MenuItem("Log", nullptr, &m_showLog);
@@ -860,7 +890,7 @@ void Editor::browseModalPath() {
 }
 
 void Editor::buildDefaultLayout(unsigned dockspace) {
-  // Hierarchy on the left, viewport in the centre, inspector over statistics on the right, log
+  // Hierarchy on the left, viewport and game in the centre, inspector over statistics on the right, log
   // along the bottom.
   ImGui::DockBuilderRemoveNode(dockspace);
   ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
@@ -871,6 +901,8 @@ void Editor::buildDefaultLayout(unsigned dockspace) {
   ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, nullptr, &centre);
   const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.35f, nullptr, &right);
   ImGui::DockBuilderDockWindow("Viewport", centre);
+  // A tab beside the Viewport, so the second view costs nothing until it is brought forward.
+  ImGui::DockBuilderDockWindow("Game", centre);
   ImGui::DockBuilderDockWindow("Hierarchy", left);
   ImGui::DockBuilderDockWindow("Inspector", right);
   ImGui::DockBuilderDockWindow("Statistics", rightBottom);
@@ -906,6 +938,15 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     m_renderer.addOutlinePass(m_graph, sceneColor, mask);
     m_picker.addPass(m_graph, ids, target.size());
   }
+  // The Game view: the scene's camera into a target of its own, with none of the editor's
+  // overlays, declared only while the panel is on screen (ADR-0021).
+  renderer::RenderTarget &gameTarget = m_gamePanel.target();
+  renderer::GraphImage gameColor;
+  const std::size_t gameViewIndex = target.isValid() ? 1 : 0; // views are numbered as declared
+  if (gameTarget.isValid()) {
+    gameColor = m_graph.importImage(gameTarget.color());
+    m_renderer.addScenePasses(m_graph, m_gameView, gameColor, m_graph.importImage(gameTarget.depth()));
+  }
   // A screenshot waits for a frame that has what it asks for: a viewport target, and a swapchain
   // image for the window.
   if (m_screenshotRequest && !m_screenshotRequest->second.empty() && !m_swapchain.readable()) {
@@ -927,6 +968,9 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
           if (sceneColor.isValid()) {
             builder.sample(sceneColor);
           }
+          if (gameColor.isValid()) {
+            builder.sample(gameColor);
+          }
         },
         [this](rhi::ICommandList &cmd, const renderer::PassResources &) { m_imgui.draw(cmd); });
     if (capture && !m_screenshotRequest->second.empty()) {
@@ -938,10 +982,12 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
   }
   m_graph.execute(commands);
 
-  m_statisticsPanel.record({.frameMilliseconds = m_frameMilliseconds,
-                            .graph = &m_graph.statistics(),
-                            .renderer = m_renderer.statistics(),
-                            .memory = m_device.memoryBudget()});
+  m_statisticsPanel.record(
+      {.frameMilliseconds = m_frameMilliseconds,
+       .graph = &m_graph.statistics(),
+       .renderer = m_renderer.statistics(),
+       .game = gameTarget.isValid() ? std::optional{m_renderer.statistics(gameViewIndex)} : std::nullopt,
+       .memory = m_device.memoryBudget()});
 }
 
 void Editor::afterPresent() {

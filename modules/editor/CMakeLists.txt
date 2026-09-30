@@ -12,6 +12,7 @@ sonnet_add_module(editor
     src/Export.cpp
     src/FileDialog.cpp
     src/FlyCamera.cpp
+    src/GamePanel.cpp
     src/Gizmo.cpp
     src/HierarchyPanel.cpp
     src/InspectorPanel.cpp
@@ -41,6 +42,7 @@ sonnet_add_module_test(editor
     tests/EditorPlayTests.cpp
     tests/FileDialogTests.cpp
     tests/FlyCameraTests.cpp
+    tests/GameViewTests.cpp
     tests/GizmoTests.cpp
     tests/HierarchyPanelTests.cpp
     tests/InspectorTests.cpp

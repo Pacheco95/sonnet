@@ -4,6 +4,7 @@
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/Export.h>
 #include <sonnet/editor/FileDialog.h>
+#include <sonnet/editor/GamePanel.h>
 #include <sonnet/editor/Gizmo.h>
 #include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/InspectorPanel.h>
@@ -250,6 +251,23 @@ public:
   [[nodiscard]] ViewportPanel &viewport() noexcept {
     return m_viewportPanel;
   }
+  [[nodiscard]] const GamePanel &gamePanel() const noexcept {
+    return m_gamePanel;
+  }
+  [[nodiscard]] GamePanel &gamePanel() noexcept {
+    return m_gamePanel;
+  }
+  // What scripts see of the game this frame: the camera they unproject through and the size of
+  // the image it covers.
+  [[nodiscard]] const scripting::ScriptView &scriptView() const noexcept {
+    return m_scriptView;
+  }
+  void setShowGame(bool show) noexcept {
+    m_showGame = show;
+  }
+  [[nodiscard]] const renderer::Renderer &renderer() const noexcept {
+    return m_renderer;
+  }
   [[nodiscard]] bool quitRequested() const noexcept {
     return m_quitRequested;
   }
@@ -313,6 +331,11 @@ private:
 
   // Whether game input goes to the scripts: playing, with the viewport focused and the camera idle.
   [[nodiscard]] bool gameInputActive() const;
+  // Whether the game is seen through the Game panel: playing with it on screen. Scripts, the
+  // audio listener and the game's input then come from it, and from the viewport otherwise.
+  [[nodiscard]] bool gameViewActive() const;
+  // The panel whose image the game's input is relative to.
+  [[nodiscard]] const ViewportInput &gameInputSource() const;
 
   platform::IWindow &m_window;
   rhi::IDevice &m_device;
@@ -343,6 +366,9 @@ private:
   std::vector<renderer::DebugLine> m_debugLines;
   std::vector<renderer::Light> m_lights;
   renderer::SceneView m_view;
+  // The Game view's: the scene's camera over the same draws, a distinct object (ADR-0021).
+  renderer::SceneView m_gameView;
+  bool m_warnedAboutCamera{false};
   std::vector<std::uint32_t> m_outlineIds;
   std::optional<std::pair<std::filesystem::path, std::filesystem::path>> m_screenshotRequest; // viewport, window
   runtime::Screenshots m_screenshots;
@@ -373,6 +399,7 @@ private:
   LogPanel m_logPanel;
   StatisticsPanel m_statisticsPanel;
   ViewportPanel m_viewportPanel;
+  GamePanel m_gamePanel;
   HierarchyPanel m_hierarchyPanel;
   InspectorPanel m_inspectorPanel;
   AssetBrowserPanel m_assetBrowserPanel;
@@ -399,6 +426,8 @@ private:
   bool m_layoutRequested{false}; // the default layout, even over a restored one
   std::string m_layoutFile;      // io.IniFilename points at this; empty keeps no layout on disk
   bool m_showViewport{true};
+  // Closed at start: the second view costs a full view of rendering while it is on screen (ADR-0021).
+  bool m_showGame{false};
   bool m_showHierarchy{true};
   bool m_showInspector{true};
   bool m_showLog{true};
