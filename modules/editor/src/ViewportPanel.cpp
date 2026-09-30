@@ -75,30 +75,48 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
                           .leftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left),
                           .drawList = ImGui::GetWindowDrawList()};
 
-  // Right mouse over the viewport takes the camera; releasing anywhere gives it back.
-  if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-    m_cameraActive = true;
+  // Right mouse over the viewport takes the camera to fly, middle mouse to orbit; releasing that
+  // button anywhere gives it back.
+  if (!m_cameraActive && hovered) {
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+      m_cameraActive = true;
+      m_orbiting = false;
+    } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
+      m_cameraActive = true;
+      m_orbiting = true;
+      if (!m_hasPivot) {
+        m_pivot = m_camera.camera().position + m_camera.camera().forward() * m_focusDistance;
+        m_hasPivot = true;
+      }
+    }
   }
-  if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+  if (!ImGui::IsMouseDown(m_orbiting ? ImGuiMouseButton_Middle : ImGuiMouseButton_Right)) {
     m_cameraActive = false;
+    m_orbiting = false;
   }
   const float wheel = ImGui::GetIO().MouseWheel;
   if (!m_cameraActive && hovered && !m_wheelForGame && wheel != 0.0f) {
     const float distance = m_hasFocusTarget ? glm::length(m_focusTarget - m_camera.camera().position) : 0.0f;
     m_camera.dolly(wheel, distance, ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift));
   }
-  if (m_cameraActive) {
+  if (m_cameraActive && m_orbiting) {
+    m_camera.orbit(lookDelta, m_pivot);
+  } else if (m_cameraActive) {
     if (wheel != 0.0f) {
       m_camera.scaleSpeed(std::pow(1.2f, wheel));
     }
-    m_camera.update(dt, FlyCamera::Input{.lookDelta = lookDelta,
-                                         .forward = ImGui::IsKeyDown(ImGuiKey_W),
-                                         .back = ImGui::IsKeyDown(ImGuiKey_S),
-                                         .left = ImGui::IsKeyDown(ImGuiKey_A),
-                                         .right = ImGui::IsKeyDown(ImGuiKey_D),
-                                         .up = ImGui::IsKeyDown(ImGuiKey_E),
-                                         .down = ImGui::IsKeyDown(ImGuiKey_Q),
-                                         .fast = ImGui::IsKeyDown(ImGuiKey_LeftShift)});
+    const FlyCamera::Input flight{.lookDelta = lookDelta,
+                                  .forward = ImGui::IsKeyDown(ImGuiKey_W),
+                                  .back = ImGui::IsKeyDown(ImGuiKey_S),
+                                  .left = ImGui::IsKeyDown(ImGuiKey_A),
+                                  .right = ImGui::IsKeyDown(ImGuiKey_D),
+                                  .up = ImGui::IsKeyDown(ImGuiKey_E),
+                                  .down = ImGui::IsKeyDown(ImGuiKey_Q),
+                                  .fast = ImGui::IsKeyDown(ImGuiKey_LeftShift)};
+    if (flight.forward || flight.back || flight.left || flight.right || flight.up || flight.down) {
+      m_hasPivot = false; // flown away: the next orbit picks a new pivot in front of the camera
+    }
+    m_camera.update(dt, flight);
   }
 
   if (overlay) {
@@ -122,6 +140,9 @@ void ViewportPanel::focus(glm::vec3 target, float radius) {
   m_camera.lookAt(target - forward * distance, target);
   m_focusTarget = target;
   m_hasFocusTarget = true;
+  m_pivot = target;
+  m_hasPivot = true;
+  m_focusDistance = distance;
 }
 
 glm::uvec2 ViewportPanel::targetPixel(glm::vec2 screen) const {

@@ -88,3 +88,35 @@ TEST_CASE("dolly moves along the view by a fraction of the distance", "[editor][
   camera.dolly(1.0f, 0.0f, false); // without a reference the step follows the fly speed
   requireClose(camera.camera().position, {0.0f, 0.0f, -0.2f * camera.speed()});
 }
+
+TEST_CASE("orbit turns around the pivot at a constant distance", "[editor][camera]") {
+  FlyCamera camera;
+  const glm::vec3 pivot{1.0f, 2.0f, -3.0f};
+  camera.lookAt(pivot + glm::vec3{0.0f, 0.0f, 10.0f}, pivot);
+  camera.orbit({100.0f, 0.0f}, pivot); // dragging right turns right, so the camera swings left
+  REQUIRE(camera.yaw() < 0.0f);
+  REQUIRE(glm::distance(camera.camera().position, pivot) == Approx(10.0f));
+  REQUIRE(camera.camera().position.x < pivot.x);
+  requireClose(camera.camera().forward(), glm::normalize(pivot - camera.camera().position));
+
+  camera.orbit({-37.0f, 55.0f}, pivot);
+  REQUIRE(glm::distance(camera.camera().position, pivot) == Approx(10.0f));
+  requireClose(camera.camera().forward(), glm::normalize(pivot - camera.camera().position));
+  REQUIRE(camera.camera().right().y == Approx(0.0f).margin(1e-5f));
+}
+
+TEST_CASE("orbit clamps the pitch like the mouse look", "[editor][camera]") {
+  FlyCamera camera;
+  camera.lookAt({0.0f, 0.0f, 10.0f}, {0.0f, 0.0f, 0.0f});
+  camera.orbit({0.0f, 10000.0f}, {0.0f, 0.0f, 0.0f}); // mouse down looks down: the camera rises
+  REQUIRE(camera.pitch() == Approx(-glm::radians(89.0f)));
+  REQUIRE(camera.camera().position.y > 9.9f);
+  REQUIRE(glm::length(camera.camera().position) == Approx(10.0f));
+}
+
+TEST_CASE("orbit keeps a minimum distance when the camera sits on the pivot", "[editor][camera]") {
+  FlyCamera camera;
+  camera.lookAt({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f});
+  camera.orbit({10.0f, 0.0f}, {0.0f, 0.0f, 0.0f});
+  REQUIRE(glm::length(camera.camera().position) == Approx(0.05f));
+}
