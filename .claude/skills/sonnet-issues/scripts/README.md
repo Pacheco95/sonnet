@@ -38,7 +38,8 @@ The script expects a JSON file with this structure:
     "title": "Instantiate objects as children",
     "priority_tier": "Quick Win",
     "effort_hours": "1-2",
-    "target_release": "M9 (Mobile/Android)"
+    "target_release": "M9 (Mobile/Android)",
+    "status": "Ready for dev"
   },
   {
     "number": 59,
@@ -54,10 +55,11 @@ The script expects a JSON file with this structure:
 
 1. **Dynamically fetches project configuration** (project ID, field IDs, option IDs) from GitHub
 2. **Queries each issue's project item ID** via GitHub GraphQL API
-3. **Updates three fields** for each issue:
+3. **Updates the fields** for each issue:
    - `Priority Tier` (single select: Quick Win / Medium Fit / Deferred)
    - `Effort (hours)` (number: the rounded midpoint of a range, e.g., "1-2" → 2, "6-8" → 7)
    - `Target Release` (single select; the options come from the live project and go stale as milestones land)
+   - `Status` (optional `status` key; only between Backlog, Refining and Ready for dev. A card In Progress, Blocked or Done is skipped and reported as "status stays ...")
 4. **Batches updates** with 0.5s delays to respect GitHub API rate limits
 5. **Reports progress** with ✓/✗ for each field update
 
