@@ -154,10 +154,33 @@ void InspectorPanel::draw(bool &open, core::Uuid asset) {
     return;
   }
   const flecs::entity entity = m_world.find(m_selection.primary());
-  if (!asset.isNil()) {
+  if (!asset.isNil() && entity) {
+    // Both are open: the tabs keep the entity's components reachable while an asset is inspected. The asset's
+    // tab comes to the front when it is newly inspected.
+    if (ImGui::BeginTabBar("##inspector")) {
+      if (ImGui::BeginTabItem("Entity")) {
+        drawSelection(entity);
+        ImGui::EndTabItem();
+      }
+      if (ImGui::BeginTabItem("Asset", nullptr, asset != m_shownAsset ? ImGuiTabItemFlags_SetSelected : 0)) {
+        m_edit.reset();
+        drawAsset(asset);
+        ImGui::EndTabItem();
+      }
+      ImGui::EndTabBar();
+    }
+  } else if (!asset.isNil()) {
     m_edit.reset();
     drawAsset(asset);
-  } else if (entity) {
+  } else {
+    drawSelection(entity);
+  }
+  m_shownAsset = asset;
+  ImGui::End();
+}
+
+void InspectorPanel::drawSelection(flecs::entity entity) {
+  if (entity) {
     if (m_selection.items().size() > 1) {
       ImGui::TextDisabled("%zu selected, showing the last", m_selection.items().size());
     }
@@ -171,7 +194,6 @@ void InspectorPanel::draw(bool &open, core::Uuid asset) {
     m_edit.reset();
     m_materialEdit.reset();
   }
-  ImGui::End();
 }
 
 bool InspectorPanel::drawAssetPicker(core::Uuid &value, std::optional<assets::AssetType> type) {
