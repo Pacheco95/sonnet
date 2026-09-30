@@ -3,6 +3,7 @@
 #include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/Export.h>
+#include <sonnet/editor/FileDialog.h>
 #include <sonnet/editor/Gizmo.h>
 #include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/InspectorPanel.h>
@@ -89,6 +90,33 @@ public:
   [[nodiscard]] core::Result<void> saveSceneAs(const std::filesystem::path &file);
   // The starter scene, unsaved, in a new tab.
   void newScene();
+
+  // File dialogs (docs/editor.md, "File dialogs"). The menu and the modals' Browse buttons are
+  // these calls. Results arrive from the operating system's chooser on another thread and are
+  // applied by `update`; a cancel changes nothing, and an error or a headless run leaves the typed
+  // path field as the way in.
+  //
+  // Replaces the chooser's backend, for tests. Drops a dialog in flight.
+  void setFileDialogBackend(std::unique_ptr<IFileDialogBackend> backend);
+  // File > Open scene...: a chooser for a `.scene.json`, opened like the asset browser opens one.
+  void chooseSceneToOpen();
+  // The Browse button of the open Path modal: a folder chooser, or a save chooser for Save scene as,
+  // starting at the field's value. Fills the field with the pick; the user still confirms.
+  void browseModalPath();
+  // Save scene as...: the save chooser, or the path modal where there is no chooser.
+  void chooseSceneToSave();
+  // Ctrl+S and File > Save scene: saves to the scene's file, or asks for one when it has none.
+  void saveSceneOrChoose();
+  [[nodiscard]] const std::string &modalPath() const noexcept {
+    return m_modalPath;
+  }
+  [[nodiscard]] const std::string &modalError() const noexcept {
+    return m_modalError;
+  }
+  // Whether a Path modal is showing (New project, Open project, Save scene as or Export).
+  [[nodiscard]] bool pathModalOpen() const noexcept;
+  // File > Open project...
+  void showOpenProjectModal();
 
   // The open scenes (docs/editor.md, "Scene tabs"). Switching or closing while playing stops play
   // mode first. Closing here discards unsaved changes; the tab's close button asks first.
@@ -240,6 +268,13 @@ private:
     Quit,
   };
 
+  enum class DialogTarget : std::uint8_t {
+    None,
+    ModalPath,
+    OpenScene,
+    SaveScene,
+  };
+
   // An open scene. The active tab's state lives in the editor's own members (the world, the
   // undo history, the selection, the path); the others hold theirs here, the world as scene JSON,
   // which is what play mode's snapshot round-trips too.
@@ -261,6 +296,8 @@ private:
   void restoreTab(std::size_t index);
   void addTab();
   void handleShortcuts();
+  void startFileDialog(DialogTarget target, const FileDialogRequest &request);
+  void pollFileDialog();
   void drawViewportOverlay(const ViewportInput &input);
   void buildDefaultLayout(unsigned dockspace);
   void applyPick(std::uint32_t id);
@@ -342,6 +379,12 @@ private:
   glm::vec2 m_mouseBeforeLook{0.0f, 0.0f};
   std::optional<Selection::Mode> m_pendingPickMode;
   Modal m_modal{Modal::None};
+  FileDialog m_fileDialog{makeNoFileDialogBackend()};
+  // What the chooser in flight was opened for, and the modal or tab it was opened in, which the
+  // result is only applied to while they still stand.
+  DialogTarget m_dialogTarget{};
+  Modal m_dialogModal{Modal::None};
+  std::size_t m_dialogTab{0};
   std::string m_modalPath;
   std::string m_modalName;
   std::string m_modalError;

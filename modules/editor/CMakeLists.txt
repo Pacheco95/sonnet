@@ -10,6 +10,7 @@ sonnet_add_module(editor
     src/Editor.cpp
     src/EntityCommands.cpp
     src/Export.cpp
+    src/FileDialog.cpp
     src/FlyCamera.cpp
     src/Gizmo.cpp
     src/HierarchyPanel.cpp
@@ -38,6 +39,7 @@ sonnet_add_module_test(editor
     tests/CommandTests.cpp
     tests/EditorTests.cpp
     tests/EditorPlayTests.cpp
+    tests/FileDialogTests.cpp
     tests/FlyCameraTests.cpp
     tests/GizmoTests.cpp
     tests/HierarchyPanelTests.cpp

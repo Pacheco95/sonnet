@@ -35,6 +35,7 @@ Per frame, in this order:
 | `CommandStack.h`, `EntityCommands.h` | `ICommand`, the undo history, and the commands every edit goes through |
 | `Project.h`, `Preferences.h` | Creating a project with its starter scene, and the per-user settings; the project file itself is `assets::Project` |
 | `Export.h` | Cooking the project and assembling a runnable directory next to the bundle ([Export](#export)) |
+| `FileDialog.h` | The operating system's file chooser behind a backend, and the hand-off of its result to the main thread ([File dialogs](#file-dialogs)) |
 | `Capture.h` | The editor's command line, and `CaptureRun`, which steps a scripted run to its screenshots ([Screenshots](#screenshots)) |
 | `LogPanel.h` | `LogBuffer`, a spdlog sink registered with `core::Log` for the panel's lifetime, and the panel with a level threshold, text filter, auto-scroll and `file:line` links |
 | `TypeFilter.h` | The multi-select type filter shared by the panels: a set of checked names where none means all, the combo that edits it, and the asset browser's row test |
@@ -105,16 +106,27 @@ The game gets input while playing when the viewport has the keyboard focus (clic
 
 ## Projects and scenes
 
-A project is a folder with a `project.json` ([assets.md](assets.md#project-file)), opened from the command line (`sonnet_editor <folder>`), the File menu, or the recent list in the preferences. Opening a project loads every `.prefab.json` under it and then the start scene; New project writes the manifest and a starter scene (a ground plane, a box, a sun and a camera), which is also the scene an editor without a project starts from. Open scene lists the project's `.scene.json` files; Ctrl+S saves, Save as asks for a path.
+A project is a folder with a `project.json` ([assets.md](assets.md#project-file)), opened from the command line (`sonnet_editor <folder>`), the File menu, or the recent list in the preferences. Opening a project loads every `.prefab.json` under it and then the start scene; New project writes the manifest and a starter scene (a ground plane, a box, a sun and a camera), which is also the scene an editor without a project starts from. Open scene... asks for a `.scene.json` with the system's file chooser, and Project scenes lists the project's own; Ctrl+S saves, and Save scene as asks for a path ([File dialogs](#file-dialogs)).
 
 ### Scene tabs
 
 Every open scene is a tab along the top of the viewport. Open scene and New scene add one (opening a scene that is already open switches to its tab), the `+` at the end of the bar adds a starter scene, a click switches, and the tab's close button, Close scene and Ctrl+W close one; the dot on a tab marks unsaved changes, and closing such a tab asks to save (when it has a file), discard or cancel. Closing the last tab leaves a fresh starter scene. Only the active scene lives in the world. Switching serialises it to scene JSON, the format play mode's snapshot uses, and loads the other from its own JSON, so each tab keeps its unsaved edits, its undo history and its selection (commands refer to entities by UUID, which the round trip keeps); the camera, the gizmo mode and the panels are shared. Switching or closing stops play mode first. A scene that fails to load leaves the tabs as they were. Opening another project closes every tab, discarding unsaved changes as it always has. `Editor::tabCount`, `activeTab`, `switchToTab`, `closeTab`, `tabTitle` and `tabDirty` are the API for tests.
 
+### File dialogs
+
+The operating system's chooser, through SDL3's `SDL_ShowFileDialogWithProperties`, modal to the editor window. `editor::FileDialog` owns the call. SDL answers from its own thread, so the result waits in a mutex-guarded slot that `Editor::update` takes from; nothing touches ImGui off the main thread. One chooser is open at a time, so a second Browse does nothing until the first is answered.
+
+- **Browse...** beside the Path field of New project, Open project and Export opens a folder chooser; in Save scene as it opens a save chooser filtered to `*.scene.json`. It starts at the field's value, or its nearest existing parent. The pick fills the field and the user still confirms with OK.
+- **File > Open scene...** opens a `.scene.json` chooser and loads the pick as the asset browser does: in a tab of its own, or by switching to the tab that has it.
+- **Ctrl+S and Save scene** on a scene with no file go straight to the save chooser, and so does Save scene as; the pick saves the scene. The result only applies while that scene is still the one in front and still has no file.
+- A cancel changes nothing. An error, or no chooser at all, is shown in the modal (logged when there is no modal) and leaves the typed path as it was; a save that could not open its chooser falls back to the Path modal.
+
+The typed Path field stays: it is the fallback when no chooser can open, and how headless tests drive the editor. A headless editor (the offscreen and dummy video drivers) never opens a dialog and reports that none is available. On Linux the backend depends on what is installed: `xdg-desktop-portal` with a backend for the desktop, or `zenity` or `kdialog`. With none of them the error says so and the typed field still works. `Editor::setFileDialogBackend` injects a fake `IFileDialogBackend` for tests; `chooseSceneToOpen`, `chooseSceneToSave`, `saveSceneOrChoose` and `browseModalPath` are what the menu and the buttons call.
+
 ### Quitting
 
 Every way out goes through `Editor::requestQuit`: the window's close button, the OS quit request, File > Quit and Ctrl+Q. With no unsaved scene the editor quits at once. Otherwise a dialog lists the scenes with unsaved changes and offers Save All, Discard and Cancel (Esc); a second request while it is open does nothing. Save All makes each dirty tab active in turn to save it, then quits. If a save fails, or a scene has no file yet, the editor stays open and the dialog says which; the tab the user was in comes back, except that a scene without a file stays in front so Save scene as can name it. Discard quits without saving, Cancel keeps running. A `--screenshot` capture run exits without asking. `dirtyTabs`, `quitPromptOpen`, `saveAllAndQuit`, `discardAndQuit` and `cancelQuit` are the API for tests.
- File paths are typed into a modal for now; native dialogs are a later refinement. Failures (a missing prefab, a newer file version, an unreadable file) are logged with their origin and the editor keeps a usable scene.
+ Failures (a missing prefab, a newer file version, an unreadable file) are logged with their origin and the editor keeps a usable scene.
 
 The panel layout is kept: the desktop editor writes it to `layout.ini` beside `preferences.json` (Dear ImGui's ini: the dock tree, window positions and sizes) a few seconds after a change and when it closes, and reads it on the next start, so a log split from the assets stays split. A missing file, or one whose dockspace is not split, gets the default arrangement. View > Reset layout shows every panel again in the default arrangement from the next frame (`Editor::resetLayout`). A headless editor keeps no layout file unless `Editor::setLayoutFile` is called. Layout presets are issue #69.
 
@@ -132,7 +144,7 @@ To capture instead of looking, see [Screenshots](#screenshots). Right-drag in th
 
 The start scene has the animated models and the sound: a skinned reed that sways and a beacon that turns, humming, which play when you do.
 
-File, Open scene, `scenes/playground.scene.json` is the physics and scripting sample: play it, click into the viewport, and roll the ball with W/A/S/D and Space while a sweeper, an elevator and a spawner run their scripts, the spawner ringing a chime for every crate it drops, each one a child of the spawner so the hierarchy root stays tidy.
+File, Project scenes, `scenes/playground.scene.json` is the physics and scripting sample: play it, click into the viewport, and roll the ball with W/A/S/D and Space while a sweeper, an elevator and a spawner run their scripts, the spawner ringing a chime for every crate it drops, each one a child of the spawner so the hierarchy root stays tidy.
 
 ## Screenshots
 
