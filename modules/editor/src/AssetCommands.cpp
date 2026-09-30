@@ -28,6 +28,9 @@ public:
   std::string_view description() const override {
     return m_description;
   }
+  bool isSceneEdit() const override {
+    return false;
+  }
 
 private:
   assets::AssetDatabase &m_assets;
@@ -54,6 +57,9 @@ public:
   }
   std::string_view description() const override {
     return m_description;
+  }
+  bool isSceneEdit() const override {
+    return false;
   }
 
 private:

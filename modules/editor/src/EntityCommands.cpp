@@ -43,6 +43,11 @@ flecs::entity require(world::World &world, const core::Uuid &uuid, std::string_v
   return entity;
 }
 
+// True when `uuid` is nil (the root) or names an entity of the scene.
+bool parentExists(world::World &world, const core::Uuid &uuid) {
+  return uuid.isNil() || static_cast<bool>(world.find(uuid));
+}
+
 // Loads a saved subtree back and places its root under `parent` with the local transform the
 // file holds.
 flecs::entity restoreSubtree(world::World &world, const json &document, const core::Uuid &parent,
@@ -81,6 +86,13 @@ public:
       }
     }
   }
+  bool reapply(world::World &world) override {
+    if (!parentExists(world, m_parent) || world.find(m_uuid)) {
+      return false;
+    }
+    apply(world);
+    return true;
+  }
   void revert(world::World &world) override {
     world.destroyEntity(require(world, m_uuid, m_description));
   }
@@ -113,6 +125,14 @@ public:
     m_snapshot = world::saveSubtree(world, entity);
     m_parent = world.uuidOf(world.parentOf(entity));
     world.destroyEntity(entity);
+  }
+  // apply captures the subtree afresh, so what undo restores is the restored scene's.
+  bool reapply(world::World &world) override {
+    if (!world.find(m_entity)) {
+      return false;
+    }
+    apply(world);
+    return true;
   }
   void revert(world::World &world) override {
     restoreSubtree(world, m_snapshot, m_parent, m_description);
@@ -148,6 +168,15 @@ public:
     }
     restoreSubtree(world, m_copy, m_parent, m_description);
   }
+  // The copy is taken again from the restored source, under the same root identity.
+  bool reapply(world::World &world) override {
+    if (!world.find(m_source)) {
+      return false;
+    }
+    m_copy = json{};
+    apply(world);
+    return true;
+  }
   void revert(world::World &world) override {
     world.destroyEntity(require(world, m_root, m_description));
   }
@@ -179,6 +208,14 @@ public:
       m_description = std::format("reparent {}", entity.try_get<world::Name>()->value);
     }
     world.setParent(entity, world.find(m_parent));
+  }
+  bool reapply(world::World &world) override {
+    if (!world.find(m_entity) || !parentExists(world, m_parent)) {
+      return false;
+    }
+    m_before = json{}; // captured again from the restored entity
+    apply(world);
+    return true;
   }
   void revert(world::World &world) override {
     const flecs::entity entity = require(world, m_entity, m_description);
@@ -212,6 +249,17 @@ public:
       entity.set<world::Name>({m_after});
     }
   }
+  bool reapply(world::World &world) override {
+    const flecs::entity entity = world.find(m_entity);
+    if (!entity) {
+      return false;
+    }
+    if (const world::Name *name = entity.try_get<world::Name>()) {
+      m_before = name->value;
+    }
+    apply(world);
+    return true;
+  }
   void revert(world::World &world) override {
     if (const flecs::entity entity = require(world, m_entity, m_description)) {
       entity.set<world::Name>({m_before});
@@ -238,6 +286,17 @@ public:
 
   void apply(world::World &world) override {
     set(world, m_after);
+  }
+  // What undo puts back is what the restored entity holds, not what it held mid-play.
+  bool reapply(world::World &world) override {
+    const flecs::entity entity = world.find(m_entity);
+    const world::ComponentInfo *info = world.findComponent(m_component);
+    if (!entity || info == nullptr) {
+      return false;
+    }
+    m_before = entity.has(info->id) ? std::optional{world.componentToJson(entity, info->id)} : std::nullopt;
+    apply(world);
+    return true;
   }
   void revert(world::World &world) override {
     set(world, m_before);
@@ -282,6 +341,14 @@ public:
     const flecs::entity entity = world.instantiate(prefab, m_name, world.find(m_parent));
     entity.set<world::Identity>({m_uuid});
   }
+  bool reapply(world::World &world) override {
+    const flecs::entity prefab = world.find(m_prefab);
+    if (!prefab || !prefab.has(flecs::Prefab) || !parentExists(world, m_parent) || world.find(m_uuid)) {
+      return false;
+    }
+    apply(world);
+    return true;
+  }
   void revert(world::World &world) override {
     world.destroyEntity(require(world, m_uuid, m_description));
   }
@@ -300,17 +367,31 @@ private:
 class CompositeCommand final : public ICommand {
 public:
   CompositeCommand(std::string description, std::vector<std::unique_ptr<ICommand>> commands)
-      : m_description(std::move(description)), m_commands(std::move(commands)) {
+      : m_description(std::move(description)), m_commands(std::move(commands)), m_skipped(m_commands.size(), false) {
   }
 
   void apply(world::World &world) override {
-    for (auto &command : m_commands) {
-      command->apply(world);
+    for (std::size_t index = 0; index < m_commands.size(); ++index) {
+      if (!m_skipped[index]) {
+        m_commands[index]->apply(world);
+      }
     }
   }
+  // Applied where it can be: a multi-selection edit keeps the parts whose entities are still there,
+  // and undo and redo leave the others alone.
+  bool reapply(world::World &world) override {
+    bool any = false;
+    for (std::size_t index = 0; index < m_commands.size(); ++index) {
+      m_skipped[index] = !m_commands[index]->reapply(world);
+      any = any || !m_skipped[index];
+    }
+    return any;
+  }
   void revert(world::World &world) override {
-    for (auto it = m_commands.rbegin(); it != m_commands.rend(); ++it) {
-      (*it)->revert(world);
+    for (std::size_t index = m_commands.size(); index-- > 0;) {
+      if (!m_skipped[index]) {
+        m_commands[index]->revert(world);
+      }
     }
   }
   std::string_view description() const override {
@@ -320,6 +401,7 @@ public:
 private:
   std::string m_description;
   std::vector<std::unique_ptr<ICommand>> m_commands;
+  std::vector<bool> m_skipped;
 };
 
 } // namespace
