@@ -103,6 +103,22 @@ public:
   void switchToTab(std::size_t index);
   void closeTab(std::size_t index);
 
+  // Quitting (docs/editor.md, "Quitting"). Every quit path asks here: with nothing unsaved the
+  // editor quits at once, otherwise a dialog lists the dirty scenes and waits. A request while the
+  // dialog is open changes nothing. The dialog's three buttons are the calls below.
+  void requestQuit();
+  [[nodiscard]] bool quitPromptOpen() const noexcept {
+    return m_modal == Modal::Quit;
+  }
+  // The tabs with unsaved changes, in tab order.
+  [[nodiscard]] std::vector<std::size_t> dirtyTabs() const;
+  // Saves every dirty scene, then quits. A scene that cannot be saved (a failed write, or none has
+  // a file yet) stops it: the editor stays open, the reason is shown, and the tab the user was in
+  // is active again unless the failing scene has no file, which stays in front.
+  void saveAllAndQuit();
+  void discardAndQuit();
+  void cancelQuit();
+
   // Cooks the open project and assembles a runnable directory beside the bundle
   // (docs/editor.md, "Export"). The dialog is this with the fields it collected.
   [[nodiscard]] core::Result<ExportReport> exportProject(const ExportOptions &options);
@@ -221,6 +237,7 @@ private:
     SaveSceneAs,
     Export,
     CloseTab,
+    Quit,
   };
 
   // An open scene. The active tab's state lives in the editor's own members (the world, the
@@ -237,6 +254,7 @@ private:
   void drawMenuBar();
   void drawModal();
   void drawCloseTabModal();
+  void drawQuitModal();
   void drawTabBar();
   void requestCloseTab(std::size_t index);
   void stashActiveTab();

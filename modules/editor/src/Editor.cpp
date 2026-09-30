@@ -429,7 +429,7 @@ void Editor::drawMenuBar() {
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
-      m_quitRequested = true;
+      requestQuit();
     }
     ImGui::EndMenu();
   }
@@ -551,7 +551,7 @@ void Editor::drawMenuBar() {
   }
   ImGui::EndMainMenuBar();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Q)) {
-    m_quitRequested = true;
+    requestQuit();
   }
 }
 
@@ -580,6 +580,11 @@ void Editor::drawModal() {
   }
   if (m_modal == Modal::CloseTab) {
     drawCloseTabModal();
+    ImGui::EndPopup();
+    return;
+  }
+  if (m_modal == Modal::Quit) {
+    drawQuitModal();
     ImGui::EndPopup();
     return;
   }
@@ -673,6 +678,7 @@ void Editor::drawModal() {
       break;
     }
     case Modal::CloseTab:
+    case Modal::Quit:
     case Modal::None:
       break;
     }
@@ -1036,6 +1042,80 @@ void Editor::drawCloseTabModal() {
     ImGui::CloseCurrentPopup();
   }
   if (!m_modalError.empty()) {
+    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+  }
+}
+
+std::vector<std::size_t> Editor::dirtyTabs() const {
+  std::vector<std::size_t> dirty;
+  for (std::size_t index = 0; index < m_tabs.size(); ++index) {
+    if (tabDirty(index)) {
+      dirty.push_back(index);
+    }
+  }
+  return dirty;
+}
+
+void Editor::requestQuit() {
+  if (m_modal == Modal::Quit) {
+    return;
+  }
+  if (dirtyTabs().empty()) {
+    m_quitRequested = true;
+    return;
+  }
+  m_modalError.clear();
+  m_modal = Modal::Quit;
+}
+
+void Editor::saveAllAndQuit() {
+  const std::size_t original = m_activeTab;
+  for (const std::size_t index : dirtyTabs()) {
+    switchToTab(index);
+    if (const auto saved = saveScene(); !saved) {
+      m_modalError = std::format("{}: {}", tabTitle(index), saved.error().message);
+      if (!m_scenePath.empty()) {
+        switchToTab(original);
+      }
+      return;
+    }
+  }
+  m_modal = Modal::None;
+  m_quitRequested = true;
+}
+
+void Editor::discardAndQuit() {
+  m_modal = Modal::None;
+  m_quitRequested = true;
+}
+
+void Editor::cancelQuit() {
+  if (m_modal == Modal::Quit) {
+    m_modal = Modal::None;
+  }
+}
+
+void Editor::drawQuitModal() {
+  ImGui::TextUnformatted("These scenes have unsaved changes:");
+  for (const std::size_t index : dirtyTabs()) {
+    const std::string name = tabTitle(index);
+    ImGui::BulletText("%s", name.c_str());
+  }
+  const bool save = ImGui::Button("Save All", ImVec2{120.0f, 0.0f});
+  ImGui::SameLine();
+  const bool discard = ImGui::Button("Discard", ImVec2{120.0f, 0.0f});
+  ImGui::SameLine();
+  const bool cancel = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  if (save) {
+    saveAllAndQuit();
+  } else if (discard) {
+    discardAndQuit();
+  } else if (cancel) {
+    cancelQuit();
+  }
+  if (m_modal == Modal::None) {
+    ImGui::CloseCurrentPopup();
+  } else if (!m_modalError.empty()) {
     ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
   }
 }
