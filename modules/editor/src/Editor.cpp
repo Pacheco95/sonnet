@@ -21,6 +21,7 @@
 #include <format>
 #include <fstream>
 #include <limits>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <variant>
@@ -64,6 +65,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_selection) {
   if (!platform.isHeadless()) {
+    setFileDialogBackend(makeSdlFileDialogBackend(window.nativeHandle()));
     setLayoutFile(platform.prefPath("sonnet", "editor") / "layout.ini");
   }
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
@@ -143,6 +145,7 @@ bool Editor::gameInputActive() const {
 }
 
 void Editor::update(float dt) {
+  pollFileDialog();
   SONNET_ZONE();
   m_frameMilliseconds = dt * 1000.0f;
   m_selection.prune(m_world);
@@ -332,11 +335,7 @@ void Editor::handleShortcuts() {
     m_commands.redo(m_world);
   }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) {
-    if (m_scenePath.empty()) {
-      m_modal = Modal::SaveSceneAs;
-    } else if (const auto saved = saveScene(); !saved) {
-      SONNET_LOG_ERROR("{}", saved.error().toString());
-    }
+    saveSceneOrChoose();
   }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W)) {
     requestCloseTab(m_activeTab);
@@ -400,7 +399,10 @@ void Editor::drawMenuBar() {
     if (ImGui::MenuItem("New scene")) {
       newScene();
     }
-    if (ImGui::BeginMenu("Open scene", m_project.has_value())) {
+    if (ImGui::MenuItem("Open scene...")) {
+      chooseSceneToOpen();
+    }
+    if (ImGui::BeginMenu("Project scenes", m_project.has_value())) {
       for (const std::filesystem::path &scene : m_project->files(".scene.json")) {
         if (ImGui::MenuItem(m_project->relative(scene).c_str())) {
           if (const auto opened = openScene(scene); !opened) {
@@ -411,14 +413,10 @@ void Editor::drawMenuBar() {
       ImGui::EndMenu();
     }
     if (ImGui::MenuItem("Save scene", "Ctrl+S")) {
-      if (m_scenePath.empty()) {
-        m_modal = Modal::SaveSceneAs;
-      } else if (const auto saved = saveScene(); !saved) {
-        SONNET_LOG_ERROR("{}", saved.error().toString());
-      }
+      saveSceneOrChoose();
     }
     if (ImGui::MenuItem("Save scene as...")) {
-      m_modal = Modal::SaveSceneAs;
+      chooseSceneToSave();
     }
     if (ImGui::MenuItem("Close scene", "Ctrl+W")) {
       requestCloseTab(m_activeTab);
@@ -625,7 +623,18 @@ void Editor::drawModal() {
       ImGui::TextUnformatted("Unsaved scene changes will not be exported; the scene is read from disk.");
     }
   }
-  ImGui::InputText("Path", &m_modalPath);
+  const ImGuiStyle &style = ImGui::GetStyle();
+  const float browseWidth = ImGui::CalcTextSize("Browse...").x + style.FramePadding.x * 2.0f;
+  ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - browseWidth - style.ItemInnerSpacing.x);
+  ImGui::InputText("##path", &m_modalPath);
+  ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+  ImGui::BeginDisabled(m_fileDialog.busy());
+  if (ImGui::Button("Browse...")) {
+    browseModalPath();
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::TextUnformatted("Path");
   if (!m_modalMessage.empty()) {
     ImGui::TextUnformatted(m_modalMessage.c_str());
   }
@@ -699,6 +708,155 @@ void Editor::drawModal() {
     ImGui::CloseCurrentPopup();
   }
   ImGui::EndPopup();
+}
+
+namespace {
+
+// Where a chooser starts for what is typed in the field: the path itself when it is there, else its
+// nearest parent that is. A file chooser keeps the file name while the folder exists, so a save
+// chooser offers it.
+std::filesystem::path chooserLocation(const std::filesystem::path &typed, FileDialogMode mode) {
+  std::error_code error;
+  std::filesystem::path path = typed;
+  if (mode != FileDialogMode::Folder && !path.empty() && std::filesystem::is_directory(path.parent_path(), error)) {
+    return path;
+  }
+  while (!path.empty() && !std::filesystem::exists(path, error)) {
+    const std::filesystem::path parent = path.parent_path();
+    if (parent == path) {
+      return {};
+    }
+    path = parent;
+  }
+  return path;
+}
+
+constexpr const char *SceneFilterName = "Scene (*.scene.json)";
+constexpr const char *SceneFilterPattern = "scene.json";
+
+} // namespace
+
+void Editor::setFileDialogBackend(std::unique_ptr<IFileDialogBackend> backend) {
+  m_fileDialog = FileDialog{std::move(backend)};
+  m_dialogTarget = DialogTarget::None;
+}
+
+bool Editor::pathModalOpen() const noexcept {
+  return m_modal == Modal::NewProject || m_modal == Modal::OpenProject || m_modal == Modal::SaveSceneAs ||
+         m_modal == Modal::Export;
+}
+
+void Editor::showOpenProjectModal() {
+  m_modal = Modal::OpenProject;
+}
+
+void Editor::startFileDialog(DialogTarget target, const FileDialogRequest &request) {
+  if (m_fileDialog.busy()) {
+    return; // a second Browse while one is open does nothing
+  }
+  if (const auto opened = m_fileDialog.open(request); !opened) {
+    if (target == DialogTarget::ModalPath) {
+      m_modalError = opened.error().message;
+    } else {
+      SONNET_LOG_ERROR("{}", opened.error().toString());
+    }
+    if (target == DialogTarget::SaveScene) {
+      m_modal = Modal::SaveSceneAs; // the typed path is the way in
+    }
+    return;
+  }
+  m_dialogTarget = target;
+  m_dialogModal = m_modal;
+  m_dialogTab = m_activeTab;
+}
+
+void Editor::pollFileDialog() {
+  const std::optional<FileDialogResult> result = m_fileDialog.poll();
+  if (!result) {
+    return;
+  }
+  const DialogTarget target = std::exchange(m_dialogTarget, DialogTarget::None);
+  if (result->kind == FileDialogResult::Kind::Cancelled) {
+    return;
+  }
+  if (result->kind == FileDialogResult::Kind::Failed) {
+    const std::string message = std::format("the file chooser failed: {}", result->error);
+    if (target == DialogTarget::ModalPath && m_modal == m_dialogModal) {
+      m_modalError = message;
+    } else {
+      SONNET_LOG_ERROR("{}", message);
+    }
+    if (target == DialogTarget::SaveScene && m_modal == Modal::None) {
+      m_modal = Modal::SaveSceneAs;
+    }
+    return;
+  }
+  switch (target) {
+  case DialogTarget::ModalPath:
+    if (m_modal == m_dialogModal && pathModalOpen()) {
+      m_modalPath = result->path.string();
+      m_modalError.clear();
+    }
+    break;
+  case DialogTarget::OpenScene:
+    if (const auto opened = openScene(result->path); !opened) {
+      SONNET_LOG_ERROR("{}", opened.error().toString());
+    }
+    break;
+  case DialogTarget::SaveScene:
+    // Only while the scene that asked is still the one in front and still has no file.
+    if (m_activeTab == m_dialogTab && m_scenePath.empty()) {
+      if (const auto saved = saveSceneAs(result->path); !saved) {
+        SONNET_LOG_ERROR("{}", saved.error().toString());
+      }
+    }
+    break;
+  case DialogTarget::None:
+    break;
+  }
+}
+
+void Editor::chooseSceneToOpen() {
+  const std::filesystem::path start = m_project ? m_project->resolve("scenes") : std::filesystem::path{};
+  startFileDialog(DialogTarget::OpenScene, {.mode = FileDialogMode::OpenFile,
+                                            .location = chooserLocation(start, FileDialogMode::OpenFile),
+                                            .filterName = SceneFilterName,
+                                            .filterPattern = SceneFilterPattern});
+}
+
+void Editor::chooseSceneToSave() {
+  if (!m_fileDialog.available()) {
+    m_modal = Modal::SaveSceneAs;
+    return;
+  }
+  const std::filesystem::path start =
+      m_scenePath.empty() && m_project ? m_project->resolve("scenes/untitled.scene.json") : m_scenePath;
+  startFileDialog(DialogTarget::SaveScene, {.mode = FileDialogMode::SaveFile,
+                                            .location = chooserLocation(start, FileDialogMode::SaveFile),
+                                            .filterName = SceneFilterName,
+                                            .filterPattern = SceneFilterPattern});
+}
+
+void Editor::saveSceneOrChoose() {
+  if (m_scenePath.empty()) {
+    chooseSceneToSave();
+  } else if (const auto saved = saveScene(); !saved) {
+    SONNET_LOG_ERROR("{}", saved.error().toString());
+  }
+}
+
+void Editor::browseModalPath() {
+  if (!pathModalOpen()) {
+    return;
+  }
+  const bool file = m_modal == Modal::SaveSceneAs;
+  const FileDialogMode mode = file ? FileDialogMode::SaveFile : FileDialogMode::Folder;
+  FileDialogRequest request{.mode = mode, .location = chooserLocation(m_modalPath, mode)};
+  if (file) {
+    request.filterName = SceneFilterName;
+    request.filterPattern = SceneFilterPattern;
+  }
+  startFileDialog(DialogTarget::ModalPath, request);
 }
 
 void Editor::buildDefaultLayout(unsigned dockspace) {
