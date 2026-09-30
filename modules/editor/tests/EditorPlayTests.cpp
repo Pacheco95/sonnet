@@ -11,6 +11,7 @@
 #include <sonnet/scripting/Components.h>
 #include <sonnet/world/Components.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <spdlog/sinks/base_sink.h>
@@ -153,6 +154,80 @@ TEST_CASE("play mode runs physics and scripts and stop puts everything back", "[
     }
     REQUIRE(world.find(boxUuid).get<world::Transform>().position.y > 1.5f);
     editor.stop();
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("pause freezes play mode, edits land on the frozen scene, stop from pause restores", "[editor][gpu][pause]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "pause";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Pause").has_value());
+    world::World &world = editor.world();
+    const auto script = editor.assets().createScript(directory / "scripts" / "launcher.lua", Launcher);
+    REQUIRE(script.has_value());
+    byName(world, "Ground").set<physics::MeshCollider>({});
+    const flecs::entity box = byName(world, "Box");
+    const core::Uuid boxUuid = world.uuidOf(box);
+    box.set<physics::BoxCollider>({});
+    box.set<physics::RigidBody>({});
+    box.set<scripting::Script>({.script = *script});
+    fixture.frame(editor);
+
+    // Pausing outside play mode does nothing.
+    editor.pause();
+    REQUIRE_FALSE(editor.isPaused());
+
+    editor.play();
+    for (int frame = 0; frame < 12; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE_FALSE(editor.isPaused());
+    editor.pause();
+    REQUIRE(editor.isPaused());
+    REQUIRE(editor.isPlaying());
+    REQUIRE(editor.audio().paused());
+
+    // Nothing moves while paused: not the body, not the script's spin.
+    const world::Transform frozen = world.find(boxUuid).get<world::Transform>();
+    const float spun = world.find(boxUuid).get<world::Transform>().rotation.y;
+    REQUIRE(frozen.position.y > 0.6f);
+    for (int frame = 0; frame < 30; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(world.find(boxUuid).get<world::Transform>().position == frozen.position);
+    REQUIRE(world.find(boxUuid).get<world::Transform>().rotation.y == spun);
+
+    // An edit on the frozen body takes effect at once, and again when it resumes.
+    world.find(boxUuid).set<world::Transform>({.position = {5.0f, frozen.position.y, 0.0f}});
+    fixture.frame(editor);
+    REQUIRE(world.find(boxUuid).get<world::WorldTransform>().matrix[3].x == 5.0f);
+    REQUIRE(world.find(boxUuid).get<world::Transform>().position.y == frozen.position.y);
+
+    editor.resume();
+    REQUIRE_FALSE(editor.isPaused());
+    REQUIRE_FALSE(editor.audio().paused());
+    for (int frame = 0; frame < 6; ++frame) {
+      fixture.frame(editor);
+    }
+    const world::Transform resumed = world.find(boxUuid).get<world::Transform>();
+    REQUIRE(resumed.position.x == Catch::Approx(5.0f).margin(0.05f));
+    REQUIRE(resumed.position.y != frozen.position.y);
+
+    // Stop from a pause restores the scene as it was before play.
+    editor.pause();
+    editor.stop();
+    REQUIRE_FALSE(editor.isPlaying());
+    REQUIRE_FALSE(editor.isPaused());
+    REQUIRE_FALSE(editor.audio().paused());
+    const world::Transform restored = world.find(boxUuid).get<world::Transform>();
+    REQUIRE(restored.position == glm::vec3{0.0f, 0.5f, 0.0f});
+    REQUIRE(editor.physics().bodyCount() == 0);
     fixture.frame(editor);
   }
   fixture.device->waitIdle();

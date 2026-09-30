@@ -139,7 +139,7 @@ void Editor::event(const platform::Event &event) {
 
 bool Editor::gameInputActive() const {
   const ViewportInput &input = m_viewportPanel.input();
-  return isPlaying() && input.visible && input.focused && !m_viewportPanel.cameraActive();
+  return isPlaying() && !isPaused() && input.visible && input.focused && !m_viewportPanel.cameraActive();
 }
 
 void Editor::update(float dt) {
@@ -344,6 +344,9 @@ void Editor::handleShortcuts() {
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_P)) {
     isPlaying() ? stop() : play();
   }
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P)) {
+    isPaused() ? resume() : pause();
+  }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D)) {
     m_hierarchyPanel.duplicateSelection();
   }
@@ -476,6 +479,9 @@ void Editor::drawMenuBar() {
     if (ImGui::MenuItem(isPlaying() ? "Stop" : "Play", "Ctrl+P")) {
       isPlaying() ? stop() : play();
     }
+    if (ImGui::MenuItem(isPaused() ? "Resume" : "Pause", "Ctrl+Shift+P", false, isPlaying())) {
+      isPaused() ? resume() : pause();
+    }
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("Tools")) {
@@ -531,6 +537,17 @@ void Editor::drawMenuBar() {
   }
   if (playing) {
     ImGui::PopStyleColor();
+    ImGui::SameLine();
+    const bool paused = isPaused();
+    if (paused) {
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.75f, 0.55f, 0.15f, 1.0f});
+    }
+    if (ImGui::SmallButton(paused ? "  Resume  " : "  Pause  ")) {
+      paused ? resume() : pause();
+    }
+    if (paused) {
+      ImGui::PopStyleColor();
+    }
   }
   ImGui::EndMainMenuBar();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Q)) {
@@ -1114,11 +1131,33 @@ void Editor::play() {
   SONNET_LOG_INFO("play");
 }
 
+void Editor::pause() {
+  if (!isPlaying() || isPaused()) {
+    return;
+  }
+  m_world.setPaused(true);
+  m_audio->pause();
+  // Keys held down are let go: nothing runs to read them, and the release is not seen later.
+  m_input.releaseAll();
+  SONNET_LOG_INFO("pause");
+}
+
+void Editor::resume() {
+  if (!isPaused()) {
+    return;
+  }
+  m_world.setPaused(false);
+  m_audio->resume();
+  SONNET_LOG_INFO("resume");
+}
+
 void Editor::stop() {
   if (!isPlaying()) {
     return;
   }
   const bool wasDirty = isDirty();
+  // A paused audio device would swallow the silence and the next play.
+  m_audio->resume();
   m_world.setPlaying(false);
   m_world.clearScene();
   // The scripts' instances and globals go with the running scene; the next play loads them fresh.
@@ -1151,7 +1190,7 @@ void Editor::updateTitle() {
     title += "*";
   }
   if (isPlaying()) {
-    title += " [playing]";
+    title += isPaused() ? " [paused]" : " [playing]";
   }
   if (title != m_title) {
     m_title = title;
