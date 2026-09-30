@@ -885,7 +885,6 @@ void Editor::stashActiveTab() {
   tab.path = m_scenePath;
   tab.commands = std::move(m_commands);
   tab.selection = std::move(m_selection);
-  tab.savedRevision = m_savedRevision;
   m_commands = CommandStack{};
   m_selection = Selection{};
 }
@@ -898,7 +897,6 @@ void Editor::restoreTab(std::size_t index) {
   }
   m_commands = std::move(tab.commands);
   m_selection = std::move(tab.selection);
-  m_savedRevision = tab.savedRevision;
   m_scenePath = tab.path;
   m_activeTab = index;
   m_selectActiveTab = true;
@@ -918,7 +916,7 @@ bool Editor::tabDirty(std::size_t index) const {
     return isDirty();
   }
   const SceneTab &tab = m_tabs.at(index);
-  return tab.commands.revision() != tab.savedRevision;
+  return !tab.commands.isSaved();
 }
 
 void Editor::switchToTab(std::size_t index) {
@@ -1127,6 +1125,7 @@ void Editor::play() {
     return;
   }
   m_snapshot = world::saveScene(m_world);
+  m_dirtyBeforePlay = isDirty();
   m_world.setPlaying(true);
   SONNET_LOG_INFO("play");
 }
@@ -1155,7 +1154,6 @@ void Editor::stop() {
   if (!isPlaying()) {
     return;
   }
-  const bool wasDirty = isDirty();
   // A paused audio device would swallow the silence and the next play.
   m_audio->resume();
   m_world.setPlaying(false);
@@ -1169,7 +1167,7 @@ void Editor::stop() {
   }
   // Edits made while playing are gone with the snapshot, and so is their history.
   m_commands.clear();
-  if (!wasDirty) {
+  if (!m_dirtyBeforePlay) {
     markSaved();
   }
   m_selection.prune(m_world);
@@ -1177,7 +1175,8 @@ void Editor::stop() {
 }
 
 void Editor::markSaved() {
-  m_savedRevision = m_commands.revision();
+  m_commands.markSaved();
+  m_dirtyBeforePlay = false; // a save while playing writes the snapshot, which stop restores
 }
 
 void Editor::updateTitle() {

@@ -7,12 +7,22 @@ namespace sonnet::editor {
 void CommandStack::push(std::unique_ptr<ICommand> command, world::World &world) {
   command->apply(world);
   SONNET_LOG_DEBUG("{}", command->description());
+  // A save that sat in the redo list about to be dropped can no longer be returned to.
+  if (m_saved && *m_saved > m_done.size()) {
+    m_saved.reset();
+  }
   m_undone.clear();
   m_done.push_back(std::move(command));
   if (m_done.size() > Limit) {
     m_done.erase(m_done.begin());
+    if (m_saved) {
+      if (*m_saved == 0) {
+        m_saved.reset();
+      } else {
+        --*m_saved;
+      }
+    }
   }
-  ++m_revision;
 }
 
 bool CommandStack::undo(world::World &world) {
@@ -24,7 +34,6 @@ bool CommandStack::undo(world::World &world) {
   command->revert(world);
   SONNET_LOG_DEBUG("undo {}", command->description());
   m_undone.push_back(std::move(command));
-  ++m_revision;
   return true;
 }
 
@@ -37,14 +46,13 @@ bool CommandStack::redo(world::World &world) {
   command->apply(world);
   SONNET_LOG_DEBUG("redo {}", command->description());
   m_done.push_back(std::move(command));
-  ++m_revision;
   return true;
 }
 
 void CommandStack::clear() {
   m_done.clear();
   m_undone.clear();
-  ++m_revision;
+  m_saved.reset(); // the caller says whether what is left counts as saved
 }
 
 std::string_view CommandStack::undoDescription() const {

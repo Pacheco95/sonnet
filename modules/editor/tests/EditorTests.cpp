@@ -208,6 +208,89 @@ TEST_CASE("scenes open in tabs that keep their own edits, undo history and selec
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("the scene is unsaved exactly when it differs from the saved one", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("dirty");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Dirty").has_value());
+    world::World &world = editor.world();
+    const core::Uuid root = world.uuidOf(world.roots().front());
+    const auto rename = [&](std::string before, std::string after) {
+      editor.commands().push(editor::renameCommand(root, std::move(before), std::move(after)), world);
+    };
+    const std::string name = world.roots().front().get<world::Name>().value;
+    REQUIRE(!editor.isDirty());
+
+    // Undoing back to the saved state is clean, redoing away from it is dirty.
+    rename(name, "one");
+    REQUIRE(editor.isDirty());
+    REQUIRE(editor.commands().undo(world));
+    REQUIRE(!editor.isDirty());
+    REQUIRE(editor.commands().redo(world));
+    REQUIRE(editor.isDirty());
+
+    // Saved with an edit in the history, an edit and its undo are clean again.
+    REQUIRE(editor.saveScene().has_value());
+    REQUIRE(!editor.isDirty());
+    rename("one", "two");
+    REQUIRE(editor.isDirty());
+    REQUIRE(editor.commands().undo(world));
+    REQUIRE(!editor.isDirty());
+
+    // A push that drops the saved redo branch stays dirty, even back at the same depth.
+    REQUIRE(editor.commands().undo(world));
+    REQUIRE(editor.isDirty());
+    rename(name, "three");
+    REQUIRE(editor.isDirty());
+    REQUIRE(editor.commands().undo(world));
+    REQUIRE(editor.isDirty());
+    REQUIRE(editor.saveScene().has_value());
+    REQUIRE(!editor.isDirty());
+
+    // Play, edit and stop returns to the state before play: clean...
+    editor.play();
+    rename(name, "playing");
+    REQUIRE(editor.isDirty());
+    editor.stop();
+    REQUIRE(!editor.isDirty());
+
+    // ... or dirty.
+    rename(name, "kept");
+    REQUIRE(editor.isDirty());
+    editor.play();
+    editor.stop();
+    REQUIRE(editor.isDirty());
+    editor.play();
+    rename(name, "playing");
+    editor.stop();
+    REQUIRE(editor.isDirty());
+
+    // Saving while playing writes the snapshot, so the stopped scene matches the file.
+    editor.play();
+    REQUIRE(editor.saveScene().has_value());
+    editor.stop();
+    REQUIRE(!editor.isDirty());
+
+    // Each tab keeps its own state across switches.
+    rename(name, "tab one");
+    editor.newScene();
+    REQUIRE(!editor.isDirty());
+    REQUIRE(editor.tabDirty(0));
+    editor.commands().push(editor::createEntityCommand("Extra", {}, {}), world);
+    REQUIRE(editor.commands().undo(world));
+    REQUIRE(!editor.tabDirty(1));
+    editor.switchToTab(0);
+    REQUIRE(editor.isDirty());
+    REQUIRE(!editor.tabDirty(1));
+    REQUIRE(editor.commands().undo(world));
+    REQUIRE(!editor.isDirty());
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("viewport mouse look keeps motion out of ImGui while turning the camera", "[editor][gpu]") {
   Fixture fixture;
   editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};

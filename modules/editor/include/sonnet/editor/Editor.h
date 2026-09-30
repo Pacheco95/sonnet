@@ -194,7 +194,7 @@ public:
     return m_scenePath;
   }
   [[nodiscard]] bool isDirty() const noexcept {
-    return m_commands.revision() != m_savedRevision;
+    return !m_commands.isSaved();
   }
   [[nodiscard]] Gizmo &gizmo() noexcept {
     return m_gizmo;
@@ -232,7 +232,6 @@ private:
     nlohmann::json content;
     CommandStack commands;
     Selection selection;
-    std::uint64_t savedRevision{0};
   };
 
   void drawMenuBar();
@@ -301,13 +300,13 @@ private:
   Preferences m_preferences;
   std::optional<assets::Project> m_project;
   std::filesystem::path m_scenePath;
-  std::uint64_t m_savedRevision{0};
   std::vector<SceneTab> m_tabs;
   std::size_t m_activeTab{0};
   std::size_t m_closingTab{0};
   std::uint64_t m_nextTabId{1};
   bool m_selectActiveTab{false}; // the tab bar follows a change the editor made, not the user's click
   nlohmann::json m_snapshot;
+  bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;
   std::filesystem::path m_shaderSources;
   std::unordered_map<std::string, std::filesystem::file_time_type> m_shaderTimes;
