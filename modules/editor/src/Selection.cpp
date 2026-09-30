@@ -5,6 +5,7 @@
 namespace sonnet::editor {
 
 void Selection::select(core::Uuid uuid, Mode mode) {
+  ++m_revision;
   if (uuid.isNil()) {
     if (mode == Mode::Replace) {
       clear();
@@ -30,10 +31,12 @@ void Selection::select(core::Uuid uuid, Mode mode) {
 }
 
 void Selection::deselect(core::Uuid uuid) {
+  ++m_revision;
   std::erase(m_items, uuid);
 }
 
 void Selection::clear() {
+  ++m_revision;
   m_items.clear();
 }
 
@@ -46,7 +49,9 @@ core::Uuid Selection::primary() const {
 }
 
 void Selection::prune(const world::World &world) {
-  std::erase_if(m_items, [&](const core::Uuid &uuid) { return !world.find(uuid).is_valid(); });
+  if (std::erase_if(m_items, [&](const core::Uuid &uuid) { return !world.find(uuid).is_valid(); }) > 0) {
+    ++m_revision;
+  }
 }
 
 } // namespace sonnet::editor

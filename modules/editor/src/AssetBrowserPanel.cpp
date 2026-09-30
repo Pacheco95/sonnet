@@ -89,11 +89,10 @@ void AssetBrowserPanel::draw(bool &open) {
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
       ImGui::PushID(info->uuid.toString().c_str());
-      const bool selected = m_selection.empty() && m_inspected == info->uuid;
+      const bool selected = inspected() == info->uuid;
       if (ImGui::Selectable(info->name.c_str(), selected,
                             ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
-        m_inspected = info->uuid;
-        m_selection.clear();
+        inspect(info->uuid);
       }
       if (ImGui::BeginDragDropSource()) {
         ImGui::SetDragDropPayload(AssetDragPayload, info->uuid.bytes().data(), info->uuid.bytes().size());
@@ -130,8 +129,7 @@ void AssetBrowserPanel::createMaterial() {
     SONNET_LOG_ERROR("{}", created.error().toString());
     return;
   }
-  m_inspected = *created;
-  m_selection.clear();
+  inspect(*created);
   SONNET_LOG_INFO("created {}", file.string());
 }
 
@@ -153,8 +151,7 @@ void AssetBrowserPanel::createScript() {
     SONNET_LOG_ERROR("{}", created.error().toString());
     return;
   }
-  m_inspected = *created;
-  m_selection.clear();
+  inspect(*created);
   SONNET_LOG_INFO("created {}", file.string());
 }
 

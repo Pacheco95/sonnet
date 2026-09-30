@@ -154,7 +154,10 @@ void InspectorPanel::draw(bool &open, core::Uuid asset) {
     return;
   }
   const flecs::entity entity = m_world.find(m_selection.primary());
-  if (entity) {
+  if (!asset.isNil()) {
+    m_edit.reset();
+    drawAsset(asset);
+  } else if (entity) {
     if (m_selection.items().size() > 1) {
       ImGui::TextDisabled("%zu selected, showing the last", m_selection.items().size());
     }
@@ -163,9 +166,6 @@ void InspectorPanel::draw(bool &open, core::Uuid asset) {
   } else if (!m_selection.empty()) {
     ImGui::TextDisabled("The selection no longer exists");
     m_edit.reset();
-  } else if (!asset.isNil()) {
-    m_edit.reset();
-    drawAsset(asset);
   } else {
     ImGui::TextDisabled("Nothing selected");
     m_edit.reset();

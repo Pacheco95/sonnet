@@ -1,4 +1,5 @@
 #include <sonnet/core/JobSystem.h>
+#include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/EntityCommands.h>
@@ -41,6 +42,32 @@ TEST_CASE("the selection keeps order, a primary and prunes dead entities", "[edi
   REQUIRE(selection.empty());
   selection.select({});
   REQUIRE(selection.empty());
+}
+
+TEST_CASE("inspecting an asset keeps the selection until it is touched again", "[editor][selection][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const core::Uuid entity = world.uuidOf(world.createEntity("a"));
+  editor::Selection selection;
+  editor::AssetBrowserPanel browser{assets, selection};
+  const core::Uuid asset = core::Uuid::generate();
+
+  selection.select(entity);
+  browser.inspect(asset);
+  REQUIRE(browser.inspected() == asset);
+  REQUIRE(selection.primary() == entity); // the click did not deselect the object
+
+  selection.select(entity); // selecting again, even the same entity, hands the inspector back
+  REQUIRE(browser.inspected().isNil());
+  REQUIRE(selection.primary() == entity);
+
+  browser.inspect(asset);
+  selection.clear();
+  REQUIRE(browser.inspected().isNil());
 }
 
 TEST_CASE("the history is saved exactly where the last save was", "[editor][commands]") {

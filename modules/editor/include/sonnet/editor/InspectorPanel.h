@@ -19,7 +19,7 @@
 namespace sonnet::editor {
 
 // The primary selection's name and components, with widgets generated from flecs reflection
-// (docs/editor.md, "Inspector"), or, with nothing selected, the asset the browser inspects: a
+// (docs/editor.md, "Inspector"), or the asset the browser inspects in their place: a
 // material's values, a texture's import settings, a model's sub-assets. Values change live
 // while a widget is used; when the widget is released one command holding the values before
 // and after goes on the stack.
@@ -27,7 +27,7 @@ class InspectorPanel {
 public:
   InspectorPanel(world::World &world, assets::AssetDatabase &assets, Selection &selection, CommandStack &commands);
 
-  // `asset` is what to show when no entity is selected; nil for nothing.
+  // `asset` is what to show in place of the selected entities; nil for them.
   void draw(bool &open, core::Uuid asset = {});
   // Opens a file at a line in the external editor; the script asset view's Edit button uses it.
   void setOpenHandler(std::function<void(const std::string &, int)> handler) {
