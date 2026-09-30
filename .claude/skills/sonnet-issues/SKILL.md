@@ -36,7 +36,9 @@ The output of this skill is designed to automatically update your [GitHub Projec
    - Never target a milestone the roadmap marks as done. If the only remaining options are for finished milestones plus Post-1.0 and M11+, use those, and tell the user which options are stale and that a new one (for example "1.0.0" for work before the release tag) would let pre-release polish be tagged properly.
 
 4. **Status** (Built-in)
-   - Options: Todo, In Progress, Blocked, Done. Read the live options with `gh project field-list 1 --owner Pacheco95 --format json`.
+   - Options: Backlog, Refining, Ready for dev, In Progress, Blocked, Done. Read the live options with `gh project field-list 1 --owner Pacheco95 --format json`.
+   - **Refining** is where an issue is clarified. Some issues need a new ADR, or one that supersedes an existing ADR (`docs/decisions/`), before they can be built.
+   - **Ready for dev** is the only column `sonnet-next-issue` picks cards from.
    - **Blocked** marks a card whose work was started and then hit a blocker during development (an upstream fix, hardware or a platform not available). Whoever is developing the card sets it, and moves it back when the blocker clears. This skill never moves a card to or from Blocked and does not touch Status at all (`update_project.py` doesn't either). A blocker it finds while planning, whether another open issue or something external, goes in the report: the tier is Deferred and the dependency or external cause is named. A card already in Blocked stays there.
    - Do not add or rename Status options through the API without care: `updateProjectV2Field` regenerates every option ID and resets every card's Status. Record all cards' Status first and restore them afterwards.
 
@@ -294,7 +296,7 @@ Your [Sonnet Issue Prioritization project](https://github.com/users/Pacheco95/pr
 
 **View options in project:**
 - **Table**: See all fields side-by-side; best for reviewing updates
-- **Kanban**: Drag issues through Todo → In Progress → Blocked/Done
+- **Kanban**: Columns are Backlog, Refining, Ready for dev, In Progress, Blocked and Done
 - **Filter**: "Priority Tier is Quick Win" to see high-priority items
 
 **Manual override:**
@@ -319,7 +321,7 @@ To update the project:
    - Set **Effort (hours)** to the hour estimate
    - Set **Milestone** if specified
 4. Filter by Priority Tier to see **Quick Wins** at the top
-5. Use the project's kanban view to track progress as work moves from Todo → In Progress → Done (Blocked when waiting on something)
+5. Use the project's kanban view to track where each card stands (Backlog, Refining, Ready for dev, In Progress, Blocked, Done)
 
 ## Example
 

@@ -1,6 +1,6 @@
 ---
 name: sonnet-next-issue
-description: "Take the top-most open card on the private 'Sonnet Issue Prioritization' GitHub project board, implement it, and carry it through the board and Git: move the card to In Progress, work on a feature branch, open a PR, and once the user has merged it in the GitHub UI move the card to Done and tidy the local checkout (checkout main, pull, delete the local feature branch). Use whenever the user says 'next issue', 'pick up the next issue', 'work on the top of the board', 'take the next card', 'do the next quick win', or asks to work through the sonnet backlog, even if they do not name the board."
+description: "Take the top-most Ready for dev card on the private 'Sonnet Issue Prioritization' GitHub project board, implement it, and carry it through the board and Git: move the card to In Progress, work on a feature branch, open a PR, and once the user has merged it in the GitHub UI move the card to Done and tidy the local checkout (checkout main, pull, delete the local feature branch). Use whenever the user says 'next issue', 'pick up the next issue', 'work on the top of the board', 'take the next card', 'do the next quick win', or asks to work through the sonnet backlog, even if they do not name the board."
 compatibility: "Requires the GitHub CLI (gh) logged in as the repository owner with the project and read:project scopes, and a clean checkout of Pacheco95/sonnet"
 ---
 
@@ -14,7 +14,8 @@ The repository is on GitHub (`Pacheco95/sonnet`), and GitHub is configured to de
 
 - `git status --short` must be empty and the branch should be `main`. If not, stop and tell the user; do not stash or discard their work to make room.
 - `git fetch --prune && git pull --ff-only` so the branch starts from the current `main`.
-- `python3 .claude/skills/sonnet-next-issue/scripts/board.py next` prints the top-most card whose Status is Todo (board order is the priority order; Done cards at the top are skipped). Read the issue itself with `gh issue view N --comments`: comments often carry the design decision or a soft dependency.
+- `python3 .claude/skills/sonnet-next-issue/scripts/board.py next` prints the top-most card whose Status is Ready for dev (board order is the priority order). Only Ready for dev cards are picked up for development: Backlog and Refining cards (still being clarified, possibly waiting for an ADR) are never taken, whatever their position. Read the issue itself with `gh issue view N --comments`: comments often carry the design decision or a soft dependency.
+- If no card is Ready for dev, tell the user and stop.
 - If `open_blockers` is not empty, or the issue is too vague to act on, show the user the card and ask; do not silently take the second card, because the order is theirs to change.
 - A card already In Progress means earlier work may be half done. Mention it and ask before starting another.
 
