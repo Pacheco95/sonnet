@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read and update the "Sonnet Issue Prioritization" board (project 1 of Pacheco95).
 
-  board.py next                  print the top-most Todo card as JSON (board order)
+  board.py next                  print the top-most Ready for dev card as JSON (board order)
   board.py status N "In Progress"   set issue N's Status; the name is looked up live
 
 Field and option ids are fetched at run time, so nothing here goes stale when the
@@ -26,7 +26,7 @@ def items():
 def next_card():
     # item-list returns the cards in the order of the board's manual sorting, top first.
     for item in items():
-        if item.get("status") == "Todo" and item["content"].get("type") == "Issue":
+        if item.get("status") == "Ready for dev" and item["content"].get("type") == "Issue":
             c = item["content"]
             blocked = gh("api", f"repos/{REPO}/issues/{c['number']}/dependencies/blocked_by") or []
             return {

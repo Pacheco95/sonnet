@@ -118,6 +118,15 @@ public:
   // undo history and the scripts' state, and silences everything.
   void play();
   void stop();
+  // Pause freezes a playing scene (docs/editor.md, "Play mode"): no fixed steps, physics, scripts
+  // or animation, and the audio holds; edits still land on the frozen scene. Resume carries on
+  // from the same state, and stop from a pause restores the snapshot as it does from play.
+  // Both do nothing outside their state.
+  void pause();
+  void resume();
+  [[nodiscard]] bool isPaused() const noexcept {
+    return m_world.isPaused();
+  }
   [[nodiscard]] bool isPlaying() const noexcept {
     return m_world.isPlaying();
   }

@@ -31,13 +31,20 @@ The output of this skill is designed to automatically update your [GitHub Projec
    - Specific hour estimates for each issue
 
 3. **Target Release** (Single select)
-   - Options at the time of writing: M9 (Mobile/Android), M10 (iOS), Post-1.0, M11+. **These go stale.** Read the live options before proposing anything:
+   - Options at the time of writing: M9 (Mobile/Android), M10 (iOS), Pre-1.0, Post-1.0, M11+. **These go stale.** Read the live options before proposing anything:
      `gh project field-list 1 --owner Pacheco95 --format json`
-   - Never target a milestone the roadmap marks as done. If the only remaining options are for finished milestones plus Post-1.0 and M11+, use those, and tell the user which options are stale and that a new one (for example "1.0.0" for work before the release tag) would let pre-release polish be tagged properly.
+   - Never target a milestone the roadmap marks as done. Use **Pre-1.0** for work that should land before the 1.0.0 release tag (editor and engine polish, fixes, features the release should have), **Post-1.0** for work that can wait until after it, and **M11+** for work tied to a future milestone that has no release yet (for example the shadow chain, which needs the renderer's budget first). Read the roadmap for what 1.0.0 still requires, and say in the report which cards you put before and after the tag and why. A card that waits on an upstream fix (a Deferred blocker) still takes the release it should ship in. Tell the user which options are stale (M9 and M10 once their milestones are done).
 
 4. **Status** (Built-in)
-   - Options: Todo, In Progress, Blocked, Done. Read the live options with `gh project field-list 1 --owner Pacheco95 --format json`.
-   - **Blocked** marks a card whose work was started and then hit a blocker during development (an upstream fix, hardware or a platform not available). Whoever is developing the card sets it, and moves it back when the blocker clears. This skill never moves a card to or from Blocked and does not touch Status at all (`update_project.py` doesn't either). A blocker it finds while planning, whether another open issue or something external, goes in the report: the tier is Deferred and the dependency or external cause is named. A card already in Blocked stays there.
+   - Options: Backlog, Refining, Ready for dev, In Progress, Blocked, Done. Read the live options with `gh project field-list 1 --owner Pacheco95 --format json`.
+   - **Refining** is where an issue is clarified. Some issues need a new ADR, or one that supersedes an existing ADR (`docs/decisions/`), before they can be built.
+   - **Ready for dev** is the only column `sonnet-next-issue` picks cards from.
+   - **Blocked** marks a card whose work was started and then hit a blocker during development (an upstream fix, hardware or a platform not available). Whoever is developing the card sets it, and moves it back when the blocker clears. This skill never moves a card to or from Blocked. A blocker it finds while planning, whether another open issue or something external, goes in the report: the tier is Deferred and the dependency or external cause is named, and the card goes to Backlog. A card already in Blocked stays there.
+   - **What this skill moves.** It proposes a Status for every open card and moves it, after approval, between **Backlog**, **Refining** and **Ready for dev** only. A card in In Progress, Blocked or Done is never moved: `update_project.py` skips it and says so. The proposal follows these rules, which the report states per card:
+     - **Ready for dev**: nothing open blocks it (no open "blocked by" issue, no external cause); the scope is clear enough to start from the body and comments, with a "Done when" or equivalent; no design decision, ADR or spike is still open; the estimate comes from reading the code. The roadmap should not rule it out for now.
+     - **Refining**: the card fits the roadmap and nothing blocks it, but it needs a decision, an ADR (new or superseding one in `docs/decisions/`), a spike's answer, a missing "Done when" or a question to the author before it can be built. Say what is missing.
+     - **Backlog**: blocked by another open issue (soft "do first" relations included when the order matters), deferred, too large and not yet split, or not a priority now. Say which.
+     - A card moves forward or back between these three as the analysis says, so a card whose blocker closed can be promoted and one whose scope turned out open can be demoted. Do not promote more cards than a developer can take up: prefer the top few by board order, and say so when a fitting card stays in Backlog or Refining for that reason.
    - Do not add or rename Status options through the API without care: `updateProjectV2Field` regenerates every option ID and resets every card's Status. Record all cards' Status first and restore them afterwards.
 
 **Automated Workflow:**
@@ -131,7 +138,7 @@ Be realistic: a "small" feature that spans multiple systems or has platform-spec
 - **missing native links**: dependencies a text states that have no native link yet,
 - **cycles**: chains such as #A → #B → #A, where nothing on the loop can start. Exit status 2.
 
-Use the edges in the report: an issue blocked by another open issue is Deferred at most, with the blocker named, and its effort is what it takes once unblocked. Always put cycles in the report, with the issues on the loop and a suggestion for the link to break (usually the one that reads as a soft "do first"). The check never changes a card's Status. Adding the missing native links is a change to the issues, so ask first, then run the script with `--apply`; it skips any link that would close a cycle.
+Use the edges in the report: an issue blocked by another open issue is Deferred at most, with the blocker named, and its effort is what it takes once unblocked. Always put cycles in the report, with the issues on the loop and a suggestion for the link to break (usually the one that reads as a soft "do first"). The dependency check never changes a card's Status itself; its edges feed the Status proposal above, where an open blocker means Backlog. Adding the missing native links is a change to the issues, so ask first, then run the script with `--apply`; it skips any link that would close a cycle.
 
 ### Step 3: Produce a Prioritized Report & Project Update Summary
 
@@ -151,6 +158,7 @@ High UX impact, low code change. Ready to ship.
 - **Impact**: [why this matters to users]
 - **Effort**: [X hours] – [what changes: design, implementation, testing]
 - **Blockers**: none
+- **Status**: Ready for dev | Refining | Backlog, with the reason
 - [optional: "Consider renaming this to..." if text can improve]
 
 ---
@@ -207,24 +215,25 @@ After generating the prioritized report:
 
 1. **Generate summary table** with proposed changes:
    ```
-   | Issue # | Title | Priority Tier | Effort (hrs) | Target Release |
-   |---------|-------|---------------|--------------|----------------|
-   | #68 | Instantiate objects as children | Quick Win | 1–2 | Post-1.0 |
-   | #59 | MoltenVK R32Uint warning | Quick Win | 2–4 | Post-1.0 |
-   | #64 | Pause scene | Medium Fit | 6–8 | Post-1.0 |
-   | ... | ... | ... | ... | ... |
+   | Issue # | Title | Priority Tier | Effort (hrs) | Target Release | Status (now → proposed) |
+   |---------|-------|---------------|--------------|----------------|-------------------------|
+   | #68 | Instantiate objects as children | Quick Win | 1–2 | Pre-1.0 | Backlog → Ready for dev |
+   | #59 | MoltenVK R32Uint warning | Deferred | 2–4 | Pre-1.0 | Blocked (stays) |
+   | #64 | Pause scene | Medium Fit | 6–8 | Pre-1.0 | Backlog → Refining |
+   | ... | ... | ... | ... | ... | ... |
    ```
+   Read each card's current Status first (`gh project item-list 1 --owner OWNER --format json --limit 100`). Show a card that stays as "(unchanged)" or, for In Progress, Blocked and Done, "(stays)". Give one line of reasoning per proposed move, following the rules under Status above.
 
 2. **Ask for approval:**
    ```
    Ready to update the GitHub Project with these changes?
    - Update 10 issues
-   - Set Priority Tier, Effort (hours), and Target Release fields
+   - Set Priority Tier, Effort (hours), Target Release and Status (Backlog, Refining, Ready for dev only)
    (yes/no)
    ```
 
 3. **If approved: Execute automated update**
-   - Save summary table as JSON
+   - Save summary table as JSON, with `priority_tier`, `effort_hours`, `target_release` and `status` per issue (`status` is the proposed column; leave it out to keep a card where it is)
    - Run from the repository root: `python3 .claude/skills/sonnet-issues/scripts/update_project.py --issues summary.json --project-owner USERNAME --project-number 1 --repo REPO`
    - `--repo` is the repository name only (`sonnet`), not `owner/repo`
    - Write `summary.json` in the scratchpad directory, not the repository
@@ -271,7 +280,7 @@ When the user approves the suggestions from the "Improvements & Comments" sectio
 
 - **Quick Wins Don't Stay Quick**: If an issue seems simple but touches multiple systems, it's not a quick win. Be honest about scope.
 
-- **Blockers Are Real**: If an issue depends on another milestone's work, mark it clearly, and say so in the report and use the Deferred tier; never change Status. Don't say "could maybe do this" if the foundation isn't there.
+- **Blockers Are Real**: If an issue depends on another milestone's work, mark it clearly, and say so in the report and use the Deferred tier and the Backlog status; never move a card to or from Blocked. Don't say "could maybe do this" if the foundation isn't there.
 
 - **User Context Matters**: A one-line bug report that blocks 50 users is higher priority than a polished feature request from one person.
 
@@ -287,14 +296,15 @@ Your [Sonnet Issue Prioritization project](https://github.com/users/Pacheco95/pr
    - Issue number
    - Priority Tier (Quick Win / Medium Fit / Deferred)
    - Effort Hours (specific range)
-   - Target Release (M9 / M10 / Post-1.0 / M11+)
+   - Target Release (M9 / M10 / Pre-1.0 / Post-1.0 / M11+)
+   - Status (Backlog / Refining / Ready for dev)
 3. Asks for approval: "Ready to update the GitHub Project?"
 4. If approved: Uses GitHub API to set all fields in batch
 5. Reports success: "Updated 10 issues in 5 seconds"
 
 **View options in project:**
 - **Table**: See all fields side-by-side; best for reviewing updates
-- **Kanban**: Drag issues through Todo → In Progress → Blocked/Done
+- **Kanban**: Columns are Backlog, Refining, Ready for dev, In Progress, Blocked and Done
 - **Filter**: "Priority Tier is Quick Win" to see high-priority items
 
 **Manual override:**
@@ -319,7 +329,7 @@ To update the project:
    - Set **Effort (hours)** to the hour estimate
    - Set **Milestone** if specified
 4. Filter by Priority Tier to see **Quick Wins** at the top
-5. Use the project's kanban view to track progress as work moves from Todo → In Progress → Done (Blocked when waiting on something)
+5. Use the project's kanban view to track where each card stands (Backlog, Refining, Ready for dev, In Progress, Blocked, Done)
 
 ## Example
 

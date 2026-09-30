@@ -457,16 +457,22 @@ void World::setPlaying(bool playing) {
     return;
   }
   m_playing = playing;
+  m_paused = false;
   // A new run starts from a whole step, not from what was left when the last one stopped.
   m_accumulator = 0.0f;
 }
 
+void World::setPaused(bool paused) {
+  m_paused = paused && m_playing;
+}
+
 void World::progress(float dt) {
   SONNET_ZONE();
-  const std::size_t mode = m_playing ? 1 : 0;
+  const bool simulating = m_playing && !m_paused;
+  const std::size_t mode = simulating ? 1 : 0;
   const float frameDelta = m_world.frame_begin(dt);
   m_world.run_pipeline(m_inputPipelines[mode], frameDelta);
-  if (m_playing) {
+  if (simulating) {
     m_accumulator += frameDelta;
     std::uint32_t steps = 0;
     while (m_accumulator >= m_fixedDelta && steps < m_maxFixedSteps) {
