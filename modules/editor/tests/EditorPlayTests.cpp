@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -188,6 +189,219 @@ TEST_CASE("an edit made before play can be undone after stop, and the play's own
   REQUIRE(!editor.isDirty());
   REQUIRE(editor.commands().redo(world));
   REQUIRE(world.find(uuid).get<world::Name>().value == "Before");
+}
+
+namespace {
+
+// A component command on the box's Transform with the position set to `after`, made the way the
+// inspector makes one mid-play: `before` is whatever the running scene holds at that moment.
+std::unique_ptr<editor::ICommand> moveBox(world::World &world, core::Uuid uuid, glm::vec3 after) {
+  const flecs::entity box = world.find(uuid);
+  const flecs::entity_t id = world.findComponent("Transform")->id;
+  const nlohmann::json before = world.componentToJson(box, id);
+  world::Transform edited = box.get<world::Transform>();
+  edited.position = after;
+  box.set<world::Transform>(edited);
+  return editor::componentCommand(uuid, "Transform", std::optional{before},
+                                  std::optional{world.componentToJson(box, id)}, "move Box");
+}
+
+// Moves the box the way physics does, with no command behind it.
+void simulateBoxMoving(world::World &world, core::Uuid uuid) {
+  world.find(uuid).set<world::Transform>({.position = {9.0f, 9.0f, 9.0f}});
+}
+
+} // namespace
+
+TEST_CASE("stopping a play that nothing edited needs no dialog however much moved", "[editor][gpu][changes]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const core::Uuid uuid = world.uuidOf(byName(world, "Box"));
+  editor.play();
+  simulateBoxMoving(world, uuid);
+  REQUIRE(editor.playChanges().empty());
+  editor.requestStop();
+  REQUIRE_FALSE(editor.stopPromptOpen());
+  REQUIRE_FALSE(editor.isPlaying());
+  REQUIRE(world.find(uuid).get<world::Transform>().position == glm::vec3{0.0f, 0.5f, 0.0f});
+}
+
+TEST_CASE("an edit that was undone during play is not a change", "[editor][gpu][changes]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const core::Uuid uuid = world.uuidOf(byName(world, "Box"));
+  editor.play();
+  editor.commands().push(editor::renameCommand(uuid, "Box", "Renamed"), world);
+  REQUIRE(editor.playChanges().size() == 1);
+  REQUIRE(editor.commands().undo(world));
+  REQUIRE(editor.playChanges().empty());
+  editor.requestStop();
+  REQUIRE_FALSE(editor.stopPromptOpen());
+  REQUIRE_FALSE(editor.isPlaying());
+}
+
+TEST_CASE("Keep re-applies the play's edits to the restored scene, unsaved and undoable", "[editor][gpu][changes]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const core::Uuid uuid = world.uuidOf(byName(world, "Box"));
+  REQUIRE_FALSE(editor.isDirty());
+
+  editor.play();
+  simulateBoxMoving(world, uuid);
+  editor.commands().push(moveBox(world, uuid, {1.0f, 2.0f, 3.0f}), world);
+  editor.commands().push(editor::renameCommand(uuid, "Box", "Crate"), world);
+  fixture.frame(editor);
+
+  editor.requestStop();
+  REQUIRE(editor.stopPromptOpen());
+  REQUIRE(editor.isPlaying());
+  REQUIRE(editor.playChanges() == std::vector<std::string>{"move Box", "rename Box to Crate"});
+
+  editor.keepPlayChanges();
+  REQUIRE_FALSE(editor.isPlaying());
+  REQUIRE_FALSE(editor.stopPromptOpen());
+  REQUIRE(editor.skippedChanges() == 0);
+  REQUIRE(world.find(uuid).get<world::Transform>().position == glm::vec3{1.0f, 2.0f, 3.0f});
+  REQUIRE(world.find(uuid).get<world::Name>().value == "Crate");
+  REQUIRE(editor.isDirty());
+  REQUIRE(editor.commands().size() == 2);
+
+  // Undo puts back what the restored scene held, not where physics had taken the box.
+  REQUIRE(editor.commands().undo(world));
+  REQUIRE(world.find(uuid).get<world::Name>().value == "Box");
+  REQUIRE(editor.commands().undo(world));
+  REQUIRE(world.find(uuid).get<world::Transform>().position == glm::vec3{0.0f, 0.5f, 0.0f});
+  REQUIRE_FALSE(editor.isDirty());
+}
+
+TEST_CASE("Discard restores the scene as it was, and Cancel plays on", "[editor][gpu][changes]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const core::Uuid uuid = world.uuidOf(byName(world, "Box"));
+  editor.commands().push(editor::renameCommand(uuid, "Box", "Before"), world);
+
+  editor.play();
+  editor.commands().push(moveBox(world, uuid, {4.0f, 4.0f, 4.0f}), world);
+  editor.requestStop();
+  REQUIRE(editor.stopPromptOpen());
+  editor.cancelStop();
+  REQUIRE_FALSE(editor.stopPromptOpen());
+  REQUIRE(editor.isPlaying());
+  REQUIRE(editor.playChanges().size() == 1);
+  REQUIRE(world.find(uuid).get<world::Transform>().position == glm::vec3{4.0f, 4.0f, 4.0f});
+
+  editor.requestStop();
+  editor.discardPlayChanges();
+  REQUIRE_FALSE(editor.isPlaying());
+  REQUIRE_FALSE(editor.stopPromptOpen());
+  REQUIRE(world.find(uuid).get<world::Transform>().position == glm::vec3{0.0f, 0.5f, 0.0f});
+  REQUIRE(editor.commands().size() == 1); // the history from before play, nothing from it
+  REQUIRE(editor.isDirty());
+}
+
+TEST_CASE("Save as writes the edited scene and leaves the open scene unchanged", "[editor][gpu][changes]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "keep_as";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "KeepAs").has_value());
+    world::World &world = editor.world();
+    const core::Uuid uuid = world.uuidOf(byName(world, "Box"));
+    REQUIRE_FALSE(editor.isDirty());
+
+    editor.play();
+    simulateBoxMoving(world, uuid);
+    editor.commands().push(moveBox(world, uuid, {1.0f, 2.0f, 3.0f}), world);
+    editor.requestStop();
+    REQUIRE(editor.stopPromptOpen());
+
+    // A path that cannot be written, and the open scene's own file, leave play running.
+    REQUIRE_FALSE(editor.savePlayChangesAs(directory).has_value());
+    REQUIRE_FALSE(editor.savePlayChangesAs(directory / "scenes" / "main.scene.json").has_value());
+    REQUIRE(editor.isPlaying());
+    REQUIRE(editor.stopPromptOpen());
+    REQUIRE_FALSE(editor.modalError().empty());
+
+    const std::filesystem::path file = directory / "scenes" / "edited.scene.json";
+    REQUIRE(editor.savePlayChangesAs(file).has_value());
+    REQUIRE_FALSE(editor.isPlaying());
+    REQUIRE_FALSE(editor.stopPromptOpen());
+    REQUIRE(std::filesystem::exists(file));
+    REQUIRE(world.find(uuid).get<world::Transform>().position == glm::vec3{0.0f, 0.5f, 0.0f});
+    REQUIRE_FALSE(editor.isDirty());
+    REQUIRE(editor.commands().size() == 0);
+
+    // The file holds the edit: opening it shows the box where the edit put it.
+    REQUIRE(editor.openScene(file).has_value());
+    REQUIRE(editor.tabCount() == 2);
+    REQUIRE(byName(editor.world(), "Box").get<world::Transform>().position == glm::vec3{1.0f, 2.0f, 3.0f});
+  }
+  fixture.device->waitIdle();
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("an edit to an entity the play spawned is skipped and does not fail the stop", "[editor][gpu][changes]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const core::Uuid uuid = world.uuidOf(byName(world, "Box"));
+
+  editor.play();
+  const core::Uuid spawned = core::Uuid::generate();
+  world.createEntity("Spawned", {}, spawned); // what a script's spawn does: no command behind it
+  editor.commands().push(editor::renameCommand(spawned, "Spawned", "Renamed"), world);
+  editor.commands().push(editor::renameCommand(uuid, "Box", "Crate"), world);
+  editor.requestStop();
+  editor.keepPlayChanges();
+
+  REQUIRE_FALSE(editor.isPlaying());
+  REQUIRE(editor.skippedChanges() == 1);
+  REQUIRE(editor.stopPromptOpen()); // stays up to say so
+  REQUIRE_FALSE(world.find(spawned));
+  REQUIRE(world.find(uuid).get<world::Name>().value == "Crate");
+  REQUIRE(editor.commands().size() == 1);
+}
+
+TEST_CASE("quitting while playing with edits goes through the stop dialog first", "[editor][gpu][changes]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const core::Uuid uuid = world.uuidOf(byName(world, "Box"));
+
+  editor.play();
+  editor.commands().push(editor::renameCommand(uuid, "Box", "Crate"), world);
+  editor.requestQuit();
+  REQUIRE(editor.stopPromptOpen());
+  REQUIRE(editor.isPlaying());
+  REQUIRE_FALSE(editor.quitRequested());
+
+  editor.cancelStop();
+  REQUIRE(editor.isPlaying());
+  REQUIRE_FALSE(editor.quitRequested());
+
+  editor.requestQuit();
+  editor.discardPlayChanges();
+  REQUIRE_FALSE(editor.isPlaying());
+  REQUIRE(editor.quitRequested()); // the scene is clean again, so nothing else to ask
+}
+
+TEST_CASE("Keep before a quit leaves the unsaved scene for the quit dialog", "[editor][gpu][changes]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const core::Uuid uuid = world.uuidOf(byName(world, "Box"));
+  editor.play();
+  editor.commands().push(editor::renameCommand(uuid, "Box", "Crate"), world);
+  editor.requestQuit();
+  editor.keepPlayChanges();
+  REQUIRE_FALSE(editor.stopPromptOpen());
+  REQUIRE(editor.quitPromptOpen());
+  REQUIRE_FALSE(editor.quitRequested());
 }
 
 TEST_CASE("pause freezes play mode, edits land on the frozen scene, stop from pause restores", "[editor][gpu][pause]") {
