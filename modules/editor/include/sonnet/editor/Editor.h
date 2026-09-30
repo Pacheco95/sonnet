@@ -238,7 +238,8 @@ public:
     return m_scenePath;
   }
   [[nodiscard]] bool isDirty() const noexcept {
-    return !m_commands.isSaved();
+    // Playing, the stack holds only the play's own edits; what came before is m_dirtyBeforePlay.
+    return (isPlaying() && m_dirtyBeforePlay) || !m_commands.isSaved();
   }
   [[nodiscard]] Gizmo &gizmo() noexcept {
     return m_gizmo;
@@ -349,6 +350,7 @@ private:
 
   Selection m_selection;
   CommandStack m_commands;
+  CommandStack m_historyBeforePlay; // the edit history play set aside, which stop puts back
   Gizmo m_gizmo;
   bool m_snapEnabled{false}; // Ctrl held during a drag inverts it
   std::filesystem::path m_preferencesFile;

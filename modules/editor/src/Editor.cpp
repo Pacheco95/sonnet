@@ -1364,6 +1364,10 @@ void Editor::play() {
   }
   m_snapshot = world::saveScene(m_world);
   m_dirtyBeforePlay = isDirty();
+  // The edits made before play stay undoable after it; the ones made during it get a stack of
+  // their own, which stop drops with the running scene.
+  m_historyBeforePlay = std::move(m_commands);
+  m_commands = CommandStack{};
   m_world.setPlaying(true);
   SONNET_LOG_INFO("play");
 }
@@ -1403,8 +1407,10 @@ void Editor::stop() {
   if (const auto restored = world::loadScene(m_world, m_snapshot); !restored) {
     SONNET_LOG_ERROR("restoring the scene after play: {}", restored.error().toString());
   }
-  // Edits made while playing are gone with the snapshot, and so is their history.
-  m_commands.clear();
+  // Edits made while playing are gone with the snapshot, and so is their history; the history
+  // from before play comes back, since the snapshot is the scene it left.
+  m_commands = std::move(m_historyBeforePlay);
+  m_historyBeforePlay = CommandStack{};
   if (!m_dirtyBeforePlay) {
     markSaved();
   }
