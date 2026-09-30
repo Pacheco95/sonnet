@@ -1,4 +1,5 @@
 #include <sonnet/editor/Editor.h>
+#include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Preferences.h>
 
 #include <sonnet/core/Error.h>
@@ -159,6 +160,34 @@ TEST_CASE("play mode runs physics and scripts and stop puts everything back", "[
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("an edit made before play can be undone after stop, and the play's own edits are gone", "[editor][gpu]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const flecs::entity box = byName(world, "Box");
+  const core::Uuid uuid = world.uuidOf(box);
+  editor.commands().push(editor::renameCommand(uuid, "Box", "Before"), world);
+  REQUIRE(editor.isDirty());
+  fixture.frame(editor);
+
+  editor.play();
+  REQUIRE(editor.isDirty()); // the edit before play is still unsaved
+  REQUIRE(!editor.commands().canUndo());
+  editor.commands().push(editor::renameCommand(uuid, "Before", "During"), world);
+  fixture.frame(editor);
+  editor.stop();
+  fixture.frame(editor);
+
+  REQUIRE(world.find(uuid).get<world::Name>().value == "Before");
+  REQUIRE(editor.commands().size() == 1);
+  REQUIRE(editor.isDirty());
+  REQUIRE(editor.commands().undo(world));
+  REQUIRE(world.find(uuid).get<world::Name>().value == "Box");
+  REQUIRE(!editor.isDirty());
+  REQUIRE(editor.commands().redo(world));
+  REQUIRE(world.find(uuid).get<world::Name>().value == "Before");
 }
 
 TEST_CASE("pause freezes play mode, edits land on the frozen scene, stop from pause restores", "[editor][gpu][pause]") {
