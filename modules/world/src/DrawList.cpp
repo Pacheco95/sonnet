@@ -105,6 +105,12 @@ std::optional<renderer::Camera> sceneCamera(const World &world) {
   return result;
 }
 
+renderer::Camera fallbackCamera() {
+  return {.position = {6.0f, 4.0f, 8.0f},
+          .rotation = glm::quatLookAt(glm::normalize(glm::vec3{0.0f, 0.5f, 0.0f} - glm::vec3{6.0f, 4.0f, 8.0f}),
+                                      glm::vec3{0.0f, 1.0f, 0.0f})};
+}
+
 std::optional<SceneEnvironment> sceneEnvironment(const World &world, assets::AssetDatabase &assets) {
   std::optional<SceneEnvironment> result;
   world.ecs().each([&](flecs::entity entity, const Environment &environment) {

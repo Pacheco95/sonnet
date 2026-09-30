@@ -16,14 +16,6 @@ namespace {
 
 using nlohmann::json;
 
-// Where a scene with no Camera is watched from: back from the origin and looking at it, so a
-// scene that forgot one still shows something rather than nothing.
-[[nodiscard]] renderer::Camera fallbackCamera() {
-  return {.position = {6.0f, 4.0f, 8.0f},
-          .rotation = glm::quatLookAt(glm::normalize(glm::vec3{0.0f, 0.5f, 0.0f} - glm::vec3{6.0f, 4.0f, 8.0f}),
-                                      glm::vec3{0.0f, 1.0f, 0.0f})};
-}
-
 [[nodiscard]] core::Result<json> parseJsonFile(const std::filesystem::path &file) {
   const auto bytes = core::readFile(file);
   if (!bytes) {
@@ -63,7 +55,7 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
   // A player is always playing: there is no edit mode to switch out of. A capture run holds the
   // simulation until its settle frames are drawn.
   m_world.setPlaying(!m_paused);
-  m_view.camera = fallbackCamera();
+  m_view.camera = world::fallbackCamera();
 }
 
 Game::~Game() {
@@ -237,7 +229,7 @@ void Game::update(float dt) {
     SONNET_LOG_WARN("the scene has no Camera; drawing from the fallback view");
     m_warnedAboutCamera = true;
   }
-  const renderer::Camera camera = scene.value_or(fallbackCamera());
+  const renderer::Camera camera = scene.value_or(world::fallbackCamera());
   // A scene without an AudioListener is heard from the camera, as it is in the editor.
   m_audio->setFallbackListener(camera.position, camera.rotation);
   // Input positions are in window coordinates, so the view's size is the window's.
