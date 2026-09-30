@@ -391,6 +391,57 @@ TEST_CASE("focusing frames the meshes under the selection by their bounds", "[ed
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("middle-dragging the viewport orbits the camera around the focused object", "[editor][gpu]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    world::World &world = editor.world();
+    const flecs::entity box = world.createEntity("Box");
+    box.set(world::MeshRenderer{});
+    box.set(world::Transform{.position = {4.0f, 1.0f, -2.0f}});
+    for (int i = 0; i < 4; ++i) {
+      fixture.frame(editor);
+    }
+    editor.selection().select(world.uuidOf(box));
+    editor.focusSelection();
+    const auto position = [&] { return editor.viewport().camera().camera().position; };
+    const glm::vec3 pivot{4.0f, 1.0f, -2.0f};
+    const glm::vec3 before = position();
+
+    const editor::ViewportInput &input = editor.viewport().input();
+    const ImVec2 start{std::floor(input.origin.x + input.size.x * 0.5f),
+                       std::floor(input.origin.y + input.size.y * 0.5f)};
+    SDL_WarpMouseInWindow(fixture.window->nativeHandle(), start.x, start.y);
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.windowID = SDL_GetWindowID(fixture.window->nativeHandle());
+    motion.motion.x = start.x;
+    motion.motion.y = start.y;
+    editor.nativeEvent(motion);
+    SDL_Event button{};
+    button.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    button.button.windowID = motion.motion.windowID;
+    button.button.button = SDL_BUTTON_MIDDLE;
+    editor.nativeEvent(button);
+    fixture.frame(editor);
+    REQUIRE(editor.viewport().cameraActive());
+
+    motion.motion.x += 150.0f;
+    editor.nativeEvent(motion);
+    editor.event(platform::MouseMoved{{motion.motion.x, motion.motion.y}, {150.0f, 0.0f}});
+    fixture.frame(editor);
+    REQUIRE(glm::distance(position(), before) > 0.5f);
+    REQUIRE(glm::distance(position(), pivot) == Approx(glm::distance(before, pivot)).margin(0.01));
+
+    button.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    editor.nativeEvent(button);
+    fixture.frame(editor);
+    REQUIRE_FALSE(editor.viewport().cameraActive());
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("the wheel over the viewport dollies the camera unless the right button or the game has it",
           "[editor][gpu]") {
   Fixture fixture;

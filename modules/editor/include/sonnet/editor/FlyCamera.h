@@ -33,6 +33,10 @@ public:
   // and a wide shot leaps; without a reference (<= 0) it is a fifth of the fly speed. `fast`
   // multiplies the step like the keys' Shift.
   void dolly(float notches, float referenceDistance, bool fast);
+  // Turns like the mouse look, but around `pivot`: the camera swings on a sphere whose radius is
+  // its current distance to the pivot (at least a few centimetres), so the pivot stays put on
+  // screen. Yaw, pitch, sensitivity and the pitch limit are the fly camera's.
+  void orbit(glm::vec2 lookDelta, glm::vec3 pivot);
 
   [[nodiscard]] const renderer::Camera &camera() const noexcept {
     return m_camera;
@@ -48,6 +52,7 @@ public:
   }
 
 private:
+  void turn(glm::vec2 lookDelta);
   void applyOrientation();
 
   renderer::Camera m_camera;

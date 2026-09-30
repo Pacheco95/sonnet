@@ -12,6 +12,7 @@ constexpr float PitchLimit = glm::radians(89.0f);
 constexpr float FastMultiplier = 4.0f;
 constexpr float DollyFraction = 0.1f;
 constexpr float MinDollyStep = 0.05f;
+constexpr float MinOrbitDistance = 0.05f;
 
 } // namespace
 
@@ -20,9 +21,7 @@ FlyCamera::FlyCamera() {
 }
 
 void FlyCamera::update(float dt, const Input &input) {
-  m_yaw -= input.lookDelta.x * m_sensitivity;
-  m_pitch = std::clamp(m_pitch - input.lookDelta.y * m_sensitivity, -PitchLimit, PitchLimit);
-  applyOrientation();
+  turn(input.lookDelta);
 
   glm::vec3 direction{0.0f};
   if (input.forward) {
@@ -65,6 +64,18 @@ void FlyCamera::dolly(float notches, float referenceDistance, bool fast) {
   const float step =
       referenceDistance > 0.0f ? std::max(referenceDistance * DollyFraction, MinDollyStep) : m_speed * 0.2f;
   m_camera.position += m_camera.forward() * (notches * step * (fast ? FastMultiplier : 1.0f));
+}
+
+void FlyCamera::orbit(glm::vec2 lookDelta, glm::vec3 pivot) {
+  const float distance = std::max(glm::length(pivot - m_camera.position), MinOrbitDistance);
+  turn(lookDelta);
+  m_camera.position = pivot - m_camera.forward() * distance;
+}
+
+void FlyCamera::turn(glm::vec2 lookDelta) {
+  m_yaw -= lookDelta.x * m_sensitivity;
+  m_pitch = std::clamp(m_pitch - lookDelta.y * m_sensitivity, -PitchLimit, PitchLimit);
+  applyOrientation();
 }
 
 void FlyCamera::applyOrientation() {

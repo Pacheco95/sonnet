@@ -30,7 +30,9 @@ struct ViewportInput {
 
 // The dockable scene view: owns the render target the scene is drawn into, displays it with
 // ImGui::Image, and drives the fly camera while the right mouse button is held over it; the wheel over it dollies
-// the camera when the right button is up.
+// the camera when the right button is up. Dragging with the middle button orbits the camera around
+// the pivot: the point the last focus framed, or else a point in front of the camera at the
+// distance that focus used. The pivot is kept until the next focus or until WASD moves the camera.
 class ViewportPanel {
 public:
   ViewportPanel(rhi::IDevice &device, ui::ImGuiLayer &imgui);
@@ -87,6 +89,10 @@ private:
   bool m_wheelForGame{false};
   glm::vec3 m_focusTarget{0.0f};
   bool m_hasFocusTarget{false};
+  bool m_orbiting{false}; // the active camera drag is the middle button's orbit
+  glm::vec3 m_pivot{0.0f};
+  bool m_hasPivot{false};
+  float m_focusDistance{10.0f}; // how far the last focus stood back, for a pivot without an object
 };
 
 } // namespace sonnet::editor
