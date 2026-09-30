@@ -1335,7 +1335,7 @@ void Editor::cancelQuit() {
 }
 
 void Editor::drawStopModal() {
-  constexpr ImVec4 ErrorColour{0.95f, 0.4f, 0.4f, 1.0f};
+  constexpr ImVec4 errorColour{0.95f, 0.4f, 0.4f, 1.0f};
   if (m_stopAnswered) {
     ImGui::TextWrapped(
         "%zu of the edits could not be applied: the entities they changed are not in the restored scene.",
@@ -1373,7 +1373,7 @@ void Editor::drawStopModal() {
   ImGui::SameLine();
   ImGui::TextUnformatted("Save as");
   if (!m_modalError.empty()) {
-    ImGui::TextColored(ErrorColour, "%s", m_modalError.c_str());
+    ImGui::TextColored(errorColour, "%s", m_modalError.c_str());
   }
   const bool keep = ImGui::Button("Keep", ImVec2{120.0f, 0.0f});
   ImGui::SameLine();
@@ -1387,7 +1387,9 @@ void Editor::drawStopModal() {
   if (keep) {
     keepPlayChanges();
   } else if (saveAs) {
-    static_cast<void>(savePlayChangesAs(m_modalPath)); // a failure is shown by the next frame
+    if (const auto saved = savePlayChangesAs(m_modalPath); !saved) {
+      SONNET_LOG_WARN("{}", saved.error().toString()); // the dialog shows it too
+    }
   } else if (discard) {
     discardPlayChanges();
   } else if (cancel) {
@@ -1538,7 +1540,9 @@ void Editor::resume() {
 }
 
 void Editor::stop() {
-  static_cast<void>(endPlay(PlayEnd::Discard, {}));
+  if (const auto ended = endPlay(PlayEnd::Discard, {}); !ended) {
+    SONNET_LOG_ERROR("{}", ended.error().toString());
+  }
 }
 
 bool Editor::hasPlayChanges() const {
@@ -1606,7 +1610,9 @@ void Editor::closeStopPrompt() {
 }
 
 void Editor::keepPlayChanges() {
-  static_cast<void>(endPlay(PlayEnd::Keep, {}));
+  if (const auto ended = endPlay(PlayEnd::Keep, {}); !ended) {
+    SONNET_LOG_ERROR("{}", ended.error().toString());
+  }
   answerStop();
 }
 

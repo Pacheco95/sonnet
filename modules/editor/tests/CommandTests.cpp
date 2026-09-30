@@ -368,5 +368,6 @@ TEST_CASE("a composite reapplies the parts it can and leaves the others alone", 
 
   std::vector<std::unique_ptr<editor::ICommand>> none;
   none.push_back(editor::renameCommand(gone, "g", "G"));
-  REQUIRE_FALSE(editor::compositeCommand("none", std::move(none))->reapply(world));
+  const auto onlyMissing = editor::compositeCommand("none", std::move(none));
+  REQUIRE_FALSE(onlyMissing->reapply(world));
 }

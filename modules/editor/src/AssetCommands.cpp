@@ -14,7 +14,7 @@ class MaterialEditCommand final : public ICommand {
 public:
   MaterialEditCommand(assets::AssetDatabase &assets, core::Uuid material, assets::MaterialSource before,
                       assets::MaterialSource after)
-      : m_assets(assets), m_material(material), m_before(std::move(before)), m_after(std::move(after)) {
+      : m_assets(assets), m_material(material), m_before(before), m_after(after) {
     const assets::AssetInfo *info = m_assets.find(material);
     m_description = std::format("edit material {}", info != nullptr ? info->name : material.toString());
   }
@@ -80,7 +80,7 @@ private:
 
 std::unique_ptr<ICommand> materialEditCommand(assets::AssetDatabase &assets, core::Uuid material,
                                               assets::MaterialSource before, assets::MaterialSource after) {
-  return std::make_unique<MaterialEditCommand>(assets, material, std::move(before), std::move(after));
+  return std::make_unique<MaterialEditCommand>(assets, material, before, after);
 }
 
 std::unique_ptr<ICommand> textureSettingsCommand(assets::AssetDatabase &assets, core::Uuid texture,
