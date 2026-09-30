@@ -4,6 +4,7 @@
 
 #include <sonnet/core/Uuid.h>
 
+#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -32,9 +33,15 @@ public:
   [[nodiscard]] core::Uuid primary() const;
   // Drops what no longer exists in the world.
   void prune(const world::World &world);
+  // Counts the calls that touched the selection (even one that left it as it was), so a panel can tell that
+  // the user selected something since it last looked.
+  [[nodiscard]] std::uint64_t revision() const noexcept {
+    return m_revision;
+  }
 
 private:
   std::vector<core::Uuid> m_items;
+  std::uint64_t m_revision = 0;
 };
 
 } // namespace sonnet::editor

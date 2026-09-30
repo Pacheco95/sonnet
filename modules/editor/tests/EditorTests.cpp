@@ -806,10 +806,15 @@ TEST_CASE("the asset browser lists a project's assets and the inspector edits a 
     REQUIRE(!editor::InspectorPanel::assetTypeOfMember("speed").has_value());
 
     // The browser inspects the material; the inspector draws it and the box uses it.
-    editor.selection().clear();
+    world::World &world = editor.world();
+    REQUIRE(!world.roots().empty());
+    const core::Uuid selected = world.uuidOf(world.roots().front());
+    editor.selection().select(selected);
     editor.assetBrowser().inspect(*material);
     fixture.frame(editor);
-    world::World &world = editor.world();
+    fixture.frame(editor); // the Asset tab's SetSelected lands a frame late
+    REQUIRE(editor.selection().primary() == selected);
+    REQUIRE(editor.assetBrowser().inspected() == *material);
     for (const flecs::entity root : world.roots()) {
       if (root.has<world::MeshRenderer>()) {
         root.ensure<world::MeshRenderer>().material = *material;
