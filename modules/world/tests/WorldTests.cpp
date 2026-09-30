@@ -175,6 +175,49 @@ TEST_CASE("fixed-update systems step at the fixed timestep in play mode only", "
   REQUIRE(world.fixedAlpha() == 0.0f);
 }
 
+TEST_CASE("a paused world freezes the simulation and keeps its accumulator", "[world][play][pause]") {
+  world::World world({.fixedDelta = 0.25f, .maxFixedSteps = 3});
+  int fixedSteps = 0;
+  world.ecs().system("FixedProbe").kind(world.phase(world::Phase::FixedUpdate)).run([&](flecs::iter &) {
+    ++fixedSteps;
+  });
+  const flecs::entity spinner = world.createEntity("Spinner");
+  spinner.set<world::Spin>({.axis = {0.0f, 1.0f, 0.0f}, .speed = glm::radians(90.0f)});
+
+  // Only a playing world pauses.
+  world.setPaused(true);
+  REQUIRE_FALSE(world.isPaused());
+
+  world.setPlaying(true);
+  world.progress(0.375f);
+  REQUIRE(fixedSteps == 1);
+  const glm::quat turned = spinner.get<world::Transform>().rotation;
+
+  world.setPaused(true);
+  REQUIRE(world.isPaused());
+  world.progress(5.0f);
+  REQUIRE(fixedSteps == 1);
+  REQUIRE(spinner.get<world::Transform>().rotation == turned);
+  REQUIRE(world.fixedAlpha() == 0.5f);
+
+  // Transforms still follow an edit while frozen.
+  spinner.set<world::Transform>({.position = {1.0f, 2.0f, 3.0f}});
+  world.progress(1.0f);
+  REQUIRE(spinner.get<world::WorldTransform>().matrix[3] == glm::vec4{1.0f, 2.0f, 3.0f, 1.0f});
+
+  // Resuming carries on from the same accumulator.
+  world.setPaused(false);
+  world.progress(0.125f);
+  REQUIRE(fixedSteps == 2);
+
+  // Stopping from a pause leaves it cleared.
+  world.setPaused(true);
+  world.setPlaying(false);
+  REQUIRE_FALSE(world.isPaused());
+  world.setPlaying(true);
+  REQUIRE_FALSE(world.isPaused());
+}
+
 TEST_CASE("components registered from outside the world reach the registry and scene JSON", "[world][components]") {
   struct Probe {
     float value{0.0f};

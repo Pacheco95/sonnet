@@ -135,6 +135,14 @@ public:
   [[nodiscard]] bool isPlaying() const noexcept {
     return m_playing;
   }
+  // Pausing freezes a playing world: the frame runs the edit pipelines, so no fixed step, physics,
+  // script or animation runs, while transforms and skin palettes still follow edits. The fixed
+  // accumulator is kept, so resuming carries on from the same state. Only a playing world pauses;
+  // leaving play mode clears it.
+  void setPaused(bool paused);
+  [[nodiscard]] bool isPaused() const noexcept {
+    return m_paused;
+  }
   // Runs the frame's phases, with as many fixed steps as the accumulated time holds in play
   // mode; world transforms are up to date afterwards.
   void progress(float dt);
@@ -168,6 +176,7 @@ private:
   std::uint32_t m_maxFixedSteps;
   float m_accumulator{0.0f};
   bool m_playing{false};
+  bool m_paused{false};
 };
 
 } // namespace sonnet::world
