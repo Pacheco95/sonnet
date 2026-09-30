@@ -108,7 +108,7 @@ Presses and releases last one frame, which may pass without a fixed step: a scri
 
 ### camera
 
-The view the game is drawn into, when the runtime was given one: the player's scene camera over its window, or in the editor the viewport's camera over the viewport image ([editor.md](editor.md#play-mode)). The application hands it over every frame, before the scripts run.
+The view the game is drawn into, when the runtime was given one: the player's scene camera over its window, or in the editor the scene's camera over the Game panel's image while playing with it on screen, and the viewport's camera over the viewport image otherwise ([editor.md](editor.md#play-mode)). The application hands it over every frame, before the scripts run.
 
 | Function | |
 |---|---|

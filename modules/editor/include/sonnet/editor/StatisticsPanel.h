@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace sonnet::editor {
 
@@ -15,6 +16,8 @@ struct FrameStatistics {
   float frameMilliseconds{0.0f};
   const renderer::GraphStatistics *graph{nullptr};
   renderer::RenderStatistics renderer;
+  // The Game view's, when it was declared this frame (ADR-0021).
+  std::optional<renderer::RenderStatistics> game;
   rhi::MemoryBudget memory;
 };
 
