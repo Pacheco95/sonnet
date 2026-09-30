@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <format>
 #include <memory>
 #include <optional>
@@ -589,6 +590,180 @@ TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu
     renderer.destroyMesh(box);
   }
   REQUIRE(device->validationMessageCount() == 0);
+}
+
+// Two views in one graph, the Scene view and the Game view of #79: the same objects through two
+// cameras into two targets. A red box stands left of the origin and a green one right of it, and
+// each camera looks straight at one of them. Everything the renderer keeps per frame (the orders,
+// the batches, the cull jobs, the cascades, the frame constants) has to be the view's own for each
+// target to show its own box (docs/decisions/0021-two-views-in-one-frame.md).
+namespace {
+
+struct TwoViewScene {
+  MeshHandle box;
+  MaterialHandle red;
+  MaterialHandle green;
+  std::array<DrawItem, 2> draws;
+  std::array<SceneView, 2> views;
+
+  explicit TwoViewScene(Renderer &renderer) {
+    box = renderer.createMesh(primitives::box(), "box");
+    MaterialDesc desc;
+    desc.metallic = 0.0f;
+    desc.roughness = 0.6f;
+    desc.baseColor = {1.0f, 0.05f, 0.05f, 1.0f};
+    red = renderer.createMaterial(desc, "red");
+    desc.baseColor = {0.05f, 1.0f, 0.05f, 1.0f};
+    green = renderer.createMaterial(desc, "green");
+    draws = {
+        DrawItem{.mesh = box, .material = red, .transform = glm::translate(glm::mat4{1.0f}, {-4.0f, 0.0f, 0.0f})},
+        DrawItem{.mesh = box, .material = green, .transform = glm::translate(glm::mat4{1.0f}, {4.0f, 0.0f, 0.0f})}};
+    for (std::size_t i = 0; i < 2; ++i) {
+      views[i].draws = draws;
+      views[i].camera.position = {i == 0 ? -4.0f : 4.0f, 0.0f, 3.0f};
+    }
+  }
+  void destroy(Renderer &renderer) const {
+    renderer.destroyMaterial(green);
+    renderer.destroyMaterial(red);
+    renderer.destroyMesh(box);
+  }
+};
+
+// Declares both views into one graph, each into a target of its own, and reads both back.
+struct TwoViewFrame {
+  IDevice &device;
+  Renderer &renderer;
+  RenderGraph graph;
+  std::array<RenderTarget, 2> targets;
+  std::array<BufferHandle, 2> readbacks;
+  glm::uvec2 size;
+
+  TwoViewFrame(IDevice &gpu, Renderer &sceneRenderer, glm::uvec2 targetSize)
+      : device(gpu), renderer(sceneRenderer), graph(gpu),
+        targets{RenderTarget{gpu, "view a"}, RenderTarget{gpu, "view b"}}, size(targetSize) {
+    for (std::size_t i = 0; i < 2; ++i) {
+      targets[i].resize(size);
+      readbacks[i] = device.createBuffer({.size = std::uint64_t{size.x} * size.y * 4,
+                                          .usage = BufferUsage::TransferDst,
+                                          .memory = MemoryUsage::GpuToCpu,
+                                          .debugName = "readback"});
+    }
+  }
+  ~TwoViewFrame() {
+    device.waitIdle();
+    for (const BufferHandle readback : readbacks) {
+      device.destroyBuffer(readback);
+    }
+  }
+  TwoViewFrame(const TwoViewFrame &) = delete;
+  TwoViewFrame &operator=(const TwoViewFrame &) = delete;
+
+  void render(const TwoViewScene &scene, int frames = 1) {
+    for (int frame = 0; frame < frames; ++frame) {
+      ICommandList &commands = device.beginFrame();
+      graph.reset();
+      std::array<GraphImage, 2> colors;
+      for (std::size_t i = 0; i < 2; ++i) {
+        colors[i] = graph.importImage(targets[i].color());
+        const GraphImage depth = graph.importImage(targets[i].depth());
+        renderer.addScenePasses(graph, scene.views[i], colors[i], depth, {0.0f, 0.0f, 0.0f, 1.0f});
+      }
+      if (frame == frames - 1) {
+        for (std::size_t i = 0; i < 2; ++i) {
+          graph.addPass(
+              "readback", [&](PassBuilder &b) { b.transferSrc(colors[i]); },
+              [this, i, color = colors[i]](ICommandList &cmd, const PassResources &resources) {
+                cmd.copyImageToBuffer(resources.image(color), readbacks[i]);
+              });
+        }
+      }
+      graph.execute(commands);
+      device.endFrame();
+    }
+    device.waitIdle();
+  }
+
+  Pixel pixel(std::size_t view, unsigned x, unsigned y) {
+    return pixelAt(device.mappedRange(readbacks[view]), size, x, y);
+  }
+};
+
+} // namespace
+
+TEST_CASE("two views in one graph each draw their own camera's box on a GPU", "[renderer][views][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const TwoViewScene scene{renderer};
+    TwoViewFrame frame{*device, renderer, {64, 64}};
+    frame.render(scene, 3); // the steady state: the second frame reuses what the first sized
+
+    const Pixel a = frame.pixel(0, 32, 32);
+    const Pixel b = frame.pixel(1, 32, 32);
+    CAPTURE(a.r, a.g, a.b, b.r, b.g, b.b);
+    // Each camera faces one box, which fills the centre of its target and is lit its own colour.
+    REQUIRE(a.r > 40);
+    REQUIRE(a.r > 4 * a.g);
+    REQUIRE(b.g > 40);
+    REQUIRE(b.g > 4 * b.r);
+    // Neither camera sees the other's box: the far corner is the clear colour in both.
+    REQUIRE(frame.pixel(0, 0, 0).r + frame.pixel(0, 0, 0).g + frame.pixel(0, 0, 0).b == 0);
+    REQUIRE(frame.pixel(1, 0, 0).r + frame.pixel(1, 0, 0).g + frame.pixel(1, 0, 0).b == 0);
+    REQUIRE(device->validationMessageCount() == 0);
+    scene.destroy(renderer);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("each view of a graph keeps its own orders, batches, jobs and slice of the cull buffers",
+          "[renderer][views][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget first{*device, "first"};
+  RenderTarget second{*device, "second"};
+  first.resize({64, 64});
+  second.resize({32, 32}); // another size: the views do not share a target's
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 8, 4), "sphere");
+  // One draw in the first view, three over two meshes in the second: the second needs the larger
+  // slice, and the buffers grow while it is being declared, after the first was.
+  const std::array firstDraws{DrawItem{.mesh = box}};
+  const std::array secondDraws{DrawItem{.mesh = box}, DrawItem{.mesh = sphere}, DrawItem{.mesh = box}};
+  const SceneView firstView = boxScene(firstDraws);
+  const SceneView secondView = boxScene(secondDraws);
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, firstView, graph.importImage(first.color()), graph.importImage(first.depth()));
+  renderer.addScenePasses(graph, secondView, graph.importImage(second.color()), graph.importImage(second.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  // Each view has its own statistics: what its passes submitted, not the last declared view's.
+  REQUIRE(renderer.statistics(0).drawCount == 1);
+  REQUIRE(renderer.statistics(1).drawCount == 3);
+  REQUIRE(renderer.statistics(0).indirectCallCount == 1 * Renderer::CullJobsOpaque);
+  REQUIRE(renderer.statistics(1).indirectCallCount == 2 * Renderer::CullJobsOpaque);
+  REQUIRE(renderer.statistics(2).drawCount == 0); // no third view
+  REQUIRE(&renderer.statistics() == &renderer.statistics(0));
+  // Each view culls once against its own six frusta, and the second's clear and cull come after
+  // the first view's draws in the graph, so its slice of the buffers is not the first's.
+  REQUIRE(countLines(*device, "bindPipeline \"clear draw commands\"") == 2);
+  REQUIRE(countLines(*device, "bindPipeline \"cull\"") == 2);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 18);
+  // Nothing is blended, so neither view takes the direct path.
+  REQUIRE(countLines(*device, "drawIndexed ") == 0);
+  // Two views, two of everything a view owns.
+  REQUIRE(countLines(*device, "bindPipeline \"depth\"") == 2);
+  REQUIRE(countLines(*device, "bindPipeline \"forward\"") == 2);
+  REQUIRE(countLines(*device, "bindPipeline \"shadow\"") == 8);
+  REQUIRE(countLines(*device, "bindPipeline \"tonemap\"") == 2);
+
+  renderer.destroyMesh(sphere);
+  renderer.destroyMesh(box);
 }
 
 // The vertex shader derives each normal from the model matrix rather than reading a normal matrix
@@ -1418,4 +1593,104 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
   };
   std::unique_ptr<IDevice> device = gpuDevice(platform);
   measure(*device);
+}
+
+// What a second view costs (docs/decisions/0021-two-views-in-one-frame.md): the same objects and
+// lights through two cameras into two 1080p targets, against one. The showcase sample has about
+// 440 mesh renderers and 67 lights; the second scale is the benchmark above.
+TEST_CASE("the cost of a second view at the showcase's scale and at ten thousand draws", "[.][benchmark][views][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto measure = [&](IDevice &device, int side, int lightCount, int viewCount) {
+    Renderer renderer{device, shaderDir(platform), {}};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
+    MaterialDesc rough;
+    rough.metallic = 0.0f;
+    rough.roughness = 0.7f;
+    const MaterialHandle material = renderer.createMaterial(rough, "rough");
+    const EnvironmentHandle environment = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
+    std::vector<DrawItem> draws;
+    std::vector<Light> lights;
+    for (int z = 0; z < side; ++z) {
+      for (int x = 0; x < side; ++x) {
+        const glm::vec3 position{(static_cast<float>(x) - static_cast<float>(side) / 2.0f) * 1.5f, 0.5f,
+                                 (static_cast<float>(z) - static_cast<float>(side) / 2.0f) * 1.5f};
+        draws.push_back({.mesh = (x + z) % 2 == 0 ? box : sphere,
+                         .material = material,
+                         .transform = glm::translate(glm::mat4{1.0f}, position),
+                         .id = static_cast<std::uint32_t>(draws.size() + 1)});
+      }
+    }
+    for (int i = 0; i < lightCount; ++i) {
+      const float angle = static_cast<float>(i) * 0.37f;
+      lights.push_back({.type = LightType::Point,
+                        .position = {std::cos(angle) * (5.0f + static_cast<float>(i) * 0.5f), 1.5f,
+                                     std::sin(angle) * (5.0f + static_cast<float>(i) * 0.5f)},
+                        .color = {1.0f, 0.8f, 0.6f},
+                        .intensity = 8.0f,
+                        .range = 6.0f});
+    }
+    std::vector<SceneView> views(static_cast<std::size_t>(viewCount));
+    for (std::size_t i = 0; i < views.size(); ++i) {
+      views[i].draws = draws;
+      views[i].lights = lights;
+      views[i].environment = environment;
+      views[i].camera.position = {i == 0 ? 0.0f : 20.0f, 12.0f, 40.0f};
+      views[i].camera.rotation = glm::angleAxis(glm::radians(-18.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+    }
+    std::deque<RenderTarget> targets; // a target cannot move, and a deque never moves its elements
+    for (std::size_t i = 0; i < views.size(); ++i) {
+      targets.emplace_back(device, "view");
+      targets.back().resize({1920, 1080});
+    }
+    RenderGraph graph{device};
+    std::vector<double> declare;
+    std::vector<double> submit;
+    constexpr int frames = 40;
+    for (int frame = 0; frame < frames; ++frame) {
+      ICommandList &commands = device.beginFrame();
+      graph.reset();
+      const auto start = std::chrono::steady_clock::now();
+      for (std::size_t i = 0; i < views.size(); ++i) {
+        renderer.addScenePasses(graph, views[i], graph.importImage(targets[i].color()),
+                                graph.importImage(targets[i].depth()));
+      }
+      declare.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+      graph.execute(commands);
+      const auto submitStart = std::chrono::steady_clock::now();
+      device.endFrame();
+      submit.push_back(
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submitStart).count());
+    }
+    device.waitIdle();
+    // The last frame's timings are those of the frame two before it, complete by now.
+    float gpu = 0.0f;
+    float recording = 0.0f;
+    for (const PassTiming &pass : graph.statistics().passes) {
+      gpu += pass.gpuMilliseconds;
+      recording += pass.cpuMilliseconds;
+    }
+    const auto median = [](std::vector<double> values) {
+      values.erase(values.begin(), values.begin() + 10); // pipelines compile and buffers grow first
+      std::ranges::sort(values);
+      return values[values.size() / 2];
+    };
+    WARN(std::format("{:>5} draws {:>3} lights {} view(s): declare {:.3f} ms, recording {:.3f} ms, submit {:.3f} ms, "
+                     "GPU {:.3f} ms, graph images {:.1f} MiB, {} indirect calls, {}",
+                     draws.size(), lights.size(), viewCount, median(declare), recording, median(submit), gpu,
+                     static_cast<double>(graph.statistics().transientImageBytes) / (1024.0 * 1024.0),
+                     renderer.statistics(0).indirectCallCount + renderer.statistics(1).indirectCallCount,
+                     device.info().deviceName));
+    REQUIRE(device.validationMessageCount() == 0);
+    renderer.destroyEnvironment(environment);
+    renderer.destroyMaterial(material);
+    renderer.destroyMesh(sphere);
+    renderer.destroyMesh(box);
+  };
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  for (const auto &[side, lights] : {std::pair{21, 67}, std::pair{100, 100}}) {
+    for (int views = 1; views <= 2; ++views) {
+      measure(*device, side, lights, views);
+    }
+  }
 }
