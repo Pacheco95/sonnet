@@ -2,11 +2,17 @@
 
 #include <sonnet/core/Log.h>
 
+#include <utility>
+
 namespace sonnet::editor {
 
 void CommandStack::push(std::unique_ptr<ICommand> command, world::World &world) {
   command->apply(world);
   SONNET_LOG_DEBUG("{}", command->description());
+  record(std::move(command));
+}
+
+void CommandStack::record(std::unique_ptr<ICommand> command) {
   // A save that sat in the redo list about to be dropped can no longer be returned to.
   if (m_saved && *m_saved > m_done.size()) {
     m_saved.reset();
@@ -15,6 +21,7 @@ void CommandStack::push(std::unique_ptr<ICommand> command, world::World &world) 
   m_done.push_back(std::move(command));
   if (m_done.size() > Limit) {
     m_done.erase(m_done.begin());
+    ++m_trimmed;
     if (m_saved) {
       if (*m_saved == 0) {
         m_saved.reset();
@@ -49,7 +56,14 @@ bool CommandStack::redo(world::World &world) {
   return true;
 }
 
+std::vector<std::unique_ptr<ICommand>> CommandStack::takeDone() {
+  m_undone.clear();
+  m_saved.reset();
+  return std::exchange(m_done, {});
+}
+
 void CommandStack::clear() {
+  m_trimmed = 0;
   m_done.clear();
   m_undone.clear();
   m_saved.reset(); // the caller says whether what is left counts as saved

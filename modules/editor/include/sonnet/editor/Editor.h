@@ -43,6 +43,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -160,9 +161,36 @@ public:
 
   // Play mode (docs/architecture.md, "Editor and player"): play snapshots the scene and enables
   // the simulation, physics, scripts, animation and sound; stop restores the snapshot, drops the
-  // undo history and the scripts' state, and silences everything.
+  // edits made meanwhile and the scripts' state, and silences everything.
   void play();
   void stop();
+  // The Stop button's path (docs/editor.md, "Play mode"): stops at once when nothing was edited
+  // while playing, and otherwise opens a dialog listing the edits that waits for one of the four
+  // calls below. Every UI route that would stop play, which are switching or closing the scene's
+  // tab, opening a scene or a project and quitting, asks the same way and goes on afterwards.
+  void requestStop();
+  [[nodiscard]] bool stopPromptOpen() const noexcept {
+    return m_modal == Modal::Stop;
+  }
+  // The descriptions of the edits made since play, oldest first: what the dialog lists. The
+  // simulation's own changes are not among them, and neither are asset edits.
+  [[nodiscard]] std::vector<std::string> playChanges() const;
+  // Stops, then applies the listed edits to the restored scene in order, putting them on the undo
+  // history; the scene is then unsaved. An edit whose entity the restored scene lacks (a script
+  // spawned it) is skipped and counted in skippedChanges.
+  void keepPlayChanges();
+  // Stops and writes the restored scene with the edits applied to `file`, leaving the open scene
+  // as it was before play. A failure (an unwritable path, the open scene's own file) leaves
+  // play running and is reported in modalError.
+  [[nodiscard]] core::Result<void> savePlayChangesAs(const std::filesystem::path &file);
+  // Stops and drops the edits: what stop does.
+  void discardPlayChanges();
+  // Closes the dialog and plays on.
+  void cancelStop();
+  // How many edits the last Keep or Save as could not apply.
+  [[nodiscard]] std::size_t skippedChanges() const noexcept {
+    return m_skippedChanges;
+  }
   // Pause freezes a playing scene (docs/editor.md, "Play mode"): no fixed steps, physics, scripts
   // or animation, and the audio holds; edits still land on the frozen scene. Resume carries on
   // from the same state, and stop from a pause restores the snapshot as it does from play.
@@ -285,6 +313,7 @@ private:
     Export,
     CloseTab,
     Quit,
+    Stop,
   };
 
   enum class DialogTarget : std::uint8_t {
@@ -309,9 +338,21 @@ private:
   void drawModal();
   void drawCloseTabModal();
   void drawQuitModal();
+  void drawStopModal();
   void drawTabBar();
   void requestCloseTab(std::size_t index);
   void stashActiveTab();
+  // Runs `action` now, or once the stop dialog has been answered when play holds edits to decide on.
+  void afterStopPrompt(std::function<void()> action);
+  [[nodiscard]] bool hasPlayChanges() const;
+  void answerStop();
+  void closeStopPrompt();
+  enum class PlayEnd : std::uint8_t {
+    Discard,
+    Keep,
+    SaveAs
+  };
+  [[nodiscard]] core::Result<void> endPlay(PlayEnd end, const std::filesystem::path &file);
   void restoreTab(std::size_t index);
   void addTab();
   void handleShortcuts();
@@ -389,6 +430,9 @@ private:
   std::uint64_t m_nextTabId{1};
   bool m_selectActiveTab{false}; // the tab bar follows a change the editor made, not the user's click
   nlohmann::json m_snapshot;
+  std::function<void()> m_afterStop; // what the stop dialog was asked on behalf of
+  std::size_t m_skippedChanges{0};
+  bool m_stopAnswered{false};    // the dialog stays to report skipped edits after the answer
   bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;
   std::filesystem::path m_shaderSources;

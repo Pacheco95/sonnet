@@ -370,7 +370,7 @@ void Editor::handleShortcuts() {
     requestCloseTab(m_activeTab);
   }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_P)) {
-    isPlaying() ? stop() : play();
+    isPlaying() ? requestStop() : play();
   }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P)) {
     isPaused() ? resume() : pause();
@@ -417,16 +417,18 @@ void Editor::drawMenuBar() {
       const std::vector<std::filesystem::path> recents = m_preferences.recentProjects;
       for (const std::filesystem::path &recent : recents) {
         if (ImGui::MenuItem(recent.generic_string().c_str())) {
-          if (const auto opened = openProject(recent); !opened) {
-            SONNET_LOG_ERROR("{}", opened.error().toString());
-          }
+          afterStopPrompt([this, recent] {
+            if (const auto opened = openProject(recent); !opened) {
+              SONNET_LOG_ERROR("{}", opened.error().toString());
+            }
+          });
         }
       }
       ImGui::EndMenu();
     }
     ImGui::Separator();
     if (ImGui::MenuItem("New scene")) {
-      newScene();
+      afterStopPrompt([this] { newScene(); });
     }
     if (ImGui::MenuItem("Open scene...")) {
       chooseSceneToOpen();
@@ -434,9 +436,11 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu("Project scenes", m_project.has_value())) {
       for (const std::filesystem::path &scene : m_project->files(".scene.json")) {
         if (ImGui::MenuItem(m_project->relative(scene).c_str())) {
-          if (const auto opened = openScene(scene); !opened) {
-            SONNET_LOG_ERROR("{}", opened.error().toString());
-          }
+          afterStopPrompt([this, scene] {
+            if (const auto opened = openScene(scene); !opened) {
+              SONNET_LOG_ERROR("{}", opened.error().toString());
+            }
+          });
         }
       }
       ImGui::EndMenu();
@@ -504,7 +508,7 @@ void Editor::drawMenuBar() {
   }
   if (ImGui::BeginMenu("Play")) {
     if (ImGui::MenuItem(isPlaying() ? "Stop" : "Play", "Ctrl+P")) {
-      isPlaying() ? stop() : play();
+      isPlaying() ? requestStop() : play();
     }
     if (ImGui::MenuItem(isPaused() ? "Resume" : "Pause", "Ctrl+Shift+P", false, isPlaying())) {
       isPaused() ? resume() : pause();
@@ -561,7 +565,7 @@ void Editor::drawMenuBar() {
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.7f, 0.25f, 0.2f, 1.0f});
   }
   if (ImGui::SmallButton(label)) {
-    playing ? stop() : play();
+    playing ? requestStop() : play();
   }
   if (playing) {
     ImGui::PopStyleColor();
@@ -594,6 +598,9 @@ void Editor::drawModal() {
     if (m_modal == Modal::SaveSceneAs) {
       m_modalPath = m_scenePath.empty() && m_project ? m_project->resolve("scenes/untitled.scene.json").string()
                                                      : m_scenePath.string();
+    } else if (m_modal == Modal::Stop) {
+      // Never the open scene's own file: the choice is for a new one.
+      m_modalPath = m_project ? m_project->resolve("scenes/untitled.scene.json").string() : std::string{};
     } else if (m_modal == Modal::Export && m_project) {
       m_exportPlatform = assets::hostPlatform();
       m_exportCurrentScene = false;
@@ -613,6 +620,11 @@ void Editor::drawModal() {
   }
   if (m_modal == Modal::Quit) {
     drawQuitModal();
+    ImGui::EndPopup();
+    return;
+  }
+  if (m_modal == Modal::Stop) {
+    drawStopModal();
     ImGui::EndPopup();
     return;
   }
@@ -685,6 +697,18 @@ void Editor::drawModal() {
   const bool confirmed = ImGui::Button("OK", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Enter, false);
   ImGui::SameLine();
   const bool cancelled = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  if (confirmed && !m_modalPath.empty() && (m_modal == Modal::NewProject || m_modal == Modal::OpenProject) &&
+      hasPlayChanges()) {
+    // Opening a project ends play: the stop dialog comes first, then the project opens.
+    afterStopPrompt([this, create = m_modal == Modal::NewProject, path = m_modalPath, name = m_modalName] {
+      if (const auto opened = create ? createProject(path, name) : openProject(path); !opened) {
+        SONNET_LOG_ERROR("{}", opened.error().toString());
+      }
+    });
+    ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return;
+  }
   if (confirmed && !m_modalPath.empty()) {
     core::Result<void> outcome;
     switch (m_modal) {
@@ -718,6 +742,7 @@ void Editor::drawModal() {
     }
     case Modal::CloseTab:
     case Modal::Quit:
+    case Modal::Stop:
     case Modal::None:
       break;
     }
@@ -823,15 +848,17 @@ void Editor::pollFileDialog() {
   }
   switch (target) {
   case DialogTarget::ModalPath:
-    if (m_modal == m_dialogModal && pathModalOpen()) {
+    if (m_modal == m_dialogModal && (pathModalOpen() || m_modal == Modal::Stop)) {
       m_modalPath = result->path.string();
       m_modalError.clear();
     }
     break;
   case DialogTarget::OpenScene:
-    if (const auto opened = openScene(result->path); !opened) {
-      SONNET_LOG_ERROR("{}", opened.error().toString());
-    }
+    afterStopPrompt([this, path = result->path] {
+      if (const auto opened = openScene(path); !opened) {
+        SONNET_LOG_ERROR("{}", opened.error().toString());
+      }
+    });
     break;
   case DialogTarget::SaveScene:
     // Only while the scene that asked is still the one in front and still has no file.
@@ -876,10 +903,10 @@ void Editor::saveSceneOrChoose() {
 }
 
 void Editor::browseModalPath() {
-  if (!pathModalOpen()) {
+  if (!pathModalOpen() && m_modal != Modal::Stop) {
     return;
   }
-  const bool file = m_modal == Modal::SaveSceneAs;
+  const bool file = m_modal == Modal::SaveSceneAs || m_modal == Modal::Stop;
   const FileDialogMode mode = file ? FileDialogMode::SaveFile : FileDialogMode::Folder;
   FileDialogRequest request{.mode = mode, .location = chooserLocation(m_modalPath, mode)};
   if (file) {
@@ -1165,6 +1192,10 @@ void Editor::requestCloseTab(std::size_t index) {
   if (index >= m_tabs.size()) {
     return;
   }
+  if (hasPlayChanges() && (index == m_activeTab || tabDirty(index))) {
+    afterStopPrompt([this, index] { requestCloseTab(index); });
+    return;
+  }
   if (!tabDirty(index)) {
     closeTab(index);
     return;
@@ -1211,9 +1242,9 @@ void Editor::drawTabBar() {
   if (close) {
     requestCloseTab(*close);
   } else if (add) {
-    newScene();
+    afterStopPrompt([this] { newScene(); });
   } else if (select) {
-    switchToTab(*select);
+    afterStopPrompt([this, index = *select] { switchToTab(index); });
   }
 }
 
@@ -1261,7 +1292,11 @@ std::vector<std::size_t> Editor::dirtyTabs() const {
 }
 
 void Editor::requestQuit() {
-  if (m_modal == Modal::Quit) {
+  if (m_modal == Modal::Quit || m_modal == Modal::Stop) {
+    return;
+  }
+  if (hasPlayChanges()) {
+    afterStopPrompt([this] { requestQuit(); });
     return;
   }
   if (dirtyTabs().empty()) {
@@ -1296,6 +1331,72 @@ void Editor::discardAndQuit() {
 void Editor::cancelQuit() {
   if (m_modal == Modal::Quit) {
     m_modal = Modal::None;
+  }
+}
+
+void Editor::drawStopModal() {
+  constexpr ImVec4 errorColour{0.95f, 0.4f, 0.4f, 1.0f};
+  if (m_stopAnswered) {
+    ImGui::TextWrapped(
+        "%zu of the edits could not be applied: the entities they changed are not in the restored scene.",
+        m_skippedChanges);
+    if (ImGui::Button("Close", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+      closeStopPrompt();
+      ImGui::CloseCurrentPopup();
+    }
+    return;
+  }
+  const std::vector<std::string> changes = playChanges();
+  ImGui::TextUnformatted("These edits were made while the scene was playing:");
+  const auto shownLines = static_cast<float>(std::min(changes.size(), std::size_t{10}));
+  const float listHeight =
+      shownLines * ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y * 2.0f;
+  if (ImGui::BeginChild("##changes", ImVec2{0.0f, listHeight}, ImGuiChildFlags_Borders)) {
+    for (const std::string &change : changes) {
+      ImGui::BulletText("%s", change.c_str());
+    }
+  }
+  ImGui::EndChild();
+  if (m_commands.trimmed() > 0) {
+    ImGui::TextWrapped("%zu older edits fell out of the history and cannot be kept.", m_commands.trimmed());
+  }
+  const ImGuiStyle &style = ImGui::GetStyle();
+  const float browseWidth = ImGui::CalcTextSize("Browse...").x + style.FramePadding.x * 2.0f;
+  ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - browseWidth - style.ItemInnerSpacing.x);
+  ImGui::InputText("##path", &m_modalPath);
+  ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+  ImGui::BeginDisabled(m_fileDialog.busy());
+  if (ImGui::Button("Browse...")) {
+    browseModalPath();
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::TextUnformatted("Save as");
+  if (!m_modalError.empty()) {
+    ImGui::TextColored(errorColour, "%s", m_modalError.c_str());
+  }
+  const bool keep = ImGui::Button("Keep", ImVec2{120.0f, 0.0f});
+  ImGui::SameLine();
+  ImGui::BeginDisabled(m_modalPath.empty());
+  const bool saveAs = ImGui::Button("Save as...", ImVec2{120.0f, 0.0f});
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  const bool discard = ImGui::Button("Discard", ImVec2{120.0f, 0.0f});
+  ImGui::SameLine();
+  const bool cancel = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  if (keep) {
+    keepPlayChanges();
+  } else if (saveAs) {
+    if (const auto saved = savePlayChangesAs(m_modalPath); !saved) {
+      SONNET_LOG_WARN("{}", saved.error().toString()); // the dialog shows it too
+    }
+  } else if (discard) {
+    discardPlayChanges();
+  } else if (cancel) {
+    cancelStop();
+  }
+  if (m_modal != Modal::Stop) {
+    ImGui::CloseCurrentPopup();
   }
 }
 
@@ -1439,29 +1540,175 @@ void Editor::resume() {
 }
 
 void Editor::stop() {
+  if (const auto ended = endPlay(PlayEnd::Discard, {}); !ended) {
+    SONNET_LOG_ERROR("{}", ended.error().toString());
+  }
+}
+
+bool Editor::hasPlayChanges() const {
+  return isPlaying() &&
+         std::ranges::any_of(m_commands.done(), [](const auto &command) { return command->isSceneEdit(); });
+}
+
+std::vector<std::string> Editor::playChanges() const {
+  std::vector<std::string> changes;
   if (!isPlaying()) {
+    return changes;
+  }
+  for (const auto &command : m_commands.done()) {
+    if (command->isSceneEdit()) {
+      changes.emplace_back(command->description());
+    }
+  }
+  return changes;
+}
+
+void Editor::requestStop() {
+  if (!isPlaying() || m_modal == Modal::Stop) {
     return;
   }
+  if (!hasPlayChanges()) {
+    stop();
+    return;
+  }
+  afterStopPrompt({});
+}
+
+void Editor::afterStopPrompt(std::function<void()> action) {
+  if (!hasPlayChanges()) {
+    if (action) {
+      action();
+    }
+    return;
+  }
+  if (m_modal == Modal::Stop) {
+    return;
+  }
+  m_afterStop = std::move(action);
+  m_stopAnswered = false;
+  m_modalError.clear();
+  m_modal = Modal::Stop;
+}
+
+void Editor::answerStop() {
+  if (m_modal != Modal::Stop) {
+    return;
+  }
+  if (m_skippedChanges > 0) {
+    m_stopAnswered = true; // the dialog stays to say what it could not apply
+    return;
+  }
+  closeStopPrompt();
+}
+
+void Editor::closeStopPrompt() {
+  m_modal = Modal::None;
+  m_stopAnswered = false;
+  if (std::function<void()> then = std::exchange(m_afterStop, {})) {
+    then();
+  }
+}
+
+void Editor::keepPlayChanges() {
+  if (const auto ended = endPlay(PlayEnd::Keep, {}); !ended) {
+    SONNET_LOG_ERROR("{}", ended.error().toString());
+  }
+  answerStop();
+}
+
+core::Result<void> Editor::savePlayChangesAs(const std::filesystem::path &file) {
+  auto written = endPlay(PlayEnd::SaveAs, file);
+  if (!written) {
+    m_modalError = written.error().message;
+    return written;
+  }
+  answerStop();
+  return written;
+}
+
+void Editor::discardPlayChanges() {
+  stop();
+  answerStop();
+}
+
+void Editor::cancelStop() {
+  if (m_modal == Modal::Stop) {
+    m_modal = Modal::None;
+    m_stopAnswered = false;
+    m_afterStop = {};
+  }
+}
+
+core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &file) {
+  if (!isPlaying()) {
+    return {};
+  }
+  // The file is opened before anything is torn down, so a path that cannot be written leaves the
+  // game running and the edits listed.
+  std::ofstream stream;
+  if (end == PlayEnd::SaveAs) {
+    const std::filesystem::path target = std::filesystem::absolute(file).lexically_normal();
+    if (target == m_scenePath) {
+      return std::unexpected(core::Error{"choose another file: the open scene keeps its own", core::ErrorCategory::Io});
+    }
+    std::error_code error;
+    std::filesystem::create_directories(target.parent_path(), error);
+    stream.open(target);
+    if (!stream) {
+      return std::unexpected(
+          core::Error{std::format("{}: cannot open for writing", target.string()), core::ErrorCategory::Io});
+    }
+  }
+  std::vector<std::unique_ptr<ICommand>> edits = m_commands.takeDone();
+  std::erase_if(edits, [](const auto &command) { return !command->isSceneEdit(); });
   // A paused audio device would swallow the silence and the next play.
   m_audio->resume();
   m_world.setPlaying(false);
-  m_world.clearScene();
   // The scripts' instances and globals go with the running scene; the next play loads them fresh.
   m_scripts->reset();
   m_audio->stopAll();
   m_input = {};
-  if (const auto restored = world::loadScene(m_world, m_snapshot); !restored) {
-    SONNET_LOG_ERROR("restoring the scene after play: {}", restored.error().toString());
+  const auto restoreSnapshot = [this] {
+    m_world.clearScene();
+    if (const auto restored = world::loadScene(m_world, m_snapshot); !restored) {
+      SONNET_LOG_ERROR("restoring the scene after play: {}", restored.error().toString());
+    }
+  };
+  m_skippedChanges = 0;
+  // Each edit is applied again to the restored scene, in order: its entities are found by identity, and
+  // what its undo restores is read from that scene rather than from the moment it was made.
+  const auto reapplyEdits = [&](auto &&onApplied) {
+    for (auto &command : edits) {
+      if (command->reapply(m_world)) {
+        onApplied(command);
+      } else {
+        ++m_skippedChanges;
+        SONNET_LOG_WARN("skipped: {}", command->description());
+      }
+    }
+  };
+  restoreSnapshot();
+  if (end == PlayEnd::SaveAs) {
+    reapplyEdits([](auto &) {});
+    stream << world::saveScene(m_world).dump(2) << '\n';
+    if (!stream) {
+      SONNET_LOG_ERROR("writing the scene failed");
+    }
+    stream.close();
+    restoreSnapshot(); // the open scene is the one play started from
   }
-  // Edits made while playing are gone with the snapshot, and so is their history; the history
-  // from before play comes back, since the snapshot is the scene it left.
+  // The history from before play comes back, since the snapshot is the scene it left.
   m_commands = std::move(m_historyBeforePlay);
   m_historyBeforePlay = CommandStack{};
   if (!m_dirtyBeforePlay) {
     markSaved();
   }
+  if (end == PlayEnd::Keep) {
+    reapplyEdits([this](auto &command) { m_commands.record(std::move(command)); });
+  }
   m_selection.prune(m_world);
   SONNET_LOG_INFO("stop");
+  return {};
 }
 
 void Editor::markSaved() {

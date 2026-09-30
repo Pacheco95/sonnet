@@ -16,6 +16,10 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <memory>
+#include <optional>
+#include <vector>
+
 using namespace sonnet;
 using Catch::Approx;
 
@@ -319,4 +323,51 @@ TEST_CASE("material and texture settings commands act on the database and undo",
   REQUIRE(commands.undo(world));
   REQUIRE(assets.textureSettings(noise->uuid) == defaults);
   std::filesystem::remove_all(root);
+}
+
+TEST_CASE("reapply reads what undo restores from the restored scene and reports missing entities",
+          "[editor][commands][reapply]") {
+  world::World world;
+  const flecs::entity box = world.createEntity("box");
+  const core::Uuid uuid = world.uuidOf(box);
+  const core::Uuid missing = core::Uuid::generate();
+  const flecs::entity_t transform = world.findComponent("Transform")->id;
+
+  // Made mid-play, when the box had been moved to x = 9.
+  box.set<world::Transform>({.position = {9.0f, 0.0f, 0.0f}});
+  const nlohmann::json midPlay = world.componentToJson(box, transform);
+  box.set<world::Transform>({.position = {1.0f, 0.0f, 0.0f}});
+  const nlohmann::json edited = world.componentToJson(box, transform);
+  auto command = editor::componentCommand(uuid, "Transform", std::optional{midPlay}, std::optional{edited}, "move");
+
+  // The restored scene has the box at the origin.
+  box.set<world::Transform>({});
+  REQUIRE(command->reapply(world));
+  REQUIRE(box.get<world::Transform>().position.x == Approx(1.0f));
+  command->revert(world);
+  REQUIRE(box.get<world::Transform>().position.x == Approx(0.0f));
+
+  REQUIRE_FALSE(editor::renameCommand(missing, "a", "b")->reapply(world));
+  REQUIRE_FALSE(editor::deleteEntityCommand(missing)->reapply(world));
+  REQUIRE_FALSE(editor::createEntityCommand("child", missing)->reapply(world));
+  REQUIRE(world.find(missing).is_valid() == false);
+}
+
+TEST_CASE("a composite reapplies the parts it can and leaves the others alone", "[editor][commands][reapply]") {
+  world::World world;
+  const core::Uuid a = world.uuidOf(world.createEntity("a"));
+  const core::Uuid gone = core::Uuid::generate();
+  std::vector<std::unique_ptr<editor::ICommand>> parts;
+  parts.push_back(editor::renameCommand(a, "a", "A"));
+  parts.push_back(editor::renameCommand(gone, "g", "G"));
+  auto composite = editor::compositeCommand("rename both", std::move(parts));
+  REQUIRE(composite->reapply(world));
+  REQUIRE(world.find(a).get<world::Name>().value == "A");
+  composite->revert(world);
+  REQUIRE(world.find(a).get<world::Name>().value == "a");
+
+  std::vector<std::unique_ptr<editor::ICommand>> none;
+  none.push_back(editor::renameCommand(gone, "g", "G"));
+  const auto onlyMissing = editor::compositeCommand("none", std::move(none));
+  REQUIRE_FALSE(onlyMissing->reapply(world));
 }
