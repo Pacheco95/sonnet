@@ -715,15 +715,21 @@ bool Renderer::isReady(EnvironmentHandle handle) const {
 void Renderer::addPrecomputePasses(RenderGraph &graph, const SceneView &view) {
   // The lookup table and the view's environment are imported once per frame: computed by the
   // passes below when pending, and sampled by the forward pass through these images either
-  // way, so the graph orders the reads after the writes.
+  // way, so the graph orders the reads after the writes. A second view of the frame takes the
+  // first's imports rather than importing the images again as if nothing were writing them.
+  if (m_importSerial != graph.frameSerial()) {
+    m_importSerial = graph.frameSerial();
+    m_environmentImports.clear();
+    m_lutImport = graph.importImage(m_brdfLut, rhi::ImageLayout::General,
+                                    m_brdfLutPending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General);
+  }
   m_frameImages = {};
-  m_frameImages.lut = graph.importImage(m_brdfLut, rhi::ImageLayout::General,
-                                        m_brdfLutPending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General);
-  if (Environment *environment = m_environments.find(view.environment)) {
-    const rhi::ImageLayout initial = environment->pending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General;
-    m_frameImages.skybox = graph.importImage(environment->skybox, rhi::ImageLayout::General, initial);
-    m_frameImages.irradiance = graph.importImage(environment->irradiance, rhi::ImageLayout::General, initial);
-    m_frameImages.prefiltered = graph.importImage(environment->prefiltered, rhi::ImageLayout::General, initial);
+  m_frameImages.lut = m_lutImport;
+  if (const Environment *environment = m_environments.find(view.environment)) {
+    const EnvironmentImport imports = importEnvironment(graph, view.environment, *environment);
+    m_frameImages.skybox = imports.skybox;
+    m_frameImages.irradiance = imports.irradiance;
+    m_frameImages.prefiltered = imports.prefiltered;
   }
   if (m_brdfLutPending) {
     m_brdfLutPending = false;
@@ -745,23 +751,39 @@ void Renderer::addPrecomputePasses(RenderGraph &graph, const SceneView &view) {
   }
   m_environments.forEach([&](EnvironmentHandle handle, Environment &environment) {
     if (environment.pending) {
-      addEnvironmentPasses(graph, handle, environment, handle == view.environment);
+      addEnvironmentPasses(graph, handle, environment);
     }
   });
 }
 
-void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment,
-                                    bool viewed) {
+Renderer::EnvironmentImport Renderer::importEnvironment(RenderGraph &graph, EnvironmentHandle handle,
+                                                        const Environment &environment) {
+  for (const EnvironmentImport &imported : m_environmentImports) {
+    if (imported.handle == handle) {
+      return imported;
+    }
+  }
+  // Read before addEnvironmentPasses clears `pending`: a pending environment starts the frame
+  // as garbage for its own passes to fill.
+  const rhi::ImageLayout initial = environment.pending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General;
+  const EnvironmentImport imports{
+      .handle = handle,
+      .skybox = graph.importImage(environment.skybox, rhi::ImageLayout::General, initial),
+      .irradiance = graph.importImage(environment.irradiance, rhi::ImageLayout::General, initial),
+      .prefiltered = graph.importImage(environment.prefiltered, rhi::ImageLayout::General, initial)};
+  m_environmentImports.push_back(imports);
+  return imports;
+}
+
+void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment) {
+  const EnvironmentImport imports = importEnvironment(graph, handle, environment);
   environment.pending = false;
   const std::uint32_t sampler = m_device.samplerIndex(m_linearClampSampler);
   const GraphImage equirect = graph.importImage(environment.equirectangular, rhi::ImageLayout::ShaderReadOnly,
                                                 rhi::ImageLayout::ShaderReadOnly);
-  const GraphImage skybox =
-      viewed ? m_frameImages.skybox : graph.importImage(environment.skybox, rhi::ImageLayout::General);
-  const GraphImage irradiance =
-      viewed ? m_frameImages.irradiance : graph.importImage(environment.irradiance, rhi::ImageLayout::General);
-  const GraphImage prefiltered =
-      viewed ? m_frameImages.prefiltered : graph.importImage(environment.prefiltered, rhi::ImageLayout::General);
+  const GraphImage skybox = imports.skybox;
+  const GraphImage irradiance = imports.irradiance;
+  const GraphImage prefiltered = imports.prefiltered;
   const rhi::ImageHandle skyboxImage = environment.skybox;
   const rhi::ImageHandle irradianceImage = environment.irradiance;
   const rhi::ImageHandle prefilteredImage = environment.prefiltered;

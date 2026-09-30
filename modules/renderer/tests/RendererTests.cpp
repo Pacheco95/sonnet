@@ -717,6 +717,36 @@ TEST_CASE("two views in one graph each draw their own camera's box on a GPU", "[
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// The first frame of an environment computes its cubes, and the first of all computes the lookup
+// table, in passes the first view declares. The second view has to sample what those passes write
+// rather than import the same images again as if they were finished.
+TEST_CASE("two views share the first frame's precomputed lookup table and environment on a GPU",
+          "[renderer][views][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    TwoViewScene scene{renderer};
+    const EnvironmentHandle sky = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
+    for (SceneView &view : scene.views) {
+      view.environment = sky;
+    }
+    TwoViewFrame frame{*device, renderer, {64, 64}};
+    frame.render(scene, 1); // the very first frame: nothing is computed yet
+    for (std::size_t i = 0; i < 2; ++i) {
+      const Pixel corner = frame.pixel(i, 0, 0);
+      CAPTURE(i, corner.r, corner.g, corner.b);
+      REQUIRE(corner.b > 40);
+      REQUIRE(corner.b > corner.r);
+    }
+    REQUIRE(renderer.isReady(sky));
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyEnvironment(sky);
+    scene.destroy(renderer);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("each view of a graph keeps its own orders, batches, jobs and slice of the cull buffers",
           "[renderer][views][null]") {
   sonnet::platform::Platform platform{{.headless = true}};

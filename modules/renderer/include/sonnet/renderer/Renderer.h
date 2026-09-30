@@ -385,7 +385,17 @@ private:
   void recordPost(rhi::ICommandList &commands, const SceneView *view, rhi::PipelineHandle pipeline,
                   rhi::ImageHandle source, rhi::ImageHandle secondary, glm::uvec2 targetSize);
   void addPrecomputePasses(RenderGraph &graph, const SceneView &view);
-  void addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment, bool viewed);
+  // The graph's imports of an environment's cubes, made once per graph frame however many views
+  // sample them, so the passes that compute them and every view's reads share one image each.
+  struct EnvironmentImport {
+    EnvironmentHandle handle;
+    GraphImage skybox;
+    GraphImage irradiance;
+    GraphImage prefiltered;
+  };
+  [[nodiscard]] EnvironmentImport importEnvironment(RenderGraph &graph, EnvironmentHandle handle,
+                                                    const Environment &environment);
+  void addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment);
   void addBloomPasses(RenderGraph &graph, const SceneView &view, GraphImage hdr, glm::uvec2 size, GraphImage &result);
   void recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask);
   void recordDebugLines(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
@@ -450,7 +460,10 @@ private:
   std::uint64_t m_graphFrame{0};       // its frameIndex, which the skinned buffers age by
   std::uint32_t m_commandsReserved{0}; // slices of the two shared buffers the views so far have taken
   std::uint32_t m_visibleReserved{0};
-  FrameImages m_frameImages;
+  FrameImages m_frameImages;       // the view being declared's
+  std::uint64_t m_importSerial{0}; // the graph frame the imports below belong to
+  GraphImage m_lutImport;
+  std::vector<EnvironmentImport> m_environmentImports;
   std::vector<std::uint32_t> m_selected; // sorted and unique, for the binary search per draw
   glm::vec4 m_outlineColor{1.0f, 0.6f, 0.1f, 1.0f};
 };
