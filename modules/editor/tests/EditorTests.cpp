@@ -10,6 +10,7 @@
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/world/Components.h>
+#include <sonnet/world/Scene.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -23,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <memory>
 #include <string_view>
@@ -934,4 +936,248 @@ TEST_CASE("exporting a project writes a bundle and what runs it", "[editor][gpu]
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
   std::filesystem::remove_all(out);
+}
+
+namespace {
+
+std::size_t recoveryFiles(const std::filesystem::path &directory) {
+  std::size_t count = 0;
+  std::error_code error;
+  for (const auto &entry : std::filesystem::directory_iterator(directory, error)) {
+    count += (entry.is_regular_file() && entry.path().filename().string().ends_with(".recovery.scene.json")) ? 1u : 0u;
+  }
+  return count;
+}
+
+void deleteFirstRoot(editor::Editor &editor) {
+  world::World &world = editor.world();
+  editor.commands().push(editor::deleteEntityCommand(world.uuidOf(world.roots().front())), world);
+}
+
+// What a kill -9 leaves: the recovery directory as it is while the editor still runs.
+std::filesystem::path snapshotOf(const std::filesystem::path &root, const char *name) {
+  const std::filesystem::path copy = scratch(name);
+  std::filesystem::copy(root, copy, std::filesystem::copy_options::recursive);
+  return copy;
+}
+
+} // namespace
+
+TEST_CASE("a killed editor offers its unsaved scene back and restores it exactly", "[editor][gpu][recovery]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("recovery_project");
+  const std::filesystem::path root = scratch("recovery_root");
+  nlohmann::json edited;
+  std::filesystem::path killed;
+  std::filesystem::path sceneFile;
+  std::filesystem::file_time_type sceneTime;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Recovery").has_value());
+    editor.setRecoveryDirectory(root);
+    REQUIRE(!editor.recoveryPromptOpen());
+    sceneFile = editor.scenePath();
+    sceneTime = std::filesystem::last_write_time(sceneFile);
+    const std::filesystem::path recoveryDirectory = editor.recovery()->directory();
+
+    // Nothing is written for a scene that is not dirty, nor before the interval.
+    editor.autosaveNow();
+    REQUIRE(recoveryFiles(recoveryDirectory) == 0);
+    deleteFirstRoot(editor);
+    fixture.frame(editor);
+    REQUIRE(recoveryFiles(recoveryDirectory) == 0);
+
+    // The window losing the focus writes it, and the project's own scene file is left alone.
+    editor.event(platform::WindowFocusChanged{false});
+    REQUIRE(recoveryFiles(recoveryDirectory) == 1);
+    REQUIRE(std::filesystem::last_write_time(sceneFile) == sceneTime);
+    edited = world::saveScene(editor.world());
+
+    // Not while playing: the scene is the snapshot.
+    editor.commands().push(editor::deleteEntityCommand(editor.world().uuidOf(editor.world().roots().front())),
+                           editor.world());
+    editor.play();
+    const std::filesystem::path written = std::filesystem::directory_iterator(recoveryDirectory)->path();
+    const auto before = core::readFile(written);
+    REQUIRE(before.has_value());
+    editor.autosaveNow();
+    REQUIRE(core::readFile(written).value() == *before);
+    editor.stop();
+
+    killed = snapshotOf(root, "recovery_killed");
+  }
+  // A normal exit left no recovery files, and nothing to ask about.
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    editor.setRecoveryDirectory(root);
+    REQUIRE(!editor.recoveryPromptOpen());
+    REQUIRE(recoveryFiles(editor.recovery()->directory()) == 0);
+    fixture.frame(editor);
+  }
+
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    const std::size_t startRoots = editor.world().roots().size();
+    editor.setRecoveryDirectory(killed);
+    REQUIRE(editor.recoveryPromptOpen());
+    REQUIRE(editor.recoverableScenes() == std::vector<std::string>{"main.scene.json"});
+    fixture.frame(editor); // the dialog is drawn
+    REQUIRE(editor.pathModalOpen() == false);
+
+    // Until the answer nothing is written, whatever happens.
+    deleteFirstRoot(editor);
+    const std::size_t offered = recoveryFiles(editor.recovery()->directory());
+    editor.autosaveNow();
+    REQUIRE(recoveryFiles(editor.recovery()->directory()) == offered);
+    REQUIRE(editor.commands().undo(editor.world()));
+    REQUIRE(editor.world().roots().size() == startRoots);
+
+    editor.restoreRecovered();
+    REQUIRE(!editor.recoveryPromptOpen());
+    REQUIRE(editor.tabCount() == 1); // the tab of the same file was replaced, not doubled
+    REQUIRE(editor.scenePath() == sceneFile);
+    REQUIRE(editor.isDirty());
+    REQUIRE(world::saveScene(editor.world()) == edited);
+    REQUIRE(editor.world().roots().size() == startRoots - 1);
+    // The guard is in place while the scene proves itself, and no autosave overwrites the set.
+    REQUIRE(std::filesystem::exists(editor::Recovery::markerFile(editor.recovery()->directory())));
+    REQUIRE(editor.recovery()->restoring());
+
+    for (int frame = 0; frame < editor::Recovery::SettleFrames; ++frame) {
+      fixture.frame(editor, false);
+    }
+    REQUIRE(!editor.recovery()->restoring());
+    REQUIRE(!std::filesystem::exists(editor::Recovery::markerFile(editor.recovery()->directory())));
+    // The restored scene has a recovery file of its own now, and is still unsaved.
+    REQUIRE(recoveryFiles(editor.recovery()->directory()) == 1);
+    REQUIRE(editor.isDirty());
+    REQUIRE(std::filesystem::last_write_time(sceneFile) == sceneTime);
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("saving or closing a tab, and quitting, remove its recovery file", "[editor][gpu][recovery]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("recovery_remove");
+  const std::filesystem::path root = scratch("recovery_remove_root");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Remove").has_value());
+    editor.setRecoveryDirectory(root);
+    const std::filesystem::path recoveryDirectory = editor.recovery()->directory();
+
+    deleteFirstRoot(editor);
+    editor.autosaveNow();
+    REQUIRE(recoveryFiles(recoveryDirectory) == 1);
+    REQUIRE(editor.saveScene().has_value());
+    REQUIRE(recoveryFiles(recoveryDirectory) == 0);
+
+    editor.newScene();
+    deleteFirstRoot(editor);
+    editor.switchToTab(0);
+    editor.autosaveNow(); // the inactive tab's file comes from its stashed scene
+    REQUIRE(recoveryFiles(recoveryDirectory) == 1);
+    editor.closeTab(1); // discarding it
+    REQUIRE(recoveryFiles(recoveryDirectory) == 0);
+
+    editor.newScene();
+    deleteFirstRoot(editor);
+    editor.autosaveNow();
+    REQUIRE(recoveryFiles(recoveryDirectory) == 1);
+    editor.requestQuit();
+    REQUIRE(editor.quitPromptOpen());
+    editor.discardAndQuit();
+    REQUIRE(editor.quitRequested());
+  }
+  const std::filesystem::path key = std::filesystem::directory_iterator(root)->path();
+  REQUIRE(recoveryFiles(key) == 0);
+  REQUIRE(!std::filesystem::exists(editor::Recovery::lockFile(key)));
+}
+
+TEST_CASE("the choices on the restore dialog", "[editor][gpu][recovery]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("recovery_choices");
+  const std::filesystem::path root = scratch("recovery_choices_root");
+  std::filesystem::path killed;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Choices").has_value());
+    editor.setRecoveryDirectory(root);
+    deleteFirstRoot(editor);
+    editor.autosaveNow();
+    killed = snapshotOf(root, "recovery_choices_killed");
+  }
+  const auto start = [&](const std::filesystem::path &from) { return snapshotOf(from, "recovery_choices_copy"); };
+
+  SECTION("discard deletes the files and starts autosave") {
+    const std::filesystem::path copy = start(killed);
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    editor.setRecoveryDirectory(copy);
+    REQUIRE(editor.recoveryPromptOpen());
+    editor.discardRecovered();
+    REQUIRE(!editor.recoveryPromptOpen());
+    REQUIRE(recoveryFiles(editor.recovery()->directory()) == 0);
+    REQUIRE(!editor.isDirty());
+    REQUIRE(editor.recovery()->autosaveAllowed());
+  }
+  SECTION("opening without restoring keeps the files, and the next start offers them again") {
+    const std::filesystem::path copy = start(killed);
+    {
+      editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+      REQUIRE(editor.openProject(directory).has_value());
+      editor.setRecoveryDirectory(copy);
+      editor.keepRecovered();
+      REQUIRE(!editor.isDirty());
+      REQUIRE(recoveryFiles(editor.recovery()->directory()) == 1);
+    }
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    editor.setRecoveryDirectory(copy);
+    REQUIRE(editor.recoveryPromptOpen());
+  }
+  SECTION("a restore that crashes is quarantined, and the next start is clean") {
+    std::filesystem::path crashed;
+    {
+      const std::filesystem::path copy = start(killed);
+      editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+      REQUIRE(editor.openProject(directory).has_value());
+      editor.setRecoveryDirectory(copy);
+      editor.restoreRecovered();
+      REQUIRE(editor.isDirty());
+      fixture.frame(editor);
+      crashed = snapshotOf(copy, "recovery_choices_crashed"); // killed during the first seconds
+    }
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    const std::size_t startRoots = editor.world().roots().size();
+    editor.setRecoveryDirectory(crashed);
+    REQUIRE(!editor.recoveryPromptOpen());
+    REQUIRE(!editor.isDirty());
+    REQUIRE(editor.world().roots().size() == startRoots);
+    REQUIRE(recoveryFiles(editor.recovery()->directory()) == 0);
+    REQUIRE(std::filesystem::exists(editor::Recovery::quarantineRoot(editor.recovery()->directory())));
+  }
+  SECTION("a scene that cannot be loaded is quarantined and the others are restored") {
+    const std::filesystem::path copy = start(killed);
+    const std::filesystem::path key = std::filesystem::directory_iterator(copy)->path();
+    {
+      // Parses as a recovery file, but not as a scene.
+      std::ofstream{key / "aaa-1.recovery.scene.json"}
+          << R"({"version": 9999, "entities": [], "recovery": {"version": 1, "path": ""}})";
+    }
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    editor.setRecoveryDirectory(copy);
+    REQUIRE(editor.recoverableScenes().size() == 2);
+    editor.restoreRecovered();
+    REQUIRE(editor.tabCount() == 1);
+    REQUIRE(editor.isDirty()); // the good one came back
+    REQUIRE(!std::filesystem::exists(key / "aaa-1.recovery.scene.json"));
+    REQUIRE(std::filesystem::exists(editor::Recovery::quarantineRoot(key)));
+  }
 }

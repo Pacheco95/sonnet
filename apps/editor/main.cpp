@@ -67,6 +67,10 @@ public:
     }
     if (line.capture) {
       m_capture.emplace(*line.capture);
+    } else {
+      // A capture run has nobody to answer the restore dialog and must not touch the user's files.
+      // After the project, so its session is the first.
+      m_editor->setRecoveryDirectory(platform.prefPath("sonnet", "editor") / "recovery");
     }
   }
 

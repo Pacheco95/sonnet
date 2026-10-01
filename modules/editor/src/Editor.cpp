@@ -76,6 +76,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
 }
 
 Editor::~Editor() {
+  // Reaching here is a normal exit, whichever way the quit was answered.
+  endRecovery();
   m_device.waitIdle();
   if (!m_layoutFile.empty()) {
     ImGui::SaveIniSettingsToDisk(m_layoutFile.c_str());
@@ -102,6 +104,9 @@ void Editor::nativeEvent(const SDL_Event &event) {
 }
 
 void Editor::event(const platform::Event &event) {
+  if (const auto *focus = std::get_if<platform::WindowFocusChanged>(&event); focus != nullptr && !focus->focused) {
+    autosaveNow();
+  }
   if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
     m_lookDelta += moved->delta;
   }
@@ -155,6 +160,7 @@ bool Editor::gameInputActive() const {
 
 void Editor::update(float dt) {
   pollFileDialog();
+  updateRecovery();
   SONNET_ZONE();
   m_frameMilliseconds = dt * 1000.0f;
   m_selection.prune(m_world);
@@ -588,6 +594,9 @@ void Editor::drawMenuBar() {
 }
 
 void Editor::drawModal() {
+  if (m_modal == Modal::None && recoveryPromptOpen()) {
+    m_modal = Modal::Recover;
+  }
   if (m_modal == Modal::None) {
     return;
   }
@@ -625,6 +634,11 @@ void Editor::drawModal() {
   }
   if (m_modal == Modal::Stop) {
     drawStopModal();
+    ImGui::EndPopup();
+    return;
+  }
+  if (m_modal == Modal::Recover) {
+    drawRecoverModal();
     ImGui::EndPopup();
     return;
   }
@@ -743,6 +757,7 @@ void Editor::drawModal() {
     case Modal::CloseTab:
     case Modal::Quit:
     case Modal::Stop:
+    case Modal::Recover:
     case Modal::None:
       break;
     }
@@ -1058,6 +1073,8 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   if (isPlaying()) {
     stop();
   }
+  // The old project's session ends with its scenes, which are dropped below, unsaved changes with them.
+  endRecovery();
   m_project = std::move(*project);
   m_assetBrowserPanel.inspect({});
   m_preferences.addRecentProject(m_project->root);
@@ -1071,11 +1088,12 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   m_assets.open(m_project->root, m_project->assetRoots);
   loadPrefabs();
   const std::filesystem::path scene = m_project->resolve(m_project->startScene);
-  if (const auto opened = openScene(scene); !opened) {
+  const auto opened = openScene(scene);
+  if (!opened) {
     newScene();
-    return opened;
   }
-  return {};
+  beginRecovery();
+  return opened;
 }
 
 core::Result<void> Editor::createProject(const std::filesystem::path &directory, std::string name) {
@@ -1167,6 +1185,9 @@ void Editor::switchToTab(std::size_t index) {
 void Editor::closeTab(std::size_t index) {
   if (index >= m_tabs.size()) {
     return;
+  }
+  if (m_recovery) {
+    m_recovery->remove(m_tabs[index].id);
   }
   if (m_tabs.size() == 1) {
     // There is always a scene: closing the last one leaves a fresh starter scene.
@@ -1422,6 +1443,193 @@ void Editor::drawQuitModal() {
     ImGui::CloseCurrentPopup();
   } else if (!m_modalError.empty()) {
     ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+  }
+}
+
+void Editor::drawRecoverModal() {
+  ImGui::TextWrapped("The editor did not close normally last time. These scenes were recovered:");
+  for (const std::string &title : recoverableScenes()) {
+    ImGui::BulletText("%s", title.c_str());
+  }
+  const bool restore = ImGui::Button("Restore", ImVec2{120.0f, 0.0f});
+  ImGui::SameLine();
+  const bool discard = ImGui::Button("Discard", ImVec2{120.0f, 0.0f});
+  ImGui::SameLine();
+  const bool later =
+      ImGui::Button("Open without restoring", ImVec2{200.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  if (restore) {
+    restoreRecovered();
+  } else if (discard) {
+    discardRecovered();
+  } else if (later) {
+    keepRecovered();
+  }
+  if (m_modal == Modal::None) {
+    ImGui::CloseCurrentPopup();
+  }
+}
+
+void Editor::setRecoveryDirectory(const std::filesystem::path &root) {
+  m_recoveryRoot = root;
+  beginRecovery();
+}
+
+void Editor::beginRecovery() {
+  endRecovery();
+  if (m_recoveryRoot.empty()) {
+    return;
+  }
+  const std::filesystem::path directory =
+      m_recoveryRoot / recoveryKey(m_project ? m_project->root : std::filesystem::path{});
+  auto recovery = std::make_unique<Recovery>(directory);
+  const auto previous = recovery->begin();
+  if (!previous) {
+    SONNET_LOG_WARN("crash recovery is off: {}", previous.error().toString());
+    return;
+  }
+  if (*previous == Recovery::Previous::Crashed) {
+    SONNET_LOG_WARN("the last session did not end normally ({} scenes recovered)", recovery->found().size());
+  }
+  m_recovery = std::move(recovery);
+}
+
+void Editor::endRecovery() {
+  if (m_recovery) {
+    m_recovery->end();
+    m_recovery.reset();
+  }
+  if (m_modal == Modal::Recover) {
+    m_modal = Modal::None;
+  }
+}
+
+std::vector<std::string> Editor::recoverableScenes() const {
+  std::vector<std::string> titles;
+  if (m_recovery) {
+    for (const Recovery::Entry &entry : m_recovery->found()) {
+      titles.push_back(entry.scenePath.empty() ? std::string{"untitled"} : entry.scenePath.filename().string());
+    }
+  }
+  return titles;
+}
+
+bool Editor::loadRecovered(const Recovery::Entry &entry) {
+  stashActiveTab();
+  m_world.clearScene();
+  if (const auto loaded = world::loadScene(m_world, entry.scene); !loaded) {
+    SONNET_LOG_ERROR("recovery: {}: {}", entry.file.filename().string(), loaded.error().toString());
+    restoreTab(m_activeTab);
+    m_recovery->quarantine(entry.file);
+    return false;
+  }
+  // The tab that holds the same file is the one being recovered, not a second scene.
+  if (!entry.scenePath.empty()) {
+    std::erase_if(m_tabs, [&](const SceneTab &tab) { return tab.path == entry.scenePath; });
+  }
+  addTab();
+  m_scenePath = entry.scenePath;
+  m_commands.markUnsaved();
+  return true;
+}
+
+void Editor::restoreRecovered() {
+  if (!recoveryPromptOpen()) {
+    return;
+  }
+  if (isPlaying()) {
+    stop();
+  }
+  if (const auto started = m_recovery->startRestore(); !started) {
+    // Without the marker a crash while restoring would loop, so nothing is loaded.
+    SONNET_LOG_ERROR("recovery: {}; the files are kept", started.error().toString());
+    m_recovery->keep();
+    m_modal = m_modal == Modal::Recover ? Modal::None : m_modal;
+    return;
+  }
+  // The untouched starter scene of a fresh editor makes way for the scenes that come back.
+  std::optional<std::uint64_t> starter;
+  if (m_tabs.size() == 1 && m_scenePath.empty() && !isDirty()) {
+    starter = m_tabs[0].id;
+  }
+  std::optional<std::uint64_t> first;
+  const std::vector<Recovery::Entry> entries = m_recovery->found();
+  for (const Recovery::Entry &entry : entries) {
+    if (loadRecovered(entry) && !first) {
+      first = m_tabs[m_activeTab].id;
+    }
+  }
+  if (first) {
+    const std::uint64_t active = m_tabs[m_activeTab].id;
+    if (starter) {
+      std::erase_if(m_tabs, [&](const SceneTab &tab) { return tab.id == *starter; });
+    }
+    const auto indexOf = [this](std::uint64_t id) {
+      return static_cast<std::size_t>(std::ranges::find(m_tabs, id, &SceneTab::id) - m_tabs.begin());
+    };
+    m_activeTab = indexOf(active);
+    switchToTab(indexOf(*first));
+  } else {
+    m_recovery->finishRestore();
+  }
+  if (m_modal == Modal::Recover) {
+    m_modal = Modal::None;
+  }
+}
+
+void Editor::discardRecovered() {
+  if (recoveryPromptOpen()) {
+    m_recovery->discard();
+  }
+  if (m_modal == Modal::Recover) {
+    m_modal = Modal::None;
+  }
+}
+
+void Editor::keepRecovered() {
+  if (recoveryPromptOpen()) {
+    m_recovery->keep();
+  }
+  if (m_modal == Modal::Recover) {
+    m_modal = Modal::None;
+  }
+}
+
+void Editor::writeRecovery() {
+  for (std::size_t index = 0; index < m_tabs.size(); ++index) {
+    const std::uint64_t id = m_tabs[index].id;
+    if (!tabDirty(index)) {
+      m_recovery->remove(id);
+      continue;
+    }
+    const bool active = index == m_activeTab;
+    const nlohmann::json scene = active ? world::saveScene(m_world) : m_tabs[index].content;
+    if (const auto written = m_recovery->write(id, active ? m_scenePath : m_tabs[index].path, scene); !written) {
+      SONNET_LOG_WARN("autosave: {}", written.error().toString());
+    }
+  }
+  m_recovery->autosaved(std::chrono::steady_clock::now());
+}
+
+void Editor::autosaveNow() {
+  if (m_recovery && m_recovery->autosaveAllowed() && !isPlaying()) {
+    writeRecovery();
+  }
+}
+
+void Editor::updateRecovery() {
+  // Play's scene is the snapshot and its edits are decided on stop; neither is worth a file.
+  if (!m_recovery || isPlaying()) {
+    return;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  if (m_recovery->restoring()) {
+    if (m_recovery->settled(now)) {
+      // The restored scenes have not crashed the editor: their own files take over from the set.
+      writeRecovery();
+      m_recovery->finishRestore();
+    }
+  } else if (m_recovery->autosaveDue(now)) {
+    writeRecovery();
   }
 }
 
@@ -1713,6 +1921,9 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
 
 void Editor::markSaved() {
   m_commands.markSaved();
+  if (m_recovery && !m_tabs.empty()) {
+    m_recovery->remove(m_tabs[m_activeTab].id);
+  }
   m_dirtyBeforePlay = false; // a save while playing writes the snapshot, which stop restores
 }
 
