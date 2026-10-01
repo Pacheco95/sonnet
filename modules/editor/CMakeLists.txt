@@ -20,6 +20,7 @@ sonnet_add_module(editor
     src/LogPanel.cpp
     src/Preferences.cpp
     src/Project.cpp
+    src/Recovery.cpp
     src/Selection.cpp
     src/ShaderCompiler.cpp
     src/StatisticsPanel.cpp
@@ -49,6 +50,7 @@ sonnet_add_module_test(editor
     tests/LightLinesTests.cpp
     tests/LogPanelTests.cpp
     tests/ProjectTests.cpp
+    tests/RecoveryTests.cpp
     tests/ShaderTests.cpp
     tests/TypeFilterTests.cpp
 )
