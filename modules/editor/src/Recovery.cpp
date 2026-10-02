@@ -42,10 +42,10 @@ bool hasSuffix(const std::filesystem::path &file, std::string_view suffix) {
 }
 
 std::string newSession() {
-  static std::atomic<unsigned> counter{0};
+  static std::atomic<unsigned> s_counter{0};
   const auto since = std::chrono::system_clock::now().time_since_epoch();
   return std::format("{:x}{:x}", std::chrono::duration_cast<std::chrono::milliseconds>(since).count(),
-                     counter.fetch_add(1));
+                     s_counter.fetch_add(1));
 }
 
 std::uint64_t fnv1a(std::string_view text) {

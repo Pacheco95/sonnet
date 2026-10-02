@@ -990,7 +990,7 @@ TEST_CASE("a killed editor offers its unsaved scene back and restores it exactly
     // The window losing the focus writes it, and the project's own scene file is left alone.
     editor.event(platform::WindowFocusChanged{false});
     REQUIRE(recoveryFiles(recoveryDirectory) == 1);
-    REQUIRE(std::filesystem::last_write_time(sceneFile) == sceneTime);
+    REQUIRE((std::filesystem::last_write_time(sceneFile) == sceneTime));
     edited = world::saveScene(editor.world());
 
     // Not while playing: the scene is the snapshot.
@@ -1053,7 +1053,7 @@ TEST_CASE("a killed editor offers its unsaved scene back and restores it exactly
     // The restored scene has a recovery file of its own now, and is still unsaved.
     REQUIRE(recoveryFiles(editor.recovery()->directory()) == 1);
     REQUIRE(editor.isDirty());
-    REQUIRE(std::filesystem::last_write_time(sceneFile) == sceneTime);
+    REQUIRE((std::filesystem::last_write_time(sceneFile) == sceneTime));
     fixture.frame(editor);
   }
   fixture.device->waitIdle();
