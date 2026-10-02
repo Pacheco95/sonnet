@@ -154,6 +154,29 @@ Preferences live in `preferences.json` under `Platform::prefPath("sonnet", "edit
 
 `editor_tests` covers the selection, a layout split, saved, restored by a second editor and reset, every command through undo and redo including the material and texture settings commands, the gizmo's maths and headless drags, projects, exports and preferences through the temporary directory, the fly camera, the log buffer, the inspector's widget for each scalar kind, and on Lavapipe whole editor frames: the starter scene, a created project, an edit, play, pause, an edit while paused, resume and stop, save and reopen, a scripted dynamic body launched in play mode and put back by stop, twice, with the colliders drawn, the basic sample's playground played without a warning and reset, its start scene's clip and hum playing and stopping with play mode, the asset browser and a material in the inspector, the shaders recompiled from the checkout, with picking and the outline in the frames and validation silent.
 
+### Crash recovery
+
+The desktop editor keeps the unsaved scenes where a crash cannot take them, in `Platform::prefPath("sonnet", "editor")/recovery/<project>/`, one folder per project (the project folder's name and a hash of its path; `no-project` for an editor without one). `editor::Recovery` owns the files and `Editor` the tabs; a capture run (`--screenshot`) and a headless editor keep none.
+
+```
+recovery/<project>/
+  session.lock            written at start, removed on a normal exit
+  recovering.json         written before a restore, removed once it has proved itself
+  <session>-<tab>.recovery.scene.json   one unsaved scene
+  quarantine/<unix time>/         files that are never restored automatically
+```
+
+A recovery file is the scene JSON itself with one extra `recovery` key (the scene's own path, which may be empty), which the scene loader ignores, so it is an ordinary scene file.
+
+- **Autosave.** Every 30 seconds, and when the window loses the focus, each tab with unsaved changes is written to its recovery file through a temporary file and a rename, so a crash mid-write leaves the previous file whole (leftover `.tmp` files are deleted at the next start). Nothing is written while playing, whose scene is the snapshot, nor before the restore decision below. The user's own scene files are never touched. Serialising a large scene is on the main thread; it is once per interval.
+- **Clean exit.** Saving a tab, closing it (Save, Discard or the quit dialog's Discard), opening another project and quitting through the normal path remove that tab's recovery file; the editor's destructor removes the rest and the lock. A start with no lock and no files has nothing to ask.
+- **Unclean exit.** A `session.lock` found at start means the last session did not end normally. With recovery files present a dialog lists the scenes and offers **Restore**, **Discard** (deletes them) or **Open without restoring** (Esc; keeps them, and they are offered again at the next start). A project's session begins when it is opened, so a crash is offered when that project is next opened, from the command line or the menu. Two editors on the same project share its folder, so the second sees the first's lock as a crash; do not run two.
+- **Restore.** Each scene opens in a tab of its own, unsaved, with its file path when it had one (a tab of the same file, such as the start scene a project opens, is replaced rather than doubled, and the untouched starter scene of a fresh editor makes way). A recovered scene with no path is untitled, so Save asks for one ([File dialogs](#file-dialogs)).
+
+**The crash-loop guard.** A recovered scene may be what crashed the editor, so a recovery set is tried at most once. `recovering.json` (the files it names and the attempt) is written before anything is loaded. It is deleted only when the restored scenes loaded without error and the editor has then run 10 seconds or 600 frames of normal updates (not while playing); the restored tabs' own recovery files are written then, and the old set deleted. A normal exit before that counts as success. If the marker exists at the next start, the restore itself crashed: nothing is offered, the files it names are moved to `quarantine/<unix time>/`, the editor starts with the default scene and the log warns with the quarantine path. A file that does not parse, or that `world::loadScene` rejects, is quarantined the same way and the rest are still offered. Autosave does not start until the decision is made, and after a Restore not until the marker is gone, so a new crash cannot overwrite the set being restored. Quarantined files are never restored or written to; open one by hand as an ordinary scene file (File > Open scene).
+
+`Editor::setRecoveryDirectory`, `recovery`, `recoveryPromptOpen`, `recoverableScenes`, `restoreRecovered`, `discardRecovered`, `keepRecovered` and `autosaveNow` are the API for tests, which simulate `kill -9` by copying the recovery directory while an editor runs. `Recovery`'s own tests cover the interval, the atomic write, and the lock and marker state machine (clean exit, crash, crash during restore, settling) without a device.
+
 ## Running it
 
 ```bash

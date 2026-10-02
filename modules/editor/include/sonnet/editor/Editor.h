@@ -11,6 +11,7 @@
 #include <sonnet/editor/LogPanel.h>
 #include <sonnet/editor/Preferences.h>
 #include <sonnet/editor/Project.h>
+#include <sonnet/editor/Recovery.h>
 #include <sonnet/editor/Selection.h>
 #include <sonnet/editor/ShaderCompiler.h>
 #include <sonnet/editor/StatisticsPanel.h>
@@ -148,6 +149,32 @@ public:
   void saveAllAndQuit();
   void discardAndQuit();
   void cancelQuit();
+
+  // Crash recovery (docs/editor.md, "Crash recovery"). `root` is the per-user recovery directory,
+  // under which each project has a folder of its own. Setting it starts the session for the open
+  // project, and opening another project starts that project's; an editor without one (a test's, a
+  // capture run) keeps no recovery files. A recovery set the last session left behind opens the
+  // dialog whose three buttons are the calls below, and autosave waits for the answer.
+  void setRecoveryDirectory(const std::filesystem::path &root);
+  [[nodiscard]] const Recovery *recovery() const noexcept {
+    return m_recovery.get();
+  }
+  [[nodiscard]] bool recoveryPromptOpen() const noexcept {
+    return m_recovery && !m_recovery->decided();
+  }
+  // The titles of the scenes on offer, in the order they are restored.
+  [[nodiscard]] std::vector<std::string> recoverableScenes() const;
+  // Restore: each scene opens in a tab of its own, unsaved. One that does not load is quarantined
+  // and the rest still open. The set stays on disk, guarded by the marker, until the restored
+  // scenes have run for a while.
+  void restoreRecovered();
+  // Discard: deletes the set.
+  void discardRecovered();
+  // Open without restoring: leaves the set on disk, to be offered at the next start.
+  void keepRecovered();
+  // Writes every unsaved scene to the recovery directory now, what happens every 30 seconds and
+  // when the window loses focus. Nothing while playing, or before the restore decision.
+  void autosaveNow();
 
   // Cooks the open project and assembles a runnable directory beside the bundle
   // (docs/editor.md, "Export"). The dialog is this with the fields it collected.
@@ -314,6 +341,7 @@ private:
     CloseTab,
     Quit,
     Stop,
+    Recover,
   };
 
   enum class DialogTarget : std::uint8_t {
@@ -339,6 +367,12 @@ private:
   void drawCloseTabModal();
   void drawQuitModal();
   void drawStopModal();
+  void drawRecoverModal();
+  void beginRecovery();
+  void endRecovery();
+  void updateRecovery();
+  void writeRecovery();
+  [[nodiscard]] bool loadRecovered(const Recovery::Entry &entry);
   void drawTabBar();
   void requestCloseTab(std::size_t index);
   void stashActiveTab();
@@ -424,6 +458,8 @@ private:
   Preferences m_preferences;
   std::optional<assets::Project> m_project;
   std::filesystem::path m_scenePath;
+  std::filesystem::path m_recoveryRoot;
+  std::unique_ptr<Recovery> m_recovery;
   std::vector<SceneTab> m_tabs;
   std::size_t m_activeTab{0};
   std::size_t m_closingTab{0};
