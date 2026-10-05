@@ -1,72 +1,28 @@
-find_package(Stb REQUIRED)
-find_package(slang CONFIG REQUIRED GLOBAL)
+find_package(Stb REQUIRED) find_package(slang CONFIG REQUIRED GLOBAL)
 
-sonnet_add_module(editor
-  SOURCES
-    src/AssetBrowserPanel.cpp
-    src/AssetCommands.cpp
-    src/Capture.cpp
-    src/CommandStack.cpp
-    src/Editor.cpp
-    src/EntityCommands.cpp
-    src/Export.cpp
-    src/FileDialog.cpp
-    src/FlyCamera.cpp
-    src/GamePanel.cpp
-    src/Gizmo.cpp
-    src/HierarchyPanel.cpp
-    src/InspectorPanel.cpp
-    src/Layout.cpp
-    src/LightLines.cpp
-    src/LogPanel.cpp
-    src/Preferences.cpp
-    src/Project.cpp
-    src/Recovery.cpp
-    src/Selection.cpp
-    src/ShaderCompiler.cpp
-    src/StatisticsPanel.cpp
-    src/TypeFilter.cpp
-    src/ViewportPanel.cpp
-  PUBLIC_DEPENDS
-    sonnet::audio
-    sonnet::runtime
-    sonnet::scripting
-    sonnet::ui
-  DEPENDS
-    slang::slang
-)
+    sonnet_add_module(editor SOURCES src / AssetBrowserPanel.cpp src / AssetCommands.cpp src / Capture.cpp src /
+                      CommandStack.cpp src / Editor.cpp src / EntityCommands.cpp src / Export.cpp src /
+                      FileDialog.cpp src / FlyCamera.cpp src / GamePanel.cpp src / Gizmo.cpp src /
+                      HierarchyPanel.cpp src / InspectorPanel.cpp src / Layout.cpp src / LightLines.cpp src /
+                      LogPanel.cpp src / Preferences.cpp src / Project.cpp src / Recovery.cpp src / Selection.cpp src /
+                      ShaderCompiler.cpp src / StatisticsPanel.cpp src / TypeFilter.cpp src /
+                      ViewportPanel.cpp PUBLIC_DEPENDS
+                          sonnet::audio sonnet::runtime sonnet::scripting sonnet::ui DEPENDS slang::slang)
 
-sonnet_add_module_test(editor
-  SOURCES
-    tests/CaptureTests.cpp
-    tests/CommandTests.cpp
-    tests/EditorTests.cpp
-    tests/EditorPlayTests.cpp
-    tests/FileDialogTests.cpp
-    tests/FlyCameraTests.cpp
-    tests/GameViewTests.cpp
-    tests/GizmoTests.cpp
-    tests/HierarchyPanelTests.cpp
-    tests/InspectorTests.cpp
-    tests/LayoutTests.cpp
-    tests/LightLinesTests.cpp
-    tests/LogPanelTests.cpp
-    tests/ProjectTests.cpp
-    tests/RecoveryTests.cpp
-    tests/ShaderTests.cpp
-    tests/TypeFilterTests.cpp
-)
-if(TARGET editor_tests)
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_sources(editor_tests PRIVATE tests/VulkanLoaderTests.cpp)
-    target_link_libraries(editor_tests PRIVATE ${CMAKE_DL_LIBS})
-    # The SDK's loader search path otherwise hides a vcpkg RUNPATH regression.
-    set_tests_properties(editor_tests PROPERTIES
-      ENVIRONMENT_MODIFICATION "LD_LIBRARY_PATH=unset:;SDL_VULKAN_LIBRARY=unset:")
-  endif()
-  sonnet_add_engine_shaders(editor_tests)
-  sonnet_copy_slang_runtime(editor_tests)
-  target_compile_definitions(editor_tests PRIVATE SONNET_ENGINE_SHADER_DIR="${SONNET_ENGINE_SHADER_DIR}")
-  # stb_image, compiled into sonnet_assets, reads the screenshots back.
-  target_include_directories(editor_tests SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
-endif()
+        sonnet_add_module_test(editor SOURCES tests / CaptureTests.cpp tests / CommandTests.cpp tests /
+                               EditorTests.cpp tests / EditorPlayTests.cpp tests / FileDialogTests.cpp tests /
+                               FlyCameraTests.cpp tests / GameViewTests.cpp tests / GizmoTests.cpp tests /
+                               HierarchyPanelTests.cpp tests / InspectorTests.cpp tests / LayoutTests.cpp tests /
+                               LightLinesTests.cpp tests / LogPanelTests.cpp tests / ProjectTests.cpp tests /
+                               RecoveryTests.cpp tests / ShaderTests.cpp tests / TypeFilterTests.cpp tests /
+                               WindowOriginsTests.cpp) if (TARGET editor_tests) if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            target_sources(editor_tests PRIVATE tests / VulkanLoaderTests.cpp)
+                target_link_libraries(editor_tests PRIVATE ${CMAKE_DL_LIBS})
+#The SDK's loader search path otherwise hides a vcpkg RUNPATH regression.
+                    set_tests_properties(editor_tests PROPERTIES ENVIRONMENT_MODIFICATION
+                                         "LD_LIBRARY_PATH=unset:;SDL_VULKAN_LIBRARY=unset:") endif()
+                        sonnet_add_engine_shaders(editor_tests) sonnet_copy_slang_runtime(editor_tests)
+                            target_compile_definitions(
+                                editor_tests PRIVATE SONNET_ENGINE_SHADER_DIR = "${SONNET_ENGINE_SHADER_DIR}")
+#stb_image, compiled into sonnet_assets, reads the screenshots back.
+                                target_include_directories(editor_tests SYSTEM PRIVATE ${Stb_INCLUDE_DIR}) endif()
