@@ -6,6 +6,7 @@
 #include <charconv>
 #include <cmath>
 #include <format>
+#include <memory>
 #include <system_error>
 
 #include <imgui.h>
@@ -59,8 +60,9 @@ bool isDeviceName(std::string_view name) noexcept {
 std::optional<std::pair<int, int>> parseSize(std::string_view text) noexcept {
   int width = 0;
   int height = 0;
-  const char *end = text.data() + text.size();
-  auto [afterWidth, widthError] = std::from_chars(text.data(), end, width);
+  const char *begin = std::to_address(text.begin());
+  const char *end = std::to_address(text.end());
+  auto [afterWidth, widthError] = std::from_chars(begin, end, width);
   if (widthError != std::errc{} || afterWidth == end || *afterWidth != ',') {
     return std::nullopt;
   }

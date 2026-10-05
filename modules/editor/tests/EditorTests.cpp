@@ -308,11 +308,9 @@ TEST_CASE("a preset saved at twice the size keeps its split fractions", "[editor
 
   // Pretend it was saved on a display twice as large: every recorded size doubles.
   const std::filesystem::path file = directory / "layouts" / "wide.ini";
-  std::string ini;
-  {
-    std::ifstream in{file};
-    ini.assign(std::istreambuf_iterator<char>{in}, {});
-  }
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  const std::string ini{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
   std::string doubled;
   const std::regex size{R"((Size|SizeRef|DockSize)=(\d+),(\d+))"};
   std::size_t last = 0;
@@ -324,7 +322,7 @@ TEST_CASE("a preset saved at twice the size keeps its split fractions", "[editor
   }
   doubled += ini.substr(last);
   REQUIRE(doubled != ini);
-  std::ofstream{file, std::ios::trunc} << doubled;
+  REQUIRE(core::writeFile(file, doubled).has_value());
 
   editor.applyLayout("wide");
   frames(fixture, editor);
