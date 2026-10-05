@@ -208,3 +208,30 @@ TEST_CASE("the mouse a finger moves jumps to where it lands", "[platform][input]
   landing.motion.which = 1;
   REQUIRE(std::get<MouseMoved>(*translateEvent(landing)).delta == glm::vec2{90.0f, 0.0f});
 }
+
+TEST_CASE("window and pointer events say which window they came from", "[platform][input]") {
+  SDL_Event motion = makeEvent(SDL_EVENT_MOUSE_MOTION);
+  motion.motion.windowID = 7;
+  REQUIRE(std::get<MouseMoved>(*translateEvent(motion)).window == 7);
+
+  SDL_Event button = makeEvent(SDL_EVENT_MOUSE_BUTTON_DOWN);
+  button.button.windowID = 8;
+  button.button.button = SDL_BUTTON_LEFT;
+  button.button.down = true;
+  REQUIRE(std::get<MouseButtonPressed>(*translateEvent(button)).window == 8);
+  button.type = SDL_EVENT_MOUSE_BUTTON_UP;
+  button.button.down = false;
+  REQUIRE(std::get<MouseButtonReleased>(*translateEvent(button)).window == 8);
+
+  SDL_Event close = makeEvent(SDL_EVENT_WINDOW_CLOSE_REQUESTED);
+  close.window.windowID = 9;
+  REQUIRE(std::get<WindowCloseRequested>(*translateEvent(close)).window == 9);
+  SDL_Event resized = makeEvent(SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED);
+  resized.window.windowID = 9;
+  resized.window.data1 = 100;
+  resized.window.data2 = 50;
+  REQUIRE(std::get<WindowResized>(*translateEvent(resized)).window == 9);
+
+  const auto finger = std::get<TouchDown>(*translateEvent(makeFinger(SDL_EVENT_FINGER_DOWN, 10, 1, 0.0f, 0.0f)));
+  REQUIRE(finger.window == 10);
+}
