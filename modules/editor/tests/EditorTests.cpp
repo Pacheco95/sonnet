@@ -27,6 +27,7 @@
 #include <fstream>
 #include <initializer_list>
 #include <memory>
+#include <regex>
 #include <string_view>
 #include <vector>
 
@@ -151,6 +152,186 @@ TEST_CASE("the panel layout is kept across sessions and resets to the default", 
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+namespace {
+
+ImGuiID dockOf(const char *name) {
+  const ImGuiWindow *window = ImGui::FindWindowByName(name);
+  REQUIRE(window != nullptr);
+  return window->DockId;
+}
+
+ImVec2 dockFraction(const char *name) {
+  ImGuiDockNode *node = ImGui::DockBuilderGetNode(dockOf(name));
+  const ImGuiDockNode *root = ImGui::DockNodeGetRootNode(node);
+  return {node->Size.x / root->Size.x, node->Size.y / root->Size.y};
+}
+
+void frames(Fixture &fixture, editor::Editor &editor, int count = 3) {
+  for (int frame = 0; frame < count; ++frame) {
+    fixture.frame(editor);
+  }
+}
+
+// Splits the assets from the log and hides the statistics: a layout and view that are not the default.
+void changeLayout(Fixture &fixture, editor::Editor &editor) {
+  ImGuiID log = dockOf("Log");
+  const ImGuiID rootId = ImGui::DockNodeGetRootNode(ImGui::DockBuilderGetNode(log))->ID;
+  const ImGuiID side = ImGui::DockBuilderSplitNode(log, ImGuiDir_Right, 0.5f, nullptr, &log);
+  ImGui::DockBuilderDockWindow("Assets", side);
+  ImGui::DockBuilderFinish(rootId);
+  editor.setShowColliders(true);
+  frames(fixture, editor);
+}
+
+} // namespace
+
+TEST_CASE("a saved layout restores the arrangement and the view, and the built-ins differ", "[editor][gpu][layout]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("presets");
+  std::filesystem::create_directories(directory);
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  editor.setLayoutFile(directory / "layout.ini");
+  frames(fixture, editor);
+  REQUIRE(dockOf("Assets") == dockOf("Log"));
+  REQUIRE(!editor.viewState().game);
+
+  changeLayout(fixture, editor);
+  REQUIRE(dockOf("Assets") != dockOf("Log"));
+  REQUIRE(editor.viewState().colliders);
+  REQUIRE(editor.saveLayout("My layout"));
+  REQUIRE(std::filesystem::exists(directory / "layouts" / "My layout.ini"));
+  REQUIRE(editor.savedLayouts() == std::vector<std::string>{"My layout"});
+
+  // The Play built-in changes both.
+  editor.applyLayout("Play");
+  frames(fixture, editor);
+  CHECK(dockOf("Viewport") != dockOf("Game"));
+  CHECK(dockOf("Hierarchy") != dockOf("Inspector"));
+  CHECK(editor.viewState() == editor::builtinViewState(editor::BuiltinLayout::Play));
+  CHECK(editor.viewState().colliders);
+  CHECK(!editor.viewState().log);
+  CHECK(dockFraction("Hierarchy").x < 0.16f);
+
+  // Default is today's arrangement with colliders and gizmos off, and shares View > Reset layout.
+  editor.applyLayout("Default");
+  frames(fixture, editor);
+  CHECK(dockOf("Viewport") == dockOf("Game"));
+  CHECK(dockOf("Assets") == dockOf("Log"));
+  CHECK(editor.viewState() == editor::builtinViewState(editor::BuiltinLayout::Default));
+  CHECK(!editor.viewState().colliders);
+  CHECK(dockFraction("Hierarchy").x > 0.16f);
+
+  // Loading the saved preset brings both back.
+  editor.applyLayout("My layout");
+  frames(fixture, editor);
+  CHECK(dockOf("Assets") != dockOf("Log"));
+  CHECK(editor.viewState().colliders);
+
+  // Reset layout leaves the Game panel closed, as the default does.
+  editor.resetLayout();
+  frames(fixture, editor);
+  CHECK(!editor.viewState().game);
+  CHECK(dockOf("Assets") == dockOf("Log"));
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("saving a layout refuses reserved and existing names", "[editor][gpu][layout]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("preset_names");
+  std::filesystem::create_directories(directory);
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  frames(fixture, editor, 1);
+  CHECK(!editor.saveLayout("mine")); // a headless editor keeps no layouts
+  editor.setLayoutFile(directory / "layout.ini");
+  CHECK(!editor.saveLayout("default"));
+  CHECK(!editor.saveLayout("  "));
+  REQUIRE(editor.saveLayout("a/b"));
+  CHECK(editor.savedLayouts() == std::vector<std::string>{"a_b"});
+  CHECK(!editor.saveLayout("a/b"));
+  CHECK(editor.saveLayout("a/b", true));
+  CHECK(!editor.deleteLayout("Play"));
+  CHECK(editor.deleteLayout("a_b"));
+  CHECK(editor.savedLayouts().empty());
+  CHECK(!editor.deleteLayout("a_b"));
+}
+
+TEST_CASE("a missing or corrupt preset is ignored", "[editor][gpu][layout]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("preset_corrupt");
+  std::filesystem::create_directories(directory / "layouts");
+  std::ofstream{directory / "layouts" / "broken.ini"} << "[Docking][Data]\nDockSpace ID=0x1 trunc";
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  editor.setLayoutFile(directory / "layout.ini");
+  frames(fixture, editor);
+  changeLayout(fixture, editor);
+  const editor::ViewState before = editor.viewState();
+  for (const char *name : {"broken", "absent"}) {
+    editor.applyLayout(name);
+    frames(fixture, editor);
+    CHECK(dockOf("Assets") != dockOf("Log"));
+    CHECK(editor.viewState() == before);
+  }
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("layout.ini restores the shown panels and overlays", "[editor][gpu][layout]") {
+  Fixture fixture;
+  const std::filesystem::path file = scratch("layout_view") / "layout.ini";
+  std::filesystem::create_directories(file.parent_path());
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(file);
+    editor.applyLayout("Play");
+    frames(fixture, editor);
+  }
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  editor.setLayoutFile(file);
+  frames(fixture, editor);
+  CHECK(editor.viewState() == editor::builtinViewState(editor::BuiltinLayout::Play));
+  CHECK(dockOf("Viewport") != dockOf("Game"));
+}
+
+TEST_CASE("a preset saved at twice the size keeps its split fractions", "[editor][gpu][layout]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("preset_scale");
+  std::filesystem::create_directories(directory);
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  editor.setLayoutFile(directory / "layout.ini");
+  frames(fixture, editor);
+  const ImVec2 hierarchy = dockFraction("Hierarchy");
+  const ImVec2 log = dockFraction("Log");
+  REQUIRE(editor.saveLayout("wide"));
+
+  // Pretend it was saved on a display twice as large: every recorded size doubles.
+  const std::filesystem::path file = directory / "layouts" / "wide.ini";
+  std::string ini;
+  {
+    std::ifstream in{file};
+    ini.assign(std::istreambuf_iterator<char>{in}, {});
+  }
+  std::string doubled;
+  const std::regex size{R"((Size|SizeRef|DockSize)=(\d+),(\d+))"};
+  std::size_t last = 0;
+  for (auto it = std::sregex_iterator(ini.begin(), ini.end(), size); it != std::sregex_iterator{}; ++it) {
+    doubled += ini.substr(last, static_cast<std::size_t>(it->position()) - last);
+    doubled +=
+        (*it)[1].str() + "=" + std::to_string(std::stoi((*it)[2]) * 2) + "," + std::to_string(std::stoi((*it)[3]) * 2);
+    last = static_cast<std::size_t>(it->position() + it->length());
+  }
+  doubled += ini.substr(last);
+  REQUIRE(doubled != ini);
+  std::ofstream{file, std::ios::trunc} << doubled;
+
+  editor.applyLayout("wide");
+  frames(fixture, editor);
+  CHECK(dockFraction("Hierarchy").x == Approx(hierarchy.x).margin(0.02));
+  CHECK(dockFraction("Log").y == Approx(log.y).margin(0.02));
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
 }
 
 TEST_CASE("scenes open in tabs that keep their own edits, undo history and selection", "[editor][gpu]") {

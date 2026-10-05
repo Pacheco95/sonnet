@@ -3,6 +3,7 @@
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/LightLines.h>
 
+#include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 #include <sonnet/core/Version.h>
@@ -88,13 +89,83 @@ Editor::~Editor() {
 
 void Editor::setLayoutFile(const std::filesystem::path &file) {
   m_layoutFile = file.string();
+  m_layoutsDirectory = file.parent_path() / "layouts";
   ImGui::GetIO().IniFilename = m_layoutFile.c_str();
 }
 
-void Editor::resetLayout() noexcept {
-  m_showViewport = m_showGame = m_showHierarchy = m_showInspector = m_showLog = m_showAssets = m_showStatistics = true;
-  m_layoutBuilt = false;
-  m_layoutRequested = true;
+void Editor::resetLayout() {
+  applyLayout(layoutName(BuiltinLayout::Default));
+}
+
+void Editor::applyLayout(std::string_view name) {
+  m_pendingLayout = std::string{name};
+}
+
+void Editor::applyPendingLayout() {
+  if (!m_pendingLayout) {
+    return;
+  }
+  const std::string name = std::move(*m_pendingLayout);
+  m_pendingLayout.reset();
+  if (const auto builtin = builtinLayout(name)) {
+    m_viewState = builtinViewState(*builtin);
+    m_builtin = *builtin;
+    m_layoutBuilt = false;
+    m_layoutRequested = true;
+    ImGui::MarkIniSettingsDirty();
+    return;
+  }
+  const std::filesystem::path file = m_layoutsDirectory / (name + ".ini");
+  std::string text;
+  const auto bytes = m_layoutsDirectory.empty() ? core::Result<std::vector<std::byte>>{} : core::readFile(file);
+  if (bytes) {
+    text.assign(reinterpret_cast<const char *>(bytes->data()), bytes->size());
+  }
+  if (!bytes || !isLayoutIni(text)) {
+    SONNET_LOG_WARN("layout \"{}\" is missing or corrupt, skipped", name);
+    return;
+  }
+  // The dock root's size now, or the work area before the first frame has made one.
+  const ImGuiDockNode *root =
+      m_layoutSettings.dockspace() != 0 ? ImGui::DockBuilderGetNode(m_layoutSettings.dockspace()) : nullptr;
+  const ImVec2 size = root != nullptr ? root->Size : ImGui::GetMainViewport()->WorkSize;
+  const std::string scaled = scaleLayoutIni(text, size.x, size.y);
+  ImGui::LoadIniSettingsFromMemory(scaled.c_str(), scaled.size());
+  ImGui::MarkIniSettingsDirty();
+}
+
+core::Result<void> Editor::saveLayout(std::string_view name, bool overwrite) {
+  const std::string clean = sanitizeLayoutName(name);
+  if (clean.empty()) {
+    return std::unexpected(core::Error{"the layout needs a name", core::ErrorCategory::Io});
+  }
+  if (builtinLayout(clean)) {
+    return std::unexpected(core::Error{std::format("\"{}\" is a built-in layout", clean), core::ErrorCategory::Io});
+  }
+  if (m_layoutsDirectory.empty()) {
+    return std::unexpected(core::Error{"this editor keeps no layouts", core::ErrorCategory::Io});
+  }
+  const std::filesystem::path file = m_layoutsDirectory / (clean + ".ini");
+  std::error_code error;
+  if (!overwrite && std::filesystem::exists(file, error)) {
+    return std::unexpected(core::Error{std::format("\"{}\" exists", clean), core::ErrorCategory::Io});
+  }
+  std::filesystem::create_directories(m_layoutsDirectory, error);
+  return core::writeFile(file, std::string_view{ImGui::SaveIniSettingsToMemory()});
+}
+
+core::Result<void> Editor::deleteLayout(std::string_view name) {
+  const std::string clean = sanitizeLayoutName(name);
+  std::error_code error;
+  if (clean.empty() || builtinLayout(clean) || m_layoutsDirectory.empty() ||
+      !std::filesystem::remove(m_layoutsDirectory / (clean + ".ini"), error)) {
+    return std::unexpected(core::Error{std::format("no saved layout \"{}\"", name), core::ErrorCategory::Io});
+  }
+  return {};
+}
+
+std::vector<std::string> Editor::savedLayouts() const {
+  return listLayouts(m_layoutsDirectory);
 }
 
 void Editor::nativeEvent(const SDL_Event &event) {
@@ -165,14 +236,22 @@ void Editor::update(float dt) {
   m_frameMilliseconds = dt * 1000.0f;
   m_selection.prune(m_world);
 
+  // Between frames: the ini is rebuilt while no window is being laid out.
+  applyPendingLayout();
   m_imgui.beginFrame();
   m_mainViewportOrigin = {ImGui::GetMainViewport()->Pos.x, ImGui::GetMainViewport()->Pos.y};
   const ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+  m_layoutSettings.setDockspace(dockspace);
+  if (m_viewState != m_savedView) {
+    // The flags are not ImGui's own state, so a toggle does not mark the ini dirty by itself.
+    m_savedView = m_viewState;
+    ImGui::MarkIniSettingsDirty();
+  }
   if (!m_layoutBuilt) {
     // A layout read from the file has split the dockspace already by now; keep it.
     const ImGuiDockNode *node = ImGui::DockBuilderGetNode(dockspace);
     if (m_layoutRequested || node == nullptr || !node->IsSplitNode()) {
-      buildDefaultLayout(dockspace);
+      buildLayout(dockspace, m_builtin);
     }
     m_layoutBuilt = true;
     m_layoutRequested = false;
@@ -181,19 +260,19 @@ void Editor::update(float dt) {
   handleShortcuts();
   drawModal();
 
-  if (m_showHierarchy) {
-    m_hierarchyPanel.draw(m_showHierarchy);
+  if (m_viewState.hierarchy) {
+    m_hierarchyPanel.draw(m_viewState.hierarchy);
   }
-  if (m_showInspector) {
-    m_inspectorPanel.draw(m_showInspector, m_assetBrowserPanel.inspected());
+  if (m_viewState.inspector) {
+    m_inspectorPanel.draw(m_viewState.inspector, m_assetBrowserPanel.inspected());
   }
-  if (m_showAssets) {
-    m_assetBrowserPanel.draw(m_showAssets);
+  if (m_viewState.assets) {
+    m_assetBrowserPanel.draw(m_viewState.assets);
   }
-  if (m_showViewport) {
+  if (m_viewState.viewport) {
     m_viewportPanel.setWheelForGame(gameInputActive());
     const bool wantsRelativeMouse = m_viewportPanel.draw(
-        m_showViewport, dt, m_lookDelta, m_showOverlay ? &m_statisticsPanel : nullptr,
+        m_viewState.viewport, dt, m_lookDelta, m_viewState.overlay ? &m_statisticsPanel : nullptr,
         [this](const ViewportInput &input) { drawViewportOverlay(input); }, [this] { drawTabBar(); });
     // Requested on change, not by comparing with the window's state: a platform that refuses the
     // mode would otherwise be asked, and would warn, every frame.
@@ -218,16 +297,16 @@ void Editor::update(float dt) {
     }
   }
   m_lookDelta = {0.0f, 0.0f};
-  if (m_showGame) {
-    m_gamePanel.draw(m_showGame);
+  if (m_viewState.game) {
+    m_gamePanel.draw(m_viewState.game);
   } else {
     m_gamePanel.hide();
   }
-  if (m_showLog) {
-    m_logPanel.draw(m_showLog);
+  if (m_viewState.log) {
+    m_logPanel.draw(m_viewState.log);
   }
-  if (m_showStatistics) {
-    m_statisticsPanel.drawWindow(m_showStatistics);
+  if (m_viewState.statistics) {
+    m_statisticsPanel.drawWindow(m_viewState.statistics);
   }
   m_imgui.endFrame();
 
@@ -282,10 +361,10 @@ void Editor::update(float dt) {
   m_gameView.camera = gameCamera;
   m_gameView.debugLines = {};
   m_debugLines.clear();
-  if (m_showColliders) {
+  if (m_viewState.colliders) {
     m_physics->debugLines(m_debugLines);
   }
-  if (m_showLightGizmos && !m_world.isPlaying()) {
+  if (m_viewState.lightGizmos && !m_world.isPlaying()) {
     appendSpotLightLines(m_lights, m_debugLines);
   }
   m_view.debugLines = m_debugLines;
@@ -530,17 +609,48 @@ void Editor::drawMenuBar() {
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("View")) {
-    ImGui::MenuItem("Viewport", nullptr, &m_showViewport);
-    ImGui::MenuItem("Game", nullptr, &m_showGame);
-    ImGui::MenuItem("Hierarchy", nullptr, &m_showHierarchy);
-    ImGui::MenuItem("Inspector", nullptr, &m_showInspector);
-    ImGui::MenuItem("Log", nullptr, &m_showLog);
-    ImGui::MenuItem("Assets", nullptr, &m_showAssets);
-    ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
-    ImGui::MenuItem("Statistics overlay", nullptr, &m_showOverlay);
-    ImGui::MenuItem("Physics colliders", nullptr, &m_showColliders);
-    ImGui::MenuItem("Light gizmos", nullptr, &m_showLightGizmos);
+    ImGui::MenuItem("Viewport", nullptr, &m_viewState.viewport);
+    ImGui::MenuItem("Game", nullptr, &m_viewState.game);
+    ImGui::MenuItem("Hierarchy", nullptr, &m_viewState.hierarchy);
+    ImGui::MenuItem("Inspector", nullptr, &m_viewState.inspector);
+    ImGui::MenuItem("Log", nullptr, &m_viewState.log);
+    ImGui::MenuItem("Assets", nullptr, &m_viewState.assets);
+    ImGui::MenuItem("Statistics", nullptr, &m_viewState.statistics);
+    ImGui::MenuItem("Statistics overlay", nullptr, &m_viewState.overlay);
+    ImGui::MenuItem("Physics colliders", nullptr, &m_viewState.colliders);
+    ImGui::MenuItem("Light gizmos", nullptr, &m_viewState.lightGizmos);
     ImGui::Separator();
+    if (ImGui::BeginMenu("Layouts")) {
+      for (const BuiltinLayout builtin : {BuiltinLayout::Default, BuiltinLayout::Play}) {
+        if (ImGui::MenuItem(std::string{layoutName(builtin)}.c_str())) {
+          applyLayout(layoutName(builtin));
+        }
+      }
+      const std::vector<std::string> saved = savedLayouts();
+      if (!saved.empty()) {
+        ImGui::Separator();
+      }
+      for (const std::string &name : saved) {
+        if (ImGui::MenuItem(name.c_str())) {
+          applyLayout(name);
+        }
+      }
+      ImGui::Separator();
+      if (ImGui::MenuItem("Save current as...", nullptr, false, !m_layoutsDirectory.empty())) {
+        m_modal = Modal::SaveLayout;
+      }
+      if (ImGui::BeginMenu("Delete", !saved.empty())) {
+        for (const std::string &name : saved) {
+          if (ImGui::MenuItem(name.c_str())) {
+            if (const auto removed = deleteLayout(name); !removed) {
+              SONNET_LOG_WARN("{}", removed.error().message);
+            }
+          }
+        }
+        ImGui::EndMenu();
+      }
+      ImGui::EndMenu();
+    }
     if (ImGui::MenuItem("Reset layout")) {
       resetLayout();
     }
@@ -604,6 +714,10 @@ void Editor::drawModal() {
     ImGui::OpenPopup(ModalId);
     m_modalError.clear();
     m_modalMessage.clear();
+    if (m_modal == Modal::SaveLayout) {
+      m_layoutName.clear();
+      m_layoutOverwrite = false;
+    }
     if (m_modal == Modal::SaveSceneAs) {
       m_modalPath = m_scenePath.empty() && m_project ? m_project->resolve("scenes/untitled.scene.json").string()
                                                      : m_scenePath.string();
@@ -639,6 +753,11 @@ void Editor::drawModal() {
   }
   if (m_modal == Modal::Recover) {
     drawRecoverModal();
+    ImGui::EndPopup();
+    return;
+  }
+  if (m_modal == Modal::SaveLayout) {
+    drawSaveLayoutModal();
     ImGui::EndPopup();
     return;
   }
@@ -758,6 +877,7 @@ void Editor::drawModal() {
     case Modal::Quit:
     case Modal::Stop:
     case Modal::Recover:
+    case Modal::SaveLayout:
     case Modal::None:
       break;
     }
@@ -931,13 +1051,29 @@ void Editor::browseModalPath() {
   startFileDialog(DialogTarget::ModalPath, request);
 }
 
-void Editor::buildDefaultLayout(unsigned dockspace) {
-  // Hierarchy on the left, viewport and game in the centre, inspector over statistics on the right, log
-  // along the bottom.
+void Editor::buildLayout(unsigned dockspace, BuiltinLayout layout) {
   ImGui::DockBuilderRemoveNode(dockspace);
   ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
   ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
   ImGuiID centre = dockspace;
+  if (layout == BuiltinLayout::Play) {
+    // Viewport and game side by side between narrow hierarchy and inspector. The panels the layout
+    // closes are docked beside those, where View brings them back as tabs.
+    const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.14f, nullptr, &centre);
+    const ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.16f, nullptr, &centre);
+    const ImGuiID game = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.5f, nullptr, &centre);
+    ImGui::DockBuilderDockWindow("Viewport", centre);
+    ImGui::DockBuilderDockWindow("Game", game);
+    ImGui::DockBuilderDockWindow("Hierarchy", left);
+    ImGui::DockBuilderDockWindow("Assets", left);
+    ImGui::DockBuilderDockWindow("Inspector", right);
+    ImGui::DockBuilderDockWindow("Statistics", right);
+    ImGui::DockBuilderDockWindow("Log", right);
+    ImGui::DockBuilderFinish(dockspace);
+    return;
+  }
+  // Hierarchy on the left, viewport and game in the centre, inspector over statistics on the right, log
+  // along the bottom.
   const ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.22f, nullptr, &centre);
   const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.18f, nullptr, &centre);
   ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, nullptr, &centre);
@@ -1442,6 +1578,43 @@ void Editor::drawQuitModal() {
   if (m_modal == Modal::None) {
     ImGui::CloseCurrentPopup();
   } else if (!m_modalError.empty()) {
+    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+  }
+}
+
+void Editor::drawSaveLayoutModal() {
+  ImGui::TextUnformatted("Save the panels, overlays and arrangement as a layout.");
+  if (ImGui::IsWindowAppearing()) {
+    ImGui::SetKeyboardFocusHere();
+  }
+  if (ImGui::InputText("Name", &m_layoutName)) {
+    m_layoutOverwrite = false;
+    m_modalError.clear();
+  }
+  if (m_layoutOverwrite) {
+    ImGui::TextUnformatted("A layout with this name exists. Replace it?");
+  }
+  const bool save = ImGui::Button(m_layoutOverwrite ? "Replace" : "Save", ImVec2{120.0f, 0.0f}) ||
+                    ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+  ImGui::SameLine();
+  const bool cancel = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  if (save) {
+    const std::string clean = sanitizeLayoutName(m_layoutName);
+    std::error_code exists;
+    if (!m_layoutOverwrite && !clean.empty() && !builtinLayout(clean) &&
+        std::filesystem::exists(m_layoutsDirectory / (clean + ".ini"), exists)) {
+      m_layoutOverwrite = true; // ask first
+    } else if (const auto saved = saveLayout(m_layoutName, m_layoutOverwrite); !saved) {
+      m_modalError = saved.error().message;
+    } else {
+      m_modal = Modal::None;
+      ImGui::CloseCurrentPopup();
+    }
+  } else if (cancel) {
+    m_modal = Modal::None;
+    ImGui::CloseCurrentPopup();
+  }
+  if (!m_modalError.empty()) {
     ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
   }
 }

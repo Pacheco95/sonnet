@@ -8,6 +8,7 @@
 #include <sonnet/editor/Gizmo.h>
 #include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/InspectorPanel.h>
+#include <sonnet/editor/Layout.h>
 #include <sonnet/editor/LogPanel.h>
 #include <sonnet/editor/Preferences.h>
 #include <sonnet/editor/Project.h>
@@ -49,6 +50,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -249,19 +251,35 @@ public:
     return m_input;
   }
   // The panel layout lives in `file` (an ImGui ini): read on the first frame, written every few
-  // seconds after a change and when the editor is destroyed. A missing or unsplit layout gets the
-  // default one. Call before the first `update`; the desktop editor sets it to `layout.ini` beside
-  // the preferences, a headless editor (a test's) keeps none unless told.
+  // seconds after a change and when the editor is destroyed; it carries the shown panels and the
+  // overlays too. A missing or unsplit layout gets the default one. Call before the first `update`;
+  // the desktop editor sets it to `layout.ini` beside the preferences, a headless editor (a test's)
+  // keeps none unless told.
   void setLayoutFile(const std::filesystem::path &file);
-  // View > Reset layout: every panel shown again in the default arrangement, from the next frame.
-  void resetLayout() noexcept;
+  // View > Reset layout: the Default layout (panels, overlays and arrangement), from the next frame.
+  void resetLayout();
+  // View > Layouts (docs/editor.md, "Layout presets"): a built-in layout or a saved one, applied
+  // before the next frame. A missing or corrupt preset is skipped with a warning.
+  void applyLayout(std::string_view name);
+  // Saves the current panels, overlays and arrangement as `name`, sanitized to a file name. Refuses
+  // a built-in's name, and an existing preset's unless `overwrite`.
+  [[nodiscard]] core::Result<void> saveLayout(std::string_view name, bool overwrite = false);
+  [[nodiscard]] core::Result<void> deleteLayout(std::string_view name);
+  [[nodiscard]] std::vector<std::string> savedLayouts() const;
+  [[nodiscard]] const ViewState &viewState() const noexcept {
+    return m_viewState;
+  }
+  // Where the saved presets live; setLayoutFile puts it in a layouts directory beside the file.
+  [[nodiscard]] const std::filesystem::path &layoutsDirectory() const noexcept {
+    return m_layoutsDirectory;
+  }
   // The physics colliders' outlines over the scene, from the View menu.
   void setShowColliders(bool show) noexcept {
-    m_showColliders = show;
+    m_viewState.colliders = show;
   }
   // Wireframe cones for the spot lights in edit mode, from the View menu.
   void setShowLightGizmos(bool show) noexcept {
-    m_showLightGizmos = show;
+    m_viewState.lightGizmos = show;
   }
   // The term of the forward shading the viewport shows, from View > Shading term.
   void setShadingTerm(renderer::DebugView view);
@@ -318,7 +336,7 @@ public:
     return m_scriptView;
   }
   void setShowGame(bool show) noexcept {
-    m_showGame = show;
+    m_viewState.game = show;
   }
   [[nodiscard]] const renderer::Renderer &renderer() const noexcept {
     return m_renderer;
@@ -342,6 +360,7 @@ private:
     Quit,
     Stop,
     Recover,
+    SaveLayout,
   };
 
   enum class DialogTarget : std::uint8_t {
@@ -393,7 +412,9 @@ private:
   void startFileDialog(DialogTarget target, const FileDialogRequest &request);
   void pollFileDialog();
   void drawViewportOverlay(const ViewportInput &input);
-  void buildDefaultLayout(unsigned dockspace);
+  void buildLayout(unsigned dockspace, BuiltinLayout layout);
+  void applyPendingLayout();
+  void drawSaveLayoutModal();
   void applyPick(std::uint32_t id);
   void markSaved();
   void updateTitle();
@@ -503,19 +524,17 @@ private:
   std::string m_title;
   bool m_relativeMouseRequested{false};
   bool m_layoutBuilt{false};
-  bool m_layoutRequested{false}; // the default layout, even over a restored one
-  std::string m_layoutFile;      // io.IniFilename points at this; empty keeps no layout on disk
-  bool m_showViewport{true};
+  bool m_layoutRequested{false}; // a built-in layout, even over a restored one
+  BuiltinLayout m_builtin{BuiltinLayout::Default};
+  std::optional<std::string> m_pendingLayout; // a layout to apply before the next frame
+  std::string m_layoutFile;                   // io.IniFilename points at this; empty keeps no layout on disk
+  std::filesystem::path m_layoutsDirectory;   // the saved presets; empty keeps none
+  std::string m_layoutName;                   // the name typed in the Save layout dialog
+  bool m_layoutOverwrite{false};              // the dialog is asking before it replaces a preset
   // Closed at start: the second view costs a full view of rendering while it is on screen (ADR-0021).
-  bool m_showGame{false};
-  bool m_showHierarchy{true};
-  bool m_showInspector{true};
-  bool m_showLog{true};
-  bool m_showAssets{true};
-  bool m_showStatistics{true};
-  bool m_showOverlay{true};
-  bool m_showColliders{false};
-  bool m_showLightGizmos{false};
+  ViewState m_viewState;
+  ViewState m_savedView; // what the ini was last told, to notice a change
+  LayoutSettings m_layoutSettings{m_viewState};
   bool m_gameInputWasActive{false};
   glm::vec2 m_mainViewportOrigin{0.0f, 0.0f};
   bool m_quitRequested{false};
