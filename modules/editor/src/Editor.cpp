@@ -185,32 +185,37 @@ void Editor::event(const platform::Event &event) {
     return;
   }
   // Pointer positions become relative to the viewport image, as the player's are to its window.
-  // Events are in window coordinates, ImGui's in the main viewport's screen space.
+  // Events are in the coordinates of the window they came from, ImGui's in screen space, and the
+  // Game view may be a window of its own.
   const ViewportInput &source = gameInputSource();
-  const glm::vec2 offset = m_mainViewportOrigin - source.origin;
+  const auto relative = [&](platform::WindowId window, glm::vec2 position) {
+    return m_windowOrigins.relativeToImage(window, position, source.origin);
+  };
   if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
-    m_input.handle(platform::MouseMoved{.position = moved->position + offset, .delta = moved->delta});
+    m_input.handle(platform::MouseMoved{.position = relative(moved->window, moved->position), .delta = moved->delta});
   } else if (const auto *pressed = std::get_if<platform::MouseButtonPressed>(&event)) {
     // A click elsewhere in the editor is not the game's.
     if (source.hovered) {
-      m_input.handle(platform::MouseButtonPressed{
-          .button = pressed->button, .position = pressed->position + offset, .clicks = pressed->clicks});
+      m_input.handle(platform::MouseButtonPressed{.button = pressed->button,
+                                                  .position = relative(pressed->window, pressed->position),
+                                                  .clicks = pressed->clicks});
     }
   } else if (const auto *released = std::get_if<platform::MouseButtonReleased>(&event)) {
-    m_input.handle(platform::MouseButtonReleased{.button = released->button, .position = released->position + offset});
+    m_input.handle(platform::MouseButtonReleased{.button = released->button,
+                                                 .position = relative(released->window, released->position)});
   } else if (const auto *down = std::get_if<platform::TouchDown>(&event)) {
     // A finger elsewhere in the editor is not the game's. The image's own rectangle decides, not
     // ImGui's hover, which follows the finger's synthesised mouse only from the next frame.
-    const glm::vec2 position = down->position + offset;
+    const glm::vec2 position = relative(down->window, down->position);
     const glm::vec2 size = source.size;
     if (position.x >= 0.0f && position.y >= 0.0f && position.x < size.x && position.y < size.y) {
       m_input.handle(platform::TouchDown{.id = down->id, .position = position});
     }
   } else if (const auto *motion = std::get_if<platform::TouchMotion>(&event)) {
-    m_input.handle(
-        platform::TouchMotion{.id = motion->id, .position = motion->position + offset, .delta = motion->delta});
+    m_input.handle(platform::TouchMotion{
+        .id = motion->id, .position = relative(motion->window, motion->position), .delta = motion->delta});
   } else if (const auto *up = std::get_if<platform::TouchUp>(&event)) {
-    m_input.handle(platform::TouchUp{.id = up->id, .position = up->position + offset});
+    m_input.handle(platform::TouchUp{.id = up->id, .position = relative(up->window, up->position)});
   } else {
     m_input.handle(event);
   }
@@ -229,6 +234,17 @@ bool Editor::gameInputActive() const {
   return isPlaying() && !isPaused() && input.visible && input.focused && !m_viewportPanel.cameraActive();
 }
 
+void Editor::refreshWindowOrigins() {
+  m_windowOrigins.clear();
+  const ImGuiViewport *main = ImGui::GetMainViewport();
+  m_windowOrigins.setMain({main->Pos.x, main->Pos.y});
+  for (const ImGuiViewport *viewport : ImGui::GetPlatformIO().Viewports) {
+    if (auto *window = static_cast<SDL_Window *>(viewport->PlatformHandle); window != nullptr) {
+      m_windowOrigins.set(SDL_GetWindowID(window), {viewport->Pos.x, viewport->Pos.y});
+    }
+  }
+}
+
 void Editor::update(float dt) {
   pollFileDialog();
   updateRecovery();
@@ -239,7 +255,7 @@ void Editor::update(float dt) {
   // Between frames: the ini is rebuilt while no window is being laid out.
   applyPendingLayout();
   m_imgui.beginFrame();
-  m_mainViewportOrigin = {ImGui::GetMainViewport()->Pos.x, ImGui::GetMainViewport()->Pos.y};
+  refreshWindowOrigins();
   const ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
   m_layoutSettings.setDockspace(dockspace);
   if (m_viewState != m_savedView) {

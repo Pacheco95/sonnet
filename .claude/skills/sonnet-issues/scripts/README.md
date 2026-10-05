@@ -38,7 +38,7 @@ The script expects a JSON file with this structure:
     "title": "Instantiate objects as children",
     "priority_tier": "Quick Win",
     "effort_hours": "1-2",
-    "target_release": "M9 (Mobile/Android)",
+    "target_release": "Post-1.0",
     "status": "Ready for dev"
   },
   {
@@ -46,7 +46,7 @@ The script expects a JSON file with this structure:
     "title": "MoltenVK R32Uint warning",
     "priority_tier": "Quick Win",
     "effort_hours": "2-4",
-    "target_release": "M9 (Mobile/Android)"
+    "target_release": "Pre-1.0"
   }
 ]
 ```

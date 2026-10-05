@@ -168,11 +168,11 @@ std::optional<Event> translateFinger(const SDL_TouchFingerEvent &finger) {
   const glm::vec2 position = glm::vec2{finger.x, finger.y} * size;
   switch (finger.type) {
   case SDL_EVENT_FINGER_DOWN:
-    return TouchDown{finger.fingerID, position};
+    return TouchDown{finger.fingerID, position, finger.windowID};
   case SDL_EVENT_FINGER_MOTION:
-    return TouchMotion{finger.fingerID, position, glm::vec2{finger.dx, finger.dy} * size};
+    return TouchMotion{finger.fingerID, position, glm::vec2{finger.dx, finger.dy} * size, finger.windowID};
   default:
-    return TouchUp{finger.fingerID, position};
+    return TouchUp{finger.fingerID, position, finger.windowID};
   }
 }
 
@@ -211,17 +211,18 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
   case SDL_EVENT_QUIT:
     return QuitRequested{};
   case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-    return WindowResized{{static_cast<unsigned>(event.window.data1), static_cast<unsigned>(event.window.data2)}};
+    return WindowResized{{static_cast<unsigned>(event.window.data1), static_cast<unsigned>(event.window.data2)},
+                         event.window.windowID};
   case SDL_EVENT_WINDOW_MINIMIZED:
     return WindowMinimized{};
   case SDL_EVENT_WINDOW_RESTORED:
     return WindowRestored{};
   case SDL_EVENT_WINDOW_FOCUS_GAINED:
-    return WindowFocusChanged{true};
+    return WindowFocusChanged{true, event.window.windowID};
   case SDL_EVENT_WINDOW_FOCUS_LOST:
-    return WindowFocusChanged{false};
+    return WindowFocusChanged{false, event.window.windowID};
   case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-    return WindowCloseRequested{};
+    return WindowCloseRequested{event.window.windowID};
   case SDL_EVENT_KEY_DOWN:
     return KeyPressed{keyFromScancode(event.key.scancode), modifiersFromSdl(event.key.mod), event.key.repeat};
   case SDL_EVENT_KEY_UP:
@@ -233,7 +234,7 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
     // pressing. That move is a jump from wherever the last finger lifted, not motion.
     const bool landing = event.motion.which == SDL_TOUCH_MOUSEID && (event.motion.state & SDL_BUTTON_LMASK) == 0;
     const glm::vec2 delta = landing ? glm::vec2{0.0f, 0.0f} : glm::vec2{event.motion.xrel, event.motion.yrel};
-    return MouseMoved{{event.motion.x, event.motion.y}, delta};
+    return MouseMoved{{event.motion.x, event.motion.y}, delta, event.motion.windowID};
   }
   case SDL_EVENT_MOUSE_BUTTON_DOWN:
   case SDL_EVENT_MOUSE_BUTTON_UP: {
@@ -243,9 +244,9 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
     }
     const glm::vec2 position{event.button.x, event.button.y};
     if (event.button.down) {
-      return MouseButtonPressed{button, position, event.button.clicks};
+      return MouseButtonPressed{button, position, event.button.clicks, event.button.windowID};
     }
-    return MouseButtonReleased{button, position};
+    return MouseButtonReleased{button, position, event.button.windowID};
   }
   case SDL_EVENT_MOUSE_WHEEL: {
     const float sign = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;

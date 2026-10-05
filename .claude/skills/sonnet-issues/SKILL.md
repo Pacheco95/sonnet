@@ -31,9 +31,9 @@ The output of this skill is designed to automatically update your [GitHub Projec
    - Specific hour estimates for each issue
 
 3. **Target Release** (Single select)
-   - Options at the time of writing: M9 (Mobile/Android), M10 (iOS), Pre-1.0, Post-1.0, M11+. **These go stale.** Read the live options before proposing anything:
+   - Options at the time of writing: Pre-1.0, Post-1.0, M11+ (the M9 and M10 options were removed once those milestones were done). **These go stale.** Read the live options before proposing anything:
      `gh project field-list 1 --owner Pacheco95 --format json`
-   - Never target a milestone the roadmap marks as done. Use **Pre-1.0** for work that should land before the 1.0.0 release tag (editor and engine polish, fixes, features the release should have), **Post-1.0** for work that can wait until after it, and **M11+** for work tied to a future milestone that has no release yet (for example the shadow chain, which needs the renderer's budget first). Read the roadmap for what 1.0.0 still requires, and say in the report which cards you put before and after the tag and why. A card that waits on an upstream fix (a Deferred blocker) still takes the release it should ship in. Tell the user which options are stale (M9 and M10 once their milestones are done).
+   - Never target a milestone the roadmap marks as done. Use **Pre-1.0** for work that should land before the 1.0.0 release tag (editor and engine polish, fixes, features the release should have), **Post-1.0** for work that can wait until after it, and **M11+** for work tied to a future milestone that has no release yet (for example the shadow chain, which needs the renderer's budget first). Read the roadmap for what 1.0.0 still requires, and say in the report which cards you put before and after the tag and why. A card that waits on an upstream fix (a Deferred blocker) still takes the release it should ship in. Tell the user which options are stale (a milestone option once its milestone is done). Removing an option regenerates every option ID of that field and clears every card's value for it, so record each card's value first (`gh project item-list`) and restore them afterwards with `gh project item-edit`, then compare the counts.
 
 4. **Status** (Built-in)
    - Options: Backlog, Refining, Ready for dev, In Progress, Blocked, Done. Read the live options with `gh project field-list 1 --owner Pacheco95 --format json`.
@@ -100,7 +100,7 @@ For each issue:
 - Does it align with the current or next planned milestone? ✓ fits
 - Does it depend on work not yet done? ⚠️ blocked by X
 - Is it architectural mismatch (e.g., requires redesign)? ✗ out-of-scope / architectural-mismatch
-- Is it for a future platform (e.g., iOS when mobile is not ready)? ✗ future-milestone
+- Is it for a future platform (e.g., a console port when no such platform is planned)? ✗ future-milestone
 - Is it docs, polish, or a known gap? ✓ quick-win or ⚠️ deferred-item
 
 **Score by Impact vs Effort (in hours):**
@@ -169,7 +169,7 @@ These fit the current/next milestone and should be tackled in order.
 ### #15 | [Title]
 - **Impact**: [description]
 - **Effort**: [X hours] – [scope and breakdown]
-- **Milestone**: M9 (mobile) — fits because [reason]
+- **Milestone**: Pre-1.0 — fits because [reason]
 - **Blocker**: [none or what's required first]
 
 ---
@@ -178,10 +178,10 @@ These fit the current/next milestone and should be tackled in order.
 Issues that don't fit now but are worth keeping.
 
 ### #88 | [Title]
-- **Reason**: Blocked by M10 (animation system)
+- **Reason**: Blocked by the M11+ renderer budget work
 - **Impact**: [what it enables]
 - **Effort**: [X hours] – (estimated if unblocked)
-- **Suggested Comment**: "Thanks for the issue! This depends on work scheduled for M10..."
+- **Suggested Comment**: "Thanks for the issue! This depends on work scheduled for M11+..."
 
 ### #22 | [Title]
 - **Reason**: Architectural mismatch — requires ECS redesign
@@ -296,7 +296,7 @@ Your [Sonnet Issue Prioritization project](https://github.com/users/Pacheco95/pr
    - Issue number
    - Priority Tier (Quick Win / Medium Fit / Deferred)
    - Effort Hours (specific range)
-   - Target Release (M9 / M10 / Pre-1.0 / Post-1.0 / M11+)
+   - Target Release (Pre-1.0 / Post-1.0 / M11+)
    - Status (Backlog / Refining / Ready for dev)
 3. Asks for approval: "Ready to update the GitHub Project?"
 4. If approved: Uses GitHub API to set all fields in batch
@@ -337,18 +337,18 @@ To update the project:
 
 ```
 Priority Tier: Medium Fit
-Milestone: M9 (mobile focus, but editor improvements fit any milestone)
+Milestone: Post-1.0 (editor improvements fit any milestone)
 Impact: Faster world-building, better UX
 Effort Hours: 12–16 (design handles, test all axes, iterate with feedback)
 Note: Gizmo framework exists from M1; ready to design & implement; pair with similar gizmo work
 ```
 
-**Issue #88**: "Support iOS deployment"
+**Issue #88**: "Support console deployment"
 
 ```
 Priority Tier: Deferred
-Milestone: M10+ (iOS is not planned yet; Android is M9)
-Impact: Critical for iOS users (future market)
+Milestone: M11+ (a new platform has no milestone yet)
+Impact: Critical for console users (future market)
 Effort Hours: 80–120+ (platform integration, Vulkan driver updates, testing, unknowns)
-Status: Post a comment: "iOS support is planned for M10. M9 focuses on Android stability..."
+Status: Post a comment: "A console port is not planned yet. The current work focuses on 1.0 stability..."
 ```

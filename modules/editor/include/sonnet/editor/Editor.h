@@ -17,6 +17,7 @@
 #include <sonnet/editor/ShaderCompiler.h>
 #include <sonnet/editor/StatisticsPanel.h>
 #include <sonnet/editor/ViewportPanel.h>
+#include <sonnet/editor/WindowOrigins.h>
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/audio/AudioDevice.h>
@@ -409,6 +410,7 @@ private:
   void restoreTab(std::size_t index);
   void addTab();
   void handleShortcuts();
+  void refreshWindowOrigins();
   void startFileDialog(DialogTarget target, const FileDialogRequest &request);
   void pollFileDialog();
   void drawViewportOverlay(const ViewportInput &input);
@@ -536,7 +538,7 @@ private:
   ViewState m_savedView; // what the ini was last told, to notice a change
   LayoutSettings m_layoutSettings{m_viewState};
   bool m_gameInputWasActive{false};
-  glm::vec2 m_mainViewportOrigin{0.0f, 0.0f};
+  WindowOrigins m_windowOrigins;
   bool m_quitRequested{false};
   float m_frameMilliseconds{0.0f};
 };

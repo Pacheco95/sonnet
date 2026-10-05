@@ -109,6 +109,19 @@ public:
   }
 
   platform::AppResult event(const platform::Event &event) override {
+    // An undocked panel is an OS window of its own: closing it closes the panel, which ImGui sees
+    // in nativeEvent, and resizing it does not resize the swapchain of the main window.
+    const auto fromPanel = [this](platform::WindowId id) {
+      return id != 0 && id != SDL_GetWindowID(m_window->nativeHandle());
+    };
+    if (const auto *close = std::get_if<platform::WindowCloseRequested>(&event);
+        close != nullptr && fromPanel(close->window)) {
+      return platform::AppResult::Continue;
+    }
+    if (const auto *resized = std::get_if<platform::WindowResized>(&event);
+        resized != nullptr && fromPanel(resized->window)) {
+      return platform::AppResult::Continue;
+    }
     if (std::holds_alternative<platform::WindowCloseRequested>(event) ||
         std::holds_alternative<platform::QuitRequested>(event)) {
       // A capture run has nobody to ask; otherwise the editor decides, and iterate exits.

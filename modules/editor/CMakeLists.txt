@@ -55,6 +55,7 @@ sonnet_add_module_test(editor
     tests/RecoveryTests.cpp
     tests/ShaderTests.cpp
     tests/TypeFilterTests.cpp
+    tests/WindowOriginsTests.cpp
 )
 if(TARGET editor_tests)
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
