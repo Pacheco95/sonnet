@@ -1221,14 +1221,14 @@ TEST_CASE("a killed editor offers its unsaved scene back and restores it exactly
     REQUIRE(world::saveScene(editor.world()) == edited);
     REQUIRE(editor.world().roots().size() == startRoots - 1);
     // The guard is in place while the scene proves itself, and no autosave overwrites the set.
-    REQUIRE(std::filesystem::exists(editor::Recovery::markerFile(editor.recovery()->directory())));
+    REQUIRE(std::filesystem::exists(editor.recovery()->markerFile()));
     REQUIRE(editor.recovery()->restoring());
 
     for (int frame = 0; frame < editor::Recovery::SettleFrames; ++frame) {
       fixture.frame(editor, false);
     }
     REQUIRE(!editor.recovery()->restoring());
-    REQUIRE(!std::filesystem::exists(editor::Recovery::markerFile(editor.recovery()->directory())));
+    REQUIRE(!std::filesystem::exists(editor.recovery()->markerFile()));
     // The restored scene has a recovery file of its own now, and is still unsaved.
     REQUIRE(recoveryFiles(editor.recovery()->directory()) == 1);
     REQUIRE(editor.isDirty());
@@ -1274,7 +1274,9 @@ TEST_CASE("saving or closing a tab, and quitting, remove its recovery file", "[e
   }
   const std::filesystem::path key = std::filesystem::directory_iterator(root)->path();
   REQUIRE(recoveryFiles(key) == 0);
-  REQUIRE(!std::filesystem::exists(editor::Recovery::lockFile(key)));
+  for (const auto &entry : std::filesystem::directory_iterator(key)) {
+    REQUIRE(!entry.path().filename().string().ends_with(".lock")); // the exit removed the session's lock
+  }
 }
 
 TEST_CASE("the choices on the restore dialog", "[editor][gpu][recovery]") {

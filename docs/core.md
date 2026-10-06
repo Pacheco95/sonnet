@@ -12,6 +12,7 @@ Fundamental types every other module uses. `core` depends on GLM, spdlog and Tra
 | `Uuid.h` | 128-bit identifier, random generation, name-based derivation for sub-assets, canonical string form |
 | `JobSystem.h` | `JobSystem` and `JobHandle`: the engine's one thread pool, with dependencies, a parallel for and main-thread affinity |
 | `File.h` | `readFile`: whole-file read returning `Result<std::vector<std::byte>>`; `writeFile`: whole-file write that creates the directories |
+| `FileLock.h` | `FileLock`: an exclusive OS lock on a file (`flock`, `LockFileEx`) held while the object lives and dropped with the process, however it ends; `tryLock` returns the lock, nothing when another handle holds it, or an error |
 | `Math.h` | The single GLM include point; checks that the GLM configuration is present |
 | `Profile.h` | `SONNET_ZONE()`, `SONNET_ZONE_NAMED()`, `SONNET_ZONE_NAME()`, `SONNET_SET_THREAD_NAME()`, `SONNET_FRAME_MARK()` over Tracy |
 | `Version.h` | `engineVersion()`, the version from the root `CMakeLists.txt` |
@@ -46,4 +47,4 @@ The four GLM configuration macros are `PUBLIC` compile definitions of `sonnet::c
 
 ## Tests
 
-`core_tests` covers the job system — dependencies, a job waiting on its own children, `parallelFor`'s coverage of a range, main-thread affinity, a throwing job and the jobs queued at destruction — handles and the pool, logging through a captured sink, error locations, UUID generation, derivation and parsing, file reads and writes, and the version. Run one tag with `core_tests "[handle]"`.
+`core_tests` covers the job system — dependencies, a job waiting on its own children, `parallelFor`'s coverage of a range, main-thread affinity, a throwing job and the jobs queued at destruction — handles and the pool, logging through a captured sink, error locations, UUID generation, derivation and parsing, file reads and writes, file locks (a second handle refused, release by closing, moves) and the version. Run one tag with `core_tests "[handle]"`.
