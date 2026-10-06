@@ -58,7 +58,8 @@ void buildLightList(const World &world, std::vector<renderer::Light> &lights) {
                                      .position = glm::vec3{transform.matrix[3]},
                                      .color = light.color,
                                      .intensity = light.intensity,
-                                     .range = light.range});
+                                     .range = light.range,
+                                     .castsShadows = light.castsShadows});
   });
   world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const SpotLight &light) {
     if (entity.has<Disabled>()) {
