@@ -1471,6 +1471,88 @@ TEST_CASE("a spot light's shadow map holds the depth of what its cone sees on a 
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+TEST_CASE("a spot light's shadow darkens the ground behind a box and only while it is granted on a GPU",
+          "[renderer][shadow][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
+    std::array draws{DrawItem{.mesh = plane},
+                     DrawItem{.mesh = box, .transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.5f, 0.0f})}};
+    // The light is up and to the -X side, aimed at the box: its shadow falls on the ground from
+    // x = 0.5 to 2.25. Six metres up, one metre is about nine pixels.
+    Light spot = shadowedSpot({-3.0f, 3.0f, 0.0f});
+    spot.direction = glm::normalize(glm::vec3{3.0f, -2.5f, 0.0f});
+    spot.intensity = 60.0f;
+    std::array lights{spot};
+    SceneView view = topDownScene(draws);
+    view.hasSun = false;
+    view.ambient = {0.0f, 0.0f, 0.0f};
+    view.lights = lights;
+    GpuScene scene{*device, renderer, {64, 64}};
+    const unsigned shadowedX = 32 + 11; // x = 1.2
+    const unsigned litX = 32 + 29;      // x = 3.2, past the shadow and inside the cone
+    const unsigned nearX = 32 - 13;     // x = -1.5, on the light's side of the box
+
+    scene.render(view);
+    REQUIRE(renderer.statistics().localShadowCount == 1);
+    const Pixel shadowed = scene.pixel(shadowedX, 32);
+    const Pixel lit = scene.pixel(litX, 32);
+    REQUIRE(lit.r > 40);
+    REQUIRE(scene.pixel(nearX, 32).r > 40);
+    REQUIRE(shadowed.r * 4 < lit.r);
+
+    // Moving the occluder updates the shadow: with the box away the same ground is lit.
+    draws[1].transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.5f, 6.0f});
+    scene.render(view);
+    REQUIRE(scene.pixel(shadowedX, 32).r > 40);
+
+    // The light that does not ask, the one that does not fit the budget and the disabled one
+    // illuminate the ground behind the box all the same.
+    draws[1].transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.5f, 0.0f});
+    lights[0].castsShadows = false;
+    scene.render(view);
+    REQUIRE(renderer.statistics().localShadowCount == 0);
+    REQUIRE(scene.pixel(shadowedX, 32).r > 40);
+    lights[0].castsShadows = true;
+    auto settings = testSettings();
+    settings.maxLocalShadows = 0;
+    renderer.setSettings(settings);
+    scene.render(view);
+    REQUIRE(scene.pixel(shadowedX, 32).r > 40);
+    // Two shadowed lights in one cluster each pick their own map: a mirror image of the first
+    // light shadows the -X side, so each side loses the far light and the two read alike, and both
+    // are dimmer than with the shadows off.
+    settings.maxLocalShadows = 8;
+    renderer.setSettings(settings);
+    spot.intensity = 20.0f; // two of them would saturate the target at 60
+    Light mirror = spot;
+    mirror.position.x = -spot.position.x;
+    mirror.direction.x = -spot.direction.x;
+    const std::array pair{spot, mirror};
+    view.lights = pair;
+    scene.render(view);
+    REQUIRE(renderer.statistics().localShadowCount == 2);
+    const Pixel plus = scene.pixel(shadowedX, 32);
+    const Pixel minus = scene.pixel(32 - 11, 32);
+    REQUIRE(plus.r > 40);
+    REQUIRE(std::abs(plus.r - minus.r) <= 4);
+    std::array unshadowed{spot, mirror};
+    unshadowed[0].castsShadows = false;
+    unshadowed[1].castsShadows = false;
+    view.lights = unshadowed;
+    scene.render(view);
+    REQUIRE(plus.r + 5 < scene.pixel(shadowedX, 32).r);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMesh(plane);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("a clustered point light reaches only the ground within its range on a GPU", "[renderer][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);

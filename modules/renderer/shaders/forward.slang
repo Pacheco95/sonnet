@@ -136,6 +136,41 @@ float sunShadow(float3 worldPosition, float viewDepth, float3 normal) {
   return 1.0;
 }
 
+// A spot light's shadow: the fraction of the light that reaches the point, 1 outside the map.
+// The normal offset follows the map's texel at the point's distance, so a grazing surface does
+// not shadow itself. The map index comes from the light, so it differs between fragments of one
+// draw; NonUniformResourceIndex says so where the image and its sampler are chosen.
+float spotShadow(Light light, float3 worldPosition, float3 normal, float3 toLight) {
+  const LocalShadow shadowMap = frame.localShadows[light.shadow];
+  const float nDotL = saturate(dot(normal, toLight));
+  const float3 offsetNormal = normal * sqrt(saturate(1.0 - nDotL * nDotL));
+  const uint image = NonUniformResourceIndex(shadowMap.image);
+  uint width, height;
+  depthTextures[image].GetDimensions(width, height);
+  const float2 texel = 1.0 / float2(width, height);
+  // One texel at the cone's edge, widened with the distance from the light.
+  const float distance = length(light.position - worldPosition);
+  const float footprint = 2.0 * distance * tan(acos(clamp(light.outerCos, 0.0, 0.9999))) / float(width);
+  const float4 clip = mul(shadowMap.matrix, float4(worldPosition + offsetNormal * 3.0 * footprint, 1.0));
+  if (clip.w <= 0.0) {
+    return 1.0;
+  }
+  const float3 ndc = clip.xyz / clip.w;
+  const float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+  const float2 margin = 1.5 * texel;
+  if (any(uv < margin) || any(uv > 1.0 - margin) || ndc.z < 0.0 || ndc.z > 1.0) {
+    return 1.0;
+  }
+  float lit = 0.0;
+  for (int y = -1; y <= 1; ++y) {
+    for (int x = -1; x <= 1; ++x) {
+      lit += depthTextures[image].SampleCmpLevelZero(comparisonSamplers[frame.shadowSampler],
+                                                     uv + float2(x, y) * texel, ndc.z + frame.shadowBias);
+    }
+  }
+  return lit / 9.0;
+}
+
 // The parameters are not named `texture` or `sampler`: those are Metal types, and a parameter of
 // that name makes the translated MSL declare `constant array<sampler, 64>&` against the parameter
 // rather than the type, which Metal rejects. It bites the editor's runtime recompile, where the
@@ -202,6 +237,9 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
       attenuation *= saturate((cosAngle - light.outerCos) / max(light.innerCos - light.outerCos, 1.0e-4));
     }
     if (attenuation > 0.0) {
+      if (light.type == LightSpot && light.shadow != 0xFFFFFFFF) {
+        attenuation *= spotShadow(light, input.worldPosition, geometricNormal, l);
+      }
       color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0);
     }
   }
