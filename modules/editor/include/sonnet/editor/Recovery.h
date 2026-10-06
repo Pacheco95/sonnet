@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sonnet/core/Error.h>
+#include <sonnet/core/FileLock.h>
 
 #include <nlohmann/json.hpp>
 
@@ -18,15 +19,22 @@ namespace sonnet::editor {
 // the autosaved scenes, the session lock, the restore marker and the quarantine. It knows nothing
 // of tabs or the world; the editor hands it scene JSON and acts on what it finds.
 //
+// Several editors may have one project open, so everything is per session, and a session is live
+// while its lock file is locked (core::FileLock: the OS drops the lock with the process, however it
+// ends). A session whose lock file can be locked, or that has none, is stale: that editor died.
+//
 // The state machine, over one directory:
-//   begin()          lock absent: the last session ended normally. Lock present: it did not.
-//                    Marker present: the last session died restoring, so the files the marker
-//                    names are quarantined and nothing is offered. Then the lock is written.
-//   found()          the scenes on offer. Files that do not parse are quarantined by begin().
-//   startRestore()   writes the marker. discard() and keep() make the decision otherwise.
+//   begin()          takes this session's lock, then adopts every stale session by taking its lock
+//                    (two editors starting together cannot both adopt one, the loser sees it live).
+//                    A live peer's files and marker are never listed, quarantined or deleted. A
+//                    stale session's restore marker means that restore died, so the files the marker
+//                    names are quarantined and nothing is offered.
+//   found()          the scenes of the adopted sessions on offer. Files that do not parse are
+//                    quarantined by begin().
+//   startRestore()   writes this session's marker. discard() and keep() make the decision otherwise.
 //   settled(now)     true once the restored scenes have run 10 seconds or 600 frames.
 //   finishRestore()  removes the marker, and with it the recovery set that was restored.
-//   end()            a normal exit: removes this session's files and the lock.
+//   end()            a normal exit: removes this session's files and lock.
 // Autosave is not allowed (`autosaveAllowed`) until the decision is made and no restore is
 // pending, so a crash never overwrites the set being restored.
 class Recovery {
@@ -46,14 +54,16 @@ public:
     std::filesystem::path file;      // the recovery file
     std::filesystem::path scenePath; // the scene's own file, empty when it had none
     nlohmann::json scene;
+    std::string session; // the stale session that wrote it
   };
 
   explicit Recovery(std::filesystem::path directory);
   Recovery(const Recovery &) = delete;
   Recovery &operator=(const Recovery &) = delete;
 
-  // Reads what the last session left and starts this one. Nothing is deleted but quarantined files
-  // are moved; an unwritable directory is reported by the result and leaves the editor without recovery.
+  // Starts this session and reads what the sessions that died left. Nothing is deleted but quarantined
+  // files are moved; an unwritable directory, or a filesystem that cannot lock, is reported by the
+  // result and leaves the editor without recovery.
   [[nodiscard]] core::Result<Previous> begin();
   [[nodiscard]] const std::vector<Entry> &found() const noexcept {
     return m_found;
@@ -64,11 +74,23 @@ public:
   [[nodiscard]] static std::filesystem::path quarantineRoot(const std::filesystem::path &directory) {
     return directory / "quarantine";
   }
-  [[nodiscard]] static std::filesystem::path lockFile(const std::filesystem::path &directory) {
-    return directory / "session.lock";
+  [[nodiscard]] static std::filesystem::path lockFile(const std::filesystem::path &directory,
+                                                      const std::string &session) {
+    return directory / ("session-" + session + ".lock");
   }
-  [[nodiscard]] static std::filesystem::path markerFile(const std::filesystem::path &directory) {
-    return directory / "recovering.json";
+  [[nodiscard]] static std::filesystem::path markerFile(const std::filesystem::path &directory,
+                                                        const std::string &session) {
+    return directory / ("recovering-" + session + ".json");
+  }
+  // This session's own.
+  [[nodiscard]] std::filesystem::path lockFile() const {
+    return lockFile(m_directory, m_session);
+  }
+  [[nodiscard]] std::filesystem::path markerFile() const {
+    return markerFile(m_directory, m_session);
+  }
+  [[nodiscard]] const std::string &session() const noexcept {
+    return m_session;
   }
 
   // The decision about what begin() found. Restore writes the marker first (and fails without
@@ -110,14 +132,23 @@ public:
 
   // The recovery file of `tab` in this session.
   [[nodiscard]] std::filesystem::path fileOf(std::uint64_t tab) const;
-  // Every recovery file in the directory, whoever wrote it.
-  [[nodiscard]] std::vector<std::filesystem::path> files() const;
 
 private:
+  // A stale session this one has locked until the decision about its files is final.
+  struct Adopted {
+    std::string session;
+    core::FileLock lock;
+  };
+
   [[nodiscard]] std::filesystem::path quarantineDirectory();
+  [[nodiscard]] std::vector<std::filesystem::path> filesOf(const std::string &session) const;
+  // Releases the adopted sessions' locks; `remove` deletes their lock files too (a final decision).
+  void releaseAdopted(bool remove);
 
   std::filesystem::path m_directory;
   std::string m_session;
+  core::FileLock m_lock;
+  std::vector<Adopted> m_adopted;
   std::filesystem::path m_quarantine;
   std::vector<Entry> m_found;
   std::unordered_map<std::uint64_t, std::filesystem::path> m_written;

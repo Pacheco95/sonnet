@@ -8,6 +8,9 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <set>
+#include <string>
+#include <utility>
 
 using namespace sonnet;
 using namespace std::chrono_literals;
@@ -26,6 +29,14 @@ std::size_t countFiles(const std::filesystem::path &directory, std::string_view 
   std::size_t count = 0;
   for (const auto &entry : std::filesystem::directory_iterator(directory)) {
     count += (entry.is_regular_file() && entry.path().filename().string().ends_with(suffix)) ? 1u : 0u;
+  }
+  return count;
+}
+
+std::size_t markers(const std::filesystem::path &directory) {
+  std::size_t count = 0;
+  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
+    count += entry.path().filename().string().starts_with("recovering-") ? 1u : 0u;
   }
   return count;
 }
@@ -89,7 +100,7 @@ TEST_CASE("a clean exit leaves nothing to recover", "[editor][recovery]") {
   {
     editor::Recovery recovery{directory};
     REQUIRE(recovery.begin().value() == Previous::Clean);
-    REQUIRE(std::filesystem::exists(editor::Recovery::lockFile(directory)));
+    REQUIRE(std::filesystem::exists(recovery.lockFile()));
     REQUIRE(recovery.write(1, {}, Scene).has_value());
     REQUIRE(recovery.write(2, {}, Scene).has_value());
     recovery.remove(2); // a saved or closed tab
@@ -97,7 +108,7 @@ TEST_CASE("a clean exit leaves nothing to recover", "[editor][recovery]") {
     recovery.end();
   }
   REQUIRE(countFiles(directory) == 0);
-  REQUIRE(!std::filesystem::exists(editor::Recovery::lockFile(directory)));
+  REQUIRE(countFiles(directory, ".lock") == 0);
   editor::Recovery next{directory};
   REQUIRE(next.begin().value() == Previous::Clean);
   REQUIRE(next.found().empty());
@@ -127,8 +138,9 @@ TEST_CASE("a crash leaves the scenes on offer, and autosave waits for the answer
     REQUIRE(countFiles(directory) == before);
     next.end();
     editor::Recovery later{directory};
-    REQUIRE(later.begin().value() == Previous::Clean); // the lock went with the normal exit
-    REQUIRE(later.found().size() == 1);                // the kept scene is still offered
+    // The kept session's lock file stayed with its files, so they are a crash's leftovers still.
+    REQUIRE(later.begin().value() == Previous::Crashed);
+    REQUIRE(later.found().size() == 1); // the kept scene is still offered
   }
   SECTION("discarding deletes them") {
     next.discard();
@@ -149,7 +161,7 @@ TEST_CASE("a restore that crashes is not offered again", "[editor][recovery]") {
     editor::Recovery restoring{directory};
     REQUIRE(restoring.begin().value() == Previous::Crashed);
     REQUIRE(restoring.startRestore().has_value());
-    REQUIRE(std::filesystem::exists(editor::Recovery::markerFile(directory)));
+    REQUIRE(std::filesystem::exists(restoring.markerFile()));
     REQUIRE(restoring.restoring());
     REQUIRE(!restoring.autosaveAllowed()); // the set being restored is not overwritten
     // The editor died here, loading or in its first seconds.
@@ -160,7 +172,7 @@ TEST_CASE("a restore that crashes is not offered again", "[editor][recovery]") {
   REQUIRE(next.decided());
   REQUIRE(countFiles(directory) == 0);
   REQUIRE(quarantined(directory) == 1);
-  REQUIRE(!std::filesystem::exists(editor::Recovery::markerFile(directory)));
+  REQUIRE(markers(directory) == 0);
   next.end();
 
   // Tried at most once: the start after that is an ordinary one.
@@ -194,7 +206,7 @@ TEST_CASE("a restore that survives its first seconds clears the marker and the s
     REQUIRE(recovery.settled(now));
   }
   recovery.finishRestore();
-  REQUIRE(!std::filesystem::exists(editor::Recovery::markerFile(directory)));
+  REQUIRE(markers(directory) == 0);
   REQUIRE(countFiles(directory) == 0);
   REQUIRE(!recovery.restoring());
   REQUIRE(recovery.autosaveAllowed());
@@ -240,4 +252,144 @@ TEST_CASE("projects of the same name keep their recovery files apart", "[editor]
   REQUIRE(editor::recoveryKey("/home/a/game") == editor::recoveryKey("/home/a/game/"));
   REQUIRE(editor::recoveryKey({}) == "no-project");
   REQUIRE(editor::recoveryKey("/home/a/my game").find(' ') == std::string::npos);
+}
+
+TEST_CASE("a second editor on a running project is offered nothing and leaves the first alone", "[editor][recovery]") {
+  const std::filesystem::path directory = scratch("recovery_two");
+  auto first = std::make_unique<editor::Recovery>(directory);
+  REQUIRE(first->begin().value() == Previous::Clean);
+  REQUIRE(first->write(1, {}, Scene).has_value());
+  REQUIRE(first->write(2, "/scenes/b.scene.json", Scene).has_value());
+  {
+    editor::Recovery second{directory};
+    REQUIRE(second.begin().value() == Previous::Clean); // the first one's lock is not a crash
+    REQUIRE(second.found().empty());
+    REQUIRE(second.decided());
+    REQUIRE(second.autosaveAllowed());
+    REQUIRE(second.write(1, {}, Scene).has_value());
+    REQUIRE(countFiles(directory) == 3);
+    // Its answer and its normal exit do not reach the first's files or lock.
+    second.discard();
+    second.end();
+  }
+  REQUIRE(countFiles(directory) == 2);
+  REQUIRE(countFiles(directory, ".lock") == 1);
+
+  // The first one dying afterwards is still found, though the other has exited normally since.
+  first.reset(); // kill -9: the lock goes with the process, the files stay
+  REQUIRE(countFiles(directory) == 2);
+  editor::Recovery next{directory};
+  REQUIRE(next.begin().value() == Previous::Crashed);
+  REQUIRE(next.found().size() == 2);
+  next.end();
+}
+
+TEST_CASE("a crash is still found after another editor ran and exited normally", "[editor][recovery]") {
+  const std::filesystem::path directory = scratch("recovery_crash_then_peer");
+  {
+    editor::Recovery crashed{directory};
+    REQUIRE(crashed.begin().has_value());
+    REQUIRE(crashed.write(1, {}, Scene).has_value());
+  }
+  {
+    // Another editor opens the project and keeps the offer unanswered for the moment: it adopted the
+    // crashed session, so it is the one that decides, and answering Open without restoring leaves it.
+    editor::Recovery peer{directory};
+    REQUIRE(peer.begin().value() == Previous::Crashed);
+    REQUIRE(peer.found().size() == 1);
+    peer.keep();
+    peer.end();
+  }
+  editor::Recovery next{directory};
+  REQUIRE(next.begin().value() == Previous::Crashed);
+  REQUIRE(next.found().size() == 1);
+  next.end();
+}
+
+TEST_CASE("one restore's marker does not quarantine another editor's files", "[editor][recovery]") {
+  const std::filesystem::path directory = scratch("recovery_marker_peer");
+  {
+    editor::Recovery crashed{directory};
+    REQUIRE(crashed.begin().has_value());
+    REQUIRE(crashed.write(1, {}, Scene).has_value());
+  }
+  editor::Recovery restoring{directory};
+  REQUIRE(restoring.begin().value() == Previous::Crashed);
+  REQUIRE(restoring.startRestore().has_value());
+  REQUIRE(markers(directory) == 1);
+
+  {
+    // A second editor starts while the first is restoring (its own scene open, say).
+    editor::Recovery peer{directory};
+    REQUIRE(peer.begin().value() == Previous::Clean); // the marker is a live editor's: ignored
+    REQUIRE(peer.found().empty());
+    REQUIRE(quarantined(directory) == 0);
+    REQUIRE(markers(directory) == 1);
+    REQUIRE(countFiles(directory) >= 1);
+    peer.end();
+  }
+  REQUIRE(markers(directory) == 1);
+  REQUIRE(quarantined(directory) == 0);
+
+  restoring.finishRestore();
+  REQUIRE(markers(directory) == 0);
+  restoring.end();
+}
+
+TEST_CASE("two editors starting for one crashed session are not both offered it", "[editor][recovery]") {
+  const std::filesystem::path directory = scratch("recovery_race");
+  {
+    editor::Recovery crashed{directory};
+    REQUIRE(crashed.begin().has_value());
+    REQUIRE(crashed.write(1, {}, Scene).has_value());
+  }
+  editor::Recovery winner{directory};
+  editor::Recovery loser{directory};
+  REQUIRE(winner.begin().value() == Previous::Crashed);
+  REQUIRE(winner.found().size() == 1);
+  // The winner holds the crashed session's lock until it has answered, so the loser sees it live.
+  REQUIRE(loser.begin().value() == Previous::Clean);
+  REQUIRE(loser.found().empty());
+  REQUIRE(countFiles(directory) == 1);
+
+  SECTION("an answer that leaves the files hands them to the next start") {
+    winner.keep();
+    editor::Recovery later{directory};
+    REQUIRE(later.begin().value() == Previous::Crashed);
+    REQUIRE(later.found().size() == 1);
+  }
+  SECTION("discarding deletes them for good") {
+    winner.discard();
+    REQUIRE(countFiles(directory) == 0);
+    editor::Recovery later{directory};
+    REQUIRE(later.begin().value() == Previous::Clean);
+    REQUIRE(later.found().empty());
+  }
+}
+
+TEST_CASE("files whose session left no lock file are stale", "[editor][recovery]") {
+  const std::filesystem::path directory = scratch("recovery_no_lock");
+  {
+    editor::Recovery crashed{directory};
+    REQUIRE(crashed.begin().has_value());
+    REQUIRE(crashed.write(1, {}, Scene).has_value());
+    // The lock file removed by hand, or a Discard that could not delete the files it was asked to.
+    std::filesystem::remove(crashed.lockFile());
+  }
+  editor::Recovery next{directory};
+  REQUIRE(next.begin().value() == Previous::Crashed);
+  REQUIRE(next.found().size() == 1);
+  next.discard();
+  REQUIRE(countFiles(directory) == 0);
+  next.end();
+  REQUIRE(countFiles(directory, ".lock") == 0);
+}
+
+TEST_CASE("two sessions never share a name, even when started together", "[editor][recovery]") {
+  const std::filesystem::path directory = scratch("recovery_names");
+  std::set<std::string> names;
+  for (int i = 0; i < 1000; ++i) {
+    names.insert(editor::Recovery{directory}.session());
+  }
+  REQUIRE(names.size() == 1000);
 }
