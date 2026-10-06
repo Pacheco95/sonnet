@@ -171,6 +171,49 @@ float spotShadow(Light light, float3 worldPosition, float3 normal, float3 toLigh
   return lit / 9.0;
 }
 
+// A point light's shadow: the cube's face that the point lies in, the major axis of its offset
+// from the light, in the order of the maps (+X, -X, +Y, -Y, +Z, -Z). Each face is the spot light's
+// kind of map, a little wider than 90 degrees so the filter never leaves it, and the normal offset
+// is one texel of the face at the point's distance, which is the distance times 2 / size.
+float pointShadow(Light light, float3 worldPosition, float3 normal, float3 toLight) {
+  const float3 offset = worldPosition - light.position;
+  const float3 magnitude = abs(offset);
+  uint face;
+  if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z) {
+    face = offset.x >= 0.0 ? 0 : 1;
+  } else if (magnitude.y >= magnitude.z) {
+    face = offset.y >= 0.0 ? 2 : 3;
+  } else {
+    face = offset.z >= 0.0 ? 4 : 5;
+  }
+  const LocalShadow shadowMap = frame.localShadows[light.shadow + face];
+  const float nDotL = saturate(dot(normal, toLight));
+  const float3 offsetNormal = normal * sqrt(saturate(1.0 - nDotL * nDotL));
+  const uint image = NonUniformResourceIndex(shadowMap.image);
+  uint width, height;
+  depthTextures[image].GetDimensions(width, height);
+  const float2 texel = 1.0 / float2(width, height);
+  const float footprint = 2.0 * length(offset) / float(width);
+  const float4 clip = mul(shadowMap.matrix, float4(worldPosition + offsetNormal * 3.0 * footprint, 1.0));
+  if (clip.w <= 0.0) {
+    return 1.0;
+  }
+  const float3 ndc = clip.xyz / clip.w;
+  const float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+  // The receiver moves towards the light by two texels in view depth: a bias in the depth itself,
+  // near over distance, would grow with the square of the distance.
+  const float compareDepth = ndc.z * clip.w / max(clip.w - 2.0 * footprint, 1.0e-3);
+  float lit = 0.0;
+  for (int y = -1; y <= 1; ++y) {
+    for (int x = -1; x <= 1; ++x) {
+      lit += depthTextures[image].SampleCmpLevelZero(comparisonSamplers[frame.shadowSampler],
+                                                     clamp(uv + float2(x, y) * texel, texel, 1.0 - texel),
+                                                     compareDepth);
+    }
+  }
+  return lit / 9.0;
+}
+
 // The parameters are not named `texture` or `sampler`: those are Metal types, and a parameter of
 // that name makes the translated MSL declare `constant array<sampler, 64>&` against the parameter
 // rather than the type, which Metal rejects. It bites the editor's runtime recompile, where the
@@ -239,6 +282,8 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
     if (attenuation > 0.0) {
       if (light.type == LightSpot && light.shadow != 0xFFFFFFFF) {
         attenuation *= spotShadow(light, input.worldPosition, geometricNormal, l);
+      } else if (light.type == LightPoint && light.shadow != 0xFFFFFFFF) {
+        attenuation *= pointShadow(light, input.worldPosition, geometricNormal, l);
       }
       color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0);
     }
