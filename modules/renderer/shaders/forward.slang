@@ -200,12 +200,15 @@ float pointShadow(Light light, float3 worldPosition, float3 normal, float3 toLig
   }
   const float3 ndc = clip.xyz / clip.w;
   const float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+  // The receiver moves towards the light by two texels in view depth: a bias in the depth itself,
+  // near over distance, would grow with the square of the distance.
+  const float compareDepth = ndc.z * clip.w / max(clip.w - 2.0 * footprint, 1.0e-3);
   float lit = 0.0;
   for (int y = -1; y <= 1; ++y) {
     for (int x = -1; x <= 1; ++x) {
       lit += depthTextures[image].SampleCmpLevelZero(comparisonSamplers[frame.shadowSampler],
                                                      clamp(uv + float2(x, y) * texel, texel, 1.0 - texel),
-                                                     ndc.z + frame.shadowBias);
+                                                     compareDepth);
     }
   }
   return lit / 9.0;
