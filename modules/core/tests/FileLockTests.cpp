@@ -73,7 +73,7 @@ TEST_CASE("a lock moves with its holder", "[core][filelock]") {
   REQUIRE(!FileLock::tryLock(path).value().has_value());
   FileLock moved{std::move(outer)};
   REQUIRE(moved.held());
-  REQUIRE(!outer.held());
+  REQUIRE(!outer.held()); // NOLINT(bugprone-use-after-move): a moved-from lock holds nothing, which is the point
   REQUIRE(!FileLock::tryLock(path).value().has_value());
   moved.release();
   REQUIRE(FileLock::tryLock(path).value().has_value());

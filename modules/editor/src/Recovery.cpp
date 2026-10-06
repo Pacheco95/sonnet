@@ -161,8 +161,8 @@ core::Result<Recovery::Previous> Recovery::begin() {
   // This session first, so an editor starting together with this one finds it live. A starting editor
   // can be adopted as stale between creating its lock file and locking it, and its file deleted
   // as an empty session; then it takes another name.
-  constexpr int Attempts = 8;
-  for (int attempt = 0; attempt < Attempts && !m_lock.held(); ++attempt) {
+  constexpr int attempts = 8;
+  for (int attempt = 0; attempt < attempts && !m_lock.held(); ++attempt) {
     if (attempt > 0) {
       m_session = newSession();
     }
