@@ -1,0 +1,709 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "05555b35-0f8b-56c2-8ade-a9ed63c6719f",
+      "name": "Ground",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 18,
+            "y": 1,
+            "z": 18
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40",
+          "material": "60abe124-b44f-4f02-a0c3-6d2d3c94ee6d",
+          "color": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "3765d956-f522-571c-a01d-7d30231d1e60",
+      "name": "Back wall",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 2.5,
+            "z": -6.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 18,
+            "y": 5,
+            "z": 0.4
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.82,
+            "y": 0.8,
+            "z": 0.78,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "27f3f835-deb3-527e-ab43-8257bcbd7970",
+      "name": "Side wall",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -8.8,
+            "y": 2.5,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 0.4,
+            "y": 5,
+            "z": 13
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.78,
+            "y": 0.8,
+            "z": 0.84,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "8d8a3a4b-4893-502b-90ef-95699e554f44",
+      "name": "Pillar",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -5.5,
+            "y": 1.5,
+            "z": -2.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 0.9,
+            "y": 3,
+            "z": 0.9
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.9,
+            "y": 0.9,
+            "z": 0.9,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "32c4c661-a360-56ff-9ef9-2b32e109e1f0",
+      "name": "Column",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 5.5,
+            "y": 1.25,
+            "z": -2.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 2.5,
+            "z": 1.0
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "4982c24f-bd36-8c92-a2c1-47e047fbe1b6",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.9,
+            "y": 0.85,
+            "z": 0.7,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "e641a1ba-913c-5c48-a94d-d9cd0572e708",
+      "name": "Big sphere",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -3,
+            "y": 0.9,
+            "z": 0.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.8,
+            "y": 1.8,
+            "z": 1.8
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "fe3d3b79-c4ee-8f48-8944-6b1596b2c621",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.9,
+            "y": 0.35,
+            "z": 0.3,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "d607cee7-86c0-57ea-b2ed-d48612b429c1",
+      "name": "Capsule",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 3,
+            "y": 0.5,
+            "z": 0.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "663df5e4-bf07-8eb4-9364-2db2a5a3e28d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.3,
+            "y": 0.7,
+            "z": 0.9,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "d545688d-3cfd-5d61-a4d0-1f2a0223a12d",
+      "name": "Plinth",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0.25,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 2.4,
+            "y": 0.5,
+            "z": 2.4
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.85,
+            "y": 0.85,
+            "z": 0.85,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "9c759e37-74df-5cb3-8acc-6cd1070b1ad0",
+      "name": "Spinning box",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 1.15,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.3,
+            "y": 1.3,
+            "z": 1.3
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.95,
+            "y": 0.75,
+            "z": 0.2,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Spin": {
+          "axis": {
+            "x": 0,
+            "y": 1,
+            "z": 0
+          },
+          "speed": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "fa3b253a-77ff-51fa-a816-8b1eb902f26d",
+      "name": "Floating sphere",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -1.5,
+            "y": 3.2,
+            "z": -2.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 0.8,
+            "y": 0.8,
+            "z": 0.8
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "fe3d3b79-c4ee-8f48-8944-6b1596b2c621",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.5,
+            "y": 0.85,
+            "z": 0.5,
+            "w": 1.0
+          },
+          "visible": true
+        }
+      }
+    },
+    {
+      "uuid": "60f5606a-c11e-5411-b5fb-d6c7f532e71d",
+      "name": "Bench",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 3.5,
+            "y": 0.2,
+            "z": 3.2
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 3,
+            "y": 0.4,
+            "z": 0.8
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.6,
+            "y": 0.45,
+            "z": 0.35,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "b6510aa8-88ba-54ea-939f-f325d1cea5e4",
+      "name": "Step",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -4,
+            "y": 0.15,
+            "z": 3.5
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 2,
+            "y": 0.3,
+            "z": 2
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.7,
+            "y": 0.7,
+            "z": 0.75,
+            "w": 1.0
+          },
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "d6e8ebfe-193c-5431-a876-e99db7f46bde",
+      "name": "Sun",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 8,
+            "z": 0
+          },
+          "rotation": {
+            "x": -0.29967,
+            "y": -0.024707,
+            "z": 0.103645,
+            "w": 0.67229
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "DirectionalLight": {
+          "color": {
+            "x": 1.0,
+            "y": 0.82,
+            "z": 0.62
+          },
+          "intensity": 2.2
+        }
+      }
+    },
+    {
+      "uuid": "99b7942c-c9fb-58bc-bde3-c77b92794366",
+      "name": "Sky",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "Environment": {
+          "map": "0238c936-ba15-474c-a8a7-53a87650359e",
+          "intensity": 0.25,
+          "exposure": 1.0
+        }
+      }
+    },
+    {
+      "uuid": "7185c7d4-ed0a-51b8-83a6-65776f940704",
+      "name": "Red spot",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -7,
+            "y": 5,
+            "z": 4
+          },
+          "rotation": {
+            "x": -0.34452,
+            "y": 0.041124,
+            "z": -0.142705,
+            "w": 0.659207
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "SpotLight": {
+          "color": {
+            "x": 0.95,
+            "y": 0.15,
+            "z": 0.1
+          },
+          "intensity": 900.0,
+          "range": 18.0,
+          "innerAngle": 0.18,
+          "outerAngle": 0.36,
+          "castsShadows": true
+        }
+      }
+    },
+    {
+      "uuid": "0203c71b-f0b2-582e-ac5a-51a10ee94573",
+      "name": "Green spot",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 6,
+            "z": 8
+          },
+          "rotation": {
+            "x": -0.440336,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 0.642156
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "SpotLight": {
+          "color": {
+            "x": 0.2,
+            "y": 0.9,
+            "z": 0.25
+          },
+          "intensity": 900.0,
+          "range": 18.0,
+          "innerAngle": 0.18,
+          "outerAngle": 0.36,
+          "castsShadows": true
+        }
+      }
+    },
+    {
+      "uuid": "20ae0e5f-6259-50e4-bd3b-a8b28af35ced",
+      "name": "Blue spot",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 7,
+            "y": 5,
+            "z": 4
+          },
+          "rotation": {
+            "x": -0.34452,
+            "y": -0.041124,
+            "z": 0.142705,
+            "w": 0.659207
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "SpotLight": {
+          "color": {
+            "x": 0.15,
+            "y": 0.3,
+            "z": 1.0
+          },
+          "intensity": 900.0,
+          "range": 18.0,
+          "innerAngle": 0.18,
+          "outerAngle": 0.36,
+          "castsShadows": true
+        }
+      }
+    },
+    {
+      "uuid": "b9db0285-e078-53a1-bc7e-05c64cfa983f",
+      "name": "Warm lamp",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -1.5,
+            "y": 1.6,
+            "z": 3.8
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "PointLight": {
+          "color": {
+            "x": 1.0,
+            "y": 0.65,
+            "z": 0.3
+          },
+          "intensity": 30.0,
+          "range": 9.0,
+          "castsShadows": true
+        }
+      }
+    },
+    {
+      "uuid": "000e030f-3860-5eda-a97c-d3a673f4bd54",
+      "name": "Cool lamp",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 3.0,
+            "y": 2.8,
+            "z": -1.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "PointLight": {
+          "color": {
+            "x": 0.4,
+            "y": 0.7,
+            "z": 1.0
+          },
+          "intensity": 35.0,
+          "range": 9.0,
+          "castsShadows": true
+        }
+      }
+    },
+    {
+      "uuid": "51217477-96c6-5cab-ad9e-87ef1a78264d",
+      "name": "Camera",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 4.4,
+            "z": 12.5
+          },
+          "rotation": {
+            "x": -0.194289,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 0.693889
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "Camera": {
+          "fovY": 1.0,
+          "nearPlane": 0.1
+        },
+        "AudioListener": null
+      }
+    }
+  ]
+}
