@@ -986,7 +986,7 @@ void Renderer::selectLocalShadows(ViewState &v) const {
     const Light &light = view.lights[index];
     const float nearPlane = std::clamp(light.range * 0.01f, 0.05f, 0.5f);
     if (light.type == LightType::Point) {
-      static constexpr std::array<glm::vec3, PointShadowFaces> directions{
+      static constexpr std::array<glm::vec3, PointShadowFaces> FaceDirections{
           glm::vec3{1.0f, 0.0f, 0.0f},  glm::vec3{-1.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 1.0f, 0.0f},
           glm::vec3{0.0f, -1.0f, 0.0f}, glm::vec3{0.0f, 0.0f, 1.0f},  glm::vec3{0.0f, 0.0f, -1.0f}};
       const glm::mat4 projection = perspectiveReversedZ(2.0f * std::atan(margin), 1.0f, nearPlane);
@@ -995,7 +995,7 @@ void Renderer::selectLocalShadows(ViewState &v) const {
         v.localShadows.push_back(
             LocalShadow{.light = index,
                         .face = face,
-                        .matrix = projection * glm::lookAt(light.position, light.position + directions[face], up),
+                        .matrix = projection * glm::lookAt(light.position, light.position + FaceDirections[face], up),
                         .image = {}});
       }
       return;
