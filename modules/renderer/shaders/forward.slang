@@ -161,11 +161,16 @@ float spotShadow(Light light, float3 worldPosition, float3 normal, float3 toLigh
   if (any(uv < margin) || any(uv > 1.0 - margin) || ndc.z < 0.0 || ndc.z > 1.0) {
     return 1.0;
   }
+  // The depth is near / distance, so a constant bias in it is a distance that grows with the
+  // square of the light's: 0.0015 was 80 centimetres at ten metres, enough to leave a gap of light
+  // between a plinth and its shadow and to stripe the edge of it. The receiver moves towards the
+  // light by two texels of the map at its distance instead, in the view depth clip.w.
+  const float compareDepth = ndc.z * clip.w / max(clip.w - 2.0 * footprint, 1.0e-3);
   float lit = 0.0;
   for (int y = -1; y <= 1; ++y) {
     for (int x = -1; x <= 1; ++x) {
       lit += depthTextures[image].SampleCmpLevelZero(comparisonSamplers[frame.shadowSampler],
-                                                     uv + float2(x, y) * texel, ndc.z + frame.shadowBias);
+                                                     uv + float2(x, y) * texel, compareDepth);
     }
   }
   return lit / 9.0;

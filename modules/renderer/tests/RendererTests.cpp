@@ -1731,6 +1731,43 @@ TEST_CASE("a spot light's shadow darkens the ground behind a box and only while 
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+TEST_CASE("a spot light ten metres away shadows the ground right behind a plinth on a GPU", "[renderer][shadow][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
+    const std::array draws{
+        DrawItem{.mesh = plane},
+        DrawItem{.mesh = box,
+                 .transform = glm::scale(glm::translate(glm::mat4{1.0f}, {0.0f, 0.25f, 0.55f}), {2.4f, 0.5f, 2.4f})}};
+    Light spot = shadowedSpot({0.0f, 6.0f, 8.0f});
+    spot.direction = glm::normalize(glm::vec3{0.0f, -4.8f, -7.0f});
+    spot.intensity = 900.0f;
+    spot.range = 18.0f;
+    spot.innerAngle = 0.18f;
+    spot.outerAngle = 0.36f;
+    const std::array lights{spot};
+    SceneView view = topDownScene(draws);
+    view.hasSun = false;
+    view.ambient = {0.0f, 0.0f, 0.0f};
+    view.lights = lights;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view);
+    // Behind the plinth, away from the light, the ground is in its shadow from the plinth's edge
+    // on. The depth is near / distance, so a bias constant in it was 80 centimetres at this distance
+    // and left a strip of light there; the ground to the side, outside the shadow, is lit.
+    REQUIRE(renderer.statistics().localShadowCount == 1);
+    REQUIRE(scene.pixel(32, 20).r == 0);
+    REQUIRE(scene.pixel(32, 12).r > 40);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(plane);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("a point light's shadow darkens the ground behind a box and only while it is granted on a GPU",
           "[renderer][shadow][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};

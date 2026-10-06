@@ -63,7 +63,7 @@ struct RendererSettings {
   bool shadows{true};
   std::uint32_t shadowMapSize{2048}; // per cascade
   float shadowDistance{80.0f};       // metres of view depth the cascades cover
-  float shadowBias{0.0015f};         // in reversed-Z depth units; receiver offset also follows the texel size
+  float shadowBias{0.0015f}; // the cascades', in reversed-Z depth units; receiver offset also follows the texel size
   // Spot and point lights that ask for a shadow (Light::castsShadows) get depth maps, per view, up
   // to this many lights; the rest still illuminate, without shadows. A spot light takes one map and
   // a point light six, one per cube face, and a view has Renderer::MaxLocalShadows maps in all, so
