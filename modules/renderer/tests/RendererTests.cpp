@@ -1508,6 +1508,7 @@ TEST_CASE("a point light that no longer fits in the depth array is passed over, 
   const std::array draws{DrawItem{.mesh = box}};
   // Four point lights take 24 of the 28 maps; the fifth would need six more, the spot light one.
   std::vector<Light> lights;
+  lights.reserve(6);
   for (int i = 0; i < 5; ++i) {
     lights.push_back(shadowedPoint({static_cast<float>(i), 4.0f, 0.0f}));
   }
@@ -1550,9 +1551,9 @@ TEST_CASE("a point light's face maps hold the depth of what each direction sees 
     RenderGraph graph{*device};
     RenderTarget target{*device, "viewport"};
     target.resize({64, 64});
-    constexpr std::uint32_t Down = 3;
-    constexpr std::uint32_t Up = 2;
-    const std::array faces{Down, Up};
+    constexpr std::uint32_t downFace = 3;
+    constexpr std::uint32_t upFace = 2;
+    const std::array faces{downFace, upFace};
     std::array<BufferHandle, 2> readbacks;
     for (BufferHandle &readback : readbacks) {
       readback = device->createBuffer({.size = std::size_t{64} * 64 * sizeof(float),
@@ -1576,18 +1577,18 @@ TEST_CASE("a point light's face maps hold the depth of what each direction sees 
     device->endFrame();
     device->waitIdle();
 
-    std::array<float, std::size_t{64} * 64> down{};
-    std::array<float, std::size_t{64} * 64> up{};
-    std::memcpy(down.data(), device->mappedRange(readbacks[0]).data(), sizeof(down));
-    std::memcpy(up.data(), device->mappedRange(readbacks[1]).data(), sizeof(up));
+    std::array<float, std::size_t{64} * 64> downDepth{};
+    std::array<float, std::size_t{64} * 64> upDepth{};
+    std::memcpy(downDepth.data(), device->mappedRange(readbacks[0]).data(), sizeof(downDepth));
+    std::memcpy(upDepth.data(), device->mappedRange(readbacks[1]).data(), sizeof(upDepth));
     // Reversed-Z over an infinite far plane: near / distance along the face's axis, with near a
     // hundredth of the range. Looking down the face sees the box and the ground, looking up
     // nothing, which stays at the cleared far plane.
     const float nearPlane = 0.2f;
-    REQUIRE(down[32 * 64 + 32] == Catch::Approx(nearPlane / 3.5f).margin(0.002)); // the box's top
-    REQUIRE(down[8 * 64 + 8] == Catch::Approx(nearPlane / 4.0f).margin(0.002));   // the ground
-    REQUIRE(down[56 * 64 + 56] == Catch::Approx(nearPlane / 4.0f).margin(0.002));
-    REQUIRE(up[32 * 64 + 32] == 0.0f);
+    REQUIRE(downDepth[32 * 64 + 32] == Catch::Approx(nearPlane / 3.5f).margin(0.002)); // the box's top
+    REQUIRE(downDepth[8 * 64 + 8] == Catch::Approx(nearPlane / 4.0f).margin(0.002));   // the ground
+    REQUIRE(downDepth[56 * 64 + 56] == Catch::Approx(nearPlane / 4.0f).margin(0.002));
+    REQUIRE(upDepth[32 * 64 + 32] == 0.0f);
     REQUIRE(device->validationMessageCount() == 0);
     for (const BufferHandle readback : readbacks) {
       device->destroyBuffer(readback);
