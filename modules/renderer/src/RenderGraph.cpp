@@ -201,8 +201,8 @@ void RenderGraph::releaseImages() {
 }
 
 void RenderGraph::emitBarriers(rhi::ICommandList &commands, const std::vector<detail::ImageUse> &uses) {
-  // Bounded by what one pass declares; the command list caps a call at 32.
-  std::array<rhi::ImageBarrier, 32> barriers;
+  // Bounded by what one pass declares; the command list caps a call at rhi::MaxBarriersPerCall.
+  std::array<rhi::ImageBarrier, rhi::MaxBarriersPerCall> barriers;
   std::size_t count = 0;
   for (const detail::ImageUse &use : uses) {
     const Required required =

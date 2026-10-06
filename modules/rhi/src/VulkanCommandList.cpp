@@ -14,7 +14,7 @@ namespace {
 // Eight is the Vulkan minimum for maxColorAttachments; the engine never exceeds it. Barriers
 // and buffer bindings are bounded by what one pass declares.
 constexpr std::size_t MaxColorAttachments = 8;
-constexpr std::size_t MaxBarriers = 32;
+constexpr std::size_t MaxBarriers = MaxBarriersPerCall;
 constexpr std::size_t MaxBufferBindings = 2;
 constexpr std::size_t MaxImageBindings = 1;
 

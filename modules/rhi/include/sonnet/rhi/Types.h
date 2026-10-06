@@ -531,8 +531,12 @@ struct TransientAllocation {
   std::span<std::byte> data{};
 };
 
+// Image barriers one ICommandList::barrier call takes: a forward pass that samples every cascade and
+// local shadow map declares up to 4 + 28 depth images besides its colour, depth and lighting inputs.
+constexpr std::size_t MaxBarriersPerCall = 64;
+
 // Timestamps a frame may write; results come back when the slot is reused (IDevice::timestamps).
-constexpr std::uint32_t MaxTimestamps = 128;
+constexpr std::uint32_t MaxTimestamps = 512;
 
 struct HeapBudget {
   std::uint64_t usage{0};
