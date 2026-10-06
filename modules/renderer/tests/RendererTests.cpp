@@ -1438,7 +1438,7 @@ TEST_CASE("a spot light's shadow map holds the depth of what its cone sees on a 
     RenderGraph graph{*device};
     RenderTarget target{*device, "viewport"};
     target.resize({64, 64});
-    const BufferHandle readback = device->createBuffer({.size = 64 * 64 * sizeof(float),
+    const BufferHandle readback = device->createBuffer({.size = std::size_t{64} * 64 * sizeof(float),
                                                         .usage = BufferUsage::TransferDst,
                                                         .memory = MemoryUsage::GpuToCpu,
                                                         .debugName = "spot depth readback"});
@@ -1456,7 +1456,7 @@ TEST_CASE("a spot light's shadow map holds the depth of what its cone sees on a 
     device->endFrame();
     device->waitIdle();
 
-    std::array<float, 64 * 64> depth{};
+    std::array<float, std::size_t{64} * 64> depth{};
     std::memcpy(depth.data(), device->mappedRange(readback).data(), sizeof(depth));
     // Reversed-Z over an infinite far plane: near / distance, with near a hundredth of the range.
     const float nearPlane = 0.2f;
