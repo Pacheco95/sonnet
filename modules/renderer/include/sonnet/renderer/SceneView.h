@@ -56,7 +56,7 @@ struct Light {
   glm::vec3 direction{0.0f, 0.0f, -1.0f}; // spot lights: where the light travels
   float innerAngle{glm::radians(20.0f)};  // spot lights: full intensity inside
   float outerAngle{glm::radians(30.0f)};  // spot lights: nothing outside
-  bool castsShadows{false};               // spot lights: asks for a shadow map; not rendered yet
+  bool castsShadows{false}; // spot lights: asks for a shadow map, within RendererSettings::maxLocalShadows
 };
 
 // A world-space segment for debug drawing, such as a physics collider's outline.

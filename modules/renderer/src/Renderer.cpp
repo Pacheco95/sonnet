@@ -54,9 +54,21 @@ struct GpuLight {
   glm::vec3 direction;
   float innerCos;
   float outerCos;
-  float padding[3];
+  std::uint32_t shadow; // index into FrameConstants::localShadows, NoLocalShadow without one
+  float padding[2];
 };
 static_assert(sizeof(GpuLight) == 64);
+
+constexpr std::uint32_t NoLocalShadow = 0xFFFFFFFFu;
+
+// One spot light's shadow map: its light-space matrix and the bindless depth slot it was drawn
+// into. Mirror of LocalShadow in shaders/sonnet.slang.
+struct GpuLocalShadow {
+  glm::mat4 matrix;
+  std::uint32_t image;
+  std::uint32_t padding[3];
+};
+static_assert(sizeof(GpuLocalShadow) == 80);
 
 struct GpuMaterial {
   glm::vec4 baseColor;
@@ -108,8 +120,9 @@ struct FrameConstants {
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
+  std::uint64_t localShadows; // GpuLocalShadow per budgeted spot light, 0 without any
 };
-static_assert(sizeof(FrameConstants) == 816);
+static_assert(sizeof(FrameConstants) == 824);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -123,7 +136,7 @@ struct ObjectData {
 static_assert(sizeof(ObjectData) == 96);
 
 struct DrawConstants {
-  std::uint32_t cascade;
+  std::uint32_t shadow; // a cascade, or CascadeCount plus a local shadow map's index; unused elsewhere
 };
 static_assert(sizeof(DrawConstants) == 4);
 
@@ -930,6 +943,33 @@ void Renderer::computeCascades(ViewState &v, float aspect) {
   }
 }
 
+// The spot lights that get a shadow map this frame: the first ones in the light list's order that
+// ask for one, up to the budget, so the same lights are chosen on every run. The lights past the
+// budget still illuminate, without shadows. Each light's frustum is its cone, a little wider so the
+// filter's footprint at the cone's edge stays inside the map.
+void Renderer::selectLocalShadows(ViewState &v) const {
+  const SceneView &view = *v.view;
+  const std::uint32_t budget = localShadowBudget();
+  const auto lightCount = static_cast<std::uint32_t>(std::min<std::size_t>(view.lights.size(), MaxLights));
+  const float size = static_cast<float>(m_settings.localShadowMapSize);
+  const float margin = size / std::max(1.0f, size - 4.0f);
+  for (std::uint32_t i = 0; i < lightCount && v.localShadows.size() < budget; ++i) {
+    const Light &light = view.lights[i];
+    if (light.type != LightType::Spot || !light.castsShadows) {
+      continue;
+    }
+    const glm::vec3 direction = glm::normalize(light.direction);
+    const glm::vec3 up = std::abs(direction.y) > 0.99f ? glm::vec3{0.0f, 0.0f, 1.0f} : glm::vec3{0.0f, 1.0f, 0.0f};
+    const float halfAngle = std::clamp(light.outerAngle, glm::radians(0.5f), glm::radians(80.0f));
+    const float fovY = 2.0f * std::atan(std::tan(halfAngle) * margin);
+    const float nearPlane = std::clamp(light.range * 0.01f, 0.05f, 0.5f);
+    v.localShadows.push_back(LocalShadow{.light = i,
+                                         .matrix = perspectiveReversedZ(fovY, 1.0f, nearPlane) *
+                                                   glm::lookAt(light.position, light.position + direction, up),
+                                         .image = {}});
+  }
+}
+
 void Renderer::parallelFor(const char *name, std::size_t count, std::size_t grain,
                            const std::function<void(std::size_t, std::size_t)> &body) const {
   if (count == 0) {
@@ -967,6 +1007,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.view = &view;
   v.targetSize = targetSize;
   v.cascadesActive = false;
+  v.localShadows.clear();
   v.frameBuffers = {};
   v.statistics = {};
   v.resolved.clear();
@@ -1095,11 +1136,12 @@ void Renderer::ensureIndirectBuffers(ViewState &v) {
   // slot, and the buffers grow to the sum of the slices (docs/decisions/0021-two-views-in-one-frame.md).
   const auto opaqueDraws = static_cast<std::uint32_t>(v.opaqueOrder.size());
   const auto allDraws = static_cast<std::uint32_t>(v.allOrder.size());
-  const std::uint32_t commands = static_cast<std::uint32_t>(v.opaqueBatches.size()) * CullJobsOpaque +
+  v.opaqueJobCapacity = CullJobsOpaque + localShadowBudget();
+  const std::uint32_t commands = static_cast<std::uint32_t>(v.opaqueBatches.size()) * v.opaqueJobCapacity +
                                  static_cast<std::uint32_t>(v.allBatches.size()) * CullJobsAll;
   v.commandBase = m_commandsReserved;
   v.visibleBase = m_visibleReserved;
-  v.directBase = v.visibleBase + opaqueDraws * CullJobsOpaque + allDraws * CullJobsAll;
+  v.directBase = v.visibleBase + opaqueDraws * v.opaqueJobCapacity + allDraws * CullJobsAll;
   m_commandsReserved += commands;
   m_visibleReserved = v.directBase + static_cast<std::uint32_t>(v.resolved.size());
   if (commands == 0) {
@@ -1137,7 +1179,7 @@ std::optional<Renderer::CullJob> Renderer::reserveCullJob(ViewState &v, bool opa
   CullJob job;
   job.opaque = opaque;
   if (opaque) {
-    if (v.opaqueJobsUsed >= CullJobsOpaque || opaqueDraws == 0) {
+    if (v.opaqueJobsUsed >= v.opaqueJobCapacity || opaqueDraws == 0) {
       return std::nullopt;
     }
     job.drawCount = opaqueDraws;
@@ -1151,8 +1193,8 @@ std::optional<Renderer::CullJob> Renderer::reserveCullJob(ViewState &v, bool opa
     }
     job.drawCount = allDraws;
     job.batchCount = allBatches;
-    job.firstCommand = v.commandBase + CullJobsOpaque * opaqueBatches + v.allJobsUsed * allBatches;
-    job.firstVisible = v.visibleBase + CullJobsOpaque * opaqueDraws + v.allJobsUsed * allDraws;
+    job.firstCommand = v.commandBase + v.opaqueJobCapacity * opaqueBatches + v.allJobsUsed * allBatches;
+    job.firstVisible = v.visibleBase + v.opaqueJobCapacity * opaqueDraws + v.allJobsUsed * allDraws;
     ++v.allJobsUsed;
   }
   return job;
@@ -1217,7 +1259,7 @@ void Renderer::recordCulling(rhi::ICommandList &commands, ViewState &v) {
 
 void Renderer::recordIndirect(rhi::ICommandList &commands, ViewState &v, const CullJob &job,
                               std::span<const Batch> batches, std::span<const rhi::PipelineHandle, 2> pipelines,
-                              std::uint32_t cascade) {
+                              std::uint32_t shadow) {
   if (batches.empty() || !v.frameBuffers.valid()) {
     return;
   }
@@ -1230,7 +1272,7 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, ViewState &v, const C
     if (pipeline != bound) {
       commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
       bindFrame(commands, v);
-      const DrawConstants push{cascade};
+      const DrawConstants push{shadow};
       commands.pushConstants(std::as_bytes(std::span{&push, 1}));
       bound = pipeline;
       mirrored = false;
@@ -1433,6 +1475,25 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   m_materials.forEach(
       [&](MaterialHandle handle, const Material &material) { gpuMaterials[handle.index + 1] = encode(material.desc); });
 
+  // The budgeted spot lights' matrices and depth slots, and which light each belongs to.
+  rhi::TransientAllocation localShadows;
+  if (!v.localShadows.empty()) {
+    localShadows = m_device.allocateTransient(v.localShadows.size() * sizeof(GpuLocalShadow));
+    if (!localShadows.data.empty()) {
+      auto *gpuShadows = reinterpret_cast<GpuLocalShadow *>(localShadows.data.data());
+      for (std::size_t k = 0; k < v.localShadows.size(); ++k) {
+        gpuShadows[k] = GpuLocalShadow{.matrix = v.localShadows[k].matrix,
+                                       .image = sampledIndex(resources.image(v.localShadows[k].image)),
+                                       .padding = {}};
+      }
+    }
+  }
+  std::vector<std::uint32_t> lightShadow(lightCount, NoLocalShadow);
+  if (!localShadows.data.empty()) {
+    for (std::size_t k = 0; k < v.localShadows.size(); ++k) {
+      lightShadow[v.localShadows[k].light] = static_cast<std::uint32_t>(k);
+    }
+  }
   auto *gpuLights = reinterpret_cast<GpuLight *>(lights.data.data());
   for (std::uint32_t i = 0; i < lightCount; ++i) {
     const Light &light = view.lights[i];
@@ -1443,6 +1504,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                             .direction = glm::normalize(light.direction),
                             .innerCos = std::cos(light.innerAngle),
                             .outerCos = std::cos(light.outerAngle),
+                            .shadow = lightShadow[i],
                             .padding = {}};
   }
   v.statistics.lightCount = lightCount;
@@ -1489,6 +1551,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
       .clusters = m_device.bufferAddress(m_clusterBuffer),
+      .localShadows = localShadows.data.empty() ? 0 : m_device.bufferAddress(localShadows.buffer) + localShadows.offset,
   };
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
     frame.cascadeMatrices[c] = v.cascades[c].matrix;
@@ -1516,7 +1579,7 @@ void Renderer::bindFrame(rhi::ICommandList &commands, const ViewState &v) {
 }
 
 void Renderer::recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<const std::uint32_t> order,
-                           std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t cascade) {
+                           std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t shadow) {
   if (order.empty() || !v.frameBuffers.valid() || !m_visibleBuffer) {
     return;
   }
@@ -1540,9 +1603,9 @@ void Renderer::recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<
     if (pipeline != bound) {
       commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
       bindFrame(commands, v);
-      // The cascade is the whole of the per-draw constants now; the draw's slot in the visible
+      // The shadow map is the whole of the per-draw constants now; the draw's slot in the visible
       // list rides in its first instance, as a batch's does in an indirect command (ADR-0016).
-      const DrawConstants push{cascade};
+      const DrawConstants push{shadow};
       commands.pushConstants(std::as_bytes(std::span{&push, 1}));
       bound = pipeline;
       mirrored = false;
@@ -1669,6 +1732,18 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       (*job)->viewProjection = cameraViewProjection;
     }
   }
+  // The spot lights' shadow maps, within the budget, each culled against its own frustum.
+  if (m_settings.shadows && !v.opaqueOrder.empty()) {
+    selectLocalShadows(v);
+  }
+  v.statistics.localShadowCount = static_cast<std::uint32_t>(v.localShadows.size());
+  std::vector<std::optional<CullJob>> localJobs(v.localShadows.size());
+  for (std::size_t k = 0; k < v.localShadows.size(); ++k) {
+    localJobs[k] = reserveCullJob(v, true);
+    if (localJobs[k]) {
+      localJobs[k]->viewProjection = v.localShadows[k].matrix;
+    }
+  }
   for (const std::optional<CullJob> &job : cascadeJobs) {
     if (job) {
       v.cullJobs.push_back(*job);
@@ -1677,6 +1752,11 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   for (const std::optional<CullJob> *job : {&depthJob, &forwardJob}) {
     if (*job) {
       v.cullJobs.push_back(**job);
+    }
+  }
+  for (const std::optional<CullJob> &job : localJobs) {
+    if (job) {
+      v.cullJobs.push_back(*job);
     }
   }
   if (v.firstPendingJob < v.cullJobs.size()) {
@@ -1708,6 +1788,25 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
     }
   }
 
+  for (std::uint32_t k = 0; k < v.localShadows.size(); ++k) {
+    v.localShadows[k].image = graph.createImage({.size = {m_settings.localShadowMapSize, m_settings.localShadowMapSize},
+                                                 .format = DepthFormat,
+                                                 .debugName = std::format("shadow spot {}", k)});
+    graph.addPass(
+        std::format("shadow spot {}", k),
+        [&](PassBuilder &builder) { builder.depth(v.localShadows[k].image, rhi::LoadOp::Clear, 0.0f); },
+        [this, &v, k, job = localJobs[k]](rhi::ICommandList &commands, const PassResources &resources) {
+          ensureFrameUploaded(v, resources);
+          const std::uint32_t shadow = CascadeCount + k;
+          if (!job) {
+            recordDraws(commands, v, v.opaqueOrder, m_shadowPipelines, false, shadow);
+            return;
+          }
+          recordIndirect(commands, v, *job, v.opaqueBatches, m_shadowPipelines, shadow);
+          v.statistics.shadowDrawCount += static_cast<std::uint32_t>(v.opaqueOrder.size());
+        });
+  }
+
   graph.addPass(
       "depth", [&](PassBuilder &builder) { builder.depth(depth, rhi::LoadOp::Clear, 0.0f); },
       [this, &v, job = depthJob](rhi::ICommandList &commands, const PassResources &resources) {
@@ -1736,6 +1835,9 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           for (const GraphImage cascade : v.cascadeImages) {
             builder.sample(cascade);
           }
+        }
+        for (const LocalShadow &local : v.localShadows) {
+          builder.sample(local.image);
         }
         builder.sample(m_frameImages.lut);
         if (skybox) {

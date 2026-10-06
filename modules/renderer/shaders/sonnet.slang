@@ -53,9 +53,19 @@ public struct Light {
   public float3 direction; // spot lights: the direction the light travels
   public float innerCos;
   public float outerCos;
-  public float padding0;
+  public uint shadow; // index into frame.localShadows, 0xFFFFFFFF for a light without a shadow map
   public float padding1;
   public float padding2;
+};
+
+// A spot light's shadow map: the light-space matrix it was drawn with and its slot in
+// depthTextures[]. Matches GpuLocalShadow in the renderer module.
+public struct LocalShadow {
+  public float4x4 matrix;
+  public uint image;
+  public uint padding0;
+  public uint padding1;
+  public uint padding2;
 };
 
 // Clusters tile the screen and slice view depth exponentially; each holds the lights that
@@ -136,6 +146,7 @@ public struct FrameConstants {
   public MaterialData *materials;
   public Light *lights;
   public Cluster *clusters;
+  public LocalShadow *localShadows; // the budgeted spot lights' shadow maps; null without any
 };
 
 public struct ObjectData {
@@ -200,10 +211,10 @@ public float mirrorSign(WorldBasis basis) {
 }
 
 // A draw finds its object through the visible list, which an indirect command's firstInstance and
-// a direct draw's first instance point into (ADR-0016). What is left per pass is the shadow
-// cascade, pushed once.
+// a direct draw's first instance point into (ADR-0016). What is left per pass is the shadow map,
+// pushed once: a cascade, or CascadeCount plus a local shadow map's index.
 public struct DrawConstants {
-  public uint cascade;
+  public uint shadow;
 };
 
 // One candidate for the culling pass: the world-space bounds tested against the frustum, and

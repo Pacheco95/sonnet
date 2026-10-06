@@ -10,6 +10,7 @@
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/NullDevice.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
@@ -1347,6 +1348,125 @@ TEST_CASE("the sun's shadow darkens the ground beside a box on a GPU", "[rendere
 
     renderer.destroyMesh(plane);
     renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+namespace {
+
+Light shadowedSpot(glm::vec3 position, bool castsShadows = true) {
+  return Light{.type = LightType::Spot,
+               .position = position,
+               .range = 20.0f,
+               .direction = {0.0f, -1.0f, 0.0f},
+               .outerAngle = glm::radians(40.0f),
+               .castsShadows = castsShadows};
+}
+
+} // namespace
+
+TEST_CASE("spot lights asking for shadows get maps up to the budget, the same ones on every run",
+          "[renderer][shadow][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  auto settings = testSettings();
+  settings.maxLocalShadows = 3;
+  Renderer renderer{*device, shaderDir(platform), settings};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const std::array draws{DrawItem{.mesh = box}};
+  // Light 1 is a point light and light 2 does not ask: neither is a candidate. Lights 0, 3, 4
+  // fill the budget of three; 5 and 6 ask too late and light without a shadow.
+  Light point = shadowedSpot({1.0f, 4.0f, 0.0f});
+  point.type = LightType::Point;
+  const std::array lights{shadowedSpot({0.0f, 4.0f, 0.0f}),        point,
+                          shadowedSpot({2.0f, 4.0f, 0.0f}, false), shadowedSpot({3.0f, 4.0f, 0.0f}),
+                          shadowedSpot({4.0f, 4.0f, 0.0f}),        shadowedSpot({5.0f, 4.0f, 0.0f}),
+                          shadowedSpot({6.0f, 4.0f, 0.0f})};
+  SceneView view = boxScene(draws);
+  view.lights = lights;
+  REQUIRE(renderer.localShadowBudget() == 3);
+
+  for (int run = 0; run < 2; ++run) {
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({64, 64});
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    graph.execute(commands);
+    device->endFrame();
+
+    REQUIRE(hasPass(graph, "shadow spot 0"));
+    REQUIRE(hasPass(graph, "shadow spot 2"));
+    REQUIRE(!hasPass(graph, "shadow spot 3"));
+    REQUIRE(renderer.statistics().localShadowCount == 3);
+    const auto shadows = renderer.localShadows();
+    REQUIRE(shadows.size() == 3);
+    REQUIRE(shadows[0].light == 0);
+    REQUIRE(shadows[1].light == 3);
+    REQUIRE(shadows[2].light == 4);
+    REQUIRE(renderer.statistics().lightCount == 7); // every light still illuminates
+    // Four cascades, the depth pre-pass and the forward pass, and the three maps: one command
+    // each for the single box, and the maps' draws count with the cascades'.
+    REQUIRE(renderer.statistics().indirectCallCount == 4 + 2 + 3);
+    REQUIRE(renderer.statistics().shadowDrawCount == 4 + 3);
+  }
+
+  settings.maxLocalShadows = 1000;
+  renderer.setSettings(settings);
+  REQUIRE(renderer.localShadowBudget() == Renderer::MaxLocalShadows);
+  settings.shadows = false;
+  renderer.setSettings(settings);
+  REQUIRE(renderer.localShadowBudget() == 0);
+  renderer.destroyMesh(box);
+}
+
+TEST_CASE("a spot light's shadow map holds the depth of what its cone sees on a GPU", "[renderer][shadow][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.localShadowMapSize = 64;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle plane = renderer.createMesh(primitives::plane({20.0f, 20.0f}), "ground");
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const std::array draws{DrawItem{.mesh = plane}, DrawItem{.mesh = box}};
+    // The light is four metres above the ground looking down, a box a metre wide under it.
+    const std::array lights{shadowedSpot({0.0f, 4.0f, 0.0f})};
+    SceneView view = topDownScene(draws);
+    view.lights = lights;
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({64, 64});
+    const BufferHandle readback = device->createBuffer({.size = 64 * 64 * sizeof(float),
+                                                        .usage = BufferUsage::TransferDst,
+                                                        .memory = MemoryUsage::GpuToCpu,
+                                                        .debugName = "spot depth readback"});
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    REQUIRE(renderer.localShadows().size() == 1);
+    const GraphImage map = renderer.localShadows()[0].image;
+    graph.addPass(
+        "spot depth readback", [&](PassBuilder &b) { b.transferSrc(map); },
+        [&](ICommandList &cmd, const PassResources &resources) {
+          cmd.copyImageToBuffer(resources.image(map), readback);
+        });
+    graph.execute(commands);
+    device->endFrame();
+    device->waitIdle();
+
+    std::array<float, 64 * 64> depth{};
+    std::memcpy(depth.data(), device->mappedRange(readback).data(), sizeof(depth));
+    // Reversed-Z over an infinite far plane: near / distance, with near a hundredth of the range.
+    const float nearPlane = 0.2f;
+    REQUIRE(depth[32 * 64 + 32] == Catch::Approx(nearPlane / 3.5f).margin(0.002)); // the box's top
+    REQUIRE(depth[32 * 64 + 56] == Catch::Approx(nearPlane / 4.0f).margin(0.002)); // the ground
+    REQUIRE(depth[8 * 64 + 8] == Catch::Approx(nearPlane / 4.0f).margin(0.002));
+    REQUIRE(device->validationMessageCount() == 0);
+    device->destroyBuffer(readback);
+    renderer.destroyMesh(box);
+    renderer.destroyMesh(plane);
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
