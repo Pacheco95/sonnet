@@ -10,6 +10,7 @@ sonnet_add_module(core
     src/Assert.cpp
     src/Error.cpp
     src/File.cpp
+    src/FileLock.cpp
     src/JobSystem.cpp
     src/Log.cpp
     src/Uuid.cpp
@@ -39,6 +40,7 @@ sonnet_add_module_test(core
   SOURCES
     tests/AssertTests.cpp
     tests/ErrorTests.cpp
+    tests/FileLockTests.cpp
     tests/FileTests.cpp
     tests/HandlePoolTests.cpp
     tests/HandleTests.cpp
