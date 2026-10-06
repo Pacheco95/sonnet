@@ -72,6 +72,7 @@ struct PointLight {
   glm::vec3 color{1.0f, 1.0f, 1.0f};
   float intensity{10.0f};
   float range{10.0f};
+  bool castsShadows{false}; // asks for a shadow cube map; scenes without it stay unshadowed
 };
 
 // Shines along the entity's -Z.
@@ -81,7 +82,7 @@ struct SpotLight {
   float range{10.0f};
   float innerAngle{glm::radians(20.0f)};
   float outerAngle{glm::radians(30.0f)};
-  bool castsShadows{false}; // read by the renderer once spot shadows land; scenes without it stay unshadowed
+  bool castsShadows{false}; // asks for a shadow map; scenes without it stay unshadowed
 };
 
 // The scene's image-based lighting and skybox, by environment asset; the first entity that has

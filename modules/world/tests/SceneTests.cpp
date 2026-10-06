@@ -249,6 +249,31 @@ TEST_CASE("siblings keep their order through repeated save and load", "[world][s
   }
 }
 
+TEST_CASE("a point light's castsShadows survives a scene round trip and defaults to false", "[world][scene]") {
+  world::World source;
+  source.createEntity("Shadowed").set<world::PointLight>({.castsShadows = true});
+  source.createEntity("Plain").set<world::PointLight>({});
+  const nlohmann::json scene = world::saveScene(source);
+
+  world::World target;
+  REQUIRE(world::loadScene(target, scene));
+  std::size_t count = 0;
+  target.ecs().each([&](const world::Name &name, const world::PointLight &light) {
+    ++count;
+    REQUIRE(light.castsShadows == (name.value == "Shadowed"));
+  });
+  REQUIRE(count == 2);
+
+  // A scene written before the field existed loads with it off.
+  nlohmann::json old = scene;
+  for (auto &entity : old["entities"]) {
+    entity["components"]["PointLight"].erase("castsShadows");
+  }
+  world::World legacy;
+  REQUIRE(world::loadScene(legacy, old));
+  legacy.ecs().each([&](const world::PointLight &light) { REQUIRE(!light.castsShadows); });
+}
+
 TEST_CASE("a spot light's castsShadows survives a scene round trip and defaults to false", "[world][scene]") {
   world::World source;
   source.createEntity("Shadowed").set<world::SpotLight>({.castsShadows = true});
