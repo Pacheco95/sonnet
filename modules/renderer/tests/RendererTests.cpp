@@ -1374,9 +1374,9 @@ TEST_CASE("spot lights asking for shadows get maps up to the budget, the same on
   Renderer renderer{*device, shaderDir(platform), settings};
   const MeshHandle box = renderer.createMesh(primitives::box(), "box");
   const std::array draws{DrawItem{.mesh = box}};
-  // Light 1 is a point light and light 2 does not ask: neither is a candidate. Lights 0, 3, 4
-  // fill the budget of three; 5 and 6 ask too late and light without a shadow.
-  Light point = shadowedSpot({1.0f, 4.0f, 0.0f});
+  // Lights 1 and 2 do not ask: neither is a candidate. Lights 0, 3, 4 fill the budget of three;
+  // 5 and 6 ask too late and light without a shadow.
+  Light point = shadowedSpot({1.0f, 4.0f, 0.0f}, false);
   point.type = LightType::Point;
   const std::array lights{shadowedSpot({0.0f, 4.0f, 0.0f}),        point,
                           shadowedSpot({2.0f, 4.0f, 0.0f}, false), shadowedSpot({3.0f, 4.0f, 0.0f}),
@@ -1397,9 +1397,11 @@ TEST_CASE("spot lights asking for shadows get maps up to the budget, the same on
     device->endFrame();
 
     REQUIRE(hasPass(graph, "shadow spot 0"));
-    REQUIRE(hasPass(graph, "shadow spot 2"));
-    REQUIRE(!hasPass(graph, "shadow spot 3"));
+    REQUIRE(hasPass(graph, "shadow spot 3"));
+    REQUIRE(hasPass(graph, "shadow spot 4"));
+    REQUIRE(!hasPass(graph, "shadow spot 5"));
     REQUIRE(renderer.statistics().localShadowCount == 3);
+    REQUIRE(renderer.statistics().localShadowMapCount == 3);
     const auto shadows = renderer.localShadows();
     REQUIRE(shadows.size() == 3);
     REQUIRE(shadows[0].light == 0);
@@ -1419,6 +1421,181 @@ TEST_CASE("spot lights asking for shadows get maps up to the budget, the same on
   renderer.setSettings(settings);
   REQUIRE(renderer.localShadowBudget() == 0);
   renderer.destroyMesh(box);
+}
+
+namespace {
+
+Light shadowedPoint(glm::vec3 position, bool castsShadows = true) {
+  return Light{.type = LightType::Point, .position = position, .range = 20.0f, .castsShadows = castsShadows};
+}
+
+} // namespace
+
+TEST_CASE("point lights take six maps each from the same budget as spot lights", "[renderer][shadow][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  auto settings = testSettings();
+  settings.maxLocalShadows = 3;
+  Renderer renderer{*device, shaderDir(platform), settings};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const std::array draws{DrawItem{.mesh = box}};
+  // Lights 0, 1 and 2 fill the budget of three whatever their type, 13 maps in all; 3 asks too
+  // late and 4 does not ask.
+  const std::array lights{shadowedPoint({0.0f, 4.0f, 0.0f}), shadowedSpot({1.0f, 4.0f, 0.0f}),
+                          shadowedPoint({2.0f, 4.0f, 0.0f}), shadowedPoint({3.0f, 4.0f, 0.0f}),
+                          shadowedPoint({4.0f, 4.0f, 0.0f}, false)};
+  SceneView view = boxScene(draws);
+  view.lights = lights;
+
+  for (int run = 0; run < 2; ++run) {
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({64, 64});
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    graph.execute(commands);
+    device->endFrame();
+
+    REQUIRE(renderer.statistics().localShadowCount == 3);
+    REQUIRE(renderer.statistics().localShadowMapCount == 13);
+    const auto shadows = renderer.localShadows();
+    REQUIRE(shadows.size() == 13);
+    for (std::uint32_t face = 0; face < Renderer::PointShadowFaces; ++face) {
+      REQUIRE(shadows[face].light == 0);
+      REQUIRE(shadows[face].face == face);
+      REQUIRE(hasPass(graph, std::format("shadow point 0 face {}", face)));
+      REQUIRE(hasPass(graph, std::format("shadow point 2 face {}", face)));
+      REQUIRE(shadows[7 + face].light == 2);
+    }
+    REQUIRE(shadows[6].light == 1);
+    REQUIRE(hasPass(graph, "shadow spot 1"));
+    REQUIRE(!hasPass(graph, "shadow point 3 face 0"));
+    REQUIRE(!hasPass(graph, "shadow point 4 face 0"));
+    // Each face is a cull job and a command of its own, next to the cascades, the depth pre-pass
+    // and the forward pass.
+    REQUIRE(renderer.statistics().indirectCallCount == 4 + 2 + 13);
+    REQUIRE(renderer.statistics().shadowDrawCount == 4 + 13);
+    REQUIRE(renderer.statistics().lightCount == 5);
+  }
+
+  // Turning shadows off, or asking for none, leaves no maps.
+  settings.maxLocalShadows = 0;
+  renderer.setSettings(settings);
+  {
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({64, 64});
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    graph.execute(commands);
+    device->endFrame();
+    REQUIRE(renderer.localShadows().empty());
+    REQUIRE(renderer.statistics().localShadowMapCount == 0);
+  }
+  renderer.destroyMesh(box);
+}
+
+TEST_CASE("a point light that no longer fits in the depth array is passed over, not a spot light after it",
+          "[renderer][shadow][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  auto settings = testSettings();
+  settings.maxLocalShadows = 8;
+  Renderer renderer{*device, shaderDir(platform), settings};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const std::array draws{DrawItem{.mesh = box}};
+  // Four point lights take 24 of the 28 maps; the fifth would need six more, the spot light one.
+  std::vector<Light> lights;
+  for (int i = 0; i < 5; ++i) {
+    lights.push_back(shadowedPoint({static_cast<float>(i), 4.0f, 0.0f}));
+  }
+  lights.push_back(shadowedSpot({5.0f, 4.0f, 0.0f}));
+  SceneView view = boxScene(draws);
+  view.lights = lights;
+
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  REQUIRE(renderer.statistics().localShadowCount == 5);
+  REQUIRE(renderer.statistics().localShadowMapCount == 25);
+  REQUIRE(renderer.localShadows().back().light == 5);
+  REQUIRE(hasPass(graph, "shadow point 3 face 5"));
+  REQUIRE(!hasPass(graph, "shadow point 4 face 0"));
+  REQUIRE(hasPass(graph, "shadow spot 5"));
+  renderer.destroyMesh(box);
+}
+
+TEST_CASE("a point light's face maps hold the depth of what each direction sees on a GPU", "[renderer][shadow][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.localShadowMapSize = 64;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle plane = renderer.createMesh(primitives::plane({20.0f, 20.0f}), "ground");
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const std::array draws{DrawItem{.mesh = plane}, DrawItem{.mesh = box}};
+    // The light is four metres above the ground, a box a metre wide under it.
+    const std::array lights{shadowedPoint({0.0f, 4.0f, 0.0f})};
+    SceneView view = topDownScene(draws);
+    view.lights = lights;
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({64, 64});
+    constexpr std::uint32_t Down = 3;
+    constexpr std::uint32_t Up = 2;
+    const std::array faces{Down, Up};
+    std::array<BufferHandle, 2> readbacks;
+    for (BufferHandle &readback : readbacks) {
+      readback = device->createBuffer({.size = std::size_t{64} * 64 * sizeof(float),
+                                       .usage = BufferUsage::TransferDst,
+                                       .memory = MemoryUsage::GpuToCpu,
+                                       .debugName = "point depth readback"});
+    }
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    REQUIRE(renderer.localShadows().size() == Renderer::PointShadowFaces);
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+      const GraphImage map = renderer.localShadows()[faces[i]].image;
+      graph.addPass(
+          std::format("point depth readback {}", i), [&](PassBuilder &b) { b.transferSrc(map); },
+          [&, map, i](ICommandList &cmd, const PassResources &resources) {
+            cmd.copyImageToBuffer(resources.image(map), readbacks[i]);
+          });
+    }
+    graph.execute(commands);
+    device->endFrame();
+    device->waitIdle();
+
+    std::array<float, std::size_t{64} * 64> down{};
+    std::array<float, std::size_t{64} * 64> up{};
+    std::memcpy(down.data(), device->mappedRange(readbacks[0]).data(), sizeof(down));
+    std::memcpy(up.data(), device->mappedRange(readbacks[1]).data(), sizeof(up));
+    // Reversed-Z over an infinite far plane: near / distance along the face's axis, with near a
+    // hundredth of the range. Looking down the face sees the box and the ground, looking up
+    // nothing, which stays at the cleared far plane.
+    const float nearPlane = 0.2f;
+    REQUIRE(down[32 * 64 + 32] == Catch::Approx(nearPlane / 3.5f).margin(0.002)); // the box's top
+    REQUIRE(down[8 * 64 + 8] == Catch::Approx(nearPlane / 4.0f).margin(0.002));   // the ground
+    REQUIRE(down[56 * 64 + 56] == Catch::Approx(nearPlane / 4.0f).margin(0.002));
+    REQUIRE(up[32 * 64 + 32] == 0.0f);
+    REQUIRE(device->validationMessageCount() == 0);
+    for (const BufferHandle readback : readbacks) {
+      device->destroyBuffer(readback);
+    }
+    renderer.destroyMesh(box);
+    renderer.destroyMesh(plane);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
 }
 
 TEST_CASE("a spot light's shadow map holds the depth of what its cone sees on a GPU", "[renderer][shadow][gpu]") {

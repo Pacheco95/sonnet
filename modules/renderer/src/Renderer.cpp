@@ -61,8 +61,8 @@ static_assert(sizeof(GpuLight) == 64);
 
 constexpr std::uint32_t NoLocalShadow = 0xFFFFFFFFu;
 
-// One spot light's shadow map: its light-space matrix and the bindless depth slot it was drawn
-// into. Mirror of LocalShadow in shaders/sonnet.slang.
+// One local shadow map, a spot light's or one face of a point light's: its light-space matrix
+// and the bindless depth slot it was drawn into. Mirror of LocalShadow in shaders/sonnet.slang.
 struct GpuLocalShadow {
   glm::mat4 matrix;
   std::uint32_t image;
@@ -120,7 +120,7 @@ struct FrameConstants {
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
-  std::uint64_t localShadows; // GpuLocalShadow per budgeted spot light, 0 without any
+  std::uint64_t localShadows; // GpuLocalShadow per local shadow map, 0 without any
 };
 static_assert(sizeof(FrameConstants) == 824);
 
@@ -943,31 +943,73 @@ void Renderer::computeCascades(ViewState &v, float aspect) {
   }
 }
 
-// The spot lights that get a shadow map this frame: the first ones in the light list's order that
-// ask for one, up to the budget, so the same lights are chosen on every run. The lights past the
-// budget still illuminate, without shadows. Each light's frustum is its cone, a little wider so the
-// filter's footprint at the cone's edge stays inside the map.
+namespace {
+
+// The lights that get shadow maps this frame, in the light list's order: the first ones that ask,
+// up to the budget, so the same lights are chosen on every run. A spot light takes one map and a
+// point light six; one whose maps no longer fit in the depth array is passed over, so a spot light
+// after it can still be granted. The lights not granted illuminate without shadows.
+template <typename Grant> void grantLocalShadows(const SceneView &view, std::uint32_t budget, Grant &&grant) {
+  const auto lightCount = static_cast<std::uint32_t>(std::min<std::size_t>(view.lights.size(), Renderer::MaxLights));
+  std::uint32_t lights = 0;
+  std::uint32_t maps = 0;
+  for (std::uint32_t i = 0; i < lightCount && lights < budget; ++i) {
+    const Light &light = view.lights[i];
+    if (!light.castsShadows) {
+      continue;
+    }
+    const std::uint32_t faces = light.type == LightType::Point ? Renderer::PointShadowFaces : 1;
+    if (maps + faces > Renderer::MaxLocalShadows) {
+      continue;
+    }
+    grant(i, faces);
+    ++lights;
+    maps += faces;
+  }
+}
+
+} // namespace
+
+std::uint32_t Renderer::localShadowMapCount(const SceneView &view) const {
+  std::uint32_t maps = 0;
+  grantLocalShadows(view, localShadowBudget(), [&](std::uint32_t, std::uint32_t faces) { maps += faces; });
+  return maps;
+}
+
+// Each spot light's frustum is its cone and each point light's six are the faces of a cube, all a
+// little wider than that so the filter's footprint at the edge stays inside the map.
 void Renderer::selectLocalShadows(ViewState &v) const {
   const SceneView &view = *v.view;
-  const std::uint32_t budget = localShadowBudget();
-  const auto lightCount = static_cast<std::uint32_t>(std::min<std::size_t>(view.lights.size(), MaxLights));
   const float size = static_cast<float>(m_settings.localShadowMapSize);
   const float margin = size / std::max(1.0f, size - 4.0f);
-  for (std::uint32_t i = 0; i < lightCount && v.localShadows.size() < budget; ++i) {
-    const Light &light = view.lights[i];
-    if (light.type != LightType::Spot || !light.castsShadows) {
-      continue;
+  grantLocalShadows(view, localShadowBudget(), [&](std::uint32_t index, std::uint32_t faces) {
+    const Light &light = view.lights[index];
+    const float nearPlane = std::clamp(light.range * 0.01f, 0.05f, 0.5f);
+    if (light.type == LightType::Point) {
+      static constexpr std::array<glm::vec3, PointShadowFaces> directions{
+          glm::vec3{1.0f, 0.0f, 0.0f},  glm::vec3{-1.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 1.0f, 0.0f},
+          glm::vec3{0.0f, -1.0f, 0.0f}, glm::vec3{0.0f, 0.0f, 1.0f},  glm::vec3{0.0f, 0.0f, -1.0f}};
+      const glm::mat4 projection = perspectiveReversedZ(2.0f * std::atan(margin), 1.0f, nearPlane);
+      for (std::uint32_t face = 0; face < faces; ++face) {
+        const glm::vec3 up = face == 2 || face == 3 ? glm::vec3{0.0f, 0.0f, 1.0f} : glm::vec3{0.0f, 1.0f, 0.0f};
+        v.localShadows.push_back(
+            LocalShadow{.light = index,
+                        .face = face,
+                        .matrix = projection * glm::lookAt(light.position, light.position + directions[face], up),
+                        .image = {}});
+      }
+      return;
     }
     const glm::vec3 direction = glm::normalize(light.direction);
     const glm::vec3 up = std::abs(direction.y) > 0.99f ? glm::vec3{0.0f, 0.0f, 1.0f} : glm::vec3{0.0f, 1.0f, 0.0f};
     const float halfAngle = std::clamp(light.outerAngle, glm::radians(0.5f), glm::radians(80.0f));
     const float fovY = 2.0f * std::atan(std::tan(halfAngle) * margin);
-    const float nearPlane = std::clamp(light.range * 0.01f, 0.05f, 0.5f);
-    v.localShadows.push_back(LocalShadow{.light = i,
+    v.localShadows.push_back(LocalShadow{.light = index,
+                                         .face = 0,
                                          .matrix = perspectiveReversedZ(fovY, 1.0f, nearPlane) *
                                                    glm::lookAt(light.position, light.position + direction, up),
                                          .image = {}});
-  }
+  });
 }
 
 void Renderer::parallelFor(const char *name, std::size_t count, std::size_t grain,
@@ -1136,7 +1178,8 @@ void Renderer::ensureIndirectBuffers(ViewState &v) {
   // slot, and the buffers grow to the sum of the slices (docs/decisions/0021-two-views-in-one-frame.md).
   const auto opaqueDraws = static_cast<std::uint32_t>(v.opaqueOrder.size());
   const auto allDraws = static_cast<std::uint32_t>(v.allOrder.size());
-  v.opaqueJobCapacity = CullJobsOpaque + localShadowBudget();
+  const std::uint32_t localMaps = m_settings.shadows && !v.opaqueOrder.empty() ? localShadowMapCount(*v.view) : 0;
+  v.opaqueJobCapacity = CullJobsOpaque + localMaps;
   const std::uint32_t commands = static_cast<std::uint32_t>(v.opaqueBatches.size()) * v.opaqueJobCapacity +
                                  static_cast<std::uint32_t>(v.allBatches.size()) * CullJobsAll;
   v.commandBase = m_commandsReserved;
@@ -1475,7 +1518,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   m_materials.forEach(
       [&](MaterialHandle handle, const Material &material) { gpuMaterials[handle.index + 1] = encode(material.desc); });
 
-  // The budgeted spot lights' matrices and depth slots, and which light each belongs to.
+  // The budgeted lights' maps, matrices and depth slots, and which light each belongs to.
   rhi::TransientAllocation localShadows;
   if (!v.localShadows.empty()) {
     localShadows = m_device.allocateTransient(v.localShadows.size() * sizeof(GpuLocalShadow));
@@ -1490,7 +1533,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   }
   std::vector<std::uint32_t> lightShadow(lightCount, NoLocalShadow);
   if (!localShadows.data.empty()) {
-    for (std::size_t k = 0; k < v.localShadows.size(); ++k) {
+    // A point light's index names its first face; the others follow it.
+    for (std::size_t k = v.localShadows.size(); k-- > 0;) {
       lightShadow[v.localShadows[k].light] = static_cast<std::uint32_t>(k);
     }
   }
@@ -1732,11 +1776,14 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       (*job)->viewProjection = cameraViewProjection;
     }
   }
-  // The spot lights' shadow maps, within the budget, each culled against its own frustum.
+  // The lights' shadow maps, within the budget, each culled against its own frustum.
   if (m_settings.shadows && !v.opaqueOrder.empty()) {
     selectLocalShadows(v);
   }
-  v.statistics.localShadowCount = static_cast<std::uint32_t>(v.localShadows.size());
+  v.statistics.localShadowMapCount = static_cast<std::uint32_t>(v.localShadows.size());
+  for (std::size_t k = 0; k < v.localShadows.size(); ++k) {
+    v.statistics.localShadowCount += v.localShadows[k].face == 0 ? 1u : 0u;
+  }
   std::vector<std::optional<CullJob>> localJobs(v.localShadows.size());
   for (std::size_t k = 0; k < v.localShadows.size(); ++k) {
     localJobs[k] = reserveCullJob(v, true);
@@ -1789,12 +1836,15 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   }
 
   for (std::uint32_t k = 0; k < v.localShadows.size(); ++k) {
+    const LocalShadow &map = v.localShadows[k];
+    const bool point = view.lights[map.light].type == LightType::Point;
+    const std::string name =
+        point ? std::format("shadow point {} face {}", map.light, map.face) : std::format("shadow spot {}", map.light);
     v.localShadows[k].image = graph.createImage({.size = {m_settings.localShadowMapSize, m_settings.localShadowMapSize},
                                                  .format = DepthFormat,
-                                                 .debugName = std::format("shadow spot {}", k)});
+                                                 .debugName = name});
     graph.addPass(
-        std::format("shadow spot {}", k),
-        [&](PassBuilder &builder) { builder.depth(v.localShadows[k].image, rhi::LoadOp::Clear, 0.0f); },
+        name, [&](PassBuilder &builder) { builder.depth(v.localShadows[k].image, rhi::LoadOp::Clear, 0.0f); },
         [this, &v, k, job = localJobs[k]](rhi::ICommandList &commands, const PassResources &resources) {
           ensureFrameUploaded(v, resources);
           const std::uint32_t shadow = CascadeCount + k;

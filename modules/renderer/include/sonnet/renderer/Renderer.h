@@ -32,9 +32,10 @@ struct RenderStatistics {
   // the counts back (ADR-0012).
   std::uint32_t drawCount{0}; // scene draws: opaque and blended, not the shadow, id or mask passes
   std::uint32_t triangleCount{0};
-  std::uint32_t shadowDrawCount{0};   // the sun's cascades and the local shadow maps
-  std::uint32_t localShadowCount{0};  // spot lights whose shadow map this view rendered
-  std::uint32_t indirectCallCount{0}; // indirect draw calls the scene passes recorded, one per batch
+  std::uint32_t shadowDrawCount{0};     // the sun's cascades and the local shadow maps
+  std::uint32_t localShadowCount{0};    // spot and point lights whose shadow maps this view rendered
+  std::uint32_t localShadowMapCount{0}; // the depth maps they took: one per spot light, six per point light
+  std::uint32_t indirectCallCount{0};   // indirect draw calls the scene passes recorded, one per batch
   std::uint32_t lightCount{0};
   std::uint32_t skinnedInstanceCount{0}; // instances the skinning pass deformed
   std::uint32_t skinnedVertexCount{0};
@@ -63,10 +64,12 @@ struct RendererSettings {
   std::uint32_t shadowMapSize{2048}; // per cascade
   float shadowDistance{80.0f};       // metres of view depth the cascades cover
   float shadowBias{0.0015f};         // in reversed-Z depth units; receiver offset also follows the texel size
-  // Spot lights that ask for a shadow (Light::castsShadows) get a depth map each, per view, up to
-  // this many; the rest still illuminate, without shadows. Clamped to Renderer::MaxLocalShadows.
+  // Spot and point lights that ask for a shadow (Light::castsShadows) get depth maps, per view, up
+  // to this many lights; the rest still illuminate, without shadows. A spot light takes one map and
+  // a point light six, one per cube face, and a view has Renderer::MaxLocalShadows maps in all, so
+  // point lights can reach the map limit before they reach this count.
   std::uint32_t maxLocalShadows{8};
-  std::uint32_t localShadowMapSize{1024}; // per spot light
+  std::uint32_t localShadowMapSize{1024}; // per spot light, and per face of a point light
   DebugView debugView{DebugView::Final};
   bool bloom{true};
   std::uint32_t bloomLevels{5};
@@ -105,9 +108,11 @@ public:
   // a view's local budget is what is left of its half.
   static constexpr std::uint32_t MaxShadowedViews = 2;
   static constexpr std::uint32_t MaxLocalShadows = rhi::MaxBindlessDepthImages / MaxShadowedViews - CascadeCount;
+  // The faces of a point light's shadow cube, in the order of their maps: +X, -X, +Y, -Y, +Z, -Z.
+  static constexpr std::uint32_t PointShadowFaces = 6;
   // Culling jobs one frame can reserve over each order list: the four cascades, the depth
   // pre-pass and the forward pass over the opaque draws, plus one per local shadow map the
-  // settings allow, and the id and selection-mask passes over all of them. The command buffer and
+  // lights ask for within the budget, and the id and selection-mask passes over all of them. The command buffer and
   // the visible list are sized for exactly these (ADR-0016). CullJobsOpaque is the part the
   // settings do not change.
   static constexpr std::uint32_t CullJobsOpaque = CascadeCount + 2;
@@ -194,15 +199,18 @@ public:
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
   }
-  // The local shadow budget the settings give: maxLocalShadows, within what the depth array holds.
+  // The local shadow budget the settings give, in lights: maxLocalShadows, within what the depth
+  // array holds.
   [[nodiscard]] std::uint32_t localShadowBudget() const noexcept {
     return m_settings.shadows ? std::min(m_settings.maxLocalShadows, MaxLocalShadows) : 0u;
   }
-  // A spot light's shadow map as the frame's `view`th declared view rendered it: which entry of
+  // One local shadow map as the frame's `view`th declared view rendered it: which entry of
   // SceneView::lights it belongs to, its light-space matrix and the graph image holding the depth.
+  // A spot light has one; a point light has PointShadowFaces in a row, `face` counting them.
   // Valid for the frame, from addScenePasses to the next graph reset.
   struct LocalShadow {
     std::uint32_t light{0};
+    std::uint32_t face{0};
     glm::mat4 matrix{1.0f};
     GraphImage image;
   };
@@ -349,7 +357,7 @@ private:
     std::array<Cascade, CascadeCount> cascades;
     std::array<GraphImage, CascadeCount> cascadeImages;
     bool cascadesActive{false};
-    std::vector<LocalShadow> localShadows; // the budgeted spot lights, in the light list's order
+    std::vector<LocalShadow> localShadows; // the budgeted lights' maps, in the light list's order
     FrameBuffers frameBuffers;
     // This view's slices of the shared command and visible buffers, in commands and slots.
     std::uint32_t commandBase{0};
@@ -388,6 +396,9 @@ private:
   void releaseSkinnedVertices(bool all);
   void computeCascades(ViewState &v, float aspect);
   void selectLocalShadows(ViewState &v) const;
+  // How many local shadow maps the view's lights get, which ensureIndirectBuffers sizes the cull
+  // buffers for before selectLocalShadows picks them.
+  [[nodiscard]] std::uint32_t localShadowMapCount(const SceneView &view) const;
   // Groups an order list, already sorted by pipeline, front face, mesh and submesh, into the runs
   // one instanced indirect command each can submit. Returns the batches; the order list's entries
   // keep their positions.
