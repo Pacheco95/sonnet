@@ -11,6 +11,7 @@
 #include <sonnet/core/JobSystem.h>
 #include <sonnet/rhi/Device.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -31,7 +32,8 @@ struct RenderStatistics {
   // the counts back (ADR-0012).
   std::uint32_t drawCount{0}; // scene draws: opaque and blended, not the shadow, id or mask passes
   std::uint32_t triangleCount{0};
-  std::uint32_t shadowDrawCount{0};
+  std::uint32_t shadowDrawCount{0};   // the sun's cascades and the local shadow maps
+  std::uint32_t localShadowCount{0};  // spot lights whose shadow map this view rendered
   std::uint32_t indirectCallCount{0}; // indirect draw calls the scene passes recorded, one per batch
   std::uint32_t lightCount{0};
   std::uint32_t skinnedInstanceCount{0}; // instances the skinning pass deformed
@@ -61,6 +63,10 @@ struct RendererSettings {
   std::uint32_t shadowMapSize{2048}; // per cascade
   float shadowDistance{80.0f};       // metres of view depth the cascades cover
   float shadowBias{0.0015f};         // in reversed-Z depth units; receiver offset also follows the texel size
+  // Spot lights that ask for a shadow (Light::castsShadows) get a depth map each, per view, up to
+  // this many; the rest still illuminate, without shadows. Clamped to Renderer::MaxLocalShadows.
+  std::uint32_t maxLocalShadows{8};
+  std::uint32_t localShadowMapSize{1024}; // per spot light
   DebugView debugView{DebugView::Final};
   bool bloom{true};
   std::uint32_t bloomLevels{5};
@@ -94,9 +100,16 @@ public:
   static constexpr rhi::Format HdrFormat = rhi::Format::R16G16B16A16Sfloat;
   static constexpr std::uint32_t CascadeCount = 4;
   static constexpr std::uint32_t MaxLights = 1024;
+  // Views a frame can declare with shadows (the editor's Scene and Game views). Each takes its
+  // cascades and its local shadow maps from the device's 64 bindless depth images (ADR-0017), so
+  // a view's local budget is what is left of its half.
+  static constexpr std::uint32_t MaxShadowedViews = 2;
+  static constexpr std::uint32_t MaxLocalShadows = rhi::MaxBindlessDepthImages / MaxShadowedViews - CascadeCount;
   // Culling jobs one frame can reserve over each order list: the four cascades, the depth
-  // pre-pass and the forward pass over the opaque draws, the id and selection-mask passes over
-  // all of them. The command buffer and the visible list are sized for exactly these (ADR-0016).
+  // pre-pass and the forward pass over the opaque draws, plus one per local shadow map the
+  // settings allow, and the id and selection-mask passes over all of them. The command buffer and
+  // the visible list are sized for exactly these (ADR-0016). CullJobsOpaque is the part the
+  // settings do not change.
   static constexpr std::uint32_t CullJobsOpaque = CascadeCount + 2;
   static constexpr std::uint32_t CullJobsAll = 2;
 
@@ -180,6 +193,22 @@ public:
   }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
+  }
+  // The local shadow budget the settings give: maxLocalShadows, within what the depth array holds.
+  [[nodiscard]] std::uint32_t localShadowBudget() const noexcept {
+    return m_settings.shadows ? std::min(m_settings.maxLocalShadows, MaxLocalShadows) : 0u;
+  }
+  // A spot light's shadow map as the frame's `view`th declared view rendered it: which entry of
+  // SceneView::lights it belongs to, its light-space matrix and the graph image holding the depth.
+  // Valid for the frame, from addScenePasses to the next graph reset.
+  struct LocalShadow {
+    std::uint32_t light{0};
+    glm::mat4 matrix{1.0f};
+    GraphImage image;
+  };
+  [[nodiscard]] std::span<const LocalShadow> localShadows(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? std::span<const LocalShadow>{m_views[view]->localShadows}
+                              : std::span<const LocalShadow>{};
   }
   // The device the renderer draws with: which compressed formats cooked textures can be loaded
   // in (docs/assets.md, "Textures") and which bundles it can run (docs/player.md).
@@ -313,12 +342,14 @@ private:
     std::vector<Batch> opaqueBatches;
     std::vector<Batch> allBatches;
     std::vector<CullJob> cullJobs;   // reserved this frame, run by the culling passes
-    std::uint32_t opaqueJobsUsed{0}; // of CullJobsOpaque
-    std::uint32_t allJobsUsed{0};    // of CullJobsAll
-    std::size_t firstPendingJob{0};  // jobs a culling pass has not recorded yet
+    std::uint32_t opaqueJobsUsed{0}; // of opaqueJobCapacity
+    std::uint32_t opaqueJobCapacity{CullJobsOpaque};
+    std::uint32_t allJobsUsed{0};   // of CullJobsAll
+    std::size_t firstPendingJob{0}; // jobs a culling pass has not recorded yet
     std::array<Cascade, CascadeCount> cascades;
     std::array<GraphImage, CascadeCount> cascadeImages;
     bool cascadesActive{false};
+    std::vector<LocalShadow> localShadows; // the budgeted spot lights, in the light list's order
     FrameBuffers frameBuffers;
     // This view's slices of the shared command and visible buffers, in commands and slots.
     std::uint32_t commandBase{0};
@@ -356,6 +387,7 @@ private:
   void recordSkinning(rhi::ICommandList &commands, const ViewState &v);
   void releaseSkinnedVertices(bool all);
   void computeCascades(ViewState &v, float aspect);
+  void selectLocalShadows(ViewState &v) const;
   // Groups an order list, already sorted by pipeline, front face, mesh and submesh, into the runs
   // one instanced indirect command each can submit. Returns the batches; the order list's entries
   // keep their positions.
@@ -376,11 +408,11 @@ private:
   // One indirect command per batch, the job's own, whose instances are the batch's survivors
   // (ADR-0016).
   void recordIndirect(rhi::ICommandList &commands, ViewState &v, const CullJob &job, std::span<const Batch> batches,
-                      std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t cascade = 0);
+                      std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t shadow = 0);
   // The direct path, which the blended draws keep because their order is view-dependent. Each
   // draw names its slot in the visible list's direct range as its first instance.
   void recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<const std::uint32_t> order,
-                   std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t cascade = 0);
+                   std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t shadow = 0);
   void recordClustering(rhi::ICommandList &commands, const ViewState &v);
   void recordPost(rhi::ICommandList &commands, const SceneView *view, rhi::PipelineHandle pipeline,
                   rhi::ImageHandle source, rhi::ImageHandle secondary, glm::uvec2 targetSize);

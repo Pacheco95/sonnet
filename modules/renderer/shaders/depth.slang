@@ -1,6 +1,6 @@
 // The depth pre-pass and the shadow cascades: positions only, with the alpha test of masked
-// materials. Entry points share the vertex shader; the shadow variant projects with a cascade's
-// matrix from the push constants instead of the camera's. The draw's object comes from the
+// materials. Entry points share the vertex shader; the shadow variant projects with a cascade's or
+// a spot light's matrix, chosen by the push constants, instead of the camera's. The draw's object comes from the
 // visible list and is carried to the fragment stage uninterpolated (ADR-0016).
 import sonnet;
 
@@ -29,7 +29,9 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_Sta
 [shader("vertex")]
 VertexOutput shadowVertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_StartInstanceLocation,
                         uint instance : SV_InstanceID) {
-  return transform(vertexId, drawObject(startInstance, instance), frame.cascadeMatrices[draw.cascade]);
+  const float4x4 viewProjection = draw.shadow < CascadeCount ? frame.cascadeMatrices[draw.shadow]
+                                                             : frame.localShadows[draw.shadow - CascadeCount].matrix;
+  return transform(vertexId, drawObject(startInstance, instance), viewProjection);
 }
 
 // Masked materials cut holes; everything else keeps the rasterised depth.
