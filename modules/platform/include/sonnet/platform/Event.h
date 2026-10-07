@@ -24,7 +24,15 @@ struct WindowResized {
   glm::uvec2 pixelSize;
   WindowId window{0};
 };
+// The window's client area moved; the position is in desktop coordinates.
+struct WindowMoved {
+  glm::ivec2 position;
+  WindowId window{0};
+};
 struct WindowMinimized {};
+struct WindowMaximized {
+  WindowId window{0};
+};
 struct WindowRestored {};
 struct WindowFocusChanged {
   bool focused;
@@ -98,9 +106,9 @@ struct LowMemory {};
 // The OS is ending the application; SDL ends the loop after this event.
 struct Terminating {};
 
-using Event = std::variant<WindowResized, WindowMinimized, WindowRestored, WindowFocusChanged, WindowCloseRequested,
-                           QuitRequested, KeyPressed, KeyReleased, TextInput, MouseMoved, MouseButtonPressed,
-                           MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion, WillEnterBackground,
-                           DidEnterForeground, LowMemory, Terminating>;
+using Event = std::variant<WindowResized, WindowMoved, WindowMinimized, WindowMaximized, WindowRestored,
+                           WindowFocusChanged, WindowCloseRequested, QuitRequested, KeyPressed, KeyReleased, TextInput,
+                           MouseMoved, MouseButtonPressed, MouseButtonReleased, MouseWheel, TouchDown, TouchUp,
+                           TouchMotion, WillEnterBackground, DidEnterForeground, LowMemory, Terminating>;
 
 } // namespace sonnet::platform

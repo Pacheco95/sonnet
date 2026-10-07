@@ -10,6 +10,7 @@
 #include <memory>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace sonnet::platform {
 
@@ -29,6 +30,12 @@ public:
   Platform &operator=(const Platform &) = delete;
 
   [[nodiscard]] std::unique_ptr<IWindow> createWindow(const WindowDesc &desc);
+
+  // The connected displays, the primary one first when SDL names it. Empty when SDL reports none
+  // (a headless run with a driver that has no display).
+  [[nodiscard]] std::vector<Display> displays() const;
+  // False where the system places windows itself and ignores a requested position: Wayland.
+  [[nodiscard]] bool canPositionWindows() const;
 
   [[nodiscard]] bool isHeadless() const noexcept {
     return m_headless;
