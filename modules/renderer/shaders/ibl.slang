@@ -56,6 +56,9 @@ void irradiance(uint3 id : SV_DispatchThreadID) {
   const float2 uv = (float2(id.xy) + 0.5) / float(ibl.size);
   const float3 n = cubeDirection(id.z, uv);
   const float3x3 frameRows = tangentFrame(n);
+  uint sourceSize, sourceHeight, sourceLevels;
+  cubes[ibl.source].GetDimensions(0, sourceSize, sourceHeight, sourceLevels);
+  const float texelSolidAngle = 4.0 * Pi / (6.0 * float(sourceSize) * float(sourceSize));
   float3 sum = float3(0.0);
   for (uint i = 0; i < ibl.sampleCount; ++i) {
     const float2 xi = hammersley(i, ibl.sampleCount);
@@ -63,7 +66,13 @@ void irradiance(uint3 id : SV_DispatchThreadID) {
     const float cosTheta = sqrt(1.0 - xi.y);
     const float sinTheta = sqrt(xi.y);
     const float3 l = toWorld(frameRows, float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta));
-    sum += cubes[ibl.source].SampleLevel(samplers[ibl.sampler], l, ibl.sourceLod).rgb;
+    // A sample stands for the solid angle 1 / (N pdf) = pi / (N cos theta) of the sky, many texels
+    // of the source: reading a level whose texels are that big keeps neighbouring normals from
+    // seeing different handfuls of the sky, which showed as blotches on a smooth surface. The
+    // level the settings ask for is a floor.
+    const float sampleSolidAngle = Pi / (float(ibl.sampleCount) * max(cosTheta, 1.0e-3));
+    const float lod = max(ibl.sourceLod, 0.5 * log2(sampleSolidAngle / texelSolidAngle));
+    sum += cubes[ibl.source].SampleLevel(samplers[ibl.sampler], l, min(lod, float(sourceLevels - 1))).rgb;
   }
   storageImages[ibl.destination][id] = float4(sum / float(ibl.sampleCount), 1.0);
 }

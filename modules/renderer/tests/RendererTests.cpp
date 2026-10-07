@@ -1895,6 +1895,59 @@ TEST_CASE("an environment fills the background and lights a sphere on a GPU", "[
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// The irradiance of a speckled sky is smooth. Each sample stands for far more sky than a texel of
+// the level it reads, so with the settings' level alone neighbouring normals saw different
+// handfuls of speckles and a smooth sphere came out blotchy.
+TEST_CASE("a speckled sky lights a sphere smoothly on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.environmentSize = 256;
+    settings.irradianceSize = 32;
+    settings.irradianceSamples = 64;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    TextureData sky{
+        .size = {256, 128}, .format = Format::R16G16B16A16Sfloat, .mipLevels = 1, .cube = false, .data = {}};
+    sky.data.resize(static_cast<std::size_t>(sky.expectedSize()));
+    for (std::size_t texel = 0; texel < sky.data.size() / 8; ++texel) {
+      const float value = (texel * 2654435761u >> 7) % 7 == 0 ? 4.0f : 0.05f;
+      const std::array<std::uint16_t, 4> rgba{glm::packHalf1x16(value), glm::packHalf1x16(value),
+                                              glm::packHalf1x16(value), glm::packHalf1x16(1.0f)};
+      std::memcpy(sky.data.data() + texel * 8, rgba.data(), sizeof(rgba));
+    }
+    const EnvironmentHandle environment = renderer.createEnvironment(sky, "speckled");
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 32, 16), "sphere");
+    MaterialDesc white;
+    white.metallic = 0.0f;
+    white.roughness = 1.0f;
+    const MaterialHandle material = renderer.createMaterial(white, "white");
+    const std::array draws{DrawItem{.mesh = sphere, .material = material}};
+    SceneView view = boxScene(draws);
+    view.hasSun = false;
+    view.ambient = {0.0f, 0.0f, 0.0f};
+    view.environment = environment;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2);
+
+    // Neighbouring pixels of the sphere's middle differ by a few levels at most.
+    int largest = 0;
+    for (unsigned y = 26; y < 38; ++y) {
+      for (unsigned x = 26; x < 37; ++x) {
+        largest = std::max(largest, std::abs(scene.pixel(x, y).r - scene.pixel(x + 1, y).r));
+      }
+    }
+    INFO("largest step between neighbours " << largest);
+    REQUIRE(scene.pixel(32, 32).r > 20);
+    REQUIRE(largest <= 4);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMaterial(material);
+    renderer.destroyMesh(sphere);
+    renderer.destroyEnvironment(environment);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 // Every colour channel of a material texture reaches the shading, with the shadow comparison in
 // the same shader. On MoltenVK a comparison through the colour array made SPIRV-Cross type it as
 // Metal depth textures, and every colour read returned its red alone (ADR-0017).
