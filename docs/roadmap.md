@@ -570,6 +570,46 @@ Before a phone was available, `agents/m10-mac-checks` ran what only needed the M
 
 With ADR-0018's six checks passing, the R32_UINT warning tracked rather than blocking, M10 is done.
 
+## M11: Gameplay core
+
+Every planned milestone is done, so these four are chosen from what M4 to M8 deferred and from the README's unmeasured targets. They are ordered by one rule: 1.0.0 waits for the project and bundle formats to stop changing, so whatever touches the scene, prefab or bundle formats lands first and [M14](#m14-performance-targets-and-10) freezes them. An ADR is accepted before the code of each of the first three, as in M4 to M8.
+
+M4 left scripts able to move things but not to hear about them. This milestone closes that and the other gameplay deferrals.
+
+- ADR first: how contact and trigger events reach scripts, and how a script declares properties the inspector edits.
+- `physics` and `scripting`: contact and trigger events delivered to scripts (`onContact`, `onTriggerEnter`, `onTriggerExit`); compound bodies from a hierarchy's colliders.
+- `scripting`: per-instance script properties, shown and edited in the inspector and stored in the scene; several scripts on one entity; `require` between scripts.
+- `world` and `editor`: a scene camera component that play mode and the player draw through, where the editor draws through its own today.
+
+Done when the playground gains a trigger-driven pickup and a script with inspector-editable properties, and plays the same in the editor, the player and the cooked bundle, with `editor_tests` and `runtime_tests` covering it on Lavapipe.
+
+## M12: Animation and effects
+
+- ADR first: where morph targets and particle simulation run.
+- `world` and `assets`: blending and crossfades between clips, animation events that call script functions, several clips on one entity, root motion.
+- Morph targets from glTF, in the skinning compute pass.
+- Particles: an emitter component, simulated in a compute pass and drawn indirectly with the machinery of [M7](#m7-gpu-driven-rendering), previewed in the editor.
+
+Done when a character crossfades from idle to walk with a footstep event, a morph-target sample plays, and a particle sample runs in the editor, the player, on Android and on iOS.
+
+## M13: Rendering quality
+
+- ADR first: temporal anti-aliasing and the depth pyramid.
+- Temporal anti-aliasing with motion vectors, the default over FXAA, which stays selectable.
+- Occlusion culling from a depth pyramid in the culling pass; the surviving counts read back so the statistics report what drew rather than what was submitted; tighter bounds for skinned meshes.
+- Transparency in the shadow and depth passes beyond alpha masking.
+- Compressed environment maps in the bundle (BC6H, and an ASTC HDR format on mobile), instead of uncompressed RGBA16F.
+
+Done when golden-image tests with a tolerance show the showcase scene without ghosting, an occluder-heavy benchmark submits fewer draws for identical output, and the `renderer_tests "[benchmark]"` numbers are recorded here.
+
+## M14: Performance targets and 1.0
+
+- Measure the README's targets for the first time on the hardware they name: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and in 33 ms on a 2022 flagship phone (the Galaxy S25 Ultra and the iPhone 15 Pro Max are at hand). Fix what misses, starting with the per-frame fill, which is bandwidth-bound and so needs writing less ([Known gaps](#the-per-frame-fill-is-bandwidth-not-computation)).
+- Close the Known gaps a release should not carry: [#59](https://github.com/Pacheco95/sonnet/issues/59), the thread sanitizer's blind spots where feasible, and a parallel transform hierarchy only if a benchmark asks.
+- Freeze the formats: audit the versions of the scene, prefab, project, sidecar and bundle formats, write down the migration policy, bump to 1.0.0 and tag it.
+
+Done when the targets are met, or the shortfall is documented with numbers, CI is green on every job, and 1.0.0 is tagged.
+
 ## Known gaps
 
 Work M8 named rather than did, and what closing it turned up, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. A gap that has been closed keeps its entry, saying what closed it and what it measured. These are engineering debts; the feature backlog is [Later](#later).
@@ -718,4 +758,4 @@ What would close it: that check, then either keeping `/usr/local/include` out of
 
 ## Later
 
-Temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.
+Nested scene instances beyond prefabs, C++ game-code module hook, terrain, game UI, native file dialogs, incremental cooking. Temporal anti-aliasing and particles moved into [M13](#m13-rendering-quality) and [M12](#m12-animation-and-effects).
