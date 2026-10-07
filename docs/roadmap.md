@@ -576,10 +576,10 @@ Every planned milestone is done, so these four are chosen from what M4 to M8 def
 
 M4 left scripts able to move things but not to hear about them. This milestone closes that and the other gameplay deferrals.
 
-- ADR first: how contact and trigger events reach scripts, and how a script declares properties the inspector edits.
+- [ADR-0022](decisions/0022-gameplay-events-and-script-properties.md), accepted first: events are data that physics records and scripting delivers; a `Scripts` component of slots with declared properties replaces `Script`, and the scene format goes to version 3.
 - `physics` and `scripting`: contact and trigger events delivered to scripts (`onContact`, `onTriggerEnter`, `onTriggerExit`); compound bodies from a hierarchy's colliders.
 - `scripting`: per-instance script properties, shown and edited in the inspector and stored in the scene; several scripts on one entity; `require` between scripts.
-- `world` and `editor`: a scene camera component that play mode and the player draw through, where the editor draws through its own today.
+- The scene camera component the milestone first listed already exists (`world::sceneCamera`, the player and the editor's Game panel), so it is not part of this milestone.
 
 Done when the playground gains a trigger-driven pickup and a script with inspector-editable properties, and plays the same in the editor, the player and the cooked bundle, with `editor_tests` and `runtime_tests` covering it on Lavapipe.
 
