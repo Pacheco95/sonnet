@@ -88,6 +88,10 @@ public:
   // Projects and scenes. Opening a project loads its prefabs and start scene; a failure leaves
   // the current scene in place and is reported to the log.
   [[nodiscard]] core::Result<void> openProject(const std::filesystem::path &directory);
+  // What an editor started without a project folder does: opens the most recent project when
+  // the preferences ask for it. A project that cannot be opened is dropped from the recent list
+  // (so the next start is quiet), logs a warning and leaves the starter scene.
+  void reopenLastProject();
   [[nodiscard]] core::Result<void> createProject(const std::filesystem::path &directory, std::string name);
   // Opens the scene in a tab of its own, or switches to the tab that already has it. A failure
   // leaves the current tab as it was.

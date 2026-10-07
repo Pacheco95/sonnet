@@ -45,6 +45,7 @@ Preferences Preferences::load(const std::filesystem::path &file) {
   }
   preferences.externalEditor = document.value("externalEditor", preferences.externalEditor);
   preferences.sourceRoot = document.value("sourceRoot", preferences.sourceRoot);
+  preferences.reopenLastProject = document.value("reopenLastProject", preferences.reopenLastProject);
   return preferences;
 }
 
@@ -57,6 +58,7 @@ core::Result<void> Preferences::save(const std::filesystem::path &file) const {
       {"recentProjects", recent},
       {"externalEditor", externalEditor},
       {"sourceRoot", sourceRoot},
+      {"reopenLastProject", reopenLastProject},
   };
   std::ofstream stream{file};
   if (!stream) {
@@ -73,6 +75,17 @@ void Preferences::addRecentProject(const std::filesystem::path &project) {
   if (recentProjects.size() > MaxRecentProjects) {
     recentProjects.resize(MaxRecentProjects);
   }
+}
+
+void Preferences::removeRecentProject(const std::filesystem::path &project) {
+  std::erase(recentProjects, project);
+}
+
+std::optional<std::filesystem::path> Preferences::projectToReopen() const {
+  if (!reopenLastProject || recentProjects.empty()) {
+    return std::nullopt;
+  }
+  return recentProjects.front();
 }
 
 std::string Preferences::editorCommand(const std::filesystem::path &file, int line) const {

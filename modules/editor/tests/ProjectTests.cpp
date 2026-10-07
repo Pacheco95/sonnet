@@ -78,6 +78,30 @@ TEST_CASE("preferences round-trip and format the external editor command", "[edi
   std::filesystem::remove(file);
 }
 
+TEST_CASE("the project to reopen is the most recent one, unless the setting is off", "[editor][project]") {
+  editor::Preferences preferences;
+  REQUIRE(!preferences.projectToReopen().has_value());
+  preferences.addRecentProject("/projects/a");
+  preferences.addRecentProject("/projects/b");
+  REQUIRE(preferences.projectToReopen() == std::filesystem::path{"/projects/b"});
+
+  preferences.removeRecentProject("/projects/b");
+  REQUIRE(preferences.projectToReopen() == std::filesystem::path{"/projects/a"});
+
+  preferences.reopenLastProject = false;
+  const std::filesystem::path file = scratch("reopen") / "preferences.json";
+  std::filesystem::create_directories(file.parent_path());
+  REQUIRE(preferences.save(file).has_value());
+  const editor::Preferences loaded = editor::Preferences::load(file);
+  REQUIRE(!loaded.reopenLastProject);
+  REQUIRE(!loaded.projectToReopen().has_value());
+  REQUIRE(loaded.recentProjects.size() == 1);
+
+  // A file from before the setting reopens.
+  std::ofstream{file} << R"({"recentProjects": ["/projects/c"]})";
+  REQUIRE(editor::Preferences::load(file).projectToReopen() == std::filesystem::path{"/projects/c"});
+}
+
 TEST_CASE("a repository-relative source path is found upwards from the binary's directory", "[editor][project]") {
   const std::filesystem::path root = scratch("checkout");
   std::filesystem::create_directories(root / "modules" / "core" / "src");
