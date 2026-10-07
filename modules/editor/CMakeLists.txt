@@ -27,6 +27,7 @@ sonnet_add_module(editor
     src/StatisticsPanel.cpp
     src/TypeFilter.cpp
     src/ViewportPanel.cpp
+    src/WindowState.cpp
   PUBLIC_DEPENDS
     sonnet::audio
     sonnet::runtime
@@ -56,6 +57,7 @@ sonnet_add_module_test(editor
     tests/ShaderTests.cpp
     tests/TypeFilterTests.cpp
     tests/WindowOriginsTests.cpp
+    tests/WindowStateTests.cpp
 )
 if(TARGET editor_tests)
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

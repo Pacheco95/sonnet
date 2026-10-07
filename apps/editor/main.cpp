@@ -3,6 +3,7 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/editor/Capture.h>
 #include <sonnet/editor/Editor.h>
+#include <sonnet/editor/WindowState.h>
 #include <sonnet/platform/Application.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
@@ -18,6 +19,7 @@
 #include <print>
 #include <span>
 #include <string_view>
+#include <utility>
 #include <variant>
 
 namespace {
@@ -50,12 +52,39 @@ private:
   platform::AppResult m_result;
 };
 
+// Where the main window opens (docs/editor.md, "The main window"). A capture run and a headless
+// platform keep the fixed size: they have nobody to remember a place for, and must not read or
+// write the user's files.
+struct MainWindow {
+  std::unique_ptr<platform::IWindow> window;
+  std::filesystem::path stateFile; // empty when the state is neither read nor written
+  editor::WindowPlacement placement;
+};
+
+MainWindow createMainWindow(platform::Platform &platform, const editor::CommandLine &line) {
+  MainWindow main;
+  platform::WindowDesc desc{.title = "Sonnet Editor", .size = {1600, 900}};
+  if (!line.capture && !platform.isHeadless()) {
+    main.stateFile = platform.prefPath("sonnet", "editor") / "window.json";
+    main.placement = editor::placeWindow(editor::WindowState::load(main.stateFile), platform.displays(),
+                                         platform.canPositionWindows());
+    main.placement.applyTo(desc);
+  }
+  main.window = platform.createWindow(desc);
+  return main;
+}
+
 // The frame order lives here (docs/architecture.md, "Application lifecycle"): events, then
 // update, then the render graph into the acquired swapchain image, then present.
 class EditorApp final : public platform::IApplication {
 public:
   EditorApp(platform::Platform &platform, const editor::CommandLine &line)
-      : m_window(platform.createWindow({.title = "Sonnet Editor", .size = {1600, 900}})),
+      : EditorApp(platform, line, createMainWindow(platform, line)) {
+  }
+
+  EditorApp(platform::Platform &platform, const editor::CommandLine &line, MainWindow main)
+      : m_window(std::move(main.window)), m_windowStateFile(std::move(main.stateFile)),
+        m_placement(std::move(main.placement)),
         m_device(rhi::createDevice({.platform = &platform, .applicationName = "Sonnet Editor"})),
         m_swapchain(m_device->createSwapchain(*m_window)),
         m_editor(std::make_unique<editor::Editor>(platform, *m_window, *m_device, *m_swapchain, Explorer)) {
@@ -76,6 +105,7 @@ public:
 
   ~EditorApp() override {
     m_device->waitIdle();
+    saveWindowState();
   }
 
   platform::AppResult iterate() override {
@@ -143,9 +173,27 @@ public:
   }
 
 private:
+  // Written as the editor closes. A window left as the fallback placed it keeps the saved state:
+  // the display it fell back from is the user's choice, and a laptop undocked once must not forget
+  // its monitor.
+  void saveWindowState() const {
+    if (m_windowStateFile.empty()) {
+      return;
+    }
+    const std::optional<editor::WindowState> state = editor::captureWindowState(*m_window);
+    if (!state || (m_placement.fallback && state->sameAs(m_placement.state))) {
+      return;
+    }
+    if (const auto saved = state->save(m_windowStateFile); !saved) {
+      SONNET_LOG_WARN("{}", saved.error().toString());
+    }
+  }
+
   // Declared in creation order: the editor dies before the swapchain, the swapchain before the
   // device, the device before the window.
   std::unique_ptr<platform::IWindow> m_window;
+  std::filesystem::path m_windowStateFile;
+  editor::WindowPlacement m_placement;
   std::unique_ptr<rhi::IDevice> m_device;
   std::unique_ptr<rhi::ISwapchain> m_swapchain;
   std::unique_ptr<editor::Editor> m_editor;
