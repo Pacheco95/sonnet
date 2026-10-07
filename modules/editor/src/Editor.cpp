@@ -1248,6 +1248,20 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   return opened;
 }
 
+void Editor::reopenLastProject() {
+  const std::optional<std::filesystem::path> project = m_preferences.projectToReopen();
+  if (!project) {
+    return;
+  }
+  if (const auto opened = openProject(*project); !opened) {
+    SONNET_LOG_WARN("the last project cannot be reopened and is forgotten: {}", opened.error().toString());
+    m_preferences.removeRecentProject(*project);
+    if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
+      SONNET_LOG_WARN("{}", saved.error().toString());
+    }
+  }
+}
+
 core::Result<void> Editor::createProject(const std::filesystem::path &directory, std::string name) {
   const auto project = createStarterProject(directory, std::move(name));
   if (!project) {

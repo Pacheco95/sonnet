@@ -19,11 +19,16 @@ struct Preferences {
   // sourceRoot, when set, is put in front of it.
   std::string externalEditor{"code --goto {file}:{line}"};
   std::string sourceRoot;
+  // Whether an editor started without a project folder opens the most recent project.
+  bool reopenLastProject{true};
 
   [[nodiscard]] static Preferences load(const std::filesystem::path &file);
   [[nodiscard]] core::Result<void> save(const std::filesystem::path &file) const;
 
   void addRecentProject(const std::filesystem::path &project);
+  void removeRecentProject(const std::filesystem::path &project);
+  // The project an editor started without one opens: the most recent, unless the setting is off.
+  [[nodiscard]] std::optional<std::filesystem::path> projectToReopen() const;
   // The external editor command for a location, with the placeholders filled in; `file` is
   // what locateSource returned.
   [[nodiscard]] std::string editorCommand(const std::filesystem::path &file, int line) const;

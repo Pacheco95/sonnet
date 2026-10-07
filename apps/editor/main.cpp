@@ -93,6 +93,8 @@ public:
         SONNET_LOG_ERROR("{}", opened.error().toString());
         m_failed = line.capture.has_value(); // an interactive editor carries on without it
       }
+    } else if (!line.capture && !platform.isHeadless()) {
+      m_editor->reopenLastProject(); // a capture run or a headless platform must not read the user's files
     }
     if (line.capture) {
       m_capture.emplace(*line.capture);
