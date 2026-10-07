@@ -17,7 +17,7 @@ namespace {
 constexpr std::uint64_t PoolRetentionFrames = rhi::FramesInFlight + 2;
 
 // The last frame serial handed out by any graph.
-std::atomic<std::uint64_t> lastFrameSerial{0};
+std::atomic<std::uint64_t> g_lastFrameSerial{0};
 
 struct Required {
   rhi::ImageLayout layout;
@@ -102,7 +102,7 @@ RenderGraph::~RenderGraph() {
 }
 
 void RenderGraph::reset() {
-  m_frameSerial = lastFrameSerial.fetch_add(1, std::memory_order_relaxed) + 1;
+  m_frameSerial = g_lastFrameSerial.fetch_add(1, std::memory_order_relaxed) + 1;
   m_images.clear();
   m_handles.clear();
   m_states.clear();
@@ -201,8 +201,8 @@ void RenderGraph::releaseImages() {
 }
 
 void RenderGraph::emitBarriers(rhi::ICommandList &commands, const std::vector<detail::ImageUse> &uses) {
-  // Bounded by what one pass declares; the command list caps a call at 32.
-  std::array<rhi::ImageBarrier, 32> barriers;
+  // Bounded by what one pass declares; the command list caps a call at rhi::MaxBarriersPerCall.
+  std::array<rhi::ImageBarrier, rhi::MaxBarriersPerCall> barriers;
   std::size_t count = 0;
   for (const detail::ImageUse &use : uses) {
     const Required required =

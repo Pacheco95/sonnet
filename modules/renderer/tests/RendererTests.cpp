@@ -1497,6 +1497,38 @@ TEST_CASE("point lights take six maps each from the same budget as spot lights",
   renderer.destroyMesh(box);
 }
 
+TEST_CASE("three views with three spot and two point shadows each fit the timestamp and barrier budgets",
+          "[renderer][shadow][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const std::array draws{DrawItem{.mesh = box}};
+  // The lighting showcase's lights: 3 + 2 * 6 = 15 maps a view. The editor's two views with its
+  // extra passes recorded 75 passes, over the 64 a frame had timestamps for, and a forward pass
+  // sampling that many maps declared more images than one barrier call took.
+  const std::array lights{shadowedSpot({-6.0f, 5.0f, 4.0f}), shadowedSpot({0.0f, 6.0f, 8.0f}),
+                          shadowedSpot({6.0f, 5.0f, 4.0f}), shadowedPoint({-1.5f, 1.6f, 3.8f}),
+                          shadowedPoint({3.0f, 2.8f, -1.0f})};
+  SceneView view = boxScene(draws);
+  view.lights = lights;
+
+  RenderGraph graph{*device};
+  std::array<RenderTarget, 3> targets{RenderTarget{*device, "viewport"}, RenderTarget{*device, "game view"},
+                                      RenderTarget{*device, "preview"}};
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  for (RenderTarget &target : targets) {
+    target.resize({64, 64});
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  }
+  graph.execute(commands);
+  device->endFrame();
+  REQUIRE(graph.statistics().passes.size() * 2 > 128);
+  REQUIRE(graph.statistics().passes.size() * 2 <= MaxTimestamps);
+  renderer.destroyMesh(box);
+}
+
 TEST_CASE("a point light that no longer fits in the depth array is passed over, not a spot light after it",
           "[renderer][shadow][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
