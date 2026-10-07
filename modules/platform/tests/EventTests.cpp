@@ -124,6 +124,20 @@ TEST_CASE("window and quit events translate", "[platform][input]") {
   REQUIRE(std::get<WindowFocusChanged>(*translateEvent(makeEvent(SDL_EVENT_WINDOW_FOCUS_LOST))).focused == false);
 }
 
+TEST_CASE("window moves and maximizes translate with their window", "[platform][input]") {
+  SDL_Event moved = makeEvent(SDL_EVENT_WINDOW_MOVED);
+  moved.window.data1 = -1920;
+  moved.window.data2 = 40;
+  moved.window.windowID = 5;
+  const auto movedEvent = std::get<WindowMoved>(*translateEvent(moved));
+  REQUIRE(movedEvent.position == glm::ivec2{-1920, 40});
+  REQUIRE(movedEvent.window == 5);
+
+  SDL_Event maximized = makeEvent(SDL_EVENT_WINDOW_MAXIMIZED);
+  maximized.window.windowID = 5;
+  REQUIRE(std::get<WindowMaximized>(*translateEvent(maximized)).window == 5);
+}
+
 TEST_CASE("the mobile lifecycle events translate", "[platform][input]") {
   REQUIRE(std::holds_alternative<WillEnterBackground>(*translateEvent(makeEvent(SDL_EVENT_WILL_ENTER_BACKGROUND))));
   REQUIRE(std::holds_alternative<DidEnterForeground>(*translateEvent(makeEvent(SDL_EVENT_DID_ENTER_FOREGROUND))));

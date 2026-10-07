@@ -1,5 +1,6 @@
 #include <sonnet/platform/Platform.h>
 
+#include "SdlDisplay.h"
 #include "SdlWindow.h"
 
 #include <sonnet/core/Error.h>
@@ -9,6 +10,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#include <algorithm>
 #include <format>
 #include <string>
 
@@ -99,6 +101,27 @@ Platform::~Platform() {
 
 std::unique_ptr<IWindow> Platform::createWindow(const WindowDesc &desc) {
   return std::make_unique<SdlWindow>(desc);
+}
+
+std::vector<Display> Platform::displays() const {
+  int count = 0;
+  SDL_DisplayID *ids = SDL_GetDisplays(&count);
+  if (ids == nullptr) {
+    return {};
+  }
+  std::vector<Display> displays;
+  for (int i = 0; i < count; ++i) {
+    if (std::optional<Display> display = displayFromSdl(ids[i])) {
+      displays.push_back(std::move(*display));
+    }
+  }
+  SDL_free(ids);
+  std::ranges::stable_partition(displays, [](const Display &display) { return display.primary; });
+  return displays;
+}
+
+bool Platform::canPositionWindows() const {
+  return videoDriver() != "wayland";
 }
 
 std::string_view Platform::videoDriver() const {

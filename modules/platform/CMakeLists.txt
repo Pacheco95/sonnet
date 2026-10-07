@@ -7,6 +7,7 @@ sonnet_add_module(platform
     src/Input.cpp
     src/InputState.cpp
     src/Platform.cpp
+    src/SdlDisplay.cpp
     src/SdlEntryPoint.cpp
     src/SdlEvents.cpp
     src/SdlWindow.cpp

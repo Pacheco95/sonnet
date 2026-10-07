@@ -213,8 +213,12 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
   case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
     return WindowResized{{static_cast<unsigned>(event.window.data1), static_cast<unsigned>(event.window.data2)},
                          event.window.windowID};
+  case SDL_EVENT_WINDOW_MOVED:
+    return WindowMoved{{event.window.data1, event.window.data2}, event.window.windowID};
   case SDL_EVENT_WINDOW_MINIMIZED:
     return WindowMinimized{};
+  case SDL_EVENT_WINDOW_MAXIMIZED:
+    return WindowMaximized{event.window.windowID};
   case SDL_EVENT_WINDOW_RESTORED:
     return WindowRestored{};
   case SDL_EVENT_WINDOW_FOCUS_GAINED:
