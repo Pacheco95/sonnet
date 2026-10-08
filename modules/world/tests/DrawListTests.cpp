@@ -64,6 +64,51 @@ TEST_CASE("the draw list resolves every visible mesh renderer through the databa
   REQUIRE(world.fromPickId(boxDraw->id) == box);
 }
 
+TEST_CASE("a draw item carries the world matrix of the frame before", "[world][drawlist]") {
+  Fixture fixture;
+  world::World &world = fixture.world;
+  std::vector<renderer::DrawItem> draws;
+  std::vector<glm::mat4> joints;
+  std::vector<float> morphWeights;
+
+  const flecs::entity box = world.createEntity("Box");
+  box.set<world::MeshRenderer>({.mesh = assets::builtin::box()});
+  box.set<world::Transform>({.position = {1.0f, 0.0f, 0.0f}});
+
+  // The frame an entity appears in, it has not moved.
+  world.progress(0.016f);
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
+  REQUIRE(draws.size() == 1);
+  REQUIRE(draws[0].previousTransform.has_value());
+  REQUIRE(draws[0].previousTransform->operator[](3).x == Approx(1.0f));
+  REQUIRE(draws[0].transform[3].x == Approx(1.0f));
+
+  // Moved: the item holds both the new matrix and the one it replaced.
+  box.set<world::Transform>({.position = {1.5f, 0.0f, 0.0f}});
+  world.progress(0.016f);
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
+  REQUIRE(draws[0].transform[3].x == Approx(1.5f));
+  REQUIRE(draws[0].previousTransform->operator[](3).x == Approx(1.0f));
+
+  // Still afterwards: the two agree again.
+  world.progress(0.016f);
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
+  REQUIRE(draws[0].previousTransform->operator[](3).x == Approx(1.5f));
+
+  // A child follows its parent's motion, since the previous matrix is the world one.
+  const flecs::entity child = world.createEntity("Child", box);
+  child.set<world::MeshRenderer>({.mesh = assets::builtin::box()});
+  child.set<world::Transform>({.position = {0.0f, 2.0f, 0.0f}});
+  world.progress(0.016f);
+  box.set<world::Transform>({.position = {2.5f, 0.0f, 0.0f}});
+  world.progress(0.016f);
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
+  const auto childDraw = std::ranges::find(draws, world::World::pickId(child), &renderer::DrawItem::id);
+  REQUIRE(childDraw != draws.end());
+  REQUIRE(childDraw->transform[3].x == Approx(2.5f));
+  REQUIRE(childDraw->previousTransform->operator[](3).x == Approx(1.5f));
+}
+
 TEST_CASE("the light list holds the point and spot lights placed by their transforms", "[world][drawlist]") {
   world::World world;
   std::vector<renderer::Light> lights;

@@ -37,6 +37,11 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
       morphWeights.insert(morphWeights.end(), morph->weights.begin(), morph->weights.end());
       morphWeightCount = static_cast<std::uint32_t>(morph->weights.size());
     }
+    const PreviousWorldTransform *previous = entity.try_get<PreviousWorldTransform>();
+    std::optional<glm::mat4> previousTransform;
+    if (previous != nullptr) {
+      previousTransform = previous->matrix;
+    }
     for (std::uint32_t i = 0; i < submeshes.size(); ++i) {
       renderer::MaterialHandle material = override;
       if (!material && info != nullptr && submeshes[i].materialSlot < info->materials.size()) {
@@ -46,6 +51,7 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
                        .submesh = i,
                        .material = material,
                        .transform = transform.matrix,
+                       .previousTransform = previousTransform,
                        .color = meshRenderer.color,
                        .id = World::pickId(entity),
                        .firstJoint = firstJoint,

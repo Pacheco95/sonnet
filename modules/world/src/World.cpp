@@ -135,6 +135,7 @@ void World::registerComponents() {
   // instance's children show until renamed.
   m_world.component<Identity>("Identity").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<WorldTransform>("WorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
+  m_world.component<PreviousWorldTransform>("PreviousWorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<SiblingOrder>("SiblingOrder").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<Name>("Name").add(flecs::OnInstantiate, flecs::Inherit);
 
@@ -241,6 +242,11 @@ void World::registerComponents() {
 }
 
 void World::registerSystems() {
+  // Last frame's world matrices, taken before the transform system overwrites them (flecs runs the
+  // systems of a phase in the order they were declared).
+  m_world.system<const WorldTransform, PreviousWorldTransform>("PreviousTransformSystem")
+      .kind(phase(Phase::PreRender))
+      .each([](const WorldTransform &world, PreviousWorldTransform &previous) { previous.matrix = world.matrix; });
   // Parents first (cascade), so a child multiplies an up-to-date parent matrix.
   m_transformSystem = m_world.system<const Transform, WorldTransform, const WorldTransform *>("TransformSystem")
                           .kind(phase(Phase::PreRender))
@@ -250,6 +256,14 @@ void World::registerSystems() {
                           .each([](const Transform &local, WorldTransform &world, const WorldTransform *parent) {
                             world.matrix = parent != nullptr ? parent->matrix * local.matrix() : local.matrix();
                           });
+
+  // An entity seen for the first time has not moved: its previous matrix is its current one.
+  m_world.system<const WorldTransform>("PreviousTransformInit")
+      .kind(phase(Phase::PreRender))
+      .without<PreviousWorldTransform>()
+      .each([](flecs::entity entity, const WorldTransform &world) {
+        entity.set<PreviousWorldTransform>({world.matrix});
+      });
 
   m_world.system<Transform, const Spin>("SpinSystem")
       .kind(phase(Phase::Update))

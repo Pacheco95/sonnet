@@ -9,6 +9,7 @@
 #include <sonnet/core/Math.h>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace sonnet::renderer {
@@ -24,6 +25,9 @@ struct DrawItem {
   std::uint32_t submesh{0};
   MaterialHandle material{};
   glm::mat4 transform{1.0f};
+  // Where the draw was last frame, for the motion vectors temporal anti-aliasing resolves by
+  // (ADR-0024). Unset means it did not move, which is also right for an item that just appeared.
+  std::optional<glm::mat4> previousTransform{};
   glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f}; // multiplies the material's base colour
   std::uint32_t id{0};                     // written by the id pass for picking and the outline; 0 means none
   // A skinned draw deforms a mesh with skin weights by joints [firstJoint, firstJoint + jointCount)
