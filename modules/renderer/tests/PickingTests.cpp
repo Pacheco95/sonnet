@@ -42,7 +42,7 @@ RendererSettings pickingSettings() {
   RendererSettings settings;
   settings.shadows = false;
   settings.bloom = false;
-  settings.antialiasing = false;
+  settings.antialiasing = AntiAliasing::None;
   settings.occlusionCulling = false;
   return settings;
 }

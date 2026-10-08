@@ -57,6 +57,10 @@ public:
     return m_editor.viewport().target().isValid() && !m_editor.assets().loading();
   }
 
+  void cutHistory() override {
+    m_editor.cutHistory();
+  }
+
   void play(std::uint64_t randomSeed) override {
     m_editor.scripts().seedRandom(randomSeed);
     m_editor.play();

@@ -111,12 +111,28 @@ public static const uint CascadeCount = 4;
 
 // ---- Per pass ----
 
+// Where a draw was last frame, beside ObjectData and only while temporal anti-aliasing runs: the
+// three rows of its previous model matrix (an affine transform), and the vertex buffer holding the
+// vertices it was drawn from, which for a skinned draw is the buffer the skinning pass wrote the
+// frame before (ADR-0024). Matches PreviousObject in the renderer module.
+public struct PreviousObject {
+  public float4 row0;
+  public float4 row1;
+  public float4 row2;
+  public uint vertexBuffer;
+  public uint padding0;
+  public uint padding1;
+  public uint padding2;
+};
+
 public struct FrameConstants {
   public float4x4 view;
   public float4x4 projection;
-  public float4x4 viewProjection;
+  public float4x4 viewProjection; // jittered under TAA: what the pre-pass, forward and id passes rasterise with
+  public float4x4 unjitteredViewProjection;
+  public float4x4 previousViewProjection; // the last frame's, unjittered
   public float4x4 inverseProjection;
-  public float4x4 inverseViewProjection;
+  public float4x4 inverseViewProjection; // of the jittered matrix
   public float4x4 cascadeMatrices[CascadeCount];
   public float4 cascadeSplits; // view depth where each cascade ends
   public float4 cascadeBlendStarts;
@@ -130,6 +146,8 @@ public struct FrameConstants {
   public float2 targetSize;
   public float nearPlane;
   public float shadowBias;
+  public float mipBias; // added to the level of material samples: -0.5 under TAA
+  public float padding;
   public uint cascadeImages[CascadeCount];
   public uint irradianceCube;
   public uint prefilteredCube;
@@ -147,6 +165,7 @@ public struct FrameConstants {
   public Light *lights;
   public Cluster *clusters;
   public LocalShadow *localShadows; // the budgeted spot lights' shadow maps; null without any
+  public PreviousObject *previousObjects; // last frame's pose of every draw; null without TAA
 };
 
 public struct ObjectData {

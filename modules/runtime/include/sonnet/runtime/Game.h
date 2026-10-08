@@ -74,6 +74,10 @@ public:
 
   // One term of the forward shading instead of the final image (docs/rendering.md).
   void setShadingTerm(renderer::DebugView view);
+  // The next frame starts temporal anti-aliasing's history over (SceneView::resetHistory).
+  void cutHistory() {
+    m_cutHistory = true;
+  }
   // The next frame that draws copies the scene, at the window's size and as the present pass
   // takes it, into `file` as a PNG; afterPresent writes it and takeScreenshotResult reports it,
   // once.
@@ -148,6 +152,7 @@ private:
   std::vector<renderer::ParticleEmitterItem> m_particles;
   std::vector<renderer::Light> m_lights;
   renderer::SceneView m_view;
+  bool m_cutHistory{false};
   std::string m_name;
   Screenshots m_screenshots;
   std::optional<std::filesystem::path> m_screenshotRequest;

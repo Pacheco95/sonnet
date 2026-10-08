@@ -6,6 +6,9 @@
 #include <sonnet/core/Profile.h>
 #include <sonnet/platform/Platform.h>
 
+#include <glm/gtc/matrix_access.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -92,9 +95,11 @@ static_assert(sizeof(GpuMaterial) == 80);
 struct FrameConstants {
   glm::mat4 view;
   glm::mat4 projection;
-  glm::mat4 viewProjection;
+  glm::mat4 viewProjection; // jittered under TAA: what the pre-pass, forward and id passes rasterise with
+  glm::mat4 unjitteredViewProjection;
+  glm::mat4 previousViewProjection; // the last frame's, unjittered
   glm::mat4 inverseProjection;
-  glm::mat4 inverseViewProjection;
+  glm::mat4 inverseViewProjection; // of the jittered matrix
   glm::mat4 cascadeMatrices[Renderer::CascadeCount];
   glm::vec4 cascadeSplits;
   glm::vec4 cascadeBlendStarts;
@@ -108,6 +113,8 @@ struct FrameConstants {
   glm::vec2 targetSize;
   float nearPlane;
   float shadowBias;
+  float mipBias; // added to the level of material samples: -0.5 under TAA, which softens the image
+  float padding;
   std::uint32_t cascadeImages[Renderer::CascadeCount];
   std::uint32_t irradianceCube;
   std::uint32_t prefilteredCube;
@@ -121,9 +128,10 @@ struct FrameConstants {
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
-  std::uint64_t localShadows; // GpuLocalShadow per local shadow map, 0 without any
+  std::uint64_t localShadows;    // GpuLocalShadow per local shadow map, 0 without any
+  std::uint64_t previousObjects; // PreviousObject per draw, 0 without TAA
 };
-static_assert(sizeof(FrameConstants) == 824);
+static_assert(sizeof(FrameConstants) == 968);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -135,6 +143,16 @@ struct ObjectData {
   std::uint32_t vertexPad{0};
 };
 static_assert(sizeof(ObjectData) == 96);
+
+// Where a draw was last frame (ADR-0024), filled beside ObjectData only under TAA: the rows of its
+// previous model matrix, an affine transform, and the vertex buffer it was drawn from.
+// Mirror of PreviousObject in shaders/sonnet.slang.
+struct PreviousObject {
+  glm::vec4 rows[3];
+  std::uint32_t vertexBuffer;
+  std::uint32_t padding[3];
+};
+static_assert(sizeof(PreviousObject) == 64);
 
 struct DrawConstants {
   std::uint32_t shadow; // a cascade, or CascadeCount plus a local shadow map's index; unused elsewhere
@@ -225,6 +243,18 @@ struct PostConstants {
 };
 static_assert(sizeof(PostConstants) == 48);
 
+// Mirror of shaders/taa.slang.
+struct TaaConstants {
+  std::uint32_t current;
+  std::uint32_t history;
+  std::uint32_t motion;
+  std::uint32_t depth;
+  std::uint32_t sampler;
+  std::uint32_t historyValid;
+  glm::vec2 size;
+};
+static_assert(sizeof(TaaConstants) == 32);
+
 // Mirror of shaders/outline.slang.
 struct OutlineConstants {
   glm::vec4 color;
@@ -309,6 +339,26 @@ constexpr std::uint64_t ParticleStateFrames = 8;
 // moment does not reallocate.
 constexpr std::uint64_t SkinnedBufferFrames = 8;
 
+// Jitter samples before the sequence repeats (ADR-0024).
+constexpr std::uint32_t JitterSamples = 8;
+// Graph frames a view's history outlives its last draw.
+constexpr std::uint64_t HistoryFrames = 8;
+// Added to the level of material samples under TAA: the resolve softens the image, and a sharper
+// level of detail gives back what it takes.
+constexpr float TaaMipBias = -0.5f;
+
+// The `index`th term of the Halton sequence of `base`, in [0, 1).
+float halton(std::uint32_t index, std::uint32_t base) {
+  float result = 0.0f;
+  float fraction = 1.0f;
+  while (index > 0) {
+    fraction /= static_cast<float>(base);
+    result += fraction * static_cast<float>(index % base);
+    index /= base;
+  }
+  return result;
+}
+
 std::uint32_t groups(std::uint32_t size, std::uint32_t threads) {
   return (size + threads - 1) / threads;
 }
@@ -331,6 +381,15 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depth = {.test = true, .write = true},
                     .cullMode = cullModes[i],
                     .debugName = std::format("depth{}", side)});
+    // Under TAA the pre-pass also writes the surfaces' motion (ADR-0024).
+    defineGraphics(m_depthMotionPipelines[i], "depth",
+                   {.vertexEntry = "motionVertexMain",
+                    .fragmentEntry = "motionFragmentMain",
+                    .colorFormats = {MotionFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = true},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("depth motion{}", side)});
     // Shadows cull nothing: a single-sided ground plane has to cast its shadow too.
     defineGraphics(m_shadowPipelines[i], "depth",
                    {.vertexEntry = "shadowVertexMain",
@@ -361,9 +420,11 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .cullMode = cullModes[i],
                     .debugName = std::format("id{}", side)});
     // The same id shader without a depth attachment: every selected surface, occluded or not.
-    defineGraphics(
-        m_maskPipelines[i], "id",
-        {.colorFormats = {IdFormat}, .cullMode = cullModes[i], .debugName = std::format("selection mask{}", side)});
+    defineGraphics(m_maskPipelines[i], "id",
+                   {.vertexEntry = "maskVertexMain",
+                    .colorFormats = {IdFormat},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("selection mask{}", side)});
   }
   // The skybox covers the pixels the pre-pass left at the far plane, depth 0.
   defineGraphics(m_skyboxPipeline, "skybox",
@@ -390,6 +451,11 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineGraphics(
       m_fxaaPipeline, "post",
       {.fragmentEntry = "fxaa", .colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "fxaa"});
+  defineGraphics(m_taaPipeline, "taa",
+                 {.fragmentEntry = "resolve",
+                  .colorFormats = {HdrFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "taa resolve"});
   if (m_settings.presentFormat != rhi::Format::Undefined) {
     defineGraphics(m_presentPipeline, "post",
                    {.fragmentEntry = "blit",
@@ -445,6 +511,9 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
 }
 
 Renderer::~Renderer() {
+  for (auto &[view, history] : m_histories) {
+    releaseHistory(history);
+  }
   releaseSkinnedVertices(true);
   releaseParticles(true);
   if (m_particleQuad) {
@@ -517,6 +586,7 @@ Renderer::~Renderer() {
                                              m_clusterPipeline,
                                              m_debugLinePipeline,
                                              m_outlinePipeline,
+                                             m_taaPipeline,
                                              m_fxaaPipeline,
                                              m_presentPipeline,
                                              m_tonemapPipeline,
@@ -528,17 +598,29 @@ Renderer::~Renderer() {
       m_device.destroyPipeline(pipeline);
     }
   }
-  for (const auto &pair :
-       {m_maskPipelines, m_idPipelines, m_blendPipelines, m_forwardPipelines, m_shadowPipelines, m_depthPipelines}) {
+  for (const auto &pair : {m_maskPipelines, m_idPipelines, m_blendPipelines, m_forwardPipelines, m_shadowPipelines,
+                           m_depthMotionPipelines, m_depthPipelines}) {
     m_device.destroyPipeline(pair[1]);
     m_device.destroyPipeline(pair[0]);
   }
 }
 
+const char *antiAliasingName(AntiAliasing mode) noexcept {
+  switch (mode) {
+  case AntiAliasing::None:
+    return "None";
+  case AntiAliasing::Fxaa:
+    return "FXAA";
+  case AntiAliasing::Taa:
+    return "TAA";
+  }
+  return "";
+}
+
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 13> Names{"cluster", "cull", "debug", "depth",   "forward",
-                                                          "hiz",     "ibl",  "id",    "outline", "particles",
-                                                          "post",    "skin", "skybox"};
+  static constexpr std::array<std::string_view, 14> Names{"cluster", "cull", "debug",  "depth",   "forward",
+                                                          "hiz",     "ibl",  "id",     "outline", "particles",
+                                                          "post",    "skin", "skybox", "taa"};
   return Names;
 }
 
@@ -1252,6 +1334,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   if (m_graphSerial != graph.frameSerial() || m_viewCount == 0) {
     m_graphSerial = graph.frameSerial();
     m_graphFrame = graph.frameIndex();
+    ++m_frameNumber;
     m_viewCount = 0;
     m_commandsReserved = 0;
     m_visibleReserved = 0;
@@ -1295,6 +1378,15 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.allJobsUsed = 0;
   v.firstPendingJob = 0;
   const glm::mat4 cameraView = view.camera.view();
+  v.taa = false;
+  v.motion = {};
+  v.resolvedScene = {};
+  v.jitter = glm::vec2{0.0f};
+  v.viewProjection =
+      view.camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u))) *
+      cameraView;
+  v.jitteredViewProjection = v.viewProjection;
+  v.previousViewProjection = v.viewProjection;
   for (std::size_t i = 0; i < view.draws.size(); ++i) {
     const DrawItem &item = view.draws[i];
     const Mesh *mesh = m_meshes.find(item.mesh);
@@ -1317,13 +1409,14 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
       minimum = glm::min(minimum, world);
       maximum = glm::max(maximum, world);
     }
-    const std::uint32_t vertexBuffer = resolveVertices(v, item, *mesh);
-    if (vertexBuffer == rhi::InvalidBindlessIndex) {
+    const ResolvedVertices vertices = resolveVertices(v, item, *mesh);
+    if (vertices.current == rhi::InvalidBindlessIndex) {
       continue; // the bindless vertex-buffer array is full, which the device has logged
     }
     v.resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
                                       .mesh = mesh,
-                                      .vertexBuffer = vertexBuffer,
+                                      .vertexBuffer = vertices.current,
+                                      .previousVertexBuffer = vertices.previous,
                                       .submesh = mesh->submeshes[item.submesh],
                                       .center = (minimum + maximum) * 0.5f,
                                       .extent = (maximum - minimum) * 0.5f,
@@ -1376,6 +1469,119 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
         [this, &v](rhi::ICommandList &commands, const PassResources &) { recordSkinning(commands, v); });
   }
   return v;
+}
+
+void Renderer::releaseHistory(History &history) {
+  for (rhi::ImageHandle &image : history.images) {
+    if (image) {
+      m_device.destroyImage(image); // deferred past the frames still reading it
+      image = {};
+    }
+  }
+}
+
+GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth) {
+  History &history = m_histories[v.view];
+  const glm::uvec2 size = v.targetSize;
+  if (history.size != size) {
+    releaseHistory(history);
+    history.size = size;
+    history.valid = false;
+  }
+  for (std::size_t i = 0; i < history.images.size(); ++i) {
+    if (!history.images[i]) {
+      history.images[i] = m_device.createImage({.size = size,
+                                                .format = HdrFormat,
+                                                .usage = rhi::ImageUsage::ColorAttachment | rhi::ImageUsage::Sampled,
+                                                .debugName = std::format("taa history {}", i)});
+      history.valid = false;
+    }
+  }
+  const bool valid = history.valid;
+  v.statistics.temporalHistoryUsed = valid;
+  // The image the last resolve wrote is read and this one's result goes into the other, and they
+  // swap for the next frame. Both end in the shader-read layout the next frame starts them in.
+  const GraphImage write = graph.importImage(history.images[history.next], rhi::ImageLayout::ShaderReadOnly);
+  GraphImage read;
+  if (valid) {
+    read = graph.importImage(history.images[1 - history.next], rhi::ImageLayout::ShaderReadOnly,
+                             rhi::ImageLayout::ShaderReadOnly);
+  }
+  history.next = 1 - history.next;
+  history.valid = true;
+  graph.addPass(
+      "taa",
+      [&](PassBuilder &builder) {
+        builder.sample(hdr);
+        builder.sample(v.motion);
+        builder.sample(depth);
+        if (valid) {
+          builder.sample(read);
+        }
+        builder.color(write, rhi::LoadOp::DontCare);
+      },
+      [this, &v, hdr, read, depth, valid](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
+        recordTaa(commands, v, resources.image(hdr), valid ? resources.image(read) : resources.image(hdr),
+                  resources.image(v.motion), valid, resources.image(depth));
+      });
+  return write;
+}
+
+void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current,
+                         rhi::ImageHandle history, rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth) {
+  SONNET_ZONE();
+  if (!v.frameBuffers.valid()) {
+    return;
+  }
+  const TaaConstants push{.current = sampledIndex(current),
+                          .history = sampledIndex(history),
+                          .motion = sampledIndex(motion),
+                          .depth = sampledIndex(depth),
+                          .sampler = m_device.samplerIndex(m_linearClampSampler),
+                          .historyValid = historyValid ? 1u : 0u,
+                          .size = glm::vec2{v.targetSize}};
+  commands.bindPipeline(m_taaPipeline);
+  bindFrame(commands, v);
+  commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+  commands.draw(3);
+}
+
+void Renderer::beginTemporal(ViewState &v) {
+  // A debug view shows the unresolved frame, which jitter would only shake.
+  const bool wanted = m_settings.antialiasing == AntiAliasing::Taa && m_settings.debugView == DebugView::Final;
+  // Views come and go (a panel is hidden, a test ends); forget the ones nobody has drawn in a while.
+  for (auto it = m_histories.begin(); it != m_histories.end();) {
+    if (it->second.lastFrame + HistoryFrames < m_frameNumber || (!wanted && it->first == v.view)) {
+      releaseHistory(it->second); // an unresolved frame is no guide to the next one
+      it = m_histories.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  if (!wanted) {
+    return;
+  }
+  History &history = m_histories[v.view];
+  const bool continuous = history.lastFrame + 1 == m_frameNumber;
+  // Whatever breaks the chain starts the jitter sequence over too, so the frames from there on
+  // resolve the same way however many came before (the capture runs rely on it).
+  if (!continuous || v.view->resetHistory) {
+    history.valid = false;
+    history.hasPrevious = false;
+    history.sequence = 0;
+  }
+  history.lastFrame = m_frameNumber;
+  v.taa = true;
+  v.jitter =
+      glm::vec2{halton(history.sequence % JitterSamples + 1, 2), halton(history.sequence % JitterSamples + 1, 3)} -
+      glm::vec2{0.5f};
+  history.sequence = (history.sequence + 1) % JitterSamples;
+  const glm::vec2 ndc = v.jitter * 2.0f / glm::vec2{v.targetSize};
+  v.jitteredViewProjection = glm::translate(glm::mat4{1.0f}, glm::vec3{ndc, 0.0f}) * v.viewProjection;
+  v.previousViewProjection = history.hasPrevious ? history.previousViewProjection : v.viewProjection;
+  history.previousViewProjection = v.viewProjection;
+  history.hasPrevious = true;
 }
 
 void Renderer::buildBatches(const ViewState &v, std::span<const std::uint32_t> order,
@@ -1642,9 +1848,9 @@ Renderer::Pyramid &Renderer::ensurePyramid(const ViewState &v, glm::uvec2 size) 
 void Renderer::recordPyramid(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle depth) {
   SONNET_ZONE();
   Pyramid &pyramid = m_pyramids[v.index];
-  const glm::mat4 viewProjection =
-      v.view->camera.projection(static_cast<float>(v.targetSize.x) / static_cast<float>(std::max(v.targetSize.y, 1u))) *
-      v.view->camera.view();
+  // The matrix the depth was drawn with, jitter included: the next frame's phase one projects its
+  // boxes with it.
+  const glm::mat4 viewProjection = v.jitteredViewProjection;
   const std::uint64_t address = m_device.bufferAddress(pyramid.buffer);
   const auto push = [&](std::uint32_t level) {
     const HizConstants constants{.viewProjection = viewProjection,
@@ -1808,28 +2014,49 @@ Bounds Renderer::posedBounds(const SceneView &view, const DrawItem &item, const 
   return result;
 }
 
-std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh) {
+Renderer::ResolvedVertices Renderer::resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh) {
   const SceneView &view = *v.view;
   const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
                        std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
   const bool morphed = item.morphWeightCount > 0 && item.skinInstance != 0 && mesh.morph &&
                        std::size_t{item.firstMorphWeight} + item.morphWeightCount <= view.morphWeights.size();
   if (!skinned && !morphed) {
-    return m_device.storageBufferIndex(mesh.vertices);
+    const std::uint32_t index = m_device.storageBufferIndex(mesh.vertices);
+    return {index, index};
   }
+  const auto createBuffer = [&](const char *name) {
+    return m_device.createBuffer({.size = std::uint64_t{mesh.vertexCount} * sizeof(Vertex),
+                                  .usage = rhi::BufferUsage::Storage,
+                                  .debugName = std::format("{} {}", mesh.debugName, name)});
+  };
   SkinnedVertices &instance = m_skinned[item.skinInstance];
+  bool fresh = false;
   if (instance.mesh != item.mesh || !instance.buffer) {
-    if (instance.buffer) {
-      m_device.destroyBuffer(instance.buffer);
+    for (rhi::BufferHandle buffer : {instance.buffer, instance.previous}) {
+      if (buffer) {
+        m_device.destroyBuffer(buffer);
+      }
     }
     instance.mesh = item.mesh;
-    instance.buffer = m_device.createBuffer({.size = std::uint64_t{mesh.vertexCount} * sizeof(Vertex),
-                                             .usage = rhi::BufferUsage::Storage,
-                                             .debugName = std::format("{} skinned", mesh.debugName)});
+    instance.buffer = createBuffer("skinned");
+    instance.previous = {};
+    instance.previousValid = false;
     instance.lastFrame = m_graphFrame + 1; // not yet scheduled this frame
+    fresh = true;
   }
   // The submeshes of one instance share its vertices: deformed once.
   if (instance.lastFrame != m_graphFrame) {
+    // Under TAA the instance keeps two buffers and swaps them each frame, so the motion pass can
+    // read the vertices the frame before deformed (ADR-0024). They hold the previous pose only if
+    // that frame drew the instance.
+    if (m_settings.antialiasing == AntiAliasing::Taa && !fresh) {
+      const bool consecutive = instance.lastFrame + 1 == m_graphFrame;
+      if (!instance.previous) {
+        instance.previous = createBuffer("previous skinned");
+      }
+      std::swap(instance.buffer, instance.previous);
+      instance.previousValid = consecutive;
+    }
     instance.lastFrame = m_graphFrame;
     v.skinJobs.push_back(SkinJob{.mesh = &mesh,
                                  .destination = instance.buffer,
@@ -1840,7 +2067,8 @@ std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, cons
     ++v.statistics.skinnedInstanceCount;
     v.statistics.skinnedVertexCount += mesh.vertexCount;
   }
-  return m_device.storageBufferIndex(instance.buffer);
+  const std::uint32_t current = m_device.storageBufferIndex(instance.buffer);
+  return {current, instance.previousValid ? m_device.storageBufferIndex(instance.previous) : current};
 }
 
 void Renderer::releaseSkinnedVertices(bool all) {
@@ -1848,6 +2076,9 @@ void Renderer::releaseSkinnedVertices(bool all) {
     const bool stale = it->second.lastFrame + SkinnedBufferFrames < m_graphFrame || !m_meshes.contains(it->second.mesh);
     if (all || stale) {
       m_device.destroyBuffer(it->second.buffer);
+      if (it->second.previous) {
+        m_device.destroyBuffer(it->second.previous);
+      }
       it = m_skinned.erase(it);
     } else {
       ++it;
@@ -2084,8 +2315,8 @@ void Renderer::recordParticleDraws(rhi::ICommandList &commands, const ViewState 
     return;
   }
   const SceneView &view = *v.view;
-  const float aspect = static_cast<float>(v.targetSize.x) / static_cast<float>(std::max(v.targetSize.y, 1u));
-  const glm::mat4 viewProjection = view.camera.projection(aspect) * view.camera.view();
+  // Particles are depth-tested against the jittered depth and resolved with the rest.
+  const glm::mat4 viewProjection = v.jitteredViewProjection;
   bool boundQuad = false;
   for (const ParticleJob &job : v.particleJobs) {
     if (job.state->params == 0) {
@@ -2119,7 +2350,12 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   v.frameBuffers.objects = m_device.allocateTransient(std::max<std::size_t>(view.draws.size(), 1) * sizeof(ObjectData));
   const rhi::TransientAllocation materials = m_device.allocateTransient(materialCount * sizeof(GpuMaterial));
   const rhi::TransientAllocation lights = m_device.allocateTransient(std::max(lightCount, 1u) * sizeof(GpuLight));
-  if (!v.frameBuffers.valid() || materials.data.empty() || lights.data.empty()) {
+  if (v.taa) {
+    v.frameBuffers.previousObjects =
+        m_device.allocateTransient(std::max<std::size_t>(view.draws.size(), 1) * sizeof(PreviousObject));
+  }
+  if (!v.frameBuffers.valid() || materials.data.empty() || lights.data.empty() ||
+      (v.taa && v.frameBuffers.previousObjects.data.empty())) {
     v.frameBuffers = {}; // the allocator logged the exhaustion; the passes draw nothing
     v.frameBuffers.uploaded = true;
     return;
@@ -2128,6 +2364,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   // Objects, in the draw list's order so the object index is the draw index. A draw whose mesh
   // handle went stale keeps a null vertex address and is never in an order list.
   auto *objects = reinterpret_cast<ObjectData *>(v.frameBuffers.objects.data.data());
+  auto *previousObjects =
+      v.taa ? reinterpret_cast<PreviousObject *>(v.frameBuffers.previousObjects.data.data()) : nullptr;
   // One slot per draw, written once, read by nobody until the pass records: the loop the job
   // system exists for (ADR-0013). What it costs is the bytes, not the arithmetic.
   parallelFor("frame objects", view.draws.size(), ObjectGrain, [&](std::size_t begin, std::size_t end) {
@@ -2138,10 +2376,21 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                               .id = item.id,
                               .material = materialIndex(item.material),
                               .vertexBuffer = 0};
+      if (previousObjects != nullptr) {
+        const glm::mat4 &previous = item.previousTransform ? *item.previousTransform : item.transform;
+        for (int row = 0; row < 3; ++row) {
+          previousObjects[i].rows[row] = glm::row(previous, row);
+        }
+        previousObjects[i].vertexBuffer = 0;
+        previousObjects[i].padding[0] = previousObjects[i].padding[1] = previousObjects[i].padding[2] = 0;
+      }
     }
   });
   for (const ResolvedDraw &draw : v.resolved) {
     objects[draw.objectIndex].vertexBuffer = draw.vertexBuffer;
+    if (previousObjects != nullptr) {
+      previousObjects[draw.objectIndex].vertexBuffer = draw.previousVertexBuffer;
+    }
   }
 
   // The culling pass's candidates, one array per order list, each grouped into its batches.
@@ -2259,9 +2508,11 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   FrameConstants frame{
       .view = cameraView,
       .projection = projection,
-      .viewProjection = projection * cameraView,
+      .viewProjection = v.jitteredViewProjection,
+      .unjitteredViewProjection = v.viewProjection,
+      .previousViewProjection = v.previousViewProjection,
       .inverseProjection = glm::inverse(projection),
-      .inverseViewProjection = glm::inverse(projection * cameraView),
+      .inverseViewProjection = glm::inverse(v.jitteredViewProjection),
       .cascadeMatrices = {},
       .cascadeSplits = {},
       .cascadeBlendStarts = {},
@@ -2278,6 +2529,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .targetSize = glm::vec2{v.targetSize},
       .nearPlane = nearPlane,
       .shadowBias = m_settings.shadowBias,
+      .mipBias = v.taa ? TaaMipBias : 0.0f,
+      .padding = 0.0f,
       .cascadeImages = {},
       .irradianceCube = environmentReady ? sampledIndex(environment->irradiance) : rhi::InvalidBindlessIndex,
       .prefilteredCube = environmentReady ? sampledIndex(environment->prefiltered) : rhi::InvalidBindlessIndex,
@@ -2292,6 +2545,9 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
       .clusters = m_device.bufferAddress(m_clusterBuffer),
       .localShadows = localShadows.data.empty() ? 0 : m_device.bufferAddress(localShadows.buffer) + localShadows.offset,
+      .previousObjects =
+          v.taa ? m_device.bufferAddress(v.frameBuffers.previousObjects.buffer) + v.frameBuffers.previousObjects.offset
+                : 0,
   };
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
     frame.cascadeMatrices[c] = v.cascades[c].matrix;
@@ -2447,6 +2703,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   addPrecomputePasses(graph, view);
   const glm::uvec2 size = graph.imageDesc(color).size;
   ViewState &v = prepareFrame(graph, view, size);
+  beginTemporal(v);
 
   // The cascades exist only with the scene passes: the id and mask passes on their own have no
   // shadow images to sample.
@@ -2464,7 +2721,8 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       cascadeJobs[c]->viewProjection = v.cascades[c].matrix;
     }
   }
-  const glm::mat4 cameraViewProjection = view.camera.projection(aspect) * view.camera.view();
+  // The pre-pass and the forward pass cull with the matrix they rasterise with.
+  const glm::mat4 cameraViewProjection = v.jitteredViewProjection;
   std::optional<CullJob> depthJob = reserveCullJob(v, true);
   std::optional<CullJob> forwardJob = reserveCullJob(v, true);
   for (std::optional<CullJob> *job : {&depthJob, &forwardJob}) {
@@ -2584,14 +2842,25 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         });
   }
 
+  // Under TAA the pre-pass also writes motion (ADR-0024).
+  const std::span<const rhi::PipelineHandle, 2> depthPipelines = v.taa ? m_depthMotionPipelines : m_depthPipelines;
+  if (v.taa) {
+    v.motion = graph.createImage({.size = size, .format = MotionFormat, .debugName = "motion"});
+  }
   graph.addPass(
-      "depth", [&](PassBuilder &builder) { builder.depth(depth, rhi::LoadOp::Clear, 0.0f); },
-      [this, &v, job = depthJob](rhi::ICommandList &commands, const PassResources &resources) {
+      "depth",
+      [&](PassBuilder &builder) {
+        if (v.taa) {
+          builder.color(v.motion, rhi::LoadOp::Clear, {0.0f, 0.0f, 0.0f, 0.0f});
+        }
+        builder.depth(depth, rhi::LoadOp::Clear, 0.0f);
+      },
+      [this, &v, depthPipelines, job = depthJob](rhi::ICommandList &commands, const PassResources &resources) {
         ensureFrameUploaded(v, resources);
         if (job) {
-          recordIndirect(commands, v, *job, v.opaqueBatches, m_depthPipelines);
+          recordIndirect(commands, v, *job, v.opaqueBatches, depthPipelines);
         } else {
-          recordDraws(commands, v, v.opaqueOrder, m_depthPipelines, false);
+          recordDraws(commands, v, v.opaqueOrder, depthPipelines, false);
         }
       });
   if (occlusion) {
@@ -2607,10 +2876,16 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           recordLateCulling(commands, v, job);
         });
     graph.addPass(
-        "depth late", [&](PassBuilder &builder) { builder.depth(depth, rhi::LoadOp::Load); },
-        [this, &v, job = *depthJob](rhi::ICommandList &commands, const PassResources &resources) {
+        "depth late",
+        [&](PassBuilder &builder) {
+          if (v.taa) {
+            builder.color(v.motion, rhi::LoadOp::Load);
+          }
+          builder.depth(depth, rhi::LoadOp::Load);
+        },
+        [this, &v, depthPipelines, job = *depthJob](rhi::ICommandList &commands, const PassResources &resources) {
           ensureFrameUploaded(v, resources);
-          recordIndirect(commands, v, job, v.opaqueBatches, m_depthPipelines, 0, true);
+          recordIndirect(commands, v, job, v.opaqueBatches, depthPipelines, 0, true);
         });
   }
   graph.addPass(
@@ -2665,27 +2940,33 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         recordParticleDraws(commands, v);
       });
 
+  // Under TAA the resolved scene stands in for the unresolved one from here on.
+  GraphImage scene = hdr;
+  if (v.taa) {
+    scene = addTaaPass(graph, v, hdr, depth);
+    v.resolvedScene = scene;
+  }
   GraphImage bloom;
   if (m_settings.bloom && size.x >= 2 && size.y >= 2) {
-    addBloomPasses(graph, view, hdr, size, bloom);
+    addBloomPasses(graph, view, scene, size, bloom);
   }
-  const GraphImage ldr = m_settings.antialiasing
-                             ? graph.createImage({.size = size, .format = ColorFormat, .debugName = "scene ldr"})
-                             : color;
+  const bool fxaa = m_settings.antialiasing == AntiAliasing::Fxaa;
+  const GraphImage ldr =
+      fxaa ? graph.createImage({.size = size, .format = ColorFormat, .debugName = "scene ldr"}) : color;
   graph.addPass(
       "tonemap",
       [&](PassBuilder &builder) {
-        builder.sample(hdr);
+        builder.sample(scene);
         if (bloom.isValid()) {
           builder.sample(bloom);
         }
         builder.color(ldr, rhi::LoadOp::DontCare);
       },
-      [this, &view, hdr, bloom, size](rhi::ICommandList &commands, const PassResources &resources) {
-        recordPost(commands, &view, m_tonemapPipeline, resources.image(hdr),
+      [this, &view, scene, bloom, size](rhi::ICommandList &commands, const PassResources &resources) {
+        recordPost(commands, &view, m_tonemapPipeline, resources.image(scene),
                    bloom.isValid() ? resources.image(bloom) : rhi::ImageHandle{}, size);
       });
-  if (m_settings.antialiasing) {
+  if (fxaa) {
     graph.addPass(
         "fxaa",
         [&](PassBuilder &builder) {
@@ -2765,14 +3046,13 @@ void Renderer::addSelectionMaskPass(RenderGraph &graph, const SceneView &view, G
 }
 
 std::optional<Renderer::CullJob> Renderer::addCullPass(RenderGraph &graph, ViewState &v, bool selectedOnly) {
-  const SceneView &view = *v.view;
-  const glm::uvec2 size = v.targetSize;
   std::optional<CullJob> job = reserveCullJob(v, false);
   if (!job) {
     return job;
   }
-  const float aspect = static_cast<float>(size.x) / static_cast<float>(std::max(size.y, 1u));
-  job->viewProjection = view.camera.projection(aspect) * view.camera.view();
+  // The id pass tests against the scene's jittered depth; the mask has no depth and is compared
+  // with the resolved image, so it stays unjittered.
+  job->viewProjection = selectedOnly ? v.viewProjection : v.jitteredViewProjection;
   job->selectedOnly = selectedOnly;
   v.cullJobs.push_back(*job);
   graph.addPass(

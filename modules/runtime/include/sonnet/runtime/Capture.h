@@ -87,6 +87,9 @@ public:
   [[nodiscard]] virtual core::Result<void> begin(const CaptureOptions &options) = 0;
   // Whether a frame has drawn into the image the screenshot copies, with nothing left loading.
   [[nodiscard]] virtual bool loaded() = 0;
+  // The assets have loaded: temporal anti-aliasing starts over here, so that the frames from now
+  // to the screenshot resolve the same way however many were drawn while loading (ADR-0024).
+  virtual void cutHistory() = 0;
   // Seeds the scripts' math.random and starts the simulation.
   virtual void play(std::uint64_t randomSeed) = 0;
   // --select: the entity at a path of names, outlined.
@@ -149,6 +152,7 @@ public:
   }
   [[nodiscard]] core::Result<void> begin(const CaptureOptions &options) override;
   [[nodiscard]] bool loaded() override;
+  void cutHistory() override;
   void play(std::uint64_t randomSeed) override;
   [[nodiscard]] core::Result<void> select(std::string_view path) override;
   void requestScreenshots(const std::filesystem::path &viewport, const std::filesystem::path &window) override;

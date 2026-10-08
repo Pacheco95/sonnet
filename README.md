@@ -37,7 +37,7 @@ Sonnet is a 3D game engine written in C++23 for Windows, Linux, macOS, Android a
 | Export to iOS | M10 |
 | Contact and trigger events, compound bodies, several scripts per entity with editable properties, `require` | M11 |
 | Animation blending and events, morph targets, particles | M12 |
-| Temporal anti-aliasing, occlusion culling | M13 (planned) |
+| Temporal anti-aliasing, occlusion culling | M13 (in progress) |
 | Measured performance targets, format freeze, 1.0.0 | M14 (planned) |
 
 ## Platforms

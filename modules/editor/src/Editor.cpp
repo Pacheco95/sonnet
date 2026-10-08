@@ -397,6 +397,8 @@ void Editor::update(float dt) {
   m_view.exposure = environment ? environment->exposure : 1.0f;
   // The Game view draws the same lists through the scene's camera, with no debug lines; it is a
   // distinct SceneView because the renderer finds a view's state by its address (ADR-0021).
+  // A scene swap, or play starting or ending, is a cut: the last frame is no guide to this one.
+  m_view.resetHistory = std::exchange(m_cutHistory, false);
   m_gameView = m_view;
   m_gameView.camera = gameCamera;
   m_gameView.debugLines = {};
@@ -695,6 +697,15 @@ void Editor::drawMenuBar() {
       resetLayout();
     }
     ImGui::Separator();
+    if (ImGui::BeginMenu("Anti-aliasing")) {
+      for (const renderer::AntiAliasing mode :
+           {renderer::AntiAliasing::None, renderer::AntiAliasing::Fxaa, renderer::AntiAliasing::Taa}) {
+        if (ImGui::MenuItem(renderer::antiAliasingName(mode), nullptr, m_renderer.settings().antialiasing == mode)) {
+          setAntiAliasing(mode);
+        }
+      }
+      ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("Shading term")) {
       renderer::RendererSettings settings = m_renderer.settings();
       for (std::uint32_t i = 0; i < renderer::DebugViewCount; ++i) {
@@ -1221,6 +1232,12 @@ void Editor::setShadingTerm(renderer::DebugView view) {
   m_renderer.setSettings(settings);
 }
 
+void Editor::setAntiAliasing(renderer::AntiAliasing mode) {
+  renderer::RendererSettings settings = m_renderer.settings();
+  settings.antialiasing = mode;
+  m_renderer.setSettings(settings);
+}
+
 void Editor::requestScreenshots(std::filesystem::path viewport, std::filesystem::path window) {
   m_screenshotRequest.emplace(std::move(viewport), std::move(window));
   m_screenshotResult.reset();
@@ -1260,6 +1277,7 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   // The project's scenes replace the previous project's: its tabs go, unsaved changes with them.
   m_tabs.clear();
   m_world.clearScene();
+  m_cutHistory = true;
   m_world.clearPrefabs();
   m_assets.open(m_project->root, m_project->assetRoots);
   loadPrefabs();
@@ -1337,6 +1355,7 @@ void Editor::stashActiveTab() {
 void Editor::restoreTab(std::size_t index) {
   SceneTab &tab = m_tabs[index];
   m_world.clearScene();
+  m_cutHistory = true;
   if (const auto restored = world::loadScene(m_world, tab.content); !restored) {
     SONNET_LOG_ERROR("{}: {}", tabTitle(index), restored.error().toString());
   }
@@ -1743,6 +1762,7 @@ std::vector<std::string> Editor::recoverableScenes() const {
 bool Editor::loadRecovered(const Recovery::Entry &entry) {
   stashActiveTab();
   m_world.clearScene();
+  m_cutHistory = true;
   if (const auto loaded = world::loadScene(m_world, entry.scene); !loaded) {
     SONNET_LOG_ERROR("recovery: {}: {}", entry.file.filename().string(), loaded.error().toString());
     restoreTab(m_activeTab);
@@ -1875,6 +1895,7 @@ core::Result<void> Editor::openScene(const std::filesystem::path &file) {
   const bool hadTabs = !m_tabs.empty();
   stashActiveTab();
   m_world.clearScene();
+  m_cutHistory = true;
   m_selection.clear();
   m_commands = CommandStack{};
   if (const auto loaded = world::loadSceneFile(m_world, file); !loaded) {
@@ -1930,6 +1951,7 @@ void Editor::newScene() {
   }
   stashActiveTab();
   m_world.clearScene();
+  m_cutHistory = true;
   m_selection.clear();
   m_commands = CommandStack{};
   if (const auto loaded = world::loadScene(m_world, starterScene()); !loaded) {
@@ -1951,6 +1973,7 @@ void Editor::play() {
   m_historyBeforePlay = std::move(m_commands);
   m_commands = CommandStack{};
   m_world.setPlaying(true);
+  m_cutHistory = true;
   SONNET_LOG_INFO("play");
 }
 
@@ -2105,6 +2128,7 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
   m_input = {};
   const auto restoreSnapshot = [this] {
     m_world.clearScene();
+    m_cutHistory = true;
     if (const auto restored = world::loadScene(m_world, m_snapshot); !restored) {
       SONNET_LOG_ERROR("restoring the scene after play: {}", restored.error().toString());
     }

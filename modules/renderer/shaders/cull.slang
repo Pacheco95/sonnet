@@ -112,6 +112,12 @@ bool occluded(float4x4 m, float3 center, float3 extent) {
     high = max(high, clamp(uv, 0.0, 1.0));
     nearest = max(nearest, ndc.z);
   }
+  // One texel of level 0 more on every side. The depth was rasterised with a jittered matrix that
+  // moves a surface by up to half a pixel, and a test whose matrix is not the pyramid's own (a
+  // phase-one box moved since the pyramid was built) may see its edge there (ADR-0024).
+  const float2 margin = 1.0 / float2(size);
+  low = max(low - margin, float2(0.0, 0.0));
+  high = min(high + margin, float2(1.0, 1.0));
   // The level at which the box spans no more than two texels each way.
   const float2 texels = (high - low) * float2(size);
   const uint level = min(levels - 1, uint(ceil(log2(max(max(texels.x, texels.y), 1.0)))));

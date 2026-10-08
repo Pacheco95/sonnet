@@ -224,7 +224,7 @@ float pointShadow(Light light, float3 worldPosition, float3 normal, float3 toLig
 // rather than the type, which Metal rejects. It bites the editor's runtime recompile, where the
 // function survives as a function (ADR-0015 is the other shape of the same problem).
 float4 sampleMaterial(uint textureIndex, uint samplerIndex, float2 uv) {
-  return textures[textureIndex].Sample(samplers[samplerIndex], uv);
+  return textures[textureIndex].SampleBias(samplers[samplerIndex], uv, frame.mipBias);
 }
 
 [shader("fragment")]

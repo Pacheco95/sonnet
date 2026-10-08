@@ -46,6 +46,13 @@ struct WorldTransform {
   glm::mat4 matrix{1.0f};
 };
 
+// The `WorldTransform` of the frame before, kept for the renderer's motion vectors (ADR-0024). An
+// entity gets one in the frame its world transform first exists, equal to the current matrix, so
+// it has no motion until it moves. Not serialized, not inherited.
+struct PreviousWorldTransform {
+  glm::mat4 matrix{1.0f};
+};
+
 // A mesh by asset identity (docs/assets.md, "Identity"): a built-in primitive or a glTF mesh.
 // `material` overrides every slot of the mesh; nil keeps the mesh's own materials.
 struct MeshRenderer {

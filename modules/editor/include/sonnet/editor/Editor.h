@@ -288,6 +288,12 @@ public:
   }
   // The term of the forward shading the viewport shows, from View > Shading term.
   void setShadingTerm(renderer::DebugView view);
+  // View > Anti-aliasing: takes effect on the next frame.
+  void setAntiAliasing(renderer::AntiAliasing mode);
+  // The next frame starts the views' temporal anti-aliasing history over, as a scene swap does.
+  void cutHistory() {
+    m_cutHistory = true;
+  }
 
   // Screenshots (docs/editor.md, "Screenshots"). The next frame that can copies the viewport's
   // scene into `viewport` and the whole window into `window` as PNG files; an empty path skips
@@ -473,6 +479,7 @@ private:
   // The Game view's: the scene's camera over the same draws, a distinct object (ADR-0021).
   renderer::SceneView m_gameView;
   bool m_warnedAboutCamera{false};
+  bool m_cutHistory{false}; // the next frame's views start their temporal history over
   std::vector<std::uint32_t> m_outlineIds;
   std::optional<std::pair<std::filesystem::path, std::filesystem::path>> m_screenshotRequest; // viewport, window
   runtime::Screenshots m_screenshots;

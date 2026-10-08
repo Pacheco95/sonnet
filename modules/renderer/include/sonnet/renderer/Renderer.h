@@ -41,6 +41,9 @@ struct RenderStatistics {
   std::uint32_t skinnedVertexCount{0};
   std::uint32_t particleEmitterCount{0}; // emitters the view drew
   std::uint32_t particleSlotCount{0};    // their particle capacity: the ring slots simulated, alive or not
+  // Temporal anti-aliasing resolved this frame against a previous frame; false on the first
+  // frame of a view, after a resize, a cut or a frame that was not resolved, and without TAA.
+  bool temporalHistoryUsed{false};
   // What survived the GPU's culling, read back FramesInFlight frames late (ADR-0024), so these
   // describe an earlier frame of the same view; `visibleCountsKnown` is false until the first
   // one arrives. Opaque and masked draws only: the blended ones are never culled.
@@ -67,6 +70,19 @@ constexpr std::uint32_t DebugViewCount = 9;
 // What the editor's View > Shading term menu calls a term: "Final", "Sun direct", "BRDF LUT".
 [[nodiscard]] const char *debugViewName(DebugView view) noexcept;
 
+// How the finished image is anti-aliased (ADR-0024). Taa jitters the projection by a sub-pixel
+// Halton sequence and resolves the frames over time in HDR, with motion vectors from the depth
+// pre-pass; Fxaa filters the tone-mapped image alone. A debug view shows the unresolved frame
+// whatever this says.
+enum class AntiAliasing : std::uint8_t {
+  None,
+  Fxaa,
+  Taa,
+};
+
+// What the editor's View > Anti-aliasing menu calls a mode: "None", "FXAA", "TAA".
+[[nodiscard]] const char *antiAliasingName(AntiAliasing mode) noexcept;
+
 // Quality knobs. Tests turn the sizes and sample counts down so Lavapipe finishes quickly.
 struct RendererSettings {
   bool shadows{true};
@@ -82,7 +98,7 @@ struct RendererSettings {
   DebugView debugView{DebugView::Final};
   bool bloom{true};
   std::uint32_t bloomLevels{5};
-  bool antialiasing{true};
+  AntiAliasing antialiasing{AntiAliasing::Taa};
   // Occlusion culling of the opaque draws against a depth pyramid, in two phases (ADR-0024): the
   // result is the same pixels with fewer draws.
   bool occlusionCulling{true};
@@ -113,6 +129,8 @@ public:
   static constexpr rhi::Format DepthFormat = rhi::Format::D32Sfloat;
   static constexpr rhi::Format IdFormat = rhi::Format::R32Uint;
   static constexpr rhi::Format HdrFormat = rhi::Format::R16G16B16A16Sfloat;
+  // The pre-pass's second attachment under TAA: the screen-space motion of each surface, in UV units.
+  static constexpr rhi::Format MotionFormat = rhi::Format::R16G16Sfloat;
   static constexpr std::uint32_t CascadeCount = 4;
   static constexpr std::uint32_t MaxLights = 1024;
   // Views a frame can declare with shadows (the editor's Scene and Game views). Each takes its
@@ -210,6 +228,21 @@ public:
   [[nodiscard]] const RenderStatistics &statistics(std::size_t view = 0) const noexcept {
     return view < m_viewCount ? m_views[view]->statistics : m_noStatistics;
   }
+  // The sub-pixel offset, in pixels within [-0.5, 0.5], that the frame's `view`th declared view is
+  // rasterised with: Halton(2, 3), eight samples, zero without TAA (ADR-0024).
+  [[nodiscard]] glm::vec2 jitter(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->jitter : glm::vec2{0.0f};
+  }
+  // The image the frame's `view`th declared view resolved into, which the next frame's resolve
+  // reads as history; valid until the next graph reset, invalid without TAA.
+  [[nodiscard]] GraphImage resolved(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->resolvedScene : GraphImage{};
+  }
+  // The motion image the pre-pass of the frame's `view`th declared view wrote, valid until the
+  // next graph reset; invalid without TAA.
+  [[nodiscard]] GraphImage motion(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->motion : GraphImage{};
+  }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
   }
@@ -275,6 +308,10 @@ private:
   struct SkinnedVertices {
     MeshHandle mesh;
     rhi::BufferHandle buffer;
+    // Under TAA the buffer the frame before wrote, swapped with `buffer` each frame, and whether it
+    // holds that frame's pose (ADR-0024).
+    rhi::BufferHandle previous;
+    bool previousValid{false};
     std::uint64_t lastFrame{0};
   };
   // One emitter's particles between frames (ADR-0023): a ring of slots, the alive list the
@@ -332,7 +369,8 @@ private:
   struct FrameBuffers {
     rhi::TransientAllocation frame;
     rhi::TransientAllocation objects;
-    std::uint64_t opaqueCandidates{0}; // addresses of the culling pass's input arrays
+    rhi::TransientAllocation previousObjects; // under TAA only
+    std::uint64_t opaqueCandidates{0};        // addresses of the culling pass's input arrays
     std::uint64_t allCandidates{0};
     bool uploaded{false};
     bool directSlotsUploaded{false}; // the visible list's direct range, written on the first direct draw
@@ -349,7 +387,8 @@ private:
   struct ResolvedDraw {
     std::uint32_t objectIndex;
     const Mesh *mesh;
-    std::uint32_t vertexBuffer; // bindless index into vertexBuffers[] (ADR-0015)
+    std::uint32_t vertexBuffer;         // bindless index into vertexBuffers[] (ADR-0015)
+    std::uint32_t previousVertexBuffer; // the one the frame before drew from; the same unless skinned
     Submesh submesh;
     glm::vec3 center; // world-space bounds, what the culling pass tests
     glm::vec3 extent; // half size
@@ -447,6 +486,29 @@ private:
     std::uint32_t visibleBase{0};
     std::uint32_t directBase{0};            // the direct range's first slot this frame
     std::vector<std::uint32_t> directSlots; // its contents, the object index of each resolved draw
+    // Temporal anti-aliasing (ADR-0024). The scene passes rasterise with the jittered matrix and
+    // everything that is compared against the resolved image (shadows, the selection mask, the
+    // outline, the debug lines) with the unjittered one; without TAA the two are equal.
+    bool taa{false};
+    glm::vec2 jitter{0.0f}; // in pixels, within [-0.5, 0.5]
+    glm::mat4 viewProjection{1.0f};
+    glm::mat4 jitteredViewProjection{1.0f};
+    glm::mat4 previousViewProjection{1.0f};
+    GraphImage motion;        // the pre-pass's motion attachment, under TAA
+    GraphImage resolvedScene; // what the resolve wrote, under TAA
+  };
+  // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
+  // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
+  // SceneView's address like the rest of a view's state (ADR-0021).
+  struct History {
+    std::array<rhi::ImageHandle, 2> images;
+    glm::uvec2 size{0, 0};
+    std::uint32_t next{0};     // the image the next resolve writes; the other holds the last one
+    bool valid{false};         // the other image holds a resolved frame to reproject
+    std::uint32_t sequence{0}; // the jitter sample the next frame uses
+    std::uint64_t lastFrame{0};
+    bool hasPrevious{false};
+    glm::mat4 previousViewProjection{1.0f};
   };
 
   // Every pipeline is recorded with the module it comes from, so a reload rebuilds it.
@@ -471,10 +533,23 @@ private:
                    const std::function<void(std::size_t, std::size_t)> &body) const;
 
   [[nodiscard]] ViewState &prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
+  // Chooses this frame's jitter and the matrices the scene passes use, from the view's history
+  // (ADR-0024); the scene passes call it before they reserve their culling jobs.
+  void beginTemporal(ViewState &v);
+  void releaseHistory(History &history);
+  // Declares the resolve between the forward pass and bloom: it takes the unresolved scene colour
+  // and returns the image bloom and tone mapping read in its place.
+  [[nodiscard]] GraphImage addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth);
+  void recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current, rhi::ImageHandle history,
+                 rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth);
   // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
   // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
   // InvalidBindlessIndex when the array is full.
-  [[nodiscard]] std::uint32_t resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh);
+  struct ResolvedVertices {
+    std::uint32_t current;
+    std::uint32_t previous;
+  };
+  [[nodiscard]] ResolvedVertices resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh);
   void recordSkinning(rhi::ICommandList &commands, const ViewState &v);
   // Resolves the view's emitters into jobs, sorted far to near, and declares the pass that
   // simulates the ones not yet advanced this frame.
@@ -546,10 +621,11 @@ private:
   RendererSettings m_settings;
   std::vector<PipelineSlot> m_pipelineSlots;
 
-  std::array<rhi::PipelineHandle, 2> m_depthPipelines;   // by doubleSided
-  std::array<rhi::PipelineHandle, 2> m_shadowPipelines;  // both cull nothing; kept as a pair for recordDraws
-  std::array<rhi::PipelineHandle, 2> m_forwardPipelines; // by doubleSided
-  std::array<rhi::PipelineHandle, 2> m_blendPipelines;   // by doubleSided
+  std::array<rhi::PipelineHandle, 2> m_depthPipelines;       // by doubleSided
+  std::array<rhi::PipelineHandle, 2> m_depthMotionPipelines; // the pre-pass that also writes motion (TAA)
+  std::array<rhi::PipelineHandle, 2> m_shadowPipelines;      // both cull nothing; kept as a pair for recordDraws
+  std::array<rhi::PipelineHandle, 2> m_forwardPipelines;     // by doubleSided
+  std::array<rhi::PipelineHandle, 2> m_blendPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_idPipelines;
   std::array<rhi::PipelineHandle, 2> m_maskPipelines;
   rhi::PipelineHandle m_skyboxPipeline;
@@ -557,6 +633,7 @@ private:
   rhi::PipelineHandle m_bloomUpPipeline;
   rhi::PipelineHandle m_tonemapPipeline;
   rhi::PipelineHandle m_fxaaPipeline;
+  rhi::PipelineHandle m_taaPipeline;
   rhi::PipelineHandle m_presentPipeline; // only when the settings named a present format
   rhi::PipelineHandle m_outlinePipeline;
   rhi::PipelineHandle m_debugLinePipeline;
@@ -634,6 +711,8 @@ private:
   std::uint64_t m_importSerial{0}; // the graph frame the imports below belong to
   GraphImage m_lutImport;
   std::vector<EnvironmentImport> m_environmentImports;
+  std::unordered_map<const SceneView *, History> m_histories;
+  std::uint64_t m_frameNumber{0};        // graph frames prepared so far, which a history's age is counted in
   std::vector<std::uint32_t> m_selected; // sorted and unique, for the binary search per draw
   glm::vec4 m_outlineColor{1.0f, 0.6f, 0.1f, 1.0f};
 };
