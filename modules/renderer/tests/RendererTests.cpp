@@ -1454,47 +1454,46 @@ TEST_CASE("the history starts over on a first frame, a cut, a resize, a debug vi
     }
     graph.execute(commands);
     device->endFrame();
-    std::vector<bool> reused;
-    reused.reserve(views.size());
+    std::string reused; // one character a view: 1 when it reused its history
     for (std::size_t i = 0; i < views.size(); ++i) {
-      reused.push_back(renderer.statistics(i).temporalHistoryUsed);
+      reused += renderer.statistics(i).temporalHistoryUsed ? '1' : '0';
     }
     return reused;
   };
-  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
-  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
-  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+  REQUIRE(frame({&first}, target) == "0");
+  REQUIRE(frame({&first}, target) == "1");
+  REQUIRE(frame({&first}, target) == "1");
 
   // A cut: the owner says the last frame is no guide.
   first.resetHistory = true;
-  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
+  REQUIRE(frame({&first}, target) == "0");
   first.resetHistory = false;
-  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+  REQUIRE(frame({&first}, target) == "1");
 
   // A resize recreates the images.
   target.resize({48, 48});
-  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
-  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+  REQUIRE(frame({&first}, target) == "0");
+  REQUIRE(frame({&first}, target) == "1");
 
   // A frame that does not resolve (a debug view shows the unresolved frame) breaks the chain.
   RendererSettings settings = renderer.settings();
   settings.debugView = DebugView::Albedo;
   renderer.setSettings(settings);
-  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
+  REQUIRE(frame({&first}, target) == "0");
   settings.debugView = DebugView::Final;
   renderer.setSettings(settings);
-  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
-  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+  REQUIRE(frame({&first}, target) == "0");
+  REQUIRE(frame({&first}, target) == "1");
 
   // A view that was not drawn for a frame has no previous frame to reproject.
-  REQUIRE(frame({&second}, other) == std::vector<bool>{false});
-  REQUIRE(frame({&first}, target) == std::vector<bool>{false}); // second was drawn instead
-  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+  REQUIRE(frame({&second}, other) == "0");
+  REQUIRE(frame({&first}, target) == "0"); // second was drawn instead
+  REQUIRE(frame({&first}, target) == "1");
 
   // Two views in one frame each keep a history of their own.
-  REQUIRE(frame({&first, &second}, target) == std::vector<bool>{true, false});
-  REQUIRE(frame({&first, &second}, target) == std::vector<bool>{true, true});
-  REQUIRE(frame({&second}, target) == std::vector<bool>{true});
+  REQUIRE(frame({&first, &second}, target) == "10");
+  REQUIRE(frame({&first, &second}, target) == "11");
+  REQUIRE(frame({&second}, target) == "1");
   renderer.destroyMesh(box);
 }
 
