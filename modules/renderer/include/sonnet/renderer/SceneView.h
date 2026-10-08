@@ -3,6 +3,7 @@
 #include <sonnet/renderer/Camera.h>
 #include <sonnet/renderer/Material.h>
 #include <sonnet/renderer/Mesh.h>
+#include <sonnet/renderer/Texture.h>
 
 #include <sonnet/core/Handle.h>
 #include <sonnet/core/Math.h>
@@ -32,6 +33,12 @@ struct DrawItem {
   std::uint32_t firstJoint{0};
   std::uint32_t jointCount{0};
   std::uint64_t skinInstance{0};
+  // A morphed draw adds the weighted deltas of a mesh with morph targets to its vertices, before
+  // skinning, using weights [firstMorphWeight, firstMorphWeight + morphWeightCount) of
+  // SceneView::morphWeights (ADR-0023); it needs a skinInstance like a skinned one, and shares
+  // it with a skin.
+  std::uint32_t firstMorphWeight{0};
+  std::uint32_t morphWeightCount{0};
 };
 
 // The sun: the one light that casts cascaded shadows.
@@ -66,6 +73,40 @@ struct DebugLine {
   glm::vec4 color{1.0f};
 };
 
+enum class ParticleBlend : std::uint8_t {
+  Alpha,
+  Additive,
+};
+
+// A GPU particle emitter for the frame (ADR-0023). The renderer keeps its particles between
+// frames under `key`, simulates them in a compute pass and draws them as camera-facing quads
+// after the blended meshes, depth-tested and not written. Each frame emits `rate * dt` particles
+// (the fraction carried over), and `burst` more when the emitter first appears, into a ring of
+// `maxParticles` slots that the oldest particles give way in. The same key, seed and sequence of
+// `dt`s give the same particles.
+struct ParticleEmitterItem {
+  std::uint64_t key{0}; // names the emitter across frames; 0 draws nothing
+  glm::mat4 transform{1.0f};
+  std::uint32_t id{0}; // the owner's pick id, for tools that match items to entities
+  std::uint32_t maxParticles{1000};
+  float rate{50.0f};                    // particles per second
+  std::uint32_t burst{0};               // particles emitted once, when the emitter is first seen
+  glm::vec2 lifetime{1.0f, 2.0f};       // seconds, min and max
+  glm::vec2 speed{1.0f, 2.0f};          // metres per second, min and max
+  float coneAngle{glm::radians(30.0f)}; // half angle about the emitter's +Y
+  glm::vec3 gravity{0.0f, -9.8f, 0.0f}; // in the space the particles simulate in
+  float drag{0.0f};
+  float sizeStart{0.1f}; // metres across
+  float sizeEnd{0.1f};
+  glm::vec4 colorStart{1.0f};
+  glm::vec4 colorEnd{1.0f, 1.0f, 1.0f, 0.0f};
+  TextureHandle texture{}; // invalid: a soft disc
+  ParticleBlend blend{ParticleBlend::Alpha};
+  bool local{false}; // particles move with the emitter instead of staying where they were born
+  std::uint32_t seed{1};
+  bool simulate{true}; // false draws the particles as they are
+};
+
 struct SceneView {
   Camera camera;
   DirectionalLight sun;
@@ -80,7 +121,11 @@ struct SceneView {
   std::span<const DrawItem> draws;
   // The skinned draws' joint matrices, each from the mesh's bind pose into its object space.
   std::span<const glm::mat4> joints;
+  // The morphed draws' target weights.
+  std::span<const float> morphWeights;
   std::span<const DebugLine> debugLines; // drawn by addDebugLinePass
+  std::span<const ParticleEmitterItem> particles;
+  float deltaTime{0.0f}; // seconds the particles advance by this frame
 };
 
 } // namespace sonnet::renderer

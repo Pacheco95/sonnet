@@ -1,0 +1,29 @@
+{
+  "settings": {},
+  "sourceHash": "c74e5424609014fa",
+  "subAssets": [
+    {
+      "materials": [],
+      "name": "Jelly",
+      "type": "Material",
+      "uuid": "59f8681f-f7e5-8bc4-961f-b8aae9470714"
+    },
+    {
+      "materials": [
+        "59f8681f-f7e5-8bc4-961f-b8aae9470714"
+      ],
+      "name": "JellyMesh",
+      "type": "Mesh",
+      "uuid": "5d03f18d-bab9-8586-9a53-ffd45ac09e2e"
+    },
+    {
+      "materials": [],
+      "name": "Wobble",
+      "type": "Animation",
+      "uuid": "e03afb92-3601-871d-b9ef-316edef7a1c0"
+    }
+  ],
+  "type": "Model",
+  "uuid": "788dfb80-feeb-4311-b5ee-15647df6355d",
+  "version": 2
+}

@@ -188,12 +188,49 @@ void World::registerComponents() {
   registerComponent<Environment>("Environment");
   m_world.component<Environment>().member<core::Uuid>("map").member<float>("intensity").member<float>("exposure");
   registerComponent<SkinnedMesh>("SkinnedMesh").member<core::Uuid>("skin");
+  m_world.component<AnimationLayer>("AnimationLayer")
+      .member<core::Uuid>("clip")
+      .member<float>("time")
+      .member<float>("speed")
+      .member<float>("weight")
+      .member<float>("fadeRate")
+      .member<bool>("playing")
+      .member<bool>("loop");
+  registerVector<AnimationLayer>();
   registerComponent<Animator>("Animator")
       .member<core::Uuid>("clip")
       .member<float>("time")
       .member<float>("speed")
       .member<bool>("playing")
-      .member<bool>("loop");
+      .member<bool>("loop")
+      .member<float>("fade")
+      .member<bool>("rootMotion")
+      .member<std::string>("rootBone")
+      .member<std::vector<AnimationLayer>>("layers");
+  m_world.component<ParticleBlendMode>("ParticleBlendMode");
+  m_world.component<ParticleSpace>("ParticleSpace");
+  registerComponent<ParticleEmitter>("ParticleEmitter")
+      .member<bool>("playing")
+      .member<std::uint32_t>("maxParticles")
+      .member<float>("rate")
+      .member<std::uint32_t>("burst")
+      .member<float>("lifetimeMin")
+      .member<float>("lifetimeMax")
+      .member<float>("speedMin")
+      .member<float>("speedMax")
+      .member<float, Radians>("coneAngle")
+      .member<glm::vec3>("gravity")
+      .member<float>("drag")
+      .member<float>("sizeStart")
+      .member<float>("sizeEnd")
+      .member<glm::vec4>("colorStart")
+      .member<glm::vec4>("colorEnd")
+      .member<core::Uuid>("texture")
+      .member<ParticleBlendMode>("blend")
+      .member<ParticleSpace>("space")
+      .member<std::uint32_t>("seed");
+  registerVector<float>();
+  registerComponent<MorphWeights>("MorphWeights").member<std::vector<float>>("weights");
   // Derived every frame for the entity itself, like WorldTransform: never inherited, never saved.
   m_world.component<SkinPose>("SkinPose").add(flecs::OnInstantiate, flecs::DontInherit);
   registerComponent<Spin>("Spin");

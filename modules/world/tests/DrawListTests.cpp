@@ -49,7 +49,8 @@ TEST_CASE("the draw list resolves every visible mesh renderer through the databa
   world.createEntity("Empty");
 
   world.progress(0.016f);
-  world::buildDrawList(world, fixture.assets, draws, joints);
+  std::vector<float> morphWeights;
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
   REQUIRE(draws.size() == 2); // the missing asset draws nothing
   REQUIRE(joints.empty());
   REQUIRE(draws[0].jointCount == 0);
@@ -126,4 +127,60 @@ TEST_CASE("the scene environment needs a loadable map", "[world][drawlist]") {
   sky.set<world::Environment>({.map = core::Uuid::generate(), .intensity = 2.0f, .exposure = 0.5f});
   // An unknown map is no environment: the renderer falls back to its ambient term.
   REQUIRE(!world::sceneEnvironment(world, fixture.assets).has_value());
+}
+
+TEST_CASE("the particle list holds the enabled emitters, simulating in play mode", "[world][drawlist][particles]") {
+  Fixture fixture;
+  world::World &world = fixture.world;
+  std::vector<renderer::ParticleEmitterItem> emitters;
+
+  const flecs::entity fire = world.createEntity("Fire");
+  fire.set<world::Transform>({.position = {1.0f, 2.0f, 3.0f}});
+  fire.set<world::ParticleEmitter>({.rate = 80.0f,
+                                    .burst = 10,
+                                    .lifetimeMin = 3.0f,
+                                    .lifetimeMax = 1.0f, // out of order: the list never has max below min
+                                    .colorStart = {4.0f, 2.0f, 1.0f, 1.0f},
+                                    .blend = world::ParticleBlendMode::Additive,
+                                    .space = world::ParticleSpace::Local,
+                                    .seed = 9});
+  const flecs::entity off = world.createEntity("Off");
+  off.set<world::ParticleEmitter>({.playing = false});
+  const flecs::entity disabled = world.createEntity("Disabled");
+  disabled.set<world::ParticleEmitter>({});
+  disabled.add<world::Disabled>();
+
+  world.progress(0.016f);
+  world::buildParticleList(world, fixture.assets, emitters);
+  REQUIRE(emitters.size() == 2);
+  const auto item = std::ranges::find(emitters, fire.id(), &renderer::ParticleEmitterItem::key);
+  REQUIRE(item != emitters.end());
+  REQUIRE(item->transform[3].y == Approx(2.0f));
+  REQUIRE(item->id == world::World::pickId(fire));
+  REQUIRE(item->rate == Approx(80.0f));
+  REQUIRE(item->burst == 10);
+  REQUIRE(item->lifetime.y == Approx(3.0f));
+  REQUIRE(item->colorStart.x == Approx(4.0f));
+  REQUIRE(item->blend == renderer::ParticleBlend::Additive);
+  REQUIRE(item->local);
+  REQUIRE(item->seed == 9);
+  REQUIRE_FALSE(item->texture.isValid());
+  REQUIRE_FALSE(item->simulate); // edit mode
+
+  world.setPlaying(true);
+  world.progress(0.016f);
+  world::buildParticleList(world, fixture.assets, emitters);
+  const auto playing = std::ranges::find(emitters, fire.id(), &renderer::ParticleEmitterItem::key);
+  REQUIRE(playing->simulate);
+  const auto stopped = std::ranges::find(emitters, off.id(), &renderer::ParticleEmitterItem::key);
+  REQUIRE_FALSE(stopped->simulate);
+
+  // Saved with its fields and loaded back.
+  const nlohmann::json saved = world.componentToJson(fire, world.ecs().id<world::ParticleEmitter>());
+  REQUIRE(saved["blend"] == "Additive");
+  REQUIRE(saved["burst"] == 10);
+  const flecs::entity copy = world.createEntity("Copy");
+  world.componentFromJson(copy, world.ecs().id<world::ParticleEmitter>(), saved);
+  REQUIRE(copy.get<world::ParticleEmitter>().space == world::ParticleSpace::Local);
+  REQUIRE(copy.get<world::ParticleEmitter>().colorStart.x == Approx(4.0f));
 }

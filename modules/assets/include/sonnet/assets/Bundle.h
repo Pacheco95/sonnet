@@ -29,7 +29,7 @@ namespace sonnet::assets {
 // The cooked form of a project (docs/assets.md, "Cooking and export"), one file: a header, the
 // payload blobs back to back, and a CBOR index at the end holding the manifest, the assets by
 // identity and the scene and prefab files by their project-relative path (ADR-0011).
-constexpr std::uint32_t BundleVersion = 1;
+constexpr std::uint32_t BundleVersion = 2;
 constexpr std::string_view BundleExtension = ".sbundle";
 
 // What a bundle is cooked for. The desktop platforms cook the same bytes, with compressed

@@ -1,12 +1,16 @@
 #include "AssetTestSupport.h"
 
+#include <sonnet/assets/Bundle.h>
+#include <sonnet/assets/Cook.h>
 #include <sonnet/assets/Importers.h>
+#include <sonnet/core/File.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <array>
 #include <cstring>
 
 using namespace sonnet;
@@ -22,7 +26,7 @@ void writeSkinnedGltf(const std::filesystem::path &gltf) {
   json accessors = json::array();
   // Appends the data as a buffer view and an accessor over it; returns the accessor's index.
   const auto add = [&](const void *data, std::size_t bytes, std::size_t count, const char *type, int component,
-                       json extra = json::object()) {
+                       const json &extra = json::object()) {
     while (bin.size() % 4 != 0) {
       bin.push_back(std::byte{0});
     }
@@ -34,28 +38,28 @@ void writeSkinnedGltf(const std::filesystem::path &gltf) {
     accessors.push_back(std::move(accessor));
     return accessors.size() - 1;
   };
-  constexpr int Float = 5126;
-  constexpr int UnsignedByte = 5121;
-  constexpr int UnsignedShort = 5123;
+  constexpr int floatType = 5126;
+  constexpr int unsignedByteType = 5121;
+  constexpr int unsignedShortType = 5123;
 
   const std::vector<float> positions{-0.5f, 0, 0, 0.5f, 0, 0, -0.5f, 2, 0, 0.5f, 2, 0};
   const std::vector<float> normals{0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1};
   const std::vector<std::uint8_t> joints{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
   const std::vector<float> weights{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
   const std::vector<std::uint16_t> indices{0, 1, 3, 0, 3, 2};
-  const auto position = add(positions.data(), positions.size() * 4, 4, "VEC3", Float,
+  const auto position = add(positions.data(), positions.size() * 4, 4, "VEC3", floatType,
                             json{{"min", json::array({-0.5, 0, 0})}, {"max", json::array({0.5, 2, 0})}});
-  const auto normal = add(normals.data(), normals.size() * 4, 4, "VEC3", Float);
-  const auto joint = add(joints.data(), joints.size(), 4, "VEC4", UnsignedByte);
-  const auto weight = add(weights.data(), weights.size() * 4, 4, "VEC4", Float);
-  const auto index = add(indices.data(), indices.size() * 2, 6, "SCALAR", UnsignedShort);
+  const auto normal = add(normals.data(), normals.size() * 4, 4, "VEC3", floatType);
+  const auto joint = add(joints.data(), joints.size(), 4, "VEC4", unsignedByteType);
+  const auto weight = add(weights.data(), weights.size() * 4, 4, "VEC4", floatType);
+  const auto index = add(indices.data(), indices.size() * 2, 6, "SCALAR", unsignedShortType);
   // Root at the origin, Tip one metre up.
   const glm::mat4 tipInverse = glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, -1.0f, 0.0f});
   std::vector<float> inverseBinds(32, 0.0f);
   const glm::mat4 identity{1.0f};
   std::memcpy(inverseBinds.data(), glm::value_ptr(identity), 64);
   std::memcpy(inverseBinds.data() + 16, glm::value_ptr(tipInverse), 64);
-  const auto inverseBind = add(inverseBinds.data(), inverseBinds.size() * 4, 2, "MAT4", Float);
+  const auto inverseBind = add(inverseBinds.data(), inverseBinds.size() * 4, 2, "MAT4", floatType);
 
   const glm::quat quarter = glm::angleAxis(glm::radians(90.0f), glm::vec3{0.0f, 0.0f, 1.0f});
   const std::vector<float> second{0.0f, 1.0f};
@@ -64,11 +68,11 @@ void writeSkinnedGltf(const std::filesystem::path &gltf) {
   const std::vector<float> translations{0, 0, 0, 1, 0, 0};
   // Cubic spline: in-tangent, value, out-tangent per key.
   const std::vector<float> scales{0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0};
-  const auto times = add(second.data(), 8, 2, "SCALAR", Float, json{{"min", {0.0}}, {"max", {1.0}}});
-  const auto rotation = add(rotations.data(), rotations.size() * 4, 2, "VEC4", Float);
-  const auto steps = add(stepTimes.data(), 8, 2, "SCALAR", Float, json{{"min", {0.0}}, {"max", {0.5}}});
-  const auto translation = add(translations.data(), translations.size() * 4, 2, "VEC3", Float);
-  const auto scale = add(scales.data(), scales.size() * 4, 6, "VEC3", Float);
+  const auto times = add(second.data(), 8, 2, "SCALAR", floatType, json{{"min", {0.0}}, {"max", {1.0}}});
+  const auto rotation = add(rotations.data(), rotations.size() * 4, 2, "VEC4", floatType);
+  const auto steps = add(stepTimes.data(), 8, 2, "SCALAR", floatType, json{{"min", {0.0}}, {"max", {0.5}}});
+  const auto translation = add(translations.data(), translations.size() * 4, 2, "VEC3", floatType);
+  const auto scale = add(scales.data(), scales.size() * 4, 6, "VEC3", floatType);
 
   const std::string binName = gltf.stem().string() + ".bin";
   REQUIRE(core::writeFile(gltf.parent_path() / binName, bin).has_value());
@@ -185,6 +189,53 @@ TEST_CASE("a glTF file imports its skins, joint weights and animation clips by n
   REQUIRE(clip.channels[1].target == "Rig/Root");
   REQUIRE(clip.channels[1].interpolation == Interpolation::Step);
   REQUIRE(clip.channels[2].interpolation == Interpolation::CubicSpline);
-  REQUIRE(clip.channels[2].values.size() == 6);
+  REQUIRE(clip.channels[2].values.size() ==
+          6 * static_cast<std::size_t>(width(clip.channels[2]))); // three values for each of two keys
+  std::filesystem::remove_all(directory);
+}
+
+namespace {
+
+// One triangle on node "Face" whose single morph target pushes every vertex a metre along +Z, a
+// mesh default weight of a quarter and a clip "Smile" taking the weight from 0 to 1 in a second.
+constexpr const char *MorphModel =
+    R"json({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"Face","mesh":0}],"meshes":[{"name":"FaceMesh","weights":[0.25],"primitives":[{"attributes":{"POSITION":0},"indices":1,"targets":[{"POSITION":2}]}]}],"animations":[{"name":"Smile","samplers":[{"input":3,"output":4}],"channels":[{"sampler":0,"target":{"node":0,"path":"weights"}}]}],"buffers":[{"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAEAAAACAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPw==","byteLength":100}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":12},{"buffer":0,"byteOffset":48,"byteLength":36},{"buffer":0,"byteOffset":84,"byteLength":8},{"buffer":0,"byteOffset":92,"byteLength":8}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5125,"count":3,"type":"SCALAR"},{"bufferView":2,"componentType":5126,"count":3,"type":"VEC3"},{"bufferView":3,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[1]},{"bufferView":4,"componentType":5126,"count":2,"type":"SCALAR"}]})json";
+
+} // namespace
+
+TEST_CASE("a glTF file imports morph targets, their default weights and weight channels", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_morph");
+  REQUIRE(core::writeFile(directory / "face.gltf", std::as_bytes(std::span{MorphModel, std::strlen(MorphModel)}))
+              .has_value());
+  const auto imported = importGltf(directory / "face.gltf");
+  REQUIRE(imported.has_value());
+
+  REQUIRE(imported->meshes.size() == 1);
+  const renderer::MeshData &mesh = imported->meshes[0].data;
+  REQUIRE(mesh.morphTargetCount == 1);
+  REQUIRE(mesh.morphDeltas.size() == mesh.vertices.size());
+  REQUIRE(mesh.morphDeltas[1].position == glm::vec3{0.0f, 0.0f, 1.0f});
+  REQUIRE(mesh.morphDeltas[1].normal == glm::vec3{0.0f});
+  REQUIRE(imported->model.nodes[0].morphWeights == std::vector<float>{0.25f});
+
+  REQUIRE(imported->animations.size() == 1);
+  const AnimationChannel &channel = imported->animations[0].clip.channels.at(0);
+  REQUIRE(channel.path == AnimationPath::Weights);
+  REQUIRE(channel.weightCount == 1);
+  std::array<float, 1> weight{};
+  sample(channel, 0.25f, weight);
+  REQUIRE(weight[0] == Approx(0.25f));
+
+  // Through a cooked mesh payload: the targets survive a round trip, the vertices reordered.
+  const renderer::MeshData cooked = cookMesh(mesh);
+  REQUIRE(cooked.morphTargetCount == 1);
+  REQUIRE(cooked.morphDeltas.size() == cooked.vertices.size());
+  for (std::size_t v = 0; v < cooked.vertices.size(); ++v) {
+    REQUIRE(cooked.morphDeltas[v].position.z == Approx(1.0f));
+  }
+  const auto decoded = decodeMesh(encodeMesh(cooked));
+  REQUIRE(decoded.has_value());
+  REQUIRE(decoded->morphTargetCount == 1);
+  REQUIRE(decoded->morphDeltas.size() == cooked.morphDeltas.size());
   std::filesystem::remove_all(directory);
 }

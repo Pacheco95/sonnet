@@ -82,16 +82,31 @@ TEST_CASE("skins, clips and models round-trip through the cooked form", "[assets
                     .path = AnimationPath::Rotation,
                     .interpolation = Interpolation::Step,
                     .times = {0.0f, 1.5f},
-                    .values = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f, 0.0f}}}};
+                    .values = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f}},
+                   {.target = "Rig/Face",
+                    .path = AnimationPath::Weights,
+                    .interpolation = Interpolation::Linear,
+                    .times = {0.0f, 1.5f},
+                    .weightCount = 2,
+                    .values = {0.0f, 1.0f, 0.5f, 0.25f}}};
+  clip.events = {{.time = 0.5f, .name = "footstep", .argument = "left"},
+                 {.time = 1.0f, .name = "footstep", .argument = {}}};
   const auto decodedClip = decodeAnimation(encodeAnimation(clip));
   REQUIRE(decodedClip.has_value());
   REQUIRE(decodedClip->duration == Approx(1.5f));
-  REQUIRE(decodedClip->channels.size() == 1);
+  REQUIRE(decodedClip->channels.size() == 2);
   REQUIRE(decodedClip->channels[0].target == "Rig/Root/Tip");
   REQUIRE(decodedClip->channels[0].path == AnimationPath::Rotation);
   REQUIRE(decodedClip->channels[0].interpolation == Interpolation::Step);
   REQUIRE(decodedClip->channels[0].times == clip.channels[0].times);
-  REQUIRE(decodedClip->channels[0].values[1].z == Approx(1.0f));
+  REQUIRE(decodedClip->channels[0].values[6] == Approx(1.0f));
+  REQUIRE(decodedClip->channels[1].path == AnimationPath::Weights);
+  REQUIRE(decodedClip->channels[1].weightCount == 2);
+  REQUIRE(decodedClip->channels[1].values == clip.channels[1].values);
+  REQUIRE(decodedClip->events.size() == 2);
+  REQUIRE(decodedClip->events[0].name == "footstep");
+  REQUIRE(decodedClip->events[0].argument == "left");
+  REQUIRE(decodedClip->events[1].time == Approx(1.0f));
 
   Model model;
   const core::Uuid mesh = core::Uuid::generate();

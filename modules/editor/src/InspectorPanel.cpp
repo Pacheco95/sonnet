@@ -90,7 +90,7 @@ std::optional<assets::AssetType> InspectorPanel::assetTypeOfMember(std::string_v
   if (member == "clip") {
     return assets::AssetType::Animation;
   }
-  if (member.ends_with("Texture")) {
+  if (member == "texture" || member.ends_with("Texture")) {
     return assets::AssetType::Texture;
   }
   return std::nullopt;
@@ -510,6 +510,9 @@ void InspectorPanel::drawComponent(flecs::entity entity, const world::ComponentI
         data = entity.ensure(info.id);
       }
       drawStruct(type, data);
+      if (info.name == "ParticleEmitter" && m_particleReset && ImGui::Button("Restart")) {
+        m_particleReset(entity);
+      }
       if (inherited && m_activated) {
         std::memcpy(entity.ensure(info.id), copy.data(), size);
       }
@@ -870,8 +873,8 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     track();
   } else if (member.type == ecs.id<glm::vec4>()) {
     auto &value = at<glm::vec4>(field, 0);
-    if (name == "color") {
-      ImGui::ColorEdit4("##value", &value.x);
+    if (name.starts_with("color")) {
+      ImGui::ColorEdit4("##value", &value.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
     } else {
       ImGui::DragFloat4("##value", &value.x, DragSpeed);
     }

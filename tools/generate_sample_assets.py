@@ -5,6 +5,8 @@ Writes, under apps/samples/basic/assets:
   models/crate.glb   a textured box and a metallic sphere, embedded PNG textures, two nodes
   models/reed.glb    a skinned stem on a chain of four joints, swaying in the clip "Sway"
   models/beacon.glb  a lamp spinning around its own axis with a bobbing halo, the clip "Pulse"
+  models/walker.glb  a blocky figure with the clips "Idle" and "Walk", the latter with footstep events
+  models/jelly.glb   a sphere with one morph target that stretches it, the clip "Wobble"
   textures/checker.png   a checker for the ground material
   sky.hdr            a gradient sky with a sun, as an uncompressed Radiance file
   ground.material.json   the ground's material over the checker
@@ -299,6 +301,10 @@ def quaternion_y(angle: float):
     return [0.0, math.sin(angle / 2), 0.0, math.cos(angle / 2)]
 
 
+def quaternion_x(angle: float):
+    return [math.sin(angle / 2), 0.0, 0.0, math.cos(angle / 2)]
+
+
 def reed_glb(path: Path):
     """A tapered stem skinned to a chain of four joints, one per metre, swaying in a loop."""
     segments, rings, height = 12, 6, 3.0
@@ -424,6 +430,94 @@ def beacon_glb(path: Path):
     })
 
 
+def walker_glb(path: Path):
+    """A blocky figure on plain nodes: "Idle" bobs, "Walk" swings the hips and names its footsteps."""
+    glb = Glb()
+    positions, normals, uvs, indices = box_mesh()
+    attributes = {
+        "POSITION": glb.floats(positions, "VEC3", 34962),
+        "NORMAL": glb.floats(normals, "VEC3", 34962),
+        "TEXCOORD_0": glb.floats(uvs, "VEC2", 34962),
+    }
+    triangles = glb.indices(indices)
+
+    # Both clips key the hips and the body, so a crossfade has something to blend on every node.
+    def clip(name, duration, steps, swing, bob, events=None):
+        times = [duration * i / steps for i in range(steps + 1)]
+        phase = [2 * math.pi * t / duration for t in times]
+        time = glb.scalars(times)
+        samplers = [
+            {"input": time, "output": glb.floats([quaternion_x(swing * math.sin(a)) for a in phase], "VEC4"), "interpolation": "LINEAR"},
+            {"input": time, "output": glb.floats([quaternion_x(-swing * math.sin(a)) for a in phase], "VEC4"), "interpolation": "LINEAR"},
+            {"input": time, "output": glb.floats([[0.0, 0.9 + bob * math.sin(2 * a), 0.0] for a in phase], "VEC3"), "interpolation": "LINEAR"},
+        ]
+        channels = [
+            {"sampler": 0, "target": {"node": 2, "path": "rotation"}},
+            {"sampler": 1, "target": {"node": 4, "path": "rotation"}},
+            {"sampler": 2, "target": {"node": 1, "path": "translation"}},
+        ]
+        entry = {"name": name, "samplers": samplers, "channels": channels}
+        if events:
+            entry["extras"] = {"events": events}
+        return entry
+
+    animations = [
+        clip("Idle", 2.0, 8, 0.0, 0.015),
+        clip("Walk", 1.0, 8, 0.6, 0.04, [
+            {"time": 0.25, "name": "footstep", "argument": "left"},
+            {"time": 0.75, "name": "footstep", "argument": "right"},
+        ]),
+    ]
+    glb.write(path, {
+        "scene": 0,
+        "scenes": [{"name": "Walker", "nodes": [0]}],
+        "nodes": [
+            {"name": "Walker", "children": [1, 2, 4]},
+            {"name": "Body", "mesh": 0, "translation": [0.0, 0.9, 0.0], "scale": [0.5, 0.7, 0.28]},
+            {"name": "HipLeft", "translation": [-0.14, 0.55, 0.0], "children": [3]},
+            {"name": "LegLeft", "mesh": 0, "translation": [0.0, -0.27, 0.0], "scale": [0.2, 0.55, 0.2]},
+            {"name": "HipRight", "translation": [0.14, 0.55, 0.0], "children": [5]},
+            {"name": "LegRight", "mesh": 0, "translation": [0.0, -0.27, 0.0], "scale": [0.2, 0.55, 0.2]},
+        ],
+        "meshes": [{"name": "BlockMesh", "primitives": [{"attributes": attributes, "indices": triangles, "material": 0}]}],
+        "animations": animations,
+        "materials": [{"name": "Cloth", "pbrMetallicRoughness": {"baseColorFactor": [0.25, 0.45, 0.80, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.6}}],
+    })
+
+
+def jelly_glb(path: Path):
+    """A sphere with one morph target that stretches it tall and thin, wobbling in a loop."""
+    glb = Glb()
+    positions, normals, uvs, indices = sphere_mesh(32, 16, 0.5)
+    stretch = (0.7, 1.8, 0.7)
+    deltas, normal_deltas = [], []
+    for p, n in zip(positions, normals):
+        deltas.append([p[i] * (stretch[i] - 1.0) for i in range(3)])
+        # The normal of the stretched surface, which scales by the inverse.
+        moved = [n[i] / stretch[i] for i in range(3)]
+        length = math.sqrt(sum(c * c for c in moved))
+        normal_deltas.append([moved[i] / length - n[i] for i in range(3)])
+    attributes = {
+        "POSITION": glb.floats(positions, "VEC3", 34962),
+        "NORMAL": glb.floats(normals, "VEC3", 34962),
+        "TEXCOORD_0": glb.floats(uvs, "VEC2", 34962),
+    }
+    target = {"POSITION": glb.floats(deltas, "VEC3", 34962), "NORMAL": glb.floats(normal_deltas, "VEC3", 34962)}
+    triangles = glb.indices(indices)
+    times = [i * 0.25 for i in range(9)]
+    weights = [0.5 - 0.5 * math.cos(2 * math.pi * t / 2.0) for t in times]
+    sampler = {"input": glb.scalars(times), "output": glb.scalars(weights), "interpolation": "LINEAR"}
+    glb.write(path, {
+        "scene": 0,
+        "scenes": [{"name": "Jelly", "nodes": [0]}],
+        "nodes": [{"name": "Jelly", "mesh": 0, "translation": [0.0, 0.5, 0.0]}],
+        "meshes": [{"name": "JellyMesh", "weights": [0.0], "extras": {"targetNames": ["Stretch"]},
+                    "primitives": [{"attributes": attributes, "indices": triangles, "material": 0, "targets": [target]}]}],
+        "animations": [{"name": "Wobble", "samplers": [sampler], "channels": [{"sampler": 0, "target": {"node": 0, "path": "weights"}}]}],
+        "materials": [{"name": "Jelly", "pbrMetallicRoughness": {"baseColorFactor": [0.90, 0.28, 0.48, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.25}}],
+    })
+
+
 def wav(path: Path, samples, rate=48000):
     """A mono 16-bit WAV of samples in [-1, 1]."""
     frames = len(samples)
@@ -464,6 +558,8 @@ def main():
     glb(ROOT / "models" / "crate.glb")
     reed_glb(ROOT / "models" / "reed.glb")
     beacon_glb(ROOT / "models" / "beacon.glb")
+    walker_glb(ROOT / "models" / "walker.glb")
+    jelly_glb(ROOT / "models" / "jelly.glb")
     wav(ROOT / "sounds" / "hum.wav", hum())
     wav(ROOT / "sounds" / "chime.wav", chime())
     (ROOT / "textures").mkdir(parents=True, exist_ok=True)

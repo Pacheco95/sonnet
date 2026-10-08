@@ -50,6 +50,7 @@ Physics records what touched what during a fixed step and the scripting runtime 
 | `onContactEnd(self, other)` | They stopped touching |
 | `onTriggerEnter(self, other)` | A body started overlapping an entity with the `Trigger` tag ([physics.md](physics.md#components)); both the trigger's scripts and the body's hear it |
 | `onTriggerExit(self, other)` | It stopped overlapping |
+| `onAnimationEvent(self, name, argument)` | An `Animator` on the instance's entity crossed one of its clip's events ([world.md](world.md#animation)); delivered at the start of the `update` frame, in slot order |
 
 `other` is an `Entity`. A pair is reported once however many shapes touch, a resting body that falls asleep keeps its contacts, and the order within a step is the same whatever Jolt's threads did. An entity that was destroyed or disabled since the step, including by an earlier hook of the same step, gets nothing, but `other` can be one that is gone: `other:isValid()` says. The hooks run on the main thread like every other: Jolt's listener only records. A pickup is a trigger and a few lines:
 
@@ -200,7 +201,7 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 
 ### Sound and animation
 
-`audio` and the animation systems are driven by components, so a script reaches them through `get` and `set` like anything else (ADR-0010): `self.entity:set("AudioSource", { playing = true })` rings a sound that has ended, and `set("Animator", { clip = ..., time = 0 })` switches or restarts a clip. There is no table for either.
+`audio` and the animation systems are driven by components, so a script reaches them through `get` and `set` like anything else (ADR-0010): `self.entity:set("AudioSource", { playing = true })` rings a sound that has ended, and `set("Animator", { clip = ..., time = 0 })` switches or restarts a clip; with a `fade` above zero in the same `set`, the clip it replaces fades out over that many seconds instead of cutting. There is no table for either, only the `onAnimationEvent` hook.
 
 ### log
 

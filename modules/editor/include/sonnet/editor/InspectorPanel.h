@@ -40,6 +40,11 @@ public:
   void setScripts(scripting::IScriptRuntime *scripts) noexcept {
     m_scripts = scripts;
   }
+  // Starts an emitter's particles over, for the Restart button under a ParticleEmitter; without
+  // one the button is not shown.
+  void setParticleReset(std::function<void(flecs::entity)> reset) {
+    m_particleReset = std::move(reset);
+  }
   // What the sound asset view decodes and previews with; without one it shows the file only.
   void setAudio(audio::IAudioDevice *audio) noexcept {
     m_audio = audio;
@@ -117,6 +122,7 @@ private:
   std::string m_pickerFilter;
   std::function<void(const std::string &, int)> m_open;
   audio::IAudioDevice *m_audio{nullptr};
+  std::function<void(flecs::entity)> m_particleReset;
   scripting::IScriptRuntime *m_scripts{nullptr};
 };
 

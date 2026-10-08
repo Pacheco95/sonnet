@@ -52,13 +52,13 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                .viewports = !platform.isHeadless()}),
       m_renderer(device, platform.basePath() / "shaders", {.jobs = &m_jobs}), m_graph(device), m_picker(device),
       m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}),
-      m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
+      m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)), m_animation(m_world, m_assets),
       m_scripts(scripting::createScriptRuntime({.world = &m_world,
                                                 .assets = &m_assets,
                                                 .physics = m_physics.get(),
+                                                .animation = &m_animation,
                                                 .input = &m_input,
                                                 .view = &m_scriptView})),
-      m_animation(m_world, m_assets),
       // A headless editor is a test's: it mixes without a device rather than making a sound.
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})), m_screenshots(device),
       m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
@@ -72,6 +72,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_inspectorPanel.setAudio(m_audio.get());
   m_inspectorPanel.setScripts(m_scripts.get());
+  m_inspectorPanel.setParticleReset([this](flecs::entity entity) { m_renderer.resetParticles(entity.id()); });
   m_hierarchyPanel.setAssets(&m_assets);
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   newScene();
@@ -360,11 +361,32 @@ void Editor::update(float dt) {
   m_scriptView = {.camera = camera, .size = gameInputSource().size};
   m_world.progress(dt);
   m_input.beginFrame();
-  world::buildDrawList(m_world, m_assets, m_draws, m_joints);
+  world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
   world::buildLightList(m_world, m_lights);
+  world::buildParticleList(m_world, m_assets, m_particles);
+  if (!m_world.isPlaying()) {
+    // Edit mode previews only the selected emitters, so the scene is still until one is looked at.
+    std::vector<flecs::entity_t> selected;
+    for (const core::Uuid &uuid : m_selection.items()) {
+      if (const flecs::entity entity = m_world.find(uuid)) {
+        selected.push_back(entity.id());
+      }
+    }
+    std::erase_if(m_particles, [&](renderer::ParticleEmitterItem &item) {
+      if (std::ranges::find(selected, item.key) == selected.end()) {
+        return true;
+      }
+      const world::ParticleEmitter *emitter = m_world.ecs().entity(item.key).try_get<world::ParticleEmitter>();
+      item.simulate = emitter != nullptr && emitter->playing;
+      return false;
+    });
+  }
   m_view.camera = m_viewportPanel.camera().camera();
   m_view.draws = m_draws;
   m_view.joints = m_joints;
+  m_view.morphWeights = m_morphWeights;
+  m_view.particles = m_particles;
+  m_view.deltaTime = dt;
   m_view.lights = m_lights;
   const std::optional<renderer::DirectionalLight> sun = world::sceneLight(m_world);
   m_view.hasSun = sun.has_value();

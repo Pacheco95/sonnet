@@ -43,13 +43,13 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                        return settings;
                                                      }()),
       m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}),
-      m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
+      m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)), m_animation(m_world, m_assets),
       m_scripts(scripting::createScriptRuntime({.world = &m_world,
                                                 .assets = &m_assets,
                                                 .physics = m_physics.get(),
+                                                .animation = &m_animation,
                                                 .input = &m_input,
                                                 .view = &m_scriptView})),
-      m_animation(m_world, m_assets),
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})), m_screenshots(device),
       m_paused(desc.paused) {
   // A player is always playing: there is no edit mode to switch out of. A capture run holds the
@@ -238,11 +238,15 @@ void Game::update(float dt) {
   m_world.progress(dt);
   m_input.beginFrame();
 
-  world::buildDrawList(m_world, m_assets, m_draws, m_joints);
+  world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
   world::buildLightList(m_world, m_lights);
+  world::buildParticleList(m_world, m_assets, m_particles);
   m_view.camera = camera;
   m_view.draws = m_draws;
   m_view.joints = m_joints;
+  m_view.morphWeights = m_morphWeights;
+  m_view.particles = m_particles;
+  m_view.deltaTime = dt;
   m_view.lights = m_lights;
   const std::optional<renderer::DirectionalLight> sun = world::sceneLight(m_world);
   m_view.hasSun = sun.has_value();

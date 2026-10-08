@@ -7,6 +7,7 @@
 #include <sonnet/core/Profile.h>
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/InputState.h>
+#include <sonnet/world/Animation.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/World.h>
 
@@ -193,7 +194,8 @@ std::optional<std::pair<int, std::string_view>> locate(std::string_view message,
 class LuaScriptRuntime final : public IScriptRuntime {
 public:
   explicit LuaScriptRuntime(const ScriptDesc &desc)
-      : m_world(*desc.world), m_assets(*desc.assets), m_physics(desc.physics), m_input(desc.input), m_view(desc.view) {
+      : m_world(*desc.world), m_assets(*desc.assets), m_physics(desc.physics), m_animation(desc.animation),
+        m_input(desc.input), m_view(desc.view) {
     registerComponents(m_world);
     // No io, os, package or debug: scripts reach the engine through its tables only, the same on
     // every platform the player runs on (ADR-0009).
@@ -352,6 +354,8 @@ private:
     sync();
     if (std::string_view{hook} == "fixedUpdate") {
       deliverEvents();
+    } else if (std::string_view{hook} == "update") {
+      deliverAnimationEvents();
     }
     for (auto &[key, instance] : m_instances) {
       // A script earlier in this frame may have destroyed the entity.
@@ -424,6 +428,26 @@ private:
     for (const physics::ContactEvent &event : m_physics->events()) {
       deliver(event, event.first, event.second, false);
       deliver(event, event.second, event.first, true);
+    }
+  }
+
+  // The animation events of this frame's playback, to the instances of the animator's entity, in
+  // slot order, before the frame's update hooks: onAnimationEvent(self, name, argument).
+  void deliverAnimationEvents() {
+    if (m_animation == nullptr) {
+      return;
+    }
+    flecs::world &ecs = m_world.ecs();
+    for (const world::AnimationEventRecord &event : m_animation->events()) {
+      if (!ecs.is_alive(event.entity) || flecs::entity{ecs, event.entity}.has<world::Disabled>()) {
+        continue;
+      }
+      for (auto it = m_instances.lower_bound({event.entity, 0});
+           it != m_instances.end() && it->first.entity == event.entity; ++it) {
+        if (it->second.started) {
+          call(it->first, it->second, "onAnimationEvent", event.name, event.argument);
+        }
+      }
     }
   }
 
@@ -1273,6 +1297,7 @@ private:
   world::World &m_world;
   assets::AssetDatabase &m_assets;
   physics::IPhysicsWorld *m_physics;
+  const world::AnimationSystem *m_animation;
   const platform::InputState *m_input;
   const ScriptView *m_view;
   // Declared first so it is destroyed last: every sol reference below points into it.

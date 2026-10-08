@@ -1030,7 +1030,7 @@ TEST_CASE("skinned draws are deformed once per instance before the passes that d
   // order it after last frame's draws and before this frame's.
   const std::size_t skinning = lineIndex(*device, "bindPipeline \"skinning\"");
   REQUIRE(device->trace()[skinning - 1] == "memoryBarrier");
-  REQUIRE(device->trace()[skinning + 1] == "pushConstants 40 bytes");
+  REQUIRE(device->trace()[skinning + 1] == "pushConstants 64 bytes");
   REQUIRE(device->trace()[skinning + 2] == "dispatch 1 1 1");
   REQUIRE(device->trace()[skinning + 3] == "memoryBarrier");
   REQUIRE(lineIndex(*device, "bindPipeline \"skinning\"") < lineIndex(*device, "bindPipeline \"shadow\""));
@@ -1084,6 +1084,203 @@ TEST_CASE("a skinned box follows its joint on a GPU", "[renderer][gpu]") {
     REQUIRE(renderer.statistics().skinnedInstanceCount == 1);
     REQUIRE(device->validationMessageCount() == 0);
     renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// A box with one morph target that slides every vertex 1.5 m to the right at weight 1.
+MeshData morphedBox() {
+  MeshData box = primitives::box();
+  box.morphTargetCount = 1;
+  box.morphDeltas.assign(box.vertices.size(), MorphDelta{.position = {1.5f, 0.0f, 0.0f}});
+  return box;
+}
+
+TEST_CASE("morphed draws are deformed in the skinning pass, with or without a skin", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const MeshHandle morphed = renderer.createMesh(morphedBox(), "morphed box");
+  const MeshHandle plain = renderer.createMesh(primitives::box(), "plain box");
+  const std::array<float, 2> weights{0.0f, 1.0f};
+  // A morphed instance; a plain mesh asking for morphing, which draws as it is; and a morphed
+  // draw with a weight range past the view's, which does too.
+  std::vector<DrawItem> draws{
+      DrawItem{.mesh = morphed, .skinInstance = 3, .firstMorphWeight = 1, .morphWeightCount = 1},
+      DrawItem{.mesh = plain, .skinInstance = 4, .firstMorphWeight = 0, .morphWeightCount = 1},
+      DrawItem{.mesh = morphed, .skinInstance = 5, .firstMorphWeight = 2, .morphWeightCount = 1}};
+  SceneView view = boxScene(draws);
+  view.morphWeights = weights;
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  REQUIRE(hasPass(graph, "skinning"));
+  REQUIRE(countLines(*device, "bindPipeline \"skinning\"") == 1);
+  REQUIRE(countLines(*device, "dispatch 1 1 1") >= 1);
+  REQUIRE(renderer.statistics().skinnedInstanceCount == 1); // only the first draw is deformed
+  REQUIRE(renderer.statistics().skinnedVertexCount == 24);
+  renderer.destroyMesh(plain);
+  renderer.destroyMesh(morphed);
+}
+
+TEST_CASE("a morphed box follows its weight on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(morphedBox(), "morphed box");
+    const std::array<float, 1> weights{1.0f};
+    const std::array draws{DrawItem{.mesh = box, .skinInstance = 1, .firstMorphWeight = 0, .morphWeightCount = 1}};
+    SceneView view = boxScene(draws);
+    view.morphWeights = weights;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2);
+
+    // As the skinned box: its centre moved out of the middle of the view to near pixel 60.
+    const Pixel centre = scene.pixel(32, 32);
+    REQUIRE(centre.r + centre.g + centre.b == 0);
+    const Pixel moved = scene.pixel(56, 32);
+    REQUIRE(moved.r + moved.g + moved.b > 60);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// Bright white additive discs a metre across at the origin, born in place and staying there.
+ParticleEmitterItem glowEmitter() {
+  return {.key = 5,
+          .maxParticles = 1000,
+          .rate = 100.0f,
+          .lifetime = {10.0f, 10.0f},
+          .speed = {0.0f, 0.0f},
+          .gravity = {0.0f, 0.0f, 0.0f},
+          .sizeStart = 1.0f,
+          .sizeEnd = 1.0f,
+          .colorStart = {1.0f, 1.0f, 1.0f, 1.0f},
+          .colorEnd = {1.0f, 1.0f, 1.0f, 1.0f},
+          .blend = ParticleBlend::Additive};
+}
+
+TEST_CASE("an emitter is simulated once a frame and drawn with one indirect call", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const std::array emitters{glowEmitter()};
+  SceneView view = boxScene({});
+  view.particles = emitters;
+  view.deltaTime = 0.1f;
+  const auto frame = [&] {
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    graph.execute(commands);
+    device->endFrame();
+  };
+  const std::size_t buffers = device->bufferCount();
+  frame();
+  REQUIRE(hasPass(graph, "particles"));
+  REQUIRE(countLines(*device, "bindPipeline \"particle reset\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"particle simulation\"") == 1);
+  REQUIRE(countLines(*device, "dispatch 16 1 1") == 1); // 1000 slots in groups of 64
+  REQUIRE(countLines(*device, "bindPipeline \"particles additive\"") == 1);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"particles command\" count 1") == 1);
+  REQUIRE(device->bufferCount() == buffers + 3); // the ring, the alive list and the command
+  REQUIRE(renderer.statistics().particleEmitterCount == 1);
+  REQUIRE(renderer.statistics().particleSlotCount == 1000);
+  REQUIRE(lineIndex(*device, "bindPipeline \"particle simulation\"") <
+          lineIndex(*device, "bindPipeline \"particles additive\""));
+
+  // The same emitter next frame reuses its buffers; one that stops being drawn gives them back
+  // after a few frames.
+  frame();
+  REQUIRE(device->bufferCount() == buffers + 3);
+  view.particles = {};
+  for (int i = 0; i < 12; ++i) {
+    frame();
+  }
+  REQUIRE(device->bufferCount() == buffers);
+}
+
+TEST_CASE("a second view of the same frame draws an emitter without advancing it again", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget first{*device, "first"};
+  RenderTarget second{*device, "second"};
+  first.resize({32, 32});
+  second.resize({32, 32});
+  const std::array emitters{glowEmitter()};
+  SceneView view = boxScene({});
+  view.particles = emitters;
+  view.deltaTime = 0.1f;
+  SceneView other = view;
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(first.color()), graph.importImage(first.depth()));
+  renderer.addScenePasses(graph, other, graph.importImage(second.color()), graph.importImage(second.depth()));
+  graph.execute(commands);
+  device->endFrame();
+  REQUIRE(countLines(*device, "bindPipeline \"particle simulation\"") == 1);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"particles command\" count 1") == 2);
+}
+
+TEST_CASE("particles glow where they were born and repeat from run to run on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    std::array<std::vector<Pixel>, 2> runs;
+    for (std::vector<Pixel> &run : runs) {
+      Renderer renderer{*device, shaderDir(platform), testSettings()};
+      // A jet with a random cone and speed, so repeating means the draws matched too.
+      ParticleEmitterItem jet = glowEmitter();
+      jet.speed = {0.2f, 1.0f};
+      jet.lifetime = {0.5f, 2.0f};
+      jet.coneAngle = 1.0f;
+      jet.sizeStart = 0.3f;
+      jet.sizeEnd = 0.1f;
+      const std::array emitters{jet};
+      SceneView view = boxScene({});
+      view.particles = emitters;
+      view.deltaTime = 0.1f;
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view, 8);
+      for (unsigned y = 0; y < 64; y += 3) {
+        for (unsigned x = 0; x < 64; x += 3) {
+          run.push_back(scene.pixel(x, y));
+        }
+      }
+      REQUIRE(device->validationMessageCount() == 0);
+    }
+    REQUIRE(std::ranges::equal(runs[0], runs[1],
+                               [](const Pixel &a, const Pixel &b) { return a.r == b.r && a.g == b.g && a.b == b.b; }));
+    const bool lit = std::ranges::any_of(runs[0], [](const Pixel &p) { return p.r + p.g + p.b > 60; });
+    REQUIRE(lit);
+
+    // Born in place and staying there, a stack of soft discs makes the centre bright and the
+    // corner dark.
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const std::array emitters{glowEmitter()};
+    SceneView view = boxScene({});
+    view.particles = emitters;
+    view.deltaTime = 0.1f;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 4);
+    const Pixel centre = scene.pixel(32, 32);
+    const Pixel corner = scene.pixel(2, 2);
+    REQUIRE(centre.r + centre.g + centre.b > 300);
+    REQUIRE(corner.r + corner.g + corner.b == 0);
+    REQUIRE(device->validationMessageCount() == 0);
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
@@ -2186,6 +2383,49 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
   };
   std::unique_ptr<IDevice> device = gpuDevice(platform);
   measure(*device);
+}
+
+// What particles cost (ADR-0023): `renderer_tests "[particles]"` fills ten emitters up to about a
+// hundred and seventy thousand live particles at 1080p and prints the GPU time of the passes that simulate
+// and draw them, and the CPU time of the frame.
+TEST_CASE("ten emitters of twenty thousand particles at 1080p", "[.][benchmark][particles][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), {}};
+    std::vector<ParticleEmitterItem> emitters;
+    for (std::uint64_t i = 0; i < 10; ++i) {
+      ParticleEmitterItem item = glowEmitter();
+      item.key = i + 1;
+      item.transform = glm::translate(glm::mat4{1.0f}, glm::vec3{static_cast<float>(i) - 5.0f, 0.0f, 0.0f});
+      item.maxParticles = 20000;
+      item.rate = 10000.0f; // a second of life and a half at that rate leaves about 17 500 alive of 20 000
+      item.lifetime = {1.5f, 2.0f};
+      item.speed = {0.5f, 2.5f};
+      item.coneAngle = 1.2f;
+      item.sizeStart = 0.05f;
+      item.sizeEnd = 0.02f;
+      item.colorStart = {0.4f, 0.2f, 0.1f, 0.5f};
+      item.blend = i % 2 == 0 ? ParticleBlend::Additive : ParticleBlend::Alpha;
+      emitters.push_back(item);
+    }
+    SceneView view;
+    view.camera.position = {0.0f, 1.0f, 9.0f};
+    view.particles = emitters;
+    view.deltaTime = 1.0f / 60.0f;
+    GpuScene scene{*device, renderer, {1920, 1080}};
+    scene.render(view, 150); // two and a half seconds, so every ring has filled
+    for (const PassTiming &pass : scene.graph.statistics().passes) {
+      if (pass.name == "particles" || pass.name == "forward") {
+        WARN(
+            std::format("{:<12} {:8.3f} ms GPU {:8.3f} ms CPU", pass.name, pass.gpuMilliseconds, pass.cpuMilliseconds));
+      }
+    }
+    WARN(std::format("{} emitters, {} slots on {}", renderer.statistics().particleEmitterCount,
+                     renderer.statistics().particleSlotCount, device->info().deviceName));
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
 }
 
 // What a second view costs (docs/decisions/0021-two-views-in-one-frame.md): the same objects and
