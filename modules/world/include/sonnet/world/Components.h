@@ -138,6 +138,15 @@ struct Animator {
   std::vector<AnimationLayer> layers{};
 };
 
+// The weights of the morph targets of the entity's MeshRenderer mesh, in the mesh's order
+// (ADR-0023): the mesh draws deformed by each target's deltas times its weight. Animated by clips
+// with a Weights channel; a model's prefab starts them at the glTF file's weights.
+struct MorphWeights {
+  std::vector<float> weights{};
+
+  bool operator==(const MorphWeights &) const = default;
+};
+
 // The joint matrices of a SkinnedMesh for the current pose, each from the mesh's bind pose into
 // its entity's space; computed every frame by AnimationSystem, never saved or inherited.
 struct SkinPose {

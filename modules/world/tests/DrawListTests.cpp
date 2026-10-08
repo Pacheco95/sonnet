@@ -49,7 +49,8 @@ TEST_CASE("the draw list resolves every visible mesh renderer through the databa
   world.createEntity("Empty");
 
   world.progress(0.016f);
-  world::buildDrawList(world, fixture.assets, draws, joints);
+  std::vector<float> morphWeights;
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
   REQUIRE(draws.size() == 2); // the missing asset draws nothing
   REQUIRE(joints.empty());
   REQUIRE(draws[0].jointCount == 0);

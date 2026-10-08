@@ -344,6 +344,8 @@ std::vector<std::byte> encodeMesh(const renderer::MeshData &mesh) {
   writer.array(std::span{mesh.indices});
   writer.array(std::span{mesh.submeshes});
   writer.array(std::span{mesh.skin});
+  writer.u32(mesh.morphTargetCount);
+  writer.array(std::span{mesh.morphDeltas});
   return writer.take();
 }
 
@@ -357,6 +359,8 @@ core::Result<renderer::MeshData> decodeMesh(std::span<const std::byte> payload) 
   reader.array(mesh.indices);
   reader.array(mesh.submeshes);
   reader.array(mesh.skin);
+  mesh.morphTargetCount = reader.u32();
+  reader.array(mesh.morphDeltas);
   if (!reader.ok()) {
     return std::unexpected(payloadError("the mesh is truncated"));
   }
@@ -499,6 +503,7 @@ std::vector<std::byte> encodeModel(const Model &model) {
     writer.pod(node.scale);
     writer.pod(node.mesh.bytes());
     writer.pod(node.skin.bytes());
+    writer.array(std::span{node.morphWeights});
   }
   writer.u32(static_cast<std::uint32_t>(model.animations.size()));
   for (const core::Uuid &animation : model.animations) {
@@ -526,6 +531,7 @@ core::Result<Model> decodeModel(std::span<const std::byte> payload) {
     node.scale = reader.pod<glm::vec3>();
     node.mesh = core::Uuid{reader.pod<core::Uuid::Bytes>()};
     node.skin = core::Uuid{reader.pod<core::Uuid::Bytes>()};
+    reader.array(node.morphWeights);
   }
   const std::uint32_t animations = reader.u32();
   if (!reader.ok() || animations > reader.remaining() / sizeof(core::Uuid::Bytes)) {

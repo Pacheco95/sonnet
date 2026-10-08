@@ -207,6 +207,8 @@ void World::registerComponents() {
       .member<bool>("rootMotion")
       .member<std::string>("rootBone")
       .member<std::vector<AnimationLayer>>("layers");
+  registerVector<float>();
+  registerComponent<MorphWeights>("MorphWeights").member<std::vector<float>>("weights");
   // Derived every frame for the entity itself, like WorldTransform: never inherited, never saved.
   m_world.component<SkinPose>("SkinPose").add(flecs::OnInstantiate, flecs::DontInherit);
   registerComponent<Spin>("Spin");

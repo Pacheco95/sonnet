@@ -5,10 +5,11 @@
 namespace sonnet::world {
 
 void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vector<renderer::DrawItem> &draws,
-                   std::vector<glm::mat4> &joints) {
+                   std::vector<glm::mat4> &joints, std::vector<float> &morphWeights) {
   SONNET_ZONE();
   draws.clear();
   joints.clear();
+  morphWeights.clear();
   world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const MeshRenderer &meshRenderer) {
     if (!meshRenderer.visible || entity.has<Disabled>()) {
       return;
@@ -29,6 +30,13 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
       joints.insert(joints.end(), pose->joints.begin(), pose->joints.end());
       jointCount = static_cast<std::uint32_t>(pose->joints.size());
     }
+    // Likewise the morph weights.
+    const auto firstMorphWeight = static_cast<std::uint32_t>(morphWeights.size());
+    std::uint32_t morphWeightCount = 0;
+    if (const MorphWeights *morph = entity.try_get<MorphWeights>(); morph != nullptr) {
+      morphWeights.insert(morphWeights.end(), morph->weights.begin(), morph->weights.end());
+      morphWeightCount = static_cast<std::uint32_t>(morph->weights.size());
+    }
     for (std::uint32_t i = 0; i < submeshes.size(); ++i) {
       renderer::MaterialHandle material = override;
       if (!material && info != nullptr && submeshes[i].materialSlot < info->materials.size()) {
@@ -42,7 +50,9 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
                        .id = World::pickId(entity),
                        .firstJoint = firstJoint,
                        .jointCount = jointCount,
-                       .skinInstance = jointCount > 0 ? entity.id() : 0});
+                       .skinInstance = jointCount > 0 || morphWeightCount > 0 ? entity.id() : 0,
+                       .firstMorphWeight = firstMorphWeight,
+                       .morphWeightCount = morphWeightCount});
     }
   });
 }

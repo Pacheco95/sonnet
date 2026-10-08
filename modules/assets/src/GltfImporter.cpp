@@ -186,6 +186,18 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::
       out.rotation = glm::quat{trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
       out.scale = {trs->scale[0], trs->scale[1], trs->scale[2]};
     }
+    if (node.meshIndex.has_value() && *node.meshIndex < asset.meshes.size()) {
+      // The node's own weights override the mesh's; a mesh with targets and no weights starts at zero.
+      const fastgltf::Mesh &mesh = asset.meshes[*node.meshIndex];
+      const std::size_t targets = mesh.primitives.empty() ? 0 : mesh.primitives.front().targets.size();
+      if (targets > 0) {
+        const auto &given = !node.weights.empty() ? node.weights : mesh.weights;
+        out.morphWeights.assign(std::min<std::size_t>(targets, renderer::MaxMorphTargets), 0.0f);
+        for (std::size_t t = 0; t < out.morphWeights.size() && t < given.size(); ++t) {
+          out.morphWeights[t] = given[t];
+        }
+      }
+    }
     const auto index = static_cast<std::int32_t>(model.nodes.size());
     model.nodes.push_back(std::move(out));
     meshIndices.push_back(node.meshIndex.has_value() ? static_cast<std::int32_t>(*node.meshIndex) : -1);
@@ -262,6 +274,8 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     const fastgltf::Mesh &mesh = asset.meshes[m];
     GltfMesh out{.name = nameOr(mesh.name, "mesh", m), .data = {}, .materials = {}};
     bool needTangents = false;
+    bool warnedTargets = false;
+    std::vector<std::vector<renderer::MorphDelta>> morphTargets; // by target, then vertex
     for (const fastgltf::Primitive &primitive : mesh.primitives) {
       bool needFlatNormals = false;
       if (primitive.type != fastgltf::PrimitiveType::Triangles) {
@@ -314,6 +328,34 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
             asset, asset.accessors[weights->accessorIndex],
             [&](glm::vec4 value, std::size_t i) { out.data.skin[base + i].weights = value; });
       }
+      // Morph targets: position, normal and tangent deltas, per target kept.
+      const std::size_t targets = std::min<std::size_t>(primitive.targets.size(), renderer::MaxMorphTargets);
+      if (primitive.targets.size() > renderer::MaxMorphTargets && !warnedTargets) {
+        SONNET_LOG_WARN("{}: mesh \"{}\" has {} morph targets, the first {} are kept", path.string(), out.name,
+                        primitive.targets.size(), renderer::MaxMorphTargets);
+        warnedTargets = true;
+      }
+      if (targets > morphTargets.size()) {
+        morphTargets.resize(targets);
+      }
+      for (std::size_t t = 0; t < morphTargets.size(); ++t) {
+        morphTargets[t].resize(out.data.vertices.size()); // zeros where this primitive has no such target
+        if (t >= targets) {
+          continue;
+        }
+        const auto read = [&](const char *name, auto assign) {
+          for (const auto &attribute : primitive.targets[t]) {
+            if (attribute.name == name) {
+              fastgltf::iterateAccessorWithIndex<glm::vec3>(
+                  asset, asset.accessors[attribute.accessorIndex],
+                  [&](glm::vec3 value, std::size_t i) { assign(morphTargets[t][base + i], value); });
+            }
+          }
+        };
+        read("POSITION", [](renderer::MorphDelta &delta, glm::vec3 value) { delta.position = value; });
+        read("NORMAL", [](renderer::MorphDelta &delta, glm::vec3 value) { delta.normal = value; });
+        read("TANGENT", [](renderer::MorphDelta &delta, glm::vec3 value) { delta.tangent = value; });
+      }
       const fastgltf::Accessor &indices = asset.accessors[*primitive.indicesAccessor];
       const auto firstIndex = static_cast<std::uint32_t>(out.data.indices.size());
       fastgltf::iterateAccessor<std::uint32_t>(asset, indices,
@@ -329,6 +371,13 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     }
     if (!out.data.skin.empty()) {
       out.data.skin.resize(out.data.vertices.size()); // primitives after the last skinned one
+    }
+    if (!morphTargets.empty()) {
+      out.data.morphTargetCount = static_cast<std::uint32_t>(morphTargets.size());
+      for (std::vector<renderer::MorphDelta> &target : morphTargets) {
+        target.resize(out.data.vertices.size()); // primitives after the last one with targets
+        out.data.morphDeltas.insert(out.data.morphDeltas.end(), target.begin(), target.end());
+      }
     }
     if (out.data.vertices.empty() || out.data.indices.empty()) {
       SONNET_LOG_WARN("{}: mesh \"{}\" has no usable primitives", path.string(), out.name);

@@ -246,7 +246,8 @@ TEST_CASE("a skinned mesh's pose follows its joints into the draw list, in edit 
 
   std::vector<renderer::DrawItem> draws;
   std::vector<glm::mat4> joints;
-  world::buildDrawList(world, fixture.assets, draws, joints);
+  std::vector<float> morphWeights;
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
   REQUIRE(draws.size() == 1);
   REQUIRE(draws[0].jointCount == 2);
   REQUIRE(draws[0].firstJoint == 0);
@@ -260,7 +261,7 @@ TEST_CASE("a skinned mesh's pose follows its joints into the draw list, in edit 
   lone.set<world::SkinnedMesh>(strip.get<world::SkinnedMesh>());
   world.progress(0.016f);
   REQUIRE_FALSE(lone.has<world::SkinPose>());
-  world::buildDrawList(world, fixture.assets, draws, joints);
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
   REQUIRE(draws.size() == 2);
   const auto loneDraw = std::ranges::find(draws, world::World::pickId(lone), &renderer::DrawItem::id);
   REQUIRE(loneDraw->jointCount == 0);
@@ -382,4 +383,55 @@ TEST_CASE("root motion moves the entity instead of the root bone", "[world][anim
   REQUIRE(instance.get<world::Transform>().position.x == Approx(1.0f));
   world.progress(0.5f); // the next lap's step: another metre
   REQUIRE(instance.get<world::Transform>().position.x == Approx(2.0f));
+}
+
+TEST_CASE("a clip animates a mesh's morph weights, and the draw list hands them to the renderer",
+          "[world][animation]") {
+  platform::Platform platform{{.headless = true}};
+  const std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase database{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_world_morph";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  constexpr const char *model =
+      R"json({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"Face","mesh":0}],"meshes":[{"name":"FaceMesh","weights":[0.25],"primitives":[{"attributes":{"POSITION":0},"indices":1,"targets":[{"POSITION":2}]}]}],"animations":[{"name":"Smile","samplers":[{"input":3,"output":4}],"channels":[{"sampler":0,"target":{"node":0,"path":"weights"}}]}],"buffers":[{"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAEAAAACAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPw==","byteLength":100}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":12},{"buffer":0,"byteOffset":48,"byteLength":36},{"buffer":0,"byteOffset":84,"byteLength":8},{"buffer":0,"byteOffset":92,"byteLength":8}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5125,"count":3,"type":"SCALAR"},{"bufferView":2,"componentType":5126,"count":3,"type":"VEC3"},{"bufferView":3,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[1]},{"bufferView":4,"componentType":5126,"count":2,"type":"SCALAR"}]})json";
+  REQUIRE(
+      core::writeFile(root / "assets" / "face.gltf", std::as_bytes(std::span{model, std::strlen(model)})).has_value());
+  const std::vector<std::string> roots{"assets"};
+  database.open(root, roots);
+  world::World world;
+  {
+    const auto models = database.assets(assets::AssetType::Model);
+    REQUIRE(models.size() == 1);
+    const assets::Model *loaded = database.model(models[0]->uuid);
+    REQUIRE(loaded != nullptr);
+    const flecs::entity prefab = world::loadModelPrefab(world, *loaded, models[0]->uuid, "Face");
+    static_cast<void>(database.requestAnimation(prefab.get<world::Animator>().clip));
+    database.waitForLoads();
+    world::AnimationSystem animation{world, database};
+    const flecs::entity instance = world.instantiate(prefab, "Smiler");
+    const flecs::entity face = world.findByPath(instance, "Face");
+    REQUIRE(face);
+    REQUIRE(face.get<world::MorphWeights>().weights == std::vector<float>{0.25f}); // the file's weight
+
+    world.setPlaying(true);
+    world.progress(0.5f);
+    REQUIRE(face.get<world::MorphWeights>().weights.at(0) == Approx(0.5f));
+
+    std::vector<renderer::DrawItem> draws;
+    std::vector<glm::mat4> joints;
+    std::vector<float> morphWeights;
+    world::buildDrawList(world, database, draws, joints, morphWeights);
+    database.waitForLoads();
+    world::buildDrawList(world, database, draws, joints, morphWeights);
+    REQUIRE(draws.size() == 1);
+    REQUIRE(morphWeights == std::vector<float>{0.5f});
+    REQUIRE(draws[0].morphWeightCount == 1);
+    REQUIRE(draws[0].skinInstance == face.id());
+    REQUIRE(draws[0].jointCount == 0);
+  }
+  world.clearScene();
+  std::filesystem::remove_all(root);
 }

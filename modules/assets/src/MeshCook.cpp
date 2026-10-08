@@ -187,6 +187,10 @@ float averageCacheMissRatio(std::span<const std::uint32_t> indices, std::uint32_
 renderer::MeshData cookMesh(const MeshData &mesh, MeshCookStatistics *statistics) {
   SONNET_ZONE();
   const bool skinned = mesh.skin.size() == mesh.vertices.size() && !mesh.skin.empty();
+  // Morph targets are per vertex too, so a morphed mesh is not welded: two vertices that look
+  // alike may move apart. It is still reordered, the deltas following their vertices.
+  const bool morphed =
+      mesh.morphTargetCount > 0 && mesh.morphDeltas.size() == std::size_t{mesh.morphTargetCount} * mesh.vertices.size();
   if (statistics != nullptr) {
     statistics->verticesBefore = static_cast<std::uint32_t>(mesh.vertices.size());
     statistics->verticesAfter = statistics->verticesBefore;
@@ -199,7 +203,8 @@ renderer::MeshData cookMesh(const MeshData &mesh, MeshCookStatistics *statistics
     return mesh;
   }
 
-  // Welding: every vertex that is equal to the bit becomes one, and the indices follow.
+  // Welding: every vertex that is equal to the bit becomes one, and the indices follow; a morphed
+  // mesh keeps all of its vertices.
   MeshData welded;
   welded.vertices.reserve(mesh.vertices.size());
   if (skinned) {
@@ -212,13 +217,13 @@ renderer::MeshData cookMesh(const MeshData &mesh, MeshCookStatistics *statistics
     for (std::size_t vertex = 0; vertex < mesh.vertices.size(); ++vertex) {
       const VertexKey key = keyOf(mesh.vertices[vertex], skinned ? mesh.skin[vertex] : SkinWeights{});
       const auto [entry, inserted] = unique.try_emplace(key, static_cast<std::uint32_t>(welded.vertices.size()));
-      if (inserted) {
+      if (inserted || morphed) {
         welded.vertices.push_back(mesh.vertices[vertex]);
         if (skinned) {
           welded.skin.push_back(mesh.skin[vertex]);
         }
       }
-      weld[vertex] = entry->second;
+      weld[vertex] = morphed ? static_cast<std::uint32_t>(welded.vertices.size() - 1) : entry->second;
     }
   }
   std::vector<std::uint32_t> indices(mesh.indices.size());
@@ -263,6 +268,7 @@ renderer::MeshData cookMesh(const MeshData &mesh, MeshCookStatistics *statistics
   // vertices no index names are dropped.
   std::vector<std::uint32_t> fetch(welded.vertices.size(), Unused);
   MeshData cooked;
+  std::vector<std::uint32_t> sourceOf; // per cooked vertex, the source vertex of a morphed mesh
   cooked.vertices.reserve(welded.vertices.size());
   if (skinned) {
     cooked.skin.reserve(welded.skin.size());
@@ -277,10 +283,22 @@ renderer::MeshData cookMesh(const MeshData &mesh, MeshCookStatistics *statistics
       if (skinned) {
         cooked.skin.push_back(welded.skin[index]);
       }
+      if (morphed) {
+        sourceOf.push_back(index); // not welded: the welded index is the source's
+      }
     }
     cooked.indices[slot] = fetch[index];
   }
   cooked.submeshes = std::move(welded.submeshes);
+  if (morphed) {
+    cooked.morphTargetCount = mesh.morphTargetCount;
+    cooked.morphDeltas.reserve(mesh.morphDeltas.size() * cooked.vertices.size() / mesh.vertices.size());
+    for (std::uint32_t target = 0; target < mesh.morphTargetCount; ++target) {
+      for (const std::uint32_t source : sourceOf) {
+        cooked.morphDeltas.push_back(mesh.morphDeltas[std::size_t{target} * mesh.vertices.size() + source]);
+      }
+    }
+  }
 
   if (statistics != nullptr) {
     statistics->verticesAfter = static_cast<std::uint32_t>(cooked.vertices.size());

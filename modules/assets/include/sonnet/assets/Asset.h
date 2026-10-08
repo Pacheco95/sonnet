@@ -104,6 +104,9 @@ struct ModelNode {
   glm::vec3 scale{1.0f};
   core::Uuid mesh{}; // nil for a node without geometry
   core::Uuid skin{}; // the skin deforming the node's mesh, nil for none
+  // The morph target weights the node's mesh starts with, one per target kept (ADR-0023); empty
+  // for a mesh without targets.
+  std::vector<float> morphWeights{};
 };
 
 struct Model {

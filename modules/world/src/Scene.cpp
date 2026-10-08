@@ -360,6 +360,9 @@ flecs::entity loadModelPrefab(World &world, const assets::Model &model, const co
     if (!node.skin.isNil()) {
       entity.set<SkinnedMesh>({node.skin});
     }
+    if (!node.morphWeights.empty()) {
+      entity.set<MorphWeights>({node.morphWeights});
+    }
     entities.push_back(entity);
   }
   // A model with clips plays its first on the root, where the clips' paths start.

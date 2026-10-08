@@ -180,8 +180,7 @@ void AnimationSystem::play(float dt) {
       for (std::size_t c = 0; c < active.clip->channels.size(); ++c) {
         const assets::AnimationChannel &channel = active.clip->channels[c];
         const flecs::entity_t target = binding.targets[c];
-        if (target == 0 || !ecs.is_alive(target) || channel.path == assets::AnimationPath::Weights ||
-            active.weight <= 0.0f) {
+        if (target == 0 || !ecs.is_alive(target) || active.weight <= 0.0f) {
           continue;
         }
         const auto [slot, added] = m_poseIndex.try_emplace(target, static_cast<std::uint32_t>(m_poses.size()));
@@ -189,6 +188,18 @@ void AnimationSystem::play(float dt) {
           m_poses.push_back({.target = target});
         }
         TargetPose &pose = m_poses[slot->second];
+        if (channel.path == assets::AnimationPath::Weights) {
+          m_values.resize(assets::width(channel));
+          assets::sample(channel, active.to, m_values);
+          if (pose.morph.size() < m_values.size()) {
+            pose.morph.resize(m_values.size(), 0.0f);
+          }
+          for (std::size_t w = 0; w < m_values.size(); ++w) {
+            pose.morph[w] += m_values[w] * active.weight;
+          }
+          pose.morphWeight += active.weight;
+          continue;
+        }
         const glm::vec4 value = assets::sample(channel, active.to);
         switch (channel.path) {
         case assets::AnimationPath::Translation:
@@ -210,7 +221,7 @@ void AnimationSystem::play(float dt) {
           break;
         }
         case assets::AnimationPath::Weights:
-          break; // the morph weights follow with the skinning (ADR-0023)
+          break; // handled above
         }
       }
     }
@@ -238,6 +249,19 @@ void AnimationSystem::play(float dt) {
                                            : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
       }
       target.set<Transform>(transform);
+      if (pose.morphWeight > 0.0f) {
+        MorphWeights morph;
+        if (const MorphWeights *existing = target.try_get<MorphWeights>(); existing != nullptr) {
+          morph = *existing;
+        }
+        if (morph.weights.size() < pose.morph.size()) {
+          morph.weights.resize(pose.morph.size(), 0.0f);
+        }
+        for (std::size_t w = 0; w < pose.morph.size(); ++w) {
+          morph.weights[w] = pose.morph[w] / pose.morphWeight;
+        }
+        target.set<MorphWeights>(morph);
+      }
     }
 
     for (const Active &active : m_active) {

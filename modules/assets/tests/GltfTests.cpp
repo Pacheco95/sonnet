@@ -1,12 +1,16 @@
 #include "AssetTestSupport.h"
 
+#include <sonnet/assets/Bundle.h>
+#include <sonnet/assets/Cook.h>
 #include <sonnet/assets/Importers.h>
+#include <sonnet/core/File.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <array>
 #include <cstring>
 
 using namespace sonnet;
@@ -186,5 +190,51 @@ TEST_CASE("a glTF file imports its skins, joint weights and animation clips by n
   REQUIRE(clip.channels[1].interpolation == Interpolation::Step);
   REQUIRE(clip.channels[2].interpolation == Interpolation::CubicSpline);
   REQUIRE(clip.channels[2].values.size() == 6 * width(clip.channels[2])); // three values for each of two keys
+  std::filesystem::remove_all(directory);
+}
+
+namespace {
+
+// One triangle on node "Face" whose single morph target pushes every vertex a metre along +Z, a
+// mesh default weight of a quarter and a clip "Smile" taking the weight from 0 to 1 in a second.
+constexpr const char *MorphModel =
+    R"json({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"Face","mesh":0}],"meshes":[{"name":"FaceMesh","weights":[0.25],"primitives":[{"attributes":{"POSITION":0},"indices":1,"targets":[{"POSITION":2}]}]}],"animations":[{"name":"Smile","samplers":[{"input":3,"output":4}],"channels":[{"sampler":0,"target":{"node":0,"path":"weights"}}]}],"buffers":[{"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAEAAAACAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPw==","byteLength":100}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":12},{"buffer":0,"byteOffset":48,"byteLength":36},{"buffer":0,"byteOffset":84,"byteLength":8},{"buffer":0,"byteOffset":92,"byteLength":8}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5125,"count":3,"type":"SCALAR"},{"bufferView":2,"componentType":5126,"count":3,"type":"VEC3"},{"bufferView":3,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[1]},{"bufferView":4,"componentType":5126,"count":2,"type":"SCALAR"}]})json";
+
+} // namespace
+
+TEST_CASE("a glTF file imports morph targets, their default weights and weight channels", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_morph");
+  REQUIRE(core::writeFile(directory / "face.gltf", std::as_bytes(std::span{MorphModel, std::strlen(MorphModel)}))
+              .has_value());
+  const auto imported = importGltf(directory / "face.gltf");
+  REQUIRE(imported.has_value());
+
+  REQUIRE(imported->meshes.size() == 1);
+  const renderer::MeshData &mesh = imported->meshes[0].data;
+  REQUIRE(mesh.morphTargetCount == 1);
+  REQUIRE(mesh.morphDeltas.size() == mesh.vertices.size());
+  REQUIRE(mesh.morphDeltas[1].position == glm::vec3{0.0f, 0.0f, 1.0f});
+  REQUIRE(mesh.morphDeltas[1].normal == glm::vec3{0.0f});
+  REQUIRE(imported->model.nodes[0].morphWeights == std::vector<float>{0.25f});
+
+  REQUIRE(imported->animations.size() == 1);
+  const AnimationChannel &channel = imported->animations[0].clip.channels.at(0);
+  REQUIRE(channel.path == AnimationPath::Weights);
+  REQUIRE(channel.weightCount == 1);
+  std::array<float, 1> weight{};
+  sample(channel, 0.25f, weight);
+  REQUIRE(weight[0] == Approx(0.25f));
+
+  // Through a cooked mesh payload: the targets survive a round trip, the vertices reordered.
+  const renderer::MeshData cooked = cookMesh(mesh);
+  REQUIRE(cooked.morphTargetCount == 1);
+  REQUIRE(cooked.morphDeltas.size() == cooked.vertices.size());
+  for (std::size_t v = 0; v < cooked.vertices.size(); ++v) {
+    REQUIRE(cooked.morphDeltas[v].position.z == Approx(1.0f));
+  }
+  const auto decoded = decodeMesh(encodeMesh(cooked));
+  REQUIRE(decoded.has_value());
+  REQUIRE(decoded->morphTargetCount == 1);
+  REQUIRE(decoded->morphDeltas.size() == cooked.morphDeltas.size());
   std::filesystem::remove_all(directory);
 }
