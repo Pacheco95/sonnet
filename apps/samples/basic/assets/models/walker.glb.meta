@@ -1,0 +1,35 @@
+{
+  "settings": {},
+  "sourceHash": "b4417955bfa8a0b9",
+  "subAssets": [
+    {
+      "materials": [],
+      "name": "Cloth",
+      "type": "Material",
+      "uuid": "3166b7ce-a02e-8cfd-8a6c-07631171a374"
+    },
+    {
+      "materials": [],
+      "name": "Walk",
+      "type": "Animation",
+      "uuid": "ab452031-e71a-8fe5-aa41-5068d006704b"
+    },
+    {
+      "materials": [
+        "3166b7ce-a02e-8cfd-8a6c-07631171a374"
+      ],
+      "name": "BlockMesh",
+      "type": "Mesh",
+      "uuid": "c55643d6-fdb0-8fb9-be0b-c6f83a995cef"
+    },
+    {
+      "materials": [],
+      "name": "Idle",
+      "type": "Animation",
+      "uuid": "f8432031-e719-8fe5-9d43-5068d007704b"
+    }
+  ],
+  "type": "Model",
+  "uuid": "89aa8b07-58b3-46fd-a4e8-7c3308de0442",
+  "version": 2
+}

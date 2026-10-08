@@ -530,3 +530,89 @@ TEST_CASE("the playground's pickup is collected the same from a project and from
   REQUIRE(picked(play(out / "game.sbundle")) == 1);
   std::filesystem::remove_all(out);
 }
+
+// M12's criterion: the start scene's walker crossfades from idle to walk and hears its footsteps,
+// and its jelly wobbles through a morph target, the same from a project and from a bundle, since
+// clips, events and morph targets reach the bundle in its payloads (ADR-0023).
+TEST_CASE("the start scene's walker, jelly and sparks play the same from a project and a bundle",
+          "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const std::filesystem::path out = std::filesystem::temp_directory_path() / "sonnet_runtime_effects";
+  std::filesystem::remove_all(out);
+  const auto root = [](runtime::Game &game, std::string_view name) {
+    const auto roots = game.world().roots();
+    const auto it = std::ranges::find_if(roots, [&](const flecs::entity entity) {
+      const world::Name *named = entity.try_get<world::Name>();
+      return named != nullptr && named->value == name;
+    });
+    REQUIRE(it != roots.end());
+    return *it;
+  };
+
+  const auto play = [&](const std::filesystem::path &source) {
+    const auto problems = std::make_shared<ProblemSink>();
+    const auto messages = std::make_shared<MessageSink>();
+    core::Log::addSink(problems);
+    core::Log::addSink(messages);
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(source).has_value());
+    const flecs::entity walker = root(game, "Walker");
+    const flecs::entity jelly = root(game, "Jelly");
+    root(game, "Sparks");
+    const core::Uuid idle = walker.get<world::Animator>().clip;
+
+    // The jelly's first second takes its weight from 0 to 1 through a Weights channel.
+    problems->problems.clear();
+    for (int i = 0; i < 60; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+    const flecs::entity face = game.world().findByPath(jelly, "Jelly");
+    REQUIRE(face);
+    REQUIRE(face.get<world::MorphWeights>().weights.at(0) > 0.9f);
+    REQUIRE(walker.get<world::Animator>().clip == idle); // still standing
+
+    // Three seconds in the walker crossfades to Walk: the idle clip is a layer for 0.4 s.
+    for (int i = 0; i < 125; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+    REQUIRE(walker.get<world::Animator>().clip != idle);
+    REQUIRE(walker.get<world::Animator>().layers.size() == 1);
+    for (int i = 0; i < 60; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+    REQUIRE(walker.get<world::Animator>().layers.empty());
+    core::Log::removeSink(messages);
+    core::Log::removeSink(problems);
+    REQUIRE(problems->problems.empty());
+    return messages->messages;
+  };
+
+  {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(project).has_value());
+    const auto opened = assets::Project::open(project);
+    REQUIRE(opened.has_value());
+    REQUIRE(assets::cook(game.assets(), *opened, {.outputDirectory = out}).has_value());
+  }
+  const auto footsteps = [](const std::vector<std::string> &messages) {
+    std::vector<std::string> steps;
+    for (const std::string &line : messages) {
+      if (line.starts_with("Walker: ") && line.contains(" footstep ")) {
+        steps.push_back(line);
+      }
+    }
+    return steps;
+  };
+  const std::vector<std::string> fromProject = footsteps(play(project));
+  const std::vector<std::string> fromBundle = footsteps(play(out / "game.sbundle"));
+  // Walk starts at 3 s and steps at a quarter and three quarters of every second, so by the
+  // 4.08 s the test plays: left and right.
+  REQUIRE(fromProject.size() == 2);
+  REQUIRE(fromProject.front() == "Walker: left footstep 1");
+  REQUIRE(fromBundle == fromProject);
+  std::filesystem::remove_all(out);
+}
