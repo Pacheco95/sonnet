@@ -6,6 +6,9 @@
 #include <sonnet/core/Profile.h>
 #include <sonnet/platform/Platform.h>
 
+#include <glm/gtc/matrix_access.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -125,9 +128,10 @@ struct FrameConstants {
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
-  std::uint64_t localShadows; // GpuLocalShadow per local shadow map, 0 without any
+  std::uint64_t localShadows;    // GpuLocalShadow per local shadow map, 0 without any
+  std::uint64_t previousObjects; // PreviousObject per draw, 0 without TAA
 };
-static_assert(sizeof(FrameConstants) == 960);
+static_assert(sizeof(FrameConstants) == 968);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -139,6 +143,16 @@ struct ObjectData {
   std::uint32_t vertexPad{0};
 };
 static_assert(sizeof(ObjectData) == 96);
+
+// Where a draw was last frame (ADR-0024), filled beside ObjectData only under TAA: the rows of its
+// previous model matrix, an affine transform, and the vertex buffer it was drawn from.
+// Mirror of PreviousObject in shaders/sonnet.slang.
+struct PreviousObject {
+  glm::vec4 rows[3];
+  std::uint32_t vertexBuffer;
+  std::uint32_t padding[3];
+};
+static_assert(sizeof(PreviousObject) == 64);
 
 struct DrawConstants {
   std::uint32_t shadow; // a cascade, or CascadeCount plus a local shadow map's index; unused elsewhere
@@ -355,6 +369,15 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depth = {.test = true, .write = true},
                     .cullMode = cullModes[i],
                     .debugName = std::format("depth{}", side)});
+    // Under TAA the pre-pass also writes the surfaces' motion (ADR-0024).
+    defineGraphics(m_depthMotionPipelines[i], "depth",
+                   {.vertexEntry = "motionVertexMain",
+                    .fragmentEntry = "motionFragmentMain",
+                    .colorFormats = {MotionFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = true},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("depth motion{}", side)});
     // Shadows cull nothing: a single-sided ground plane has to cast its shadow too.
     defineGraphics(m_shadowPipelines[i], "depth",
                    {.vertexEntry = "shadowVertexMain",
@@ -557,8 +580,8 @@ Renderer::~Renderer() {
       m_device.destroyPipeline(pipeline);
     }
   }
-  for (const auto &pair :
-       {m_maskPipelines, m_idPipelines, m_blendPipelines, m_forwardPipelines, m_shadowPipelines, m_depthPipelines}) {
+  for (const auto &pair : {m_maskPipelines, m_idPipelines, m_blendPipelines, m_forwardPipelines, m_shadowPipelines,
+                           m_depthMotionPipelines, m_depthPipelines}) {
     m_device.destroyPipeline(pair[1]);
     m_device.destroyPipeline(pair[0]);
   }
@@ -1326,6 +1349,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.firstPendingJob = 0;
   const glm::mat4 cameraView = view.camera.view();
   v.taa = false;
+  v.motion = {};
   v.jitter = glm::vec2{0.0f};
   v.viewProjection =
       view.camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u))) *
@@ -1354,13 +1378,14 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
       minimum = glm::min(minimum, world);
       maximum = glm::max(maximum, world);
     }
-    const std::uint32_t vertexBuffer = resolveVertices(v, item, *mesh);
-    if (vertexBuffer == rhi::InvalidBindlessIndex) {
+    const ResolvedVertices vertices = resolveVertices(v, item, *mesh);
+    if (vertices.current == rhi::InvalidBindlessIndex) {
       continue; // the bindless vertex-buffer array is full, which the device has logged
     }
     v.resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
                                       .mesh = mesh,
-                                      .vertexBuffer = vertexBuffer,
+                                      .vertexBuffer = vertices.current,
+                                      .previousVertexBuffer = vertices.previous,
                                       .submesh = mesh->submeshes[item.submesh],
                                       .center = (minimum + maximum) * 0.5f,
                                       .extent = (maximum - minimum) * 0.5f,
@@ -1888,28 +1913,49 @@ Bounds Renderer::posedBounds(const SceneView &view, const DrawItem &item, const 
   return result;
 }
 
-std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh) {
+Renderer::ResolvedVertices Renderer::resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh) {
   const SceneView &view = *v.view;
   const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
                        std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
   const bool morphed = item.morphWeightCount > 0 && item.skinInstance != 0 && mesh.morph &&
                        std::size_t{item.firstMorphWeight} + item.morphWeightCount <= view.morphWeights.size();
   if (!skinned && !morphed) {
-    return m_device.storageBufferIndex(mesh.vertices);
+    const std::uint32_t index = m_device.storageBufferIndex(mesh.vertices);
+    return {index, index};
   }
+  const auto createBuffer = [&](const char *name) {
+    return m_device.createBuffer({.size = std::uint64_t{mesh.vertexCount} * sizeof(Vertex),
+                                  .usage = rhi::BufferUsage::Storage,
+                                  .debugName = std::format("{} {}", mesh.debugName, name)});
+  };
   SkinnedVertices &instance = m_skinned[item.skinInstance];
+  bool fresh = false;
   if (instance.mesh != item.mesh || !instance.buffer) {
-    if (instance.buffer) {
-      m_device.destroyBuffer(instance.buffer);
+    for (rhi::BufferHandle buffer : {instance.buffer, instance.previous}) {
+      if (buffer) {
+        m_device.destroyBuffer(buffer);
+      }
     }
     instance.mesh = item.mesh;
-    instance.buffer = m_device.createBuffer({.size = std::uint64_t{mesh.vertexCount} * sizeof(Vertex),
-                                             .usage = rhi::BufferUsage::Storage,
-                                             .debugName = std::format("{} skinned", mesh.debugName)});
+    instance.buffer = createBuffer("skinned");
+    instance.previous = {};
+    instance.previousValid = false;
     instance.lastFrame = m_graphFrame + 1; // not yet scheduled this frame
+    fresh = true;
   }
   // The submeshes of one instance share its vertices: deformed once.
   if (instance.lastFrame != m_graphFrame) {
+    // Under TAA the instance keeps two buffers and swaps them each frame, so the motion pass can
+    // read the vertices the frame before deformed (ADR-0024). They hold the previous pose only if
+    // that frame drew the instance.
+    if (m_settings.antialiasing == AntiAliasing::Taa && !fresh) {
+      const bool consecutive = instance.lastFrame + 1 == m_graphFrame;
+      if (!instance.previous) {
+        instance.previous = createBuffer("previous skinned");
+      }
+      std::swap(instance.buffer, instance.previous);
+      instance.previousValid = consecutive;
+    }
     instance.lastFrame = m_graphFrame;
     v.skinJobs.push_back(SkinJob{.mesh = &mesh,
                                  .destination = instance.buffer,
@@ -1920,7 +1966,8 @@ std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, cons
     ++v.statistics.skinnedInstanceCount;
     v.statistics.skinnedVertexCount += mesh.vertexCount;
   }
-  return m_device.storageBufferIndex(instance.buffer);
+  const std::uint32_t current = m_device.storageBufferIndex(instance.buffer);
+  return {current, instance.previousValid ? m_device.storageBufferIndex(instance.previous) : current};
 }
 
 void Renderer::releaseSkinnedVertices(bool all) {
@@ -1928,6 +1975,9 @@ void Renderer::releaseSkinnedVertices(bool all) {
     const bool stale = it->second.lastFrame + SkinnedBufferFrames < m_graphFrame || !m_meshes.contains(it->second.mesh);
     if (all || stale) {
       m_device.destroyBuffer(it->second.buffer);
+      if (it->second.previous) {
+        m_device.destroyBuffer(it->second.previous);
+      }
       it = m_skinned.erase(it);
     } else {
       ++it;
@@ -2199,7 +2249,12 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   v.frameBuffers.objects = m_device.allocateTransient(std::max<std::size_t>(view.draws.size(), 1) * sizeof(ObjectData));
   const rhi::TransientAllocation materials = m_device.allocateTransient(materialCount * sizeof(GpuMaterial));
   const rhi::TransientAllocation lights = m_device.allocateTransient(std::max(lightCount, 1u) * sizeof(GpuLight));
-  if (!v.frameBuffers.valid() || materials.data.empty() || lights.data.empty()) {
+  if (v.taa) {
+    v.frameBuffers.previousObjects =
+        m_device.allocateTransient(std::max<std::size_t>(view.draws.size(), 1) * sizeof(PreviousObject));
+  }
+  if (!v.frameBuffers.valid() || materials.data.empty() || lights.data.empty() ||
+      (v.taa && v.frameBuffers.previousObjects.data.empty())) {
     v.frameBuffers = {}; // the allocator logged the exhaustion; the passes draw nothing
     v.frameBuffers.uploaded = true;
     return;
@@ -2208,6 +2263,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   // Objects, in the draw list's order so the object index is the draw index. A draw whose mesh
   // handle went stale keeps a null vertex address and is never in an order list.
   auto *objects = reinterpret_cast<ObjectData *>(v.frameBuffers.objects.data.data());
+  auto *previousObjects =
+      v.taa ? reinterpret_cast<PreviousObject *>(v.frameBuffers.previousObjects.data.data()) : nullptr;
   // One slot per draw, written once, read by nobody until the pass records: the loop the job
   // system exists for (ADR-0013). What it costs is the bytes, not the arithmetic.
   parallelFor("frame objects", view.draws.size(), ObjectGrain, [&](std::size_t begin, std::size_t end) {
@@ -2218,10 +2275,21 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                               .id = item.id,
                               .material = materialIndex(item.material),
                               .vertexBuffer = 0};
+      if (previousObjects != nullptr) {
+        const glm::mat4 &previous = item.previousTransform ? *item.previousTransform : item.transform;
+        for (int row = 0; row < 3; ++row) {
+          previousObjects[i].rows[row] = glm::row(previous, row);
+        }
+        previousObjects[i].vertexBuffer = 0;
+        previousObjects[i].padding[0] = previousObjects[i].padding[1] = previousObjects[i].padding[2] = 0;
+      }
     }
   });
   for (const ResolvedDraw &draw : v.resolved) {
     objects[draw.objectIndex].vertexBuffer = draw.vertexBuffer;
+    if (previousObjects != nullptr) {
+      previousObjects[draw.objectIndex].vertexBuffer = draw.previousVertexBuffer;
+    }
   }
 
   // The culling pass's candidates, one array per order list, each grouped into its batches.
@@ -2376,6 +2444,9 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
       .clusters = m_device.bufferAddress(m_clusterBuffer),
       .localShadows = localShadows.data.empty() ? 0 : m_device.bufferAddress(localShadows.buffer) + localShadows.offset,
+      .previousObjects =
+          v.taa ? m_device.bufferAddress(v.frameBuffers.previousObjects.buffer) + v.frameBuffers.previousObjects.offset
+                : 0,
   };
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
     frame.cascadeMatrices[c] = v.cascades[c].matrix;
@@ -2670,14 +2741,25 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         });
   }
 
+  // Under TAA the pre-pass also writes motion (ADR-0024).
+  const std::span<const rhi::PipelineHandle, 2> depthPipelines = v.taa ? m_depthMotionPipelines : m_depthPipelines;
+  if (v.taa) {
+    v.motion = graph.createImage({.size = size, .format = MotionFormat, .debugName = "motion"});
+  }
   graph.addPass(
-      "depth", [&](PassBuilder &builder) { builder.depth(depth, rhi::LoadOp::Clear, 0.0f); },
-      [this, &v, job = depthJob](rhi::ICommandList &commands, const PassResources &resources) {
+      "depth",
+      [&](PassBuilder &builder) {
+        if (v.taa) {
+          builder.color(v.motion, rhi::LoadOp::Clear, {0.0f, 0.0f, 0.0f, 0.0f});
+        }
+        builder.depth(depth, rhi::LoadOp::Clear, 0.0f);
+      },
+      [this, &v, depthPipelines, job = depthJob](rhi::ICommandList &commands, const PassResources &resources) {
         ensureFrameUploaded(v, resources);
         if (job) {
-          recordIndirect(commands, v, *job, v.opaqueBatches, m_depthPipelines);
+          recordIndirect(commands, v, *job, v.opaqueBatches, depthPipelines);
         } else {
-          recordDraws(commands, v, v.opaqueOrder, m_depthPipelines, false);
+          recordDraws(commands, v, v.opaqueOrder, depthPipelines, false);
         }
       });
   if (occlusion) {
@@ -2693,10 +2775,16 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           recordLateCulling(commands, v, job);
         });
     graph.addPass(
-        "depth late", [&](PassBuilder &builder) { builder.depth(depth, rhi::LoadOp::Load); },
-        [this, &v, job = *depthJob](rhi::ICommandList &commands, const PassResources &resources) {
+        "depth late",
+        [&](PassBuilder &builder) {
+          if (v.taa) {
+            builder.color(v.motion, rhi::LoadOp::Load);
+          }
+          builder.depth(depth, rhi::LoadOp::Load);
+        },
+        [this, &v, depthPipelines, job = *depthJob](rhi::ICommandList &commands, const PassResources &resources) {
           ensureFrameUploaded(v, resources);
-          recordIndirect(commands, v, job, v.opaqueBatches, m_depthPipelines, 0, true);
+          recordIndirect(commands, v, job, v.opaqueBatches, depthPipelines, 0, true);
         });
   }
   graph.addPass(

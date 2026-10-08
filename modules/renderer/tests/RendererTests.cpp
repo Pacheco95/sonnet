@@ -1264,6 +1264,127 @@ TEST_CASE("temporal anti-aliasing jitters the projection through eight samples",
   }
 }
 
+// Renders frames of a scene under TAA and reads back the motion image of the last one.
+struct MotionScene {
+  IDevice &device;
+  Renderer &renderer;
+  glm::uvec2 size;
+  RenderGraph graph;
+  RenderTarget target;
+  BufferHandle readback;
+
+  MotionScene(IDevice &gpu, Renderer &sceneRenderer, glm::uvec2 targetSize)
+      : device(gpu), renderer(sceneRenderer), size(targetSize), graph(gpu), target(gpu, "viewport") {
+    target.resize(size);
+    readback = device.createBuffer({.size = std::uint64_t{size.x} * size.y * 4,
+                                    .usage = BufferUsage::TransferDst,
+                                    .memory = MemoryUsage::GpuToCpu,
+                                    .debugName = "motion readback"});
+  }
+  ~MotionScene() {
+    device.waitIdle();
+    device.destroyBuffer(readback);
+  }
+  MotionScene(const MotionScene &) = delete;
+  MotionScene &operator=(const MotionScene &) = delete;
+
+  void render(const SceneView &view) {
+    ICommandList &commands = device.beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    const GraphImage motion = renderer.motion();
+    REQUIRE(motion.isValid());
+    graph.addPass(
+        "motion readback", [&](PassBuilder &b) { b.transferSrc(motion); },
+        [&, motion](ICommandList &cmd, const PassResources &resources) {
+          cmd.copyImageToBuffer(resources.image(motion), readback);
+        });
+    graph.execute(commands);
+    device.endFrame();
+    device.waitIdle();
+  }
+
+  glm::vec2 motionAt(unsigned x, unsigned y) {
+    const auto bytes = device.mappedRange(readback);
+    std::array<std::uint16_t, 2> halves{};
+    std::memcpy(halves.data(), bytes.data() + (std::size_t{y} * size.x + x) * 4, sizeof(halves));
+    return {glm::unpackHalf1x16(halves[0]), glm::unpackHalf1x16(halves[1])};
+  }
+};
+
+RendererSettings taaSettings() {
+  RendererSettings settings = testSettings();
+  settings.antialiasing = AntiAliasing::Taa;
+  return settings;
+}
+
+TEST_CASE("the pre-pass writes the motion of a moving box and of a moving camera", "[renderer][taa][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), taaSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    MotionScene scene{*device, renderer, {64, 64}};
+    // The camera is 3 m back with a 60 degree field of view, so the box's front face, 2.5 m away,
+    // lands a unit of x at 1 / (tan 30 * 2.5) of NDC, half that in UV.
+    const float uvPerMetre = 1.0f / (std::tan(glm::radians(30.0f)) * 2.5f) * 0.5f;
+
+    // The box slid a quarter of a metre to the right since last frame.
+    std::array draws{DrawItem{.mesh = box, .previousTransform = glm::translate(glm::mat4{1.0f}, {-0.25f, 0.0f, 0.0f})}};
+    SceneView view = boxScene(draws);
+    scene.render(view);
+    const glm::vec2 moved = scene.motionAt(32, 32);
+    REQUIRE(moved.x == Catch::Approx(0.25f * uvPerMetre).margin(0.004));
+    REQUIRE(moved.y == Catch::Approx(0.0f).margin(0.004));
+    // The background is cleared: nothing there to move.
+    REQUIRE(scene.motionAt(2, 2) == glm::vec2{0.0f});
+
+    // A box that did not move, seen by a camera that slid 0.2 m to the right, moves left on screen.
+    draws[0].previousTransform.reset();
+    view.camera.position.x = 0.0f;
+    scene.render(view);
+    REQUIRE(scene.motionAt(32, 32) == glm::vec2{0.0f});
+    view.camera.position.x = 0.2f;
+    scene.render(view);
+    const glm::vec2 panned = scene.motionAt(32, 32);
+    REQUIRE(panned.x == Catch::Approx(-0.2f * uvPerMetre).margin(0.004));
+    REQUIRE(panned.y == Catch::Approx(0.0f).margin(0.004));
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a skinned box's motion comes from the vertices it was deformed to the frame before",
+          "[renderer][taa][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), taaSettings()};
+    const MeshHandle box = renderer.createMesh(skinnedBox(), "skinned box");
+    MotionScene scene{*device, renderer, {64, 64}};
+    const float uvPerMetre = 1.0f / (std::tan(glm::radians(30.0f)) * 2.5f) * 0.5f;
+    const std::array draws{DrawItem{.mesh = box, .firstJoint = 0, .jointCount = 1, .skinInstance = 1}};
+    SceneView view = boxScene(draws);
+    // The joint holds the box at the centre, then slides it 0.25 m to the right, then holds it.
+    std::array<glm::mat4, 1> joints{glm::mat4{1.0f}};
+    view.joints = joints;
+    scene.render(view);
+    REQUIRE(scene.motionAt(32, 32) == glm::vec2{0.0f}); // first sighting: no previous pose
+    joints[0] = glm::translate(glm::mat4{1.0f}, glm::vec3{0.25f, 0.0f, 0.0f});
+    scene.render(view);
+    REQUIRE(scene.motionAt(32, 32).x == Catch::Approx(0.25f * uvPerMetre).margin(0.004));
+    scene.render(view);
+    REQUIRE(scene.motionAt(32, 32).x == Catch::Approx(0.0f).margin(0.004));
+    joints[0] = glm::mat4{1.0f};
+    scene.render(view);
+    REQUIRE(scene.motionAt(32, 32).x == Catch::Approx(-0.25f * uvPerMetre).margin(0.004));
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("occlusion culling adds the pyramid and the second phase to the depth passes",
           "[renderer][occlusion][null]") {
   sonnet::platform::Platform platform{{.headless = true}};

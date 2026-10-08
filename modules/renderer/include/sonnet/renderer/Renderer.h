@@ -123,6 +123,8 @@ public:
   static constexpr rhi::Format DepthFormat = rhi::Format::D32Sfloat;
   static constexpr rhi::Format IdFormat = rhi::Format::R32Uint;
   static constexpr rhi::Format HdrFormat = rhi::Format::R16G16B16A16Sfloat;
+  // The pre-pass's second attachment under TAA: the screen-space motion of each surface, in UV units.
+  static constexpr rhi::Format MotionFormat = rhi::Format::R16G16Sfloat;
   static constexpr std::uint32_t CascadeCount = 4;
   static constexpr std::uint32_t MaxLights = 1024;
   // Views a frame can declare with shadows (the editor's Scene and Game views). Each takes its
@@ -225,6 +227,11 @@ public:
   [[nodiscard]] glm::vec2 jitter(std::size_t view = 0) const noexcept {
     return view < m_viewCount ? m_views[view]->jitter : glm::vec2{0.0f};
   }
+  // The motion image the pre-pass of the frame's `view`th declared view wrote, valid until the
+  // next graph reset; invalid without TAA.
+  [[nodiscard]] GraphImage motion(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->motion : GraphImage{};
+  }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
   }
@@ -290,6 +297,10 @@ private:
   struct SkinnedVertices {
     MeshHandle mesh;
     rhi::BufferHandle buffer;
+    // Under TAA the buffer the frame before wrote, swapped with `buffer` each frame, and whether it
+    // holds that frame's pose (ADR-0024).
+    rhi::BufferHandle previous;
+    bool previousValid{false};
     std::uint64_t lastFrame{0};
   };
   // One emitter's particles between frames (ADR-0023): a ring of slots, the alive list the
@@ -347,7 +358,8 @@ private:
   struct FrameBuffers {
     rhi::TransientAllocation frame;
     rhi::TransientAllocation objects;
-    std::uint64_t opaqueCandidates{0}; // addresses of the culling pass's input arrays
+    rhi::TransientAllocation previousObjects; // under TAA only
+    std::uint64_t opaqueCandidates{0};        // addresses of the culling pass's input arrays
     std::uint64_t allCandidates{0};
     bool uploaded{false};
     bool directSlotsUploaded{false}; // the visible list's direct range, written on the first direct draw
@@ -364,7 +376,8 @@ private:
   struct ResolvedDraw {
     std::uint32_t objectIndex;
     const Mesh *mesh;
-    std::uint32_t vertexBuffer; // bindless index into vertexBuffers[] (ADR-0015)
+    std::uint32_t vertexBuffer;         // bindless index into vertexBuffers[] (ADR-0015)
+    std::uint32_t previousVertexBuffer; // the one the frame before drew from; the same unless skinned
     Submesh submesh;
     glm::vec3 center; // world-space bounds, what the culling pass tests
     glm::vec3 extent; // half size
@@ -470,6 +483,7 @@ private:
     glm::mat4 viewProjection{1.0f};
     glm::mat4 jitteredViewProjection{1.0f};
     glm::mat4 previousViewProjection{1.0f};
+    GraphImage motion; // the pre-pass's motion attachment, under TAA
   };
   // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
   // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
@@ -514,7 +528,11 @@ private:
   // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
   // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
   // InvalidBindlessIndex when the array is full.
-  [[nodiscard]] std::uint32_t resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh);
+  struct ResolvedVertices {
+    std::uint32_t current;
+    std::uint32_t previous;
+  };
+  [[nodiscard]] ResolvedVertices resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh);
   void recordSkinning(rhi::ICommandList &commands, const ViewState &v);
   // Resolves the view's emitters into jobs, sorted far to near, and declares the pass that
   // simulates the ones not yet advanced this frame.
@@ -586,10 +604,11 @@ private:
   RendererSettings m_settings;
   std::vector<PipelineSlot> m_pipelineSlots;
 
-  std::array<rhi::PipelineHandle, 2> m_depthPipelines;   // by doubleSided
-  std::array<rhi::PipelineHandle, 2> m_shadowPipelines;  // both cull nothing; kept as a pair for recordDraws
-  std::array<rhi::PipelineHandle, 2> m_forwardPipelines; // by doubleSided
-  std::array<rhi::PipelineHandle, 2> m_blendPipelines;   // by doubleSided
+  std::array<rhi::PipelineHandle, 2> m_depthPipelines;       // by doubleSided
+  std::array<rhi::PipelineHandle, 2> m_depthMotionPipelines; // the pre-pass that also writes motion (TAA)
+  std::array<rhi::PipelineHandle, 2> m_shadowPipelines;      // both cull nothing; kept as a pair for recordDraws
+  std::array<rhi::PipelineHandle, 2> m_forwardPipelines;     // by doubleSided
+  std::array<rhi::PipelineHandle, 2> m_blendPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_idPipelines;
   std::array<rhi::PipelineHandle, 2> m_maskPipelines;
   rhi::PipelineHandle m_skyboxPipeline;
