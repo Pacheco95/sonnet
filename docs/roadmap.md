@@ -134,7 +134,7 @@ Not done here: the criterion's Android and iOS halves. No phone was attached, so
 
 ## M13: Rendering quality
 
-- ADR first: temporal anti-aliasing and the depth pyramid.
+- [ADR-0024](decisions/0024-temporal-anti-aliasing-and-occlusion-culling.md) first (proposed): temporal anti-aliasing, the depth pyramid and compressed HDR environments.
 - Temporal anti-aliasing with motion vectors, the default over FXAA, which stays selectable.
 - Occlusion culling from a depth pyramid in the culling pass; the surviving counts read back so the statistics report what drew rather than what was submitted; tighter bounds for skinned meshes.
 - Transparency in the shadow and depth passes beyond alpha masking.

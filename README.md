@@ -193,6 +193,7 @@ ctest --preset linux-debug
 | [0021](docs/decisions/0021-two-views-in-one-frame.md) | Several views in one graph frame | Accepted |
 | [0022](docs/decisions/0022-gameplay-events-and-script-properties.md) | Physics events, script properties and several scripts per entity | Accepted |
 | [0023](docs/decisions/0023-animation-blending-morph-targets-and-particles.md) | Animation blending, morph targets and GPU particles | Accepted |
+| [0024](docs/decisions/0024-temporal-anti-aliasing-and-occlusion-culling.md) | Temporal anti-aliasing, occlusion culling and compressed HDR environments | Proposed |
 
 ## License
 
