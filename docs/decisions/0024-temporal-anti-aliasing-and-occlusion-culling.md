@@ -1,6 +1,6 @@
 # ADR-0024: Temporal anti-aliasing, occlusion culling and compressed HDR environments
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-08
 
 ## Context
