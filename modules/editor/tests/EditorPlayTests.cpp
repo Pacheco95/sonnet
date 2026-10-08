@@ -1,6 +1,7 @@
 #include <sonnet/editor/Editor.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Preferences.h>
+#include <sonnet/editor/ScriptSlots.h>
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Log.h>
@@ -580,6 +581,73 @@ TEST_CASE("the basic sample's start scene plays its animations and sounds", "[ed
     REQUIRE(byName(world, "Reed").get<world::Animator>().time == 0.0f);
     REQUIRE(sink->problems.empty());
     core::Log::removeSink(sink);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("script slots draw in the inspector and edits reach the running game", "[editor][gpu][scripts]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "slots";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Slots").has_value());
+    world::World &world = editor.world();
+    const auto script = editor.assets().createScript(directory / "scripts" / "turner.lua", R"lua(
+      local Turner = { properties = { speed = { type = "number", default = 1, min = 0, max = 10 },
+                                      label = { type = "string", default = "x" } } }
+      function Turner:update() self.entity:set("Spin", { speed = self.speed }) end
+      return Turner
+    )lua");
+    REQUIRE(script.has_value());
+    const flecs::entity box = byName(world, "Box");
+    const core::Uuid boxUuid = world.uuidOf(box);
+    box.set<scripting::Scripts>({.slots = {{.script = *script}, {.script = core::Uuid{}}}});
+    // Selected, so the inspector lays out the slots, their picker and the declared properties.
+    editor.selection().select(boxUuid);
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    const auto declared = editor.scripts().properties(*script);
+    REQUIRE(declared.has_value());
+    REQUIRE(declared->size() == 2);
+
+    editor.play();
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(editor.scripts().instanceCount() == 1);
+    REQUIRE(world.find(boxUuid).get<world::Spin>().speed == 1.0f);
+
+    // What a released widget does: one command, applied to the instance on the next frame.
+    const world::ComponentInfo *info = world.findComponent("Scripts");
+    const flecs::entity running = world.find(boxUuid);
+    const nlohmann::json before = world.componentToJson(running, info->id);
+    scripting::Scripts edited = running.get<scripting::Scripts>();
+    edited.slots[0] = editor::setProperty(edited.slots[0], declared->at(1), 4.5); // speed
+    editor.commands().push(editor::componentCommand(boxUuid, "Scripts", std::make_optional(before),
+                                                    std::make_optional(world.valueToJson(info->id, &edited)),
+                                                    "edit Scripts"),
+                           world);
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(world.find(boxUuid).get<world::Spin>().speed == 4.5f);
+    // A second script appended while playing starts at once.
+    editor.commands().push(editor::appendScriptCommand(world, boxUuid, *script), world);
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE(editor.scripts().instanceCount() == 2);
+
+    editor.stop();
+    fixture.frame(editor);
+    const flecs::entity reloaded = world.find(boxUuid);
+    const scripting::Scripts &restored = reloaded.get<scripting::Scripts>();
+    REQUIRE(restored.slots.size() == 2);
+    REQUIRE(restored.slots[0].properties.empty());
+    REQUIRE(editor.scripts().instanceCount() == 0);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

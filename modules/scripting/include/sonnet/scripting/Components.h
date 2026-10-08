@@ -17,11 +17,15 @@ namespace sonnet::scripting {
 struct ScriptSlot {
   core::Uuid script{};
   std::string properties{};
+
+  bool operator==(const ScriptSlot &) const = default;
 };
 
 // The scripts an entity runs in play mode, in slot order (ADR-0022, docs/scripting.md).
 struct Scripts {
   std::vector<ScriptSlot> slots{};
+
+  bool operator==(const Scripts &) const = default;
 };
 
 // Registers Scripts with the world's reflection under its scene-file name. Done by

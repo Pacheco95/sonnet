@@ -21,7 +21,11 @@ namespace {
 
 // What "New script" writes: every hook, empty, and the shape a script has to return.
 constexpr std::string_view ScriptTemplate = R"lua(-- Runs on its entity in play mode; see docs/scripting.md.
-local Script = {}
+local Script = {
+  -- Values the inspector lets you change per entity, as in
+  -- speed = { type = "number", default = 1, min = 0, max = 10 }.
+  properties = {},
+}
 
 function Script:start()
 end
@@ -30,6 +34,18 @@ function Script:update(dt)
 end
 
 function Script:fixedUpdate(dt)
+end
+
+function Script:onContactBegin(other, contact)
+end
+
+function Script:onContactEnd(other)
+end
+
+function Script:onTriggerEnter(other)
+end
+
+function Script:onTriggerExit(other)
 end
 
 return Script

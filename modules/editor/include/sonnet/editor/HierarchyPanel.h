@@ -4,6 +4,7 @@
 #include <sonnet/editor/Selection.h>
 #include <sonnet/editor/TypeFilter.h>
 
+#include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/World.h>
 
@@ -16,6 +17,10 @@
 
 namespace sonnet::editor {
 
+// The drag-and-drop payload of an entity (its 16-byte identity), also accepted by the inspector's
+// entity pickers.
+constexpr const char *EntityDragPayload = "sonnet_entity";
+
 // The scene tree (docs/editor.md): roots and their children as tree nodes, click to select
 // (Ctrl toggles, Shift adds), drag onto another entity or the empty area to reparent, and a
 // context menu to focus, expand or collapse a subtree, create primitives, cameras, lights and prefab instances,
@@ -25,6 +30,11 @@ class HierarchyPanel {
 public:
   // `focus` frames the selection in the viewport: a double-click on a row and the context menu's Focus.
   HierarchyPanel(world::World &world, Selection &selection, CommandStack &commands, std::function<void()> focus);
+
+  // The database that tells a dropped asset's type; without one only prefabs can be dropped.
+  void setAssets(const assets::AssetDatabase *assets) noexcept {
+    m_assets = assets;
+  }
 
   void draw(bool &open);
 
@@ -68,6 +78,7 @@ private:
   void applyOpenToDescendants(flecs::entity entity, bool open);
 
   world::World &m_world;
+  const assets::AssetDatabase *m_assets{nullptr};
   Selection &m_selection;
   CommandStack &m_commands;
   std::function<void()> m_focus;

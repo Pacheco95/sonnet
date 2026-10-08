@@ -71,6 +71,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   }
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_inspectorPanel.setAudio(m_audio.get());
+  m_inspectorPanel.setScripts(m_scripts.get());
+  m_hierarchyPanel.setAssets(&m_assets);
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   newScene();
   SONNET_LOG_INFO("editor ready");

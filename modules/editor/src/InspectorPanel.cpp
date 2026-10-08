@@ -3,8 +3,11 @@
 #include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/EntityCommands.h>
+#include <sonnet/editor/HierarchyPanel.h>
+#include <sonnet/editor/ScriptSlots.h>
 
 #include <sonnet/core/Log.h>
+#include <sonnet/scripting/Components.h>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -488,22 +491,28 @@ void InspectorPanel::drawComponent(flecs::entity entity, const world::ComponentI
     const nlohmann::json before = m_edit ? nlohmann::json{} : m_world.componentToJson(entity, info.id);
     m_activated = m_deactivatedAfterEdit = m_deactivated = false;
     const flecs::entity type{m_world.ecs(), info.id};
-    // An inherited value is edited on a copy and becomes the instance's own only when a widget
-    // is used; ensure on the shared value would override it just by being looked at. Registered
-    // components are plain data, so the copy is a byte copy.
-    const std::size_t size = static_cast<std::size_t>(type.get<flecs::Component>().size);
-    std::vector<std::byte> copy;
-    void *data = nullptr;
-    if (inherited) {
-      copy.resize(size);
-      std::memcpy(copy.data(), entity.get(info.id), size);
-      data = copy.data();
+    if (info.name == "Scripts") {
+      // A list of structs, which is not plain data: drawn by hand, on a typed copy.
+      drawScripts(entity);
+      acceptScriptDrop(entity);
     } else {
-      data = entity.ensure(info.id);
-    }
-    drawStruct(type, data);
-    if (inherited && m_activated) {
-      std::memcpy(entity.ensure(info.id), copy.data(), size);
+      // An inherited value is edited on a copy and becomes the instance's own only when a widget
+      // is used; ensure on the shared value would override it just by being looked at. Registered
+      // components are plain data, so the copy is a byte copy.
+      const std::size_t size = static_cast<std::size_t>(type.get<flecs::Component>().size);
+      std::vector<std::byte> copy;
+      void *data = nullptr;
+      if (inherited) {
+        copy.resize(size);
+        std::memcpy(copy.data(), entity.get(info.id), size);
+        data = copy.data();
+      } else {
+        data = entity.ensure(info.id);
+      }
+      drawStruct(type, data);
+      if (inherited && m_activated) {
+        std::memcpy(entity.ensure(info.id), copy.data(), size);
+      }
     }
     if (m_activated && !m_edit) {
       m_edit = Edit{.entity = uuid, .component = info.id, .before = before};
@@ -528,6 +537,7 @@ void InspectorPanel::drawAddComponent(flecs::entity entity) {
   if (ImGui::Button("Add component", ImVec2{-1.0f, 0.0f})) {
     ImGui::OpenPopup("add component");
   }
+  acceptScriptDrop(entity);
   if (!ImGui::BeginPopup("add component")) {
     return;
   }
@@ -542,6 +552,250 @@ void InspectorPanel::drawAddComponent(flecs::entity entity) {
     }
   }
   ImGui::EndPopup();
+}
+
+void InspectorPanel::acceptScriptDrop(flecs::entity entity) {
+  if (!ImGui::BeginDragDropTarget()) {
+    return;
+  }
+  if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(AssetDragPayload)) {
+    core::Uuid::Bytes bytes{};
+    std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
+    const core::Uuid dropped{bytes};
+    const assets::AssetInfo *info = m_assets.find(dropped);
+    if (info != nullptr && info->type == assets::AssetType::Script) {
+      if (auto command = appendScriptCommand(m_world, m_world.uuidOf(entity), dropped)) {
+        m_commands.push(std::move(command), m_world);
+      }
+    }
+  }
+  ImGui::EndDragDropTarget();
+}
+
+void InspectorPanel::drawScripts(flecs::entity entity) {
+  const scripting::Scripts *current = entity.try_get<scripting::Scripts>();
+  if (current == nullptr) {
+    return;
+  }
+  // Edited on a typed copy, written back when a widget changed it; an inherited list becomes
+  // the instance's own then, not by being looked at.
+  scripting::Scripts edited = *current;
+  std::optional<std::size_t> removed;
+  std::optional<std::pair<std::size_t, std::size_t>> moved;
+  for (std::size_t i = 0; i < edited.slots.size(); ++i) {
+    scripting::ScriptSlot &slot = edited.slots[i];
+    ImGui::PushID(static_cast<int>(i));
+    ImGui::Separator();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%zu", i + 1);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("up") && i > 0) {
+      moved = {i, i - 1};
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("down") && i + 1 < edited.slots.size()) {
+      moved = {i, i + 1};
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("remove")) {
+      removed = i;
+    }
+    if (drawAssetPicker(slot.script, assets::AssetType::Script)) {
+      // Another script means other properties; the old values do not apply to it.
+      slot.properties.clear();
+      m_activated = m_deactivatedAfterEdit = true;
+    }
+    if (!slot.script.isNil() && m_scripts != nullptr) {
+      const auto declared = m_scripts->properties(slot.script);
+      if (!declared) {
+        ImGui::TextDisabled("%s", declared.error().message.c_str());
+      } else {
+        for (const scripting::PropertyDecl &property : *declared) {
+          ImGui::PushID(property.name.c_str());
+          drawProperty(slot, property);
+          ImGui::PopID();
+        }
+        for (const std::string &name : undeclaredProperties(slot, *declared)) {
+          ImGui::TextDisabled("%s: kept, the script does not declare it", name.c_str());
+        }
+      }
+    }
+    ImGui::PopID();
+  }
+  if (removed) {
+    edited = removeSlot(std::move(edited), *removed);
+    m_activated = m_deactivatedAfterEdit = true;
+  } else if (moved) {
+    edited = moveSlot(std::move(edited), moved->first, moved->second);
+    m_activated = m_deactivatedAfterEdit = true;
+  }
+  ImGui::Separator();
+  if (ImGui::Button("Add script", ImVec2{-1.0f, 0.0f})) {
+    edited = appendSlot(std::move(edited), core::Uuid{});
+    m_activated = m_deactivatedAfterEdit = true;
+  }
+  if (!(edited == *current)) {
+    entity.ensure<scripting::Scripts>() = std::move(edited);
+  }
+}
+
+void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property) {
+  using scripting::PropertyType;
+  nlohmann::json value = propertyValue(slot, property);
+  const bool changedBefore = propertyChanged(slot, property);
+  bool edited = false;
+  bool immediate = false; // a pick is one edit in itself
+  if (!ImGui::BeginTable("property", 3, ImGuiTableFlags_SizingStretchProp)) {
+    return;
+  }
+  ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+  ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+  ImGui::TableSetupColumn("revert", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+  ImGui::TableNextRow();
+  ImGui::TableNextColumn();
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted(property.name.c_str());
+  ImGui::TableNextColumn();
+  ImGui::SetNextItemWidth(-1.0f);
+  switch (property.type) {
+  case PropertyType::Number: {
+    double number = value.is_number() ? value.get<double>() : 0.0;
+    const double low = property.min.value_or(0.0);
+    const double high = property.max.value_or(0.0);
+    edited = ImGui::DragScalar("##value", ImGuiDataType_Double, &number, DragSpeed, property.min ? &low : nullptr,
+                               property.max ? &high : nullptr);
+    track();
+    if (edited) {
+      value = number;
+    }
+    break;
+  }
+  case PropertyType::Integer: {
+    std::int64_t number = value.is_number() ? value.get<std::int64_t>() : 0;
+    const auto low = static_cast<std::int64_t>(property.min.value_or(0.0));
+    const auto high = static_cast<std::int64_t>(property.max.value_or(0.0));
+    edited = ImGui::DragScalar("##value", ImGuiDataType_S64, &number, 1.0f, property.min ? &low : nullptr,
+                               property.max ? &high : nullptr);
+    track();
+    if (edited) {
+      value = number;
+    }
+    break;
+  }
+  case PropertyType::Boolean: {
+    bool flag = value.is_boolean() && value.get<bool>();
+    edited = ImGui::Checkbox("##value", &flag);
+    track();
+    if (edited) {
+      value = flag;
+    }
+    break;
+  }
+  case PropertyType::String: {
+    std::string text = value.is_string() ? value.get<std::string>() : std::string{};
+    edited = ImGui::InputText("##value", &text);
+    track();
+    if (edited) {
+      value = text;
+    }
+    break;
+  }
+  case PropertyType::Vec3: {
+    const auto component = [&](const char *name) { return value.is_object() ? value.value(name, 0.0) : 0.0; };
+    std::array<float, 3> v{static_cast<float>(component("x")), static_cast<float>(component("y")),
+                           static_cast<float>(component("z"))};
+    edited = ImGui::DragFloat3("##value", v.data(), DragSpeed);
+    track();
+    if (edited) {
+      value = {{"x", v[0]}, {"y", v[1]}, {"z", v[2]}};
+    }
+    break;
+  }
+  case PropertyType::Color: {
+    const auto component = [&](const char *name) { return value.is_object() ? value.value(name, 1.0) : 1.0; };
+    std::array<float, 4> c{static_cast<float>(component("r")), static_cast<float>(component("g")),
+                           static_cast<float>(component("b")), static_cast<float>(component("a"))};
+    edited = ImGui::ColorEdit4("##value", c.data());
+    track();
+    if (edited) {
+      value = {{"r", c[0]}, {"g", c[1]}, {"b", c[2]}, {"a", c[3]}};
+    }
+    break;
+  }
+  case PropertyType::Entity:
+  case PropertyType::Asset: {
+    core::Uuid uuid =
+        value.is_string() ? core::Uuid::parse(value.get<std::string>()).value_or(core::Uuid{}) : core::Uuid{};
+    edited = property.type == PropertyType::Entity ? drawEntityPicker(uuid) : drawAssetPicker(uuid, std::nullopt);
+    immediate = edited;
+    if (edited) {
+      value = uuid.isNil() ? nlohmann::json{} : nlohmann::json(uuid.toString());
+    }
+    break;
+  }
+  }
+  ImGui::TableNextColumn();
+  if (changedBefore && ImGui::SmallButton("revert")) {
+    slot = revertProperty(std::move(slot), property);
+    immediate = true;
+    edited = false;
+  }
+  ImGui::EndTable();
+  if (edited) {
+    slot = setProperty(std::move(slot), property, value);
+  }
+  if (immediate) {
+    m_activated = m_deactivatedAfterEdit = true;
+  }
+}
+
+bool InspectorPanel::drawEntityPicker(core::Uuid &value) {
+  bool changed = false;
+  const flecs::entity current = m_world.find(value);
+  const world::Name *currentName = current ? current.try_get<world::Name>() : nullptr;
+  const std::string label = value.isNil() ? "(none)"
+                            : current     ? (currentName != nullptr ? currentName->value : std::string{"(unnamed)"})
+                                          : "(missing)";
+  if (ImGui::Button(label.c_str(), ImVec2{-1.0f, 0.0f})) {
+    ImGui::OpenPopup("pick entity");
+    m_pickerFilter.clear();
+  }
+  if (ImGui::BeginDragDropTarget()) {
+    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EntityDragPayload)) {
+      core::Uuid::Bytes bytes{};
+      if (payload->DataSize == static_cast<int>(bytes.size())) {
+        std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
+        value = core::Uuid{bytes};
+        changed = true;
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+  if (ImGui::BeginPopup("pick entity")) {
+    ImGui::SetNextItemWidth(220.0f);
+    ImGui::InputTextWithHint("##filter", "filter", &m_pickerFilter);
+    if (ImGui::Selectable("(none)", value.isNil()) && !value.isNil()) {
+      value = {};
+      changed = true;
+    }
+    std::vector<std::pair<std::string, core::Uuid>> entities;
+    m_world.ecs().each([&](flecs::entity entity, const world::Name &name, const world::Identity &identity) {
+      if (!entity.has<world::EditorOnly>() && containsIgnoringCase(name.value, m_pickerFilter)) {
+        entities.emplace_back(name.value, identity.uuid);
+      }
+    });
+    std::ranges::sort(entities);
+    for (const auto &[name, uuid] : entities) {
+      ImGui::PushID(uuid.toString().c_str());
+      if (ImGui::Selectable(name.c_str(), uuid == value) && uuid != value) {
+        value = uuid;
+        changed = true;
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndPopup();
+  }
+  return changed;
 }
 
 void InspectorPanel::drawStruct(flecs::entity type, void *data) {

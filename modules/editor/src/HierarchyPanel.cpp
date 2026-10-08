@@ -2,6 +2,7 @@
 
 #include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/EntityCommands.h>
+#include <sonnet/editor/ScriptSlots.h>
 
 #include <sonnet/audio/Components.h>
 #include <sonnet/core/Log.h>
@@ -21,8 +22,6 @@
 namespace sonnet::editor {
 
 namespace {
-
-constexpr const char *DragPayload = "sonnet_entity";
 
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity.try_get<world::Name>();
@@ -235,7 +234,7 @@ void HierarchyPanel::drawNode(flecs::entity entity) {
     m_focus();
   }
   if (ImGui::BeginDragDropSource()) {
-    ImGui::SetDragDropPayload(DragPayload, uuid.bytes().data(), uuid.bytes().size());
+    ImGui::SetDragDropPayload(EntityDragPayload, uuid.bytes().data(), uuid.bytes().size());
     ImGui::TextUnformatted(label.c_str());
     ImGui::EndDragDropSource();
   }
@@ -272,11 +271,18 @@ void HierarchyPanel::acceptDrop(core::Uuid newParent) {
   if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(AssetDragPayload)) {
     core::Uuid::Bytes bytes{};
     std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
-    if (const flecs::entity prefab = m_world.find(core::Uuid{bytes}); prefab && prefab.has(flecs::Prefab)) {
+    const core::Uuid dropped{bytes};
+    if (const flecs::entity prefab = m_world.find(dropped); prefab && prefab.has(flecs::Prefab)) {
       instantiatePrefab(prefab, newParent);
+    } else if (const assets::AssetInfo *asset = m_assets != nullptr ? m_assets->find(dropped) : nullptr;
+               asset != nullptr && asset->type == assets::AssetType::Script && !newParent.isNil()) {
+      // A script dropped on an entity: one more slot (ADR-0022).
+      if (auto command = appendScriptCommand(m_world, newParent, dropped)) {
+        m_commands.push(std::move(command), m_world);
+      }
     }
   }
-  if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(DragPayload)) {
+  if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EntityDragPayload)) {
     core::Uuid::Bytes bytes{};
     if (payload->DataSize == static_cast<int>(bytes.size())) {
       std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());

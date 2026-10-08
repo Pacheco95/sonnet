@@ -22,6 +22,7 @@ sonnet_add_module(editor
     src/Preferences.cpp
     src/Project.cpp
     src/Recovery.cpp
+    src/ScriptSlots.cpp
     src/Selection.cpp
     src/ShaderCompiler.cpp
     src/StatisticsPanel.cpp
@@ -54,6 +55,7 @@ sonnet_add_module_test(editor
     tests/LogPanelTests.cpp
     tests/ProjectTests.cpp
     tests/RecoveryTests.cpp
+    tests/ScriptSlotsTests.cpp
     tests/ShaderTests.cpp
     tests/TypeFilterTests.cpp
     tests/WindowOriginsTests.cpp
