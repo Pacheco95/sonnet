@@ -94,7 +94,7 @@ struct Fixture {
             .renderer = {.shadowMapSize = 256,
                          .shadowDistance = 30.0f,
                          .bloom = false,
-                         .antialiasing = false,
+                         .antialiasing = renderer::AntiAliasing::None,
                          .environmentSize = 8,
                          .irradianceSize = 4,
                          .irradianceSamples = 8,

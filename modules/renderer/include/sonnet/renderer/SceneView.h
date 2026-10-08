@@ -130,6 +130,11 @@ struct SceneView {
   std::span<const DebugLine> debugLines; // drawn by addDebugLinePass
   std::span<const ParticleEmitterItem> particles;
   float deltaTime{0.0f}; // seconds the particles advance by this frame
+  // Set for the frame of a camera cut, or of anything else that makes the last frame no guide to
+  // this one (a scene swap, a teleport): temporal anti-aliasing then starts its history over
+  // (ADR-0024). The renderer never clears it; the owner does. A resize, a skipped frame and a
+  // frame drawn without the resolve reset it by themselves.
+  bool resetHistory{false};
 };
 
 } // namespace sonnet::renderer

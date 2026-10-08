@@ -67,6 +67,16 @@ constexpr std::uint32_t DebugViewCount = 9;
 // What the editor's View > Shading term menu calls a term: "Final", "Sun direct", "BRDF LUT".
 [[nodiscard]] const char *debugViewName(DebugView view) noexcept;
 
+// How the finished image is anti-aliased (ADR-0024). Taa jitters the projection by a sub-pixel
+// Halton sequence and resolves the frames over time in HDR, with motion vectors from the depth
+// pre-pass; Fxaa filters the tone-mapped image alone. A debug view shows the unresolved frame
+// whatever this says.
+enum class AntiAliasing : std::uint8_t {
+  None,
+  Fxaa,
+  Taa,
+};
+
 // Quality knobs. Tests turn the sizes and sample counts down so Lavapipe finishes quickly.
 struct RendererSettings {
   bool shadows{true};
@@ -82,7 +92,7 @@ struct RendererSettings {
   DebugView debugView{DebugView::Final};
   bool bloom{true};
   std::uint32_t bloomLevels{5};
-  bool antialiasing{true};
+  AntiAliasing antialiasing{AntiAliasing::Fxaa};
   // Occlusion culling of the opaque draws against a depth pyramid, in two phases (ADR-0024): the
   // result is the same pixels with fewer draws.
   bool occlusionCulling{true};
@@ -209,6 +219,11 @@ public:
   // a single-view frame has.
   [[nodiscard]] const RenderStatistics &statistics(std::size_t view = 0) const noexcept {
     return view < m_viewCount ? m_views[view]->statistics : m_noStatistics;
+  }
+  // The sub-pixel offset, in pixels within [-0.5, 0.5], that the frame's `view`th declared view is
+  // rasterised with: Halton(2, 3), eight samples, zero without TAA (ADR-0024).
+  [[nodiscard]] glm::vec2 jitter(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->jitter : glm::vec2{0.0f};
   }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
@@ -447,6 +462,27 @@ private:
     std::uint32_t visibleBase{0};
     std::uint32_t directBase{0};            // the direct range's first slot this frame
     std::vector<std::uint32_t> directSlots; // its contents, the object index of each resolved draw
+    // Temporal anti-aliasing (ADR-0024). The scene passes rasterise with the jittered matrix and
+    // everything that is compared against the resolved image (shadows, the selection mask, the
+    // outline, the debug lines) with the unjittered one; without TAA the two are equal.
+    bool taa{false};
+    glm::vec2 jitter{0.0f}; // in pixels, within [-0.5, 0.5]
+    glm::mat4 viewProjection{1.0f};
+    glm::mat4 jitteredViewProjection{1.0f};
+    glm::mat4 previousViewProjection{1.0f};
+  };
+  // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
+  // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
+  // SceneView's address like the rest of a view's state (ADR-0021).
+  struct History {
+    std::array<rhi::ImageHandle, 2> images;
+    glm::uvec2 size{0, 0};
+    std::uint32_t next{0};     // the image the next resolve writes; the other holds the last one
+    bool valid{false};         // the other image holds a resolved frame to reproject
+    std::uint32_t sequence{0}; // the jitter sample the next frame uses
+    std::uint64_t lastFrame{0};
+    bool hasPrevious{false};
+    glm::mat4 previousViewProjection{1.0f};
   };
 
   // Every pipeline is recorded with the module it comes from, so a reload rebuilds it.
@@ -471,6 +507,10 @@ private:
                    const std::function<void(std::size_t, std::size_t)> &body) const;
 
   [[nodiscard]] ViewState &prepareFrame(RenderGraph &graph, const SceneView &view, glm::uvec2 targetSize);
+  // Chooses this frame's jitter and the matrices the scene passes use, from the view's history
+  // (ADR-0024); the scene passes call it before they reserve their culling jobs.
+  void beginTemporal(ViewState &v);
+  void releaseHistory(History &history);
   // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
   // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
   // InvalidBindlessIndex when the array is full.
@@ -634,6 +674,8 @@ private:
   std::uint64_t m_importSerial{0}; // the graph frame the imports below belong to
   GraphImage m_lutImport;
   std::vector<EnvironmentImport> m_environmentImports;
+  std::unordered_map<const SceneView *, History> m_histories;
+  std::uint64_t m_frameNumber{0};        // graph frames prepared so far, which a history's age is counted in
   std::vector<std::uint32_t> m_selected; // sorted and unique, for the binary search per draw
   glm::vec4 m_outlineColor{1.0f, 0.6f, 0.1f, 1.0f};
 };

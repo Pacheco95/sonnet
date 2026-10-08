@@ -8,15 +8,28 @@ struct VertexOutput {
   nointerpolation uint objectIndex : OBJECT0;
 };
 
-[shader("vertex")]
-VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_StartInstanceLocation,
-                        uint instance : SV_InstanceID) {
+VertexOutput transform(uint vertexId, uint startInstance, uint instance, float4x4 viewProjection) {
   const uint objectIndex = drawObject(startInstance, instance);
   const Vertex vertex = vertexBuffers[objects[objectIndex].vertexBuffer][vertexId];
   VertexOutput output;
-  output.position = mul(frame.viewProjection, mul(objects[objectIndex].model, float4(vertex.position, 1.0)));
+  output.position = mul(viewProjection, mul(objects[objectIndex].model, float4(vertex.position, 1.0)));
   output.objectIndex = objectIndex;
   return output;
+}
+
+// Tested against the scene's depth, so it is drawn with the matrix that depth was (jittered under
+// temporal anti-aliasing).
+[shader("vertex")]
+VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_StartInstanceLocation,
+                        uint instance : SV_InstanceID) {
+  return transform(vertexId, startInstance, instance, frame.viewProjection);
+}
+
+// The selection mask has no depth and is compared with the resolved image: unjittered.
+[shader("vertex")]
+VertexOutput maskVertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_StartInstanceLocation,
+                            uint instance : SV_InstanceID) {
+  return transform(vertexId, startInstance, instance, frame.unjitteredViewProjection);
 }
 
 [shader("fragment")]

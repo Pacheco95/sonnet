@@ -92,9 +92,11 @@ static_assert(sizeof(GpuMaterial) == 80);
 struct FrameConstants {
   glm::mat4 view;
   glm::mat4 projection;
-  glm::mat4 viewProjection;
+  glm::mat4 viewProjection; // jittered under TAA: what the pre-pass, forward and id passes rasterise with
+  glm::mat4 unjitteredViewProjection;
+  glm::mat4 previousViewProjection; // the last frame's, unjittered
   glm::mat4 inverseProjection;
-  glm::mat4 inverseViewProjection;
+  glm::mat4 inverseViewProjection; // of the jittered matrix
   glm::mat4 cascadeMatrices[Renderer::CascadeCount];
   glm::vec4 cascadeSplits;
   glm::vec4 cascadeBlendStarts;
@@ -108,6 +110,8 @@ struct FrameConstants {
   glm::vec2 targetSize;
   float nearPlane;
   float shadowBias;
+  float mipBias; // added to the level of material samples: -0.5 under TAA, which softens the image
+  float padding;
   std::uint32_t cascadeImages[Renderer::CascadeCount];
   std::uint32_t irradianceCube;
   std::uint32_t prefilteredCube;
@@ -123,7 +127,7 @@ struct FrameConstants {
   std::uint64_t clusters;
   std::uint64_t localShadows; // GpuLocalShadow per local shadow map, 0 without any
 };
-static_assert(sizeof(FrameConstants) == 824);
+static_assert(sizeof(FrameConstants) == 960);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -309,6 +313,26 @@ constexpr std::uint64_t ParticleStateFrames = 8;
 // moment does not reallocate.
 constexpr std::uint64_t SkinnedBufferFrames = 8;
 
+// Jitter samples before the sequence repeats (ADR-0024).
+constexpr std::uint32_t JitterSamples = 8;
+// Graph frames a view's history outlives its last draw.
+constexpr std::uint64_t HistoryFrames = 8;
+// Added to the level of material samples under TAA: the resolve softens the image, and a sharper
+// level of detail gives back what it takes.
+constexpr float TaaMipBias = -0.5f;
+
+// The `index`th term of the Halton sequence of `base`, in [0, 1).
+float halton(std::uint32_t index, std::uint32_t base) {
+  float result = 0.0f;
+  float fraction = 1.0f;
+  while (index > 0) {
+    fraction /= static_cast<float>(base);
+    result += fraction * static_cast<float>(index % base);
+    index /= base;
+  }
+  return result;
+}
+
 std::uint32_t groups(std::uint32_t size, std::uint32_t threads) {
   return (size + threads - 1) / threads;
 }
@@ -361,9 +385,11 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .cullMode = cullModes[i],
                     .debugName = std::format("id{}", side)});
     // The same id shader without a depth attachment: every selected surface, occluded or not.
-    defineGraphics(
-        m_maskPipelines[i], "id",
-        {.colorFormats = {IdFormat}, .cullMode = cullModes[i], .debugName = std::format("selection mask{}", side)});
+    defineGraphics(m_maskPipelines[i], "id",
+                   {.vertexEntry = "maskVertexMain",
+                    .colorFormats = {IdFormat},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("selection mask{}", side)});
   }
   // The skybox covers the pixels the pre-pass left at the far plane, depth 0.
   defineGraphics(m_skyboxPipeline, "skybox",
@@ -445,6 +471,9 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
 }
 
 Renderer::~Renderer() {
+  for (auto &[view, history] : m_histories) {
+    releaseHistory(history);
+  }
   releaseSkinnedVertices(true);
   releaseParticles(true);
   if (m_particleQuad) {
@@ -1252,6 +1281,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   if (m_graphSerial != graph.frameSerial() || m_viewCount == 0) {
     m_graphSerial = graph.frameSerial();
     m_graphFrame = graph.frameIndex();
+    ++m_frameNumber;
     m_viewCount = 0;
     m_commandsReserved = 0;
     m_visibleReserved = 0;
@@ -1295,6 +1325,13 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.allJobsUsed = 0;
   v.firstPendingJob = 0;
   const glm::mat4 cameraView = view.camera.view();
+  v.taa = false;
+  v.jitter = glm::vec2{0.0f};
+  v.viewProjection =
+      view.camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u))) *
+      cameraView;
+  v.jitteredViewProjection = v.viewProjection;
+  v.previousViewProjection = v.viewProjection;
   for (std::size_t i = 0; i < view.draws.size(); ++i) {
     const DrawItem &item = view.draws[i];
     const Mesh *mesh = m_meshes.find(item.mesh);
@@ -1376,6 +1413,49 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
         [this, &v](rhi::ICommandList &commands, const PassResources &) { recordSkinning(commands, v); });
   }
   return v;
+}
+
+void Renderer::releaseHistory(History &history) {
+  for (rhi::ImageHandle &image : history.images) {
+    if (image) {
+      m_device.destroyImage(image); // deferred past the frames still reading it
+      image = {};
+    }
+  }
+}
+
+void Renderer::beginTemporal(ViewState &v) {
+  // A debug view shows the unresolved frame, which jitter would only shake.
+  const bool wanted = m_settings.antialiasing == AntiAliasing::Taa && m_settings.debugView == DebugView::Final;
+  // Views come and go (a panel is hidden, a test ends); forget the ones nobody has drawn in a while.
+  for (auto it = m_histories.begin(); it != m_histories.end();) {
+    if (it->second.lastFrame + HistoryFrames < m_frameNumber || (!wanted && it->first == v.view)) {
+      releaseHistory(it->second); // an unresolved frame is no guide to the next one
+      it = m_histories.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  if (!wanted) {
+    return;
+  }
+  History &history = m_histories[v.view];
+  const bool continuous = history.lastFrame + 1 == m_frameNumber;
+  if (!continuous || v.view->resetHistory) {
+    history.valid = false;
+    history.hasPrevious = false;
+  }
+  history.lastFrame = m_frameNumber;
+  v.taa = true;
+  v.jitter =
+      glm::vec2{halton(history.sequence % JitterSamples + 1, 2), halton(history.sequence % JitterSamples + 1, 3)} -
+      glm::vec2{0.5f};
+  history.sequence = (history.sequence + 1) % JitterSamples;
+  const glm::vec2 ndc = v.jitter * 2.0f / glm::vec2{v.targetSize};
+  v.jitteredViewProjection = glm::translate(glm::mat4{1.0f}, glm::vec3{ndc, 0.0f}) * v.viewProjection;
+  v.previousViewProjection = history.hasPrevious ? history.previousViewProjection : v.viewProjection;
+  history.previousViewProjection = v.viewProjection;
+  history.hasPrevious = true;
 }
 
 void Renderer::buildBatches(const ViewState &v, std::span<const std::uint32_t> order,
@@ -1642,9 +1722,9 @@ Renderer::Pyramid &Renderer::ensurePyramid(const ViewState &v, glm::uvec2 size) 
 void Renderer::recordPyramid(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle depth) {
   SONNET_ZONE();
   Pyramid &pyramid = m_pyramids[v.index];
-  const glm::mat4 viewProjection =
-      v.view->camera.projection(static_cast<float>(v.targetSize.x) / static_cast<float>(std::max(v.targetSize.y, 1u))) *
-      v.view->camera.view();
+  // The matrix the depth was drawn with, jitter included: the next frame's phase one projects its
+  // boxes with it.
+  const glm::mat4 viewProjection = v.jitteredViewProjection;
   const std::uint64_t address = m_device.bufferAddress(pyramid.buffer);
   const auto push = [&](std::uint32_t level) {
     const HizConstants constants{.viewProjection = viewProjection,
@@ -2084,8 +2164,8 @@ void Renderer::recordParticleDraws(rhi::ICommandList &commands, const ViewState 
     return;
   }
   const SceneView &view = *v.view;
-  const float aspect = static_cast<float>(v.targetSize.x) / static_cast<float>(std::max(v.targetSize.y, 1u));
-  const glm::mat4 viewProjection = view.camera.projection(aspect) * view.camera.view();
+  // Particles are depth-tested against the jittered depth and resolved with the rest.
+  const glm::mat4 viewProjection = v.jitteredViewProjection;
   bool boundQuad = false;
   for (const ParticleJob &job : v.particleJobs) {
     if (job.state->params == 0) {
@@ -2259,9 +2339,11 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   FrameConstants frame{
       .view = cameraView,
       .projection = projection,
-      .viewProjection = projection * cameraView,
+      .viewProjection = v.jitteredViewProjection,
+      .unjitteredViewProjection = v.viewProjection,
+      .previousViewProjection = v.previousViewProjection,
       .inverseProjection = glm::inverse(projection),
-      .inverseViewProjection = glm::inverse(projection * cameraView),
+      .inverseViewProjection = glm::inverse(v.jitteredViewProjection),
       .cascadeMatrices = {},
       .cascadeSplits = {},
       .cascadeBlendStarts = {},
@@ -2278,6 +2360,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .targetSize = glm::vec2{v.targetSize},
       .nearPlane = nearPlane,
       .shadowBias = m_settings.shadowBias,
+      .mipBias = v.taa ? TaaMipBias : 0.0f,
+      .padding = 0.0f,
       .cascadeImages = {},
       .irradianceCube = environmentReady ? sampledIndex(environment->irradiance) : rhi::InvalidBindlessIndex,
       .prefilteredCube = environmentReady ? sampledIndex(environment->prefiltered) : rhi::InvalidBindlessIndex,
@@ -2447,6 +2531,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   addPrecomputePasses(graph, view);
   const glm::uvec2 size = graph.imageDesc(color).size;
   ViewState &v = prepareFrame(graph, view, size);
+  beginTemporal(v);
 
   // The cascades exist only with the scene passes: the id and mask passes on their own have no
   // shadow images to sample.
@@ -2464,7 +2549,8 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       cascadeJobs[c]->viewProjection = v.cascades[c].matrix;
     }
   }
-  const glm::mat4 cameraViewProjection = view.camera.projection(aspect) * view.camera.view();
+  // The pre-pass and the forward pass cull with the matrix they rasterise with.
+  const glm::mat4 cameraViewProjection = v.jitteredViewProjection;
   std::optional<CullJob> depthJob = reserveCullJob(v, true);
   std::optional<CullJob> forwardJob = reserveCullJob(v, true);
   for (std::optional<CullJob> *job : {&depthJob, &forwardJob}) {
@@ -2669,9 +2755,9 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   if (m_settings.bloom && size.x >= 2 && size.y >= 2) {
     addBloomPasses(graph, view, hdr, size, bloom);
   }
-  const GraphImage ldr = m_settings.antialiasing
-                             ? graph.createImage({.size = size, .format = ColorFormat, .debugName = "scene ldr"})
-                             : color;
+  const bool fxaa = m_settings.antialiasing == AntiAliasing::Fxaa;
+  const GraphImage ldr =
+      fxaa ? graph.createImage({.size = size, .format = ColorFormat, .debugName = "scene ldr"}) : color;
   graph.addPass(
       "tonemap",
       [&](PassBuilder &builder) {
@@ -2685,7 +2771,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         recordPost(commands, &view, m_tonemapPipeline, resources.image(hdr),
                    bloom.isValid() ? resources.image(bloom) : rhi::ImageHandle{}, size);
       });
-  if (m_settings.antialiasing) {
+  if (fxaa) {
     graph.addPass(
         "fxaa",
         [&](PassBuilder &builder) {
@@ -2765,14 +2851,13 @@ void Renderer::addSelectionMaskPass(RenderGraph &graph, const SceneView &view, G
 }
 
 std::optional<Renderer::CullJob> Renderer::addCullPass(RenderGraph &graph, ViewState &v, bool selectedOnly) {
-  const SceneView &view = *v.view;
-  const glm::uvec2 size = v.targetSize;
   std::optional<CullJob> job = reserveCullJob(v, false);
   if (!job) {
     return job;
   }
-  const float aspect = static_cast<float>(size.x) / static_cast<float>(std::max(size.y, 1u));
-  job->viewProjection = view.camera.projection(aspect) * view.camera.view();
+  // The id pass tests against the scene's jittered depth; the mask has no depth and is compared
+  // with the resolved image, so it stays unjittered.
+  job->viewProjection = selectedOnly ? v.viewProjection : v.jitteredViewProjection;
   job->selectedOnly = selectedOnly;
   v.cullJobs.push_back(*job);
   graph.addPass(

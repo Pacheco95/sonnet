@@ -114,9 +114,11 @@ public static const uint CascadeCount = 4;
 public struct FrameConstants {
   public float4x4 view;
   public float4x4 projection;
-  public float4x4 viewProjection;
+  public float4x4 viewProjection; // jittered under TAA: what the pre-pass, forward and id passes rasterise with
+  public float4x4 unjitteredViewProjection;
+  public float4x4 previousViewProjection; // the last frame's, unjittered
   public float4x4 inverseProjection;
-  public float4x4 inverseViewProjection;
+  public float4x4 inverseViewProjection; // of the jittered matrix
   public float4x4 cascadeMatrices[CascadeCount];
   public float4 cascadeSplits; // view depth where each cascade ends
   public float4 cascadeBlendStarts;
@@ -130,6 +132,8 @@ public struct FrameConstants {
   public float2 targetSize;
   public float nearPlane;
   public float shadowBias;
+  public float mipBias; // added to the level of material samples: -0.5 under TAA
+  public float padding;
   public uint cascadeImages[CascadeCount];
   public uint irradianceCube;
   public uint prefilteredCube;

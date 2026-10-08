@@ -61,7 +61,7 @@ RendererSettings testSettings() {
                           .shadowBias = 0.0015f,
                           .bloom = false,
                           .bloomLevels = 2,
-                          .antialiasing = false,
+                          .antialiasing = AntiAliasing::None,
                           .occlusionCulling = false,
                           .environmentSize = 8,
                           .irradianceSize = 4,
@@ -1149,7 +1149,11 @@ TEST_CASE("occlusion culling draws the same pixels as frustum culling while the 
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
   {
+    // Under TAA the depth is rasterised with a jittered matrix, and the pyramid and the tests
+    // against it have to agree with it: the same pixels, frame by frame, either way.
+    const AntiAliasing mode = GENERATE(AntiAliasing::None, AntiAliasing::Taa);
     RendererSettings off = testSettings();
+    off.antialiasing = mode;
     RendererSettings on = off;
     on.occlusionCulling = true;
     Renderer frustumOnly{*device, shaderDir(platform), off};
@@ -1206,6 +1210,58 @@ TEST_CASE("occlusion culling draws the same pixels as frustum culling while the 
     occluding.destroyMesh(boxB);
   }
   REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("temporal anti-aliasing jitters the projection through eight samples", "[renderer][taa][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  const auto jitters = [&](AntiAliasing mode, DebugView debug, int frames) {
+    RendererSettings settings = testSettings();
+    settings.antialiasing = mode;
+    settings.debugView = debug;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const std::array draws{DrawItem{.mesh = box}};
+    const SceneView view = boxScene(draws);
+    std::vector<glm::vec2> result;
+    for (int frame = 0; frame < frames; ++frame) {
+      ICommandList &commands = device->beginFrame();
+      graph.reset();
+      renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+      result.push_back(renderer.jitter());
+      graph.execute(commands);
+      device->endFrame();
+    }
+    renderer.destroyMesh(box);
+    return result;
+  };
+  const std::vector<glm::vec2> taa = jitters(AntiAliasing::Taa, DebugView::Final, 17);
+  for (std::size_t i = 0; i < taa.size(); ++i) {
+    REQUIRE(std::abs(taa[i].x) <= 0.5f);
+    REQUIRE(std::abs(taa[i].y) <= 0.5f);
+    if (i >= 8) {
+      REQUIRE(taa[i] == taa[i - 8]);
+    }
+  }
+  // Eight different offsets, and the first is Halton's second term: (1/4, 1/3) less the centre.
+  for (std::size_t i = 0; i < 8; ++i) {
+    for (std::size_t j = i + 1; j < 8; ++j) {
+      REQUIRE(taa[i] != taa[j]);
+    }
+  }
+  REQUIRE(taa[0].x == Catch::Approx(0.5f - 0.5f));
+  REQUIRE(taa[0].y == Catch::Approx(1.0f / 3.0f - 0.5f));
+  // Nothing else jitters: not FXAA, not no anti-aliasing, not a debug view of the unresolved frame.
+  for (const auto &[mode, debug] :
+       {std::pair{AntiAliasing::None, DebugView::Final}, std::pair{AntiAliasing::Fxaa, DebugView::Final},
+        std::pair{AntiAliasing::Taa, DebugView::Albedo}}) {
+    for (const glm::vec2 offset : jitters(mode, debug, 3)) {
+      REQUIRE(offset == glm::vec2{0.0f});
+    }
+  }
 }
 
 TEST_CASE("occlusion culling adds the pyramid and the second phase to the depth passes",
