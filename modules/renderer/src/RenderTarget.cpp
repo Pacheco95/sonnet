@@ -33,7 +33,7 @@ void RenderTarget::resize(glm::uvec2 size) {
        .debugName = std::format("{} color", m_debugName)});
   m_depth = m_device.createImage({.size = size,
                                   .format = Renderer::DepthFormat,
-                                  .usage = rhi::ImageUsage::DepthAttachment,
+                                  .usage = rhi::ImageUsage::DepthAttachment | rhi::ImageUsage::Sampled,
                                   .debugName = std::format("{} depth", m_debugName)});
   SONNET_LOG_DEBUG("render target \"{}\" {}x{}", m_debugName, size.x, size.y);
 }

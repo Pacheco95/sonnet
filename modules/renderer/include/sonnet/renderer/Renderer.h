@@ -28,8 +28,8 @@
 namespace sonnet::renderer {
 
 struct RenderStatistics {
-  // What was submitted, not what survived culling: the GPU decides that and the CPU never reads
-  // the counts back (ADR-0012).
+  // What was submitted, not what survived culling: the GPU decides that (ADR-0012); the survivors
+  // are counted separately below.
   std::uint32_t drawCount{0}; // scene draws: opaque and blended, not the shadow, id or mask passes
   std::uint32_t triangleCount{0};
   std::uint32_t shadowDrawCount{0};     // the sun's cascades and the local shadow maps
@@ -41,6 +41,13 @@ struct RenderStatistics {
   std::uint32_t skinnedVertexCount{0};
   std::uint32_t particleEmitterCount{0}; // emitters the view drew
   std::uint32_t particleSlotCount{0};    // their particle capacity: the ring slots simulated, alive or not
+  // What survived the GPU's culling, read back FramesInFlight frames late (ADR-0024), so these
+  // describe an earlier frame of the same view; `visibleCountsKnown` is false until the first
+  // one arrives. Opaque and masked draws only: the blended ones are never culled.
+  bool visibleCountsKnown{false};
+  std::uint32_t visibleDrawCount{0}; // scene passes' survivors, early and late
+  std::uint32_t visibleTriangleCount{0};
+  std::uint32_t visibleShadowDrawCount{0}; // the survivors summed over the shadow passes
 };
 
 // One term of the forward shading written in place of the final colour, before tone mapping, to
@@ -76,6 +83,9 @@ struct RendererSettings {
   bool bloom{true};
   std::uint32_t bloomLevels{5};
   bool antialiasing{true};
+  // Occlusion culling of the opaque draws against a depth pyramid, in two phases (ADR-0024): the
+  // result is the same pixels with fewer draws.
+  bool occlusionCulling{true};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
   // present pipeline out, which is what the editor does: it shows the scene through Dear ImGui.
   rhi::Format presentFormat{rhi::Format::Undefined};
@@ -370,6 +380,26 @@ private:
     std::uint32_t firstCommand{0}; // the job's first batch's command in the command buffer
     std::uint32_t firstVisible{0}; // the job's first slot in the visible list
     bool selectedOnly{false};
+    // Occlusion culling (ADR-0024), set on the depth job only. `pyramid` is the address of the
+    // previous frame's depth pyramid, or 0 when there is none to test phase one against.
+    bool occlusion{false};
+    std::uint32_t lateCommand{0}; // the job's first late command, one per batch
+    std::uint32_t stateBase{0};   // the job's first word of the phase-one state
+    std::uint64_t pyramid{0};
+    // The pair of counters its survivors are added to, in the state buffer; 0xFFFFFFFF for none.
+    std::uint32_t counter{0xFFFFFFFFu};
+  };
+  // A view's depth pyramid between frames: a header and the levels of a min-reduced depth chain,
+  // in one device-local buffer, rebuilt every frame after the first depth pass (shaders/hiz.slang).
+  struct CounterSlot {
+    rhi::BufferHandle buffer; // host visible: what publishCounters copies the frame's counters into
+    std::size_t views{0};     // how many views' counters the frame that wrote it declared
+  };
+  struct Pyramid {
+    rhi::BufferHandle buffer;
+    glm::uvec2 size{0, 0}; // level 0
+    std::uint32_t levels{0};
+    bool built{false}; // the buffer holds a pyramid some earlier frame built
   };
   struct Cascade {
     glm::mat4 matrix{1.0f};
@@ -404,6 +434,9 @@ private:
     std::uint32_t opaqueJobCapacity{CullJobsOpaque};
     std::uint32_t allJobsUsed{0};   // of CullJobsAll
     std::size_t firstPendingJob{0}; // jobs a culling pass has not recorded yet
+    std::size_t index{0};           // among the graph frame's views
+    std::uint32_t stateBase{0};     // this view's words of the phase-one state
+    std::uint32_t lateBase{0};      // and its late commands, one per opaque batch
     std::array<Cascade, CascadeCount> cascades;
     std::array<GraphImage, CascadeCount> cascadeImages;
     bool cascadesActive{false};
@@ -472,10 +505,20 @@ private:
   // Empties every reserved job's commands, then runs each job's frustum test, with the barriers
   // that order the previous frame's reads and this frame's command fetch around them.
   void recordCulling(rhi::ICommandList &commands, ViewState &v);
+  // The view's pyramid, created or recreated for the target size (ADR-0024).
+  Pyramid &ensurePyramid(const ViewState &v, glm::uvec2 size);
+  // Builds the pyramid from the depth the first phase drew.
+  void recordPyramid(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle depth);
+  // Phase two: the candidates phase one left out, against the pyramid just built.
+  void recordLateCulling(rhi::ICommandList &commands, ViewState &v, const CullJob &job);
+  // Copies the survivor counters into the frame's host-visible slot.
+  void publishCounters(rhi::ICommandList &commands);
+  // Reads the slot the frame about to be declared will overwrite, which an earlier frame filled.
+  void readCounters();
   // One indirect command per batch, the job's own, whose instances are the batch's survivors
-  // (ADR-0016).
+  // (ADR-0016). `late` draws the occlusion job's late commands instead (ADR-0024).
   void recordIndirect(rhi::ICommandList &commands, ViewState &v, const CullJob &job, std::span<const Batch> batches,
-                      std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t shadow = 0);
+                      std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t shadow = 0, bool late = false);
   // The direct path, which the blended draws keep because their order is view-dependent. Each
   // draw names its slot in the visible list's direct range as its first instance.
   void recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<const std::uint32_t> order,
@@ -520,6 +563,11 @@ private:
   rhi::PipelineHandle m_clusterPipeline;
   rhi::PipelineHandle m_cullPipeline;
   rhi::PipelineHandle m_clearCommandsPipeline;
+  rhi::PipelineHandle m_lateCullPipeline;
+  rhi::PipelineHandle m_publishCountersPipeline;
+  rhi::PipelineHandle m_mergeLatePipeline;
+  rhi::PipelineHandle m_hizBasePipeline;
+  rhi::PipelineHandle m_hizLevelPipeline;
   rhi::PipelineHandle m_equirectPipeline;
   rhi::PipelineHandle m_cubeMipPipeline;
   rhi::PipelineHandle m_irradiancePipeline;
@@ -546,6 +594,24 @@ private:
   rhi::BufferHandle m_visibleBuffer;
   std::uint32_t m_commandCapacity{0};
   std::uint32_t m_visibleCapacity{0};
+  // One word per opaque candidate per view: whether phase one drew it (ADR-0024).
+  rhi::BufferHandle m_stateBuffer;
+  std::uint32_t m_stateCapacity{0};
+  std::uint32_t m_stateReserved{0};
+  std::vector<Pyramid> m_pyramids; // by ViewState::index
+  // The survivor counts of the frames in flight, read back FramesInFlight frames late
+  // (ADR-0024), and the last ones read, by view.
+  std::array<CounterSlot, rhi::FramesInFlight> m_counterSlots;
+  std::uint64_t m_counterFrame{0};
+  std::size_t m_counterSlot{0}; // the slot the frame being declared publishes into
+  struct VisibleCounts {
+    std::uint32_t draws{0};
+    std::uint32_t triangles{0};
+    std::uint32_t shadowDraws{0};
+    std::uint32_t shadowTriangles{0};
+    bool known{false};
+  };
+  std::array<VisibleCounts, 8> m_visibleCounts;
 
   core::HandlePool<Mesh, MeshTag> m_meshes;
   core::HandlePool<Texture, TextureTag> m_textures;
