@@ -32,6 +32,12 @@ struct DrawItem {
   std::uint32_t firstJoint{0};
   std::uint32_t jointCount{0};
   std::uint64_t skinInstance{0};
+  // A morphed draw adds the weighted deltas of a mesh with morph targets to its vertices, before
+  // skinning, using weights [firstMorphWeight, firstMorphWeight + morphWeightCount) of
+  // SceneView::morphWeights (ADR-0023); it needs a skinInstance like a skinned one, and shares
+  // it with a skin.
+  std::uint32_t firstMorphWeight{0};
+  std::uint32_t morphWeightCount{0};
 };
 
 // The sun: the one light that casts cascaded shadows.
@@ -80,6 +86,8 @@ struct SceneView {
   std::span<const DrawItem> draws;
   // The skinned draws' joint matrices, each from the mesh's bind pose into its object space.
   std::span<const glm::mat4> joints;
+  // The morphed draws' target weights.
+  std::span<const float> morphWeights;
   std::span<const DebugLine> debugLines; // drawn by addDebugLinePass
 };
 

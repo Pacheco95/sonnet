@@ -239,7 +239,9 @@ private:
     std::string debugName;
     rhi::BufferHandle vertices;
     rhi::BufferHandle indices;
-    rhi::BufferHandle skin; // SkinWeights per vertex; invalid for a mesh that cannot be skinned
+    rhi::BufferHandle skin;  // SkinWeights per vertex; invalid for a mesh that cannot be skinned
+    rhi::BufferHandle morph; // MorphDeltas, target after target; invalid for a mesh without targets
+    std::uint32_t morphTargetCount{0};
     std::uint32_t vertexCount{0};
     std::vector<Submesh> submeshes;
     Bounds bounds;
@@ -257,6 +259,8 @@ private:
     rhi::BufferHandle destination;
     std::uint32_t firstJoint;
     std::uint32_t jointCount;
+    std::uint32_t firstMorphWeight;
+    std::uint32_t morphCount;
   };
   struct Texture {
     std::string debugName;

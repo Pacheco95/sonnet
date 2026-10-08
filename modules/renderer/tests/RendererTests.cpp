@@ -1030,7 +1030,7 @@ TEST_CASE("skinned draws are deformed once per instance before the passes that d
   // order it after last frame's draws and before this frame's.
   const std::size_t skinning = lineIndex(*device, "bindPipeline \"skinning\"");
   REQUIRE(device->trace()[skinning - 1] == "memoryBarrier");
-  REQUIRE(device->trace()[skinning + 1] == "pushConstants 40 bytes");
+  REQUIRE(device->trace()[skinning + 1] == "pushConstants 64 bytes");
   REQUIRE(device->trace()[skinning + 2] == "dispatch 1 1 1");
   REQUIRE(device->trace()[skinning + 3] == "memoryBarrier");
   REQUIRE(lineIndex(*device, "bindPipeline \"skinning\"") < lineIndex(*device, "bindPipeline \"shadow\""));
@@ -1082,6 +1082,71 @@ TEST_CASE("a skinned box follows its joint on a GPU", "[renderer][gpu]") {
     const Pixel moved = scene.pixel(56, 32);
     REQUIRE(moved.r + moved.g + moved.b > 60);
     REQUIRE(renderer.statistics().skinnedInstanceCount == 1);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// A box with one morph target that slides every vertex 1.5 m to the right at weight 1.
+MeshData morphedBox() {
+  MeshData box = primitives::box();
+  box.morphTargetCount = 1;
+  box.morphDeltas.assign(box.vertices.size(), MorphDelta{.position = {1.5f, 0.0f, 0.0f}});
+  return box;
+}
+
+TEST_CASE("morphed draws are deformed in the skinning pass, with or without a skin", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const MeshHandle morphed = renderer.createMesh(morphedBox(), "morphed box");
+  const MeshHandle plain = renderer.createMesh(primitives::box(), "plain box");
+  const std::array<float, 2> weights{0.0f, 1.0f};
+  // A morphed instance; a plain mesh asking for morphing, which draws as it is; and a morphed
+  // draw with a weight range past the view's, which does too.
+  std::vector<DrawItem> draws{
+      DrawItem{.mesh = morphed, .skinInstance = 3, .firstMorphWeight = 1, .morphWeightCount = 1},
+      DrawItem{.mesh = plain, .skinInstance = 4, .firstMorphWeight = 0, .morphWeightCount = 1},
+      DrawItem{.mesh = morphed, .skinInstance = 5, .firstMorphWeight = 2, .morphWeightCount = 1}};
+  SceneView view = boxScene(draws);
+  view.morphWeights = weights;
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  REQUIRE(hasPass(graph, "skinning"));
+  REQUIRE(countLines(*device, "bindPipeline \"skinning\"") == 1);
+  REQUIRE(countLines(*device, "dispatch 1 1 1") >= 1);
+  REQUIRE(renderer.statistics().skinnedInstanceCount == 1); // only the first draw is deformed
+  REQUIRE(renderer.statistics().skinnedVertexCount == 24);
+  renderer.destroyMesh(plain);
+  renderer.destroyMesh(morphed);
+}
+
+TEST_CASE("a morphed box follows its weight on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(morphedBox(), "morphed box");
+    const std::array<float, 1> weights{1.0f};
+    const std::array draws{DrawItem{.mesh = box, .skinInstance = 1, .firstMorphWeight = 0, .morphWeightCount = 1}};
+    SceneView view = boxScene(draws);
+    view.morphWeights = weights;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2);
+
+    // As the skinned box: its centre moved out of the middle of the view to near pixel 60.
+    const Pixel centre = scene.pixel(32, 32);
+    REQUIRE(centre.r + centre.g + centre.b == 0);
+    const Pixel moved = scene.pixel(56, 32);
+    REQUIRE(moved.r + moved.g + moved.b > 60);
     REQUIRE(device->validationMessageCount() == 0);
     renderer.destroyMesh(box);
   }

@@ -220,10 +220,14 @@ struct SkinConstants {
   std::uint64_t skin;
   std::uint64_t joints;
   std::uint64_t destination;
+  std::uint64_t morph;
+  std::uint64_t weights;
   std::uint32_t vertexCount;
   std::uint32_t jointCount;
+  std::uint32_t morphCount;
+  std::uint32_t padding;
 };
-static_assert(sizeof(SkinConstants) == 40);
+static_assert(sizeof(SkinConstants) == 64);
 constexpr std::uint32_t SkinThreads = 64;
 // Graph frames a skinned instance's buffer outlives its last draw, so an instance hidden for a
 // moment does not reallocate.
@@ -348,6 +352,9 @@ Renderer::~Renderer() {
     m_device.destroyBuffer(mesh.indices);
     if (mesh.skin) {
       m_device.destroyBuffer(mesh.skin);
+    }
+    if (mesh.morph) {
+      m_device.destroyBuffer(mesh.morph);
     }
   });
   m_environments.forEach([this](EnvironmentHandle handle, Environment &environment) {
@@ -514,6 +521,22 @@ MeshHandle Renderer::createMesh(const MeshData &data, std::string debugName) {
                              .debugName = std::format("{} indices", debugName)});
   m_device.uploadBuffer(vertices, 0, std::as_bytes(std::span{data.vertices}));
   m_device.uploadBuffer(indices, 0, std::as_bytes(std::span{data.indices}));
+  rhi::BufferHandle morph;
+  std::uint32_t morphTargets = 0;
+  if (data.morphTargetCount > 0 &&
+      data.morphDeltas.size() == std::size_t{data.morphTargetCount} * data.vertices.size()) {
+    morphTargets = std::min(data.morphTargetCount, MaxMorphTargets);
+    // Only the targets that are kept: they are the first in the array.
+    const std::span<const MorphDelta> kept =
+        std::span{data.morphDeltas}.first(std::size_t{morphTargets} * data.vertices.size());
+    morph = m_device.createBuffer({.size = kept.size_bytes(),
+                                   .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::TransferDst,
+                                   .debugName = std::format("{} morph", debugName)});
+    m_device.uploadBuffer(morph, 0, std::as_bytes(kept));
+  } else if (data.morphTargetCount > 0) {
+    SONNET_LOG_ERROR("mesh \"{}\": {} morph deltas for {} targets of {} vertices, drawn unmorphed", debugName,
+                     data.morphDeltas.size(), data.morphTargetCount, data.vertices.size());
+  }
   rhi::BufferHandle skin;
   if (!data.skin.empty() && data.skin.size() != data.vertices.size()) {
     SONNET_LOG_ERROR("mesh \"{}\": {} skin weights for {} vertices, drawn unskinned", debugName, data.skin.size(),
@@ -529,7 +552,7 @@ MeshHandle Renderer::createMesh(const MeshData &data, std::string debugName) {
     submeshes.push_back(Submesh{0, static_cast<std::uint32_t>(data.indices.size()), 0});
   }
   const MeshHandle handle =
-      m_meshes.emplace(Mesh{std::move(debugName), vertices, indices, skin,
+      m_meshes.emplace(Mesh{std::move(debugName), vertices, indices, skin, morph, morphTargets,
                             static_cast<std::uint32_t>(data.vertices.size()), std::move(submeshes), data.bounds()});
   SONNET_LOG_DEBUG("mesh \"{}\": {} vertices, {} triangles, {} submeshes", m_meshes.get(handle).debugName,
                    data.vertices.size(), data.triangleCount(), m_meshes.get(handle).submeshes.size());
@@ -546,6 +569,9 @@ void Renderer::destroyMesh(MeshHandle handle) {
   m_device.destroyBuffer(mesh->indices);
   if (mesh->skin) {
     m_device.destroyBuffer(mesh->skin);
+  }
+  if (mesh->morph) {
+    m_device.destroyBuffer(mesh->morph);
   }
 }
 
@@ -1339,7 +1365,9 @@ std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, cons
   const SceneView &view = *v.view;
   const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
                        std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
-  if (!skinned) {
+  const bool morphed = item.morphWeightCount > 0 && item.skinInstance != 0 && mesh.morph &&
+                       std::size_t{item.firstMorphWeight} + item.morphWeightCount <= view.morphWeights.size();
+  if (!skinned && !morphed) {
     return m_device.storageBufferIndex(mesh.vertices);
   }
   SkinnedVertices &instance = m_skinned[item.skinInstance];
@@ -1356,8 +1384,12 @@ std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, cons
   // The submeshes of one instance share its vertices: deformed once.
   if (instance.lastFrame != m_graphFrame) {
     instance.lastFrame = m_graphFrame;
-    v.skinJobs.push_back(SkinJob{
-        .mesh = &mesh, .destination = instance.buffer, .firstJoint = item.firstJoint, .jointCount = item.jointCount});
+    v.skinJobs.push_back(SkinJob{.mesh = &mesh,
+                                 .destination = instance.buffer,
+                                 .firstJoint = item.firstJoint,
+                                 .jointCount = skinned ? item.jointCount : 0,
+                                 .firstMorphWeight = item.firstMorphWeight,
+                                 .morphCount = morphed ? std::min(item.morphWeightCount, mesh.morphTargetCount) : 0});
     ++v.statistics.skinnedInstanceCount;
     v.statistics.skinnedVertexCount += mesh.vertexCount;
   }
@@ -1378,16 +1410,29 @@ void Renderer::releaseSkinnedVertices(bool all) {
 
 void Renderer::recordSkinning(rhi::ICommandList &commands, const ViewState &v) {
   SONNET_ZONE();
-  if (v.view == nullptr || v.view->joints.empty()) {
+  if (v.view == nullptr || (v.view->joints.empty() && v.view->morphWeights.empty())) {
     return;
   }
   const std::span<const glm::mat4> joints = v.view->joints;
-  const rhi::TransientAllocation allocation = m_device.allocateTransient(joints.size_bytes());
-  if (allocation.data.empty()) {
-    return; // the allocator logged the exhaustion; the instances keep last frame's pose
+  const std::span<const float> morphWeights = v.view->morphWeights;
+  std::uint64_t jointAddress = 0;
+  std::uint64_t weightAddress = 0;
+  if (!joints.empty()) {
+    const rhi::TransientAllocation allocation = m_device.allocateTransient(joints.size_bytes());
+    if (allocation.data.empty()) {
+      return; // the allocator logged the exhaustion; the instances keep last frame's pose
+    }
+    std::memcpy(allocation.data.data(), joints.data(), joints.size_bytes());
+    jointAddress = m_device.bufferAddress(allocation.buffer) + allocation.offset;
   }
-  std::memcpy(allocation.data.data(), joints.data(), joints.size_bytes());
-  const std::uint64_t jointAddress = m_device.bufferAddress(allocation.buffer) + allocation.offset;
+  if (!morphWeights.empty()) {
+    const rhi::TransientAllocation allocation = m_device.allocateTransient(morphWeights.size_bytes());
+    if (allocation.data.empty()) {
+      return;
+    }
+    std::memcpy(allocation.data.data(), morphWeights.data(), morphWeights.size_bytes());
+    weightAddress = m_device.bufferAddress(allocation.buffer) + allocation.offset;
+  }
   // The instance buffers were written by the previous frame's skinning and read by its draws,
   // which may still be running.
   commands.memoryBarrier({.srcStage = rhi::PipelineStage::VertexShader | rhi::PipelineStage::ComputeShader,
@@ -1397,11 +1442,15 @@ void Renderer::recordSkinning(rhi::ICommandList &commands, const ViewState &v) {
   commands.bindPipeline(m_skinPipeline);
   for (const SkinJob &job : v.skinJobs) {
     const SkinConstants constants{.source = m_device.bufferAddress(job.mesh->vertices),
-                                  .skin = m_device.bufferAddress(job.mesh->skin),
+                                  .skin = job.jointCount > 0 ? m_device.bufferAddress(job.mesh->skin) : 0,
                                   .joints = jointAddress + std::uint64_t{job.firstJoint} * sizeof(glm::mat4),
                                   .destination = m_device.bufferAddress(job.destination),
+                                  .morph = job.morphCount > 0 ? m_device.bufferAddress(job.mesh->morph) : 0,
+                                  .weights = weightAddress + std::uint64_t{job.firstMorphWeight} * sizeof(float),
                                   .vertexCount = job.mesh->vertexCount,
-                                  .jointCount = job.jointCount};
+                                  .jointCount = job.jointCount,
+                                  .morphCount = job.morphCount,
+                                  .padding = 0};
     commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
     commands.dispatch(groups(job.mesh->vertexCount, SkinThreads), 1, 1);
   }
