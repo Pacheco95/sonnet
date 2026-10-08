@@ -101,16 +101,41 @@ struct SkinnedMesh {
   core::Uuid skin{};
 };
 
+// A clip playing besides an Animator's own, blended with it by weight (ADR-0023). A layer whose
+// `fadeRate` is positive gains weight to 1 and stops there; a negative one loses it and is
+// removed at zero, which is how a crossfade lets the clip it left go.
+struct AnimationLayer {
+  core::Uuid clip{};
+  float time{0.0f}; // seconds
+  float speed{1.0f};
+  float weight{1.0f};
+  float fadeRate{0.0f}; // weight per second
+  bool playing{true};
+  bool loop{true};
+
+  bool operator==(const AnimationLayer &) const = default;
+};
+
 // Plays an animation clip on the entity's hierarchy in play mode (ADR-0010): each channel drives
 // the local Transform of the entity at its path under this one. `time` advances by `speed` while
 // `playing`; a clip that does not loop stops at its end and clears `playing`. The pose at `time`
 // is written every frame there is a clip, so setting `time` while stopped scrubs.
+//
+// ADR-0023: assigning `clip` while `fade` is above zero is a crossfade, over `fade` seconds, from
+// the clip it replaces. `layers` play together with it, the targets' poses being the weighted
+// blend of every layer that has a channel for them. With `rootMotion`, the translation of the
+// bone at `rootBone` (empty: the clip's translation channel with the shortest path) is taken
+// out of the pose and moves this entity instead.
 struct Animator {
   core::Uuid clip{};
   float time{0.0f}; // seconds
   float speed{1.0f};
   bool playing{true};
   bool loop{true};
+  float fade{0.0f}; // seconds
+  bool rootMotion{false};
+  std::string rootBone{};
+  std::vector<AnimationLayer> layers{};
 };
 
 // The joint matrices of a SkinnedMesh for the current pose, each from the mesh's bind pose into

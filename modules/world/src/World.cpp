@@ -188,12 +188,25 @@ void World::registerComponents() {
   registerComponent<Environment>("Environment");
   m_world.component<Environment>().member<core::Uuid>("map").member<float>("intensity").member<float>("exposure");
   registerComponent<SkinnedMesh>("SkinnedMesh").member<core::Uuid>("skin");
+  m_world.component<AnimationLayer>("AnimationLayer")
+      .member<core::Uuid>("clip")
+      .member<float>("time")
+      .member<float>("speed")
+      .member<float>("weight")
+      .member<float>("fadeRate")
+      .member<bool>("playing")
+      .member<bool>("loop");
+  registerVector<AnimationLayer>();
   registerComponent<Animator>("Animator")
       .member<core::Uuid>("clip")
       .member<float>("time")
       .member<float>("speed")
       .member<bool>("playing")
-      .member<bool>("loop");
+      .member<bool>("loop")
+      .member<float>("fade")
+      .member<bool>("rootMotion")
+      .member<std::string>("rootBone")
+      .member<std::vector<AnimationLayer>>("layers");
   // Derived every frame for the entity itself, like WorldTransform: never inherited, never saved.
   m_world.component<SkinPose>("SkinPose").add(flecs::OnInstantiate, flecs::DontInherit);
   registerComponent<Spin>("Spin");

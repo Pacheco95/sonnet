@@ -56,6 +56,7 @@ void writeRig(const std::filesystem::path &gltf) {
   const std::vector<float> rotations{0, 0, 0, 1, quarter.x, quarter.y, quarter.z, quarter.w};
   const std::vector<float> steps{0.0f, 0.5f};
   const std::vector<float> translations{0, 0, 0, 1, 0, 0};
+  const std::vector<float> reverse{0, 0, 0, 1, -quarter.x, -quarter.y, -quarter.z, quarter.w};
   const auto position = add(positions.data(), 48, 4, "VEC3", Float);
   accessors.back()["min"] = json::array({-0.5, 0, 0});
   accessors.back()["max"] = json::array({0.5, 2, 0});
@@ -71,6 +72,7 @@ void writeRig(const std::filesystem::path &gltf) {
   accessors.back()["min"] = json::array({0.0});
   accessors.back()["max"] = json::array({0.5});
   const auto translation = add(translations.data(), 24, 2, "VEC3", Float);
+  const auto reversed = add(reverse.data(), 32, 2, "VEC4", Float);
   const std::string binName = gltf.stem().string() + ".bin";
   REQUIRE(core::writeFile(gltf.parent_path() / binName, bin).has_value());
   const json document{
@@ -89,12 +91,18 @@ void writeRig(const std::filesystem::path &gltf) {
                               {"indices", index}}})}}})},
       {"skins", json::array({json{{"joints", json::array({1, 2})}, {"inverseBindMatrices", inverseBind}}})},
       {"animations",
-       json::array({json{
-           {"name", "Bend"},
-           {"samplers", json::array({json{{"input", time}, {"output", rotation}},
-                                     json{{"input", step}, {"output", translation}, {"interpolation", "STEP"}}})},
-           {"channels", json::array({json{{"sampler", 0}, {"target", {{"node", 2}, {"path", "rotation"}}}},
-                                     json{{"sampler", 1}, {"target", {{"node", 1}, {"path", "translation"}}}}})}}})},
+       json::array(
+           {json{{"name", "Bend"},
+                 {"extras",
+                  {{"events", json::array({json{{"time", 0.3}, {"name", "step"}, {"argument", "left"}},
+                                           json{{"time", 0.8}, {"name", "step"}, {"argument", "right"}}})}}},
+                 {"samplers", json::array({json{{"input", time}, {"output", rotation}},
+                                           json{{"input", step}, {"output", translation}, {"interpolation", "STEP"}}})},
+                 {"channels", json::array({json{{"sampler", 0}, {"target", {{"node", 2}, {"path", "rotation"}}}},
+                                           json{{"sampler", 1}, {"target", {{"node", 1}, {"path", "translation"}}}}})}},
+            json{{"name", "Reach"},
+                 {"samplers", json::array({json{{"input", time}, {"output", reversed}}})},
+                 {"channels", json::array({json{{"sampler", 0}, {"target", {{"node", 2}, {"path", "rotation"}}}}})}}})},
       {"buffers", json::array({json{{"uri", binName}, {"byteLength", bin.size()}}})},
       {"bufferViews", views},
       {"accessors", accessors},
@@ -284,4 +292,94 @@ TEST_CASE("a model's skin and clip arrive on a later frame instead of stalling t
   REQUIRE(instance.get<world::Animator>().time == Approx(0.25f));
   REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(22.5f));
   REQUIRE(fixture.device->bufferCount() > buffersBefore);
+}
+
+TEST_CASE("assigning a clip with a fade crossfades from the one it replaces", "[world][animation]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  core::Uuid bend;
+  core::Uuid reach;
+  for (const assets::AssetInfo *info : fixture.assets.assets(assets::AssetType::Animation)) {
+    (info->name == "Bend" ? bend : reach) = info->uuid;
+  }
+  REQUIRE_FALSE(bend.isNil());
+  REQUIRE_FALSE(reach.isNil());
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Fader");
+  const flecs::entity tip = fixture.node(instance, "Rig/Root/Tip");
+  world.setPlaying(true);
+
+  // Both clips held at half a second: Bend turns the tip +45 degrees there, Reach -45.
+  instance.set<world::Animator>({.clip = bend, .time = 0.5f, .speed = 0.0f});
+  world.progress(0.1f);
+  REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(45.0f));
+
+  instance.set<world::Animator>({.clip = reach, .time = 0.5f, .speed = 0.0f, .fade = 1.0f});
+  world.progress(0.5f);
+  REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(0.0f).margin(1e-3));
+  REQUIRE(instance.get<world::Animator>().layers.size() == 1);
+  REQUIRE(instance.get<world::Animator>().layers[0].weight == Approx(0.5f));
+
+  world.progress(0.25f); // three quarters across: Reach has 0.75 of the blend
+  REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) ==
+          Approx(-22.5f).margin(1.5)); // a normalised blend, a little past the arc's middle;
+
+  world.progress(0.5f); // the fade is over: the old clip is gone
+  REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(-45.0f));
+  REQUIRE(instance.get<world::Animator>().layers.empty());
+
+  // Without a fade the clip is swapped at once.
+  instance.set<world::Animator>({.clip = bend, .time = 0.5f, .speed = 0.0f});
+  world.progress(0.1f);
+  REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(45.0f));
+  REQUIRE(instance.get<world::Animator>().layers.empty());
+}
+
+TEST_CASE("animation events are recorded when playback crosses them, across a loop too", "[world][animation]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Walker");
+  world.setPlaying(true);
+
+  world.progress(0.2f);
+  REQUIRE(animation.events().empty());
+  world.progress(0.2f); // 0.2 to 0.4 crosses the step at 0.3
+  REQUIRE(animation.events().size() == 1);
+  REQUIRE(animation.events()[0].entity == instance.id());
+  REQUIRE(animation.events()[0].name == "step");
+  REQUIRE(animation.events()[0].argument == "left");
+  world.progress(0.1f);
+  REQUIRE(animation.events().empty()); // the list is the last Update's
+  world.progress(0.5f);                // 0.5 to 1.0 reaches 0.8 and wraps
+  REQUIRE(animation.events().size() == 1);
+  REQUIRE(animation.events()[0].argument == "right");
+  world.progress(0.4f); // 0 to 0.4 on the next lap
+  REQUIRE(animation.events().size() == 1);
+  REQUIRE(animation.events()[0].argument == "left");
+}
+
+TEST_CASE("root motion moves the entity instead of the root bone", "[world][animation]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Runner");
+  const flecs::entity root = fixture.node(instance, "Rig/Root");
+  world.setPlaying(true);
+  auto animator = instance.get<world::Animator>();
+  animator.rootMotion = true;
+  instance.set<world::Animator>(animator);
+
+  world.progress(0.25f); // before the step at half a second
+  REQUIRE(instance.get<world::Transform>().position.x == Approx(0.0f));
+  world.progress(0.5f); // across it: the bone's metre becomes the entity's
+  REQUIRE(instance.get<world::Transform>().position.x == Approx(1.0f));
+  REQUIRE(root.get<world::Transform>().position.x == Approx(0.0f));
+  world.progress(0.5f); // the loop's wrap takes the bone back without taking the entity back
+  REQUIRE(instance.get<world::Transform>().position.x == Approx(1.0f));
+  world.progress(0.5f); // the next lap's step: another metre
+  REQUIRE(instance.get<world::Transform>().position.x == Approx(2.0f));
 }
