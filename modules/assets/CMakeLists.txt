@@ -1,4 +1,5 @@
 find_package(fastgltf CONFIG REQUIRED)
+find_package(simdjson CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 find_package(Ktx CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -21,6 +22,7 @@ sonnet_add_module(assets
     nlohmann_json::nlohmann_json
   DEPENDS
     fastgltf::fastgltf
+    simdjson::simdjson
     KTX::ktx
 )
 target_include_directories(sonnet_assets SYSTEM PRIVATE ${Stb_INCLUDE_DIR})

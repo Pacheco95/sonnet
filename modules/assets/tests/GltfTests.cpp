@@ -26,7 +26,7 @@ void writeSkinnedGltf(const std::filesystem::path &gltf) {
   json accessors = json::array();
   // Appends the data as a buffer view and an accessor over it; returns the accessor's index.
   const auto add = [&](const void *data, std::size_t bytes, std::size_t count, const char *type, int component,
-                       json extra = json::object()) {
+                       const json &extra = json::object()) {
     while (bin.size() % 4 != 0) {
       bin.push_back(std::byte{0});
     }
@@ -38,28 +38,28 @@ void writeSkinnedGltf(const std::filesystem::path &gltf) {
     accessors.push_back(std::move(accessor));
     return accessors.size() - 1;
   };
-  constexpr int Float = 5126;
-  constexpr int UnsignedByte = 5121;
-  constexpr int UnsignedShort = 5123;
+  constexpr int floatType = 5126;
+  constexpr int unsignedByteType = 5121;
+  constexpr int unsignedShortType = 5123;
 
   const std::vector<float> positions{-0.5f, 0, 0, 0.5f, 0, 0, -0.5f, 2, 0, 0.5f, 2, 0};
   const std::vector<float> normals{0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1};
   const std::vector<std::uint8_t> joints{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
   const std::vector<float> weights{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
   const std::vector<std::uint16_t> indices{0, 1, 3, 0, 3, 2};
-  const auto position = add(positions.data(), positions.size() * 4, 4, "VEC3", Float,
+  const auto position = add(positions.data(), positions.size() * 4, 4, "VEC3", floatType,
                             json{{"min", json::array({-0.5, 0, 0})}, {"max", json::array({0.5, 2, 0})}});
-  const auto normal = add(normals.data(), normals.size() * 4, 4, "VEC3", Float);
-  const auto joint = add(joints.data(), joints.size(), 4, "VEC4", UnsignedByte);
-  const auto weight = add(weights.data(), weights.size() * 4, 4, "VEC4", Float);
-  const auto index = add(indices.data(), indices.size() * 2, 6, "SCALAR", UnsignedShort);
+  const auto normal = add(normals.data(), normals.size() * 4, 4, "VEC3", floatType);
+  const auto joint = add(joints.data(), joints.size(), 4, "VEC4", unsignedByteType);
+  const auto weight = add(weights.data(), weights.size() * 4, 4, "VEC4", floatType);
+  const auto index = add(indices.data(), indices.size() * 2, 6, "SCALAR", unsignedShortType);
   // Root at the origin, Tip one metre up.
   const glm::mat4 tipInverse = glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, -1.0f, 0.0f});
   std::vector<float> inverseBinds(32, 0.0f);
   const glm::mat4 identity{1.0f};
   std::memcpy(inverseBinds.data(), glm::value_ptr(identity), 64);
   std::memcpy(inverseBinds.data() + 16, glm::value_ptr(tipInverse), 64);
-  const auto inverseBind = add(inverseBinds.data(), inverseBinds.size() * 4, 2, "MAT4", Float);
+  const auto inverseBind = add(inverseBinds.data(), inverseBinds.size() * 4, 2, "MAT4", floatType);
 
   const glm::quat quarter = glm::angleAxis(glm::radians(90.0f), glm::vec3{0.0f, 0.0f, 1.0f});
   const std::vector<float> second{0.0f, 1.0f};
@@ -68,11 +68,11 @@ void writeSkinnedGltf(const std::filesystem::path &gltf) {
   const std::vector<float> translations{0, 0, 0, 1, 0, 0};
   // Cubic spline: in-tangent, value, out-tangent per key.
   const std::vector<float> scales{0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0};
-  const auto times = add(second.data(), 8, 2, "SCALAR", Float, json{{"min", {0.0}}, {"max", {1.0}}});
-  const auto rotation = add(rotations.data(), rotations.size() * 4, 2, "VEC4", Float);
-  const auto steps = add(stepTimes.data(), 8, 2, "SCALAR", Float, json{{"min", {0.0}}, {"max", {0.5}}});
-  const auto translation = add(translations.data(), translations.size() * 4, 2, "VEC3", Float);
-  const auto scale = add(scales.data(), scales.size() * 4, 6, "VEC3", Float);
+  const auto times = add(second.data(), 8, 2, "SCALAR", floatType, json{{"min", {0.0}}, {"max", {1.0}}});
+  const auto rotation = add(rotations.data(), rotations.size() * 4, 2, "VEC4", floatType);
+  const auto steps = add(stepTimes.data(), 8, 2, "SCALAR", floatType, json{{"min", {0.0}}, {"max", {0.5}}});
+  const auto translation = add(translations.data(), translations.size() * 4, 2, "VEC3", floatType);
+  const auto scale = add(scales.data(), scales.size() * 4, 6, "VEC3", floatType);
 
   const std::string binName = gltf.stem().string() + ".bin";
   REQUIRE(core::writeFile(gltf.parent_path() / binName, bin).has_value());
@@ -189,7 +189,7 @@ TEST_CASE("a glTF file imports its skins, joint weights and animation clips by n
   REQUIRE(clip.channels[1].target == "Rig/Root");
   REQUIRE(clip.channels[1].interpolation == Interpolation::Step);
   REQUIRE(clip.channels[2].interpolation == Interpolation::CubicSpline);
-  REQUIRE(clip.channels[2].values.size() == 6 * width(clip.channels[2])); // three values for each of two keys
+  REQUIRE(clip.channels[2].values.size() == 6 * static_cast<std::size_t>(width(clip.channels[2]))); // three values for each of two keys
   std::filesystem::remove_all(directory);
 }
 
