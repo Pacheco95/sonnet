@@ -9,6 +9,7 @@
 #include <sonnet/platform/Platform.h>
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
+#include <sonnet/world/Animation.h>
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
@@ -77,6 +78,7 @@ struct Fixture {
   std::unique_ptr<physics::IPhysicsWorld> physics = physics::createPhysicsWorld(world, assets, jobs);
   platform::InputState input;
   scripting::ScriptView view;
+  world::AnimationSystem animation{world, assets};
   std::unique_ptr<scripting::IScriptRuntime> scripts;
   std::shared_ptr<RecordingSink> sink = std::make_shared<RecordingSink>();
 
@@ -88,8 +90,12 @@ struct Fixture {
     }
     const std::vector<std::string> roots{"assets"};
     assets.open(root, roots);
-    scripts = scripting::createScriptRuntime(
-        {.world = &world, .assets = &assets, .physics = physics.get(), .input = &input, .view = &view});
+    scripts = scripting::createScriptRuntime({.world = &world,
+                                              .assets = &assets,
+                                              .physics = physics.get(),
+                                              .animation = &animation,
+                                              .input = &input,
+                                              .view = &view});
     core::Log::addSink(sink);
   }
   ~Fixture() {
@@ -846,4 +852,42 @@ TEST_CASE("require reports cycles, unknown and ambiguous names, and a module tha
   // Paths tell the two apart, and a module that returns a number is returned as it is.
   REQUIRE(fixture.sink->find("unlisted.lua") == nullptr);
   REQUIRE(fixture.scripts->instanceCount() == 1);
+}
+
+namespace {
+
+// One node, "Box", and a clip "Beat" that slides it a metre in a second, with an event named
+// "beat" at half a second in its extras (the buffer is embedded).
+constexpr const char *BeatModel =
+    R"json({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"Box"}],"animations":[{"name":"Beat","extras":{"events":[{"time":0.5,"name":"beat","argument":"half"}]},"samplers":[{"input":0,"output":1}],"channels":[{"sampler":0,"target":{"node":0,"path":"translation"}}]}],"buffers":[{"uri":"data:application/octet-stream;base64,AAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAA=","byteLength":32}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":8},{"buffer":0,"byteOffset":8,"byteLength":24}],"accessors":[{"bufferView":0,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[1]},{"bufferView":1,"componentType":5126,"count":2,"type":"VEC3"}]})json";
+
+constexpr const char *BeatListener = R"lua(
+  local Beat = {}
+  function Beat:onAnimationEvent(name, argument) print("@event " .. self.entity:name() .. " " .. name .. " " .. argument) end
+  return Beat
+)lua";
+
+} // namespace
+
+TEST_CASE("an animation event reaches the scripts of its entity as onAnimationEvent", "[scripting][events]") {
+  Fixture fixture{{"beat.gltf", BeatModel}, {"beat.lua", BeatListener}};
+  const auto models = fixture.assets.assets(assets::AssetType::Model);
+  REQUIRE(models.size() == 1);
+  const assets::Model *model = fixture.assets.model(models[0]->uuid);
+  REQUIRE(model != nullptr);
+  const flecs::entity prefab = world::loadModelPrefab(fixture.world, *model, models[0]->uuid, "Beat");
+  static_cast<void>(fixture.assets.requestAnimation(prefab.get<world::Animator>().clip));
+  fixture.assets.waitForLoads();
+  const flecs::entity instance = fixture.world.instantiate(prefab, "Drum");
+  instance.set<scripting::Scripts>({.slots = {{.script = fixture.script("beat.lua")}}});
+
+  fixture.world.setPlaying(true);
+  fixture.run(20); // a third of a second: before the event
+  REQUIRE(std::ranges::none_of(fixture.trace(), [](const std::string &line) { return line.starts_with("event"); }));
+  fixture.run(20); // across half a second
+  std::vector<std::string> trace = fixture.trace();
+  REQUIRE(std::ranges::count(trace, "event Drum beat half") == 1);
+  // A second lap crosses it again.
+  fixture.run(60);
+  REQUIRE(std::ranges::count(fixture.trace(), "event Drum beat half") == 2); // the next lap
 }

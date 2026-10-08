@@ -26,7 +26,8 @@ class InputState;
 }
 namespace sonnet::world {
 class World;
-}
+class AnimationSystem;
+} // namespace sonnet::world
 
 namespace sonnet::scripting {
 
@@ -70,6 +71,7 @@ struct ScriptDesc {
   world::World *world{nullptr};
   assets::AssetDatabase *assets{nullptr};
   physics::IPhysicsWorld *physics{nullptr};
+  const world::AnimationSystem *animation{nullptr}; // its events reach scripts as onAnimationEvent
   const platform::InputState *input{nullptr};
   const ScriptView *view{nullptr};
 };

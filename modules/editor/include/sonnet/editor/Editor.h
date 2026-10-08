@@ -458,10 +458,10 @@ private:
   // The viewport's camera and size, for scripts turning a pointer into a ray.
   scripting::ScriptView m_scriptView;
   std::unique_ptr<physics::IPhysicsWorld> m_physics;
+  world::AnimationSystem m_animation; // before the scripts, which hear its events the frame they happen
   std::unique_ptr<scripting::IScriptRuntime> m_scripts;
   // After the scripts, so a pose a script sets this frame is sampled over; the audio device, after
   // everything that moves entities, hears them where they end up.
-  world::AnimationSystem m_animation;
   std::unique_ptr<audio::IAudioDevice> m_audio;
   std::vector<renderer::DrawItem> m_draws;
   std::vector<glm::mat4> m_joints;

@@ -43,13 +43,13 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                        return settings;
                                                      }()),
       m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}),
-      m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)),
+      m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)), m_animation(m_world, m_assets),
       m_scripts(scripting::createScriptRuntime({.world = &m_world,
                                                 .assets = &m_assets,
                                                 .physics = m_physics.get(),
+                                                .animation = &m_animation,
                                                 .input = &m_input,
                                                 .view = &m_scriptView})),
-      m_animation(m_world, m_assets),
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})), m_screenshots(device),
       m_paused(desc.paused) {
   // A player is always playing: there is no edit mode to switch out of. A capture run holds the
