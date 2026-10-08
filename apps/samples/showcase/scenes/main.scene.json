@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "entities": [
     {
       "uuid": "5a0c0000-0000-4000-8000-000000000001",
@@ -89,8 +89,13 @@
           "nearPlane": 0.1
         },
         "AudioListener": null,
-        "Script": {
-          "script": "8abb2ca3-0cde-4a93-9a9f-08206ea7c6a9"
+        "Scripts": {
+          "slots": [
+            {
+              "script": "8abb2ca3-0cde-4a93-9a9f-08206ea7c6a9",
+              "properties": {}
+            }
+          ]
         }
       }
     },

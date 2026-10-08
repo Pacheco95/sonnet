@@ -18,6 +18,7 @@
 
 #include <spdlog/sinks/base_sink.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -499,9 +500,15 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
     world::World &world = editor.world();
     // The spawner's crates are its children, not new roots.
     const auto crates = [&] { return world.children(byName(world, "Spawner")).size(); };
+    const auto has = [&](std::string_view name) {
+      return std::ranges::any_of(world.roots(),
+                                 [&](const flecs::entity root) { return root.get<world::Name>().value == name; });
+    };
     const std::size_t entities = world.roots().size();
     const core::Uuid ball = world.uuidOf(byName(world, "Ball"));
     const core::Uuid top = world.uuidOf(byName(world, "Stacked crate 6"));
+    REQUIRE(has("Coin"));
+    REQUIRE(has("Crate coin"));
     core::Log::addSink(sink);
 
     editor.play();
@@ -509,9 +516,13 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
       fixture.frame(editor);
     }
     REQUIRE(sink->problems.empty());
-    REQUIRE(editor.scripts().instanceCount() == 4);
+    // The sweeper, the elevator, the ball, the spawner and the two pickups; the first crate to land
+    // under the spawner fell through the trigger of the one that takes crates, which went away.
+    REQUIRE(editor.scripts().instanceCount() == 5);
+    REQUIRE(!has("Crate coin"));
+    REQUIRE(has("Coin"));   // the ball's, which nothing has touched
     REQUIRE(crates() == 2); // one every 1.5 s
-    REQUIRE(world.roots().size() == entities);
+    REQUIRE(world.roots().size() == entities - 1);
     // The ball rests on the floor, and the pyramid's top crate still stands on the others.
     REQUIRE(world.find(ball).get<world::Transform>().position.y < 0.6f);
     REQUIRE(world.find(top).get<world::Transform>().position.y > 2.3f);
@@ -520,6 +531,7 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
     fixture.frame(editor);
     REQUIRE(crates() == 0);
     REQUIRE(world.roots().size() == entities);
+    REQUIRE(has("Crate coin")); // the snapshot brings it back
     REQUIRE(editor.scripts().instanceCount() == 0);
     REQUIRE(sink->problems.empty());
     core::Log::removeSink(sink);

@@ -1,7 +1,9 @@
 -- A kinematic platform that rises and sinks, carrying what rests on it.
 local Elevator = {
-  height = 3, -- metres
-  period = 6, -- seconds for a round trip
+  properties = {
+    height = { type = "number", default = 3, min = 0, max = 10 }, -- metres
+    period = { type = "number", default = 6, min = 0.5, max = 60 }, -- seconds for a round trip
+  },
 }
 
 function Elevator:start()

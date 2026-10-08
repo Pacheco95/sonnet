@@ -142,6 +142,21 @@ struct Fixture {
   return options;
 }
 
+// Keeps what the scripts logged at info and above.
+class MessageSink final : public spdlog::sinks::base_sink<std::mutex> {
+public:
+  std::vector<std::string> messages;
+
+protected:
+  void sink_it_(const spdlog::details::log_msg &message) override {
+    if (message.level >= spdlog::level::info) {
+      messages.emplace_back(message.payload.data(), message.payload.size());
+    }
+  }
+  void flush_() override {
+  }
+};
+
 struct Png {
   int width{0};
   int height{0};
@@ -455,4 +470,63 @@ TEST_CASE("a bundle cooked for a phone is refused on a device without ASTC", "[r
   REQUIRE(game.open(root / "export" / "linux" / "game.sbundle").has_value());
   REQUIRE(game.name() == "Phone");
   std::filesystem::remove_all(root);
+}
+
+// M11's criterion: the playground's trigger-driven pickup plays the same from the project folder
+// and from the cooked bundle, since the scene's version 3 `Scripts` and its properties reach the
+// bundle as they are (ADR-0022, ADR-0011).
+TEST_CASE("the playground's pickup is collected the same from a project and from a bundle", "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const std::filesystem::path out = std::filesystem::temp_directory_path() / "sonnet_runtime_pickup";
+  std::filesystem::remove_all(out);
+
+  const auto hasRoot = [](runtime::Game &game, std::string_view name) {
+    return std::ranges::any_of(game.world().roots(), [&](const flecs::entity root) {
+      const world::Name *entity = root.try_get<world::Name>();
+      return entity != nullptr && entity->value == name;
+    });
+  };
+  // Four seconds of the playground: the first crate to land under the spawner takes "Crate coin"
+  // and the ball's coin, which nothing touches, stays.
+  const auto play = [&](const std::filesystem::path &source) {
+    const auto problems = std::make_shared<ProblemSink>();
+    const auto messages = std::make_shared<MessageSink>();
+    core::Log::addSink(problems);
+    core::Log::addSink(messages);
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(source).has_value());
+    REQUIRE(game.openScene("scenes/playground.scene.json").has_value());
+    REQUIRE(hasRoot(game, "Crate coin"));
+    problems->problems.clear();
+    for (int i = 0; i < 240; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+    const bool crateCoin = hasRoot(game, "Crate coin");
+    const bool coin = hasRoot(game, "Coin");
+    core::Log::removeSink(messages);
+    core::Log::removeSink(problems);
+    REQUIRE(problems->problems.empty());
+    REQUIRE(!crateCoin);
+    REQUIRE(coin);
+    return messages->messages;
+  };
+
+  {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(project).has_value());
+    const auto opened = assets::Project::open(project);
+    REQUIRE(opened.has_value());
+    REQUIRE(assets::cook(game.assets(), *opened, {.outputDirectory = out}).has_value());
+  }
+  const auto picked = [](const std::vector<std::string> &messages) {
+    return static_cast<int>(std::ranges::count_if(
+        messages, [](const std::string &line) { return line == "Physics crate picked up Crate coin: score 5"; }));
+  };
+  REQUIRE(picked(play(project)) == 1);
+  REQUIRE(picked(play(out / "game.sbundle")) == 1);
+  std::filesystem::remove_all(out);
 }
