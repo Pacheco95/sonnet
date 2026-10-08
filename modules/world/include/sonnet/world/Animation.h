@@ -112,7 +112,7 @@ private:
     float scaleWeight{0.0f};
     glm::vec4 rotation{0.0f};
     float rotationWeight{0.0f};
-    std::vector<float> morph; // a Weights channel's blend: sum of weight * value
+    std::vector<float> morph{}; // a Weights channel's blend: sum of weight * value
     float morphWeight{0.0f};
   };
 
