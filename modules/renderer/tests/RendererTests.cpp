@@ -1100,7 +1100,7 @@ TEST_CASE("a skinned box whose bind pose is out of view is not culled", "[render
     for (Vertex &vertex : data.vertices) {
       vertex.position.x += 20.0f;
     }
-    const MeshHandle box = renderer.createMesh(std::move(data), "far skinned box");
+    const MeshHandle box = renderer.createMesh(data, "far skinned box");
     const std::array joints{glm::translate(glm::mat4{1.0f}, glm::vec3{-20.0f, 0.0f, 0.0f})};
     const std::array draws{DrawItem{.mesh = box, .firstJoint = 0, .jointCount = 1, .skinInstance = 1}};
     SceneView view = boxScene(draws);
@@ -1126,7 +1126,7 @@ TEST_CASE("a morphed box whose bind pose is out of view is not culled", "[render
     }
     data.morphTargetCount = 1;
     data.morphDeltas.assign(data.vertices.size(), MorphDelta{.position = {-20.0f, 0.0f, 0.0f}});
-    const MeshHandle box = renderer.createMesh(std::move(data), "far morphed box");
+    const MeshHandle box = renderer.createMesh(data, "far morphed box");
     const std::array<float, 1> weights{1.0f};
     const std::array draws{DrawItem{.mesh = box, .skinInstance = 1, .firstMorphWeight = 0, .morphWeightCount = 1}};
     SceneView view = boxScene(draws);
