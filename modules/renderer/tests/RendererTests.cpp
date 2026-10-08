@@ -2507,6 +2507,16 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
       GpuScene scene{device, renderer, {1920, 1080}};
       constexpr int frames = 30;
       scene.render(view, frames);
+      // Per-pass timestamps are a sample of one frame, and MoltenVK builds them from encoder
+      // boundaries, so also time a long run end to end: frames submitted back to back and one
+      // wait at the end, which no timestamp enters into.
+      constexpr int timedFrames = 120;
+      const auto timedStart = std::chrono::steady_clock::now();
+      scene.render(view, timedFrames);
+      const double wallMilliseconds =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timedStart).count();
+      WARN(std::format("wall clock: {:.3f} ms per frame over {} frames submitted back to back",
+                       wallMilliseconds / timedFrames, timedFrames));
       // The last frame's timings are those of the frame two before it, complete by now.
       float total = 0.0f;
       for (const PassTiming &pass : scene.graph.statistics().passes) {
