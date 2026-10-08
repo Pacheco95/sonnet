@@ -11,7 +11,7 @@ TEST_CASE("channels sample linearly, spherically for rotations, and hold outside
                                      .path = AnimationPath::Translation,
                                      .interpolation = Interpolation::Linear,
                                      .times = {1.0f, 3.0f},
-                                     .values = {{0.0f, 0.0f, 0.0f, 0.0f}, {4.0f, 2.0f, 0.0f, 0.0f}}};
+                                     .values = {0.0f, 0.0f, 0.0f, 4.0f, 2.0f, 0.0f}};
   REQUIRE(sample(translation, 2.0f).x == Approx(2.0f));
   REQUIRE(sample(translation, 2.0f).y == Approx(1.0f));
   REQUIRE(sample(translation, 0.0f).x == Approx(0.0f));  // before the first key
@@ -22,7 +22,7 @@ TEST_CASE("channels sample linearly, spherically for rotations, and hold outside
                                   .path = AnimationPath::Rotation,
                                   .interpolation = Interpolation::Linear,
                                   .times = {0.0f, 1.0f},
-                                  .values = {{0.0f, 0.0f, 0.0f, 1.0f}, {turn.x, turn.y, turn.z, turn.w}}};
+                                  .values = {0.0f, 0.0f, 0.0f, 1.0f, turn.x, turn.y, turn.z, turn.w}};
   // A quarter of the way along the arc is a 30 degree turn, which a component-wise blend would
   // not give.
   const glm::vec4 middle = sample(rotation, 0.25f);
@@ -39,7 +39,7 @@ TEST_CASE("step channels jump at their keys and cubic splines follow their tange
                               .path = AnimationPath::Scale,
                               .interpolation = Interpolation::Step,
                               .times = {0.0f, 1.0f, 2.0f},
-                              .values = {{1.0f, 1.0f, 1.0f, 0.0f}, {2.0f, 2.0f, 2.0f, 0.0f}, {3.0f, 3.0f, 3.0f, 0.0f}}};
+                              .values = {1.0f, 1.0f, 1.0f, 2.0f, 2.0f, 2.0f, 3.0f, 3.0f, 3.0f}};
   REQUIRE(sample(step, 0.99f).x == Approx(1.0f));
   REQUIRE(sample(step, 1.0f).x == Approx(2.0f));
   REQUIRE(sample(step, 1.5f).x == Approx(2.0f));
@@ -49,13 +49,13 @@ TEST_CASE("step channels jump at their keys and cubic splines follow their tange
                         .path = AnimationPath::Translation,
                         .interpolation = Interpolation::CubicSpline,
                         .times = {0.0f, 2.0f},
-                        .values = {glm::vec4{0.0f}, glm::vec4{0.0f}, glm::vec4{0.0f}, glm::vec4{0.0f},
-                                   glm::vec4{4.0f, 0.0f, 0.0f, 0.0f}, glm::vec4{0.0f}}};
+                        .values = std::vector<float>(18, 0.0f)};
+  flat.values[12] = 4.0f; // key 1's value
   REQUIRE(sample(flat, 1.0f).x == Approx(2.0f));
   REQUIRE(sample(flat, 0.5f).x < 1.0f); // eased in, behind the linear 1.0
   // Tangents matching the slope make the spline a straight line: 2 per second over the key span.
-  flat.values[2] = glm::vec4{2.0f, 0.0f, 0.0f, 0.0f};
-  flat.values[3] = glm::vec4{2.0f, 0.0f, 0.0f, 0.0f};
+  flat.values[6] = 2.0f; // key 0's out-tangent
+  flat.values[9] = 2.0f; // key 1's in-tangent
   REQUIRE(sample(flat, 0.5f).x == Approx(1.0f));
   REQUIRE(sample(flat, 2.0f).x == Approx(4.0f));
 }

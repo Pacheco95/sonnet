@@ -439,7 +439,14 @@ std::vector<std::byte> encodeAnimation(const AnimationClip &clip) {
     writer.u32(static_cast<std::uint32_t>(channel.path));
     writer.u32(static_cast<std::uint32_t>(channel.interpolation));
     writer.array(std::span{channel.times});
+    writer.u32(channel.weightCount);
     writer.array(std::span{channel.values});
+  }
+  writer.u32(static_cast<std::uint32_t>(clip.events.size()));
+  for (const AnimationEvent &event : clip.events) {
+    writer.f32(event.time);
+    writer.string(event.name);
+    writer.string(event.argument);
   }
   return writer.take();
 }
@@ -461,7 +468,18 @@ core::Result<AnimationClip> decodeAnimation(std::span<const std::byte> payload) 
     channel.path = static_cast<AnimationPath>(reader.u32());
     channel.interpolation = static_cast<Interpolation>(reader.u32());
     reader.array(channel.times);
+    channel.weightCount = reader.u32();
     reader.array(channel.values);
+  }
+  const std::uint32_t events = reader.u32();
+  if (!reader.ok() || events > reader.remaining() / sizeof(std::uint32_t)) {
+    return std::unexpected(payloadError("the clip is truncated"));
+  }
+  clip.events.resize(events);
+  for (AnimationEvent &event : clip.events) {
+    event.time = reader.f32();
+    event.name = reader.string();
+    event.argument = reader.string();
   }
   if (!reader.ok()) {
     return std::unexpected(payloadError("the clip is truncated"));

@@ -9,9 +9,12 @@
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
 
+#include <simdjson.h>
+
 #include <algorithm>
 #include <array>
 #include <format>
+#include <map>
 #include <span>
 #include <variant>
 
@@ -202,6 +205,38 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::
 
 } // namespace
 
+namespace {
+
+// The "events" array of an animation's extras: [{"time": 0.4, "name": "footstep", "argument": "left"}].
+void readAnimationEvents(simdjson::dom::object *extras, std::size_t index, fastgltf::Category category, void *user) {
+  if (category != fastgltf::Category::Animations || extras == nullptr) {
+    return;
+  }
+  simdjson::dom::array events;
+  if ((*extras)["events"].get_array().get(events) != simdjson::SUCCESS) {
+    return;
+  }
+  auto &out = *static_cast<std::map<std::size_t, std::vector<AnimationEvent>> *>(user);
+  for (simdjson::dom::element element : events) {
+    simdjson::dom::object object;
+    double time = 0.0;
+    std::string_view name;
+    if (element.get_object().get(object) != simdjson::SUCCESS ||
+        object["time"].get_double().get(time) != simdjson::SUCCESS ||
+        object["name"].get_string().get(name) != simdjson::SUCCESS) {
+      continue;
+    }
+    std::string_view argument;
+    if (object["argument"].get_string().get(argument) != simdjson::SUCCESS) {
+      argument = {};
+    }
+    out[index].push_back(
+        {.time = static_cast<float>(time), .name = std::string{name}, .argument = std::string{argument}});
+  }
+}
+
+} // namespace
+
 core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
   SONNET_ZONE();
   auto buffer = fastgltf::GltfDataBuffer::FromPath(path);
@@ -209,6 +244,9 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     return std::unexpected(gltfError(path, "reading", buffer.error()));
   }
   fastgltf::Parser parser;
+  std::map<std::size_t, std::vector<AnimationEvent>> animationEvents;
+  parser.setExtrasParseCallback(readAnimationEvents);
+  parser.setUserPointer(&animationEvents);
   const auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages |
                        fastgltf::Options::DecomposeNodeMatrices | fastgltf::Options::GenerateMeshIndices;
   auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), options);
@@ -382,22 +420,14 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     import.skins.push_back(std::move(out));
   }
 
-  // Animations: translation, rotation and scale channels; morph target weights are not played.
+  // Animations: translation, rotation, scale and morph target weight channels, and the events
+  // the file's extras name.
   for (std::size_t a = 0; a < asset.animations.size(); ++a) {
     const fastgltf::Animation &animation = asset.animations[a];
     GltfAnimation out{.name = nameOr(animation.name, "animation", a), .clip = {}};
-    bool warnedWeights = false;
     for (const fastgltf::AnimationChannel &channel : animation.channels) {
       if (!channel.nodeIndex.has_value() || *channel.nodeIndex >= asset.nodes.size() || !visited[*channel.nodeIndex] ||
           channel.samplerIndex >= animation.samplers.size()) {
-        continue;
-      }
-      if (channel.path == fastgltf::AnimationPath::Weights) {
-        if (!warnedWeights) {
-          SONNET_LOG_WARN("{}: animation \"{}\" drives morph target weights, which are not played", path.string(),
-                          out.name);
-          warnedWeights = true;
-        }
         continue;
       }
       const fastgltf::AnimationSampler &sampler = animation.samplers[channel.samplerIndex];
@@ -405,6 +435,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       result.target = paths[*channel.nodeIndex];
       result.path = channel.path == fastgltf::AnimationPath::Translation ? AnimationPath::Translation
                     : channel.path == fastgltf::AnimationPath::Rotation  ? AnimationPath::Rotation
+                    : channel.path == fastgltf::AnimationPath::Weights   ? AnimationPath::Weights
                                                                          : AnimationPath::Scale;
       result.interpolation = sampler.interpolation == fastgltf::AnimationInterpolation::Step ? Interpolation::Step
                              : sampler.interpolation == fastgltf::AnimationInterpolation::CubicSpline
@@ -413,21 +444,36 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       fastgltf::iterateAccessor<float>(asset, asset.accessors[sampler.inputAccessor],
                                        [&](float time) { result.times.push_back(time); });
       const fastgltf::Accessor &output = asset.accessors[sampler.outputAccessor];
-      if (result.path == AnimationPath::Rotation) {
-        fastgltf::iterateAccessor<glm::vec4>(asset, output, [&](glm::vec4 value) { result.values.push_back(value); });
-      } else {
-        fastgltf::iterateAccessor<glm::vec3>(asset, output,
-                                             [&](glm::vec3 value) { result.values.emplace_back(value, 0.0f); });
-      }
       const std::size_t stride = result.interpolation == Interpolation::CubicSpline ? 3 : 1;
-      if (result.times.empty() || result.values.size() != result.times.size() * stride ||
-          !std::ranges::is_sorted(result.times)) {
+      if (result.path == AnimationPath::Rotation) {
+        fastgltf::iterateAccessor<glm::vec4>(asset, output, [&](glm::vec4 value) {
+          result.values.insert(result.values.end(), {value.x, value.y, value.z, value.w});
+        });
+      } else if (result.path == AnimationPath::Weights) {
+        fastgltf::iterateAccessor<float>(asset, output, [&](float value) { result.values.push_back(value); });
+        // The output holds one weight per target for each of the keys' values.
+        const std::size_t values = result.times.size() * stride;
+        result.weightCount = values == 0 ? 0 : static_cast<std::uint32_t>(result.values.size() / values);
+      } else {
+        fastgltf::iterateAccessor<glm::vec3>(asset, output, [&](glm::vec3 value) {
+          result.values.insert(result.values.end(), {value.x, value.y, value.z});
+        });
+      }
+      if (result.times.empty() || result.values.size() != result.times.size() * stride * width(result) ||
+          width(result) == 0 || !std::ranges::is_sorted(result.times)) {
         SONNET_LOG_WARN("{}: animation \"{}\" has a malformed channel for \"{}\", skipped", path.string(), out.name,
                         result.target);
         continue;
       }
       out.clip.duration = std::max(out.clip.duration, result.times.back());
       out.clip.channels.push_back(std::move(result));
+    }
+    if (const auto events = animationEvents.find(a); events != animationEvents.end()) {
+      out.clip.events = events->second;
+      std::ranges::stable_sort(out.clip.events, {}, &AnimationEvent::time);
+      for (const AnimationEvent &event : out.clip.events) {
+        out.clip.duration = std::max(out.clip.duration, event.time);
+      }
     }
     import.animations.push_back(std::move(out));
   }

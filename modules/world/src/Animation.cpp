@@ -155,6 +155,8 @@ void AnimationSystem::play(float dt) {
       case assets::AnimationPath::Scale:
         transform.scale = glm::vec3{value};
         break;
+      case assets::AnimationPath::Weights:
+        break; // morph weights are applied by the layer blending that follows (ADR-0023)
       }
     }
     flush();
