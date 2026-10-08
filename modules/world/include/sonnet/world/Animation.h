@@ -137,7 +137,7 @@ private:
   std::unordered_map<LayerKey, Binding, LayerKeyHash> m_clipBindings;
   std::unordered_map<flecs::entity_t, PlayState> m_states;
   std::vector<Active> m_active;                                   // scratch, reused every frame
-  std::vector<float> m_values; // scratch: one sampled value
+  std::vector<float> m_values;                                    // scratch: one sampled value
   std::vector<TargetPose> m_poses;                                // scratch
   std::unordered_map<flecs::entity_t, std::uint32_t> m_poseIndex; // scratch: target -> m_poses
   std::vector<AnimationEventRecord> m_events;

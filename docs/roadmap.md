@@ -597,12 +597,26 @@ Deferred: repeated members are not visible from Lua (`entity:get("Scripts")` lea
 
 ## M12: Animation and effects
 
-- ADR first: where morph targets and particle simulation run.
+- [ADR-0023](decisions/0023-animation-blending-morph-targets-and-particles.md), accepted first: morph targets run in the skinning pass, blending is by layer with crossfade a fade of layers, animation events are data that `world` records and `scripting` delivers, and particles are simulated in a compute pass of their own and drawn with one indirect call each.
 - `world` and `assets`: blending and crossfades between clips, animation events that call script functions, several clips on one entity, root motion.
 - Morph targets from glTF, in the skinning compute pass.
 - Particles: an emitter component, simulated in a compute pass and drawn indirectly with the machinery of [M7](#m7-gpu-driven-rendering), previewed in the editor.
 
 Done when a character crossfades from idle to walk with a footstep event, a morph-target sample plays, and a particle sample runs in the editor, the player, on Android and on iOS.
+
+1. ADR-0023, accepted before any code.
+2. `assets`: channel values are flat floats, `width` to a value, so a `Weights` channel carries one per morph target; clips carry events, read from the `events` array of a glTF animation's `extras`; the cooked clip and mesh payloads follow and the bundle's version becomes 2.
+3. `world`: `Animator` gains `fade`, `rootMotion`, `rootBone` and `layers` (`AnimationLayer`, a repeated member); playback blends every layer's channels per target by weight, a clip assigned over another with a fade becomes a layer that loses its weight, root motion moves the animator's entity by what the root bone moved, across loops too, and `AnimationSystem::events()` lists the events crossed in the last `Update`.
+4. `scripting`: `onAnimationEvent(self, name, argument)`; the animation system is constructed before the script runtime so an event reaches the scripts in the frame it happens.
+5. `renderer`: morph targets in `skin.slang`, ahead of the skinning, for a draw with `morphWeightCount` weights from `SceneView::morphWeights` and a skin instance; a mesh keeps at most 8 targets.
+6. `assets` and `world`: the importer reads targets, weights and `Weights` channels, `ModelNode::morphWeights` carries the file's weights into the prefab's `MorphWeights`, `cookMesh` reorders a morphed mesh without welding it, and `buildDrawList` hands the weights to the renderer.
+7. `renderer`: `particles.slang`, the `particles` compute pass and the draw after the blended meshes ([rendering.md](rendering.md#particles)).
+8. `world`, `editor` and `runtime`: the `ParticleEmitter` component and its draw-list items, previews of selected emitters in edit mode with a Restart button, and the player.
+9. `samples`: the basic sample's start scene gains a walker that crossfades between "Idle" and "Walk" every three seconds and counts its footsteps, a jelly that wobbles through a morph target, and a sparkler; the version becomes 0.13.0.
+
+Done on the desktop: `runtime_tests` plays the start scene from its project folder and from the cooked bundle and finds the same footsteps (`Walker: left footstep 1` and the next) and the jelly's morph weight at 1, the walker crossfading with the idle clip as a layer for 0.4 seconds; `world_tests` covers crossfades, events across loops, root motion across the loop's wrap and a Weights channel reaching the draw list; `renderer_tests` checks a morphed box on a GPU, an emitter's passes and buffers on the null device, a second view drawing without advancing an emitter, and that two renderers given the same emitter and frames draw the same pixels on Lavapipe; `editor_tests` checks that an emitter previews only while selected. On an RTX 4090 in Release (Clang 22), `renderer_tests "[particles]"` with ten emitters of 20 000 slots, about 175 000 live at 1080p and a scene of nothing else: the simulation takes 0.014 ms of GPU time, the forward pass with the particles 0.136 ms, and recording both 0.008 ms of CPU. The Android player library builds with NDK r30, including `particles.slang` through the Adreno rewrite.
+
+Not done here: the criterion's Android and iOS halves. No phone was attached, so the particle shaders' pointer reads and the morph targets have not run on an Adreno or an Apple GPU, and the Adreno rewrite's two known compiler bugs ([M9](#the-adreno-shader-compiler)) are the likeliest place for a surprise; the iOS build needs the Mac. Both are the first device checks of the next session that has the hardware. Deferred: sidecar `animationEvents` (events come from the glTF only, so an author edits the file), masks and additive layers, rotation root motion, sparse morph deltas, sorting and sprite sheets inside an emitter, particle collisions and trails, a depth pyramid for particles and soft edges against the scene, and culling by morphed bounds.
 
 ## M13: Rendering quality
 

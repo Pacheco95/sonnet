@@ -2385,6 +2385,49 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
   measure(*device);
 }
 
+// What particles cost (ADR-0023): `renderer_tests "[particles]"` fills ten emitters up to about a
+// hundred and seventy thousand live particles at 1080p and prints the GPU time of the passes that simulate
+// and draw them, and the CPU time of the frame.
+TEST_CASE("ten emitters of twenty thousand particles at 1080p", "[.][benchmark][particles][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), {}};
+    std::vector<ParticleEmitterItem> emitters;
+    for (std::uint64_t i = 0; i < 10; ++i) {
+      ParticleEmitterItem item = glowEmitter();
+      item.key = i + 1;
+      item.transform = glm::translate(glm::mat4{1.0f}, glm::vec3{static_cast<float>(i) - 5.0f, 0.0f, 0.0f});
+      item.maxParticles = 20000;
+      item.rate = 10000.0f; // a second of life and a half at that rate leaves about 17 500 alive of 20 000
+      item.lifetime = {1.5f, 2.0f};
+      item.speed = {0.5f, 2.5f};
+      item.coneAngle = 1.2f;
+      item.sizeStart = 0.05f;
+      item.sizeEnd = 0.02f;
+      item.colorStart = {0.4f, 0.2f, 0.1f, 0.5f};
+      item.blend = i % 2 == 0 ? ParticleBlend::Additive : ParticleBlend::Alpha;
+      emitters.push_back(item);
+    }
+    SceneView view;
+    view.camera.position = {0.0f, 1.0f, 9.0f};
+    view.particles = emitters;
+    view.deltaTime = 1.0f / 60.0f;
+    GpuScene scene{*device, renderer, {1920, 1080}};
+    scene.render(view, 150); // two and a half seconds, so every ring has filled
+    for (const PassTiming &pass : scene.graph.statistics().passes) {
+      if (pass.name == "particles" || pass.name == "forward") {
+        WARN(
+            std::format("{:<12} {:8.3f} ms GPU {:8.3f} ms CPU", pass.name, pass.gpuMilliseconds, pass.cpuMilliseconds));
+      }
+    }
+    WARN(std::format("{} emitters, {} slots on {}", renderer.statistics().particleEmitterCount,
+                     renderer.statistics().particleSlotCount, device->info().deviceName));
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 // What a second view costs (docs/decisions/0021-two-views-in-one-frame.md): the same objects and
 // lights through two cameras into two 1080p targets, against one. The showcase sample has about
 // 440 mesh renderers and 67 lights; the second scale is the benchmark above.
