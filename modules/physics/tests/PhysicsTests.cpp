@@ -616,7 +616,8 @@ TEST_CASE("events come in the same order whatever the worker count", "[physics][
     for (int i = 0; i < 40; ++i) {
       const flecs::entity box = fixture.world.createEntity("Box");
       const float x = static_cast<float>(i % 8) - 3.5f;
-      const float z = static_cast<float>(i / 8) - 2.0f;
+      const int row = i / 8;
+      const float z = static_cast<float>(row) - 2.0f;
       box.set<world::Transform>({.position = {x * 0.9f, 1.0f + static_cast<float>(i % 3) * 1.2f, z * 0.9f}});
       box.set<physics::BoxCollider>({.halfExtents = {0.4f, 0.4f, 0.4f}});
       box.set<physics::RigidBody>({});
@@ -648,8 +649,9 @@ TEST_CASE("more events than the cap in one step are counted and dropped from the
   const int bodies = static_cast<int>(physics::IPhysicsWorld::MaxContactEvents) + 300;
   for (int i = 0; i < bodies; ++i) {
     const flecs::entity ball = fixture.world.createEntity("Ball");
+    const int line = i / 40;
     ball.set<world::Transform>(
-        {.position = {static_cast<float>(i % 40) - 20.0f, 0.0f, static_cast<float>(i / 40) - 15.0f}});
+        {.position = {static_cast<float>(i % 40) - 20.0f, 0.0f, static_cast<float>(line) - 15.0f}});
     ball.set<physics::SphereCollider>({.radius = 0.2f});
     ball.set<physics::RigidBody>({.gravityScale = 0.0f});
   }

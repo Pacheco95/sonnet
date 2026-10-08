@@ -96,15 +96,15 @@ void releaseJolt() {
 
 // ---- Layers: static bodies only meet moving ones ----
 
-namespace Layers {
+namespace layers {
 constexpr JPH::ObjectLayer NonMoving = 0;
 constexpr JPH::ObjectLayer Moving = 1;
-} // namespace Layers
+} // namespace layers
 
-namespace BroadPhaseLayers {
+namespace broad_phase_layers {
 constexpr JPH::BroadPhaseLayer NonMoving{0};
 constexpr JPH::BroadPhaseLayer Moving{1};
-} // namespace BroadPhaseLayers
+} // namespace broad_phase_layers
 
 class LayerInterface final : public JPH::BroadPhaseLayerInterface {
 public:
@@ -112,11 +112,11 @@ public:
     return 2;
   }
   [[nodiscard]] JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override {
-    return layer == Layers::NonMoving ? BroadPhaseLayers::NonMoving : BroadPhaseLayers::Moving;
+    return layer == layers::NonMoving ? broad_phase_layers::NonMoving : broad_phase_layers::Moving;
   }
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
   [[nodiscard]] const char *GetBroadPhaseLayerName(JPH::BroadPhaseLayer layer) const override {
-    return layer == BroadPhaseLayers::NonMoving ? "NonMoving" : "Moving";
+    return layer == broad_phase_layers::NonMoving ? "NonMoving" : "Moving";
   }
 #endif
 };
@@ -124,14 +124,14 @@ public:
 class ObjectVsBroadPhaseFilter final : public JPH::ObjectVsBroadPhaseLayerFilter {
 public:
   [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer layer, JPH::BroadPhaseLayer broadPhase) const override {
-    return layer == Layers::Moving || broadPhase == BroadPhaseLayers::Moving;
+    return layer == layers::Moving || broadPhase == broad_phase_layers::Moving;
   }
 };
 
 class ObjectPairFilter final : public JPH::ObjectLayerPairFilter {
 public:
   [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
-    return a == Layers::Moving || b == Layers::Moving;
+    return a == layers::Moving || b == layers::Moving;
   }
 };
 
@@ -782,7 +782,7 @@ private:
                                     : settings.type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
                                                                            : JPH::EMotionType::Dynamic;
     JPH::BodyCreationSettings creation{shape, toJolt(placed.position), toJolt(placed.rotation), motion,
-                                       settings.type == BodyType::Static ? Layers::NonMoving : Layers::Moving};
+                                       settings.type == BodyType::Static ? layers::NonMoving : layers::Moving};
     creation.mFriction = settings.friction;
     creation.mRestitution = settings.restitution;
     creation.mLinearDamping = settings.linearDamping;

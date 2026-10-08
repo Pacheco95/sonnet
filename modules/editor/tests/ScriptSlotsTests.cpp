@@ -19,6 +19,7 @@ scripting::Scripts three(const core::Uuid &a, const core::Uuid &b, const core::U
 
 std::vector<core::Uuid> scriptsOf(const scripting::Scripts &scripts) {
   std::vector<core::Uuid> result;
+  result.reserve(scripts.slots.size());
   for (const scripting::ScriptSlot &slot : scripts.slots) {
     result.push_back(slot.script);
   }

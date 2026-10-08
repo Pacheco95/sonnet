@@ -572,7 +572,8 @@ namespace {
 
 constexpr const char *Listener = R"lua(
   local Listener = {}
-  local function fmt(v) return string.format("%.1f,%.1f,%.1f", v.x, v.y, v.z) end
+  -- Adding zero turns -0.0 into 0.0, which some platforms print with its sign.
+  local function fmt(v) return string.format("%.1f,%.1f,%.1f", v.x + 0, v.y + 0, v.z + 0) end
   function Listener:onContactBegin(other, contact)
     self.began = true
     print("@begin " .. self.entity:name() .. " " .. other:name() .. " " .. fmt(contact.normal))
