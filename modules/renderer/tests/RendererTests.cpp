@@ -62,6 +62,7 @@ RendererSettings testSettings() {
                           .bloom = false,
                           .bloomLevels = 2,
                           .antialiasing = false,
+                          .occlusionCulling = false,
                           .environmentSize = 8,
                           .irradianceSize = 4,
                           .irradianceSamples = 8,
@@ -1086,6 +1087,157 @@ TEST_CASE("a skinned box follows its joint on a GPU", "[renderer][gpu]") {
     renderer.destroyMesh(box);
   }
   REQUIRE(device->validationMessageCount() == 0);
+}
+
+// The bind pose is twenty metres to the right, far outside the view; only the joint's matrix brings
+// the box in front of the camera. Culling by the bind-pose bounds would cull it (ADR-0024).
+TEST_CASE("a skinned box whose bind pose is out of view is not culled", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    MeshData data = skinnedBox();
+    for (Vertex &vertex : data.vertices) {
+      vertex.position.x += 20.0f;
+    }
+    const MeshHandle box = renderer.createMesh(data, "far skinned box");
+    const std::array joints{glm::translate(glm::mat4{1.0f}, glm::vec3{-20.0f, 0.0f, 0.0f})};
+    const std::array draws{DrawItem{.mesh = box, .firstJoint = 0, .jointCount = 1, .skinInstance = 1}};
+    SceneView view = boxScene(draws);
+    view.joints = joints;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2);
+    const Pixel centre = scene.pixel(32, 32);
+    REQUIRE(centre.r + centre.g + centre.b > 60);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a morphed box whose bind pose is out of view is not culled", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    MeshData data = primitives::box();
+    for (Vertex &vertex : data.vertices) {
+      vertex.position.x += 20.0f;
+    }
+    data.morphTargetCount = 1;
+    data.morphDeltas.assign(data.vertices.size(), MorphDelta{.position = {-20.0f, 0.0f, 0.0f}});
+    const MeshHandle box = renderer.createMesh(data, "far morphed box");
+    const std::array<float, 1> weights{1.0f};
+    const std::array draws{DrawItem{.mesh = box, .skinInstance = 1, .firstMorphWeight = 0, .morphWeightCount = 1}};
+    SceneView view = boxScene(draws);
+    view.morphWeights = weights;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2);
+    const Pixel centre = scene.pixel(32, 32);
+    REQUIRE(centre.r + centre.g + centre.b > 60);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// A wall in front of boxes it hides, and a camera that slides along it until the boxes peek out
+// past its edge. Occlusion culling must change which draws are submitted and never a pixel
+// (ADR-0024), so the same frames drawn with and without it are compared byte for byte.
+TEST_CASE("occlusion culling draws the same pixels as frustum culling while the camera moves",
+          "[renderer][occlusion][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings off = testSettings();
+    RendererSettings on = off;
+    on.occlusionCulling = true;
+    Renderer frustumOnly{*device, shaderDir(platform), off};
+    Renderer occluding{*device, shaderDir(platform), on};
+    const MeshHandle boxA = frustumOnly.createMesh(primitives::box(), "box");
+    const MeshHandle boxB = occluding.createMesh(primitives::box(), "box");
+    const auto scene = [](MeshHandle box, std::vector<DrawItem> &draws) {
+      draws.clear();
+      draws.push_back(DrawItem{.mesh = box,
+                               .transform = glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 0.0f, 0.0f}),
+                                                       glm::vec3{4.0f, 4.0f, 0.2f}),
+                               .color = {0.8f, 0.2f, 0.2f, 1.0f}});
+      for (int i = -3; i <= 3; ++i) {
+        draws.push_back(
+            DrawItem{.mesh = box,
+                     .transform = glm::translate(glm::mat4{1.0f}, glm::vec3{1.5f * static_cast<float>(i), 0.0f, -3.0f}),
+                     .color = {0.2f, 0.7f, 0.3f, 1.0f}});
+      }
+    };
+    std::vector<DrawItem> drawsA;
+    std::vector<DrawItem> drawsB;
+    scene(boxA, drawsA);
+    scene(boxB, drawsB);
+    GpuScene sceneA{*device, frustumOnly, {64, 64}};
+    GpuScene sceneB{*device, occluding, {64, 64}};
+    for (int frame = 0; frame < 10; ++frame) {
+      SceneView viewA = boxScene(drawsA);
+      SceneView viewB = boxScene(drawsB);
+      viewA.camera.position.x = viewB.camera.position.x = 0.5f * static_cast<float>(frame);
+      sceneA.render(viewA, 1);
+      sceneB.render(viewB, 1);
+      const auto a = device->mappedRange(sceneA.readback);
+      const auto b = device->mappedRange(sceneB.readback);
+      REQUIRE(a.size() == b.size());
+      REQUIRE(std::equal(a.begin(), a.end(), b.begin()));
+      REQUIRE(device->validationMessageCount() == 0);
+    }
+    // A camera that stays behind the wall: the counts read back are those of a frame
+    // FramesInFlight earlier, and the boxes behind the wall were not drawn, where the
+    // frustum-only run drew them.
+    SceneView stillA = boxScene(drawsA);
+    SceneView stillB = boxScene(drawsB);
+    for (int frame = 0; frame < 8; ++frame) {
+      sceneA.render(stillA, 1);
+      sceneB.render(stillB, 1);
+    }
+    REQUIRE(occluding.statistics().visibleCountsKnown);
+    REQUIRE(frustumOnly.statistics().visibleCountsKnown);
+    INFO("frustum " << frustumOnly.statistics().visibleDrawCount << " occlusion "
+                    << occluding.statistics().visibleDrawCount);
+    REQUIRE(occluding.statistics().visibleDrawCount + 2 <= frustumOnly.statistics().visibleDrawCount);
+    REQUIRE(occluding.statistics().visibleTriangleCount < frustumOnly.statistics().visibleTriangleCount);
+    frustumOnly.destroyMesh(boxA);
+    occluding.destroyMesh(boxB);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("occlusion culling adds the pyramid and the second phase to the depth passes",
+          "[renderer][occlusion][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  RendererSettings settings = testSettings();
+  settings.occlusionCulling = true;
+  Renderer renderer{*device, shaderDir(platform), settings};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const std::array draws{DrawItem{.mesh = box}};
+  const SceneView view = boxScene(draws);
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  std::vector<std::string> names;
+  for (const PassTiming &pass : graph.statistics().passes) {
+    names.push_back(pass.name);
+  }
+  const auto position = [&](std::string_view name) { return std::ranges::find(names, name) - names.begin(); };
+  REQUIRE(hasPass(graph, "depth pyramid"));
+  REQUIRE(position("depth") < position("depth pyramid"));
+  REQUIRE(position("depth pyramid") < position("occlusion cull"));
+  REQUIRE(position("occlusion cull") < position("depth late"));
+  REQUIRE(position("depth late") < position("forward"));
+  renderer.destroyMesh(box);
 }
 
 // A box with one morph target that slides every vertex 1.5 m to the right at weight 1.
@@ -2302,9 +2454,11 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     return desc;
   }()};
   // One scene, measured on the device given; the renderer and everything it made are gone after.
-  const auto measure = [&](IDevice &device) {
+  // `occluded` puts a wall between the camera and most of the grid; `occlusion` turns the
+  // depth-pyramid culling (ADR-0024) on or off.
+  const auto measure = [&](IDevice &device, bool occlusion, bool occluded) {
     {
-      Renderer renderer{device, shaderDir(platform), {.jobs = &jobs}};
+      Renderer renderer{device, shaderDir(platform), {.occlusionCulling = occlusion, .jobs = &jobs}};
       const MeshHandle box = renderer.createMesh(primitives::box(), "box");
       const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
       MaterialDesc rough;
@@ -2337,12 +2491,32 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
       SceneView view;
       view.camera.position = {0.0f, 12.0f, 40.0f};
       view.camera.rotation = glm::angleAxis(glm::radians(-18.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+      if (occluded) {
+        // Level, low and behind a wall as wide and tall as the grid's near edge.
+        draws.push_back({.mesh = box,
+                         .material = material,
+                         .transform = glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 6.0f, 60.0f}),
+                                                 glm::vec3{200.0f, 14.0f, 1.0f}),
+                         .id = static_cast<std::uint32_t>(draws.size() + 1)});
+        view.camera.position = {0.0f, 2.0f, 70.0f};
+        view.camera.rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
+      }
       view.draws = draws;
       view.lights = lights;
       view.environment = environment;
       GpuScene scene{device, renderer, {1920, 1080}};
       constexpr int frames = 30;
       scene.render(view, frames);
+      // Per-pass timestamps are a sample of one frame, and MoltenVK builds them from encoder
+      // boundaries, so also time a long run end to end: frames submitted back to back and one
+      // wait at the end, which no timestamp enters into.
+      constexpr int timedFrames = 120;
+      const auto timedStart = std::chrono::steady_clock::now();
+      scene.render(view, timedFrames);
+      const double wallMilliseconds =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timedStart).count();
+      WARN(std::format("wall clock: {:.3f} ms per frame over {} frames submitted back to back",
+                       wallMilliseconds / timedFrames, timedFrames));
       // The last frame's timings are those of the frame two before it, complete by now.
       float total = 0.0f;
       for (const PassTiming &pass : scene.graph.statistics().passes) {
@@ -2355,6 +2529,10 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
                        renderer.statistics().triangleCount, total, device.info().deviceName));
       WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
                        renderer.statistics().indirectCallCount, Renderer::CullJobsOpaque));
+      WARN(std::format("{} of {} draws survived culling ({} triangles), {} shadow draws, occlusion {}, wall {}",
+                       renderer.statistics().visibleDrawCount, renderer.statistics().drawCount,
+                       renderer.statistics().visibleTriangleCount, renderer.statistics().visibleShadowDrawCount,
+                       occlusion ? "on" : "off", occluded ? "yes" : "no"));
       // The first frames compile pipelines and upload the scene; the rest are the steady state.
       std::vector<double> submits{scene.submitMilliseconds.begin() + 5, scene.submitMilliseconds.end()};
       std::ranges::sort(submits);
@@ -2368,11 +2546,12 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
       WARN(std::format("CPU per frame: {:.3f} ms recording the passes, {:.3f} ms submitting (median of {}, "
                        "worst {:.3f} ms)",
                        recording, submits[submits.size() / 2], submits.size(), submits.back()));
-      REQUIRE(renderer.statistics().drawCount == side * side);
+      REQUIRE(renderer.statistics().drawCount == draws.size());
       // Two meshes, so two batches, and one instanced command each in the four cascades, the
       // pre-pass and the forward pass: what used to be sixty thousand draw calls (ADR-0012), and
-      // sixty thousand commands after them (ADR-0016).
-      REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);
+      // sixty thousand commands after them (ADR-0016). The occlusion pass adds the pre-pass's late
+      // command. The wall shares the box's batch.
+      REQUIRE(renderer.statistics().indirectCallCount == 2 * (Renderer::CullJobsOpaque + (occlusion ? 1u : 0u)));
       REQUIRE(device.validationMessageCount() == 0);
       renderer.destroyEnvironment(environment);
       renderer.destroyMaterial(material);
@@ -2382,7 +2561,10 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
     REQUIRE(device.validationMessageCount() == 0);
   };
   std::unique_ptr<IDevice> device = gpuDevice(platform);
-  measure(*device);
+  measure(*device, false, false);
+  measure(*device, true, false);
+  measure(*device, false, true);
+  measure(*device, true, true);
 }
 
 // What particles cost (ADR-0023): `renderer_tests "[particles]"` fills ten emitters up to about a

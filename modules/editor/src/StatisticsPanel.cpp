@@ -68,6 +68,11 @@ void StatisticsPanel::drawContents(bool compact) {
   }
 
   ImGui::Text("%u draws, %u triangles", m_current.renderer.drawCount, m_current.renderer.triangleCount);
+  if (m_current.renderer.visibleCountsKnown) {
+    // What the GPU kept, a few frames old (docs/rendering.md, "Occlusion culling").
+    ImGui::Text("%u drawn after culling, %u triangles", m_current.renderer.visibleDrawCount,
+                m_current.renderer.visibleTriangleCount);
+  }
   if (m_current.game) {
     ImGui::Text("game view: %u draws, %u triangles", m_current.game->drawCount, m_current.game->triangleCount);
   }

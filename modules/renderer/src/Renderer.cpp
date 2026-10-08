@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -163,10 +164,38 @@ struct CullConstants {
   std::uint32_t commandBase;  // the job's first command
   std::uint32_t visibleBase;  // the job's first slot in the visible list
   std::uint32_t selectedOnly; // the selection mask pass keeps only the selected draws
+  std::uint64_t pyramid;      // occlusion culling (ADR-0024): the pyramid to test against
+  std::uint64_t words;        // the state buffer: counters, then phase one's record of the candidates
+  std::uint32_t lateBase;     // the job's first late command
+  std::uint32_t flags;        // OcclusionTest, RecordState and HasCounter
+  std::uint32_t stateBase;    // the job's first word of that record
+  std::uint32_t counter;      // the pair of counters survivors are added to
 };
-static_assert(sizeof(CullConstants) == 96);
+static_assert(sizeof(CullConstants) == 128);
 static_assert(sizeof(CullConstants) <= rhi::PushConstantSize);
+constexpr std::uint32_t OcclusionTest = 1u << 0;
+constexpr std::uint32_t RecordState = 1u << 1;
+constexpr std::uint32_t HasCounter = 1u << 2;
+// The state buffer starts with every view's counters: the opaque scene draws and their triangles
+// that survived culling, then the shadow draws and theirs.
+constexpr std::uint32_t CounterViews = 8;
+constexpr std::uint32_t CounterWordsPerView = 4;
+constexpr std::uint32_t CounterWords = CounterViews * CounterWordsPerView;
+constexpr std::uint32_t NoCounter = 0xFFFFFFFFu;
 constexpr std::uint32_t CullThreads = 64;
+
+// Mirror of shaders/hiz.slang.
+struct HizConstants {
+  glm::mat4 viewProjection;
+  std::uint64_t pyramid;
+  glm::uvec2 depthSize;
+  glm::uvec2 size;
+  std::uint32_t levels;
+  std::uint32_t level;
+};
+static_assert(sizeof(HizConstants) == 96);
+static_assert(sizeof(HizConstants) <= rhi::PushConstantSize);
+constexpr std::uint32_t PyramidHeaderWords = 32;
 
 // Mirror of shaders/ibl.slang.
 struct IblConstants {
@@ -393,6 +422,11 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineCompute(m_clusterPipeline, "cluster", "computeMain", "light clustering");
   defineCompute(m_cullPipeline, "cull", "computeMain", "cull");
   defineCompute(m_clearCommandsPipeline, "cull", "clearCommands", "clear draw commands");
+  defineCompute(m_lateCullPipeline, "cull", "lateMain", "cull late");
+  defineCompute(m_publishCountersPipeline, "cull", "publishCounters", "publish counters");
+  defineCompute(m_mergeLatePipeline, "cull", "mergeLate", "merge late commands");
+  defineCompute(m_hizBasePipeline, "hiz", "buildBase", "depth pyramid base");
+  defineCompute(m_hizLevelPipeline, "hiz", "buildLevel", "depth pyramid level");
   defineCompute(m_equirectPipeline, "ibl", "equirectToCube", "equirect to cube");
   defineCompute(m_cubeMipPipeline, "ibl", "cubeMip", "cube mip");
   defineCompute(m_irradiancePipeline, "ibl", "irradiance", "irradiance");
@@ -401,6 +435,12 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineCompute(m_skinPipeline, "skin", "computeMain", "skinning");
   createPipelines(shaderDir);
   createDefaults();
+  for (CounterSlot &slot : m_counterSlots) {
+    slot.buffer = m_device.createBuffer({.size = std::uint64_t{CounterWords} * sizeof(std::uint32_t),
+                                         .usage = rhi::BufferUsage::Storage,
+                                         .memory = rhi::MemoryUsage::GpuToCpu,
+                                         .debugName = "survivor counters"});
+  }
   SONNET_LOG_DEBUG("renderer ready, shaders from {}", shaderDir.string());
 }
 
@@ -438,6 +478,19 @@ Renderer::~Renderer() {
   if (m_visibleBuffer) {
     m_device.destroyBuffer(m_visibleBuffer);
   }
+  if (m_stateBuffer) {
+    m_device.destroyBuffer(m_stateBuffer);
+  }
+  for (const CounterSlot &slot : m_counterSlots) {
+    if (slot.buffer) {
+      m_device.destroyBuffer(slot.buffer);
+    }
+  }
+  for (const Pyramid &pyramid : m_pyramids) {
+    if (pyramid.buffer) {
+      m_device.destroyBuffer(pyramid.buffer);
+    }
+  }
   m_device.destroyImage(m_brdfLut);
   m_device.destroySampler(m_shadowSampler);
   m_device.destroySampler(m_linearClampSampler);
@@ -454,6 +507,11 @@ Renderer::~Renderer() {
                                              m_irradiancePipeline,
                                              m_cubeMipPipeline,
                                              m_equirectPipeline,
+                                             m_hizLevelPipeline,
+                                             m_hizBasePipeline,
+                                             m_mergeLatePipeline,
+                                             m_lateCullPipeline,
+                                             m_publishCountersPipeline,
                                              m_clearCommandsPipeline,
                                              m_cullPipeline,
                                              m_clusterPipeline,
@@ -478,8 +536,9 @@ Renderer::~Renderer() {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 12> Names{
-      "cluster", "cull", "debug", "depth", "forward", "ibl", "id", "outline", "particles", "post", "skin", "skybox"};
+  static constexpr std::array<std::string_view, 13> Names{"cluster", "cull", "debug", "depth",   "forward",
+                                                          "hiz",     "ibl",  "id",    "outline", "particles",
+                                                          "post",    "skin", "skybox"};
   return Names;
 }
 
@@ -636,9 +695,59 @@ MeshHandle Renderer::createMesh(const MeshData &data, std::string debugName) {
   if (submeshes.empty()) {
     submeshes.push_back(Submesh{0, static_cast<std::uint32_t>(data.indices.size()), 0});
   }
-  const MeshHandle handle =
-      m_meshes.emplace(Mesh{std::move(debugName), vertices, indices, skin, morph, morphTargets,
-                            static_cast<std::uint32_t>(data.vertices.size()), std::move(submeshes), data.bounds()});
+  Mesh mesh{std::move(debugName),
+            vertices,
+            indices,
+            skin,
+            morph,
+            morphTargets,
+            static_cast<std::uint32_t>(data.vertices.size()),
+            std::move(submeshes),
+            data.bounds(),
+            {},
+            Bounds{glm::vec3{1.0f}, glm::vec3{-1.0f}},
+            {}};
+  if (skin) {
+    const Bounds none{glm::vec3{1.0f}, glm::vec3{-1.0f}};
+    std::uint32_t jointCount = 0;
+    for (const SkinWeights &weights : data.skin) {
+      for (int i = 0; i < 4; ++i) {
+        if (weights.weights[i] > 0.0f) {
+          jointCount = std::max(jointCount, weights.joints[i] + 1);
+        }
+      }
+    }
+    mesh.jointBounds.assign(jointCount, none);
+    const auto grow = [](Bounds &box, const glm::vec3 &point) {
+      if (box.min.x > box.max.x) {
+        box = Bounds{point, point};
+      } else {
+        box.min = glm::min(box.min, point);
+        box.max = glm::max(box.max, point);
+      }
+    };
+    for (std::size_t i = 0; i < data.skin.size(); ++i) {
+      const SkinWeights &weights = data.skin[i];
+      float total = 0.0f;
+      for (int j = 0; j < 4; ++j) {
+        total += weights.weights[j];
+        if (weights.weights[j] > 0.0f) {
+          grow(mesh.jointBounds[weights.joints[j]], data.vertices[i].position);
+        }
+      }
+      if (total <= 1.0e-6f) {
+        grow(mesh.unweightedBounds, data.vertices[i].position);
+      }
+    }
+  }
+  for (std::uint32_t target = 0; target < morphTargets; ++target) {
+    float reach = 0.0f;
+    for (std::size_t i = 0; i < data.vertices.size(); ++i) {
+      reach = std::max(reach, glm::length(data.morphDeltas[target * data.vertices.size() + i].position));
+    }
+    mesh.morphReach[target] = reach;
+  }
+  const MeshHandle handle = m_meshes.emplace(std::move(mesh));
   SONNET_LOG_DEBUG("mesh \"{}\": {} vertices, {} triangles, {} submeshes", m_meshes.get(handle).debugName,
                    data.vertices.size(), data.triangleCount(), m_meshes.get(handle).submeshes.size());
   return handle;
@@ -1146,6 +1255,8 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     m_viewCount = 0;
     m_commandsReserved = 0;
     m_visibleReserved = 0;
+    m_stateReserved = CounterWords;
+    readCounters();
   }
   // Once per view, however many passes ask.
   for (std::size_t i = 0; i < m_viewCount; ++i) {
@@ -1157,12 +1268,20 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     m_views.push_back(std::make_unique<ViewState>());
   }
   ViewState &v = *m_views[m_viewCount++];
+  v.index = m_viewCount - 1;
   v.view = &view;
   v.targetSize = targetSize;
   v.cascadesActive = false;
   v.localShadows.clear();
   v.frameBuffers = {};
   v.statistics = {};
+  if (v.index < m_visibleCounts.size() && m_visibleCounts[v.index].known) {
+    const VisibleCounts &counts = m_visibleCounts[v.index];
+    v.statistics.visibleCountsKnown = true;
+    v.statistics.visibleDrawCount = counts.draws;
+    v.statistics.visibleTriangleCount = counts.triangles;
+    v.statistics.visibleShadowDrawCount = counts.shadowDraws;
+  }
   v.resolved.clear();
   v.skinJobs.clear();
   v.particleJobs.clear();
@@ -1185,15 +1304,15 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     const Material *material = m_materials.find(item.material);
     const MaterialDesc &desc = material != nullptr ? material->desc : MaterialDesc{};
     const glm::vec4 viewPosition = cameraView * item.transform[3];
-    // The world-space box the culling pass tests: the mesh's bounds through the transform, the
-    // eight corners rather than the transformed extent so a rotation stays conservative. A
-    // skinned draw is culled by its bind pose, which ADR-0012 accepts.
+    // The world-space box the culling pass tests: the draw's posed bounds through the transform,
+    // the eight corners rather than the transformed extent so a rotation stays conservative.
+    const Bounds posed = posedBounds(view, item, *mesh);
     glm::vec3 minimum{std::numeric_limits<float>::max()};
     glm::vec3 maximum{std::numeric_limits<float>::lowest()};
     for (int corner = 0; corner < 8; ++corner) {
-      const glm::vec3 local{(corner & 1) != 0 ? mesh->bounds.max.x : mesh->bounds.min.x,
-                            (corner & 2) != 0 ? mesh->bounds.max.y : mesh->bounds.min.y,
-                            (corner & 4) != 0 ? mesh->bounds.max.z : mesh->bounds.min.z};
+      const glm::vec3 local{(corner & 1) != 0 ? posed.max.x : posed.min.x,
+                            (corner & 2) != 0 ? posed.max.y : posed.min.y,
+                            (corner & 4) != 0 ? posed.max.z : posed.min.z};
       const glm::vec3 world{item.transform * glm::vec4{local, 1.0f}};
       minimum = glm::min(minimum, world);
       maximum = glm::max(maximum, world);
@@ -1293,8 +1412,14 @@ void Renderer::ensureIndirectBuffers(ViewState &v) {
   const auto allDraws = static_cast<std::uint32_t>(v.allOrder.size());
   const std::uint32_t localMaps = m_settings.shadows && !v.opaqueOrder.empty() ? localShadowMapCount(*v.view) : 0;
   v.opaqueJobCapacity = CullJobsOpaque + localMaps;
-  const std::uint32_t commands = static_cast<std::uint32_t>(v.opaqueBatches.size()) * v.opaqueJobCapacity +
-                                 static_cast<std::uint32_t>(v.allBatches.size()) * CullJobsAll;
+  // The late commands of the occlusion job, one per opaque batch, follow the jobs' commands, and
+  // phase one records one word per opaque candidate (ADR-0024).
+  const auto opaqueBatchCount = static_cast<std::uint32_t>(v.opaqueBatches.size());
+  const std::uint32_t commands = opaqueBatchCount * v.opaqueJobCapacity +
+                                 static_cast<std::uint32_t>(v.allBatches.size()) * CullJobsAll + opaqueBatchCount;
+  v.lateBase = m_commandsReserved + commands - opaqueBatchCount;
+  v.stateBase = m_stateReserved;
+  m_stateReserved += opaqueDraws;
   v.commandBase = m_commandsReserved;
   v.visibleBase = m_visibleReserved;
   v.directBase = v.visibleBase + opaqueDraws * v.opaqueJobCapacity + allDraws * CullJobsAll;
@@ -1304,6 +1429,15 @@ void Renderer::ensureIndirectBuffers(ViewState &v) {
     return;
   }
   const std::uint32_t visible = m_visibleReserved;
+  if (m_stateReserved > m_stateCapacity) {
+    if (m_stateBuffer) {
+      m_device.destroyBuffer(m_stateBuffer);
+    }
+    m_stateCapacity = m_stateReserved;
+    m_stateBuffer = m_device.createBuffer({.size = std::uint64_t{m_stateReserved} * sizeof(std::uint32_t),
+                                           .usage = rhi::BufferUsage::Storage,
+                                           .debugName = "occlusion state"});
+  }
   if (m_commandsReserved > m_commandCapacity) {
     if (m_commandBuffer) {
       m_device.destroyBuffer(m_commandBuffer); // deferred past the frames still drawing from it
@@ -1365,33 +1499,49 @@ void Renderer::recordCulling(rhi::ICommandList &commands, ViewState &v) {
     return;
   }
   // The commands and the visible list this frame overwrites are the ones the previous frame's
-  // draws fetched and read, and those may still be running.
-  commands.memoryBarrier({.srcStage = rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader,
-                          .srcAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead,
-                          .dstStage = rhi::PipelineStage::ComputeShader,
-                          .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
+  // draws fetched and read, and those may still be running; so may its pyramid build.
+  commands.memoryBarrier(
+      {.srcStage =
+           rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader | rhi::PipelineStage::ComputeShader,
+       .srcAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead | rhi::Access::ShaderWrite,
+       .dstStage = rhi::PipelineStage::ComputeShader,
+       .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
   const rhi::BufferBinding commandWords{.binding = rhi::PassStorageBinding, .buffer = m_commandBuffer};
   const std::uint64_t visible = m_device.bufferAddress(m_visibleBuffer);
+  const std::uint64_t state = m_stateBuffer ? m_device.bufferAddress(m_stateBuffer) : 0;
   const auto candidates = [&v](const CullJob &job) {
     return job.opaque ? v.frameBuffers.opaqueCandidates : v.frameBuffers.allCandidates;
   };
-  const auto push = [&](const CullJob &job, std::uint32_t threads) {
+  const auto push = [&](const CullJob &job, std::uint32_t threads, std::uint32_t commandBase) {
     const CullConstants constants{.viewProjection = job.viewProjection,
                                   .draws = candidates(job),
                                   .visible = visible,
                                   .drawCount = threads,
-                                  .commandBase = job.firstCommand,
+                                  .commandBase = commandBase,
                                   .visibleBase = job.firstVisible,
-                                  .selectedOnly = job.selectedOnly ? 1u : 0u};
+                                  .selectedOnly = job.selectedOnly ? 1u : 0u,
+                                  .pyramid = job.pyramid,
+                                  .words = state,
+                                  .lateBase = job.lateCommand,
+                                  .flags = (job.pyramid != 0 ? OcclusionTest : 0u) |
+                                           (job.occlusion ? RecordState : 0u) |
+                                           (job.counter != NoCounter ? HasCounter : 0u),
+                                  .stateBase = job.stateBase,
+                                  .counter = job.counter};
     commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   };
 
-  // Every batch starts with a command that draws nothing; survivors add their instances.
+  // Every batch starts with a command that draws nothing; survivors add their instances. The
+  // occlusion job's late commands start empty too.
   commands.bindPipeline(m_clearCommandsPipeline);
   commands.bindBuffers({&commandWords, 1});
   for (const CullJob &job : pending) {
-    push(job, job.batchCount);
+    push(job, job.batchCount, job.firstCommand);
     commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
+    if (job.occlusion) {
+      push(job, job.batchCount, job.lateCommand);
+      commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
+    }
   }
   commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
                           .srcAccess = rhi::Access::ShaderWrite,
@@ -1404,18 +1554,179 @@ void Renderer::recordCulling(rhi::ICommandList &commands, ViewState &v) {
     if (candidates(job) == 0) {
       continue; // the candidates did not fit the frame's transient memory; the commands stay empty
     }
-    push(job, job.drawCount);
+    push(job, job.drawCount, job.firstCommand);
     commands.dispatch(groups(job.drawCount, CullThreads), 1, 1);
   }
   commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
                           .srcAccess = rhi::Access::ShaderWrite,
-                          .dstStage = rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader,
+                          .dstStage = rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader |
+                                      rhi::PipelineStage::ComputeShader,
                           .dstAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead});
+  publishCounters(commands);
+}
+
+void Renderer::publishCounters(rhi::ICommandList &commands) {
+  const CounterSlot &slot = m_counterSlots[m_counterSlot];
+  if (!slot.buffer || !m_stateBuffer) {
+    return;
+  }
+  const rhi::BufferBinding commandWords{.binding = rhi::PassStorageBinding, .buffer = m_commandBuffer};
+  const CullConstants constants{.viewProjection = glm::mat4{1.0f},
+                                .draws = 0,
+                                .visible = m_device.bufferAddress(slot.buffer),
+                                .drawCount = CounterWords,
+                                .commandBase = 0,
+                                .visibleBase = 0,
+                                .selectedOnly = 0,
+                                .pyramid = 0,
+                                .words = m_device.bufferAddress(m_stateBuffer),
+                                .lateBase = 0,
+                                .flags = 0,
+                                .stateBase = 0,
+                                .counter = 0};
+  commands.bindPipeline(m_publishCountersPipeline);
+  commands.bindBuffers({&commandWords, 1});
+  commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+  commands.dispatch(groups(CounterWords, CullThreads), 1, 1);
+}
+
+void Renderer::readCounters() {
+  // The slot this frame will publish into held the counters of the frame FramesInFlight before;
+  // the device waited for that frame when this one began.
+  m_counterSlot = static_cast<std::size_t>(m_counterFrame % rhi::FramesInFlight);
+  ++m_counterFrame;
+  CounterSlot &slot = m_counterSlots[m_counterSlot];
+  if (slot.views > 0) {
+    const std::span<const std::byte> bytes = m_device.mappedRange(slot.buffer);
+    if (bytes.size() >= std::size_t{CounterWords} * sizeof(std::uint32_t)) {
+      std::array<std::uint32_t, CounterWords> words{};
+      std::memcpy(words.data(), bytes.data(), sizeof(words));
+      for (std::size_t view = 0; view < std::min<std::size_t>(slot.views, m_visibleCounts.size()); ++view) {
+        const std::size_t base = view * CounterWordsPerView;
+        m_visibleCounts[view] = VisibleCounts{words[base], words[base + 1], words[base + 2], words[base + 3], true};
+      }
+    }
+  }
+  slot.views = 0;
+}
+
+Renderer::Pyramid &Renderer::ensurePyramid(const ViewState &v, glm::uvec2 size) {
+  if (m_pyramids.size() <= v.index) {
+    m_pyramids.resize(v.index + 1);
+  }
+  Pyramid &pyramid = m_pyramids[v.index];
+  // Level 0 is the largest power of two within the depth image, so a texel covers whole depth
+  // texels and the chain halves cleanly (shaders/hiz.slang).
+  const glm::uvec2 level0{std::bit_floor(std::max(size.x, 1u)), std::bit_floor(std::max(size.y, 1u))};
+  if (pyramid.buffer && pyramid.size == level0) {
+    return pyramid;
+  }
+  if (pyramid.buffer) {
+    m_device.destroyBuffer(pyramid.buffer); // deferred past the frames still reading it
+  }
+  std::uint32_t levels = static_cast<std::uint32_t>(std::bit_width(std::max(level0.x, level0.y)));
+  std::uint64_t words = PyramidHeaderWords;
+  for (std::uint32_t level = 0; level < levels; ++level) {
+    const glm::uvec2 levelSize = glm::max(level0 >> level, glm::uvec2{1u});
+    words += std::uint64_t{levelSize.x} * levelSize.y;
+  }
+  pyramid.size = level0;
+  pyramid.levels = levels;
+  pyramid.built = false;
+  pyramid.buffer = m_device.createBuffer({.size = words * sizeof(float),
+                                          .usage = rhi::BufferUsage::Storage,
+                                          .debugName = std::format("depth pyramid {}", v.index)});
+  return pyramid;
+}
+
+void Renderer::recordPyramid(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle depth) {
+  SONNET_ZONE();
+  Pyramid &pyramid = m_pyramids[v.index];
+  const glm::mat4 viewProjection =
+      v.view->camera.projection(static_cast<float>(v.targetSize.x) / static_cast<float>(std::max(v.targetSize.y, 1u))) *
+      v.view->camera.view();
+  const std::uint64_t address = m_device.bufferAddress(pyramid.buffer);
+  const auto push = [&](std::uint32_t level) {
+    const HizConstants constants{.viewProjection = viewProjection,
+                                 .pyramid = address,
+                                 .depthSize = v.targetSize,
+                                 .size = pyramid.size,
+                                 .levels = pyramid.levels,
+                                 .level = level};
+    commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+  };
+  const rhi::ImageBinding source{.binding = rhi::PassImageBinding, .image = depth};
+  commands.bindPipeline(m_hizBasePipeline);
+  commands.bindImages({&source, 1});
+  push(0);
+  commands.dispatch(groups(pyramid.size.x, 8), groups(pyramid.size.y, 8), 1);
+  commands.bindPipeline(m_hizLevelPipeline);
+  commands.bindImages({&source, 1});
+  for (std::uint32_t level = 1; level < pyramid.levels; ++level) {
+    commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                            .srcAccess = rhi::Access::ShaderWrite,
+                            .dstStage = rhi::PipelineStage::ComputeShader,
+                            .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
+    push(level);
+    const glm::uvec2 size = glm::max(pyramid.size >> level, glm::uvec2{1u});
+    commands.dispatch(groups(size.x, 8), groups(size.y, 8), 1);
+  }
+  pyramid.built = true;
+}
+
+void Renderer::recordLateCulling(rhi::ICommandList &commands, ViewState &v, const CullJob &job) {
+  SONNET_ZONE();
+  if (!v.frameBuffers.valid() || v.frameBuffers.opaqueCandidates == 0 || !m_stateBuffer) {
+    return;
+  }
+  // The phase-one draws read the commands and the visible list this pass writes, and the pyramid
+  // build wrote what it reads.
+  commands.memoryBarrier(
+      {.srcStage =
+           rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader | rhi::PipelineStage::ComputeShader,
+       .srcAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead | rhi::Access::ShaderWrite,
+       .dstStage = rhi::PipelineStage::ComputeShader,
+       .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
+  const rhi::BufferBinding commandWords{.binding = rhi::PassStorageBinding, .buffer = m_commandBuffer};
+  const auto push = [&](std::uint32_t threads) {
+    const CullConstants constants{.viewProjection = job.viewProjection,
+                                  .draws = v.frameBuffers.opaqueCandidates,
+                                  .visible = m_device.bufferAddress(m_visibleBuffer),
+                                  .drawCount = threads,
+                                  .commandBase = job.firstCommand,
+                                  .visibleBase = job.firstVisible,
+                                  .selectedOnly = 0,
+                                  .pyramid = m_device.bufferAddress(m_pyramids[v.index].buffer),
+                                  .words = m_device.bufferAddress(m_stateBuffer),
+                                  .lateBase = job.lateCommand,
+                                  .flags = OcclusionTest | (job.counter != NoCounter ? HasCounter : 0u),
+                                  .stateBase = job.stateBase,
+                                  .counter = job.counter};
+    commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+  };
+  commands.bindPipeline(m_lateCullPipeline);
+  commands.bindBuffers({&commandWords, 1});
+  push(job.drawCount);
+  commands.dispatch(groups(job.drawCount, CullThreads), 1, 1);
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                          .srcAccess = rhi::Access::ShaderWrite,
+                          .dstStage = rhi::PipelineStage::ComputeShader,
+                          .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
+  commands.bindPipeline(m_mergeLatePipeline);
+  commands.bindBuffers({&commandWords, 1});
+  push(job.batchCount);
+  commands.dispatch(groups(job.batchCount, CullThreads), 1, 1);
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                          .srcAccess = rhi::Access::ShaderWrite,
+                          .dstStage = rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader |
+                                      rhi::PipelineStage::ComputeShader,
+                          .dstAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead});
+  publishCounters(commands);
 }
 
 void Renderer::recordIndirect(rhi::ICommandList &commands, ViewState &v, const CullJob &job,
                               std::span<const Batch> batches, std::span<const rhi::PipelineHandle, 2> pipelines,
-                              std::uint32_t shadow) {
+                              std::uint32_t shadow, bool late) {
   if (batches.empty() || !v.frameBuffers.valid()) {
     return;
   }
@@ -1442,10 +1753,59 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, ViewState &v, const C
       commands.bindIndexBuffer(batch.mesh->indices, rhi::IndexType::Uint32);
       boundMesh = batch.mesh;
     }
-    commands.drawIndexedIndirect(m_commandBuffer,
-                                 std::uint64_t{job.firstCommand + index} * sizeof(rhi::IndirectCommand), 1);
+    commands.drawIndexedIndirect(
+        m_commandBuffer,
+        std::uint64_t{(late ? job.lateCommand : job.firstCommand) + index} * sizeof(rhi::IndirectCommand), 1);
     ++v.statistics.indirectCallCount;
   }
+}
+
+Bounds Renderer::posedBounds(const SceneView &view, const DrawItem &item, const Mesh &mesh) {
+  // The same conditions resolveVertices deforms by.
+  const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
+                       std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
+  const bool morphed = item.morphWeightCount > 0 && item.skinInstance != 0 && mesh.morph &&
+                       std::size_t{item.firstMorphWeight} + item.morphWeightCount <= view.morphWeights.size();
+  float reach = 0.0f;
+  if (morphed) {
+    const std::uint32_t targets = std::min(item.morphWeightCount, mesh.morphTargetCount);
+    for (std::uint32_t t = 0; t < targets; ++t) {
+      reach += std::abs(view.morphWeights[item.firstMorphWeight + t]) * mesh.morphReach[t];
+    }
+  }
+  const auto grown = [reach](Bounds box) {
+    box.min -= glm::vec3{reach};
+    box.max += glm::vec3{reach};
+    return box;
+  };
+  // A joint index past the draw's palette is clamped by the shader, so a mesh that names more
+  // joints than the draw supplies keeps its whole bind-pose box rather than a guess.
+  if (!skinned || mesh.jointBounds.size() > item.jointCount) {
+    return grown(mesh.bounds);
+  }
+  Bounds result{glm::vec3{std::numeric_limits<float>::max()}, glm::vec3{std::numeric_limits<float>::lowest()}};
+  const auto include = [&result](const Bounds &box, const glm::mat4 &matrix) {
+    for (int corner = 0; corner < 8; ++corner) {
+      const glm::vec3 local{(corner & 1) != 0 ? box.max.x : box.min.x, (corner & 2) != 0 ? box.max.y : box.min.y,
+                            (corner & 4) != 0 ? box.max.z : box.min.z};
+      const glm::vec3 point{matrix * glm::vec4{local, 1.0f}};
+      result.min = glm::min(result.min, point);
+      result.max = glm::max(result.max, point);
+    }
+  };
+  for (std::size_t j = 0; j < mesh.jointBounds.size(); ++j) {
+    const Bounds &box = mesh.jointBounds[j];
+    if (box.min.x <= box.max.x) {
+      include(grown(box), view.joints[item.firstJoint + j]);
+    }
+  }
+  if (mesh.unweightedBounds.min.x <= mesh.unweightedBounds.max.x) {
+    include(grown(mesh.unweightedBounds), glm::mat4{1.0f});
+  }
+  if (result.min.x > result.max.x) {
+    return grown(mesh.bounds); // a skin that influences nothing
+  }
+  return result;
 }
 
 std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh) {
@@ -2112,6 +2472,19 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       (*job)->viewProjection = cameraViewProjection;
     }
   }
+  // Occlusion culling (ADR-0024): the depth job draws what the previous frame's pyramid does not
+  // hide, the pyramid is rebuilt from that depth, and a second pass adds the rest the new
+  // pyramid does not hide. The forward pass then draws the depth job's merged commands, so it
+  // needs no job of its own.
+  const bool occlusion = m_settings.occlusionCulling && depthJob && forwardJob;
+  if (occlusion) {
+    const Pyramid &pyramid = ensurePyramid(v, size);
+    depthJob->occlusion = true;
+    depthJob->lateCommand = v.lateBase;
+    depthJob->stateBase = v.stateBase;
+    depthJob->pyramid = pyramid.built ? m_device.bufferAddress(pyramid.buffer) : 0;
+    forwardJob.reset();
+  }
   // The lights' shadow maps, within the budget, each culled against its own frustum.
   if (m_settings.shadows && !v.opaqueOrder.empty()) {
     selectLocalShadows(v);
@@ -2126,6 +2499,24 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
     if (localJobs[k]) {
       localJobs[k]->viewProjection = v.localShadows[k].matrix;
     }
+  }
+  // The survivors of the scene's job and of the shadow jobs are counted, per view.
+  if (v.index < CounterViews) {
+    const std::uint32_t sceneCounter = static_cast<std::uint32_t>(v.index) * CounterWordsPerView;
+    for (std::optional<CullJob> &job : cascadeJobs) {
+      if (job) {
+        job->counter = sceneCounter + 2;
+      }
+    }
+    for (std::optional<CullJob> &job : localJobs) {
+      if (job) {
+        job->counter = sceneCounter + 2;
+      }
+    }
+    if (std::optional<CullJob> &sceneJob = occlusion ? depthJob : forwardJob) {
+      sceneJob->counter = sceneCounter;
+    }
+    m_counterSlots[m_counterSlot].views = std::max(m_counterSlots[m_counterSlot].views, v.index + 1);
   }
   for (const std::optional<CullJob> &job : cascadeJobs) {
     if (job) {
@@ -2203,6 +2594,25 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           recordDraws(commands, v, v.opaqueOrder, m_depthPipelines, false);
         }
       });
+  if (occlusion) {
+    graph.addPass(
+        "depth pyramid", [&](PassBuilder &builder) { builder.sample(depth, true); },
+        [this, &v, depth](rhi::ICommandList &commands, const PassResources &resources) {
+          recordPyramid(commands, v, resources.image(depth));
+        });
+    graph.addPass(
+        "occlusion cull", [](PassBuilder &) {},
+        [this, &v, job = *depthJob](rhi::ICommandList &commands, const PassResources &resources) {
+          ensureFrameUploaded(v, resources);
+          recordLateCulling(commands, v, job);
+        });
+    graph.addPass(
+        "depth late", [&](PassBuilder &builder) { builder.depth(depth, rhi::LoadOp::Load); },
+        [this, &v, job = *depthJob](rhi::ICommandList &commands, const PassResources &resources) {
+          ensureFrameUploaded(v, resources);
+          recordIndirect(commands, v, job, v.opaqueBatches, m_depthPipelines, 0, true);
+        });
+  }
   graph.addPass(
       "light clustering", [](PassBuilder &) {},
       [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
@@ -2233,7 +2643,8 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           builder.sample(m_frameImages.prefiltered);
         }
       },
-      [this, &v, skybox, job = forwardJob](rhi::ICommandList &commands, const PassResources &resources) {
+      [this, &v, skybox, job = occlusion ? depthJob : forwardJob](rhi::ICommandList &commands,
+                                                                  const PassResources &resources) {
         ensureFrameUploaded(v, resources);
         if (job) {
           recordIndirect(commands, v, *job, v.opaqueBatches, m_forwardPipelines);

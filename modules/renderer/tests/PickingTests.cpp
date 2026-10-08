@@ -43,6 +43,7 @@ RendererSettings pickingSettings() {
   settings.shadows = false;
   settings.bloom = false;
   settings.antialiasing = false;
+  settings.occlusionCulling = false;
   return settings;
 }
 
