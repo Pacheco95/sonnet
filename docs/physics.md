@@ -44,7 +44,7 @@ Bodies are created lazily, so edit mode has none. Stopping play reloads the snap
 
 ## Events
 
-`IPhysicsWorld::events()` returns the `ContactEvent`s of the last fixed step, and the next step replaces them: a kind, the two entities, and for a begin a contact point and normal. The scripting runtime delivers them to scripts ([scripting.md](scripting.md)); `physics` itself only records them.
+`IPhysicsWorld::events()` returns the `ContactEvent`s of the last fixed step, and the next step replaces them: a kind, the two entities, and for a begin a contact point and normal. The scripting runtime delivers them to scripts ([scripting.md](scripting.md#events)); `physics` itself only records them.
 
 - `ContactBegin` and `ContactEnd` are for solid bodies, `TriggerEnter` and `TriggerExit` for a pair with a `Trigger` in it. A pair is reported once when it starts touching or overlapping and once when it stops, however many shape pairs of a compound body are involved: the events come from how many shape pairs touched before and after the step, not from each of Jolt's callbacks. There is no persistent event; a script that wants a continuing contact keeps its own state between begin and end.
 - A body that falls asleep keeps its contacts. Jolt reports the contacts of a sleeping body as removed, and a static sensor sees only awake bodies, so a ball that comes to rest on the ground or inside a trigger would otherwise end its contact; the pair is kept as dormant instead and ends when a body is gone, or when both bodies are awake and no contact came back.
