@@ -79,7 +79,7 @@ Core components, all in `world`:
 
 - `SkinnedMesh` and `Animator`: the skin that deforms a mesh and the clip playing on a hierarchy ([ADR-0010](decisions/0010-audio-and-animation.md)).
 
-Subsystems add theirs to the same registry: `RigidBody` and the colliders in `physics`, `Script` in `scripting`, `AudioSource` and `AudioListener` in `audio`. The ECS stays the one description of a scene, so snapshots, prefabs, undo and the inspector cover them too ([ADR-0009](decisions/0009-physics-and-scripting.md)).
+Subsystems add theirs to the same registry: `RigidBody` and the colliders in `physics`, `Scripts` in `scripting`, `AudioSource` and `AudioListener` in `audio`. The ECS stays the one description of a scene, so snapshots, prefabs, undo and the inspector cover them too ([ADR-0009](decisions/0009-physics-and-scripting.md)).
 
 Hierarchy uses flecs `ChildOf` relationships, prefabs use `IsA`, so nested scene instances (a scene placed inside another scene) become prefab instantiation rather than a custom feature. Systems are flecs systems grouped in pipeline phases: `Input`, `FixedUpdate`, `Update`, `PostUpdate`, `PreRender`.
 

@@ -202,7 +202,7 @@ public:
       bindCamera();
     }
 
-    m_scripts = ecs.query_builder<const Script>("Scripts").without<world::Disabled>().build();
+    m_scripts = ecs.query_builder<const Scripts>("ScriptSlots").without<world::Disabled>().build();
     // Immediate, with deferring suspended: a script sees its own changes on its next line, such
     // as a component it just added or the children of a prefab it just instantiated. flecs runs
     // even immediate systems deferred; these iterate no query, so suspending is safe.
@@ -298,11 +298,15 @@ private:
   void sync() {
     flecs::world &ecs = m_world.ecs();
     std::vector<std::pair<flecs::entity_t, core::Uuid>> wanted;
-    m_scripts.each(
-        [&](flecs::entity entity, const Script &script) { wanted.emplace_back(entity.id(), script.script); });
+    m_scripts.each([&](flecs::entity entity, const Scripts &scripts) {
+      if (!scripts.slots.empty()) {
+        wanted.emplace_back(entity.id(), scripts.slots.front().script);
+      }
+    });
     for (auto it = m_instances.begin(); it != m_instances.end();) {
-      const Script *script = ecs.is_alive(it->first) ? flecs::entity{ecs, it->first}.try_get<Script>() : nullptr;
-      const bool keep = script != nullptr && script->script == it->second.script &&
+      const Scripts *scripts = ecs.is_alive(it->first) ? flecs::entity{ecs, it->first}.try_get<Scripts>() : nullptr;
+      const bool keep = scripts != nullptr && !scripts->slots.empty() &&
+                        scripts->slots.front().script == it->second.script &&
                         !flecs::entity{ecs, it->first}.has<world::Disabled>();
       it = keep ? std::next(it) : m_instances.erase(it);
     }
@@ -737,7 +741,7 @@ private:
   std::unordered_map<core::Uuid, ScriptClass> m_classes;
   // Ordered by id, so calls happen in a stable order, close to creation order.
   std::map<flecs::entity_t, Instance> m_instances;
-  flecs::query<const Script> m_scripts;
+  flecs::query<const Scripts> m_scripts;
   flecs::system m_fixedSystem;
   flecs::system m_updateSystem;
 };

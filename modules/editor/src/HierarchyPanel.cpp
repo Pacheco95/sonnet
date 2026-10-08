@@ -41,7 +41,7 @@ const std::array<KindTest, 10> Kinds{{
     },
     [](flecs::entity e) { return e.has<world::Camera>(); },
     [](flecs::entity e) { return e.has<audio::AudioSource>() || e.has<audio::AudioListener>(); },
-    [](flecs::entity e) { return e.has<scripting::Script>(); },
+    [](flecs::entity e) { return e.has<scripting::Scripts>(); },
     [](flecs::entity e) { return e.has<physics::RigidBody>(); },
     [](flecs::entity e) {
       return e.has<physics::BoxCollider>() || e.has<physics::SphereCollider>() || e.has<physics::CapsuleCollider>() ||

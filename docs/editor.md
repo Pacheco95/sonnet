@@ -74,7 +74,7 @@ Widgets change the world live. The value before the first widget of a component 
 
 A member of type `core::Uuid` is an asset reference and gets a picker: a button naming the asset (`name (Type)`, `(none)`, or `(missing)` for an identity the database does not know) that opens a filtered list of the assets of the member's type, decided by the member's name (`mesh`, `material`, `map`, `script`, `...Texture`), and a drop target for rows dragged from the asset browser. A pick is one command.
 
-The physics components, `Script`, the audio components, `SkinnedMesh` and `Animator` are registered components like the others, so the inspector shows and adds them with no code of its own; a body type is a combo, a collider's `mesh` a mesh picker, and the `script`, `sound`, `skin` and `clip` members get pickers of their own type.
+The physics components, `Scripts`, the audio components, `SkinnedMesh` and `Animator` are registered components like the others, so the inspector shows and adds them with no code of its own; a body type is a combo, a collider's `mesh` a mesh picker, and the `script`, `sound`, `skin` and `clip` members get pickers of their own type.
 
 ## Asset browser
 

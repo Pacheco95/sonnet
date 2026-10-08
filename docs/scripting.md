@@ -4,12 +4,12 @@ Gameplay scripts in Lua, behind `IScriptRuntime`, with Lua 5.5 and sol2 as the o
 
 | Header | Contents |
 |---|---|
-| `Components.h` | `Script` and `registerComponents` |
+| `Components.h` | `ScriptSlot`, `Scripts` and `registerComponents` |
 | `ScriptRuntime.h` | `IScriptRuntime`, `ScriptDesc` and `createScriptRuntime` |
 
 ## Scripts and instances
 
-A script is a `.lua` file in the project, an asset with an identity like any other ([assets.md](assets.md#importers)). The `Script` component names one by identity, and the entity then runs it in play mode. One script per entity.
+A script is a `.lua` file in the project, an asset with an identity like any other ([assets.md](assets.md#importers)). The `Scripts` component holds a list of slots, each naming a script by identity with the property values its author changed ([ADR-0022](decisions/0022-gameplay-events-and-script-properties.md)), and the entity then runs them in play mode. Until the slot hooks land, only the first slot runs.
 
 A script returns a table, its class:
 
@@ -29,13 +29,13 @@ end
 return Mover
 ```
 
-Every enabled entity with a `Script` gets an instance: a table whose metatable points at the class, holding `self.entity` and whatever the script stores in it. The hooks are optional:
+Every enabled entity with a `Scripts` gets an instance: a table whose metatable points at the class, holding `self.entity` and whatever the script stores in it. The hooks are optional:
 
 - `start(self)` once, before the instance's first update, in the frame the instance appears.
 - `fixedUpdate(self, dt)` every fixed step, after the physics step ([physics.md](physics.md#the-simulation)), with the fixed delta.
 - `update(self, dt)` every frame, in the `Update` phase, before physics interpolates what is drawn.
 
-Instances are called in the order of their entities' ids, which is close to creation order. An instance ends when its entity is destroyed or disabled or its `Script` changes to another script. A script's file runs once per load in an environment of its own over the shared globals, so two scripts never overwrite each other's top-level names, while instances of the same script share them.
+Instances are called in the order of their entities' ids, which is close to creation order. An instance ends when its entity is destroyed or disabled or its first slot changes to another script. A script's file runs once per load in an environment of its own over the shared globals, so two scripts never overwrite each other's top-level names, while instances of the same script share them.
 
 The runtime's two systems are simulation systems: nothing runs in edit mode. Stopping play in the editor calls `reset`, which drops every instance and every loaded script, so the next play starts from fresh script state as well as from the snapshot. The systems run with the world's deferring suspended, so a script sees its own changes on its next line: a component it just added, the children of a prefab it just instantiated.
 

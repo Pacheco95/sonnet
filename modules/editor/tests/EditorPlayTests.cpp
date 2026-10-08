@@ -121,7 +121,7 @@ TEST_CASE("play mode runs physics and scripts and stop puts everything back", "[
     const core::Uuid boxUuid = world.uuidOf(box);
     box.set<physics::BoxCollider>({});
     box.set<physics::RigidBody>({});
-    box.set<scripting::Script>({.script = *script});
+    box.set<scripting::Scripts>({.slots = {{.script = *script}}});
     editor.setShowColliders(true);
     fixture.frame(editor);
     REQUIRE(editor.physics().bodyCount() == 0);
@@ -419,7 +419,7 @@ TEST_CASE("pause freezes play mode, edits land on the frozen scene, stop from pa
     const core::Uuid boxUuid = world.uuidOf(box);
     box.set<physics::BoxCollider>({});
     box.set<physics::RigidBody>({});
-    box.set<scripting::Script>({.script = *script});
+    box.set<scripting::Scripts>({.slots = {{.script = *script}}});
     fixture.frame(editor);
 
     // Pausing outside play mode does nothing.

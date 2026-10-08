@@ -15,8 +15,9 @@ namespace sonnet::world {
 
 // The scene and prefab file format (docs/world.md, "Scenes"): a versioned envelope around flecs'
 // JSON for each component. Migrations run on load; the current version is what is written.
-// Version 2 references meshes by asset identity where version 1 named a primitive.
-constexpr int SceneVersion = 2;
+// Version 2 references meshes by asset identity where version 1 named a primitive; version 3
+// replaces the `Script` component by `Scripts`, a list of slots.
+constexpr int SceneVersion = 3;
 
 // Every scene entity, parents before children, prefab instances with their overrides only.
 [[nodiscard]] nlohmann::json saveScene(const World &world);

@@ -114,7 +114,7 @@ struct Fixture {
 
   flecs::entity scripted(std::string_view name, std::string_view file) {
     const flecs::entity entity = world.createEntity(name);
-    entity.set<scripting::Script>({.script = script(file)});
+    entity.set<scripting::Scripts>({.slots = {{.script = script(file)}}});
     return entity;
   }
 
@@ -433,8 +433,8 @@ TEST_CASE("broken and missing scripts are reported once and run nothing", "[scri
   fixture.scripted("Syntax", "syntax.lua");
   fixture.scripted("Nothing", "nothing.lua");
   const flecs::entity missing = fixture.world.createEntity("Missing");
-  missing.set<scripting::Script>({.script = core::Uuid::generate()});
-  fixture.world.createEntity("Empty").set<scripting::Script>({});
+  missing.set<scripting::Scripts>({.slots = {{.script = core::Uuid::generate()}}});
+  fixture.world.createEntity("Empty").set<scripting::Scripts>({});
   fixture.world.setPlaying(true);
   fixture.run(5);
   REQUIRE(fixture.scripts->instanceCount() == 0);
@@ -489,4 +489,32 @@ TEST_CASE("reset drops instances and script state, and entities going away drop 
   }
   std::ranges::sort(speeds);
   REQUIRE(speeds == std::vector<float>{1.0f, 2.0f});
+}
+
+TEST_CASE("Scripts round-trips through a scene and a version 2 Script migrates into it", "[scripting][scene]") {
+  Fixture fixture{{"spin.lua", "return {}"}};
+  const core::Uuid spin = fixture.script("spin.lua");
+  const flecs::entity entity = fixture.world.createEntity("Thing");
+  entity.set<scripting::Scripts>(
+      {.slots = {{.script = spin, .properties = R"({"speed":3})"}, {.script = spin, .properties = ""}}});
+  const nlohmann::json scene = world::saveScene(fixture.world);
+  const nlohmann::json &saved = scene["entities"][0]["components"]["Scripts"]["slots"];
+  REQUIRE(saved.size() == 2);
+  REQUIRE(saved[0]["properties"]["speed"] == 3);
+  fixture.world.destroyEntity(entity);
+  REQUIRE(world::loadScene(fixture.world, scene));
+  const flecs::entity loaded = fixture.world.roots().front();
+  REQUIRE(loaded.get<scripting::Scripts>().slots.size() == 2);
+  REQUIRE(loaded.get<scripting::Scripts>().slots[0].script == spin);
+
+  fixture.world.destroyEntity(loaded);
+  const nlohmann::json old{{"version", 2},
+                           {"entities",
+                            {{{"uuid", core::Uuid::generate().toString()},
+                              {"name", "Old"},
+                              {"components", {{"Script", {{"script", spin.toString()}}}}}}}}};
+  REQUIRE(world::loadScene(fixture.world, old));
+  const flecs::entity migrated = fixture.world.roots().front();
+  REQUIRE(migrated.get<scripting::Scripts>().slots.size() == 1);
+  REQUIRE(migrated.get<scripting::Scripts>().slots[0].script == spin);
 }

@@ -19,6 +19,7 @@ sonnet_add_module_test(world
     tests/AnimationTests.cpp
     tests/ComponentsTests.cpp
     tests/DrawListTests.cpp
+    tests/RepeatedMembersTests.cpp
     tests/SceneTests.cpp
     tests/WorldTests.cpp
 )

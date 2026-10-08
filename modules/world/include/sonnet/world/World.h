@@ -34,6 +34,8 @@ struct ComponentInfo {
   std::string name;
   flecs::entity_t id{0};
   bool tag{false}; // no data: serialized as null
+  // String members holding JSON text, which files show as the JSON itself (World::embedJson).
+  std::vector<std::string> jsonMembers;
 };
 
 struct WorldDesc {
@@ -112,9 +114,36 @@ public:
   template <typename T> flecs::component<T> registerComponent(const char *name, bool tag = false) {
     flecs::component<T> component = m_world.component<T>(name);
     component.add(flecs::OnInstantiate, flecs::Inherit);
-    m_components.push_back({name, component.id(), tag});
+    m_components.push_back({name, component.id(), tag, {}});
     return component;
   }
+  // Teaches reflection std::vector<Elem> as a member type, through flecs' opaque collections, so
+  // a reflected struct can hold a repeated member of another reflected struct (ADR-0022). Elem
+  // has to be registered first.
+  template <typename Elem> void registerVector() {
+    using Vector = std::vector<Elem>;
+    m_world.component<Vector>().opaque([](flecs::world &world) {
+      return flecs::opaque<Vector, Elem>(world)
+          .as_type(world.vector<Elem>())
+          .serialize([](const flecs::serializer *serializer, const Vector *vector) {
+            for (const Elem &element : *vector) {
+              serializer->value(element);
+            }
+            return 0;
+          })
+          .count([](const Vector *vector) { return vector->size(); })
+          .resize([](Vector *vector, std::size_t count) { vector->resize(count); })
+          .ensure_element([](Vector *vector, std::size_t index) {
+            if (vector->size() <= index) {
+              vector->resize(index + 1);
+            }
+            return &(*vector)[index];
+          });
+    });
+  }
+  // A string member of a registered component that holds JSON text (a script slot's properties).
+  // Files and undo copies show it as the JSON value itself rather than as an escaped string.
+  void embedJson(std::string_view component, std::string_view member);
   // Marks a system as simulation: it runs in play mode only.
   void addToSimulation(flecs::entity system);
 
