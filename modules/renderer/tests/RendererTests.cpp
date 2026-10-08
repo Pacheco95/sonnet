@@ -1153,6 +1153,138 @@ TEST_CASE("a morphed box follows its weight on a GPU", "[renderer][gpu]") {
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// Bright white additive discs a metre across at the origin, born in place and staying there.
+ParticleEmitterItem glowEmitter() {
+  return {.key = 5,
+          .maxParticles = 1000,
+          .rate = 100.0f,
+          .lifetime = {10.0f, 10.0f},
+          .speed = {0.0f, 0.0f},
+          .gravity = {0.0f, 0.0f, 0.0f},
+          .sizeStart = 1.0f,
+          .sizeEnd = 1.0f,
+          .colorStart = {1.0f, 1.0f, 1.0f, 1.0f},
+          .colorEnd = {1.0f, 1.0f, 1.0f, 1.0f},
+          .blend = ParticleBlend::Additive};
+}
+
+TEST_CASE("an emitter is simulated once a frame and drawn with one indirect call", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const std::array emitters{glowEmitter()};
+  SceneView view = boxScene({});
+  view.particles = emitters;
+  view.deltaTime = 0.1f;
+  const auto frame = [&] {
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    graph.execute(commands);
+    device->endFrame();
+  };
+  const std::size_t buffers = device->bufferCount();
+  frame();
+  REQUIRE(hasPass(graph, "particles"));
+  REQUIRE(countLines(*device, "bindPipeline \"particle reset\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"particle simulation\"") == 1);
+  REQUIRE(countLines(*device, "dispatch 16 1 1") == 1); // 1000 slots in groups of 64
+  REQUIRE(countLines(*device, "bindPipeline \"particles additive\"") == 1);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"particles command\" count 1") == 1);
+  REQUIRE(device->bufferCount() == buffers + 3); // the ring, the alive list and the command
+  REQUIRE(renderer.statistics().particleEmitterCount == 1);
+  REQUIRE(renderer.statistics().particleSlotCount == 1000);
+  REQUIRE(lineIndex(*device, "bindPipeline \"particle simulation\"") <
+          lineIndex(*device, "bindPipeline \"particles additive\""));
+
+  // The same emitter next frame reuses its buffers; one that stops being drawn gives them back
+  // after a few frames.
+  frame();
+  REQUIRE(device->bufferCount() == buffers + 3);
+  view.particles = {};
+  for (int i = 0; i < 12; ++i) {
+    frame();
+  }
+  REQUIRE(device->bufferCount() == buffers);
+}
+
+TEST_CASE("a second view of the same frame draws an emitter without advancing it again", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget first{*device, "first"};
+  RenderTarget second{*device, "second"};
+  first.resize({32, 32});
+  second.resize({32, 32});
+  const std::array emitters{glowEmitter()};
+  SceneView view = boxScene({});
+  view.particles = emitters;
+  view.deltaTime = 0.1f;
+  SceneView other = view;
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(first.color()), graph.importImage(first.depth()));
+  renderer.addScenePasses(graph, other, graph.importImage(second.color()), graph.importImage(second.depth()));
+  graph.execute(commands);
+  device->endFrame();
+  REQUIRE(countLines(*device, "bindPipeline \"particle simulation\"") == 1);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"particles command\" count 1") == 2);
+}
+
+TEST_CASE("particles glow where they were born and repeat from run to run on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    std::array<std::vector<Pixel>, 2> runs;
+    for (std::vector<Pixel> &run : runs) {
+      Renderer renderer{*device, shaderDir(platform), testSettings()};
+      // A jet with a random cone and speed, so repeating means the draws matched too.
+      ParticleEmitterItem jet = glowEmitter();
+      jet.speed = {0.2f, 1.0f};
+      jet.lifetime = {0.5f, 2.0f};
+      jet.coneAngle = 1.0f;
+      jet.sizeStart = 0.3f;
+      jet.sizeEnd = 0.1f;
+      const std::array emitters{jet};
+      SceneView view = boxScene({});
+      view.particles = emitters;
+      view.deltaTime = 0.1f;
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view, 8);
+      for (unsigned y = 0; y < 64; y += 3) {
+        for (unsigned x = 0; x < 64; x += 3) {
+          run.push_back(scene.pixel(x, y));
+        }
+      }
+      REQUIRE(device->validationMessageCount() == 0);
+    }
+    REQUIRE(std::ranges::equal(runs[0], runs[1],
+                               [](const Pixel &a, const Pixel &b) { return a.r == b.r && a.g == b.g && a.b == b.b; }));
+    const bool lit = std::ranges::any_of(runs[0], [](const Pixel &p) { return p.r + p.g + p.b > 60; });
+    REQUIRE(lit);
+
+    // Born in place and staying there, a stack of soft discs makes the centre bright and the
+    // corner dark.
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const std::array emitters{glowEmitter()};
+    SceneView view = boxScene({});
+    view.particles = emitters;
+    view.deltaTime = 0.1f;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 4);
+    const Pixel centre = scene.pixel(32, 32);
+    const Pixel corner = scene.pixel(2, 2);
+    REQUIRE(centre.r + centre.g + centre.b > 300);
+    REQUIRE(corner.r + corner.g + corner.b == 0);
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("the renderer destroys every pipeline it creates", "[renderer][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();

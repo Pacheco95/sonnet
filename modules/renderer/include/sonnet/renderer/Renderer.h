@@ -39,6 +39,8 @@ struct RenderStatistics {
   std::uint32_t lightCount{0};
   std::uint32_t skinnedInstanceCount{0}; // instances the skinning pass deformed
   std::uint32_t skinnedVertexCount{0};
+  std::uint32_t particleEmitterCount{0}; // emitters the view drew
+  std::uint32_t particleSlotCount{0};    // their particle capacity: the ring slots simulated, alive or not
 };
 
 // One term of the forward shading written in place of the final colour, before tone mapping, to
@@ -140,6 +142,8 @@ public:
   [[nodiscard]] bool isValid(TextureHandle handle) const;
   // The bindless index shaders read the texture through; the white default for an invalid handle.
   [[nodiscard]] std::uint32_t textureIndex(TextureHandle handle) const;
+  // Forgets an emitter's particles, so it starts over, with its burst, the next time it is drawn.
+  void resetParticles(std::uint64_t key);
 
   [[nodiscard]] MaterialHandle createMaterial(const MaterialDesc &desc, std::string debugName);
   void updateMaterial(MaterialHandle handle, const MaterialDesc &desc);
@@ -253,6 +257,32 @@ private:
     rhi::BufferHandle buffer;
     std::uint64_t lastFrame{0};
   };
+  // One emitter's particles between frames (ADR-0023): a ring of slots, the alive list the
+  // simulation rebuilds every frame, and the indirect command whose instance count it counts.
+  struct ParticleState {
+    rhi::BufferHandle particles;
+    rhi::BufferHandle alive;
+    rhi::BufferHandle command;
+    std::uint32_t maxParticles{0};
+    std::uint32_t head{0};   // the ring slot the next particle starts in
+    std::uint32_t serial{0}; // particles started so far, which seeds them
+    float carry{0.0f};       // the fraction of a particle the rate owes
+    bool burstDone{false};
+    std::uint64_t lastFrame{0};
+    std::uint64_t simulatedFrame{~std::uint64_t{0}};
+    std::uint64_t params{0}; // the frame's parameters, set by the pass that simulates
+  };
+  // One emitter to draw this frame, and to simulate when this view is the first to see it.
+  struct ParticleJob {
+    ParticleState *state;
+    const ParticleEmitterItem *item;
+    bool simulate;
+    std::uint32_t spawnCount;
+    std::uint32_t spawnHead;
+    std::uint32_t serial;
+    float dt;
+    float distance;
+  };
   // One instance to deform this frame.
   struct SkinJob {
     const Mesh *mesh;
@@ -348,6 +378,7 @@ private:
     RenderStatistics statistics;
     std::vector<ResolvedDraw> resolved;
     std::vector<SkinJob> skinJobs;
+    std::vector<ParticleJob> particleJobs;
     std::vector<std::uint32_t> opaqueOrder;  // opaque and masked, grouped into batches
     std::vector<std::uint32_t> blendedOrder; // back to front
     std::vector<std::uint32_t> allOrder;     // for the id and mask passes, grouped the same way
@@ -397,6 +428,12 @@ private:
   // InvalidBindlessIndex when the array is full.
   [[nodiscard]] std::uint32_t resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh);
   void recordSkinning(rhi::ICommandList &commands, const ViewState &v);
+  // Resolves the view's emitters into jobs, sorted far to near, and declares the pass that
+  // simulates the ones not yet advanced this frame.
+  void addParticlePass(RenderGraph &graph, ViewState &v);
+  void recordParticleSimulation(rhi::ICommandList &commands, ViewState &v);
+  void recordParticleDraws(rhi::ICommandList &commands, const ViewState &v);
+  void releaseParticles(bool all);
   void releaseSkinnedVertices(bool all);
   void computeCascades(ViewState &v, float aspect);
   void selectLocalShadows(ViewState &v) const;
@@ -474,6 +511,10 @@ private:
   rhi::PipelineHandle m_prefilterPipeline;
   rhi::PipelineHandle m_brdfLutPipeline;
   rhi::PipelineHandle m_skinPipeline;
+  rhi::PipelineHandle m_particleResetPipeline;
+  rhi::PipelineHandle m_particleSimulatePipeline;
+  std::array<rhi::PipelineHandle, 2> m_particleDrawPipelines; // by ParticleBlend
+  rhi::BufferHandle m_particleQuad;                           // the six indices of a quad's two triangles
 
   std::array<rhi::SamplerHandle, 3> m_materialSamplers; // by TextureWrap
   rhi::SamplerHandle m_linearClampSampler;
@@ -496,6 +537,7 @@ private:
   core::HandlePool<Material, MaterialTag> m_materials;
   core::HandlePool<Environment, EnvironmentTag> m_environments;
   std::unordered_map<std::uint64_t, SkinnedVertices> m_skinned; // by DrawItem::skinInstance
+  std::unordered_map<std::uint64_t, ParticleState> m_particles; // by ParticleEmitterItem::key
   std::uint32_t m_materialSlots{0};                             // highest material index plus one, the GPU array's size
   RenderStatistics m_noStatistics;
 

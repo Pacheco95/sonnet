@@ -229,6 +229,53 @@ struct SkinConstants {
 };
 static_assert(sizeof(SkinConstants) == 64);
 constexpr std::uint32_t SkinThreads = 64;
+
+// Mirror of shaders/particles.slang.
+struct ParticleSimulateConstants {
+  std::uint64_t particles;
+  std::uint64_t alive;
+  std::uint64_t params;
+};
+struct ParticleDrawConstants {
+  glm::mat4 viewProjection;
+  glm::vec3 cameraRight;
+  glm::vec3 cameraUp;
+  std::uint64_t particles;
+  std::uint64_t alive;
+  std::uint64_t params;
+};
+static_assert(sizeof(ParticleDrawConstants) == 112);
+static_assert(sizeof(ParticleDrawConstants) <= rhi::PushConstantSize);
+struct ParticleParams {
+  glm::mat4 model;
+  glm::vec4 colorStart;
+  glm::vec4 colorEnd;
+  glm::vec3 gravity;
+  float drag;
+  glm::vec2 lifetime;
+  glm::vec2 speed;
+  float coneAngle;
+  float sizeStart;
+  float sizeEnd;
+  float dt;
+  std::uint32_t maxParticles;
+  std::uint32_t spawnCount;
+  std::uint32_t spawnHead;
+  std::uint32_t serial;
+  std::uint32_t seed;
+  std::uint32_t texture;
+  std::uint32_t flags;
+  std::uint32_t sampler;
+};
+static_assert(sizeof(ParticleParams) == 176);
+constexpr std::uint32_t ParticleFlagLocal = 1u << 0;
+constexpr std::uint32_t ParticleFlagAdditive = 1u << 1;
+constexpr std::uint32_t ParticleThreads = 64;
+constexpr std::uint32_t MaxParticlesPerEmitter = 1u << 20;
+// The most a frame advances a particle by, so a hitch does not fire a second's worth at once.
+constexpr float MaxParticleStep = 0.25f;
+// Graph frames an emitter's particles outlive its last draw.
+constexpr std::uint64_t ParticleStateFrames = 8;
 // Graph frames a skinned instance's buffer outlives its last draw, so an instance hidden for a
 // moment does not reallocate.
 constexpr std::uint64_t SkinnedBufferFrames = 8;
@@ -330,6 +377,19 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                   .cullMode = rhi::CullMode::None,
                   .topology = rhi::Topology::LineList,
                   .debugName = "debug lines"});
+  // Particles: depth-tested against the scene, not written, blended into the HDR target.
+  for (std::size_t blend = 0; blend < 2; ++blend) {
+    defineGraphics(m_particleDrawPipelines[blend], "particles",
+                   {.vertexEntry = "drawMain",
+                    .colorFormats = {HdrFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = false},
+                    .cullMode = rhi::CullMode::None,
+                    .blend = blend == 0 ? rhi::BlendMode::Alpha : rhi::BlendMode::Additive,
+                    .debugName = blend == 0 ? "particles alpha" : "particles additive"});
+  }
+  defineCompute(m_particleResetPipeline, "particles", "resetCommand", "particle reset");
+  defineCompute(m_particleSimulatePipeline, "particles", "simulate", "particle simulation");
   defineCompute(m_clusterPipeline, "cluster", "computeMain", "light clustering");
   defineCompute(m_cullPipeline, "cull", "computeMain", "cull");
   defineCompute(m_clearCommandsPipeline, "cull", "clearCommands", "clear draw commands");
@@ -346,6 +406,10 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
 
 Renderer::~Renderer() {
   releaseSkinnedVertices(true);
+  releaseParticles(true);
+  if (m_particleQuad) {
+    m_device.destroyBuffer(m_particleQuad);
+  }
   m_meshes.forEach([this](MeshHandle handle, Mesh &mesh) {
     SONNET_LOG_WARN("leaked mesh \"{}\" ({}:{})", mesh.debugName, handle.index, handle.generation);
     m_device.destroyBuffer(mesh.vertices);
@@ -380,11 +444,27 @@ Renderer::~Renderer() {
   for (const rhi::SamplerHandle sampler : m_materialSamplers) {
     m_device.destroySampler(sampler);
   }
-  for (const rhi::PipelineHandle pipeline :
-       {m_skinPipeline, m_brdfLutPipeline, m_prefilterPipeline, m_irradiancePipeline, m_cubeMipPipeline,
-        m_equirectPipeline, m_clearCommandsPipeline, m_cullPipeline, m_clusterPipeline, m_debugLinePipeline,
-        m_outlinePipeline, m_fxaaPipeline, m_presentPipeline, m_tonemapPipeline, m_bloomUpPipeline, m_bloomDownPipeline,
-        m_skyboxPipeline}) {
+  for (const rhi::PipelineHandle pipeline : {m_skinPipeline,
+                                             m_particleResetPipeline,
+                                             m_particleSimulatePipeline,
+                                             m_particleDrawPipelines[0],
+                                             m_particleDrawPipelines[1],
+                                             m_brdfLutPipeline,
+                                             m_prefilterPipeline,
+                                             m_irradiancePipeline,
+                                             m_cubeMipPipeline,
+                                             m_equirectPipeline,
+                                             m_clearCommandsPipeline,
+                                             m_cullPipeline,
+                                             m_clusterPipeline,
+                                             m_debugLinePipeline,
+                                             m_outlinePipeline,
+                                             m_fxaaPipeline,
+                                             m_presentPipeline,
+                                             m_tonemapPipeline,
+                                             m_bloomUpPipeline,
+                                             m_bloomDownPipeline,
+                                             m_skyboxPipeline}) {
     // The present pipeline is there only when the settings asked for it.
     if (pipeline) {
       m_device.destroyPipeline(pipeline);
@@ -398,8 +478,8 @@ Renderer::~Renderer() {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 11> Names{"cluster", "cull",    "debug", "depth", "forward", "ibl",
-                                                          "id",      "outline", "post",  "skin",  "skybox"};
+  static constexpr std::array<std::string_view, 12> Names{
+      "cluster", "cull", "debug", "depth", "forward", "ibl", "id", "outline", "particles", "post", "skin", "skybox"};
   return Names;
 }
 
@@ -499,6 +579,11 @@ void Renderer::createDefaults() {
                                     .format = HdrFormat,
                                     .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage,
                                     .debugName = "brdf lut"});
+  const std::array<std::uint32_t, 6> quad{0, 1, 2, 2, 1, 3};
+  m_particleQuad = m_device.createBuffer({.size = sizeof(quad),
+                                          .usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst,
+                                          .debugName = "particle quad"});
+  m_device.uploadBuffer(m_particleQuad, 0, std::as_bytes(std::span{quad}));
   m_clusterBuffer = m_device.createBuffer({.size = std::uint64_t{ClusterCount} * ClusterBytes,
                                            .usage = rhi::BufferUsage::Storage,
                                            .debugName = "light clusters"});
@@ -1080,6 +1165,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.statistics = {};
   v.resolved.clear();
   v.skinJobs.clear();
+  v.particleJobs.clear();
   v.opaqueOrder.clear();
   v.blendedOrder.clear();
   v.allOrder.clear();
@@ -1164,6 +1250,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   ensureIndirectBuffers(v);
 
   releaseSkinnedVertices(false);
+  releaseParticles(false);
   if (!v.skinJobs.empty()) {
     graph.addPass(
         "skinning", [](PassBuilder &) {},
@@ -1458,6 +1545,206 @@ void Renderer::recordSkinning(rhi::ICommandList &commands, const ViewState &v) {
                           .srcAccess = rhi::Access::ShaderWrite,
                           .dstStage = rhi::PipelineStage::VertexShader,
                           .dstAccess = rhi::Access::ShaderRead});
+}
+
+void Renderer::resetParticles(std::uint64_t key) {
+  const auto found = m_particles.find(key);
+  if (found == m_particles.end()) {
+    return;
+  }
+  for (const rhi::BufferHandle buffer : {found->second.particles, found->second.alive, found->second.command}) {
+    m_device.destroyBuffer(buffer);
+  }
+  m_particles.erase(found);
+}
+
+void Renderer::releaseParticles(bool all) {
+  for (auto it = m_particles.begin(); it != m_particles.end();) {
+    if (all || it->second.lastFrame + ParticleStateFrames < m_graphFrame) {
+      for (const rhi::BufferHandle buffer : {it->second.particles, it->second.alive, it->second.command}) {
+        m_device.destroyBuffer(buffer);
+      }
+      it = m_particles.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void Renderer::addParticlePass(RenderGraph &graph, ViewState &v) {
+  const SceneView &view = *v.view;
+  const float dt = std::clamp(view.deltaTime, 0.0f, MaxParticleStep);
+  bool simulating = false;
+  for (const ParticleEmitterItem &item : view.particles) {
+    if (item.key == 0 || item.maxParticles == 0) {
+      continue;
+    }
+    const std::uint32_t capacity = std::min(item.maxParticles, MaxParticlesPerEmitter);
+    ParticleState &state = m_particles[item.key];
+    if (state.maxParticles != capacity) {
+      // New, or resized: a fresh ring of dead particles (the buffer is zeroed, and age 0 of
+      // lifetime 0 is dead).
+      for (const rhi::BufferHandle buffer : {state.particles, state.alive, state.command}) {
+        if (buffer) {
+          m_device.destroyBuffer(buffer);
+        }
+      }
+      state = {};
+      state.maxParticles = capacity;
+      state.particles = m_device.createBuffer({.size = std::uint64_t{capacity} * 32,
+                                               .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::TransferDst,
+                                               .debugName = "particles"});
+      const std::vector<std::byte> zeros(std::size_t{capacity} * 32, std::byte{0});
+      m_device.uploadBuffer(state.particles, 0, zeros);
+      state.alive = m_device.createBuffer({.size = std::uint64_t{capacity} * sizeof(std::uint32_t),
+                                           .usage = rhi::BufferUsage::Storage,
+                                           .debugName = "particles alive"});
+      state.command = m_device.createBuffer({.size = sizeof(rhi::IndirectCommand),
+                                             .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::Indirect,
+                                             .debugName = "particles command"});
+    }
+    state.lastFrame = m_graphFrame;
+    ParticleJob job{.state = &state,
+                    .item = &item,
+                    .simulate = false,
+                    .spawnCount = 0,
+                    .spawnHead = state.head,
+                    .serial = state.serial,
+                    .dt = 0.0f,
+                    .distance = glm::length(glm::vec3{item.transform[3]} - view.camera.position)};
+    // The first view to see an emitter in a graph frame advances it; a second view only draws.
+    if (state.simulatedFrame != m_graphFrame) {
+      state.simulatedFrame = m_graphFrame;
+      job.simulate = true;
+      simulating = true;
+      if (item.simulate) {
+        job.dt = dt;
+        state.carry += item.rate * dt;
+        std::uint32_t born = static_cast<std::uint32_t>(std::floor(state.carry));
+        state.carry -= static_cast<float>(born);
+        if (!state.burstDone) {
+          born += item.burst;
+          state.burstDone = true;
+        }
+        job.spawnCount = std::min(born, capacity);
+        state.head = (state.head + job.spawnCount) % capacity;
+        state.serial += job.spawnCount;
+      }
+    }
+    v.particleJobs.push_back(job);
+    v.statistics.particleSlotCount += capacity;
+  }
+  v.statistics.particleEmitterCount = static_cast<std::uint32_t>(v.particleJobs.size());
+  // Far to near, so nearer emitters blend over farther ones.
+  std::ranges::stable_sort(v.particleJobs, std::greater<>{}, &ParticleJob::distance);
+  if (simulating) {
+    graph.addPass(
+        "particles", [](PassBuilder &) {},
+        [this, &v](rhi::ICommandList &commands, const PassResources &) { recordParticleSimulation(commands, v); });
+  }
+}
+
+void Renderer::recordParticleSimulation(rhi::ICommandList &commands, ViewState &v) {
+  SONNET_ZONE();
+  // Last frame's draws read what this frame's simulation rewrites, and may still be running.
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader,
+                          .srcAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead,
+                          .dstStage = rhi::PipelineStage::ComputeShader,
+                          .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
+  const std::uint32_t sampler = m_device.samplerIndex(m_linearClampSampler);
+  for (ParticleJob &job : v.particleJobs) {
+    if (!job.simulate) {
+      continue;
+    }
+    const ParticleEmitterItem &item = *job.item;
+    const rhi::TransientAllocation allocation = m_device.allocateTransient(sizeof(ParticleParams));
+    if (allocation.data.empty()) {
+      job.simulate = false; // the allocator logged the exhaustion; the emitter keeps last frame's particles
+      continue;
+    }
+    const ParticleParams params{.model = item.transform,
+                                .colorStart = item.colorStart,
+                                .colorEnd = item.colorEnd,
+                                .gravity = item.gravity,
+                                .drag = item.drag,
+                                .lifetime = item.lifetime,
+                                .speed = item.speed,
+                                .coneAngle = item.coneAngle,
+                                .sizeStart = item.sizeStart,
+                                .sizeEnd = item.sizeEnd,
+                                .dt = job.dt,
+                                .maxParticles = job.state->maxParticles,
+                                .spawnCount = job.spawnCount,
+                                .spawnHead = job.spawnHead,
+                                .serial = job.serial,
+                                .seed = item.seed,
+                                .texture = item.texture ? textureIndex(item.texture) : rhi::InvalidBindlessIndex,
+                                .flags = (item.local ? ParticleFlagLocal : 0u) |
+                                         (item.blend == ParticleBlend::Additive ? ParticleFlagAdditive : 0u),
+                                .sampler = sampler};
+    std::memcpy(allocation.data.data(), &params, sizeof(params));
+    job.state->params = m_device.bufferAddress(allocation.buffer) + allocation.offset;
+  }
+
+  // Every command starts the frame empty.
+  commands.bindPipeline(m_particleResetPipeline);
+  for (const ParticleJob &job : v.particleJobs) {
+    if (job.simulate) {
+      const rhi::BufferBinding command{.binding = rhi::PassStorageBinding, .buffer = job.state->command};
+      commands.bindBuffers({&command, 1});
+      commands.dispatch(1, 1, 1);
+    }
+  }
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                          .srcAccess = rhi::Access::ShaderWrite,
+                          .dstStage = rhi::PipelineStage::ComputeShader,
+                          .dstAccess = rhi::Access::ShaderRead | rhi::Access::ShaderWrite});
+
+  commands.bindPipeline(m_particleSimulatePipeline);
+  for (const ParticleJob &job : v.particleJobs) {
+    if (!job.simulate) {
+      continue;
+    }
+    const rhi::BufferBinding command{.binding = rhi::PassStorageBinding, .buffer = job.state->command};
+    commands.bindBuffers({&command, 1});
+    const ParticleSimulateConstants constants{.particles = m_device.bufferAddress(job.state->particles),
+                                              .alive = m_device.bufferAddress(job.state->alive),
+                                              .params = job.state->params};
+    commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+    commands.dispatch(groups(job.state->maxParticles, ParticleThreads), 1, 1);
+  }
+  commands.memoryBarrier({.srcStage = rhi::PipelineStage::ComputeShader,
+                          .srcAccess = rhi::Access::ShaderWrite,
+                          .dstStage = rhi::PipelineStage::DrawIndirect | rhi::PipelineStage::VertexShader,
+                          .dstAccess = rhi::Access::IndirectCommandRead | rhi::Access::ShaderRead});
+}
+
+void Renderer::recordParticleDraws(rhi::ICommandList &commands, const ViewState &v) {
+  if (v.particleJobs.empty()) {
+    return;
+  }
+  const SceneView &view = *v.view;
+  const float aspect = static_cast<float>(v.targetSize.x) / static_cast<float>(std::max(v.targetSize.y, 1u));
+  const glm::mat4 viewProjection = view.camera.projection(aspect) * view.camera.view();
+  bool boundQuad = false;
+  for (const ParticleJob &job : v.particleJobs) {
+    if (job.state->params == 0) {
+      continue; // never simulated: nothing to draw yet
+    }
+    commands.bindPipeline(m_particleDrawPipelines[job.item->blend == ParticleBlend::Additive ? 1 : 0]);
+    const ParticleDrawConstants constants{.viewProjection = viewProjection,
+                                          .cameraRight = view.camera.right(),
+                                          .cameraUp = view.camera.up(),
+                                          .particles = m_device.bufferAddress(job.state->particles),
+                                          .alive = m_device.bufferAddress(job.state->alive),
+                                          .params = job.state->params};
+    commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+    if (!boundQuad) {
+      commands.bindIndexBuffer(m_particleQuad, rhi::IndexType::Uint32);
+      boundQuad = true;
+    }
+    commands.drawIndexedIndirect(job.state->command, 0, 1);
+  }
 }
 
 void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources) {
@@ -1922,6 +2209,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         ensureFrameUploaded(v, resources);
         recordClustering(commands, v);
       });
+  addParticlePass(graph, v);
 
   const GraphImage hdr = graph.createImage({.size = size, .format = HdrFormat, .debugName = "scene hdr"});
   const bool skybox = m_environments.contains(view.environment) && !m_environments.get(view.environment).pending;
@@ -1963,6 +2251,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         }
         // Blended draws keep the direct path: their order is view-dependent (ADR-0012).
         recordDraws(commands, v, v.blendedOrder, m_blendPipelines, true);
+        recordParticleDraws(commands, v);
       });
 
   GraphImage bloom;
