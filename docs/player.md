@@ -208,7 +208,7 @@ cmake --preset ios-debug -DSONNET_IOS_BUNDLE=$PWD/build/ios-bundle/game.sbundle
 cmake --build --preset ios-debug
 ```
 
-Installing to a device and reading its files back is `xcrun devicectl` rather than `adb`, and a first launch needs the developer profile trusted on the phone once, under Settings > General > VPN & Device Management ([ADR-0018, "Checked before the code"](roadmap.md#checked-before-the-code)):
+Installing to a device and reading its files back is `xcrun devicectl` rather than `adb`, and a first launch needs the developer profile trusted on the phone once, under Settings > General > VPN & Device Management ([ADR-0018, "Checked before the code"](reports/m9-mobile-export.md#checked-before-the-code)):
 
 ```bash
 cmake --build --preset ios-debug -- -allowProvisioningUpdates -allowProvisioningDeviceRegistration
@@ -225,7 +225,7 @@ The build's real output path is `build/ios-<debug|release>/apps/player/<Debug|Re
 
 ## What an export is
 
-An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. An Android or iOS export is the bundle alone: the player there is an APK or an app bundle, which the build packages the bundle into ([Running on Android](#running-on-android), [Running on iOS](#running-on-ios)), and the editor builds neither. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](roadmap.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
+An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. An Android or iOS export is the bundle alone: the player there is an APK or an app bundle, which the build packages the bundle into ([Running on Android](#running-on-android), [Running on iOS](#running-on-ios)), and the editor builds neither. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](reports/roadmap-closed-work.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
 
 ## See also
 

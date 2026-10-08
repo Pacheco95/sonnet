@@ -22,7 +22,7 @@ if(APPLE)
   # Only the player links the static MoltenVK: the editor and every test binary keep loading the
   # Vulkan SDK's loader through SDL, so they keep validation (ADR-0018, "There is no moltenvk
   # port"). This is also what closes "the macOS export needs the Vulkan SDK"
-  # (docs/roadmap.md#the-macos-export-needs-the-vulkan-sdk): SDL finds vkGetInstanceProcAddr in
+  # (docs/reports/roadmap-closed-work.md#the-macos-export-needs-the-vulkan-sdk): SDL finds vkGetInstanceProcAddr in
   # the process before it searches the machine for a loader.
   find_package(unofficial-moltenvk CONFIG REQUIRED)
   target_link_libraries(sonnet_player_app PRIVATE unofficial::moltenvk::moltenvk)
