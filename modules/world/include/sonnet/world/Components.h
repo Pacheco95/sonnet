@@ -147,6 +147,46 @@ struct MorphWeights {
   bool operator==(const MorphWeights &) const = default;
 };
 
+// 32-bit, the width reflection reads enum values with.
+enum class ParticleBlendMode : std::int32_t {
+  Alpha,
+  Additive, // glows: colours add up instead of covering what is behind
+};
+
+enum class ParticleSpace : std::int32_t {
+  World, // particles stay where they were born when the emitter moves
+  Local, // they move with it
+};
+
+// Emits particles simulated on the GPU (ADR-0023): `rate` a second, and `burst` more when it
+// first appears, each flying off within `coneAngle` of the entity's +Y at a speed between
+// `speedMin` and `speedMax` for a lifetime between `lifetimeMin` and `lifetimeMax`, pulled by
+// `gravity` and slowed by `drag`, growing from `sizeStart` to `sizeEnd` metres across and
+// shifting from `colorStart` to `colorEnd` (linear, so a value above 1 glows). At most
+// `maxParticles` live at once; a new one takes the oldest's place. The same `seed` makes the
+// same particles. It plays in play mode, and in the editor while the entity is selected.
+struct ParticleEmitter {
+  bool playing{true};
+  std::uint32_t maxParticles{1000};
+  float rate{50.0f};
+  std::uint32_t burst{0};
+  float lifetimeMin{1.0f};
+  float lifetimeMax{2.0f};
+  float speedMin{1.0f};
+  float speedMax{2.0f};
+  float coneAngle{0.5235988f}; // radians, 30 degrees
+  glm::vec3 gravity{0.0f, -9.8f, 0.0f};
+  float drag{0.0f};
+  float sizeStart{0.1f};
+  float sizeEnd{0.1f};
+  glm::vec4 colorStart{1.0f, 1.0f, 1.0f, 1.0f};
+  glm::vec4 colorEnd{1.0f, 1.0f, 1.0f, 0.0f};
+  core::Uuid texture{}; // a texture asset, or none for a soft disc
+  ParticleBlendMode blend{ParticleBlendMode::Alpha};
+  ParticleSpace space{ParticleSpace::World};
+  std::uint32_t seed{1};
+};
+
 // The joint matrices of a SkinnedMesh for the current pose, each from the mesh's bind pose into
 // its entity's space; computed every frame by AnimationSystem, never saved or inherited.
 struct SkinPose {

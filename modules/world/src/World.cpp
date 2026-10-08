@@ -207,6 +207,28 @@ void World::registerComponents() {
       .member<bool>("rootMotion")
       .member<std::string>("rootBone")
       .member<std::vector<AnimationLayer>>("layers");
+  m_world.component<ParticleBlendMode>("ParticleBlendMode");
+  m_world.component<ParticleSpace>("ParticleSpace");
+  registerComponent<ParticleEmitter>("ParticleEmitter")
+      .member<bool>("playing")
+      .member<std::uint32_t>("maxParticles")
+      .member<float>("rate")
+      .member<std::uint32_t>("burst")
+      .member<float>("lifetimeMin")
+      .member<float>("lifetimeMax")
+      .member<float>("speedMin")
+      .member<float>("speedMax")
+      .member<float, Radians>("coneAngle")
+      .member<glm::vec3>("gravity")
+      .member<float>("drag")
+      .member<float>("sizeStart")
+      .member<float>("sizeEnd")
+      .member<glm::vec4>("colorStart")
+      .member<glm::vec4>("colorEnd")
+      .member<core::Uuid>("texture")
+      .member<ParticleBlendMode>("blend")
+      .member<ParticleSpace>("space")
+      .member<std::uint32_t>("seed");
   registerVector<float>();
   registerComponent<MorphWeights>("MorphWeights").member<std::vector<float>>("weights");
   // Derived every frame for the entity itself, like WorldTransform: never inherited, never saved.

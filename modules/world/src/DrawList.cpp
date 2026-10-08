@@ -57,6 +57,40 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
   });
 }
 
+void buildParticleList(const World &world, assets::AssetDatabase &assets,
+                       std::vector<renderer::ParticleEmitterItem> &emitters) {
+  SONNET_ZONE();
+  emitters.clear();
+  const bool playing = world.isPlaying();
+  world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const ParticleEmitter &emitter) {
+    if (entity.has<Disabled>()) {
+      return;
+    }
+    emitters.push_back(
+        {.key = entity.id(),
+         .transform = transform.matrix,
+         .id = World::pickId(entity),
+         .maxParticles = emitter.maxParticles,
+         .rate = emitter.rate,
+         .burst = emitter.burst,
+         .lifetime = {emitter.lifetimeMin, std::max(emitter.lifetimeMin, emitter.lifetimeMax)},
+         .speed = {emitter.speedMin, std::max(emitter.speedMin, emitter.speedMax)},
+         .coneAngle = emitter.coneAngle,
+         .gravity = emitter.gravity,
+         .drag = emitter.drag,
+         .sizeStart = emitter.sizeStart,
+         .sizeEnd = emitter.sizeEnd,
+         .colorStart = emitter.colorStart,
+         .colorEnd = emitter.colorEnd,
+         .texture = emitter.texture.isNil() ? renderer::TextureHandle{} : assets.requestTexture(emitter.texture),
+         .blend = emitter.blend == ParticleBlendMode::Additive ? renderer::ParticleBlend::Additive
+                                                               : renderer::ParticleBlend::Alpha,
+         .local = emitter.space == ParticleSpace::Local,
+         .seed = emitter.seed,
+         .simulate = playing && emitter.playing});
+  });
+}
+
 void buildLightList(const World &world, std::vector<renderer::Light> &lights) {
   SONNET_ZONE();
   lights.clear();
