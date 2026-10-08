@@ -563,6 +563,95 @@ TEST_CASE("an unoccluded plane stays lit across every shadow cascade", "[rendere
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+namespace {
+
+// The mean red of a w by h block of pixels whose corner is (x, y).
+float meanRed(GpuScene &scene, unsigned x, unsigned y, unsigned w, unsigned h) {
+  float sum = 0.0f;
+  for (unsigned j = 0; j < h; ++j) {
+    for (unsigned i = 0; i < w; ++i) {
+      sum += static_cast<float>(scene.pixel(x + i, y + j).r);
+    }
+  }
+  return sum / static_cast<float>(w * h);
+}
+
+// A wall a metre left of the origin, two metres high and four wide, seen edge-on from above, with
+// the sun travelling down and along +X: its shadow covers the ground from x = -1 to x = 1. The
+// ground at the origin is inside the shadow, the ground at x = 2.5 is not.
+struct WallShadow {
+  float shadowed{0.0f};
+  float lit{0.0f};
+};
+
+WallShadow wallShadow(IDevice &device, Renderer &renderer, MeshHandle plane, MeshHandle wall, MaterialHandle material) {
+  const glm::mat4 upright = glm::translate(glm::mat4{1.0f}, {-1.0f, 1.0f, 0.0f}) *
+                            glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{0.0f, 0.0f, 1.0f});
+  const std::array draws{DrawItem{.mesh = plane}, DrawItem{.mesh = wall, .material = material, .transform = upright}};
+  SceneView view = topDownScene(draws);
+  view.sun.direction = glm::normalize(glm::vec3{1.0f, -1.0f, 0.0f});
+  view.sun.intensity = 3.0f;
+  view.ambient = {0.02f, 0.02f, 0.02f};
+  GpuScene scene{device, renderer, {64, 64}};
+  scene.render(view);
+  return {.shadowed = meanRed(scene, 28, 28, 8, 8), .lit = meanRed(scene, 52, 28, 6, 8)};
+}
+
+} // namespace
+
+TEST_CASE("a blended wall casts a shadow whose darkness follows its alpha on a GPU", "[renderer][gpu][shadow]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
+    const MeshHandle wall = renderer.createMesh(primitives::plane({2.0f, 4.0f}), "wall");
+    const auto glass = [&](float alpha) {
+      MaterialDesc desc;
+      desc.alphaMode = AlphaMode::Blend;
+      desc.baseColor = {1.0f, 1.0f, 1.0f, alpha};
+      return renderer.createMaterial(desc, "glass");
+    };
+    // The unshadowed ground, from a wall that casts nothing, is the lit reference.
+    const MaterialHandle clear = glass(0.0f);
+    const MaterialHandle quarter = glass(0.25f);
+    const MaterialHandle half = glass(0.5f);
+    const MaterialHandle threeQuarters = glass(0.75f);
+    const MaterialHandle solid = glass(1.0f);
+    const WallShadow opaque = wallShadow(*device, renderer, plane, wall, {});
+    const WallShadow none = wallShadow(*device, renderer, plane, wall, clear);
+    const WallShadow a25 = wallShadow(*device, renderer, plane, wall, quarter);
+    const WallShadow a50 = wallShadow(*device, renderer, plane, wall, half);
+    const WallShadow a75 = wallShadow(*device, renderer, plane, wall, threeQuarters);
+    const WallShadow a100 = wallShadow(*device, renderer, plane, wall, solid);
+    WARN(std::format("shadowed ground, alpha 0 / 0.25 / 0.5 / 0.75 / 1: {} {} {} {} {}; lit {}", none.shadowed,
+                     a25.shadowed, a50.shadowed, a75.shadowed, a100.shadowed, none.lit));
+
+    // Away from the wall's shadow nothing changes with its alpha.
+    REQUIRE(none.lit > 100.0f);
+    REQUIRE(std::abs(a50.lit - none.lit) < 1.0f);
+    // A wall of alpha zero casts nothing, a wall of alpha one casts a full shadow, and the
+    // darkness grows with alpha in between.
+    REQUIRE(std::abs(none.shadowed - none.lit) < 1.0f);
+    REQUIRE(a100.shadowed * 3.0f < none.lit);
+    // The test never discards at alpha one: the shadow is the opaque wall's, pixel for pixel.
+    REQUIRE(a100.shadowed == opaque.shadowed);
+    REQUIRE(a100.lit == opaque.lit);
+    REQUIRE(a25.shadowed < none.shadowed - 5.0f);
+    REQUIRE(a50.shadowed < a25.shadowed - 5.0f);
+    REQUIRE(a75.shadowed < a50.shadowed - 5.0f);
+    REQUIRE(a100.shadowed < a75.shadowed - 5.0f);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    for (const MaterialHandle material : {clear, quarter, half, threeQuarters, solid}) {
+      renderer.destroyMaterial(material);
+    }
+    renderer.destroyMesh(wall);
+    renderer.destroyMesh(plane);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);

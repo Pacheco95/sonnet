@@ -393,6 +393,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
     // Shadows cull nothing: a single-sided ground plane has to cast its shadow too.
     defineGraphics(m_shadowPipelines[i], "depth",
                    {.vertexEntry = "shadowVertexMain",
+                    .fragmentEntry = "shadowFragmentMain",
                     .colorFormats = {},
                     .depthFormat = DepthFormat,
                     .depth = {.test = true, .write = true},
