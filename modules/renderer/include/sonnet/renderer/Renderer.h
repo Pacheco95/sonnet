@@ -80,6 +80,9 @@ enum class AntiAliasing : std::uint8_t {
   Taa,
 };
 
+// What the editor's View > Anti-aliasing menu calls a mode: "None", "FXAA", "TAA".
+[[nodiscard]] const char *antiAliasingName(AntiAliasing mode) noexcept;
+
 // Quality knobs. Tests turn the sizes and sample counts down so Lavapipe finishes quickly.
 struct RendererSettings {
   bool shadows{true};

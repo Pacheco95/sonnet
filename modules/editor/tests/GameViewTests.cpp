@@ -180,6 +180,36 @@ TEST_CASE("the Game view draws through the scene camera beside the Scene view", 
   std::filesystem::remove_all(directory);
 }
 
+// The mode View > Anti-aliasing sets.
+TEST_CASE("the anti-aliasing mode can be switched while the editor runs", "[editor][gpu][game-view]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "aa_menu";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "AaMenu").has_value());
+    REQUIRE(editor.renderer().settings().antialiasing == renderer::AntiAliasing::Taa);
+    for (int frame = 0; frame < 4; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(editor.renderer().statistics(0).temporalHistoryUsed);
+    for (const renderer::AntiAliasing mode :
+         {renderer::AntiAliasing::Fxaa, renderer::AntiAliasing::None, renderer::AntiAliasing::Taa}) {
+      editor.setAntiAliasing(mode);
+      fixture.frame(editor);
+      // The first frame of TAA has no history; the next resolves against it. The others never do.
+      REQUIRE_FALSE(editor.renderer().statistics(0).temporalHistoryUsed);
+      fixture.frame(editor);
+      fixture.frame(editor);
+      REQUIRE(editor.renderer().statistics(0).temporalHistoryUsed == (mode == renderer::AntiAliasing::Taa));
+      REQUIRE(editor.renderer().statistics(0).drawCount > 0);
+    }
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("a scene without a camera shows the fallback view in the Game panel, with one warning",
           "[editor][gpu][game-view]") {
   Fixture fixture;

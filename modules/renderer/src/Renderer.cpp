@@ -605,6 +605,18 @@ Renderer::~Renderer() {
   }
 }
 
+const char *antiAliasingName(AntiAliasing mode) noexcept {
+  switch (mode) {
+  case AntiAliasing::None:
+    return "None";
+  case AntiAliasing::Fxaa:
+    return "FXAA";
+  case AntiAliasing::Taa:
+    return "TAA";
+  }
+  return "";
+}
+
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
   static constexpr std::array<std::string_view, 14> Names{"cluster", "cull", "debug",  "depth",   "forward",
                                                           "hiz",     "ibl",  "id",     "outline", "particles",

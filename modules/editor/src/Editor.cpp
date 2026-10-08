@@ -697,6 +697,15 @@ void Editor::drawMenuBar() {
       resetLayout();
     }
     ImGui::Separator();
+    if (ImGui::BeginMenu("Anti-aliasing")) {
+      for (const renderer::AntiAliasing mode :
+           {renderer::AntiAliasing::None, renderer::AntiAliasing::Fxaa, renderer::AntiAliasing::Taa}) {
+        if (ImGui::MenuItem(renderer::antiAliasingName(mode), nullptr, m_renderer.settings().antialiasing == mode)) {
+          setAntiAliasing(mode);
+        }
+      }
+      ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("Shading term")) {
       renderer::RendererSettings settings = m_renderer.settings();
       for (std::uint32_t i = 0; i < renderer::DebugViewCount; ++i) {
@@ -1220,6 +1229,12 @@ void Editor::afterPresent() {
 void Editor::setShadingTerm(renderer::DebugView view) {
   renderer::RendererSettings settings = m_renderer.settings();
   settings.debugView = view;
+  m_renderer.setSettings(settings);
+}
+
+void Editor::setAntiAliasing(renderer::AntiAliasing mode) {
+  renderer::RendererSettings settings = m_renderer.settings();
+  settings.antialiasing = mode;
   m_renderer.setSettings(settings);
 }
 

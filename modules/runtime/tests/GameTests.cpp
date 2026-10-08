@@ -709,7 +709,14 @@ TEST_CASE("the showcase resolves to its golden image, and to the unresolved fram
     SKIP("the showcase sample and its golden images were not found in a checkout above the test binary");
   }
   const std::filesystem::path golden = directory / "showcase_taa.png";
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
+#endif
   const bool update = std::getenv("SONNET_UPDATE_GOLDEN") != nullptr;
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
   const Png resolved = captureShowcase(fixture, project, renderer::AntiAliasing::Taa, "showcase_taa",
                                        update ? golden : std::filesystem::path{});
   REQUIRE(std::filesystem::is_regular_file(golden));

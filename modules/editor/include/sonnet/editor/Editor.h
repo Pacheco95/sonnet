@@ -288,6 +288,8 @@ public:
   }
   // The term of the forward shading the viewport shows, from View > Shading term.
   void setShadingTerm(renderer::DebugView view);
+  // View > Anti-aliasing: takes effect on the next frame.
+  void setAntiAliasing(renderer::AntiAliasing mode);
   // The next frame starts the views' temporal anti-aliasing history over, as a scene swap does.
   void cutHistory() {
     m_cutHistory = true;

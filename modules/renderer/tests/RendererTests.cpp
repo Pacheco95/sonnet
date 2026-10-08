@@ -1455,6 +1455,7 @@ TEST_CASE("the history starts over on a first frame, a cut, a resize, a debug vi
     graph.execute(commands);
     device->endFrame();
     std::vector<bool> reused;
+    reused.reserve(views.size());
     for (std::size_t i = 0; i < views.size(); ++i) {
       reused.push_back(renderer.statistics(i).temporalHistoryUsed);
     }
@@ -1656,7 +1657,7 @@ TEST_CASE("each view resolves against its own history", "[renderer][taa][views][
     targetSecond.resize({64, 64});
     std::array<BufferHandle, 2> readbacks;
     for (BufferHandle &readback : readbacks) {
-      readback = device->createBuffer({.size = 64 * 64 * 4,
+      readback = device->createBuffer({.size = std::uint64_t{64} * 64 * 4,
                                        .usage = BufferUsage::TransferDst,
                                        .memory = MemoryUsage::GpuToCpu,
                                        .debugName = "view readback"});
@@ -1677,15 +1678,14 @@ TEST_CASE("each view resolves against its own history", "[renderer][taa][views][
                               {0.0f, 0.0f, 0.0f, 1.0f});
       together.addScenePasses(graph, second, colorSecond, graph.importImage(targetSecond.depth()),
                               {0.0f, 0.0f, 0.0f, 1.0f});
-      {
-        const std::array colors{colorFirst, colorSecond};
-        for (std::size_t i = 0; i < 2; ++i) {
-          graph.addPass(
-              std::format("readback {}", i), [&, i](PassBuilder &b) { b.transferSrc(colors[i]); },
-              [&, i](ICommandList &cmd, const PassResources &resources) {
-                cmd.copyImageToBuffer(resources.image(colors[i]), readbacks[i]);
-              });
-        }
+      // Captured by value: the passes run in execute, after this block's locals are gone.
+      const std::array colors{colorFirst, colorSecond};
+      for (std::size_t i = 0; i < 2; ++i) {
+        graph.addPass(
+            std::format("readback {}", i), [&, i](PassBuilder &b) { b.transferSrc(colors[i]); },
+            [&, color = colors[i], i](ICommandList &cmd, const PassResources &resources) {
+              cmd.copyImageToBuffer(resources.image(color), readbacks[i]);
+            });
       }
       graph.execute(commands);
       device->endFrame();
