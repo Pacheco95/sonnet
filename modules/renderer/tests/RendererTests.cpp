@@ -2961,7 +2961,22 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
   // depth-pyramid culling (ADR-0024) on or off.
   const auto measure = [&](IDevice &device, bool occlusion, bool occluded) {
     {
-      Renderer renderer{device, shaderDir(platform), {.occlusionCulling = occlusion, .jobs = &jobs}};
+      // SONNET_BENCH_AA=none|fxaa measures the other anti-aliasing modes; unset is TAA, the default.
+      RendererSettings settings{.occlusionCulling = occlusion, .jobs = &jobs};
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+      const char *mode = std::getenv("SONNET_BENCH_AA");
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+      if (mode != nullptr) {
+        settings.antialiasing = std::string_view{mode} == "none"   ? AntiAliasing::None
+                                : std::string_view{mode} == "fxaa" ? AntiAliasing::Fxaa
+                                                                   : AntiAliasing::Taa;
+      }
+      Renderer renderer{device, shaderDir(platform), settings};
       const MeshHandle box = renderer.createMesh(primitives::box(), "box");
       const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
       MaterialDesc rough;
