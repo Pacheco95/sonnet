@@ -4,12 +4,12 @@ Gameplay scripts in Lua, behind `IScriptRuntime`, with Lua 5.5 and sol2 as the o
 
 | Header | Contents |
 |---|---|
-| `Components.h` | `Script` and `registerComponents` |
-| `ScriptRuntime.h` | `IScriptRuntime`, `ScriptDesc` and `createScriptRuntime` |
+| `Components.h` | `ScriptSlot`, `Scripts` and `registerComponents` |
+| `ScriptRuntime.h` | `IScriptRuntime`, `ScriptDesc`, `PropertyType`, `PropertyDecl` and `createScriptRuntime` |
 
 ## Scripts and instances
 
-A script is a `.lua` file in the project, an asset with an identity like any other ([assets.md](assets.md#importers)). The `Script` component names one by identity, and the entity then runs it in play mode. One script per entity.
+A script is a `.lua` file in the project, an asset with an identity like any other ([assets.md](assets.md#importers)). The `Scripts` component holds a list of slots, each `{script, properties}`: the script's identity and the property values its author changed ([Properties](#properties)). The entity runs every slot in play mode, in slot order, each as an instance of its own, so a door can be a `door.lua` and a `squeak.lua` at once ([ADR-0022](decisions/0022-gameplay-events-and-script-properties.md)). The same script may fill several slots. `Scripts` is a list of structs, which reflection learns through `World::registerVector` ([world.md](world.md#components)); the scene file shows it as an array.
 
 A script returns a table, its class:
 
@@ -29,28 +29,88 @@ end
 return Mover
 ```
 
-Every enabled entity with a `Script` gets an instance: a table whose metatable points at the class, holding `self.entity` and whatever the script stores in it. The hooks are optional:
+Every slot of an enabled entity gets an instance: a table whose metatable points at the class, holding `self.entity`, `self.slot` (the slot's index, counting from one like a Lua array), the class's declared properties and whatever the script stores in it. The hooks are optional:
 
 - `start(self)` once, before the instance's first update, in the frame the instance appears.
 - `fixedUpdate(self, dt)` every fixed step, after the physics step ([physics.md](physics.md#the-simulation)), with the fixed delta.
 - `update(self, dt)` every frame, in the `Update` phase, before physics interpolates what is drawn.
+- `onContactBegin(self, other, contact)`, `onContactEnd(self, other)`, `onTriggerEnter(self, other)` and `onTriggerExit(self, other)`, before the step's `fixedUpdate` ([Events](#events)).
 
-Instances are called in the order of their entities' ids, which is close to creation order. An instance ends when its entity is destroyed or disabled or its `Script` changes to another script. A script's file runs once per load in an environment of its own over the shared globals, so two scripts never overwrite each other's top-level names, while instances of the same script share them.
+Instances are called in the order of their entities' ids, which is close to creation order, and an entity's slots in slot order. An instance ends when its entity is destroyed or disabled, its slot is removed or the slot's script changes to another; changing the other properties of a slot keeps the instance ([Properties](#properties)). A script's file runs once per load in an environment of its own over the shared globals, so two scripts never overwrite each other's top-level names, while instances of the same script share them.
 
 The runtime's two systems are simulation systems: nothing runs in edit mode. Stopping play in the editor calls `reset`, which drops every instance and every loaded script, so the next play starts from fresh script state as well as from the snapshot. The systems run with the world's deferring suspended, so a script sees its own changes on its next line: a component it just added, the children of a prefab it just instantiated.
+
+## Events
+
+Physics records what touched what during a fixed step and the scripting runtime delivers it ([physics.md](physics.md#events)): at the start of each fixed update, after the step and before any `fixedUpdate` hook, each event is called on the instances of both of its entities, in slot order, first on the entity with the lower id:
+
+| Hook | When |
+|---|---|
+| `onContactBegin(self, other, contact)` | Two solid bodies started touching. `contact` is `{point, normal}`, `vec3`s: a world-space point on the surface, and the direction from `self`'s entity towards `other` |
+| `onContactEnd(self, other)` | They stopped touching |
+| `onTriggerEnter(self, other)` | A body started overlapping an entity with the `Trigger` tag ([physics.md](physics.md#components)); both the trigger's scripts and the body's hear it |
+| `onTriggerExit(self, other)` | It stopped overlapping |
+
+`other` is an `Entity`. A pair is reported once however many shapes touch, a resting body that falls asleep keeps its contacts, and the order within a step is the same whatever Jolt's threads did. An entity that was destroyed or disabled since the step, including by an earlier hook of the same step, gets nothing, but `other` can be one that is gone: `other:isValid()` says. The hooks run on the main thread like every other: Jolt's listener only records. A pickup is a trigger and a few lines:
+
+```lua
+local Pickup = { properties = { value = { type = "integer", default = 1, min = 1 } } }
+
+function Pickup:onTriggerEnter(other)
+  if other:name() == "Player" then
+    log.info("picked up", self.value)
+    self.entity:destroy()
+  end
+end
+
+return Pickup
+```
+
+## Properties
+
+A class declares the values an author may change per entity in a `properties` table. The inspector shows one widget per entry and a scene stores the values that differ from the default, so the same script serves a slow door and a fast one:
+
+```lua
+local Mover = {
+  properties = {
+    speed = { type = "number", default = 2, min = 0, max = 10 },
+    target = { type = "entity" },
+    tint = { type = "color", default = { r = 1, g = 0.5, b = 0.2 } },
+  },
+}
+```
+
+| `type` | In Lua | In the slot's JSON | `default` |
+|---|---|---|---|
+| `number`, `integer` | number, integer | number | a number (0) |
+| `boolean`, `string` | boolean, string | boolean, string | `false`, `""` |
+| `vec3` | a `vec3` | `{x, y, z}` | a table with `x`, `y` and `z` (zero) |
+| `color` | `{r, g, b, a}` | the same | a table; `a` and the missing channels default to 1 |
+| `entity` | an `Entity`, or `nil` when none or not found | the entity's identity | none |
+| `asset` | the asset's identity string, or `nil` | the identity | none |
+
+`min` and `max` bound the inspector's widgets for the numeric types; the runtime does not clamp what a file holds. The entries are shown sorted by name, since a Lua table has no order. A slot's `properties` is the JSON object of the values the author changed, by name, and an instance gets the class's defaults overlaid with those values as fields of `self` before `start`. Fields of the class outside `properties` stay plain defaults every instance shares. A value of the wrong kind falls back to the default with a warning, and a name the class no longer declares is kept in the scene and reported, so reverting a script does not lose the data. A malformed entry in the table is reported and left out, once per revision of the file.
+
+`IScriptRuntime::properties(script)` returns a class's declarations, loading the class through the same loader play mode uses, in edit mode too: the file's top-level code runs when the inspector first asks, as it would at the start of play. A class that has not loaded gives an error with the reason. Editing a slot's `properties` while the game runs sets again only the properties whose value changed, on the running instance, so what a script did to the others stays; the editor's snapshot restore discards it all on stop ([editor.md](editor.md#play-mode)).
+
+## require
+
+`require("name")` inside a script loads another script asset as a module and returns what its file returns (`true` when it returns nothing). The name is the file's name without `.lua`, or its path from the project's root or from one of its asset roots (`"scripts/util"`, with or without `.lua`); a path beats a bare name, and a name two files share is an error that says to use the path. The module runs once, in an environment of its own over the shared globals, and the value is shared by every script that asks; it is not a class, takes no instance and no properties. `package` stays absent: `require` is the only way into another file, and only into the project's scripts.
+
+Modules are cached by revision. Changing a module's file loads it again, and every script that required it, directly or through another module, is reloaded through the same hot reload ([below](#errors-and-hot-reload)): its running instances keep their state and take the new class. A `require` cycle raises an error naming the chain (`require cycle: assets/x.lua -> assets/y.lua -> assets/x.lua`); a module that fails to load raises its error in the requiring script, with the module's file and line, and is tried again when its file changes.
 
 ## Errors and hot reload
 
 - A script that fails to load (a syntax error, an error at the top level, not returning a table) is reported once per revision of its file, and its entities get no instances.
 - A hook that raises an error is reported with the script's file and line as the log record's location, followed by Lua's stack traceback, and turns that instance off, not the others. Log panel links open the script at that line ([editor.md](editor.md#projects-and-scenes)).
-- The asset database notices a changed file ([assets.md](assets.md#hot-reload)); the next frame loads it again and swaps the class under the running instances. Their state stays and `start` does not run again; instances that had stopped on an error run again. A revision that fails to load keeps the previous class running.
+- The asset database notices a changed file ([assets.md](assets.md#hot-reload)); the next frame loads it again, and likewise any script that required it, and swaps the class under the running instances. Their state stays and `start` does not run again; instances that had stopped on an error run again. A revision that fails to load keeps the previous class running.
 - `run(code, name)` executes a chunk with the same globals, outside any entity, and returns the error instead of logging it; the tests use it.
 
 Lua is compiled as C++, so a Lua error unwinds C++ frames as an exception and every call into a script is protected. No exception leaves the runtime.
 
 ## The Lua API
 
-Scripts get Lua's `base`, `math`, `string`, `table`, `utf8` and `coroutine` libraries, without `dofile` and `loadfile`, and none of `io`, `os`, `package` or `debug`: a script reaches the engine through the tables below only, and runs the same in the player on every platform.
+Scripts get Lua's `base`, `math`, `string`, `table`, `utf8` and `coroutine` libraries, without `dofile` and `loadfile`, and none of `io`, `os`, `package` or `debug`: a script reaches the engine through the tables below only, and `require` for the project's other scripts, and runs the same in the player on every platform.
 
 ### Components
 
@@ -65,6 +125,7 @@ Components are read and written through reflection, generically ([world.md](worl
 | asset identity (`core::Uuid`) | the canonical string, or `nil` for none |
 | `vec3`, `quat` | tables `{x, y, z}` and `{x, y, z, w}` with the `vec3` and `quat` metatables below |
 | other structs, `vec4` | tables of their members |
+| repeated members, such as `Scripts`' `slots` | not visible yet: `get` leaves them `nil` |
 
 `get` returns a copy; `set` writes the fields present in the table and leaves the others, so `entity:set("RigidBody", { mass = 3 })` changes the mass only. A value of the wrong shape raises an error naming the member. Tags read as `true` when present.
 
@@ -156,4 +217,4 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 
 ## Tests
 
-`scripting_tests` covers the maths and the missing libraries, a seeded `math.random` repeating its draws, errors from `run`, an instance's start and updates in play mode only, an error in `start` reported at the script's line and a reload that fixes it while keeping the instance's state, components through reflection including enums, identities, tags and malformed values, finding, creating, instantiating and destroying entities, input and physics from scripts with the fixed update after the step, `input.touches()` with its fields and their types, `camera.ray` through the centre and a corner of a known view, log records with the script's location, scripts that fail to load or are missing, and instances following their entities, with `reset` starting the scripts over.
+`scripting_tests` covers the maths and the missing libraries, several slots on an entity starting and updating in order and following changes to the list, contact and trigger events reaching both entities with the normal from each one's side before the step's hooks and not reaching a destroyed or disabled entity, declared properties of every type with their defaults, overlays, wrong values, undeclared names and live edits, malformed declarations, `require` loading a module once and reloading its users when it changes, its cycles, unknown and ambiguous names and failing modules, `Scripts` through a scene and the migration of a version 2 `Script`, a seeded `math.random` repeating its draws, errors from `run`, an instance's start and updates in play mode only, an error in `start` reported at the script's line and a reload that fixes it while keeping the instance's state, components through reflection including enums, identities, tags and malformed values, finding, creating, instantiating and destroying entities, input and physics from scripts with the fixed update after the step, `input.touches()` with its fields and their types, `camera.ray` through the centre and a corner of a known view, log records with the script's location, scripts that fail to load or are missing, and instances following their entities, with `reset` starting the scripts over.

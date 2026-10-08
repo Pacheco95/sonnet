@@ -114,7 +114,7 @@ struct Fixture {
 
   flecs::entity scripted(std::string_view name, std::string_view file) {
     const flecs::entity entity = world.createEntity(name);
-    entity.set<scripting::Script>({.script = script(file)});
+    entity.set<scripting::Scripts>({.slots = {{.script = script(file)}}});
     return entity;
   }
 
@@ -122,6 +122,17 @@ struct Fixture {
     for (int i = 0; i < frames; ++i) {
       world.progress(Step);
     }
+  }
+
+  // What scripts printed with a leading "@": a trace to compare in order, without the mark.
+  [[nodiscard]] std::vector<std::string> trace() const {
+    std::vector<std::string> lines;
+    for (const Record &record : sink->records) {
+      if (record.message.starts_with("@")) {
+        lines.push_back(record.message.substr(1));
+      }
+    }
+    return lines;
   }
 };
 
@@ -141,7 +152,8 @@ TEST_CASE("scripts get vec3 and quat maths and no file or OS access", "[scriptin
     local q = quat.axisAngle(vec3(0, 0, 1), 0.3)
     local back = q:inverse() * (q * vec3(1, 2, 3))
     assert((back - vec3(1, 2, 3)):length() < 1e-6)
-    assert(io == nil and os == nil and dofile == nil and loadfile == nil and require == nil)
+    assert(io == nil and os == nil and dofile == nil and loadfile == nil and package == nil)
+    assert(type(require) == "function")
   )lua",
                     "maths")
               .has_value());
@@ -433,8 +445,8 @@ TEST_CASE("broken and missing scripts are reported once and run nothing", "[scri
   fixture.scripted("Syntax", "syntax.lua");
   fixture.scripted("Nothing", "nothing.lua");
   const flecs::entity missing = fixture.world.createEntity("Missing");
-  missing.set<scripting::Script>({.script = core::Uuid::generate()});
-  fixture.world.createEntity("Empty").set<scripting::Script>({});
+  missing.set<scripting::Scripts>({.slots = {{.script = core::Uuid::generate()}}});
+  fixture.world.createEntity("Empty").set<scripting::Scripts>({});
   fixture.world.setPlaying(true);
   fixture.run(5);
   REQUIRE(fixture.scripts->instanceCount() == 0);
@@ -489,4 +501,349 @@ TEST_CASE("reset drops instances and script state, and entities going away drop 
   }
   std::ranges::sort(speeds);
   REQUIRE(speeds == std::vector<float>{1.0f, 2.0f});
+}
+
+TEST_CASE("Scripts round-trips through a scene and a version 2 Script migrates into it", "[scripting][scene]") {
+  Fixture fixture{{"spin.lua", "return {}"}};
+  const core::Uuid spin = fixture.script("spin.lua");
+  const flecs::entity entity = fixture.world.createEntity("Thing");
+  entity.set<scripting::Scripts>(
+      {.slots = {{.script = spin, .properties = R"({"speed":3})"}, {.script = spin, .properties = ""}}});
+  const nlohmann::json scene = world::saveScene(fixture.world);
+  const nlohmann::json &saved = scene["entities"][0]["components"]["Scripts"]["slots"];
+  REQUIRE(saved.size() == 2);
+  REQUIRE(saved[0]["properties"]["speed"] == 3);
+  fixture.world.destroyEntity(entity);
+  REQUIRE(world::loadScene(fixture.world, scene));
+  const flecs::entity loaded = fixture.world.roots().front();
+  REQUIRE(loaded.get<scripting::Scripts>().slots.size() == 2);
+  REQUIRE(loaded.get<scripting::Scripts>().slots[0].script == spin);
+
+  fixture.world.destroyEntity(loaded);
+  const nlohmann::json old{{"version", 2},
+                           {"entities",
+                            {{{"uuid", core::Uuid::generate().toString()},
+                              {"name", "Old"},
+                              {"components", {{"Script", {{"script", spin.toString()}}}}}}}}};
+  REQUIRE(world::loadScene(fixture.world, old));
+  const flecs::entity migrated = fixture.world.roots().front();
+  REQUIRE(migrated.get<scripting::Scripts>().slots.size() == 1);
+  REQUIRE(migrated.get<scripting::Scripts>().slots[0].script == spin);
+}
+
+TEST_CASE("an entity runs several scripts, in slot order, each with its own instance", "[scripting][slots]") {
+  Fixture fixture{{"a.lua", R"lua(
+    local A = {}
+    function A:start() print("@start a" .. self.slot) end
+    function A:update() print("@update a" .. self.slot) end
+    return A
+  )lua"},
+                  {"b.lua", R"lua(
+    local B = {}
+    function B:start() print("@start b" .. self.slot) end
+    function B:update() print("@update b" .. self.slot) end
+    return B
+  )lua"}};
+  const flecs::entity entity = fixture.world.createEntity("Multi");
+  entity.set<scripting::Scripts>({.slots = {{.script = fixture.script("a.lua")},
+                                            {.script = fixture.script("b.lua")},
+                                            {.script = fixture.script("a.lua")}}});
+  fixture.world.setPlaying(true);
+  fixture.run(2);
+  REQUIRE(fixture.scripts->instanceCount() == 3);
+  const std::vector<std::string> expected{"start a1",  "start b2",  "start a3",  "update a1", "update b2",
+                                          "update a3", "update a1", "update b2", "update a3"};
+  REQUIRE(fixture.trace() == expected);
+
+  // Taking a slot away ends its instance and leaves the others running; a nil slot runs nothing.
+  entity.set<scripting::Scripts>({.slots = {{.script = fixture.script("a.lua")}, {.script = core::Uuid{}}}});
+  fixture.sink->records.clear();
+  fixture.run(1);
+  REQUIRE(fixture.scripts->instanceCount() == 1);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"update a1"});
+  // Another script in a slot starts fresh.
+  entity.set<scripting::Scripts>({.slots = {{.script = fixture.script("b.lua")}}});
+  fixture.sink->records.clear();
+  fixture.run(1);
+  REQUIRE(fixture.trace() == (std::vector<std::string>{"start b1", "update b1"}));
+}
+
+namespace {
+
+constexpr const char *Listener = R"lua(
+  local Listener = {}
+  -- Adding zero turns -0.0 into 0.0, which some platforms print with its sign.
+  local function fmt(v) return string.format("%.1f,%.1f,%.1f", v.x + 0, v.y + 0, v.z + 0) end
+  function Listener:onContactBegin(other, contact)
+    self.began = true
+    print("@begin " .. self.entity:name() .. " " .. other:name() .. " " .. fmt(contact.normal))
+    if self.onBegin then self.onBegin(self, other) end
+  end
+  function Listener:onContactEnd(other) print("@end " .. self.entity:name() .. " " .. other:name()) end
+  function Listener:onTriggerEnter(other) print("@enter " .. self.entity:name() .. " " .. other:name()) end
+  function Listener:onTriggerExit(other) print("@exit " .. self.entity:name() .. " " .. other:name()) end
+  function Listener:fixedUpdate() print("@fixed " .. self.entity:name() .. " " .. tostring(self.began)) end
+  return Listener
+)lua";
+
+bool before(const std::vector<std::string> &lines, std::string_view first, std::string_view second) {
+  const auto a = std::ranges::find_if(lines, [&](const std::string &line) { return line.starts_with(first); });
+  const auto b = std::ranges::find_if(lines, [&](const std::string &line) { return line.starts_with(second); });
+  return a != lines.end() && b != lines.end() && a < b;
+}
+
+} // namespace
+
+TEST_CASE("contact and trigger events reach the scripts of both entities before fixedUpdate", "[scripting][events]") {
+  Fixture fixture{{"listener.lua", Listener}};
+  const flecs::entity ball = fixture.world.createEntity("Ball");
+  ball.set<world::Transform>({.position = {0.0f, 1.0f, 0.0f}});
+  ball.set<physics::SphereCollider>({.radius = 0.5f});
+  ball.set<physics::RigidBody>({.gravityScale = 0.0f});
+  ball.set<scripting::Scripts>({.slots = {{.script = fixture.script("listener.lua")}}});
+  const flecs::entity ground = fixture.world.createEntity("Ground");
+  ground.set<world::Transform>({.position = {0.0f, -0.5f, 0.0f}});
+  ground.set<physics::BoxCollider>({.halfExtents = {10.0f, 0.5f, 10.0f}});
+  ground.set<scripting::Scripts>({.slots = {{.script = fixture.script("listener.lua")}}});
+  const flecs::entity zone = fixture.world.createEntity("Zone");
+  zone.set<world::Transform>({.position = {4.0f, 1.0f, 0.0f}});
+  zone.set<physics::BoxCollider>({.halfExtents = {1.0f, 1.0f, 1.0f}});
+  zone.add<physics::Trigger>();
+  zone.set<scripting::Scripts>({.slots = {{.script = fixture.script("listener.lua")}}});
+  fixture.world.setPlaying(true);
+  fixture.physics->setLinearVelocity(ball, {0.0f, -2.0f, 0.0f});
+  fixture.run(60);
+
+  // Landing: each side hears the other, with the normal pointing from itself to the other.
+  std::vector<std::string> trace = fixture.trace();
+  REQUIRE(std::ranges::count_if(trace, [](const std::string &line) { return line.starts_with("begin"); }) == 2);
+  REQUIRE(std::ranges::count(trace, "begin Ball Ground 0.0,-1.0,0.0") == 1);
+  REQUIRE(std::ranges::count(trace, "begin Ground Ball 0.0,1.0,0.0") == 1);
+  // The events of a step come before that step's hooks: the first hooks after the begins already
+  // know about them, and the ones before did not.
+  const auto lastBegin =
+      std::ranges::find_if(trace.rbegin(), trace.rend(), [](const std::string &l) { return l.starts_with("begin"); });
+  const std::size_t after = static_cast<std::size_t>(trace.rend() - lastBegin); // the line after it
+  REQUIRE(after + 1 < trace.size());
+  REQUIRE(trace[after] == "fixed Ball true");
+  REQUIRE(trace[after + 1] == "fixed Ground true");
+  REQUIRE(std::ranges::count(trace, "fixed Ball nil") >= 1);
+
+  // Rolling through the zone: enter and exit, to the trigger and to the ball.
+  fixture.sink->records.clear();
+  fixture.physics->setLinearVelocity(ball, {6.0f, 0.0f, 0.0f});
+  fixture.run(90);
+  trace = fixture.trace();
+  REQUIRE(std::ranges::count(trace, "enter Ball Zone") == 1);
+  REQUIRE(std::ranges::count(trace, "enter Zone Ball") == 1);
+  REQUIRE(std::ranges::count(trace, "exit Ball Zone") == 1);
+  REQUIRE(std::ranges::count(trace, "exit Zone Ball") == 1);
+  REQUIRE(before(trace, "enter", "exit"));
+}
+
+TEST_CASE("an entity destroyed or disabled since the step gets no event", "[scripting][events]") {
+  const auto run = [](std::string_view onBegin) {
+    Fixture fixture{{"listener.lua", Listener},
+                    {"hostile.lua", std::format(R"lua(
+      local Hostile = {{}}
+      function Hostile:onContactBegin(other, contact)
+        print("@hostile " .. other:name())
+        {}
+      end
+      return Hostile
+    )lua",
+                                                onBegin)}};
+    // The hostile ball has the lower id, so it hears first and does something to the ground.
+    const flecs::entity ball = fixture.world.createEntity("Ball");
+    ball.set<world::Transform>({.position = {0.0f, 0.4f, 0.0f}});
+    ball.set<physics::SphereCollider>({.radius = 0.5f});
+    ball.set<physics::RigidBody>({});
+    ball.set<scripting::Scripts>({.slots = {{.script = fixture.script("hostile.lua")}}});
+    const flecs::entity ground = fixture.world.createEntity("Ground");
+    ground.set<world::Transform>({.position = {0.0f, -0.5f, 0.0f}});
+    ground.set<physics::BoxCollider>({.halfExtents = {10.0f, 0.5f, 10.0f}});
+    ground.set<scripting::Scripts>({.slots = {{.script = fixture.script("listener.lua")}}});
+    fixture.world.setPlaying(true);
+    fixture.run(10);
+    return fixture.trace();
+  };
+  for (const std::string_view action : {"other:destroy()", "other:add('Disabled')"}) {
+    const std::vector<std::string> trace = run(action);
+    REQUIRE(std::ranges::count(trace, "hostile Ground") == 1);
+    REQUIRE(std::ranges::count_if(trace, [](const std::string &l) { return l.starts_with("begin Ground"); }) == 0);
+  }
+}
+
+TEST_CASE("a class declares properties and a slot's values overlay the defaults", "[scripting][properties]") {
+  Fixture fixture{{"door.lua", R"lua(
+    local Door = {
+      speed = 1,
+      properties = {
+        speed2 = { type = "number", default = 2, min = 0, max = 10 },
+        count = { type = "integer", default = 3 },
+        open = { type = "boolean" },
+        label = { type = "string", default = "hi" },
+        offset = { type = "vec3", default = vec3(1, 2, 3) },
+        tint = { type = "color", default = { r = 0.5, g = 0.25, b = 0.125 } },
+        target = { type = "entity" },
+        sound = { type = "asset" },
+      },
+    }
+    function Door:start()
+      print(string.format("@%g %d %s %s %g,%g,%g %g,%g,%g,%g %s %s %g", self.speed2, self.count, tostring(self.open),
+                          self.label, self.offset.x, self.offset.y, self.offset.z, self.tint.r, self.tint.g,
+                          self.tint.b, self.tint.a, self.target and self.target:name() or "none",
+                          tostring(self.sound), self.speed))
+      self.count = 99
+    end
+    function Door:update() print("@update " .. self.speed2 .. " " .. self.count) end
+    return Door
+  )lua"}};
+  const core::Uuid door = fixture.script("door.lua");
+
+  // What the inspector reads: sorted by name, with types, defaults and limits.
+  const auto declared = fixture.scripts->properties(door);
+  REQUIRE(declared.has_value());
+  REQUIRE(declared->size() == 8);
+  REQUIRE((*declared)[0].name == "count");
+  REQUIRE((*declared)[0].type == scripting::PropertyType::Integer);
+  REQUIRE((*declared)[0].defaultValue == 3);
+  // count, label, offset, open, sound, speed2, target, tint
+  const scripting::PropertyDecl &speed = declared->at(5);
+  REQUIRE(speed.name == "speed2");
+  REQUIRE(speed.min == 0.0);
+  REQUIRE(speed.max == 10.0);
+  REQUIRE(speed.defaultValue == 2.0);
+  REQUIRE(declared->at(2).name == "offset");
+  REQUIRE(declared->at(2).defaultValue == nlohmann::json({{"x", 1.0}, {"y", 2.0}, {"z", 3.0}}));
+  REQUIRE(declared->at(7).name == "tint");
+  REQUIRE(declared->at(7).defaultValue == nlohmann::json({{"r", 0.5}, {"g", 0.25}, {"b", 0.125}, {"a", 1.0}}));
+  REQUIRE(declared->at(6).defaultValue.is_null());
+  REQUIRE(!fixture.scripts->properties(core::Uuid::generate()).has_value());
+
+  // A slot with nothing changed runs on the defaults.
+  const flecs::entity plain = fixture.world.createEntity("Plain");
+  plain.set<scripting::Scripts>({.slots = {{.script = door}}});
+  // Another with values, a wrong one, and a name the class does not declare.
+  const flecs::entity target = fixture.world.createEntity("Target");
+  const core::Uuid sound = core::Uuid::generate();
+  const flecs::entity custom = fixture.world.createEntity("Custom");
+  custom.set<scripting::Scripts>(
+      {.slots = {
+           {.script = door,
+            .properties = std::format(
+                R"({{"speed2":7.5,"label":"bye","open":true,"offset":{{"x":4,"y":5,"z":6}},"target":"{}","sound":"{}","count":"oops","gone":1}})",
+                fixture.world.uuidOf(target).toString(), sound.toString())}}});
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  const std::vector<std::string> trace = fixture.trace();
+  REQUIRE(trace.size() == 4);
+  REQUIRE(std::ranges::count(trace, "2 3 false hi 1,2,3 0.5,0.25,0.125,1 none nil 1") == 1);
+  REQUIRE(std::ranges::count(trace,
+                             std::format("7.5 3 true bye 4,5,6 0.5,0.25,0.125,1 Target {} 1", sound.toString())) == 1);
+  // The class's plain fields stay defaults every instance shares; the wrong value fell back, and
+  // the undeclared name is reported but kept.
+  const Record *wrong = fixture.sink->find("property \"count\" does not hold a valid integer");
+  REQUIRE(wrong != nullptr);
+  REQUIRE(wrong->level == spdlog::level::warn);
+  REQUIRE(fixture.sink->find("property \"gone\" is not declared") != nullptr);
+  REQUIRE(custom.get<scripting::Scripts>().slots[0].properties.contains("\"gone\":1"));
+
+  // Edited while running: the changed property is set again, what the script did to the rest stays.
+  fixture.sink->records.clear();
+  custom.set<scripting::Scripts>({.slots = {{.script = door, .properties = R"({"speed2":9,"count":"oops"})"}}});
+  fixture.run(1);
+  REQUIRE(std::ranges::count(fixture.trace(), "update 9.0 99") == 1);
+  // Back to the defaults by removing the values: the wrong one that fell back is the default
+  // again, and the script's own change to the field is overwritten with it.
+  custom.set<scripting::Scripts>({.slots = {{.script = door}}});
+  fixture.sink->records.clear();
+  fixture.run(1);
+  REQUIRE(std::ranges::count(fixture.trace(), "update 2.0 99") == 1); // the plain entity
+  REQUIRE(std::ranges::count(fixture.trace(), "update 2.0 3") == 1);
+}
+
+TEST_CASE("a malformed properties declaration is reported and skipped", "[scripting][properties]") {
+  Fixture fixture{{"bad.lua", R"lua(
+    return { properties = { good = { type = "number" }, nameless = {}, weird = { type = "matrix" },
+                            clash = { type = "integer", default = 1.5 } } }
+  )lua"}};
+  const auto declared = fixture.scripts->properties(fixture.script("bad.lua"));
+  REQUIRE(declared.has_value());
+  REQUIRE(declared->size() == 1);
+  REQUIRE(declared->front().name == "good");
+  REQUIRE(fixture.sink->find("property \"nameless\" needs a type") != nullptr);
+  REQUIRE(fixture.sink->find("property \"weird\" needs a type") != nullptr);
+  REQUIRE(fixture.sink->find("the default of property \"clash\" is not a integer") != nullptr);
+}
+
+TEST_CASE("require loads a script file once, shares it and reloads its users when it changes", "[scripting][require]") {
+  Fixture fixture{{"lib/util.lua", R"lua(
+    print("@util loaded")
+    return { twice = function(x) return x * 2 end, tag = "one" }
+  )lua"},
+                  {"a.lua", R"lua(
+    local util = require("util")
+    local A = {}
+    function A:update() print("@a " .. util.twice(21) .. " " .. util.tag) end
+    return A
+  )lua"},
+                  {"b.lua", R"lua(
+    local util = require("lib/util")
+    local again = require("lib/util.lua")
+    assert(util == again)
+    local B = {}
+    function B:update() print("@b " .. util.tag) end
+    return B
+  )lua"}};
+  fixture.scripted("A", "a.lua");
+  fixture.scripted("B", "b.lua");
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  // Loaded once for both scripts.
+  REQUIRE(std::ranges::count(fixture.trace(), "util loaded") == 1);
+  REQUIRE(std::ranges::count(fixture.trace(), "a 42 one") == 1);
+  REQUIRE(std::ranges::count(fixture.trace(), "b one") == 1);
+
+  // Changing the module reloads both scripts, which then see the new value.
+  fixture.write("lib/util.lua", R"lua(
+    print("@util loaded")
+    return { twice = function(x) return x * 3 end, tag = "two" }
+  )lua");
+  REQUIRE(fixture.assets.reimport(fixture.script("lib/util.lua")).has_value());
+  fixture.sink->records.clear();
+  fixture.run(2);
+  REQUIRE(std::ranges::count(fixture.trace(), "util loaded") == 1);
+  REQUIRE(std::ranges::count(fixture.trace(), "a 63 two") == 2);
+  REQUIRE(std::ranges::count(fixture.trace(), "b two") == 2);
+  REQUIRE(fixture.sink->find("reloaded a.lua") != nullptr);
+  REQUIRE(fixture.sink->find("reloaded b.lua") != nullptr);
+}
+
+TEST_CASE("require reports cycles, unknown and ambiguous names, and a module that fails", "[scripting][require]") {
+  Fixture fixture{{"x.lua", "require('y') return {}"},
+                  {"y.lua", "require('x') return {}"},
+                  {"missing.lua", "require('nothing_here') return {}"},
+                  {"one/dup.lua", "return 1"},
+                  {"two/dup.lua", "return 2"},
+                  {"ambiguous.lua", "require('dup') return {}"},
+                  {"broken.lua", "error('module exploded')"},
+                  {"user.lua", "require('broken') return {}"},
+                  {"unlisted.lua", "assert(require('one/dup') == 1 and require('two/dup') == 2) return {}"}};
+  fixture.scripted("X", "x.lua");
+  fixture.scripted("Missing", "missing.lua");
+  fixture.scripted("Ambiguous", "ambiguous.lua");
+  fixture.scripted("User", "user.lua");
+  fixture.scripted("Unlisted", "unlisted.lua");
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  const Record *cycle = fixture.sink->find("require cycle: ");
+  REQUIRE(cycle != nullptr);
+  REQUIRE(cycle->message.contains("assets/x.lua -> assets/y.lua -> assets/x.lua"));
+  REQUIRE(fixture.sink->find("there is no script \"nothing_here\"") != nullptr);
+  REQUIRE(fixture.sink->find("\"dup\" is ambiguous") != nullptr);
+  REQUIRE(fixture.sink->find("module exploded") != nullptr);
+  // Paths tell the two apart, and a module that returns a number is returned as it is.
+  REQUIRE(fixture.sink->find("unlisted.lua") == nullptr);
+  REQUIRE(fixture.scripts->instanceCount() == 1);
 }

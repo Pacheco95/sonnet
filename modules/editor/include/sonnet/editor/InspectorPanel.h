@@ -5,6 +5,7 @@
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/audio/AudioDevice.h>
+#include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/world/World.h>
 
 #include <nlohmann/json.hpp>
@@ -33,6 +34,11 @@ public:
   // Opens a file at a line in the external editor; the script asset view's Edit button uses it.
   void setOpenHandler(std::function<void(const std::string &, int)> handler) {
     m_open = std::move(handler);
+  }
+  // Where the script slots get the properties a class declares; without one a slot shows its script
+  // and no properties.
+  void setScripts(scripting::IScriptRuntime *scripts) noexcept {
+    m_scripts = scripts;
   }
   // What the sound asset view decodes and previews with; without one it shows the file only.
   void setAudio(audio::IAudioDevice *audio) noexcept {
@@ -74,6 +80,14 @@ private:
   void drawName(flecs::entity entity);
   void drawComponent(flecs::entity entity, const world::ComponentInfo &info);
   void drawAddComponent(flecs::entity entity);
+  // The `Scripts` component: the slot list with its buttons and one widget per declared property.
+  void drawScripts(flecs::entity entity);
+  void drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property);
+  // A drop target on the last widget for a script asset from the browser: one more slot.
+  void acceptScriptDrop(flecs::entity entity);
+  // A button naming the entity that opens a list of the scene's, and a drop target for the
+  // hierarchy's rows; returns true when the value changed.
+  bool drawEntityPicker(core::Uuid &value);
   void drawStruct(flecs::entity type, void *data);
   void drawMember(const ecs_member_t &member, void *data);
   bool drawEnum(flecs::entity type, void *data);
@@ -103,6 +117,7 @@ private:
   std::string m_pickerFilter;
   std::function<void(const std::string &, int)> m_open;
   audio::IAudioDevice *m_audio{nullptr};
+  scripting::IScriptRuntime *m_scripts{nullptr};
 };
 
 } // namespace sonnet::editor

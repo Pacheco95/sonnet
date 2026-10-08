@@ -7,9 +7,9 @@ TEST_CASE("engine version matches the milestone scheme", "[core][version]") {
   REQUIRE(version.major == 0);
   REQUIRE(version.minor >= 1);
   // Each milestone bumps MINOR, and so does a feature or breaking change between them: M8 landed
-  // as 0.9.0, the macOS fixes as 0.10.0 and M9 as 0.11.0 (docs/conventions.md, "Versioning").
+  // as 0.9.0, the macOS fixes as 0.10.0 and M9 as 0.11.0 and M11 as 0.12.0 (docs/conventions.md, "Versioning").
   // The pin is deliberate, so that landing a milestone without bumping the version fails here.
-  REQUIRE(version.toString() == "0.11.0");
+  REQUIRE(version.toString() == "0.12.0");
 }
 
 TEST_CASE("versions order lexicographically", "[core][version]") {

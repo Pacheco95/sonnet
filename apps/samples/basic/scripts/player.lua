@@ -2,8 +2,10 @@
 -- something, and a finger held on the screen rolls it towards the point under the finger.
 -- Falling off the world puts it back where it started.
 local Player = {
-  force = 25, -- newtons while a key or a finger is held
-  jump = 9, -- newton-seconds, once per press
+  properties = {
+    force = { type = "number", default = 25, min = 0, max = 200 }, -- newtons while a key or a finger is held
+    jump = { type = "number", default = 9, min = 0, max = 50 }, -- newton-seconds, once per press
+  },
   fallLimit = -10,
   reach = 100, -- metres a finger's ray looks for the ground
   arrived = 0.3, -- metres from the finger's point at which the ball stops being pushed

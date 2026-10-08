@@ -8,9 +8,12 @@
 # plain mTop, written from several threads in an order job dependencies guarantee — is visible to
 # the sanitizer, and it polices how `physics` drives Jolt like any other code. The suppression that
 # covered every JPH frame while the library was prebuilt came out with it and nothing replaced it:
-# the whole suite runs clean. Mutex::try_lock reading mLockedThreadID is a real race, on a value only
-# an assertion reads, but it exists only under JPH_ENABLE_ASSERTS, which the port does not define;
-# if it ever does, that function alone gets an entry here.
+# the whole suite runs clean, but for one entry. Mutex::try_lock and unlock touch mLockedThreadID, a
+# real race on a value only an assertion reads; it exists only under JPH_ENABLE_ASSERTS, which the
+# port defines in its Debug build. Bodies falling asleep on several workers at once reach it from
+# BodyManager::DeactivateBodies, as a pile of boxes does once it settles.
+race:JPH::Mutex::try_lock
+race:JPH::Mutex::unlock
 
 # There is no Lavapipe entry here on purpose. Mesa's software rasterizer runs the Vulkan tests and
 # starts a rasterizing pool of its own, uninstrumented like Jolt, and it reports races and

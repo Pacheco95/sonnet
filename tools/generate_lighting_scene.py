@@ -112,5 +112,5 @@ add("Cool lamp", (3.0, 2.8, -1.0), light("PointLight", (0.4, 0.7, 1.0), 35.0, ra
 add("Camera", (0, 4.4, 12.5), {"Camera": {"fovY": 1.0, "nearPlane": 0.1}, "AudioListener": None},
     forward=(0, -0.28, -1))
 
-OUT.write_text(json.dumps({"version": 2, "entities": entities}, indent=2) + "\n")
+OUT.write_text(json.dumps({"version": 3, "entities": entities}, indent=2) + "\n")
 print(f"wrote {OUT.relative_to(ROOT)}: {len(entities)} entities")

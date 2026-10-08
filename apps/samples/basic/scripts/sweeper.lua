@@ -1,6 +1,8 @@
 -- A kinematic arm turning about the vertical axis, shoving whatever it meets.
 local Sweeper = {
-  speed = 1.2, -- radians per second
+  properties = {
+    speed = { type = "number", default = 1.2, min = -6, max = 6 }, -- radians per second
+  },
 }
 
 function Sweeper:start()

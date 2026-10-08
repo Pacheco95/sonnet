@@ -56,6 +56,12 @@ struct MeshCollider {
   core::Uuid mesh{};
 };
 
+// A tag that turns the entity's colliders into a sensor: they detect overlaps with other bodies
+// and push nothing. Overlaps are reported as trigger events (PhysicsWorld.h). On an entity with a
+// RigidBody it still moves by that body's type; on a collider-only child of a compound body it is
+// ignored, since the body as a whole is either a sensor or not.
+struct Trigger {};
+
 // Registers the components above with the world's reflection under their scene-file names. Done
 // by createPhysicsWorld; separate for tools that read scenes without simulating them. Idempotent.
 void registerComponents(world::World &world);

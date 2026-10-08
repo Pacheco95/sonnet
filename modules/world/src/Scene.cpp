@@ -88,6 +88,30 @@ void migrateVersion1(json &document) {
   }
 }
 
+// Version 3 holds several scripts per entity: each `Script` becomes a one-slot `Scripts` with
+// the same asset and every property at its default (ADR-0022).
+void migrateVersion2(json &document) {
+  if (!document.contains("entities") || !document["entities"].is_array()) {
+    return;
+  }
+  for (json &entry : document["entities"]) {
+    if (!entry.is_object() || !entry.contains("components") || !entry["components"].is_object()) {
+      continue;
+    }
+    json &components = entry["components"];
+    if (!components.contains("Script")) {
+      continue;
+    }
+    const json script = components["Script"].is_object() ? components["Script"].value("script", json{}) : json{};
+    json slot = {{"properties", json::object()}};
+    if (script.is_string()) {
+      slot["script"] = script;
+    }
+    components.erase("Script");
+    components["Scripts"] = {{"slots", json::array({std::move(slot)})}};
+  }
+}
+
 // Checks the version and brings an older document up to date, oldest step first, logging the
 // source and both versions (docs/conventions.md, "Logging").
 core::Result<json> migrate(const json &input, std::string_view source) {
@@ -107,6 +131,10 @@ core::Result<json> migrate(const json &input, std::string_view source) {
   if (version < 2) {
     migrateVersion1(document);
     SONNET_LOG_INFO("{}: migrated scene version 1 to 2", source);
+  }
+  if (version < 3) {
+    migrateVersion2(document);
+    SONNET_LOG_INFO("{}: migrated scene version 2 to 3", source);
   }
   document["version"] = SceneVersion;
   return document;

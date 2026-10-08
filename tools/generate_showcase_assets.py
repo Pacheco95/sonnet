@@ -970,7 +970,7 @@ def write_scene():
     entity("Sky", Environment={"map": meta.uuid("assets/sky.hdr"), "intensity": 1.0, "exposure": 1.0})
     entity("Sun", (0, 20, 0), look_along([-c for c in SUN]), DirectionalLight={"color": vec(1.0, 0.60, 0.34), "intensity": 4.6})
     entity("Camera", (0, 1.75, 12.5), quat_yaw_pitch(0.0, 0.045), Camera={"fovY": math.radians(62), "nearPlane": 0.1}, AudioListener=None,
-           Script={"script": meta.uuid("scripts/camera_drift.lua")})
+           Scripts={"slots": [{"script": meta.uuid("scripts/camera_drift.lua"), "properties": {}}]})
 
     # Ground, pool, steps ---------------------------------------------------------------------
     ground = group("Ground")
@@ -1119,7 +1119,7 @@ def write_scene():
         entity(name, position, rotation, scale, refl, **components)
 
     # Parents come first in the file: the loader resolves them in order.
-    (PROJECT / "scenes" / "main.scene.json").write_text(json.dumps({"version": 2, "entities": entities}, indent=2) + "\n")
+    (PROJECT / "scenes" / "main.scene.json").write_text(json.dumps({"version": 3, "entities": entities}, indent=2) + "\n")
     lights = sum(1 for e in entities if "PointLight" in e["components"] or "SpotLight" in e["components"])
     print(f"main.scene.json: {len(entities)} entities, {lights} lights")
 

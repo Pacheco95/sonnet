@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace sonnet::assets {
@@ -38,6 +39,25 @@ struct RaycastHit {
   float distance{0.0f};
 };
 
+enum class ContactEventKind : std::uint8_t {
+  ContactBegin, // two solid bodies started touching
+  ContactEnd,   // ... stopped touching
+  TriggerEnter, // a body started overlapping a Trigger
+  TriggerExit,  // ... stopped overlapping it
+};
+
+// One thing that happened between two entities during the last fixed step (ADR-0022). The pair is
+// ordered by entity id, so `first` is the lower. `point` and `normal` describe a ContactBegin: a
+// world-space point on the surface and the direction from `first` towards `second`; they are zero
+// for the other kinds. An entity may have been destroyed or disabled since, so consumers check.
+struct ContactEvent {
+  ContactEventKind kind{ContactEventKind::ContactBegin};
+  flecs::entity first;
+  flecs::entity second;
+  glm::vec3 point{0.0f};
+  glm::vec3 normal{0.0f};
+};
+
 // Rigid bodies for a world's entities (ADR-0009). Bodies are created by the physics step, in the
 // FixedUpdate phase of play mode, for every enabled entity with a collider, and destroyed when
 // the entity, its colliders or its rigid body go away or change; edit mode has none. Static and
@@ -61,6 +81,15 @@ public:
   virtual void setLinearVelocity(flecs::entity entity, glm::vec3 velocity) = 0;
   [[nodiscard]] virtual glm::vec3 angularVelocity(flecs::entity entity) = 0;
   virtual void setAngularVelocity(flecs::entity entity, glm::vec3 velocity) = 0;
+
+  // The events of the last fixed step, sorted by entity ids so their order does not depend on how
+  // Jolt's worker threads were scheduled, and replaced by the next step. A pair is reported once
+  // when it begins and once when it ends, however many shapes of a compound body are touching; a
+  // body that falls asleep keeps its contacts. At most `MaxContactEvents` are kept per step.
+  [[nodiscard]] virtual std::span<const ContactEvent> events() const = 0;
+  // How many events the last step dropped for being past the cap.
+  [[nodiscard]] virtual std::uint32_t droppedEvents() const = 0;
+  static constexpr std::size_t MaxContactEvents = 1024;
 
   [[nodiscard]] virtual std::uint32_t bodyCount() const = 0;
   // Every collider's outline at its entity's world transform, coloured by body type; drawn in

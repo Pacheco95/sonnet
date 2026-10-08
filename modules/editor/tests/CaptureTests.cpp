@@ -273,7 +273,7 @@ TEST_CASE("two captures of a scene that plays random numbers write the same imag
     REQUIRE(script.has_value());
     for (const flecs::entity root : editor.world().roots()) {
       if (root.get<world::Name>().value == "Box") {
-        root.set<scripting::Script>({.script = *script});
+        root.set<scripting::Scripts>({.slots = {{.script = *script}}});
       }
     }
     editor::CaptureOptions options;

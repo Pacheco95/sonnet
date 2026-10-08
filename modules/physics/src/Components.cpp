@@ -25,6 +25,7 @@ void registerComponents(world::World &world) {
       .member<float>("halfHeight")
       .member<glm::vec3>("offset");
   world.registerComponent<MeshCollider>("MeshCollider").member<core::Uuid>("mesh");
+  world.registerComponent<Trigger>("Trigger", true);
 }
 
 } // namespace sonnet::physics

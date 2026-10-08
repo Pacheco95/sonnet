@@ -1,9 +1,11 @@
 -- Drops a physics crate from the spawner every few seconds and keeps the newest few.
 -- The crates are children of the spawner, so the hierarchy root stays as the scene left it.
 local Spawner = {
-  interval = 1.5, -- seconds
-  limit = 12,
-  spread = 1.5, -- metres of jitter around the spawner
+  properties = {
+    interval = { type = "number", default = 1.5, min = 0.1, max = 10 }, -- seconds between crates
+    limit = { type = "integer", default = 12, min = 1, max = 50 }, -- crates kept, the oldest go first
+    spread = { type = "number", default = 1.5, min = 0, max = 10 }, -- metres of jitter around the spawner
+  },
 }
 
 function Spawner:start()

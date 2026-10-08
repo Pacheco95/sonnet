@@ -138,6 +138,15 @@ void World::registerComponents() {
   m_world.component<SiblingOrder>("SiblingOrder").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<Name>("Name").add(flecs::OnInstantiate, flecs::Inherit);
 
+  // Text members, which flecs reads through a pointer to the char pointer.
+  m_world.component<std::string>("string")
+      .opaque(flecs::String)
+      .serialize([](const flecs::serializer *serializer, const std::string *text) {
+        const char *chars = text->c_str();
+        return serializer->value(flecs::String, static_cast<const void *>(&chars));
+      })
+      .assign_string([](std::string *text, const char *value) { *text = value != nullptr ? value : ""; });
+
   // Asset references serialize as their canonical string; an unparsable string is nil.
   m_world.component<core::Uuid>("Uuid")
       .opaque(flecs::String)
@@ -425,6 +434,43 @@ nlohmann::json World::componentToJson(flecs::entity entity, flecs::entity_t comp
   return valueToJson(component, entity.get(component));
 }
 
+namespace {
+
+bool isJsonMember(const ComponentInfo &info, const std::string &key) {
+  return std::ranges::find(info.jsonMembers, key) != info.jsonMembers.end();
+}
+
+// Walks flecs' JSON for a component, turning the text of its embedded members into the JSON
+// they hold (`parse`) or the other way round. Text that is not JSON stays text on the way out
+// and becomes an empty object on the way in, so a hand-edited file cannot break loading.
+void convertEmbedded(const ComponentInfo &info, nlohmann::json &node, bool parse) {
+  if (node.is_array()) {
+    for (nlohmann::json &element : node) {
+      convertEmbedded(info, element, parse);
+    }
+  } else if (node.is_object()) {
+    for (auto &[key, value] : node.items()) {
+      if (parse && value.is_string() && isJsonMember(info, key)) {
+        const std::string text = value.get<std::string>();
+        nlohmann::json parsed = text.empty() ? nlohmann::json::object() : nlohmann::json::parse(text, nullptr, false);
+        value = parsed.is_discarded() ? nlohmann::json::object() : std::move(parsed);
+      } else if (!parse && !value.is_string() && isJsonMember(info, key)) {
+        value = value.is_object() && value.empty() ? std::string{} : value.dump();
+      } else {
+        convertEmbedded(info, value, parse);
+      }
+    }
+  }
+}
+
+} // namespace
+
+void World::embedJson(std::string_view component, std::string_view member) {
+  const auto it = std::ranges::find(m_components, component, &ComponentInfo::name);
+  SONNET_ASSERT(it != m_components.end(), "component {} is not registered", component);
+  it->jsonMembers.emplace_back(member);
+}
+
 nlohmann::json World::valueToJson(flecs::entity_t component, const void *value) const {
   char *text = ecs_ptr_to_json(m_world, component, value);
   if (text == nullptr) {
@@ -433,6 +479,9 @@ nlohmann::json World::valueToJson(flecs::entity_t component, const void *value) 
   }
   nlohmann::json json = nlohmann::json::parse(text, nullptr, false);
   ecs_os_free(text);
+  if (const ComponentInfo *info = findComponent(component); info != nullptr && !info->jsonMembers.empty()) {
+    convertEmbedded(*info, json, true);
+  }
   return json;
 }
 
@@ -446,7 +495,11 @@ void World::componentFromJson(flecs::entity entity, flecs::entity_t component, c
   }
   void *target = entity.ensure(component);
   if (!value.is_null()) {
-    const std::string text = value.dump();
+    nlohmann::json flat = value;
+    if (!info.jsonMembers.empty()) {
+      convertEmbedded(info, flat, false);
+    }
+    const std::string text = flat.dump();
     ecs_from_json_desc_t desc{};
     desc.name = info.name.c_str();
     if (ecs_ptr_from_json(m_world, component, target, text.c_str(), &desc) == nullptr) {

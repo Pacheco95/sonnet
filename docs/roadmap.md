@@ -570,6 +570,58 @@ Before a phone was available, `agents/m10-mac-checks` ran what only needed the M
 
 With ADR-0018's six checks passing, the R32_UINT warning tracked rather than blocking, M10 is done.
 
+## M11: Gameplay core
+
+Every planned milestone is done, so these four are chosen from what M4 to M8 deferred and from the README's unmeasured targets. They are ordered by one rule: 1.0.0 waits for the project and bundle formats to stop changing, so whatever touches the scene, prefab or bundle formats lands first and [M14](#m14-performance-targets-and-10) freezes them. An ADR is accepted before the code of each of the first three, as in M4 to M8.
+
+M4 left scripts able to move things but not to hear about them. This milestone closes that and the other gameplay deferrals.
+
+- [ADR-0022](decisions/0022-gameplay-events-and-script-properties.md), accepted first: events are data that physics records and scripting delivers; a `Scripts` component of slots with declared properties replaces `Script`, and the scene format goes to version 3.
+- `physics` and `scripting`: contact and trigger events delivered to scripts (`onContact`, `onTriggerEnter`, `onTriggerExit`); compound bodies from a hierarchy's colliders.
+- `scripting`: per-instance script properties, shown and edited in the inspector and stored in the scene; several scripts on one entity; `require` between scripts.
+- The scene camera component the milestone first listed already exists (`world::sceneCamera`, the player and the editor's Game panel), so it is not part of this milestone.
+
+Done when the playground gains a trigger-driven pickup and a script with inspector-editable properties, and plays the same in the editor, the player and the cooked bundle, with `editor_tests` and `runtime_tests` covering it on Lavapipe.
+
+1. `world`: reflection for a repeated member of a reflected struct (`World::registerVector`, through flecs' opaque collections), `std::string` as reflected text, and `World::embedJson`, which shows a string that holds JSON as the JSON itself in files and in undo's copies. `Scripts` and `ScriptSlot{script, properties}` in `scripting` replace `Script`, and the scene format goes to version 3 with a migration of each `Script` into a one-slot `Scripts`. Vector reflection survived the JSON serializer and the meta cursor the inspector walks, so [ADR-0022](decisions/0022-gameplay-events-and-script-properties.md)'s fallback of four fixed slots was not needed.
+2. `physics`: the `Trigger` tag, which makes a body a Jolt sensor; a contact listener that only records, from any thread, into a mutex-guarded buffer; `IPhysicsWorld::events()`, which the stepping thread fills after `Update` from how many shape pairs touched before and after the step, sorted by entity ids and capped at 1024 with the excess counted and warned about once; and compound bodies from a hierarchy, where a collider with no `RigidBody` joins the body of its nearest ancestor that has one.
+3. `scripting`: instances keyed by entity and slot, `onContactBegin`, `onContactEnd`, `onTriggerEnter` and `onTriggerExit` delivered to both entities before `fixedUpdate`, `properties` declarations overlaid with the slot's JSON (and set again live when the slot changes), `IScriptRuntime::properties` for the inspector, and `require` with per-revision caching, reload of the scripts that required a changed module, and cycle errors that name the chain.
+4. `editor`: the slot list in the inspector (add, remove, reorder, a script asset dropped on the header, the Add component button or a hierarchy row), one widget per declared property with revert, entity pickers that take hierarchy rows, edits as component commands, the pure operations in `ScriptSlots`.
+5. `samples`: `pickup.lua` and `score.lua` and two trigger pickups in the playground, the spawner, elevator, sweeper and player with their numbers as properties, every sample scene and prefab at version 3 (the showcase's and the lighting scene's generators write it, and reproduce the migrated files byte for byte), and the version becomes 0.12.0.
+
+Done: the playground's `Coin` is a trigger that takes the ball and its `Crate coin`, the same script with another `value` and `collector` set in the scene, is taken by the first crate to land under the spawner, adding to the score a shared module keeps. `editor_tests` plays the playground on Lavapipe and finds that pickup gone and the other still there, restored by stop, and runs a script slot through the inspector, a property edit reaching the running instance and stop discarding it. `runtime_tests` plays the playground from the project folder and from the cooked bundle and reads the same log line from both, so version 3 reached the bundle without a bundle change. `physics_tests` plays a pile of boxes through a trigger with no workers and with six and gets the same events, step for step. `scripting_tests` covers the hooks, properties and `require`. The thousand-box `physics_tests "[benchmark]"` before and after, which the listener and the event pass could have slowed: in Release (Clang 22) 2.91 ms per step on no workers became 3.00 and 1.15 ms on fifteen became 1.16 to 1.25, about 3 percent and within the run-to-run noise on the pooled figure; in Debug (GCC 14) 86.4 became 88.0 and 14.6 became 15.1. `physics_tests` and `scripting_tests` pass under the address and undefined-behaviour sanitizers and the thread sanitizer, which needed one entry in `tools/tsan.supp` for the assert-only thread id Jolt's mutex writes in its Debug build, reached once a pile of bodies falls asleep on several workers. Not run on a phone, on Windows or on macOS here: CI builds those, and the sample's new scripts need nothing of them.
+
+Decisions made along the way that the ADR left open: `self.slot` counts from one, like a Lua array; a sleeping body keeps its contacts (Jolt reports them as removed, and a static sensor sees only awake bodies), so a pair is kept dormant until a body is gone or both are awake without the contact; a trigger sees dynamic and kinematic bodies, and static ones only while they move, since Jolt makes a sensor see static bodies only from an active kinematic one at a cost a pickup does not need; the declarations are sorted by name since a Lua table has no order.
+
+Deferred: repeated members are not visible from Lua (`entity:get("Scripts")` leaves `slots` `nil`), and no other component has one yet; no event for a continuing contact, which a script keeps its own state for; the runtime does not clamp a property to its `min` and `max`, only the inspector's widgets do; a property of an enum or a list type; the top-level code of a script runs when the inspector first asks for its properties in edit mode; reordering slots rebuilds their instances, losing their state; and a trigger on a folded-in child collider is ignored.
+
+## M12: Animation and effects
+
+- ADR first: where morph targets and particle simulation run.
+- `world` and `assets`: blending and crossfades between clips, animation events that call script functions, several clips on one entity, root motion.
+- Morph targets from glTF, in the skinning compute pass.
+- Particles: an emitter component, simulated in a compute pass and drawn indirectly with the machinery of [M7](#m7-gpu-driven-rendering), previewed in the editor.
+
+Done when a character crossfades from idle to walk with a footstep event, a morph-target sample plays, and a particle sample runs in the editor, the player, on Android and on iOS.
+
+## M13: Rendering quality
+
+- ADR first: temporal anti-aliasing and the depth pyramid.
+- Temporal anti-aliasing with motion vectors, the default over FXAA, which stays selectable.
+- Occlusion culling from a depth pyramid in the culling pass; the surviving counts read back so the statistics report what drew rather than what was submitted; tighter bounds for skinned meshes.
+- Transparency in the shadow and depth passes beyond alpha masking.
+- Compressed environment maps in the bundle (BC6H, and an ASTC HDR format on mobile), instead of uncompressed RGBA16F.
+
+Done when golden-image tests with a tolerance show the showcase scene without ghosting, an occluder-heavy benchmark submits fewer draws for identical output, and the `renderer_tests "[benchmark]"` numbers are recorded here.
+
+## M14: Performance targets and 1.0
+
+- Measure the README's targets for the first time on the hardware they name: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and in 33 ms on a 2022 flagship phone (the Galaxy S25 Ultra and the iPhone 15 Pro Max are at hand). Fix what misses, starting with the per-frame fill, which is bandwidth-bound and so needs writing less ([Known gaps](#the-per-frame-fill-is-bandwidth-not-computation)).
+- Close the Known gaps a release should not carry: [#59](https://github.com/Pacheco95/sonnet/issues/59), the thread sanitizer's blind spots where feasible, and a parallel transform hierarchy only if a benchmark asks.
+- Freeze the formats: audit the versions of the scene, prefab, project, sidecar and bundle formats, write down the migration policy, bump to 1.0.0 and tag it.
+
+Done when the targets are met, or the shortfall is documented with numbers, CI is green on every job, and 1.0.0 is tagged.
+
 ## Known gaps
 
 Work M8 named rather than did, and what closing it turned up, each with what was measured and what would close it, so the next change starts from the evidence rather than from the summary. A gap that has been closed keeps its entry, saying what closed it and what it measured. These are engineering debts; the feature backlog is [Later](#later).
@@ -718,4 +770,4 @@ What would close it: that check, then either keeping `/usr/local/include` out of
 
 ## Later
 
-Temporal anti-aliasing, nested scene instances beyond prefabs, C++ game-code module hook, terrain, particles, game UI.
+Nested scene instances beyond prefabs, C++ game-code module hook, terrain, game UI, native file dialogs, incremental cooking. Temporal anti-aliasing and particles moved into [M13](#m13-rendering-quality) and [M12](#m12-animation-and-effects).
