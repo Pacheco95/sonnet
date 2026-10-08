@@ -240,10 +240,13 @@ void Game::update(float dt) {
 
   world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
   world::buildLightList(m_world, m_lights);
+  world::buildParticleList(m_world, m_assets, m_particles);
   m_view.camera = camera;
   m_view.draws = m_draws;
   m_view.joints = m_joints;
   m_view.morphWeights = m_morphWeights;
+  m_view.particles = m_particles;
+  m_view.deltaTime = dt;
   m_view.lights = m_lights;
   const std::optional<renderer::DirectionalLight> sun = world::sceneLight(m_world);
   m_view.hasSun = sun.has_value();

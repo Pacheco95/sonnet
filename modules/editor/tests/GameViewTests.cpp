@@ -197,3 +197,46 @@ TEST_CASE("a scene without a camera shows the fallback view in the Game panel, w
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("an emitter previews while it is selected and always plays in play mode", "[editor][gpu][particles]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "particles";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Particles").has_value());
+    const flecs::entity sparks = editor.world().createEntity("Sparks");
+    sparks.set<world::Transform>({.position = {0.0f, 1.0f, 0.0f}});
+    sparks.set<world::ParticleEmitter>({.burst = 20});
+    const auto emitters = [&] { return editor.renderer().statistics(0).particleEmitterCount; };
+
+    // Unselected in edit mode, the scene is still: no emitter reaches the renderer at all.
+    editor.selection().clear();
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(emitters() == 0);
+
+    // Selected, it previews.
+    editor.selection().select(editor.world().uuidOf(sparks));
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(emitters() == 1);
+    REQUIRE(editor.renderer().statistics(0).particleSlotCount == 1000);
+
+    // Playing, it is there whether selected or not.
+    editor.selection().clear();
+    editor.play();
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(emitters() == 1);
+    editor.stop();
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(emitters() == 0);
+  }
+  std::filesystem::remove_all(directory);
+}

@@ -76,7 +76,9 @@ A member of type `core::Uuid` is an asset reference and gets a picker: a button 
 
 The physics components, the audio components, `SkinnedMesh` and `Animator` are registered components like the others, so the inspector shows and adds them with no code of its own, `Scripts` apart ([below](#script-slots)); a body type is a combo, a collider's `mesh` a mesh picker, and the `script`, `sound`, `skin` and `clip` members get pickers of their own type.
 
-### Script slots
+#Particle emitters preview in the viewport: in edit mode only the selected `ParticleEmitter`s are handed to the renderer, simulating while their `playing` is set, so an unselected emitter leaves the scene still and a selected one runs live; the inspector shows a Restart button under the component that starts its particles over, burst included. In play mode every emitter runs ([rendering.md](rendering.md#particles)). Colour members whose names begin with `color` get HDR colour pickers.
+
+Play (Ctrl+P
 
 `Scripts` is a list of structs, which the generic widgets do not draw, so the inspector has a section of its own for it ([ADR-0022](decisions/0022-gameplay-events-and-script-properties.md)). Each slot is a numbered block with `up`, `down` and `remove` buttons, a script picker (a pick clears the slot's property values, which belonged to the old script), and one widget per property its class declares, sorted by name: a drag field for numbers, limited by `min` and `max` when the class sets them, and for integers, a checkbox, a text field, three drag fields for a `vec3`, a colour picker for a `color`, an asset picker for an `asset`, and for an `entity` a button naming the entity that opens a filtered list of the scene's, with a drop target for rows dragged from the hierarchy. A property that differs from the default has a `revert` button; one the script no longer declares is listed as kept. "Add script" appends an empty slot. A script asset dragged from the asset browser onto the Scripts header, the Add component button or an entity in the hierarchy appends a slot, adding the component first when the entity has none, as one undo step.
 

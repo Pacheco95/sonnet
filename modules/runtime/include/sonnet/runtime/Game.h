@@ -145,6 +145,7 @@ private:
   std::vector<renderer::DrawItem> m_draws;
   std::vector<glm::mat4> m_joints;
   std::vector<float> m_morphWeights;
+  std::vector<renderer::ParticleEmitterItem> m_particles;
   std::vector<renderer::Light> m_lights;
   renderer::SceneView m_view;
   std::string m_name;
