@@ -140,12 +140,13 @@ public:
   static constexpr std::uint32_t MaxLocalShadows = rhi::MaxBindlessDepthImages / MaxShadowedViews - CascadeCount;
   // The faces of a point light's shadow cube, in the order of their maps: +X, -X, +Y, -Y, +Z, -Z.
   static constexpr std::uint32_t PointShadowFaces = 6;
-  // Culling jobs one frame can reserve over each order list: the four cascades, the depth
-  // pre-pass and the forward pass over the opaque draws, plus one per local shadow map the
-  // lights ask for within the budget, and the id and selection-mask passes over all of them. The command buffer and
-  // the visible list are sized for exactly these (ADR-0016). CullJobsOpaque is the part the
-  // settings do not change.
-  static constexpr std::uint32_t CullJobsOpaque = CascadeCount + 2;
+  // Culling jobs one frame can reserve over each order list. The opaque list (opaque and masked
+  // draws) serves the depth pre-pass and the forward pass. The all list, which also holds the
+  // blended draws, serves the id and selection-mask passes and every shadow map, since blended
+  // surfaces cast shadows through a hashed alpha test: the four cascades and one job per local
+  // shadow map the lights ask for within the budget come on top of CullJobsAll. The command buffer
+  // and the visible list are sized for exactly these (ADR-0016).
+  static constexpr std::uint32_t CullJobsOpaque = 2;
   static constexpr std::uint32_t CullJobsAll = 2;
 
   // shaderDir holds the modules compiled by sonnet_add_engine_shaders (`forward.spv`, ...). It is
@@ -413,7 +414,7 @@ private:
   // batch, and the visible list their instances read.
   struct CullJob {
     glm::mat4 viewProjection{1.0f};
-    bool opaque{true}; // which order list's candidate array it tests
+    bool opaque{true}; // which order list's candidate array it tests: the opaque list, or the all list
     std::uint32_t drawCount{0};
     std::uint32_t batchCount{0};
     std::uint32_t firstCommand{0}; // the job's first batch's command in the command buffer
@@ -465,13 +466,14 @@ private:
     std::vector<ParticleJob> particleJobs;
     std::vector<std::uint32_t> opaqueOrder;  // opaque and masked, grouped into batches
     std::vector<std::uint32_t> blendedOrder; // back to front
-    std::vector<std::uint32_t> allOrder;     // for the id and mask passes, grouped the same way
+    std::vector<std::uint32_t> allOrder;     // every draw, for the shadow, id and mask passes, grouped the same way
     std::vector<Batch> opaqueBatches;
     std::vector<Batch> allBatches;
     std::vector<CullJob> cullJobs;   // reserved this frame, run by the culling passes
     std::uint32_t opaqueJobsUsed{0}; // of opaqueJobCapacity
     std::uint32_t opaqueJobCapacity{CullJobsOpaque};
-    std::uint32_t allJobsUsed{0};   // of CullJobsAll
+    std::uint32_t allJobsUsed{0}; // of allJobCapacity
+    std::uint32_t allJobCapacity{CullJobsAll};
     std::size_t firstPendingJob{0}; // jobs a culling pass has not recorded yet
     std::size_t index{0};           // among the graph frame's views
     std::uint32_t stateBase{0};     // this view's words of the phase-one state

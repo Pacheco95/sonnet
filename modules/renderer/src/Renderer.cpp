@@ -393,6 +393,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
     // Shadows cull nothing: a single-sided ground plane has to cast its shadow too.
     defineGraphics(m_shadowPipelines[i], "depth",
                    {.vertexEntry = "shadowVertexMain",
+                    .fragmentEntry = "shadowFragmentMain",
                     .colorFormats = {},
                     .depthFormat = DepthFormat,
                     .depth = {.test = true, .write = true},
@@ -1616,19 +1617,22 @@ void Renderer::ensureIndirectBuffers(ViewState &v) {
   // slot, and the buffers grow to the sum of the slices (docs/decisions/0021-two-views-in-one-frame.md).
   const auto opaqueDraws = static_cast<std::uint32_t>(v.opaqueOrder.size());
   const auto allDraws = static_cast<std::uint32_t>(v.allOrder.size());
-  const std::uint32_t localMaps = m_settings.shadows && !v.opaqueOrder.empty() ? localShadowMapCount(*v.view) : 0;
-  v.opaqueJobCapacity = CullJobsOpaque + localMaps;
+  // The shadow maps cull the all list, blended draws included; the cascades exist only with a sun.
+  const std::uint32_t localMaps = m_settings.shadows && !v.allOrder.empty() ? localShadowMapCount(*v.view) : 0;
+  const std::uint32_t cascadeJobs = m_settings.shadows && v.view->hasSun && !v.allOrder.empty() ? CascadeCount : 0;
+  v.opaqueJobCapacity = CullJobsOpaque;
+  v.allJobCapacity = CullJobsAll + cascadeJobs + localMaps;
   // The late commands of the occlusion job, one per opaque batch, follow the jobs' commands, and
   // phase one records one word per opaque candidate (ADR-0024).
   const auto opaqueBatchCount = static_cast<std::uint32_t>(v.opaqueBatches.size());
   const std::uint32_t commands = opaqueBatchCount * v.opaqueJobCapacity +
-                                 static_cast<std::uint32_t>(v.allBatches.size()) * CullJobsAll + opaqueBatchCount;
+                                 static_cast<std::uint32_t>(v.allBatches.size()) * v.allJobCapacity + opaqueBatchCount;
   v.lateBase = m_commandsReserved + commands - opaqueBatchCount;
   v.stateBase = m_stateReserved;
   m_stateReserved += opaqueDraws;
   v.commandBase = m_commandsReserved;
   v.visibleBase = m_visibleReserved;
-  v.directBase = v.visibleBase + opaqueDraws * v.opaqueJobCapacity + allDraws * CullJobsAll;
+  v.directBase = v.visibleBase + opaqueDraws * v.opaqueJobCapacity + allDraws * v.allJobCapacity;
   m_commandsReserved += commands;
   m_visibleReserved = v.directBase + static_cast<std::uint32_t>(v.resolved.size());
   if (commands == 0) {
@@ -1684,7 +1688,7 @@ std::optional<Renderer::CullJob> Renderer::reserveCullJob(ViewState &v, bool opa
     job.firstVisible = v.visibleBase + v.opaqueJobsUsed * opaqueDraws;
     ++v.opaqueJobsUsed;
   } else {
-    if (v.allJobsUsed >= CullJobsAll || allDraws == 0) {
+    if (v.allJobsUsed >= v.allJobCapacity || allDraws == 0) {
       return std::nullopt;
     }
     job.drawCount = allDraws;
@@ -2707,7 +2711,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
 
   // The cascades exist only with the scene passes: the id and mask passes on their own have no
   // shadow images to sample.
-  v.cascadesActive = m_settings.shadows && view.hasSun && !v.opaqueOrder.empty();
+  v.cascadesActive = m_settings.shadows && view.hasSun && !v.allOrder.empty();
   const float aspect = static_cast<float>(size.x) / static_cast<float>(std::max(size.y, 1u));
   if (v.cascadesActive) {
     computeCascades(v, aspect);
@@ -2716,7 +2720,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   // and one pair of barriers covers them all (ADR-0012).
   std::array<std::optional<CullJob>, CascadeCount> cascadeJobs;
   for (std::uint32_t c = 0; c < CascadeCount && v.cascadesActive; ++c) {
-    cascadeJobs[c] = reserveCullJob(v, true);
+    cascadeJobs[c] = reserveCullJob(v, false);
     if (cascadeJobs[c]) {
       cascadeJobs[c]->viewProjection = v.cascades[c].matrix;
     }
@@ -2744,7 +2748,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
     forwardJob.reset();
   }
   // The lights' shadow maps, within the budget, each culled against its own frustum.
-  if (m_settings.shadows && !v.opaqueOrder.empty()) {
+  if (m_settings.shadows && !v.allOrder.empty()) {
     selectLocalShadows(v);
   }
   v.statistics.localShadowMapCount = static_cast<std::uint32_t>(v.localShadows.size());
@@ -2753,7 +2757,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   }
   std::vector<std::optional<CullJob>> localJobs(v.localShadows.size());
   for (std::size_t k = 0; k < v.localShadows.size(); ++k) {
-    localJobs[k] = reserveCullJob(v, true);
+    localJobs[k] = reserveCullJob(v, false);
     if (localJobs[k]) {
       localJobs[k]->viewProjection = v.localShadows[k].matrix;
     }
@@ -2811,11 +2815,11 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           [this, &v, c, job = cascadeJobs[c]](rhi::ICommandList &commands, const PassResources &resources) {
             ensureFrameUploaded(v, resources);
             if (!job) {
-              recordDraws(commands, v, v.opaqueOrder, m_shadowPipelines, false, c);
+              recordDraws(commands, v, v.allOrder, m_shadowPipelines, false, c);
               return;
             }
-            recordIndirect(commands, v, *job, v.opaqueBatches, m_shadowPipelines, c);
-            v.statistics.shadowDrawCount += static_cast<std::uint32_t>(v.opaqueOrder.size());
+            recordIndirect(commands, v, *job, v.allBatches, m_shadowPipelines, c);
+            v.statistics.shadowDrawCount += static_cast<std::uint32_t>(v.allOrder.size());
           });
     }
   }
@@ -2834,11 +2838,11 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           ensureFrameUploaded(v, resources);
           const std::uint32_t shadow = CascadeCount + k;
           if (!job) {
-            recordDraws(commands, v, v.opaqueOrder, m_shadowPipelines, false, shadow);
+            recordDraws(commands, v, v.allOrder, m_shadowPipelines, false, shadow);
             return;
           }
-          recordIndirect(commands, v, *job, v.opaqueBatches, m_shadowPipelines, shadow);
-          v.statistics.shadowDrawCount += static_cast<std::uint32_t>(v.opaqueOrder.size());
+          recordIndirect(commands, v, *job, v.allBatches, m_shadowPipelines, shadow);
+          v.statistics.shadowDrawCount += static_cast<std::uint32_t>(v.allOrder.size());
         });
   }
 

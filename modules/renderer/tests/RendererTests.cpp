@@ -334,16 +334,18 @@ TEST_CASE("blended materials draw after the opaque scene, farthest first", "[ren
   graph.execute(commands);
   device->endFrame();
 
-  // The cutout box alone goes through the cascades and the pre-pass, with the double-sided
-  // pipelines; the blended items only through the blend pipelines, box before sphere.
+  // The cutout box alone goes through the pre-pass, with the double-sided pipelines; the blended
+  // items through the blend pipelines, box before sphere, and also through the cascades, which
+  // cast their shadows with a hashed alpha test.
   REQUIRE(countLines(*device, "bindPipeline \"depth double sided\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"depth\"") == 0);
   REQUIRE(countLines(*device, "bindPipeline \"forward double sided\"") == 1);
   REQUIRE(countLines(*device, "bindPipeline \"forward blend\"") == 1);
-  // The one opaque draw is submitted indirectly, once per cascade plus the pre-pass and the
-  // forward pass; the two blended ones stay on the direct path (ADR-0012), naming their objects
-  // through the visible list's direct range, uploaded once (ADR-0016).
-  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 6);
+  // The one opaque draw is submitted indirectly by the pre-pass and the forward pass, and all
+  // three draws, in three batches, by each of the four cascades; the two blended ones stay on the
+  // direct path in the forward pass (ADR-0012), naming their objects through the visible list's
+  // direct range, uploaded once (ADR-0016).
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 2 + 4 * 3);
   REQUIRE(countLines(*device, "uploadBuffer \"visible draws\"") == 1);
   REQUIRE(countLines(*device, "drawIndexed 36 x1") == 1); // the blended box
   REQUIRE(countLines(*device, "drawIndexed ") == 2);      // and the blended sphere
@@ -355,7 +357,7 @@ TEST_CASE("blended materials draw after the opaque scene, farthest first", "[ren
   REQUIRE(firstBlendedDraw != trace.end());
   REQUIRE(*firstBlendedDraw == "drawIndexed 36 x1"); // the far box, then the near sphere
   REQUIRE(renderer.statistics().drawCount == 3);
-  REQUIRE(renderer.statistics().shadowDrawCount == 4);
+  REQUIRE(renderer.statistics().shadowDrawCount == 4 * 3);
 
   renderer.destroyMaterial(cutoutMaterial);
   renderer.destroyMaterial(glassMaterial);
@@ -556,6 +558,95 @@ TEST_CASE("an unoccluded plane stays lit across every shadow cascade", "[rendere
     for (unsigned rows : coverage) {
       REQUIRE(rows > 0);
     }
+    renderer.destroyMesh(plane);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+namespace {
+
+// The mean red of a w by h block of pixels whose corner is (x, y).
+float meanRed(GpuScene &scene, unsigned x, unsigned y, unsigned w, unsigned h) {
+  float sum = 0.0f;
+  for (unsigned j = 0; j < h; ++j) {
+    for (unsigned i = 0; i < w; ++i) {
+      sum += static_cast<float>(scene.pixel(x + i, y + j).r);
+    }
+  }
+  return sum / static_cast<float>(w * h);
+}
+
+// A wall a metre left of the origin, two metres high and four wide, seen edge-on from above, with
+// the sun travelling down and along +X: its shadow covers the ground from x = -1 to x = 1. The
+// ground at the origin is inside the shadow, the ground at x = 2.5 is not.
+struct WallShadow {
+  float shadowed{0.0f};
+  float lit{0.0f};
+};
+
+WallShadow wallShadow(IDevice &device, Renderer &renderer, MeshHandle plane, MeshHandle wall, MaterialHandle material) {
+  const glm::mat4 upright = glm::translate(glm::mat4{1.0f}, {-1.0f, 1.0f, 0.0f}) *
+                            glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{0.0f, 0.0f, 1.0f});
+  const std::array draws{DrawItem{.mesh = plane}, DrawItem{.mesh = wall, .material = material, .transform = upright}};
+  SceneView view = topDownScene(draws);
+  view.sun.direction = glm::normalize(glm::vec3{1.0f, -1.0f, 0.0f});
+  view.sun.intensity = 3.0f;
+  view.ambient = {0.02f, 0.02f, 0.02f};
+  GpuScene scene{device, renderer, {64, 64}};
+  scene.render(view);
+  return {.shadowed = meanRed(scene, 28, 28, 8, 8), .lit = meanRed(scene, 52, 28, 6, 8)};
+}
+
+} // namespace
+
+TEST_CASE("a blended wall casts a shadow whose darkness follows its alpha on a GPU", "[renderer][gpu][shadow]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
+    const MeshHandle wall = renderer.createMesh(primitives::plane({2.0f, 4.0f}), "wall");
+    const auto glass = [&](float alpha) {
+      MaterialDesc desc;
+      desc.alphaMode = AlphaMode::Blend;
+      desc.baseColor = {1.0f, 1.0f, 1.0f, alpha};
+      return renderer.createMaterial(desc, "glass");
+    };
+    // The unshadowed ground, from a wall that casts nothing, is the lit reference.
+    const MaterialHandle clear = glass(0.0f);
+    const MaterialHandle quarter = glass(0.25f);
+    const MaterialHandle half = glass(0.5f);
+    const MaterialHandle threeQuarters = glass(0.75f);
+    const MaterialHandle solid = glass(1.0f);
+    const WallShadow opaque = wallShadow(*device, renderer, plane, wall, {});
+    const WallShadow none = wallShadow(*device, renderer, plane, wall, clear);
+    const WallShadow a25 = wallShadow(*device, renderer, plane, wall, quarter);
+    const WallShadow a50 = wallShadow(*device, renderer, plane, wall, half);
+    const WallShadow a75 = wallShadow(*device, renderer, plane, wall, threeQuarters);
+    const WallShadow a100 = wallShadow(*device, renderer, plane, wall, solid);
+    WARN(std::format("shadowed ground, alpha 0 / 0.25 / 0.5 / 0.75 / 1: {} {} {} {} {}; lit {}", none.shadowed,
+                     a25.shadowed, a50.shadowed, a75.shadowed, a100.shadowed, none.lit));
+
+    // Away from the wall's shadow nothing changes with its alpha.
+    REQUIRE(none.lit > 100.0f);
+    REQUIRE(std::abs(a50.lit - none.lit) < 1.0f);
+    // A wall of alpha zero casts nothing, a wall of alpha one casts a full shadow, and the
+    // darkness grows with alpha in between.
+    REQUIRE(std::abs(none.shadowed - none.lit) < 1.0f);
+    REQUIRE(a100.shadowed * 3.0f < none.lit);
+    // The test never discards at alpha one: the shadow is the opaque wall's, pixel for pixel.
+    REQUIRE(a100.shadowed == opaque.shadowed);
+    REQUIRE(a100.lit == opaque.lit);
+    REQUIRE(a25.shadowed < none.shadowed - 5.0f);
+    REQUIRE(a50.shadowed < a25.shadowed - 5.0f);
+    REQUIRE(a75.shadowed < a50.shadowed - 5.0f);
+    REQUIRE(a100.shadowed < a75.shadowed - 5.0f);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    for (const MaterialHandle material : {clear, quarter, half, threeQuarters, solid}) {
+      renderer.destroyMaterial(material);
+    }
+    renderer.destroyMesh(wall);
     renderer.destroyMesh(plane);
   }
   REQUIRE(device->validationMessageCount() == 0);
@@ -777,8 +868,8 @@ TEST_CASE("each view of a graph keeps its own orders, batches, jobs and slice of
   // Each view has its own statistics: what its passes submitted, not the last declared view's.
   REQUIRE(renderer.statistics(0).drawCount == 1);
   REQUIRE(renderer.statistics(1).drawCount == 3);
-  REQUIRE(renderer.statistics(0).indirectCallCount == 1 * Renderer::CullJobsOpaque);
-  REQUIRE(renderer.statistics(1).indirectCallCount == 2 * Renderer::CullJobsOpaque);
+  REQUIRE(renderer.statistics(0).indirectCallCount == 1 * (Renderer::CascadeCount + Renderer::CullJobsOpaque));
+  REQUIRE(renderer.statistics(1).indirectCallCount == 2 * (Renderer::CascadeCount + Renderer::CullJobsOpaque));
   REQUIRE(renderer.statistics(2).drawCount == 0); // no third view
   REQUIRE(&renderer.statistics() == &renderer.statistics(0));
   // Each view culls once against its own six frusta, and the second's clear and cull come after
@@ -2166,7 +2257,7 @@ TEST_CASE("each batch draws its submesh and each instance its own object on a GP
     const Pixel between = scene.pixel(32, 32);
     REQUIRE(between.r + between.g + between.b == 0);
     REQUIRE(renderer.statistics().drawCount == 3);
-    REQUIRE(renderer.statistics().indirectCallCount == 2 * Renderer::CullJobsOpaque);
+    REQUIRE(renderer.statistics().indirectCallCount == 2 * (Renderer::CascadeCount + Renderer::CullJobsOpaque));
 
     renderer.destroyMesh(mesh);
   }
@@ -2271,6 +2362,45 @@ TEST_CASE("spot lights asking for shadows get maps up to the budget, the same on
   settings.shadows = false;
   renderer.setSettings(settings);
   REQUIRE(renderer.localShadowBudget() == 0);
+  renderer.destroyMesh(box);
+}
+
+TEST_CASE("blended draws are shadow candidates but stay out of the depth pre-pass", "[renderer][shadow][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  MaterialDesc glass;
+  glass.alphaMode = AlphaMode::Blend;
+  glass.baseColor = {1.0f, 1.0f, 1.0f, 0.5f};
+  const MaterialHandle glassMaterial = renderer.createMaterial(glass, "glass");
+  // A scene of nothing but glass, with a spot light asking for a map: it casts shadows all the same.
+  const std::array draws{DrawItem{.mesh = box, .material = glassMaterial}};
+  const std::array lights{shadowedSpot({0.0f, 4.0f, 0.0f})};
+  SceneView view = boxScene(draws);
+  view.lights = lights;
+
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  REQUIRE(hasPass(graph, "shadow cascade 0"));
+  REQUIRE(hasPass(graph, "shadow cascade 3"));
+  REQUIRE(hasPass(graph, "shadow spot 0"));
+  // One command for the box in each of the four cascades and the spot light's map; the pre-pass and
+  // the forward pass have no opaque draw, and the glass is drawn directly after them.
+  REQUIRE(renderer.statistics().indirectCallCount == 4 + 1);
+  REQUIRE(renderer.statistics().shadowDrawCount == 4 + 1);
+  REQUIRE(countLines(*device, "drawIndexedIndirect \"draw commands\" count 1") == 4 + 1);
+  REQUIRE(countLines(*device, "bindPipeline \"depth\"") == 0);
+  REQUIRE(countLines(*device, "drawIndexed 36 x1") == 1);
+
+  renderer.destroyMaterial(glassMaterial);
   renderer.destroyMesh(box);
 }
 
@@ -3045,7 +3175,7 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
                        renderer.statistics().drawCount, renderer.statistics().lightCount,
                        renderer.statistics().triangleCount, total, device.info().deviceName));
       WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
-                       renderer.statistics().indirectCallCount, Renderer::CullJobsOpaque));
+                       renderer.statistics().indirectCallCount, Renderer::CascadeCount + Renderer::CullJobsOpaque));
       WARN(std::format("{} of {} draws survived culling ({} triangles), {} shadow draws, occlusion {}, wall {}",
                        renderer.statistics().visibleDrawCount, renderer.statistics().drawCount,
                        renderer.statistics().visibleTriangleCount, renderer.statistics().visibleShadowDrawCount,
@@ -3068,7 +3198,8 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
       // pre-pass and the forward pass: what used to be sixty thousand draw calls (ADR-0012), and
       // sixty thousand commands after them (ADR-0016). The occlusion pass adds the pre-pass's late
       // command. The wall shares the box's batch.
-      REQUIRE(renderer.statistics().indirectCallCount == 2 * (Renderer::CullJobsOpaque + (occlusion ? 1u : 0u)));
+      REQUIRE(renderer.statistics().indirectCallCount ==
+              2 * ((Renderer::CascadeCount + Renderer::CullJobsOpaque) + (occlusion ? 1u : 0u)));
       REQUIRE(device.validationMessageCount() == 0);
       renderer.destroyEnvironment(environment);
       renderer.destroyMaterial(material);

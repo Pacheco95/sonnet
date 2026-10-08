@@ -34,15 +34,39 @@ VertexOutput shadowVertexMain(uint vertexId : SV_VertexID, uint startInstance : 
   return transform(vertexId, drawObject(startInstance, instance), viewProjection);
 }
 
+float surfaceAlpha(MaterialData material, uint objectIndex, float2 uv) {
+  return material.baseColor.a * objects[objectIndex].color.a *
+         textures[material.baseColorTexture].Sample(samplers[material.sampler], uv).a;
+}
+
 // Masked materials cut holes; everything else keeps the rasterised depth.
 void alphaTest(uint objectIndex, float2 uv) {
   const MaterialData material = frame.materials[objects[objectIndex].material];
-  if ((material.flags & 0xFF) == AlphaMask) {
-    const float alpha = material.baseColor.a * objects[objectIndex].color.a *
-                        textures[material.baseColorTexture].Sample(samplers[material.sampler], uv).a;
-    if (alpha < material.emissive.a) {
-      discard;
-    }
+  if ((material.flags & 0xFF) == AlphaMask && surfaceAlpha(material, objectIndex, uv) < material.emissive.a) {
+    discard;
+  }
+}
+
+// The 4x4 ordered-dither threshold of a pixel, in (0, 1): the Bayer matrix, each rank taken at the
+// middle of its sixteenth so alpha 0 never survives and alpha 1 always does.
+float orderedThreshold(float2 pixel) {
+  static const uint bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+  const uint2 cell = uint2(pixel) & 3;
+  return (float(bayer[cell.y * 4 + cell.x]) + 0.5) / 16.0;
+}
+
+// The shadow maps' fragment stage. A masked material keeps its cutoff; a blended one discards
+// under the pixel's threshold, so the 3x3 comparison of the receiver averages the survivors into a
+// partial shadow whose darkness follows alpha.
+[shader("fragment")]
+void shadowFragmentMain(VertexOutput input) {
+  const MaterialData material = frame.materials[objects[input.objectIndex].material];
+  const uint alphaMode = material.flags & 0xFF;
+  if (alphaMode == AlphaMask) {
+    alphaTest(input.objectIndex, input.uv);
+  } else if (alphaMode == AlphaBlend &&
+             surfaceAlpha(material, input.objectIndex, input.uv) <= orderedThreshold(input.position.xy)) {
+    discard;
   }
 }
 
