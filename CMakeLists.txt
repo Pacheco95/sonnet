@@ -16,6 +16,25 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
   endif()
 endif()
 
+# On macOS, `/usr/bin/clang++` is a shim that adds `-I/usr/local/include` to the compile, and a
+# plain -I is searched before the vcpkg install root's -isystem. Where the Vulkan SDK has put its
+# headers there, they shadow vcpkg's `vulkan-headers` and the build fails in vk-bootstrap's types
+# (docs/reports/macos-vulkan-header-search.md). The toolchain's own compiler does not do it, so
+# unless the caller chose one (CMAKE_CXX_COMPILER or CXX), configure with that.
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND VCPKG_TARGET_TRIPLET MATCHES "-osx$"
+   AND NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX}
+   AND NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED ENV{CC})
+  execute_process(COMMAND xcrun --find clang++ OUTPUT_VARIABLE sonnet_xcode_cxx
+                  OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE sonnet_xcrun_cxx)
+  execute_process(COMMAND xcrun --find clang OUTPUT_VARIABLE sonnet_xcode_cc
+                  OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE sonnet_xcrun_cc)
+  if(sonnet_xcrun_cxx EQUAL 0 AND sonnet_xcrun_cc EQUAL 0 AND EXISTS "${sonnet_xcode_cxx}" AND EXISTS "${sonnet_xcode_cc}")
+    set(CMAKE_CXX_COMPILER "${sonnet_xcode_cxx}" CACHE FILEPATH "C++ compiler (the toolchain's, not the /usr/bin shim)")
+    set(CMAKE_C_COMPILER "${sonnet_xcode_cc}" CACHE FILEPATH "C compiler (the toolchain's, not the /usr/bin shim)")
+    message(STATUS "Using the toolchain's compiler ${sonnet_xcode_cxx}, not the /usr/bin shim")
+  endif()
+endif()
+
 project(sonnet VERSION 0.13.0 LANGUAGES CXX C)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
