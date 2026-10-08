@@ -189,7 +189,8 @@ TEST_CASE("a glTF file imports its skins, joint weights and animation clips by n
   REQUIRE(clip.channels[1].target == "Rig/Root");
   REQUIRE(clip.channels[1].interpolation == Interpolation::Step);
   REQUIRE(clip.channels[2].interpolation == Interpolation::CubicSpline);
-  REQUIRE(clip.channels[2].values.size() == 6 * static_cast<std::size_t>(width(clip.channels[2]))); // three values for each of two keys
+  REQUIRE(clip.channels[2].values.size() ==
+          6 * static_cast<std::size_t>(width(clip.channels[2]))); // three values for each of two keys
   std::filesystem::remove_all(directory);
 }
 
