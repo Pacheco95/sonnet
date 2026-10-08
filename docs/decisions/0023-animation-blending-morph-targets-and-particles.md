@@ -1,6 +1,6 @@
 # ADR-0023: Animation blending, morph targets and GPU particles
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-08
 
 ## Context
