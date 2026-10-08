@@ -1088,6 +1088,58 @@ TEST_CASE("a skinned box follows its joint on a GPU", "[renderer][gpu]") {
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// The bind pose is twenty metres to the right, far outside the view; only the joint's matrix brings
+// the box in front of the camera. Culling by the bind-pose bounds would cull it (ADR-0024).
+TEST_CASE("a skinned box whose bind pose is out of view is not culled", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    MeshData data = skinnedBox();
+    for (Vertex &vertex : data.vertices) {
+      vertex.position.x += 20.0f;
+    }
+    const MeshHandle box = renderer.createMesh(std::move(data), "far skinned box");
+    const std::array joints{glm::translate(glm::mat4{1.0f}, glm::vec3{-20.0f, 0.0f, 0.0f})};
+    const std::array draws{DrawItem{.mesh = box, .firstJoint = 0, .jointCount = 1, .skinInstance = 1}};
+    SceneView view = boxScene(draws);
+    view.joints = joints;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2);
+    const Pixel centre = scene.pixel(32, 32);
+    REQUIRE(centre.r + centre.g + centre.b > 60);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a morphed box whose bind pose is out of view is not culled", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    MeshData data = primitives::box();
+    for (Vertex &vertex : data.vertices) {
+      vertex.position.x += 20.0f;
+    }
+    data.morphTargetCount = 1;
+    data.morphDeltas.assign(data.vertices.size(), MorphDelta{.position = {-20.0f, 0.0f, 0.0f}});
+    const MeshHandle box = renderer.createMesh(std::move(data), "far morphed box");
+    const std::array<float, 1> weights{1.0f};
+    const std::array draws{DrawItem{.mesh = box, .skinInstance = 1, .firstMorphWeight = 0, .morphWeightCount = 1}};
+    SceneView view = boxScene(draws);
+    view.morphWeights = weights;
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.render(view, 2);
+    const Pixel centre = scene.pixel(32, 32);
+    REQUIRE(centre.r + centre.g + centre.b > 60);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 // A box with one morph target that slides every vertex 1.5 m to the right at weight 1.
 MeshData morphedBox() {
   MeshData box = primitives::box();

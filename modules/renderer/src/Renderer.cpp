@@ -636,9 +636,59 @@ MeshHandle Renderer::createMesh(const MeshData &data, std::string debugName) {
   if (submeshes.empty()) {
     submeshes.push_back(Submesh{0, static_cast<std::uint32_t>(data.indices.size()), 0});
   }
-  const MeshHandle handle =
-      m_meshes.emplace(Mesh{std::move(debugName), vertices, indices, skin, morph, morphTargets,
-                            static_cast<std::uint32_t>(data.vertices.size()), std::move(submeshes), data.bounds()});
+  Mesh mesh{std::move(debugName),
+            vertices,
+            indices,
+            skin,
+            morph,
+            morphTargets,
+            static_cast<std::uint32_t>(data.vertices.size()),
+            std::move(submeshes),
+            data.bounds(),
+            {},
+            Bounds{glm::vec3{1.0f}, glm::vec3{-1.0f}},
+            {}};
+  if (skin) {
+    const Bounds none{glm::vec3{1.0f}, glm::vec3{-1.0f}};
+    std::uint32_t jointCount = 0;
+    for (const SkinWeights &weights : data.skin) {
+      for (int i = 0; i < 4; ++i) {
+        if (weights.weights[i] > 0.0f) {
+          jointCount = std::max(jointCount, weights.joints[i] + 1);
+        }
+      }
+    }
+    mesh.jointBounds.assign(jointCount, none);
+    const auto grow = [](Bounds &box, const glm::vec3 &point) {
+      if (box.min.x > box.max.x) {
+        box = Bounds{point, point};
+      } else {
+        box.min = glm::min(box.min, point);
+        box.max = glm::max(box.max, point);
+      }
+    };
+    for (std::size_t i = 0; i < data.skin.size(); ++i) {
+      const SkinWeights &weights = data.skin[i];
+      float total = 0.0f;
+      for (int j = 0; j < 4; ++j) {
+        total += weights.weights[j];
+        if (weights.weights[j] > 0.0f) {
+          grow(mesh.jointBounds[weights.joints[j]], data.vertices[i].position);
+        }
+      }
+      if (total <= 1.0e-6f) {
+        grow(mesh.unweightedBounds, data.vertices[i].position);
+      }
+    }
+  }
+  for (std::uint32_t target = 0; target < morphTargets; ++target) {
+    float reach = 0.0f;
+    for (std::size_t i = 0; i < data.vertices.size(); ++i) {
+      reach = std::max(reach, glm::length(data.morphDeltas[target * data.vertices.size() + i].position));
+    }
+    mesh.morphReach[target] = reach;
+  }
+  const MeshHandle handle = m_meshes.emplace(std::move(mesh));
   SONNET_LOG_DEBUG("mesh \"{}\": {} vertices, {} triangles, {} submeshes", m_meshes.get(handle).debugName,
                    data.vertices.size(), data.triangleCount(), m_meshes.get(handle).submeshes.size());
   return handle;
@@ -1185,15 +1235,15 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     const Material *material = m_materials.find(item.material);
     const MaterialDesc &desc = material != nullptr ? material->desc : MaterialDesc{};
     const glm::vec4 viewPosition = cameraView * item.transform[3];
-    // The world-space box the culling pass tests: the mesh's bounds through the transform, the
-    // eight corners rather than the transformed extent so a rotation stays conservative. A
-    // skinned draw is culled by its bind pose, which ADR-0012 accepts.
+    // The world-space box the culling pass tests: the draw's posed bounds through the transform,
+    // the eight corners rather than the transformed extent so a rotation stays conservative.
+    const Bounds posed = posedBounds(view, item, *mesh);
     glm::vec3 minimum{std::numeric_limits<float>::max()};
     glm::vec3 maximum{std::numeric_limits<float>::lowest()};
     for (int corner = 0; corner < 8; ++corner) {
-      const glm::vec3 local{(corner & 1) != 0 ? mesh->bounds.max.x : mesh->bounds.min.x,
-                            (corner & 2) != 0 ? mesh->bounds.max.y : mesh->bounds.min.y,
-                            (corner & 4) != 0 ? mesh->bounds.max.z : mesh->bounds.min.z};
+      const glm::vec3 local{(corner & 1) != 0 ? posed.max.x : posed.min.x,
+                            (corner & 2) != 0 ? posed.max.y : posed.min.y,
+                            (corner & 4) != 0 ? posed.max.z : posed.min.z};
       const glm::vec3 world{item.transform * glm::vec4{local, 1.0f}};
       minimum = glm::min(minimum, world);
       maximum = glm::max(maximum, world);
@@ -1446,6 +1496,54 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, ViewState &v, const C
                                  std::uint64_t{job.firstCommand + index} * sizeof(rhi::IndirectCommand), 1);
     ++v.statistics.indirectCallCount;
   }
+}
+
+Bounds Renderer::posedBounds(const SceneView &view, const DrawItem &item, const Mesh &mesh) {
+  // The same conditions resolveVertices deforms by.
+  const bool skinned = item.jointCount > 0 && item.skinInstance != 0 && mesh.skin &&
+                       std::size_t{item.firstJoint} + item.jointCount <= view.joints.size();
+  const bool morphed = item.morphWeightCount > 0 && item.skinInstance != 0 && mesh.morph &&
+                       std::size_t{item.firstMorphWeight} + item.morphWeightCount <= view.morphWeights.size();
+  float reach = 0.0f;
+  if (morphed) {
+    const std::uint32_t targets = std::min(item.morphWeightCount, mesh.morphTargetCount);
+    for (std::uint32_t t = 0; t < targets; ++t) {
+      reach += std::abs(view.morphWeights[item.firstMorphWeight + t]) * mesh.morphReach[t];
+    }
+  }
+  const auto grown = [reach](Bounds box) {
+    box.min -= glm::vec3{reach};
+    box.max += glm::vec3{reach};
+    return box;
+  };
+  // A joint index past the draw's palette is clamped by the shader, so a mesh that names more
+  // joints than the draw supplies keeps its whole bind-pose box rather than a guess.
+  if (!skinned || mesh.jointBounds.size() > item.jointCount) {
+    return grown(mesh.bounds);
+  }
+  Bounds result{glm::vec3{std::numeric_limits<float>::max()}, glm::vec3{std::numeric_limits<float>::lowest()}};
+  const auto include = [&result](const Bounds &box, const glm::mat4 &matrix) {
+    for (int corner = 0; corner < 8; ++corner) {
+      const glm::vec3 local{(corner & 1) != 0 ? box.max.x : box.min.x, (corner & 2) != 0 ? box.max.y : box.min.y,
+                            (corner & 4) != 0 ? box.max.z : box.min.z};
+      const glm::vec3 point{matrix * glm::vec4{local, 1.0f}};
+      result.min = glm::min(result.min, point);
+      result.max = glm::max(result.max, point);
+    }
+  };
+  for (std::size_t j = 0; j < mesh.jointBounds.size(); ++j) {
+    const Bounds &box = mesh.jointBounds[j];
+    if (box.min.x <= box.max.x) {
+      include(grown(box), view.joints[item.firstJoint + j]);
+    }
+  }
+  if (mesh.unweightedBounds.min.x <= mesh.unweightedBounds.max.x) {
+    include(grown(mesh.unweightedBounds), glm::mat4{1.0f});
+  }
+  if (result.min.x > result.max.x) {
+    return grown(mesh.bounds); // a skin that influences nothing
+  }
+  return result;
 }
 
 std::uint32_t Renderer::resolveVertices(ViewState &v, const DrawItem &item, const Mesh &mesh) {

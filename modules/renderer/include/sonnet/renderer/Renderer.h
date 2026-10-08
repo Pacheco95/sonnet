@@ -249,6 +249,16 @@ private:
     std::uint32_t vertexCount{0};
     std::vector<Submesh> submeshes;
     Bounds bounds;
+    // The bind-pose box of the vertices each joint influences (any weight above zero), empty
+    // (min above max) for a joint that influences none, and the box of the vertices no joint
+    // weighs, which skinning leaves in the bind pose. A deformed vertex is a convex combination
+    // of its joints' images of itself, so the union of each joint's box through its matrix bounds
+    // every pose (ADR-0024).
+    std::vector<Bounds> jointBounds;
+    Bounds unweightedBounds{glm::vec3{1.0f}, glm::vec3{-1.0f}};
+    // The largest position delta of each morph target; weight times this bounds how far the
+    // target moves any vertex.
+    std::array<float, MaxMorphTargets> morphReach{};
   };
   // The deformed vertices of one skinned instance, rewritten every frame it is drawn and
   // released a few frames after its last use.
@@ -321,6 +331,11 @@ private:
     }
   };
   // A draw resolved for recording: the order lists refer to these.
+  // The object-space box of a draw as it is posed: the mesh's own for a rigid draw, the union of
+  // the joint boxes through the joint matrices for a skinned one, grown by what its morph weights
+  // can move a vertex.
+  [[nodiscard]] static Bounds posedBounds(const SceneView &view, const DrawItem &item, const Mesh &mesh);
+
   struct ResolvedDraw {
     std::uint32_t objectIndex;
     const Mesh *mesh;
