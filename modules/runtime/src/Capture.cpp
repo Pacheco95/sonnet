@@ -321,6 +321,9 @@ CaptureRun::Status CaptureRun::step(ICaptureTarget &target) {
       }
       return Status::Running;
     }
+    if (m_frames == 0) {
+      target.cutHistory(); // the first frame with everything loaded, which the count below starts from
+    }
     if (++m_frames < m_options.settleFrames) {
       return Status::Running;
     }
@@ -381,6 +384,10 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
 
 bool GameCaptureTarget::loaded() {
   return m_game.target().isValid() && !m_game.assets().loading();
+}
+
+void GameCaptureTarget::cutHistory() {
+  m_game.cutHistory();
 }
 
 void GameCaptureTarget::play(std::uint64_t randomSeed) {

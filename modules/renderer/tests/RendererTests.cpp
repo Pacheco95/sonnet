@@ -1385,6 +1385,332 @@ TEST_CASE("a skinned box's motion comes from the vertices it was deformed to the
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+TEST_CASE("the resolve sits between the forward pass and bloom, and only under TAA", "[renderer][taa][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  const auto passes = [&](AntiAliasing mode, bool bloom) {
+    RendererSettings settings = testSettings();
+    settings.antialiasing = mode;
+    settings.bloom = bloom;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const std::array draws{DrawItem{.mesh = box}};
+    const SceneView view = boxScene(draws);
+    std::vector<std::string> names;
+    for (int frame = 0; frame < 2; ++frame) {
+      ICommandList &commands = device->beginFrame();
+      graph.reset();
+      renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+      graph.execute(commands);
+      device->endFrame();
+      names.clear();
+      for (const PassTiming &pass : graph.statistics().passes) {
+        names.push_back(pass.name);
+      }
+    }
+    renderer.destroyMesh(box);
+    return names;
+  };
+  const auto position = [](const std::vector<std::string> &names, std::string_view name) {
+    return std::ranges::find(names, name) - names.begin();
+  };
+  const std::vector<std::string> taa = passes(AntiAliasing::Taa, true);
+  REQUIRE(position(taa, "forward") < position(taa, "taa"));
+  REQUIRE(position(taa, "taa") < position(taa, "bloom down 0"));
+  REQUIRE(position(taa, "bloom up 0") < position(taa, "tonemap"));
+  REQUIRE(position(taa, "tonemap") == static_cast<std::ptrdiff_t>(taa.size()) - 1); // no FXAA after it
+  REQUIRE(std::ranges::count(taa, "taa") == 1);
+  const std::vector<std::string> noBloom = passes(AntiAliasing::Taa, false);
+  REQUIRE(position(noBloom, "taa") < position(noBloom, "tonemap"));
+  for (const AntiAliasing mode : {AntiAliasing::None, AntiAliasing::Fxaa}) {
+    REQUIRE(std::ranges::count(passes(mode, true), "taa") == 0);
+  }
+  REQUIRE(std::ranges::count(passes(AntiAliasing::Fxaa, true), "fxaa") == 1);
+}
+
+TEST_CASE("the history starts over on a first frame, a cut, a resize, a debug view and a skipped frame",
+          "[renderer][taa][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  RenderTarget other{*device, "other"};
+  other.resize({64, 64});
+  Renderer renderer{*device, shaderDir(platform), taaSettings()};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const std::array draws{DrawItem{.mesh = box}};
+  SceneView first = boxScene(draws);
+  SceneView second = boxScene(draws);
+  // Declares the views asked for, in one graph frame, and returns whether each reused its history.
+  const auto frame = [&](std::initializer_list<SceneView *> views, RenderTarget &viewport) {
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    for (SceneView *view : views) {
+      renderer.addScenePasses(graph, *view, graph.importImage(viewport.color()), graph.importImage(viewport.depth()));
+    }
+    graph.execute(commands);
+    device->endFrame();
+    std::vector<bool> reused;
+    for (std::size_t i = 0; i < views.size(); ++i) {
+      reused.push_back(renderer.statistics(i).temporalHistoryUsed);
+    }
+    return reused;
+  };
+  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
+  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+
+  // A cut: the owner says the last frame is no guide.
+  first.resetHistory = true;
+  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
+  first.resetHistory = false;
+  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+
+  // A resize recreates the images.
+  target.resize({48, 48});
+  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
+  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+
+  // A frame that does not resolve (a debug view shows the unresolved frame) breaks the chain.
+  RendererSettings settings = renderer.settings();
+  settings.debugView = DebugView::Albedo;
+  renderer.setSettings(settings);
+  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
+  settings.debugView = DebugView::Final;
+  renderer.setSettings(settings);
+  REQUIRE(frame({&first}, target) == std::vector<bool>{false});
+  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+
+  // A view that was not drawn for a frame has no previous frame to reproject.
+  REQUIRE(frame({&second}, other) == std::vector<bool>{false});
+  REQUIRE(frame({&first}, target) == std::vector<bool>{false}); // second was drawn instead
+  REQUIRE(frame({&first}, target) == std::vector<bool>{true});
+
+  // Two views in one frame each keep a history of their own.
+  REQUIRE(frame({&first, &second}, target) == std::vector<bool>{true, false});
+  REQUIRE(frame({&first, &second}, target) == std::vector<bool>{true, true});
+  REQUIRE(frame({&second}, target) == std::vector<bool>{true});
+  renderer.destroyMesh(box);
+}
+
+// The whole readback of a GpuScene, as bytes.
+std::vector<std::byte> imageOf(GpuScene &scene) {
+  const auto bytes = scene.device.mappedRange(scene.readback);
+  return {bytes.begin(), bytes.end()};
+}
+
+// The largest and the mean absolute difference between two RGBA8 images, over the colour channels.
+struct ImageDifference {
+  int maximum{0};
+  double mean{0.0};
+};
+
+ImageDifference differenceOf(std::span<const std::byte> a, std::span<const std::byte> b) {
+  REQUIRE(a.size() == b.size());
+  ImageDifference result;
+  std::size_t count = 0;
+  double sum = 0.0;
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (i % 4 == 3) {
+      continue;
+    }
+    const int difference = std::abs(std::to_integer<int>(a[i]) - std::to_integer<int>(b[i]));
+    result.maximum = std::max(result.maximum, difference);
+    sum += difference;
+    ++count;
+  }
+  result.mean = sum / static_cast<double>(count);
+  return result;
+}
+
+TEST_CASE("a still scene resolves to an anti-aliased image and stops changing", "[renderer][taa][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), taaSettings()};
+    Renderer reference{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle referenceBox = reference.createMesh(primitives::box(), "box");
+    // A box turned 30 degrees about Z, so its silhouette is diagonal and every edge pixel is a
+    // fraction covered.
+    const glm::mat4 turned = glm::rotate(glm::mat4{1.0f}, glm::radians(30.0f), glm::vec3{0.0f, 0.0f, 1.0f});
+    const std::array draws{DrawItem{.mesh = box, .transform = turned}};
+    const std::array referenceDraws{DrawItem{.mesh = referenceBox, .transform = turned}};
+    const SceneView view = boxScene(draws);
+    const SceneView referenceView = boxScene(referenceDraws);
+    GpuScene scene{*device, renderer, {64, 64}};
+    GpuScene unresolved{*device, reference, {64, 64}};
+    unresolved.render(referenceView);
+    const std::vector<std::byte> aliased = imageOf(unresolved);
+
+    std::vector<std::vector<std::byte>> frames;
+    for (int frame = 0; frame < 24; ++frame) {
+      scene.render(view);
+      frames.push_back(imageOf(scene));
+      REQUIRE(device->validationMessageCount() == 0);
+    }
+    // Moments after the first frames the resolve is still settling; by the last ones it is not.
+    for (std::size_t i = 16; i < frames.size(); ++i) {
+      const ImageDifference step = differenceOf(frames[i], frames[i - 1]);
+      INFO("frame " << i << " max " << step.maximum << " mean " << step.mean);
+      REQUIRE(step.maximum <= 40); // an edge pixel: a tenth of the contrast, once a frame
+      REQUIRE(step.mean < 0.3);
+    }
+    // The interior and the background are what the unresolved frame drew, within a few levels, and
+    // the edge now holds values the unresolved frame did not: fractions of coverage.
+    const ImageDifference against = differenceOf(frames.back(), aliased);
+    INFO("against the aliased frame: max " << against.maximum << " mean " << against.mean);
+    REQUIRE(against.mean < 3.0);
+    REQUIRE(against.maximum > 12);
+    renderer.destroyMesh(box);
+    reference.destroyMesh(referenceBox);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a bright box crossing a dark background leaves no trail", "[renderer][taa][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), taaSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    GpuScene scene{*device, renderer, {64, 64}};
+    // The front face is 2.5 m from the camera, which sees 1.443 m either side of the axis there
+    // across 32 pixels: a metre is 22 pixels.
+    const auto pixelOf = [](float x) { return static_cast<unsigned>(32.0f + x / 1.443f * 32.0f); };
+    const auto brightness = [](Pixel p) { return p.r + p.g + p.b; };
+    std::array draws{DrawItem{.mesh = box}};
+    const SceneView view = boxScene(draws);
+    // A box 0.4 m across, nine pixels, so that half a metre a frame, eleven pixels, clears itself.
+    const auto place = [&](float x, float previousX) {
+      draws[0].transform = glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{x, 0.0f, 0.0f}), glm::vec3{0.4f});
+      draws[0].previousTransform =
+          glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{previousX, 0.0f, 0.0f}), glm::vec3{0.4f});
+    };
+
+    // At rest on the left for long enough that the history there is the box.
+    for (int frame = 0; frame < 10; ++frame) {
+      place(-1.2f, -1.2f);
+      scene.render(view);
+    }
+    const unsigned probe = pixelOf(-1.2f);
+    const int lit = brightness(scene.pixel(probe, 32));
+    REQUIRE(lit > 150);
+
+    // Then it crosses at half a metre a frame, which leaves the probe on the first step.
+    float x = -1.2f;
+    for (int frame = 1; frame <= 5; ++frame) {
+      place(x + 0.5f, x);
+      x += 0.5f;
+      scene.render(view);
+      const int here = brightness(scene.pixel(pixelOf(x), 32));
+      const int trail = brightness(scene.pixel(probe, 32));
+      INFO("frame " << frame << ": box " << here << ", probe " << trail << ", at rest " << lit);
+      // The box itself keeps its brightness while it moves: the history is reprojected, not smeared.
+      REQUIRE(here > lit * 85 / 100);
+      // And the pixels it left go dark at once, not by a tenth a frame.
+      REQUIRE(trail < lit / 20 + 6);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("each view resolves against its own history", "[renderer][taa][views][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    // The same two cameras drawn by one renderer in one graph, and by one renderer each alone.
+    const auto makeScene = [](MeshHandle box, std::vector<DrawItem> &draws) {
+      draws = {
+          DrawItem{.mesh = box, .transform = glm::rotate(glm::mat4{1.0f}, glm::radians(30.0f), {0.0f, 0.0f, 1.0f})}};
+    };
+    Renderer together{*device, shaderDir(platform), taaSettings()};
+    Renderer aloneA{*device, shaderDir(platform), taaSettings()};
+    Renderer aloneB{*device, shaderDir(platform), taaSettings()};
+    std::vector<DrawItem> drawsT;
+    std::vector<DrawItem> drawsA;
+    std::vector<DrawItem> drawsB;
+    const MeshHandle boxT = together.createMesh(primitives::box(), "box");
+    const MeshHandle boxA = aloneA.createMesh(primitives::box(), "box");
+    const MeshHandle boxB = aloneB.createMesh(primitives::box(), "box");
+    makeScene(boxT, drawsT);
+    makeScene(boxA, drawsA);
+    makeScene(boxB, drawsB);
+    const auto cameraFor = [](int frame, bool second) {
+      SceneView view;
+      view.camera.position = {second ? 0.3f * static_cast<float>(frame) : 0.0f, 0.0f, second ? 2.5f : 3.0f};
+      return view;
+    };
+    GpuScene sceneA{*device, aloneA, {64, 64}};
+    GpuScene sceneB{*device, aloneB, {64, 64}};
+    RenderGraph graph{*device};
+    RenderTarget targetFirst{*device, "first"};
+    RenderTarget targetSecond{*device, "second"};
+    targetFirst.resize({64, 64});
+    targetSecond.resize({64, 64});
+    std::array<BufferHandle, 2> readbacks;
+    for (BufferHandle &readback : readbacks) {
+      readback = device->createBuffer({.size = 64 * 64 * 4,
+                                       .usage = BufferUsage::TransferDst,
+                                       .memory = MemoryUsage::GpuToCpu,
+                                       .debugName = "view readback"});
+    }
+    SceneView first;
+    SceneView second;
+    for (int frame = 0; frame < 6; ++frame) {
+      first = cameraFor(frame, false);
+      first.draws = drawsT;
+      second = cameraFor(frame, true);
+      second.draws = drawsT;
+      ICommandList &commands = device->beginFrame();
+      graph.reset();
+      const GraphImage colorFirst = graph.importImage(targetFirst.color());
+      const GraphImage colorSecond = graph.importImage(targetSecond.color());
+      // GpuScene clears to black, so these do too.
+      together.addScenePasses(graph, first, colorFirst, graph.importImage(targetFirst.depth()),
+                              {0.0f, 0.0f, 0.0f, 1.0f});
+      together.addScenePasses(graph, second, colorSecond, graph.importImage(targetSecond.depth()),
+                              {0.0f, 0.0f, 0.0f, 1.0f});
+      {
+        const std::array colors{colorFirst, colorSecond};
+        for (std::size_t i = 0; i < 2; ++i) {
+          graph.addPass(
+              std::format("readback {}", i), [&, i](PassBuilder &b) { b.transferSrc(colors[i]); },
+              [&, i](ICommandList &cmd, const PassResources &resources) {
+                cmd.copyImageToBuffer(resources.image(colors[i]), readbacks[i]);
+              });
+        }
+      }
+      graph.execute(commands);
+      device->endFrame();
+      SceneView lone = cameraFor(frame, false);
+      lone.draws = drawsA;
+      sceneA.render(lone);
+      lone = cameraFor(frame, true);
+      lone.draws = drawsB;
+      sceneB.render(lone);
+      device->waitIdle();
+      INFO("frame " << frame);
+      REQUIRE(differenceOf(device->mappedRange(readbacks[0]), imageOf(sceneA)).maximum == 0);
+      REQUIRE(differenceOf(device->mappedRange(readbacks[1]), imageOf(sceneB)).maximum == 0);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+    for (const BufferHandle readback : readbacks) {
+      device->destroyBuffer(readback);
+    }
+    together.destroyMesh(boxT);
+    aloneA.destroyMesh(boxA);
+    aloneB.destroyMesh(boxB);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("occlusion culling adds the pyramid and the second phase to the depth passes",
           "[renderer][occlusion][null]") {
   sonnet::platform::Platform platform{{.headless = true}};

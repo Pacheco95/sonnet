@@ -133,6 +133,9 @@ TEST_CASE("the Game view draws through the scene camera beside the Scene view", 
     const renderer::RenderStatistics &gameStatistics = editor.renderer().statistics(1);
     REQUIRE(sceneStatistics.drawCount > 0);
     REQUIRE(gameStatistics.drawCount == sceneStatistics.drawCount);
+    // Both views resolve against a history of their own (ADR-0024).
+    REQUIRE(sceneStatistics.temporalHistoryUsed);
+    REQUIRE(gameStatistics.temporalHistoryUsed);
 
     // Not playing, scripts and the listener follow the editor's camera over the Scene view.
     REQUIRE(editor.scriptView().camera.position == editor.viewport().camera().camera().position);
@@ -156,6 +159,19 @@ TEST_CASE("the Game view draws through the scene camera beside the Scene view", 
     REQUIRE_FALSE(editor.gamePanel().target().isValid());
     REQUIRE(editor.renderer().statistics(1).drawCount == 0);
     REQUIRE(editor.scriptView().camera.position == editor.viewport().camera().camera().position);
+    // The Scene view went on resolving once its panel had settled at its new size; the Game view,
+    // absent for frames, starts over.
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE(editor.renderer().statistics(0).temporalHistoryUsed);
+    editor.setShowGame(true);
+    for (int frame = 0; frame < 8 && editor.renderer().statistics(1).drawCount == 0; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(editor.renderer().statistics(1).drawCount > 0);
+    REQUIRE_FALSE(editor.renderer().statistics(1).temporalHistoryUsed);
+    fixture.frame(editor);
+    REQUIRE(editor.renderer().statistics(1).temporalHistoryUsed);
     editor.stop();
     fixture.frame(editor);
   }

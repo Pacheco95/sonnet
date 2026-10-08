@@ -243,6 +243,18 @@ struct PostConstants {
 };
 static_assert(sizeof(PostConstants) == 48);
 
+// Mirror of shaders/taa.slang.
+struct TaaConstants {
+  std::uint32_t current;
+  std::uint32_t history;
+  std::uint32_t motion;
+  std::uint32_t depth;
+  std::uint32_t sampler;
+  std::uint32_t historyValid;
+  glm::vec2 size;
+};
+static_assert(sizeof(TaaConstants) == 32);
+
 // Mirror of shaders/outline.slang.
 struct OutlineConstants {
   glm::vec4 color;
@@ -439,6 +451,11 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineGraphics(
       m_fxaaPipeline, "post",
       {.fragmentEntry = "fxaa", .colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "fxaa"});
+  defineGraphics(m_taaPipeline, "taa",
+                 {.fragmentEntry = "resolve",
+                  .colorFormats = {HdrFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "taa resolve"});
   if (m_settings.presentFormat != rhi::Format::Undefined) {
     defineGraphics(m_presentPipeline, "post",
                    {.fragmentEntry = "blit",
@@ -569,6 +586,7 @@ Renderer::~Renderer() {
                                              m_clusterPipeline,
                                              m_debugLinePipeline,
                                              m_outlinePipeline,
+                                             m_taaPipeline,
                                              m_fxaaPipeline,
                                              m_presentPipeline,
                                              m_tonemapPipeline,
@@ -588,9 +606,9 @@ Renderer::~Renderer() {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 13> Names{"cluster", "cull", "debug", "depth",   "forward",
-                                                          "hiz",     "ibl",  "id",    "outline", "particles",
-                                                          "post",    "skin", "skybox"};
+  static constexpr std::array<std::string_view, 14> Names{"cluster", "cull", "debug",  "depth",   "forward",
+                                                          "hiz",     "ibl",  "id",     "outline", "particles",
+                                                          "post",    "skin", "skybox", "taa"};
   return Names;
 }
 
@@ -1350,6 +1368,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   const glm::mat4 cameraView = view.camera.view();
   v.taa = false;
   v.motion = {};
+  v.resolvedScene = {};
   v.jitter = glm::vec2{0.0f};
   v.viewProjection =
       view.camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u))) *
@@ -1449,6 +1468,73 @@ void Renderer::releaseHistory(History &history) {
   }
 }
 
+GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth) {
+  History &history = m_histories[v.view];
+  const glm::uvec2 size = v.targetSize;
+  if (history.size != size) {
+    releaseHistory(history);
+    history.size = size;
+    history.valid = false;
+  }
+  for (std::size_t i = 0; i < history.images.size(); ++i) {
+    if (!history.images[i]) {
+      history.images[i] = m_device.createImage({.size = size,
+                                                .format = HdrFormat,
+                                                .usage = rhi::ImageUsage::ColorAttachment | rhi::ImageUsage::Sampled,
+                                                .debugName = std::format("taa history {}", i)});
+      history.valid = false;
+    }
+  }
+  const bool valid = history.valid;
+  v.statistics.temporalHistoryUsed = valid;
+  // The image the last resolve wrote is read and this one's result goes into the other, and they
+  // swap for the next frame. Both end in the shader-read layout the next frame starts them in.
+  const GraphImage write = graph.importImage(history.images[history.next], rhi::ImageLayout::ShaderReadOnly);
+  GraphImage read;
+  if (valid) {
+    read = graph.importImage(history.images[1 - history.next], rhi::ImageLayout::ShaderReadOnly,
+                             rhi::ImageLayout::ShaderReadOnly);
+  }
+  history.next = 1 - history.next;
+  history.valid = true;
+  graph.addPass(
+      "taa",
+      [&](PassBuilder &builder) {
+        builder.sample(hdr);
+        builder.sample(v.motion);
+        builder.sample(depth);
+        if (valid) {
+          builder.sample(read);
+        }
+        builder.color(write, rhi::LoadOp::DontCare);
+      },
+      [this, &v, hdr, read, depth, valid](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
+        recordTaa(commands, v, resources.image(hdr), valid ? resources.image(read) : resources.image(hdr),
+                  resources.image(v.motion), valid, resources.image(depth));
+      });
+  return write;
+}
+
+void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current,
+                         rhi::ImageHandle history, rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth) {
+  SONNET_ZONE();
+  if (!v.frameBuffers.valid()) {
+    return;
+  }
+  const TaaConstants push{.current = sampledIndex(current),
+                          .history = sampledIndex(history),
+                          .motion = sampledIndex(motion),
+                          .depth = sampledIndex(depth),
+                          .sampler = m_device.samplerIndex(m_linearClampSampler),
+                          .historyValid = historyValid ? 1u : 0u,
+                          .size = glm::vec2{v.targetSize}};
+  commands.bindPipeline(m_taaPipeline);
+  bindFrame(commands, v);
+  commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+  commands.draw(3);
+}
+
 void Renderer::beginTemporal(ViewState &v) {
   // A debug view shows the unresolved frame, which jitter would only shake.
   const bool wanted = m_settings.antialiasing == AntiAliasing::Taa && m_settings.debugView == DebugView::Final;
@@ -1466,9 +1552,12 @@ void Renderer::beginTemporal(ViewState &v) {
   }
   History &history = m_histories[v.view];
   const bool continuous = history.lastFrame + 1 == m_frameNumber;
+  // Whatever breaks the chain starts the jitter sequence over too, so the frames from there on
+  // resolve the same way however many came before (the capture runs rely on it).
   if (!continuous || v.view->resetHistory) {
     history.valid = false;
     history.hasPrevious = false;
+    history.sequence = 0;
   }
   history.lastFrame = m_frameNumber;
   v.taa = true;
@@ -2839,9 +2928,15 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         recordParticleDraws(commands, v);
       });
 
+  // Under TAA the resolved scene stands in for the unresolved one from here on.
+  GraphImage scene = hdr;
+  if (v.taa) {
+    scene = addTaaPass(graph, v, hdr, depth);
+    v.resolvedScene = scene;
+  }
   GraphImage bloom;
   if (m_settings.bloom && size.x >= 2 && size.y >= 2) {
-    addBloomPasses(graph, view, hdr, size, bloom);
+    addBloomPasses(graph, view, scene, size, bloom);
   }
   const bool fxaa = m_settings.antialiasing == AntiAliasing::Fxaa;
   const GraphImage ldr =
@@ -2849,14 +2944,14 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   graph.addPass(
       "tonemap",
       [&](PassBuilder &builder) {
-        builder.sample(hdr);
+        builder.sample(scene);
         if (bloom.isValid()) {
           builder.sample(bloom);
         }
         builder.color(ldr, rhi::LoadOp::DontCare);
       },
-      [this, &view, hdr, bloom, size](rhi::ICommandList &commands, const PassResources &resources) {
-        recordPost(commands, &view, m_tonemapPipeline, resources.image(hdr),
+      [this, &view, scene, bloom, size](rhi::ICommandList &commands, const PassResources &resources) {
+        recordPost(commands, &view, m_tonemapPipeline, resources.image(scene),
                    bloom.isValid() ? resources.image(bloom) : rhi::ImageHandle{}, size);
       });
   if (fxaa) {

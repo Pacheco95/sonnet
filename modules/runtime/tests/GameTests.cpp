@@ -19,6 +19,7 @@
 #include <stb_image.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <memory>
@@ -34,11 +35,11 @@ namespace {
 // The sample the editor's play-mode tests use too: a real project with models, a skin, a clip,
 // sounds, scripts and physics. Found in the checkout a build directory lives in, the way the
 // log panel's source links are (docs/editor.md, "Projects and scenes").
-[[nodiscard]] std::filesystem::path sampleProject(platform::Platform &platform) {
+[[nodiscard]] std::filesystem::path sampleProject(platform::Platform &platform, std::string_view name = "basic") {
   std::error_code error;
   for (std::filesystem::path base = std::filesystem::absolute(platform.basePath(), error); !base.empty();
        base = base.parent_path()) {
-    const std::filesystem::path candidate = base / "apps" / "samples" / "basic";
+    const std::filesystem::path candidate = base / "apps" / "samples" / name;
     if (std::filesystem::is_regular_file(candidate / "project.json", error)) {
       return candidate.lexically_normal();
     }
@@ -70,9 +71,9 @@ struct Fixture {
   std::unique_ptr<rhi::IDevice> device;
   std::unique_ptr<rhi::ISwapchain> swapchain;
 
-  Fixture() {
+  explicit Fixture(glm::uvec2 windowSize = {640, 480}) {
     try {
-      window = platform.createWindow({.title = "runtime_tests", .size = {640, 480}});
+      window = platform.createWindow({.title = "runtime_tests", .size = windowSize});
       device = rhi::createDevice({.platform = &platform, .applicationName = "runtime_tests"});
     } catch (const core::Exception &e) {
       SKIP("no usable Vulkan 1.4 device: " << e.what());
@@ -615,4 +616,117 @@ TEST_CASE("the start scene's walker, jelly and sparks play the same from a proje
   REQUIRE(fromProject.front() == "Walker: left footstep 1");
   REQUIRE(fromBundle == fromProject);
   std::filesystem::remove_all(out);
+}
+
+// ---- Golden images (ADR-0024) ----
+
+namespace {
+
+// The checkout's golden image directory, found the way the sample projects are; empty outside one.
+[[nodiscard]] std::filesystem::path goldenDirectory(platform::Platform &platform) {
+  std::error_code error;
+  for (std::filesystem::path base = std::filesystem::absolute(platform.basePath(), error); !base.empty();
+       base = base.parent_path()) {
+    const std::filesystem::path candidate = base / "modules" / "runtime" / "tests" / "golden";
+    if (std::filesystem::is_directory(candidate, error)) {
+      return candidate.lexically_normal();
+    }
+    if (base == base.root_path()) {
+      break;
+    }
+  }
+  return {};
+}
+
+// The error image of two same-sized RGBA8 images: per-pixel the largest channel difference.
+struct ErrorImage {
+  double mean{0.0};         // of that, over every pixel, in levels of 255
+  int maximum{0};           // the worst pixel
+  double fractionOver{0.0}; // the share of pixels off by more than `threshold`
+};
+
+[[nodiscard]] ErrorImage compare(const Png &a, const Png &b, int threshold) {
+  REQUIRE(a.width == b.width);
+  REQUIRE(a.height == b.height);
+  ErrorImage result;
+  const std::size_t pixels = static_cast<std::size_t>(a.width) * static_cast<std::size_t>(a.height);
+  double sum = 0.0;
+  std::size_t over = 0;
+  for (std::size_t i = 0; i < pixels; ++i) {
+    int worst = 0;
+    for (std::size_t channel = 0; channel < 3; ++channel) {
+      worst = std::max(worst, std::abs(int{a.rgba[i * 4 + channel]} - int{b.rgba[i * 4 + channel]}));
+    }
+    sum += worst;
+    result.maximum = std::max(result.maximum, worst);
+    over += worst > threshold ? 1 : 0;
+  }
+  result.mean = sum / static_cast<double>(pixels);
+  result.fractionOver = static_cast<double>(over) / static_cast<double>(pixels);
+  return result;
+}
+
+// The showcase after a second of play, as the player captures it, under one anti-aliasing mode.
+// A non-empty `keep` also copies the written file there.
+[[nodiscard]] Png captureShowcase(Fixture &fixture, const std::filesystem::path &project, renderer::AntiAliasing mode,
+                                  std::string_view name, const std::filesystem::path &keep = {}) {
+  runtime::GameDesc desc = fixture.desc();
+  desc.paused = true;
+  desc.renderer.antialiasing = mode;
+  desc.renderer.bloom = true;
+  desc.renderer.bloomLevels = 3;
+  const runtime::CaptureOptions options = playerCapture(
+      fixture.platform, {"--play", "1", "--settle-frames", "12", "--screenshot", std::format("golden/{}.png", name)});
+  std::filesystem::remove(options.viewport);
+  {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(project).has_value());
+    runtime::CaptureRun run{options};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
+  }
+  Png png = readPng(options.viewport);
+  if (!keep.empty()) {
+    std::filesystem::copy_file(options.viewport, keep, std::filesystem::copy_options::overwrite_existing);
+  }
+  std::filesystem::remove(options.viewport);
+  return png;
+}
+
+} // namespace
+
+// Rendered on Lavapipe, where a golden image is reproducible; another driver rounds differently, so
+// the case is skipped there rather than given a tolerance wide enough for everything. Set
+// SONNET_UPDATE_GOLDEN to write the image instead of comparing with it.
+TEST_CASE("the showcase resolves to its golden image, and to the unresolved frame without ghosting",
+          "[runtime][capture][golden][gpu]") {
+  Fixture fixture{{320, 240}};
+  if (fixture.device->info().driverName != "llvmpipe") {
+    SKIP("golden images are rendered on Lavapipe");
+  }
+  const std::filesystem::path project = sampleProject(fixture.platform, "showcase");
+  const std::filesystem::path directory = goldenDirectory(fixture.platform);
+  if (project.empty() || directory.empty()) {
+    SKIP("the showcase sample and its golden images were not found in a checkout above the test binary");
+  }
+  const std::filesystem::path golden = directory / "showcase_taa.png";
+  const bool update = std::getenv("SONNET_UPDATE_GOLDEN") != nullptr;
+  const Png resolved = captureShowcase(fixture, project, renderer::AntiAliasing::Taa, "showcase_taa",
+                                       update ? golden : std::filesystem::path{});
+  REQUIRE(std::filesystem::is_regular_file(golden));
+  const ErrorImage against = compare(resolved, readPng(golden), 32);
+  INFO("against the golden: mean " << against.mean << ", max " << against.maximum
+                                   << ", over 32: " << against.fractionOver);
+  REQUIRE(against.mean <= 1.5);
+  REQUIRE(against.maximum <= 96);
+  REQUIRE(against.fractionOver <= 0.002);
+
+  // Against the same frame with no anti-aliasing: smoother edges and softer texture detail (the
+  // mean sits near 6.5 levels, spread evenly over the image), not smeared ones. A trail behind a
+  // moving object would put wide bands of large errors in this image.
+  const Png unresolved = captureShowcase(fixture, project, renderer::AntiAliasing::None, "showcase_none");
+  const ErrorImage versus = compare(resolved, unresolved, 48);
+  INFO("against no anti-aliasing: mean " << versus.mean << ", max " << versus.maximum
+                                         << ", over 48: " << versus.fractionOver);
+  REQUIRE(versus.mean <= 9.0);
+  REQUIRE(versus.fractionOver <= 0.04);
 }

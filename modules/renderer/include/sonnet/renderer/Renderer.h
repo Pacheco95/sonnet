@@ -41,6 +41,9 @@ struct RenderStatistics {
   std::uint32_t skinnedVertexCount{0};
   std::uint32_t particleEmitterCount{0}; // emitters the view drew
   std::uint32_t particleSlotCount{0};    // their particle capacity: the ring slots simulated, alive or not
+  // Temporal anti-aliasing resolved this frame against a previous frame; false on the first
+  // frame of a view, after a resize, a cut or a frame that was not resolved, and without TAA.
+  bool temporalHistoryUsed{false};
   // What survived the GPU's culling, read back FramesInFlight frames late (ADR-0024), so these
   // describe an earlier frame of the same view; `visibleCountsKnown` is false until the first
   // one arrives. Opaque and masked draws only: the blended ones are never culled.
@@ -92,7 +95,7 @@ struct RendererSettings {
   DebugView debugView{DebugView::Final};
   bool bloom{true};
   std::uint32_t bloomLevels{5};
-  AntiAliasing antialiasing{AntiAliasing::Fxaa};
+  AntiAliasing antialiasing{AntiAliasing::Taa};
   // Occlusion culling of the opaque draws against a depth pyramid, in two phases (ADR-0024): the
   // result is the same pixels with fewer draws.
   bool occlusionCulling{true};
@@ -226,6 +229,11 @@ public:
   // rasterised with: Halton(2, 3), eight samples, zero without TAA (ADR-0024).
   [[nodiscard]] glm::vec2 jitter(std::size_t view = 0) const noexcept {
     return view < m_viewCount ? m_views[view]->jitter : glm::vec2{0.0f};
+  }
+  // The image the frame's `view`th declared view resolved into, which the next frame's resolve
+  // reads as history; valid until the next graph reset, invalid without TAA.
+  [[nodiscard]] GraphImage resolved(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->resolvedScene : GraphImage{};
   }
   // The motion image the pre-pass of the frame's `view`th declared view wrote, valid until the
   // next graph reset; invalid without TAA.
@@ -483,7 +491,8 @@ private:
     glm::mat4 viewProjection{1.0f};
     glm::mat4 jitteredViewProjection{1.0f};
     glm::mat4 previousViewProjection{1.0f};
-    GraphImage motion; // the pre-pass's motion attachment, under TAA
+    GraphImage motion;        // the pre-pass's motion attachment, under TAA
+    GraphImage resolvedScene; // what the resolve wrote, under TAA
   };
   // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
   // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
@@ -525,6 +534,11 @@ private:
   // (ADR-0024); the scene passes call it before they reserve their culling jobs.
   void beginTemporal(ViewState &v);
   void releaseHistory(History &history);
+  // Declares the resolve between the forward pass and bloom: it takes the unresolved scene colour
+  // and returns the image bloom and tone mapping read in its place.
+  [[nodiscard]] GraphImage addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth);
+  void recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current, rhi::ImageHandle history,
+                 rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth);
   // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
   // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
   // InvalidBindlessIndex when the array is full.
@@ -616,6 +630,7 @@ private:
   rhi::PipelineHandle m_bloomUpPipeline;
   rhi::PipelineHandle m_tonemapPipeline;
   rhi::PipelineHandle m_fxaaPipeline;
+  rhi::PipelineHandle m_taaPipeline;
   rhi::PipelineHandle m_presentPipeline; // only when the settings named a present format
   rhi::PipelineHandle m_outlinePipeline;
   rhi::PipelineHandle m_debugLinePipeline;

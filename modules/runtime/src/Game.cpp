@@ -256,6 +256,7 @@ void Game::update(float dt) {
   m_view.environmentIntensity = environment ? environment->intensity : 1.0f;
   m_view.exposure = environment ? environment->exposure : 1.0f;
   m_view.debugLines = {};
+  m_view.resetHistory = std::exchange(m_cutHistory, false);
 }
 
 void Game::render(rhi::ICommandList &commands, const std::optional<rhi::SwapchainImage> &swapchainImage) {
