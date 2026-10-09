@@ -195,7 +195,7 @@ core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &sourc
     // the faster level is a good trade for an editor that cooks on demand.
     ktxBasisParams params{};
     params.structSize = sizeof(params);
-    params.uastc = KTX_TRUE;
+    params.codec = KTX_BASIS_CODEC_UASTC_LDR_4x4;
     params.threadCount = std::max(1u, std::thread::hardware_concurrency());
     params.uastcFlags = KTX_PACK_UASTC_LEVEL_FASTER;
     result = ktxTexture2_CompressBasisEx(texture.get(), &params);

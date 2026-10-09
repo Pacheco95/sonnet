@@ -2,21 +2,18 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO KhronosGroup/KTX-Software
     REF "v${VERSION}"
-    SHA512 19514da2d5b021d7fd1e24251dfd27d0e032018bdb84c7f76328de0ad431aeff12a77e7b3c857a1933a0b258a83ffd4b77cd053672702cc6f7132afcd1fa253e
+    SHA512 7c7559fe4d8dd87fe9858f34c3b4522073818186be6853512294ecb7b6883348d6834a00b9b622920ed2688802b812b002bb2224fdce630ff66ec1cf9784104d
     HEAD_REF master
     PATCHES
         0001-Use-vcpkg-zstd.patch
-        0003-mkversion.patch
         0004-quirks.patch
         0005-no-vendored-libs.patch
         0006-fix-ios-install.patch
         0007-clang-flags-per-language.patch
         0008-fix-stream-leak-on-short-read.patch
-        0009-job-pool-kill-flag-under-mutex.patch
-        ktxread-libtool.diff
 )
-file(GLOB third_party "${SOURCE_PATH}/external/*" "${SOURCE_PATH}/external/basisu/zstd" "${SOURCE_PATH}/other_include/*")
-list(FILTER third_party EXCLUDE REGEX "/(astc-encoder|basisu|dfdutils|etcdec|imageio|glm|lodepng|SDL_gesture)\$")
+file(GLOB third_party "${SOURCE_PATH}/external/*" "${SOURCE_PATH}/other_include/*")
+list(FILTER third_party EXCLUDE REGEX "/(astc-encoder|basis_universal|dfdutils|etcdec|imageio|glm|lodepng|SDL_gesture)\$")
 file(REMOVE_RECURSE ${third_party})
 
 vcpkg_list(SET OPTIONS)

@@ -1,45 +1,94 @@
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 5712cf8..88bad96 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -389,7 +389,6 @@ set(KTX_MAIN_SRC
-     external/basisu/transcoder/basisu_transcoder.cpp
-     external/basisu/transcoder/basisu_transcoder.h
-     external/basisu/transcoder/basisu.h
--    external/basisu/zstd/zstd.c
-     lib/checkheader.c
-     external/dfdutils/createdfd.c
-     external/dfdutils/colourspaces.c
-@@ -608,12 +607,12 @@ macro(common_libktx_settings target enable_write library_type)
-         ${KTX_BASISU_INCLUDE_DIRS}
-         external
+diff --git a/external/basis_universal/CMakeLists.txt b/external/basis_universal/CMakeLists.txt
+index 99a6525..c28f1f7 100644
+--- a/external/basis_universal/CMakeLists.txt
++++ b/external/basis_universal/CMakeLists.txt
+@@ -308,11 +308,10 @@ set(ENCODER_LIB_SRC_LIST
+     transcoder/basisu_transcoder.h
+     transcoder/basisu_idct.h
+     transcoder/basisu.h
+-    zstd/zstd.h
+ )
  
--        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/basisu/zstd>
--        $<INSTALL_INTERFACE:external/basisu/zstd>
+ if (BASISU_ZSTD)
+-    set(ENCODER_LIB_SRC_LIST ${ENCODER_LIB_SRC_LIST} zstd/zstd.c)
++    find_package(zstd CONFIG REQUIRED)
+ endif()
  
-         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/utils>
-         $<INSTALL_INTERFACE:utils>
+ # Create the static library
+@@ -321,7 +320,6 @@ add_library(basisu_encoder STATIC ${ENCODER_LIB_SRC_LIST})
+ target_include_directories(basisu_encoder
+ INTERFACE
+     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/zstd> # So KTX-Software can use it.
+ )
+ 
+ if (EMSCRIPTEN)
+@@ -341,6 +339,9 @@ else()
      )
+ endif()
+ 
++if (BASISU_ZSTD)
++    target_link_libraries(basisu_encoder PRIVATE zstd::libzstd)
++endif()
+ target_compile_definitions(basisu_encoder PRIVATE "BASISD_SUPPORT_KTX2_ZSTD=$<IF:$<BOOL:${BASISU_ZSTD}>,1,0>")
+ if (BASISU_OPENCL)
+     # basisu uses this to confirm the library has been compiled with OpenCL support hence PUBLIC.
+diff --git a/external/basis_universal/encoder/basisu_astc_ldr_encode.cpp b/external/basis_universal/encoder/basisu_astc_ldr_encode.cpp
+index 302cb2e..17320e1 100644
+--- a/external/basis_universal/encoder/basisu_astc_ldr_encode.cpp
++++ b/external/basis_universal/encoder/basisu_astc_ldr_encode.cpp
+@@ -27,7 +27,7 @@
+ #endif
+ 
+ #if BASISD_SUPPORT_KTX2_ZSTD
+-#include "../zstd/zstd.h"
++#include <zstd.h>
+ #endif
+ 
+ namespace basisu {
+diff --git a/external/basis_universal/encoder/basisu_comp.cpp b/external/basis_universal/encoder/basisu_comp.cpp
+index acbedc3..abb7251 100644
+--- a/external/basis_universal/encoder/basisu_comp.cpp
++++ b/external/basis_universal/encoder/basisu_comp.cpp
+@@ -34,7 +34,7 @@
+ #endif
+ 
+ #if BASISD_SUPPORT_KTX2_ZSTD
+-#include "../zstd/zstd.h"
++#include <zstd.h>
+ #endif
+ 
+ // Set to 1 to disable the mipPadding alignment workaround (which only seems to be needed when no key-values are written at all)
+diff --git a/external/basis_universal/transcoder/basisu_transcoder.cpp b/external/basis_universal/transcoder/basisu_transcoder.cpp
+index a50ff4c..98255a1 100644
+--- a/external/basis_universal/transcoder/basisu_transcoder.cpp
++++ b/external/basis_universal/transcoder/basisu_transcoder.cpp
+@@ -174,7 +174,7 @@
+    // If BASISD_SUPPORT_KTX2_ZSTD is 0, UASTC files compressed with Zstd cannot be loaded.
+ 	#if BASISD_SUPPORT_KTX2_ZSTD
+ 		// We only use two Zstd API's: ZSTD_decompress() and ZSTD_isError()
+-		#include "../zstd/zstd.h"
++		#include <zstd.h>
+ 	#endif
+ #endif
+ 
+diff --git a/lib/CMakeLists.txt b/lib/CMakeLists.txt
+index 9c3c24a..2718a2a 100644
+--- a/lib/CMakeLists.txt
++++ b/lib/CMakeLists.txt
+@@ -204,6 +204,8 @@ include(${KTX_ROOT_DIR}/cmake/compiler_query_genexs.cmake)
+ # Macro for common lib settings
+ 
+ macro(common_libktx_settings target enable_write library_type)
 +    find_package(zstd CONFIG REQUIRED)
 +    target_link_libraries(${target} PRIVATE zstd::libzstd)
  
-     target_include_directories(
-         ${target}
-@@ -972,10 +971,6 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-             external/basisu/transcoder/basisu_transcoder.cpp
-             "-Wno-sign-compare;-Wno-unused-function;-Wno-unused-variable"
-         )
--        set_source_files_properties(
--            external/basisu/zstd/zstd.c
--            PROPERTIES COMPILE_OPTIONS "-Wno-unused-function"
--        )
-     endif()
- else()
-     message(FATAL_ERROR "${CMAKE_CXX_COMPILER_ID} not yet supported.")
-diff --git a/cmake/KtxConfig.cmake b/cmake/KtxConfig.cmake
+     if(TARGET mkvk)
+         # Creating vulkan headers only required after Vulkan Spec/SDK updates.
+diff --git a/lib/cmake/KtxConfig.cmake b/lib/cmake/KtxConfig.cmake
 index 6386ba2..c932dd4 100644
---- a/cmake/KtxConfig.cmake
-+++ b/cmake/KtxConfig.cmake
+--- a/lib/cmake/KtxConfig.cmake
++++ b/lib/cmake/KtxConfig.cmake
 @@ -4,4 +4,8 @@
  # include(CMakeFindDependencyMacro)
  # find_dependency()
