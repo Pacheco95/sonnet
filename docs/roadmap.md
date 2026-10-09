@@ -138,7 +138,7 @@ Not done here: the criterion's Android and iOS halves. No phone was attached, so
 - Temporal anti-aliasing with motion vectors, the default over FXAA, which stays selectable.
 - Occlusion culling from a depth pyramid in the culling pass; the surviving counts read back so the statistics report what drew rather than what was submitted; tighter bounds for skinned and morphed meshes (done: posed bounds from per-joint boxes).
 - Transparency in the shadow passes beyond alpha masking (done: blended draws cast through a hashed alpha test; they stay out of the depth pre-pass).
-- Compressed environment maps in the bundle (BC6H, and an ASTC HDR format on mobile), instead of uncompressed RGBA16F.
+- Compressed environment maps in the bundle (done: UASTC HDR, transcoded on load to BC6H, ASTC HDR or RGBA16F; the bundle's version is 3, and the `ktx` port moved to KTX-Software 5.0.0-rc2 for it).
 
 Done when golden-image tests with a tolerance show the showcase scene without ghosting, an occluder-heavy benchmark submits fewer draws for identical output, and the `renderer_tests "[benchmark]"` numbers are recorded here.
 
