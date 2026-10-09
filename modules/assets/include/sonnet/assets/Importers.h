@@ -26,13 +26,18 @@ namespace sonnet::assets {
 [[nodiscard]] core::Result<renderer::TextureData> importHdr(std::span<const std::byte> bytes);
 
 // A KTX2 file: Basis Universal data is transcoded to BC7 when the device has block compression,
-// to ASTC 4x4 when it has ASTC instead, and to RGBA8 otherwise; other formats are taken as they
-// are. A format the device cannot sample is an error, which the caller treats as a failed import.
+// to ASTC 4x4 when it has ASTC instead, and to RGBA8 otherwise; UASTC HDR data to BC6H, ASTC HDR
+// 4x4 or RGBA16F by the same rule; other formats are taken as they are. A format the device cannot sample is an error,
+// which the caller treats as a failed import.
 [[nodiscard]] core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes,
                                                            const rhi::DeviceInfo &device);
 // An RGBA8 texture cooked into a KTX2 file: UASTC with zstd supercompression when `compress`
 // is set, uncompressed otherwise (docs/assets.md, "Textures").
 [[nodiscard]] core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &texture, bool compress);
+// An equirectangular RGBA16F map cooked into a KTX2 file as UASTC HDR 4x4 with zstd supercompression,
+// the one portable form of an environment: readKtx2 transcodes it by device (docs/assets.md,
+// "Environments"). The encoding keeps no alpha.
+[[nodiscard]] core::Result<std::vector<std::byte>> cookHdrKtx2(const renderer::TextureData &texture);
 // An RGBA8 texture encoded as ASTC for a mobile bundle (ADR-0018): 6x6 in perceptual mode for an
 // sRGB texture, 4x4 for a linear one, at astcenc's medium quality, every level encoded from the
 // level given rather than from a lossy form of it.
