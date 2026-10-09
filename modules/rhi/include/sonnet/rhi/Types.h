@@ -41,10 +41,12 @@ enum class Format : std::uint8_t {
   BC5Unorm,           // two channels, cooked normal maps
   BC7Unorm,           // colour, cooked textures
   BC7Srgb,
+  BC6HUfloat,   // HDR colour, cooked environments
   ASTC4x4Unorm, // linear data in a mobile bundle, and UASTC transcoded without BC
   ASTC4x4Srgb,
   ASTC6x6Unorm,
-  ASTC6x6Srgb, // colour in a mobile bundle
+  ASTC6x6Srgb,   // colour in a mobile bundle
+  ASTC4x4Sfloat, // HDR colour, cooked environments on a device with ASTC HDR
   D32Sfloat,
 };
 
@@ -86,8 +88,10 @@ struct FormatInfo {
   case Format::BC5Unorm:
   case Format::BC7Unorm:
   case Format::BC7Srgb:
+  case Format::BC6HUfloat:
   case Format::ASTC4x4Unorm:
   case Format::ASTC4x4Srgb:
+  case Format::ASTC4x4Sfloat:
     return {4, 4, 16};
   case Format::ASTC6x6Unorm:
   case Format::ASTC6x6Srgb:
@@ -96,10 +100,19 @@ struct FormatInfo {
   return {1, 1, 0};
 }
 
-// The BC formats need DeviceInfo::blockCompressionSupported, the ASTC ones astcSupported.
+// The BC formats need DeviceInfo::blockCompressionSupported, the ASTC ones astcSupported; BC6H and
+// the ASTC HDR format have flags of their own, bc6hSupported and astcHdrSupported.
 [[nodiscard]] constexpr bool isBlockCompressedFormat(Format format) noexcept {
   return format == Format::BC4Unorm || format == Format::BC5Unorm || format == Format::BC7Unorm ||
          format == Format::BC7Srgb;
+}
+
+[[nodiscard]] constexpr bool isBc6hFormat(Format format) noexcept {
+  return format == Format::BC6HUfloat;
+}
+
+[[nodiscard]] constexpr bool isAstcHdrFormat(Format format) noexcept {
+  return format == Format::ASTC4x4Sfloat;
 }
 
 [[nodiscard]] constexpr bool isAstcFormat(Format format) noexcept {
@@ -136,6 +149,8 @@ struct FormatInfo {
     return "BC7Unorm";
   case Format::BC7Srgb:
     return "BC7Srgb";
+  case Format::BC6HUfloat:
+    return "BC6HUfloat";
   case Format::ASTC4x4Unorm:
     return "ASTC4x4Unorm";
   case Format::ASTC4x4Srgb:
@@ -144,6 +159,8 @@ struct FormatInfo {
     return "ASTC6x6Unorm";
   case Format::ASTC6x6Srgb:
     return "ASTC6x6Srgb";
+  case Format::ASTC4x4Sfloat:
+    return "ASTC4x4Sfloat";
   case Format::D32Sfloat:
     return "D32Sfloat";
   }

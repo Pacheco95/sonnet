@@ -284,3 +284,24 @@ TEST_CASE("a null device created on a worker belongs to that worker", "[rhi][nul
   jobs.wait(job);
   REQUIRE(ran);
 }
+
+// BC6H and ASTC HDR are 4x4 blocks of 16 bytes like the other 128-bit formats, and a device
+// samples them only where it says so: BC6H comes with block compression, ASTC HDR on its own.
+TEST_CASE("the HDR block formats have a size and a support flag of their own", "[rhi][null][format]") {
+  for (const Format format : {Format::BC6HUfloat, Format::ASTC4x4Sfloat}) {
+    CAPTURE(toString(format));
+    REQUIRE(formatInfo(format).blockWidth == 4);
+    REQUIRE(formatInfo(format).bytesPerBlock == 16);
+    REQUIRE(levelByteSize(format, {13, 7}) == 4 * 2 * 16);
+    REQUIRE(isCompressedFormat(format));
+  }
+  const auto device = createNullDevice();
+  REQUIRE(device->info().bc6hSupported);
+  REQUIRE_FALSE(device->info().astcHdrSupported);
+  REQUIRE(formatSupported(device->info(), Format::BC6HUfloat));
+  REQUIRE_FALSE(formatSupported(device->info(), Format::ASTC4x4Sfloat));
+  DeviceInfo info;
+  info.astcHdrSupported = true;
+  REQUIRE(formatSupported(info, Format::ASTC4x4Sfloat));
+  REQUIRE_FALSE(formatSupported(info, Format::BC6HUfloat));
+}
