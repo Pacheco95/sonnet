@@ -367,39 +367,6 @@ core::Result<renderer::MeshData> decodeMesh(std::span<const std::byte> payload) 
   return mesh;
 }
 
-std::vector<std::byte> encodeTexture(const renderer::TextureData &texture) {
-  ByteWriter writer;
-  writer.tag("TEX2");
-  writer.u32(texture.size.x);
-  writer.u32(texture.size.y);
-  writer.u32(static_cast<std::uint32_t>(texture.format));
-  writer.u32(texture.mipLevels);
-  writer.u32(texture.cube ? 1u : 0u);
-  writer.array(std::span{texture.data});
-  return writer.take();
-}
-
-core::Result<renderer::TextureData> decodeTexture(std::span<const std::byte> payload) {
-  ByteReader reader{payload};
-  if (!reader.tag("TEX2")) {
-    return std::unexpected(payloadError("not a texture"));
-  }
-  renderer::TextureData texture;
-  texture.size.x = reader.u32();
-  texture.size.y = reader.u32();
-  texture.format = static_cast<rhi::Format>(reader.u32());
-  texture.mipLevels = reader.u32();
-  texture.cube = reader.u32() != 0;
-  reader.array(texture.data);
-  if (!reader.ok()) {
-    return std::unexpected(payloadError("the texture is truncated"));
-  }
-  if (texture.data.size() != texture.expectedSize()) {
-    return std::unexpected(payloadError("the texture data does not match its description"));
-  }
-  return texture;
-}
-
 std::vector<std::byte> encodeSkin(const Skin &skin) {
   ByteWriter writer;
   writer.tag("SKIN");

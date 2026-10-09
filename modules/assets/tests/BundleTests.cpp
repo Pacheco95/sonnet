@@ -53,20 +53,6 @@ TEST_CASE("a mesh payload round-trips through the cooked form", "[assets][bundle
   REQUIRE(decoded->skin[2].joints.x == 3u);
 }
 
-TEST_CASE("a texture payload round-trips with its description", "[assets][bundle]") {
-  renderer::TextureData source;
-  source.size = {2, 2};
-  source.format = rhi::Format::R16G16B16A16Sfloat;
-  source.data.assign(static_cast<std::size_t>(source.expectedSize()), std::byte{0x7f});
-  const auto decoded = decodeTexture(encodeTexture(source));
-  REQUIRE(decoded.has_value());
-  REQUIRE(decoded->size == source.size);
-  REQUIRE(decoded->format == source.format);
-  REQUIRE(decoded->mipLevels == 1);
-  REQUIRE(!decoded->cube);
-  REQUIRE(decoded->data == source.data);
-}
-
 TEST_CASE("skins, clips and models round-trip through the cooked form", "[assets][bundle]") {
   Skin skin;
   skin.joints = {"Rig/Root", "Rig/Root/Tip"};
@@ -132,7 +118,6 @@ TEST_CASE("a truncated or foreign payload is an error, never a read past the end
   }
   // The right length, the wrong kind: the tag catches it before anything is decoded.
   REQUIRE(!decodeSkin(mesh).has_value());
-  REQUIRE(!decodeTexture(mesh).has_value());
   REQUIRE(!decodeAnimation(mesh).has_value());
   REQUIRE(!decodeModel(mesh).has_value());
   REQUIRE(!decodeJson(mesh).has_value());
