@@ -60,10 +60,10 @@ std::vector<std::uint8_t> renderWith(rhi::IDevice &device, const std::filesystem
   const renderer::MaterialHandle matteMaterial = renderer.createMaterial(matte, "matte");
   const renderer::MaterialHandle metalMaterial = renderer.createMaterial(metal, "metal");
   const std::array draws{
-      renderer::DrawItem{.mesh = sphere, .material = matteMaterial,
-                         .transform = glm::translate(glm::mat4{1.0f}, {-0.7f, 0.0f, 0.0f})},
-      renderer::DrawItem{.mesh = sphere, .material = metalMaterial,
-                         .transform = glm::translate(glm::mat4{1.0f}, {0.7f, 0.0f, 0.0f})}};
+      renderer::DrawItem{
+          .mesh = sphere, .material = matteMaterial, .transform = glm::translate(glm::mat4{1.0f}, {-0.7f, 0.0f, 0.0f})},
+      renderer::DrawItem{
+          .mesh = sphere, .material = metalMaterial, .transform = glm::translate(glm::mat4{1.0f}, {0.7f, 0.0f, 0.0f})}};
   renderer::SceneView view;
   view.camera.position = {0.0f, 0.0f, 3.0f};
   view.draws = draws;
