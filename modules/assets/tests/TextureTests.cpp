@@ -335,8 +335,8 @@ double hdrPsnr(std::span<const std::byte> expected, std::span<const std::byte> a
     std::memcpy(a.data(), expected.data() + texel * 8, 8);
     std::memcpy(b.data(), actual.data() + texel * 8, 8);
     for (int channel = 0; channel < 3; ++channel) {
-      const double x = glm::unpackHalf1x16(a[static_cast<std::size_t>(channel)]);
-      const double y = glm::unpackHalf1x16(b[static_cast<std::size_t>(channel)]);
+      const double x = static_cast<double>(glm::unpackHalf1x16(a[static_cast<std::size_t>(channel)]));
+      const double y = static_cast<double>(glm::unpackHalf1x16(b[static_cast<std::size_t>(channel)]));
       const double d = x / (1.0 + x) - y / (1.0 + y);
       squared += d * d;
       ++count;
