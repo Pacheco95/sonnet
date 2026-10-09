@@ -257,6 +257,8 @@ NullDevice::NullDevice() : m_commandList(std::make_unique<NullCommandList>(*this
   // the editor does and a mobile bundle is refused as on a desktop.
   m_info.blockCompressionSupported = true;
   m_info.astcSupported = false;
+  m_info.bc6hSupported = true;
+  m_info.astcHdrSupported = false;
   for (std::uint32_t i = 0; i < FramesInFlight; ++i) {
     m_frames[i].transientBuffer = createBuffer({.size = TransientBufferSize,
                                                 .usage = BufferUsage::Uniform | BufferUsage::Storage,

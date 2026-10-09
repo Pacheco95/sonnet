@@ -1133,12 +1133,13 @@ renderer::EnvironmentHandle AssetDatabase::environment(const core::Uuid &uuid) {
   }
   renderer::TextureData map;
   if (m_bundle) {
-    // Cooked, an environment is its decoded RGBA16F map rather than the .hdr file it came from.
+    // Cooked, an environment is a UASTC HDR KTX2 file rather than the .hdr it came from, and the
+    // device decides what it becomes: BC6H, ASTC HDR or RGBA16F.
     const auto payload = bundlePayload(uuid);
     if (!payload) {
       return {};
     }
-    auto decoded = decodeTexture(*payload);
+    auto decoded = readKtx2(*payload, m_renderer.deviceInfo());
     if (!decoded) {
       SONNET_LOG_ERROR("{}: {}", info->name, decoded.error().toString());
       m_failed[uuid] = true;

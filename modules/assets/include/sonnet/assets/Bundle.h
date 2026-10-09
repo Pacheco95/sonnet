@@ -29,7 +29,7 @@ namespace sonnet::assets {
 // The cooked form of a project (docs/assets.md, "Cooking and export"), one file: a header, the
 // payload blobs back to back, and a CBOR index at the end holding the manifest, the assets by
 // identity and the scene and prefab files by their project-relative path (ADR-0011).
-constexpr std::uint32_t BundleVersion = 2;
+constexpr std::uint32_t BundleVersion = 3; // 3: an environment is a UASTC HDR KTX2 file, not raw RGBA16F
 constexpr std::string_view BundleExtension = ".sbundle";
 
 // What a bundle is cooked for. The desktop platforms cook the same bytes, with compressed
@@ -148,17 +148,13 @@ private:
   std::uint64_t m_offset{0};
 };
 
-// The payload encodings. Textures keep the KTX2 bytes the editor already caches, scripts their
-// source and sounds their encoded file, so those three need no function here; the rest are
+// The payload encodings. Textures keep the KTX2 bytes the editor already caches, environments a
+// UASTC HDR KTX2 file (cookHdrKtx2), scripts their source and sounds their encoded file, so those
+// four need no function here; the rest are
 // below. Every decode is defensive: a truncated or foreign payload is an Io error, never a read
 // past the end.
 [[nodiscard]] std::vector<std::byte> encodeMesh(const renderer::MeshData &mesh);
 [[nodiscard]] core::Result<renderer::MeshData> decodeMesh(std::span<const std::byte> payload);
-
-// Uncompressed texture data with its description, for the equirectangular maps behind
-// environments, which are RGBA16F and so not something the KTX2 path cooks.
-[[nodiscard]] std::vector<std::byte> encodeTexture(const renderer::TextureData &texture);
-[[nodiscard]] core::Result<renderer::TextureData> decodeTexture(std::span<const std::byte> payload);
 
 [[nodiscard]] std::vector<std::byte> encodeSkin(const Skin &skin);
 [[nodiscard]] core::Result<Skin> decodeSkin(std::span<const std::byte> payload);

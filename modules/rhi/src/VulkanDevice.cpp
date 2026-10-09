@@ -158,11 +158,11 @@ VulkanDevice::VulkanDevice(const DeviceDesc &desc)
   createPipelineLayout();
   createBindlessSet();
   createFrames();
-  SONNET_LOG_INFO("Vulkan {} device \"{}\"{}, driver {} {}, loader {}{}{}{}", versionString(m_info.apiVersion),
+  SONNET_LOG_INFO("Vulkan {} device \"{}\"{}, driver {} {}, loader {}{}{}{}{}", versionString(m_info.apiVersion),
                   m_info.deviceName, m_info.vulkan14FeaturesAsExtensions ? " with the 1.4 features as extensions" : "",
                   m_info.driverName, m_info.driverInfo, versionString(m_info.loaderVersion),
                   m_info.validationEnabled ? ", validation on" : "", m_info.blockCompressionSupported ? ", BC" : "",
-                  m_info.astcSupported ? ", ASTC" : "");
+                  m_info.astcSupported ? ", ASTC" : "", m_info.astcHdrSupported ? ", ASTC HDR" : "");
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -327,6 +327,14 @@ void VulkanDevice::selectAndCreateDevice() {
   VkPhysicalDeviceFeatures astc{};
   astc.textureCompressionASTC_LDR = VK_TRUE;
   m_info.astcSupported = physicalDevice.enable_features_if_present(astc);
+  // BC6H is one of the formats textureCompressionBC covers. ASTC HDR is a Vulkan 1.3 feature, so it
+  // joins the 1.3 structure the selection already requires: a second structure for the same
+  // feature next to it is not allowed.
+  m_info.bc6hSupported = m_info.blockCompressionSupported;
+  VkPhysicalDeviceVulkan13Features astcHdr{};
+  astcHdr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+  astcHdr.textureCompressionASTC_HDR = VK_TRUE;
+  m_info.astcHdrSupported = physicalDevice.enable_extension_features_if_present(astcHdr);
 
   const vkb::Device device = unwrap(vkb::DeviceBuilder{physicalDevice}.build(), "creating the Vulkan device");
   m_physicalDevice = vk::raii::PhysicalDevice{m_instance, physicalDevice.physical_device};

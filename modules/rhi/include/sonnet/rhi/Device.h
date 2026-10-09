@@ -35,15 +35,24 @@ struct DeviceInfo {
   bool timestampsSupported{false};
   bool blockCompressionSupported{false}; // the BC4, BC5 and BC7 formats; desktop GPUs and Lavapipe have them
   bool astcSupported{false};             // the ASTC LDR formats; mobile GPUs and Apple silicon have them
+  bool bc6hSupported{false};             // BC6H, which textureCompressionBC covers with the other BC formats
+  bool astcHdrSupported{false}; // ASTC HDR 4x4 (textureCompressionASTC_HDR); recent mobile GPUs and Apple silicon
   // A 1.3 device whose four Vulkan 1.4 features came as the extensions 1.4 promoted (ADR-0019).
   bool vulkan14FeaturesAsExtensions{false};
 };
 
-// Whether the device samples `format`: the BC formats need block compression and the ASTC ones
-// ASTC LDR, which are optional; every other format the engine names is required of a device.
+// Whether the device samples `format`: the BC formats need block compression, the ASTC ones ASTC
+// LDR, and BC6H and ASTC HDR their own flags, all optional; every other format the engine names is
+// required of a device.
 [[nodiscard]] constexpr bool formatSupported(const DeviceInfo &info, Format format) noexcept {
   if (isBlockCompressedFormat(format)) {
     return info.blockCompressionSupported;
+  }
+  if (isBc6hFormat(format)) {
+    return info.bc6hSupported;
+  }
+  if (isAstcHdrFormat(format)) {
+    return info.astcHdrSupported;
   }
   if (isAstcFormat(format)) {
     return info.astcSupported;

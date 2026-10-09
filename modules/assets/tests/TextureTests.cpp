@@ -12,10 +12,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/packing.hpp>
 
 #include <ktx.h>
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -288,6 +291,106 @@ TEST_CASE("an ASTC cook decodes back above its quality floor", "[assets][texture
   const double measured = psnr(level0, decoded);
   INFO(c.file << ": " << measured << " dB");
   CHECK(measured >= c.floor);
+}
+
+namespace sonnet::assets::test {
+
+// A 256x128 equirectangular sky: a blue gradient into a warm horizon, a dark ground, speckled
+// clouds and a sun a few thousand times brighter than the sky, which is what a cooked environment
+// has to survive.
+renderer::TextureData syntheticSky() {
+  constexpr glm::uvec2 size{256, 128};
+  renderer::TextureData sky{
+      .size = size, .format = rhi::Format::R16G16B16A16Sfloat, .mipLevels = 1, .cube = false, .data = {}};
+  sky.data.resize(static_cast<std::size_t>(sky.expectedSize()));
+  for (std::uint32_t y = 0; y < size.y; ++y) {
+    for (std::uint32_t x = 0; x < size.x; ++x) {
+      const float latitude = (0.5f - (static_cast<float>(y) + 0.5f) / static_cast<float>(size.y)) * glm::pi<float>();
+      const float longitude = (static_cast<float>(x) + 0.5f) / static_cast<float>(size.x) * glm::two_pi<float>();
+      const float up = std::sin(latitude);
+      glm::vec3 color = up > 0.0f ? glm::mix(glm::vec3{0.9f, 0.7f, 0.5f}, glm::vec3{0.1f, 0.25f, 0.7f}, std::sqrt(up))
+                                  : glm::vec3{0.04f, 0.035f, 0.03f} * (1.0f + up);
+      const std::uint32_t hash = (x * 73856093u) ^ (y * 19349663u);
+      color *= 1.0f + 0.15f * (static_cast<float>(hash >> 8 & 255u) / 255.0f - 0.5f) * (up > 0.0f ? 1.0f : 0.0f);
+      const float sunAngle = std::acos(
+          std::clamp(std::sin(latitude) * 0.6f + std::cos(latitude) * 0.8f * std::cos(longitude - 2.0f), -1.0f, 1.0f));
+      color += glm::vec3{1.0f, 0.9f, 0.7f} * 3000.0f * std::exp(-sunAngle * sunAngle / 0.0008f);
+      const std::array<std::uint16_t, 4> texel{glm::packHalf1x16(color.r), glm::packHalf1x16(color.g),
+                                               glm::packHalf1x16(color.b), glm::packHalf1x16(1.0f)};
+      std::memcpy(sky.data.data() + (std::size_t{y} * size.x + x) * sizeof(texel), texel.data(), sizeof(texel));
+    }
+  }
+  return sky;
+}
+
+// PSNR over RGB in dB between two RGBA16F images, after the Reinhard curve x / (1 + x): the error
+// that reaches a display, since a plain PSNR of values that reach 3000 only measures the sun.
+double hdrPsnr(std::span<const std::byte> expected, std::span<const std::byte> actual) {
+  REQUIRE(expected.size() == actual.size());
+  double squared = 0.0;
+  std::size_t count = 0;
+  for (std::size_t texel = 0; texel < expected.size() / 8; ++texel) {
+    std::array<std::uint16_t, 4> a{};
+    std::array<std::uint16_t, 4> b{};
+    std::memcpy(a.data(), expected.data() + texel * 8, 8);
+    std::memcpy(b.data(), actual.data() + texel * 8, 8);
+    for (int channel = 0; channel < 3; ++channel) {
+      const double x = static_cast<double>(glm::unpackHalf1x16(a[static_cast<std::size_t>(channel)]));
+      const double y = static_cast<double>(glm::unpackHalf1x16(b[static_cast<std::size_t>(channel)]));
+      const double d = x / (1.0 + x) - y / (1.0 + y);
+      squared += d * d;
+      ++count;
+    }
+  }
+  return 10.0 * std::log10(1.0 / std::max(squared / static_cast<double>(count), 1.0e-12));
+}
+
+} // namespace sonnet::assets::test
+
+// ADR-0024: an environment is one UASTC HDR 4x4 payload, which readKtx2 turns into BC6H where the
+// device has block compression, ASTC HDR where it has that, and RGBA16F where it has neither.
+TEST_CASE("an environment cooks to UASTC HDR and transcodes to the format the device samples",
+          "[assets][texture][ktx][hdr]") {
+  const renderer::TextureData sky = test::syntheticSky();
+  const auto cooked = cookHdrKtx2(sky);
+  REQUIRE(cooked.has_value());
+  // 8 bits per texel against the 64 of RGBA16F, before zstd.
+  REQUIRE(cooked->size() * 6 < sky.data.size());
+
+  rhi::DeviceInfo bc6h;
+  bc6h.bc6hSupported = true;
+  rhi::DeviceInfo astcHdr;
+  astcHdr.astcHdrSupported = true;
+  const rhi::DeviceInfo neither;
+  struct Case {
+    const char *name;
+    const rhi::DeviceInfo *device;
+    rhi::Format format;
+  };
+  for (const Case &c :
+       {Case{"BC6H", &bc6h, rhi::Format::BC6HUfloat}, Case{"ASTC HDR", &astcHdr, rhi::Format::ASTC4x4Sfloat},
+        Case{"RGBA16F", &neither, rhi::Format::R16G16B16A16Sfloat}}) {
+    CAPTURE(c.name);
+    const auto loaded = readKtx2(*cooked, *c.device);
+    const std::string why = loaded ? std::string{} : loaded.error().toString();
+    INFO(why);
+    REQUIRE(loaded.has_value());
+    REQUIRE(loaded->format == c.format);
+    REQUIRE(loaded->size == sky.size);
+    REQUIRE(loaded->mipLevels == 1);
+    REQUIRE(loaded->data.size() == loaded->expectedSize());
+    if (c.format != rhi::Format::R16G16B16A16Sfloat) {
+      REQUIRE(loaded->data.size() == sky.data.size() / 8); // 16 bytes a 4x4 block, 128 bits for 16 texels
+    }
+  }
+
+  // What the transcode to RGBA16F gives back is the encoder's own error; BC6H adds a fraction of a
+  // dB, which the GPU test on the renderer's cubes bounds.
+  const auto half = readKtx2(*cooked, neither);
+  REQUIRE(half.has_value());
+  const double measured = test::hdrPsnr(sky.data, half->data);
+  INFO("UASTC HDR, tone-mapped PSNR " << measured << " dB");
+  CHECK(measured >= 50.0); // 53.5 dB measured
 }
 
 // Issue #24. basisu's job pool, which libktx builds and tears down around every compression, set

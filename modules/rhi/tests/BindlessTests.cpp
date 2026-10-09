@@ -509,3 +509,101 @@ TEST_CASE("a compressed image of any size uploads every level and samples its co
   device->destroySampler(nearest);
   device->destroyPipeline(pipeline);
 }
+
+namespace {
+
+// One block of a constant HDR colour, 0.5, 0.25 and 0.125 with an alpha of one. BC6H has no alpha,
+// and its mode 11 (ten bits per channel, one region) with equal endpoints and every index 0
+// decodes to the endpoint: the ten-bit values below unquantise and scale to half-float bit
+// patterns within a few units of 0x3800, 0x3400 and 0x3000. An ASTC void-extent block marked HDR
+// carries four 16-bit half floats.
+constexpr std::array<std::uint16_t, 4> HdrHalves{0x3800, 0x3400, 0x3000, 0x3C00};
+constexpr std::array<std::uint32_t, 3> Bc6hChannels{462, 429, 396};
+
+std::array<std::byte, 16> hdrSolidBlock(Format format) {
+  std::array<std::byte, 16> block{};
+  if (isAstcHdrFormat(format)) {
+    const std::array<std::uint8_t, 8> header{0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    for (std::size_t i = 0; i < header.size(); ++i) {
+      block[i] = std::byte{header[i]};
+    }
+    for (std::size_t c = 0; c < 4; ++c) {
+      block[8 + c * 2] = std::byte{static_cast<std::uint8_t>(HdrHalves[c] & 0xFF)};
+      block[8 + c * 2 + 1] = std::byte{static_cast<std::uint8_t>(HdrHalves[c] >> 8)};
+    }
+    return block;
+  }
+  std::size_t bit = 0;
+  const auto put = [&](std::uint32_t value, std::size_t bits) {
+    for (std::size_t i = 0; i < bits; ++i, ++bit) {
+      if (((value >> i) & 1u) != 0) {
+        block[bit / 8] |= std::byte{static_cast<std::uint8_t>(1u << (bit % 8))};
+      }
+    }
+  };
+  put(3, 5); // mode 11
+  for (int endpoint = 0; endpoint < 2; ++endpoint) {
+    for (const std::uint32_t channel : Bc6hChannels) {
+      put(channel, 10);
+    }
+  }
+  return block; // the indices stay 0
+}
+
+} // namespace
+
+// The HDR counterpart of the test above: BC6H runs wherever there is block compression, ASTC HDR on
+// the devices that report astcHdrSupported (recent phones and Apple silicon).
+TEST_CASE("an HDR compressed image of any size uploads every level and samples its colour",
+          "[rhi][bindless][upload][compressed][hdr][gpu]") {
+  test::TestDevice device;
+  const auto format = GENERATE(Format::BC6HUfloat, Format::ASTC4x4Sfloat);
+  if (!formatSupported(device->info(), format)) {
+    SKIP("the device cannot sample " << toString(format));
+  }
+  const ShaderHandle shader = loadShader(device, "texture");
+  const PipelineHandle pipeline = device->createGraphicsPipeline(
+      {.shader = shader, .colorFormats = {Format::R8G8B8A8Unorm}, .cullMode = CullMode::None, .debugName = "texture"});
+  device->destroyShader(shader);
+  const SamplerHandle nearest =
+      device->createSampler({.filter = Filter::Nearest, .mipFilter = Filter::Nearest, .debugName = "nearest"});
+  constexpr glm::uvec2 size{13, 7};
+  const std::uint32_t levels = fullMipCount(size);
+  const ImageHandle texture = device->createImage({.size = size,
+                                                   .format = format,
+                                                   .usage = ImageUsage::Sampled | ImageUsage::TransferDst,
+                                                   .mipLevels = levels,
+                                                   .debugName = std::string{toString(format)}});
+  const std::array<std::byte, 16> block = hdrSolidBlock(format);
+  std::vector<std::vector<std::byte>> data;
+  std::vector<ImageUpload> uploads;
+  for (std::uint32_t level = 0; level < levels; ++level) {
+    auto &bytes = data.emplace_back();
+    const std::uint64_t byteSize = levelByteSize(format, mipSize(size, level));
+    for (std::uint64_t offset = 0; offset < byteSize; offset += block.size()) {
+      bytes.insert(bytes.end(), block.begin(), block.end());
+    }
+  }
+  uploads.reserve(levels);
+  for (std::uint32_t level = 0; level < levels; ++level) {
+    uploads.push_back({.mipLevel = level, .data = data[level]});
+  }
+  device->uploadImage(texture, uploads);
+
+  Target target{device, {2, 2}};
+  for (const float lod : {0.0f, static_cast<float>(levels - 1)}) {
+    const TexturePush push{
+        .texture = device->sampledImageIndex(texture), .sampler = device->samplerIndex(nearest), .lod = lod};
+    target.draw(device->beginFrame(), pipeline, push);
+    device->endFrame();
+    const Pixel pixel = target.pixel(1, 1);
+    CHECK(std::abs(pixel.r - 128) <= 2);
+    CHECK(std::abs(pixel.g - 64) <= 2);
+    CHECK(std::abs(pixel.b - 32) <= 2);
+    CHECK(pixel.a == 255);
+  }
+
+  device->destroyImage(texture);
+  device->destroySampler(nearest);
+  device->destroyPipeline(pipeline);
+}

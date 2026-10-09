@@ -111,10 +111,15 @@ core::Result<CookReport> cook(AssetDatabase &database, const Project &project, c
       }
       break;
     case AssetType::Environment:
-      // The player is handed the decoded map: the .hdr decoder is import-side work.
+      // The player is handed the map as UASTC HDR, which it transcodes for its device; the .hdr
+      // decoder is import-side work (docs/assets.md, "Environments").
       if (const auto bytes = core::readFile(info->source)) {
         if (const auto map = importHdr(*bytes)) {
-          payload = encodeTexture(*map);
+          if (auto cooked = cookHdrKtx2(*map)) {
+            payload = std::move(*cooked);
+          } else {
+            SONNET_LOG_ERROR("{}: {}", info->name, cooked.error().toString());
+          }
         }
       }
       break;
