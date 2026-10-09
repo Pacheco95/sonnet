@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 
@@ -292,7 +293,7 @@ TEST_CASE("the HDR block formats have a size and a support flag of their own", "
     CAPTURE(toString(format));
     REQUIRE(formatInfo(format).blockWidth == 4);
     REQUIRE(formatInfo(format).bytesPerBlock == 16);
-    REQUIRE(levelByteSize(format, {13, 7}) == 4 * 2 * 16);
+    REQUIRE(levelByteSize(format, {13, 7}) == std::uint64_t{4} * 2 * 16);
     REQUIRE(isCompressedFormat(format));
   }
   const auto device = createNullDevice();
