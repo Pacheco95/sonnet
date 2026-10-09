@@ -35,7 +35,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND VCPKG_TARGET_TRIPLET MATCHES "-o
   endif()
 endif()
 
-project(sonnet VERSION 0.13.0 LANGUAGES CXX C)
+project(sonnet VERSION 0.14.0 LANGUAGES CXX C)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "In-source builds are not allowed. Configure with a preset: cmake --preset linux-debug")
