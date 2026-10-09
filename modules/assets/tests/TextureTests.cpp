@@ -325,7 +325,7 @@ TEST_CASE("compressing KTX2 textures back to back never hangs basisu's job pool"
       if (code == KTX_SUCCESS) {
         ktxBasisParams params{};
         params.structSize = sizeof(params);
-        params.uastc = KTX_TRUE;
+        params.codec = KTX_BASIS_CODEC_UASTC_LDR_4x4;
         params.threadCount = 2;
         params.uastcFlags = KTX_PACK_UASTC_LEVEL_FASTER;
         code = ktxTexture2_CompressBasisEx(texture, &params);

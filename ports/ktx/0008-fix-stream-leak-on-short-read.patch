@@ -1,6 +1,8 @@
---- a/lib/texture2.c
-+++ b/lib/texture2.c
-@@ -1097,8 +1097,13 @@
+diff --git a/lib/src/texture2.c b/lib/src/texture2.c
+index 6a05d40..c089435 100644
+--- a/lib/src/texture2.c
++++ b/lib/src/texture2.c
+@@ -1132,8 +1132,13 @@ ktxTexture2_constructFromStream(ktxTexture2* This, ktxStream* pStream,
  
      // Read header.
      result = pStream->read(pStream, &header, KTX2_HEADER_SIZE);

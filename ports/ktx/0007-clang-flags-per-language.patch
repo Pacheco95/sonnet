@@ -1,7 +1,8 @@
-diff --git a/CMakeLists.txt b/CMakeLists.txt
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -357,7 +357,9 @@ set(is_msvccl "$<AND:${is_msvc_fe},$<CXX_COMPILER_ID:MSVC>>")
+diff --git a/cmake/compiler_query_genexs.cmake b/cmake/compiler_query_genexs.cmake
+index 56f572c..534833d 100644
+--- a/cmake/compiler_query_genexs.cmake
++++ b/cmake/compiler_query_genexs.cmake
+@@ -28,7 +28,9 @@ set(is_msvccl "$<AND:${is_msvc_fe},$<CXX_COMPILER_ID:MSVC>>")
  # Compiler is Visual Studio clangcl.exe
  set(is_clangcl "$<AND:${is_msvc_fe},$<CXX_COMPILER_ID:Clang>>")
  # Compiler is upstream clang with the standard frontend
@@ -10,5 +11,5 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 +# Clang's -ffp-model, which it does not understand.
 +set(is_clang "$<AND:${is_gnu_fe},$<OR:$<COMPILE_LANG_AND_ID:C,Clang,AppleClang>,$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>>>")
  
- add_compile_options(
-     $<$<AND:${is_msvccl},$<VERSION_LESS:$<CXX_COMPILER_VERSION>,19.30>>:/fp:strict>
+ #if(NOT TARGET debug_isgnufe1)
+ #    add_custom_target(debug_isgnufe1

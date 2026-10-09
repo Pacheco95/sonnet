@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 6ff6a84..3b928ca 100644
+index 22bcd44..0c71ed0 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1308,6 +1308,8 @@ set_astc_dependencies(ktx_read)
+@@ -481,6 +481,8 @@ add_subdirectory(interface/basisu_c_binding)
  # this CMakeLists is included in another project which is unlikely
  # except for building the ktx library.
  if((KTX_FEATURE_TOOLS OR KTX_FEATURE_TESTS) AND NOT TARGET fmt::fmt)
@@ -11,7 +11,7 @@ index 6ff6a84..3b928ca 100644
      # Always build fmt static
      set(BUILD_SHARED_LIBS OFF)
      set(FMT_INSTALL OFF)
-@@ -1316,7 +1318,7 @@ if((KTX_FEATURE_TOOLS OR KTX_FEATURE_TESTS) AND NOT TARGET fmt::fmt)
+@@ -489,7 +491,7 @@ if((KTX_FEATURE_TOOLS OR KTX_FEATURE_TESTS) AND NOT TARGET fmt::fmt)
      set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_RESET})
  endif()
  if(KTX_FEATURE_TOOLS AND NOT TARGET cxxopts::cxxopts)
