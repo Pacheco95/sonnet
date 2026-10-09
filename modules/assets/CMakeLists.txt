@@ -33,6 +33,7 @@ sonnet_add_module_test(assets
     tests/BundleTests.cpp
     tests/CookTests.cpp
     tests/DatabaseTests.cpp
+    tests/EnvironmentTests.cpp
     tests/GltfTests.cpp
     tests/JsonTests.cpp
     tests/ProjectTests.cpp

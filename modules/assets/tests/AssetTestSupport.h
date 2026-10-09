@@ -2,12 +2,14 @@
 
 #include <sonnet/core/File.h>
 #include <sonnet/core/Math.h>
+#include <sonnet/renderer/Texture.h>
 
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -16,6 +18,11 @@ namespace sonnet::assets::test {
 // Encoded PNG and Radiance HDR files, written with stb_image_write (in TextureTests.cpp).
 [[nodiscard]] std::vector<std::byte> encodePng(glm::uvec2 size, const std::vector<std::uint8_t> &rgba);
 [[nodiscard]] std::vector<std::byte> encodeHdr(glm::uvec2 size, const std::vector<float> &rgb);
+
+// A 256x128 equirectangular RGBA16F sky with a sun thousands of times brighter than the rest, and
+// the PSNR in dB between two RGBA16F images after the Reinhard curve (in TextureTests.cpp).
+[[nodiscard]] renderer::TextureData syntheticSky();
+[[nodiscard]] double hdrPsnr(std::span<const std::byte> expected, std::span<const std::byte> actual);
 
 // A fresh directory under the temporary directory, emptied first.
 [[nodiscard]] inline std::filesystem::path freshDirectory(const std::string &name) {

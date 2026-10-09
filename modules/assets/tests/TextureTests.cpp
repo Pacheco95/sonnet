@@ -293,7 +293,7 @@ TEST_CASE("an ASTC cook decodes back above its quality floor", "[assets][texture
   CHECK(measured >= c.floor);
 }
 
-namespace {
+namespace sonnet::assets::test {
 
 // A 256x128 equirectangular sky: a blue gradient into a warm horizon, a dark ground, speckled
 // clouds and a sun a few thousand times brighter than the sky, which is what a cooked environment
@@ -345,13 +345,13 @@ double hdrPsnr(std::span<const std::byte> expected, std::span<const std::byte> a
   return 10.0 * std::log10(1.0 / std::max(squared / static_cast<double>(count), 1.0e-12));
 }
 
-} // namespace
+} // namespace sonnet::assets::test
 
 // ADR-0024: an environment is one UASTC HDR 4x4 payload, which readKtx2 turns into BC6H where the
 // device has block compression, ASTC HDR where it has that, and RGBA16F where it has neither.
 TEST_CASE("an environment cooks to UASTC HDR and transcodes to the format the device samples",
           "[assets][texture][ktx][hdr]") {
-  const renderer::TextureData sky = syntheticSky();
+  const renderer::TextureData sky = test::syntheticSky();
   const auto cooked = cookHdrKtx2(sky);
   REQUIRE(cooked.has_value());
   // 8 bits per texel against the 64 of RGBA16F, before zstd.
@@ -388,7 +388,7 @@ TEST_CASE("an environment cooks to UASTC HDR and transcodes to the format the de
   // dB, which the GPU test on the renderer's cubes bounds.
   const auto half = readKtx2(*cooked, neither);
   REQUIRE(half.has_value());
-  const double measured = hdrPsnr(sky.data, half->data);
+  const double measured = test::hdrPsnr(sky.data, half->data);
   INFO("UASTC HDR, tone-mapped PSNR " << measured << " dB");
   CHECK(measured >= 50.0); // 53.5 dB measured
 }
