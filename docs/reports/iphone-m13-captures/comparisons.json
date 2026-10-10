@@ -1,0 +1,105 @@
+{
+  "comparisons": [
+    {
+      "reference": "main.png",
+      "candidate": "main-repeat.png",
+      "size": [
+        1290,
+        2796
+      ],
+      "meanRgbError": 1.2476295039425093e-05,
+      "maximumChannelError": 1
+    },
+    {
+      "reference": "main.png",
+      "candidate": "main-diag.png",
+      "size": [
+        1290,
+        2796
+      ],
+      "meanRgbError": 1.5526056049062337e-05,
+      "maximumChannelError": 1
+    },
+    {
+      "reference": "main-diag.png",
+      "candidate": "main-nocull.png",
+      "size": [
+        1290,
+        2796
+      ],
+      "meanRgbError": 8.317530026283395e-06,
+      "maximumChannelError": 1
+    },
+    {
+      "reference": "occlusion.png",
+      "candidate": "occlusion-nocull.png",
+      "size": [
+        1290,
+        2796
+      ],
+      "meanRgbError": 0.0,
+      "maximumChannelError": 0
+    },
+    {
+      "reference": "main-diag.png",
+      "candidate": "main-astc.png",
+      "size": [
+        1290,
+        2796
+      ],
+      "meanRgbError": 0.028943987904463005,
+      "maximumChannelError": 4
+    },
+    {
+      "reference": "main-bc6h-ibl.png",
+      "candidate": "main-astc-ibl.png",
+      "size": [
+        1290,
+        2796
+      ],
+      "meanRgbError": 0.03832551485510863,
+      "maximumChannelError": 1
+    },
+    {
+      "reference": "main-bc6h-specular.png",
+      "candidate": "main-astc-specular.png",
+      "size": [
+        1290,
+        2796
+      ],
+      "meanRgbError": 0.02940209897491063,
+      "maximumChannelError": 1
+    }
+  ],
+  "shadowRoi": {
+    "rectangle": [
+      990,
+      1180,
+      1030,
+      1220
+    ],
+    "meanRed": {
+      "zero": 235.0,
+      "half": 212.1225,
+      "one": 27.370625
+    }
+  },
+  "sha256": {
+    "macos-main.png": "54ab4138e3969b0368fe8937764409cce0a76cecee2072a771ba458db7aac81c",
+    "main-astc-ibl.png": "5e29b236fe5dddfc7a96defba147bbb3a1a0ed64283e993648a577ca7e670982",
+    "main-astc-specular.png": "980b38a9ca9a9f61aea41855c61a8c6cf3567157418b053cee138ea0d74f591b",
+    "main-astc.png": "c9045caddfe3fe8cc1095a64a4764125a424ccea69f867f679ede564628616fe",
+    "main-bc6h-ibl.png": "72830a25fdacd7bab3174efe88fbea301d8e4727836127eccfc41d38799c4f59",
+    "main-bc6h-specular.png": "a92317cef74eee907af2decd1c5bd61c2f045e386f787d99124bc1c6d9a77ff3",
+    "main-diag.png": "44870ae481337b151ebbbdb060bf2f48a0a82aba672dad171202d02bc37c3b4c",
+    "main-nocull.png": "89de428581a83e77924d688d00e6ec9410fd4221a082c27d2aabd1b755ea1b3b",
+    "main-repeat.png": "806d673a108647160af3dff5f03027d39fcf9c1aae7c50da1c8bd9e03903550c",
+    "main.png": "7a75d477b30ca9332f18859200c455474d893221158a598fb442b2580655f88e",
+    "occlusion-nocull.png": "66d959913630417e9de956d9e8d0dee547bc2cd1fe0f2f783172b074c2a5af11",
+    "occlusion.png": "66d959913630417e9de956d9e8d0dee547bc2cd1fe0f2f783172b074c2a5af11",
+    "shadow-half.png": "7643603493c55b5844919bf1cddf66223dfbb63e19381467e70776ecf986161c",
+    "shadow-main-no-taa.png": "c1e09cc2cd869d5aad1d4470a38b1e8348e63f8d5c804b03dc7ac1945943bfe3",
+    "shadow-one.png": "37d94ba88b742f8e661b2f2fb9b6daa14e9bfd164cd37c40398547b788e5097f",
+    "shadow-zero.png": "2780d332558e7a7535c984ccdfa4b7fdbd90d2e14a98d3f99ef0075cf21829bf"
+  }
+}

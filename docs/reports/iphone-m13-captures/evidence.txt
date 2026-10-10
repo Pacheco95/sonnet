@@ -1,0 +1,116 @@
+=== main ===
+[23:49:11.782] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:49:21.331] [info] [player] [main.cpp:152] capture frame times over the last 100 frames: CPU 3.20 ms a frame, 16.67 ms apart; GPU 12.955 ms: skinning 0.169 ms, cull 0.338 ms, shadow cascade 0 0.123 ms, shadow cascade 1 0.144 ms, shadow cascade 2 0.122 ms, shadow cascade 3 0.092 ms, shadow point 0 face 0 0.057 ms, shadow point 0 face 1 0.065 ms, shadow point 0 face 2 0.074 ms, shadow point 0 face 3 0.047 ms, shadow point 0 face 4 0.039 ms, shadow point 0 face 5 0.025 ms, shadow spot 1 0.060 ms, depth 0.065 ms, depth pyramid 1.100 ms, occlusion cull 0.033 ms, depth late 0.016 ms, light clustering 0.049 ms, particles 0.066 ms, forward 6.235 ms, taa 2.890 ms, bloom down 0 0.390 ms, bloom down 1 0.063 ms, bloom down 2 0.015 ms, bloom down 3 0.012 ms, bloom down 4 0.017 ms, bloom up 3 0.016 ms, bloom up 2 0.016 ms, bloom up 1 0.010 ms, bloom up 0 0.139 ms, tonemap 0.178 ms, present 0.292 ms
+[23:49:21.397] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== main-repeat ===
+[23:51:36.861] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:51:42.174] [info] [player] [main.cpp:152] capture frame times over the last 100 frames: CPU 3.28 ms a frame, 16.67 ms apart; GPU 12.717 ms: skinning 0.169 ms, cull 0.535 ms, shadow cascade 0 0.123 ms, shadow cascade 1 0.097 ms, shadow cascade 2 0.085 ms, shadow cascade 3 0.059 ms, shadow point 0 face 0 0.051 ms, shadow point 0 face 1 0.035 ms, shadow point 0 face 2 0.064 ms, shadow point 0 face 3 0.096 ms, shadow point 0 face 4 0.029 ms, shadow point 0 face 5 0.017 ms, shadow spot 1 0.022 ms, depth 0.033 ms, depth pyramid 1.078 ms, occlusion cull 0.038 ms, depth late 0.018 ms, light clustering 0.048 ms, particles 0.042 ms, forward 6.096 ms, taa 2.823 ms, bloom down 0 0.404 ms, bloom down 1 0.077 ms, bloom down 2 0.016 ms, bloom down 3 0.012 ms, bloom down 4 0.017 ms, bloom up 3 0.029 ms, bloom up 2 0.019 ms, bloom up 1 0.011 ms, bloom up 0 0.121 ms, tonemap 0.168 ms, present 0.282 ms
+[23:51:42.243] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== main-diag ===
+[23:52:00.589] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:52:00.786] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:52:01.131] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:52:05.641] [info] [player] [main.cpp:164] validation statistics: history true, known true, draws 18, visible 12, triangles 4806, visible triangles 3280, shadow draws 198, visible shadows 100
+[23:52:05.642] [info] [player] [main.cpp:165] capture frame times over the last 100 frames: CPU 2.59 ms a frame, 16.67 ms apart; GPU 12.922 ms: skinning 0.556 ms, cull 0.291 ms, shadow cascade 0 0.074 ms, shadow cascade 1 0.102 ms, shadow cascade 2 0.041 ms, shadow cascade 3 0.050 ms, shadow point 0 face 0 0.070 ms, shadow point 0 face 1 0.129 ms, shadow point 0 face 2 0.094 ms, shadow point 0 face 3 0.024 ms, shadow point 0 face 4 0.019 ms, shadow point 0 face 5 0.021 ms, shadow spot 1 0.032 ms, depth 0.018 ms, depth pyramid 1.080 ms, occlusion cull 0.037 ms, depth late 0.015 ms, light clustering 0.051 ms, particles 0.040 ms, forward 6.135 ms, taa 2.856 ms, bloom down 0 0.381 ms, bloom down 1 0.097 ms, bloom down 2 0.018 ms, bloom down 3 0.012 ms, bloom down 4 0.019 ms, bloom up 3 0.020 ms, bloom up 2 0.027 ms, bloom up 1 0.014 ms, bloom up 0 0.120 ms, tonemap 0.177 ms, present 0.300 ms
+[23:52:05.713] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== main-nocull ===
+[23:52:06.731] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:52:06.932] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:52:07.215] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:52:11.724] [info] [player] [main.cpp:164] validation statistics: history true, known true, draws 18, visible 12, triangles 4806, visible triangles 3280, shadow draws 198, visible shadows 100
+[23:52:11.725] [info] [player] [main.cpp:165] capture frame times over the last 100 frames: CPU 3.38 ms a frame, 16.67 ms apart; GPU 11.991 ms: skinning 0.129 ms, cull 0.458 ms, shadow cascade 0 0.098 ms, shadow cascade 1 0.115 ms, shadow cascade 2 0.127 ms, shadow cascade 3 0.054 ms, shadow point 0 face 0 0.048 ms, shadow point 0 face 1 0.043 ms, shadow point 0 face 2 0.066 ms, shadow point 0 face 3 0.071 ms, shadow point 0 face 4 0.040 ms, shadow point 0 face 5 0.023 ms, shadow spot 1 0.016 ms, depth 0.027 ms, light clustering 0.127 ms, particles 0.149 ms, forward 6.359 ms, taa 3.020 ms, bloom down 0 0.294 ms, bloom down 1 0.030 ms, bloom down 2 0.018 ms, bloom down 3 0.016 ms, bloom down 4 0.019 ms, bloom up 3 0.021 ms, bloom up 2 0.019 ms, bloom up 1 0.015 ms, bloom up 0 0.113 ms, tonemap 0.183 ms, present 0.293 ms
+[23:52:11.795] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== occlusion ===
+[23:52:27.878] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:52:28.062] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:52:28.487] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:52:30.895] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 27, visible 2, triangles 314, visible triangles 14, shadow draws 108, visible shadows 83
+[23:52:30.896] [info] [player] [main.cpp:165] capture frame times over the last 65 frames: CPU 6.68 ms a frame, 20.83 ms apart; GPU 7.254 ms: cull 0.218 ms, shadow cascade 0 0.242 ms, shadow cascade 1 0.242 ms, shadow cascade 2 0.180 ms, shadow cascade 3 0.147 ms, depth 0.198 ms, depth pyramid 1.365 ms, occlusion cull 0.045 ms, depth late 0.030 ms, light clustering 0.023 ms, forward 3.308 ms, bloom down 0 0.388 ms, bloom down 1 0.044 ms, bloom down 2 0.022 ms, bloom down 3 0.018 ms, bloom down 4 0.013 ms, bloom up 3 0.024 ms, bloom up 2 0.017 ms, bloom up 1 0.022 ms, bloom up 0 0.152 ms, tonemap 0.168 ms, present 0.388 ms
+[23:52:30.964] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== occlusion-nocull ===
+[23:52:31.998] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:52:32.193] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:52:32.611] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:52:35.014] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 27, visible 27, triangles 314, visible triangles 314, shadow draws 108, visible shadows 83
+[23:52:35.015] [info] [player] [main.cpp:165] capture frame times over the last 65 frames: CPU 6.51 ms a frame, 23.08 ms apart; GPU 6.530 ms: cull 0.152 ms, shadow cascade 0 0.294 ms, shadow cascade 1 0.311 ms, shadow cascade 2 0.161 ms, shadow cascade 3 0.136 ms, depth 0.261 ms, light clustering 0.171 ms, forward 3.736 ms, bloom down 0 0.430 ms, bloom down 1 0.035 ms, bloom down 2 0.015 ms, bloom down 3 0.013 ms, bloom down 4 0.018 ms, bloom up 3 0.040 ms, bloom up 2 0.029 ms, bloom up 1 0.015 ms, bloom up 0 0.173 ms, tonemap 0.169 ms, present 0.373 ms
+[23:52:35.088] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== shadow-zero ===
+[23:52:36.040] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:52:36.326] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:52:36.673] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:52:39.122] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 2, visible 1, triangles 14, visible triangles 2, shadow draws 8, visible shadows 8
+[23:52:39.122] [info] [player] [main.cpp:165] capture frame times over the last 65 frames: CPU 5.89 ms a frame, 22.14 ms apart; GPU 7.017 ms: cull 0.186 ms, shadow cascade 0 0.179 ms, shadow cascade 1 0.205 ms, shadow cascade 2 0.172 ms, shadow cascade 3 0.159 ms, depth 0.181 ms, depth pyramid 1.385 ms, occlusion cull 0.128 ms, depth late 0.030 ms, light clustering 0.059 ms, forward 3.151 ms, bloom down 0 0.373 ms, bloom down 1 0.058 ms, bloom down 2 0.024 ms, bloom down 3 0.030 ms, bloom down 4 0.022 ms, bloom up 3 0.024 ms, bloom up 2 0.023 ms, bloom up 1 0.018 ms, bloom up 0 0.081 ms, tonemap 0.162 ms, present 0.367 ms
+[23:52:39.191] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== shadow-half ===
+[23:52:40.176] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:52:40.393] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:52:40.739] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:52:43.129] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 2, visible 1, triangles 14, visible triangles 2, shadow draws 8, visible shadows 8
+[23:52:43.130] [info] [player] [main.cpp:165] capture frame times over the last 65 frames: CPU 5.81 ms a frame, 21.75 ms apart; GPU 7.782 ms: cull 0.149 ms, shadow cascade 0 0.209 ms, shadow cascade 1 0.244 ms, shadow cascade 2 0.175 ms, shadow cascade 3 0.148 ms, depth 0.189 ms, depth pyramid 1.585 ms, occlusion cull 0.159 ms, depth late 0.036 ms, light clustering 0.039 ms, forward 3.457 ms, bloom down 0 0.436 ms, bloom down 1 0.081 ms, bloom down 2 0.033 ms, bloom down 3 0.017 ms, bloom down 4 0.032 ms, bloom up 3 0.029 ms, bloom up 2 0.030 ms, bloom up 1 0.032 ms, bloom up 0 0.123 ms, tonemap 0.169 ms, present 0.408 ms
+[23:52:43.194] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== shadow-one ===
+[23:52:44.229] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:52:44.436] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:52:44.785] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:52:47.188] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 2, visible 1, triangles 14, visible triangles 2, shadow draws 8, visible shadows 8
+[23:52:47.189] [info] [player] [main.cpp:165] capture frame times over the last 65 frames: CPU 5.87 ms a frame, 22.14 ms apart; GPU 7.449 ms: cull 0.152 ms, shadow cascade 0 0.183 ms, shadow cascade 1 0.207 ms, shadow cascade 2 0.128 ms, shadow cascade 3 0.186 ms, depth 0.173 ms, depth pyramid 1.507 ms, occlusion cull 0.158 ms, depth late 0.034 ms, light clustering 0.049 ms, forward 3.352 ms, bloom down 0 0.399 ms, bloom down 1 0.064 ms, bloom down 2 0.024 ms, bloom down 3 0.014 ms, bloom down 4 0.024 ms, bloom up 3 0.025 ms, bloom up 2 0.026 ms, bloom up 1 0.027 ms, bloom up 0 0.141 ms, tonemap 0.181 ms, present 0.394 ms
+[23:52:47.255] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== shadow-main-no-taa ===
+[23:53:20.851] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:53:21.035] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:53:21.394] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:53:25.925] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 18, visible 12, triangles 4806, visible triangles 3280, shadow draws 198, visible shadows 100
+[23:53:25.926] [info] [player] [main.cpp:165] capture frame times over the last 100 frames: CPU 3.30 ms a frame, 16.67 ms apart; GPU 10.653 ms: skinning 0.137 ms, cull 0.490 ms, shadow cascade 0 0.134 ms, shadow cascade 1 0.118 ms, shadow cascade 2 0.061 ms, shadow cascade 3 0.081 ms, shadow point 0 face 0 0.067 ms, shadow point 0 face 1 0.034 ms, shadow point 0 face 2 0.104 ms, shadow point 0 face 3 0.061 ms, shadow point 0 face 4 0.041 ms, shadow point 0 face 5 0.039 ms, shadow spot 1 0.028 ms, depth 0.023 ms, depth pyramid 1.135 ms, occlusion cull 0.045 ms, depth late 0.017 ms, light clustering 0.071 ms, particles 0.050 ms, forward 6.664 ms, bloom down 0 0.445 ms, bloom down 1 0.081 ms, bloom down 2 0.020 ms, bloom down 3 0.014 ms, bloom down 4 0.020 ms, bloom up 3 0.017 ms, bloom up 2 0.021 ms, bloom up 1 0.015 ms, bloom up 0 0.143 ms, tonemap 0.175 ms, present 0.303 ms
+[23:53:26.000] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== main-astc ===
+[23:53:29.321] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:53:29.517] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:53:29.673] [info] [assets] [Ktx2.cpp:175] validation ASTC HDR blocks unchanged: true
+[23:53:29.674] [info] [assets] [Ktx2.cpp:183] validation HDR target: ASTC4x4Sfloat
+[23:53:34.200] [info] [player] [main.cpp:164] validation statistics: history true, known true, draws 18, visible 12, triangles 4806, visible triangles 3280, shadow draws 198, visible shadows 100
+[23:53:34.201] [info] [player] [main.cpp:165] capture frame times over the last 100 frames: CPU 2.66 ms a frame, 16.67 ms apart; GPU 12.995 ms: skinning 0.520 ms, cull 0.335 ms, shadow cascade 0 0.075 ms, shadow cascade 1 0.088 ms, shadow cascade 2 0.034 ms, shadow cascade 3 0.045 ms, shadow point 0 face 0 0.057 ms, shadow point 0 face 1 0.054 ms, shadow point 0 face 2 0.101 ms, shadow point 0 face 3 0.026 ms, shadow point 0 face 4 0.013 ms, shadow point 0 face 5 0.012 ms, shadow spot 1 0.028 ms, depth 0.016 ms, depth pyramid 1.049 ms, occlusion cull 0.033 ms, depth late 0.018 ms, light clustering 0.055 ms, particles 0.034 ms, forward 5.984 ms, taa 3.254 ms, bloom down 0 0.384 ms, bloom down 1 0.076 ms, bloom down 2 0.015 ms, bloom down 3 0.011 ms, bloom down 4 0.016 ms, bloom up 3 0.023 ms, bloom up 2 0.018 ms, bloom up 1 0.010 ms, bloom up 0 0.151 ms, tonemap 0.169 ms, present 0.291 ms
+[23:53:34.271] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== main-astc-ibl ===
+[23:53:35.271] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:53:35.490] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:53:35.599] [info] [assets] [Ktx2.cpp:175] validation ASTC HDR blocks unchanged: true
+[23:53:35.599] [info] [assets] [Ktx2.cpp:183] validation HDR target: ASTC4x4Sfloat
+[23:53:40.118] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 18, visible 12, triangles 4806, visible triangles 3280, shadow draws 198, visible shadows 100
+[23:53:40.120] [info] [player] [main.cpp:165] capture frame times over the last 100 frames: CPU 3.30 ms a frame, 16.67 ms apart; GPU 10.751 ms: skinning 0.129 ms, cull 0.462 ms, shadow cascade 0 0.104 ms, shadow cascade 1 0.106 ms, shadow cascade 2 0.082 ms, shadow cascade 3 0.080 ms, shadow point 0 face 0 0.044 ms, shadow point 0 face 1 0.036 ms, shadow point 0 face 2 0.066 ms, shadow point 0 face 3 0.065 ms, shadow point 0 face 4 0.053 ms, shadow point 0 face 5 0.027 ms, shadow spot 1 0.013 ms, depth 0.022 ms, depth pyramid 1.177 ms, occlusion cull 0.047 ms, depth late 0.017 ms, light clustering 0.063 ms, particles 0.059 ms, forward 6.815 ms, bloom down 0 0.477 ms, bloom down 1 0.082 ms, bloom down 2 0.016 ms, bloom down 3 0.013 ms, bloom down 4 0.021 ms, bloom up 3 0.016 ms, bloom up 2 0.025 ms, bloom up 1 0.011 ms, bloom up 0 0.156 ms, tonemap 0.162 ms, present 0.306 ms
+[23:53:40.193] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== main-bc6h-ibl ===
+[23:55:39.760] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:55:39.955] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:55:40.223] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:55:44.718] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 18, visible 12, triangles 4806, visible triangles 3280, shadow draws 198, visible shadows 100
+[23:55:44.719] [info] [player] [main.cpp:165] capture frame times over the last 100 frames: CPU 2.64 ms a frame, 16.67 ms apart; GPU 9.623 ms: skinning 0.539 ms, cull 0.273 ms, shadow cascade 0 0.084 ms, shadow cascade 1 0.111 ms, shadow cascade 2 0.053 ms, shadow cascade 3 0.049 ms, shadow point 0 face 0 0.052 ms, shadow point 0 face 1 0.102 ms, shadow point 0 face 2 0.095 ms, shadow point 0 face 3 0.031 ms, shadow point 0 face 4 0.014 ms, shadow point 0 face 5 0.024 ms, shadow spot 1 0.026 ms, depth 0.014 ms, depth pyramid 1.043 ms, occlusion cull 0.038 ms, depth late 0.017 ms, light clustering 0.075 ms, particles 0.035 ms, forward 5.788 ms, bloom down 0 0.386 ms, bloom down 1 0.066 ms, bloom down 2 0.015 ms, bloom down 3 0.015 ms, bloom down 4 0.020 ms, bloom up 3 0.012 ms, bloom up 2 0.026 ms, bloom up 1 0.013 ms, bloom up 0 0.126 ms, tonemap 0.163 ms, present 0.317 ms
+[23:55:44.791] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== main-astc-specular ===
+[23:54:08.791] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:54:08.976] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:54:09.091] [info] [assets] [Ktx2.cpp:175] validation ASTC HDR blocks unchanged: true
+[23:54:09.091] [info] [assets] [Ktx2.cpp:183] validation HDR target: ASTC4x4Sfloat
+[23:54:13.587] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 18, visible 12, triangles 4806, visible triangles 3280, shadow draws 198, visible shadows 100
+[23:54:13.588] [info] [player] [main.cpp:165] capture frame times over the last 100 frames: CPU 3.22 ms a frame, 16.67 ms apart; GPU 10.466 ms: skinning 0.193 ms, cull 0.405 ms, shadow cascade 0 0.092 ms, shadow cascade 1 0.127 ms, shadow cascade 2 0.071 ms, shadow cascade 3 0.079 ms, shadow point 0 face 0 0.049 ms, shadow point 0 face 1 0.053 ms, shadow point 0 face 2 0.140 ms, shadow point 0 face 3 0.074 ms, shadow point 0 face 4 0.030 ms, shadow point 0 face 5 0.021 ms, shadow spot 1 0.025 ms, depth 0.026 ms, depth pyramid 1.132 ms, occlusion cull 0.042 ms, depth late 0.017 ms, light clustering 0.070 ms, particles 0.048 ms, forward 6.525 ms, bloom down 0 0.459 ms, bloom down 1 0.088 ms, bloom down 2 0.017 ms, bloom down 3 0.016 ms, bloom down 4 0.013 ms, bloom up 3 0.019 ms, bloom up 2 0.021 ms, bloom up 1 0.014 ms, bloom up 0 0.144 ms, tonemap 0.159 ms, present 0.298 ms
+[23:54:13.660] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+=== main-bc6h-specular ===
+[23:55:45.855] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple A17 Pro GPU", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[23:55:46.054] [info] [player] [main.cpp:101] validation capabilities: BC true, BC6H true, ASTC true, ASTC HDR true
+[23:55:46.432] [info] [assets] [Ktx2.cpp:174] validation HDR target: BC6HUfloat
+[23:55:50.918] [info] [player] [main.cpp:164] validation statistics: history false, known true, draws 18, visible 12, triangles 4806, visible triangles 3280, shadow draws 198, visible shadows 100
+[23:55:50.920] [info] [player] [main.cpp:165] capture frame times over the last 100 frames: CPU 3.26 ms a frame, 16.67 ms apart; GPU 10.331 ms: skinning 0.146 ms, cull 0.444 ms, shadow cascade 0 0.109 ms, shadow cascade 1 0.124 ms, shadow cascade 2 0.085 ms, shadow cascade 3 0.065 ms, shadow point 0 face 0 0.038 ms, shadow point 0 face 1 0.043 ms, shadow point 0 face 2 0.115 ms, shadow point 0 face 3 0.054 ms, shadow point 0 face 4 0.045 ms, shadow point 0 face 5 0.020 ms, shadow spot 1 0.037 ms, depth 0.022 ms, depth pyramid 1.125 ms, occlusion cull 0.044 ms, depth late 0.016 ms, light clustering 0.066 ms, particles 0.056 ms, forward 6.458 ms, bloom down 0 0.445 ms, bloom down 1 0.071 ms, bloom down 2 0.016 ms, bloom down 3 0.013 ms, bloom down 4 0.019 ms, bloom up 3 0.014 ms, bloom up 2 0.023 ms, bloom up 1 0.018 ms, bloom up 0 0.137 ms, tonemap 0.155 ms, present 0.307 ms
+[23:55:50.987] [info] [platform] [SdlEntryPoint.cpp:96] exit ok

@@ -1,0 +1,30 @@
+--- a/modules/assets/src/Ktx2.cpp
++++ b/modules/assets/src/Ktx2.cpp
+@@ -156,15 +156,24 @@
+     // with BC6H, ASTC HDR and RGBA16F in the places of BC7, ASTC and RGBA8 ("Environments").
+     ktx_transcode_fmt_e target = KTX_TTF_RGBA32;
+     if (hdr) {
+-      target = device.bc6hSupported      ? KTX_TTF_BC6HU_RGB
+-               : device.astcHdrSupported ? KTX_TTF_ASTC_HDR_4x4_RGBA
+-                                         : KTX_TTF_RGBA_HALF;
++      target = device.astcHdrSupported ? KTX_TTF_ASTC_HDR_4x4_RGBA
++               : device.bc6hSupported ? KTX_TTF_BC6HU_RGB
++                                      : KTX_TTF_RGBA_HALF;
+     } else if (device.blockCompressionSupported) {
+       target = KTX_TTF_BC7_RGBA;
+     } else if (device.astcSupported) {
+       target = KTX_TTF_ASTC_4x4_RGBA;
+     }
++    std::vector<std::byte> before;
++    if (hdr && target == KTX_TTF_ASTC_HDR_4x4_RGBA) {
++      before.assign(reinterpret_cast<const std::byte *>(texture->pData),
++                    reinterpret_cast<const std::byte *>(texture->pData) + texture->dataSize);
++    }
+     result = ktxTexture2_TranscodeBasis(texture.get(), target, 0);
++    if (!before.empty() && result == KTX_SUCCESS) {
++      SONNET_LOG_INFO("validation ASTC HDR blocks unchanged: {}",
++                      before.size() == texture->dataSize && std::memcmp(before.data(), texture->pData, before.size()) == 0);
++    }
+     if (result != KTX_SUCCESS) {
+       return std::unexpected(ktxError("transcoding the KTX2 file", result));
+     }
