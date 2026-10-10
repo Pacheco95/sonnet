@@ -5,7 +5,7 @@
 
 ## Context
 
-M13 raises the renderer's quality without changing what a scene is. Four pieces touch the same frame, and two of them touch formats that [M14](../roadmap.md#m14-performance-targets-and-10) freezes, so they are decided together.
+M13 raises the renderer's quality without changing what a scene is. Four pieces touch the same frame, and two of them touch formats that [M14](../roadmap.md#m14-performance-targets) freezes, so they are decided together.
 
 Constraints found in the code:
 
