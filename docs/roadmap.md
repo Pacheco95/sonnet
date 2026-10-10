@@ -163,6 +163,7 @@ Deferred: the Debug build's occlusion timings on MoltenVK, which look inflated e
 ## M14: Performance targets and 1.0
 
 - Measure the README's targets for the first time on the hardware they name: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and in 33 ms on a 2022 flagship phone (the Galaxy S25 Ultra and the iPhone 15 Pro Max are at hand). Fix what misses, starting with the per-frame fill, which is bandwidth-bound and so needs writing less ([Known gaps](#the-per-frame-fill-is-bandwidth-not-computation)).
+  - **Desktop, measured:** met on an RTX 2050 laptop, the stand-in for a 2020-era mid-range card, with the GPU well inside the budget in every scene and the CPU not the limit, so the per-frame fill needs no rework for the desktop target ([report](reports/rtx2050-m14.md)). The phone target is still to measure.
 - Close the Known gaps a release should not carry: [#59](https://github.com/Pacheco95/sonnet/issues/59), the thread sanitizer's blind spots where feasible, and a parallel transform hierarchy only if a benchmark asks.
 - Freeze the formats: audit the versions of the scene, prefab, project, sidecar and bundle formats, write down the migration policy, bump to 1.0.0 and tag it.
 
