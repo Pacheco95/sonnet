@@ -37,7 +37,7 @@ Done when a scene can be authored from primitives, saved, reopened, and played w
 - `renderer`: clustered forward pipeline with depth pre-pass, PBR materials, directional and punctual lights, cascaded shadow maps, image-based lighting, skybox, bloom, tone mapping, anti-aliasing.
 - `editor`: asset browser, material editing, import settings in the inspector.
 
-Done: the sample renders with shadows and image-based lighting. The README's target was measured for the first time with `renderer_tests "[benchmark]"`, ten thousand draws and a hundred lights at 1080p on an RTX 4090: about 1.1 ms of GPU time per frame, but about 95 ms of CPU time recording six passes of ten thousand draws each, which is why M7 moved culling and draws to the GPU. Deferred: BC5 for normal maps, transparency in the shadow and depth passes beyond alpha masking ([M13](#m13-rendering-quality)), and 2020-era mid-range hardware for the target itself ([M14](#m14-performance-targets-and-10)).
+Done: the sample renders with shadows and image-based lighting. The README's target was measured for the first time with `renderer_tests "[benchmark]"`, ten thousand draws and a hundred lights at 1080p on an RTX 4090: about 1.1 ms of GPU time per frame, but about 95 ms of CPU time recording six passes of ten thousand draws each, which is why M7 moved culling and draws to the GPU. Deferred: BC5 for normal maps, transparency in the shadow and depth passes beyond alpha masking ([M13](#m13-rendering-quality)), and 2020-era mid-range hardware for the target itself ([M14](#m14-performance-targets)).
 
 ## M4: Physics and scripting
 
@@ -109,7 +109,7 @@ Done when the basic sample runs on an iOS device. It did, on an iPhone 15 Pro Ma
 
 ## M11: Gameplay core
 
-Chosen from what M4 to M8 deferred, ordered by one rule: 1.0.0 waits for the project and bundle formats to stop changing, so whatever touches the scene, prefab or bundle formats lands first and [M14](#m14-performance-targets-and-10) freezes them.
+Chosen from what M4 to M8 deferred, ordered by one rule: [1.0.0](#100) waits for the formats to stop changing, so whatever touches the scene, prefab or bundle formats should land first.
 
 - [ADR-0022](decisions/0022-gameplay-events-and-script-properties.md): events are data that physics records and scripting delivers; a `Scripts` component of slots with declared properties replaces `Script`, and the scene format goes to version 3.
 - `physics` and `scripting`: contact and trigger events delivered to scripts (`onContact`, `onTriggerEnter`, `onTriggerExit`); compound bodies from a hierarchy's colliders.
@@ -160,14 +160,18 @@ Done (version 0.14.0; PRs #132 to #137): the three criteria hold, on Linux and t
 
 Deferred: the Debug build's occlusion timings on MoltenVK, which look inflated even with validation off and are not reproduced in Release ([#141](https://github.com/Pacheco95/sonnet/issues/141)); the automatic choice of ASTC HDR on a device that has it and no BC, which no device checked is, since the iPhone and the Mac both report BC ([#143](https://github.com/Pacheco95/sonnet/issues/143)); a capture flag to choose the anti-aliasing mode, and a debug log line naming the transcode target of a cooked texture, which the Windows check missed.
 
-## M14: Performance targets and 1.0
+## M14: Performance targets
 
 - Measure the README's targets for the first time on the hardware they name: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and in 33 ms on a 2022 flagship phone (the Galaxy S25 Ultra and the iPhone 15 Pro Max are at hand). Fix what misses, starting with the per-frame fill, which is bandwidth-bound and so needs writing less ([Known gaps](#the-per-frame-fill-is-bandwidth-not-computation)).
   - **Desktop, measured:** met on an RTX 2050 laptop, the stand-in for a 2020-era mid-range card, with the GPU well inside the budget in every scene and the CPU not the limit, so the per-frame fill needs no rework for the desktop target ([report](reports/rtx2050-m14.md)). The phone target is still to measure.
 - Close the Known gaps a release should not carry: [#59](https://github.com/Pacheco95/sonnet/issues/59), the thread sanitizer's blind spots where feasible, and a parallel transform hierarchy only if a benchmark asks.
-- Freeze the formats: audit the versions of the scene, prefab, project, sidecar and bundle formats, write down the migration policy, bump to 1.0.0 and tag it.
+- Fix two format-versioning gaps the audit of the file formats found: the project file has no schema version ([#153](https://github.com/Pacheco95/sonnet/issues/153)) and a sidecar from a newer engine is read instead of refused ([#154](https://github.com/Pacheco95/sonnet/issues/154)). They are hardening and do not wait for a release.
 
-Done when the targets are met, or the shortfall is documented with numbers, CI is green on every job, and 1.0.0 is tagged.
+Done when the targets are met, or the shortfall is documented with numbers, and CI is green on every job.
+
+## 1.0.0
+
+Not a milestone and not dated: the engine is in development and nothing waits for a release. 1.0.0 is tagged when the project, scene, prefab, material, sidecar and bundle formats have stopped changing, and not before. The audit of how each format is versioned today and a proposed compatibility promise (read every older schema, refuse a newer one, rebuild bundles instead of migrating them) are in the closed [PR #151](https://github.com/Pacheco95/sonnet/pull/151), to start from when the time comes.
 
 ## Known gaps
 
@@ -179,7 +183,7 @@ M7 left the per-frame object, material and light fill as the larger part of a fr
 
 The first is taken. The normal matrix, 64 of the 160 bytes, is derived in the vertex shader as the cofactor of `model`'s upper 3×3, so entries are 96 bytes and the fill is 0.15 ms whatever the worker count, with no change in the forward pass's GPU time ([rendering.md](rendering.md#gpu-driven-submission)).
 
-The second is what is left. **Most objects do not move between frames.** A persistent device-local buffer written only where a draw's transform, colour or material changed would cut the traffic to what moved, at the cost of a dirty list and a stable slot per draw, which the draw list does not have. At 0.15 ms for ten thousand draws it is no longer the frame's largest CPU cost, so it waits for a scene that needs it ([M14](#m14-performance-targets-and-10)).
+The second is what is left. **Most objects do not move between frames.** A persistent device-local buffer written only where a draw's transform, colour or material changed would cut the traffic to what moved, at the cost of a dirty list and a stable slot per draw, which the draw list does not have. At 0.15 ms for ten thousand draws it is no longer the frame's largest CPU cost, so it waits for a scene that needs it ([M14](#m14-performance-targets)).
 
 ### The thread sanitizer cannot see the Vulkan driver
 
