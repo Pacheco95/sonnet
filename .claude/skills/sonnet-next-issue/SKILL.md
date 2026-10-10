@@ -2,6 +2,7 @@
 name: sonnet-next-issue
 description: "Take the top-most Ready for dev card on the private 'Sonnet Issue Prioritization' GitHub project board, implement it, and carry it through the board and Git: move the card to In Progress, work on a feature branch, open a PR, and once the user has merged it in the GitHub UI move the card to Done and tidy the local checkout (checkout main, pull, delete the local feature branch). Use whenever the user says 'next issue', 'pick up the next issue', 'work on the top of the board', 'take the next card', 'do the next quick win', or asks to work through the sonnet backlog, even if they do not name the board."
 compatibility: "Requires the GitHub CLI (gh) logged in as the repository owner with the project and read:project scopes, and a clean checkout of Pacheco95/sonnet"
+disable-model-invocation: true
 ---
 
 # sonnet-next-issue

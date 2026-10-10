@@ -2,6 +2,7 @@
 name: sonnet-issues
 description: "Manually analyze and prioritize open GitHub issues for the sonnet engine project. Call this skill to rank issues by feasibility and user impact, identify which issues fit with the current roadmap, tag issues that don't align well (architectural blockers, future milestones, out-of-scope), and suggest quick wins. The skill reads AGENTS.md, CLAUDE.md, and recent commits to understand engine status, then evaluates each open issue, including its comments. Proposes improvements to issue text and drafts GitHub comments explaining why issues don't fit. Only invoke manually when you want to review and prioritize the issue backlog."
 compatibility: "Requires GitHub CLI (gh), access to the current sonnet repository"
+disable-model-invocation: true
 ---
 
 # sonnet-issues: Prioritize GitHub Issues by Roadmap Fit & Impact
