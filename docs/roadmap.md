@@ -142,6 +142,8 @@ Not done here: the criterion's Android and iOS halves. No phone was attached, so
 
 Done when golden-image tests with a tolerance show the showcase scene without ghosting, an occluder-heavy benchmark submits fewer draws for identical output, and the `renderer_tests "[benchmark]"` numbers are recorded here.
 
+The [iPhone M13 verification](reports/iphone-m13.md) runs the basic sample and focused culling/shadow fixtures on Apple A17 Pro (iOS 27.0, MoltenVK 1.4.2). TAA uses history; the occluder fixture keeps 2 of 27 draws for identical output; blended alpha 0.5 casts a partial shadow. The basic sample at 1290×2796 in Debug averages 3.20 ms of CPU work, 12.955 ms of GPU passes and 16.67 ms between frames. Both BC6H and diagnostic ASTC HDR render correctly, but the device reports BC too, so automatic ASTC HDR selection without BC remains [issue 143](https://github.com/Pacheco95/sonnet/issues/143). Thermals were not measured.
+
 ## M14: Performance targets and 1.0
 
 - Measure the README's targets for the first time on the hardware they name: 10 000 visible draws and 100 dynamic lights at 1080p in 16.6 ms on a 2020-era mid-range desktop GPU, and in 33 ms on a 2022 flagship phone (the Galaxy S25 Ultra and the iPhone 15 Pro Max are at hand). Fix what misses, starting with the per-frame fill, which is bandwidth-bound and so needs writing less ([Known gaps](#the-per-frame-fill-is-bandwidth-not-computation)).

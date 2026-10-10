@@ -1,0 +1,72 @@
+diff --git a/apps/player/main.cpp b/apps/player/main.cpp
+index 673bc68..58707cb 100644
+--- a/apps/player/main.cpp
++++ b/apps/player/main.cpp
+@@ -50,6 +50,13 @@ using namespace sonnet;
+   runtime::GameDesc desc;
+   // A capture run draws its settle frames before it plays, as the editor's does.
+   desc.paused = line.capture.has_value();
++  if (line.capture) {
++    const auto name = line.capture->viewport.filename().string();
++    desc.renderer.occlusionCulling = name.find("nocull") == std::string::npos;
++    if (name.starts_with("shadow") || name.starts_with("occlusion")) {
++      desc.renderer.antialiasing = renderer::AntiAliasing::None;
++    }
++  }
+   return desc;
+ }
+
+@@ -90,6 +97,8 @@ public:
+       runtime::CaptureOptions options = *line.capture;
+       runtime::resolveOutputs(options, platform.prefPath("sonnet", "player"));
+       const rhi::DeviceInfo &info = m_device->info();
++      SONNET_LOG_INFO("validation capabilities: BC {}, BC6H {}, ASTC {}, ASTC HDR {}",
++                      info.blockCompressionSupported, info.bc6hSupported, info.astcSupported, info.astcHdrSupported);
+       SONNET_LOG_INFO("capture run on \"{}\", Vulkan {}, writing {}", info.deviceName, vulkanVersion(info.apiVersion),
+                       options.viewport.string());
+       m_capture.emplace(std::move(options));
+@@ -148,9 +157,14 @@ public:
+                           interval * 1000.0f, statistics);
+     }
+     switch (m_capture->step(m_captureTarget)) {
+-    case runtime::CaptureRun::Status::Done:
++    case runtime::CaptureRun::Status::Done: {
++      const auto &stats = m_game->validationStatistics();
++      SONNET_LOG_INFO("validation statistics: history {}, known {}, draws {}, visible {}, triangles {}, visible triangles {}, shadow draws {}, visible shadows {}",
++                      stats.temporalHistoryUsed, stats.visibleCountsKnown, stats.drawCount, stats.visibleDrawCount,
++                      stats.triangleCount, stats.visibleTriangleCount, stats.shadowDrawCount, stats.visibleShadowDrawCount);
+       SONNET_LOG_INFO("capture frame times {}", m_frameTimes.summary());
+       return platform::AppResult::Success;
++    }
+     case runtime::CaptureRun::Status::Failed:
+       SONNET_LOG_INFO("capture frame times {}", m_frameTimes.summary());
+       return platform::AppResult::Failure;
+diff --git a/modules/assets/src/Ktx2.cpp b/modules/assets/src/Ktx2.cpp
+index e2191d7..2de3a88 100644
+--- a/modules/assets/src/Ktx2.cpp
++++ b/modules/assets/src/Ktx2.cpp
+@@ -170,6 +170,9 @@ core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, c
+     }
+   }
+   const rhi::Format format = fromVkFormat(texture->vkFormat);
++  if (hdr) {
++    SONNET_LOG_INFO("validation HDR target: {}", rhi::toString(format));
++  }
+   if (format == rhi::Format::Undefined) {
+     return std::unexpected(core::Error{std::format("KTX2 format {} is not one the engine reads", texture->vkFormat),
+                                        core::ErrorCategory::Io});
+diff --git a/modules/runtime/include/sonnet/runtime/Game.h b/modules/runtime/include/sonnet/runtime/Game.h
+index 228b691..b5e8f41 100644
+--- a/modules/runtime/include/sonnet/runtime/Game.h
++++ b/modules/runtime/include/sonnet/runtime/Game.h
+@@ -118,6 +118,10 @@ public:
+     return m_target;
+   }
+
++  const renderer::RenderStatistics &validationStatistics() const noexcept {
++    return m_renderer.statistics();
++  }
++
+ private:
+   void loadPrefabs();
+   void loadModelPrefabs();
