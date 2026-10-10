@@ -165,6 +165,7 @@ TEST_CASE("pass timings are reported per pass with GPU times from the reused slo
     graph.addPass("b", [&](PassBuilder &b) { b.color(scene, LoadOp::Load); }, {});
     graph.execute(commands);
     REQUIRE(countLines(*device, "timestamp") == 4);
+    REQUIRE(graph.statistics().passes[0].gpuAvailable == (frame >= FramesInFlight));
     device->endFrame();
   }
   const GraphStatistics &stats = graph.statistics();

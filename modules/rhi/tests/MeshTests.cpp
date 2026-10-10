@@ -200,10 +200,11 @@ TEST_CASE("timestamps written by a frame are read when its slot is reused", "[rh
     device->endFrame();
   }
   static_cast<void>(device->beginFrame());
-  const std::span<const std::uint64_t> stamps = device->timestamps();
+  const std::span<const Timestamp> stamps = device->timestamps();
   REQUIRE(stamps.size() == 2);
-  REQUIRE(stamps[0] > 0);
-  REQUIRE(stamps[1] >= stamps[0]);
+  REQUIRE(stamps[0].available);
+  REQUIRE(stamps[1].available);
+  REQUIRE(stamps[1].nanoseconds >= stamps[0].nanoseconds);
   device->endFrame();
   device->destroyPipeline(pipeline);
 }

@@ -138,9 +138,9 @@ public:
   [[nodiscard]] virtual TransientAllocation allocateTransient(std::uint64_t size) = 0;
 
   // Between beginFrame and endFrame: the timestamps written by the frame that last used this
-  // slot, FramesInFlight frames ago, in nanoseconds. Slots never written read as zero; empty when
+  // slot, FramesInFlight frames ago, in nanoseconds, with availability independent of the value; empty when
   // the previous frame in the slot wrote none or timestamps are unsupported.
-  [[nodiscard]] virtual std::span<const std::uint64_t> timestamps() const = 0;
+  [[nodiscard]] virtual std::span<const Timestamp> timestamps() const = 0;
 
   [[nodiscard]] virtual MemoryBudget memoryBudget() const = 0;
 

@@ -83,7 +83,7 @@ public:
   void waitIdle() override;
 
   TransientAllocation allocateTransient(std::uint64_t size) override;
-  std::span<const std::uint64_t> timestamps() const override;
+  std::span<const Timestamp> timestamps() const override;
   MemoryBudget memoryBudget() const override;
 
   std::uint32_t validationMessageCount() const override {
@@ -119,7 +119,8 @@ private:
     BufferHandle transientBuffer;
     std::uint64_t transientOffset{0};
     std::uint32_t timestampCount{0};
-    std::vector<std::uint64_t> timestampResults;
+    std::array<bool, MaxTimestamps> timestampWritten{};
+    std::vector<Timestamp> timestampResults;
   };
 
   // Asserts the caller is on the thread this device was created on; the rule and why it is an

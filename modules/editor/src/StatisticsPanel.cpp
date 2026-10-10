@@ -95,7 +95,11 @@ void StatisticsPanel::drawContents(bool compact) {
         ImGui::TableNextColumn();
         ImGui::Text("%.3f", static_cast<double>(pass.cpuMilliseconds));
         ImGui::TableNextColumn();
-        ImGui::Text("%.3f", static_cast<double>(pass.gpuMilliseconds));
+        if (pass.gpuAvailable) {
+          ImGui::Text("%.3f", static_cast<double>(pass.gpuMilliseconds));
+        } else {
+          ImGui::TextUnformatted("n/a");
+        }
       }
       ImGui::EndTable();
     }

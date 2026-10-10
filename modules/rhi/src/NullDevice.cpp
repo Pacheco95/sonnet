@@ -138,6 +138,7 @@ public:
     SONNET_ASSERT(index < MaxTimestamps, "timestamp index {} out of range", index);
     NullDevice::Frame &frame = m_device.m_frames[m_device.m_frameIndex];
     frame.timestampCount = std::max(frame.timestampCount, index + 1);
+    frame.timestampWritten[index] = true;
     m_device.m_trace.push_back(std::format("timestamp {}", index));
   }
 
@@ -484,7 +485,11 @@ ICommandList &NullDevice::beginFrame() {
   SONNET_ASSERT(!m_recording, "beginFrame called twice without endFrame");
   Frame &frame = m_frames[m_frameIndex];
   // The previous use of this slot "completed": its timestamps read back as zero.
-  frame.timestampResults.assign(frame.timestampCount, 0);
+  frame.timestampResults.resize(frame.timestampCount);
+  for (std::uint32_t i = 0; i < frame.timestampCount; ++i) {
+    frame.timestampResults[i] = {.nanoseconds = 0, .available = frame.timestampWritten[i]};
+  }
+  frame.timestampWritten.fill(false);
   frame.timestampCount = 0;
   frame.transientOffset = 0;
   m_trace.clear();
@@ -518,7 +523,7 @@ TransientAllocation NullDevice::allocateTransient(std::uint64_t size) {
   return TransientAllocation{frame.transientBuffer, offset, mappedRange(frame.transientBuffer).subspan(offset, size)};
 }
 
-std::span<const std::uint64_t> NullDevice::timestamps() const {
+std::span<const Timestamp> NullDevice::timestamps() const {
   return m_frames[m_frameIndex].timestampResults;
 }
 

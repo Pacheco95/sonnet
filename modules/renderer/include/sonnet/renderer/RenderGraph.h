@@ -93,6 +93,7 @@ struct PassTiming {
   std::string name;
   float cpuMilliseconds{0.0f}; // recording time on the CPU
   float gpuMilliseconds{0.0f}; // from the timestamps of the frame that last used this slot
+  bool gpuAvailable{false};
 };
 
 struct GraphStatistics {
