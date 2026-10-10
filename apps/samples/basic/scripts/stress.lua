@@ -1,9 +1,11 @@
 -- The README's performance target as a scene: a hundred by a hundred boxes and spheres and a
 -- hundred point lights, the grid and the lights of `renderer_tests "[benchmark]"`
--- (docs/rendering.md#gpu-driven-submission), built here so the scene file stays small.
+-- (docs/rendering.md#gpu-driven-submission), built here so the scene file stays small. The
+-- spheres are icospheres, 320 triangles, the nearest built-in to the benchmark's 224; the
+-- built-in sphere has 960 and made the shadow cascades four times as heavy on a phone.
 -- Play it with `--scene scenes/stress.scene.json --play 3` (docs/player.md#capture-runs).
 local BOX = "a464f023-844b-8938-9df4-75487155e36d"
-local SPHERE = "fe3d3b79-c4ee-8f48-8944-6b1596b2c621"
+local SPHERE = "edd73868-8c8d-837e-9c97-f8de1a22a52a" -- builtin/icosphere
 local SIDE = 100
 local LIGHTS = 100
 
