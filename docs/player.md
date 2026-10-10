@@ -80,6 +80,8 @@ The editor's image of the same flags is not the player's. The editor draws throu
 - `capture failed: <reason>` when it fails.
 - The last line, `exit ok` for exit code 0 or `exit with failure` for 1. On a phone nobody sees the exit code, and this line is how the run reports it.
 
+**Measuring the performance target.** `--scene scenes/stress.scene.json --play 3` on the basic sample is the README's scene: `scripts/stress.lua` builds a hundred by a hundred boxes and spheres and a hundred point lights when it plays, the grid and the lights of `renderer_tests "[benchmark]"` ([rendering.md](rendering.md#gpu-driven-submission)), and the frame-times line above is the measurement. The scene is written by `tools/generate_stress_scene.py`. The window's size is the device's, so a desktop run is not at the target's 1080p unless the window is.
+
 **On a phone.** The arguments go in the `args` extra, split on whitespace ([Running on Android](#running-on-android)). The whole `am start` is quoted once for `adb shell`, so the phone's shell keeps the extra as one string, and `-S` stops a player that is running first, since an activity already running takes no new arguments. The file is in the app's `files/`, which `run-as` reads, byte for byte through `adb shell` or `adb exec-out`:
 
 ```bash
