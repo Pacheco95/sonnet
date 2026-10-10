@@ -235,14 +235,16 @@ void RenderGraph::emitBarriers(rhi::ICommandList &commands, const std::vector<de
 void RenderGraph::readTimings() {
   // The device returns the timestamps of the frame that last used the current slot; they belong
   // to the passes recorded then, matched by name and position.
-  const std::span<const std::uint64_t> stamps = m_device.timestamps();
+  const std::span<const rhi::Timestamp> stamps = m_device.timestamps();
   const std::vector<std::string> &names = m_slotPassNames[m_frameCounter % rhi::FramesInFlight];
   for (std::size_t i = 0; i < m_passes.size(); ++i) {
     PassTiming &timing = m_statistics.passes[i];
     timing.gpuMilliseconds = 0.0f;
-    if (i < names.size() && names[i] == m_passes[i].name && 2 * i + 1 < stamps.size() && stamps[2 * i] != 0 &&
-        stamps[2 * i + 1] >= stamps[2 * i]) {
-      timing.gpuMilliseconds = static_cast<float>(stamps[2 * i + 1] - stamps[2 * i]) * 1.0e-6f;
+    timing.gpuAvailable = false;
+    if (i < names.size() && names[i] == m_passes[i].name && 2 * i + 1 < stamps.size() && stamps[2 * i].available &&
+        stamps[2 * i + 1].available && stamps[2 * i + 1].nanoseconds >= stamps[2 * i].nanoseconds) {
+      timing.gpuMilliseconds = static_cast<float>(stamps[2 * i + 1].nanoseconds - stamps[2 * i].nanoseconds) * 1.0e-6f;
+      timing.gpuAvailable = true;
     }
   }
 }

@@ -1100,8 +1100,7 @@ void VulkanDevice::readTimestamps(Frame &frame) {
   if (frame.timestampCount == 0 || frame.submittedValue == 0) {
     return;
   }
-  // The frame has completed (waitForFrame), so every written query is available. Unwritten
-  // slots below the highest index come back with availability 0 and read as zero.
+  // Read after waitForFrame, preserving availability independently of the clock value.
   std::array<std::uint64_t, std::size_t{MaxTimestamps} * 2> raw{};
   const VkResult result = m_device.getDispatcher()->vkGetQueryPoolResults(
       *m_device, *frame.queryPool, 0, frame.timestampCount, sizeof(raw), raw.data(), 2 * sizeof(std::uint64_t),
@@ -1114,9 +1113,11 @@ void VulkanDevice::readTimestamps(Frame &frame) {
   for (std::uint32_t i = 0; i < frame.timestampCount; ++i) {
     const std::size_t slot = std::size_t{2} * i;
     const bool available = raw[slot + 1] != 0;
-    frame.timestampResults[i] =
-        available ? static_cast<std::uint64_t>(static_cast<double>(raw[slot]) * static_cast<double>(m_timestampPeriod))
-                  : 0;
+    frame.timestampResults[i] = {.nanoseconds = available
+                                                    ? static_cast<std::uint64_t>(static_cast<double>(raw[slot]) *
+                                                                                 static_cast<double>(m_timestampPeriod))
+                                                    : 0,
+                                 .available = available};
   }
 }
 
@@ -1159,7 +1160,7 @@ TransientAllocation VulkanDevice::allocateTransient(std::uint64_t size) {
   return TransientAllocation{frame.transientBuffer, offset, mapped.subspan(offset, size)};
 }
 
-std::span<const std::uint64_t> VulkanDevice::timestamps() const {
+std::span<const Timestamp> VulkanDevice::timestamps() const {
   return m_frames[m_frameIndex].timestampResults;
 }
 

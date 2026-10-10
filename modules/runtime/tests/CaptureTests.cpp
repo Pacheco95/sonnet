@@ -192,8 +192,9 @@ TEST_CASE("frame times are the means of the last hundred frames", "[runtime][cap
   REQUIRE(times.summary() == "no frames recorded");
   const auto graph = [](float shadow, float forward) {
     renderer::GraphStatistics statistics;
-    statistics.passes = {{.name = "shadow", .cpuMilliseconds = 0.0f, .gpuMilliseconds = shadow},
-                         {.name = "forward", .cpuMilliseconds = 0.0f, .gpuMilliseconds = forward}};
+    statistics.passes = {
+        {.name = "shadow", .cpuMilliseconds = 0.0f, .gpuMilliseconds = shadow, .gpuAvailable = true},
+        {.name = "forward", .cpuMilliseconds = 0.0f, .gpuMilliseconds = forward, .gpuAvailable = true}};
     return statistics;
   };
   // Fifty slow frames that the next hundred push out, then a hundred of known times.
@@ -207,4 +208,16 @@ TEST_CASE("frame times are the means of the last hundred frames", "[runtime][cap
   REQUIRE(
       times.summary() ==
       "over the last 100 frames: CPU 2.00 ms a frame, 16.00 ms apart; GPU 2.000 ms: shadow 0.500 ms, forward 1.500 ms");
+}
+
+TEST_CASE("unavailable GPU samples are excluded while measured zero remains valid", "[runtime][capture]") {
+  runtime::FrameTimes times;
+  renderer::GraphStatistics graph;
+  graph.passes = {{.name = "zero", .gpuMilliseconds = 0.0f, .gpuAvailable = true}, {.name = "missing"}};
+  times.record(1.0f, 16.0f, graph);
+  REQUIRE(times.summary().find("GPU n/a: zero 0.000 ms, missing n/a") != std::string::npos);
+  graph.passes[1].gpuMilliseconds = 2.0f;
+  graph.passes[1].gpuAvailable = true;
+  times.record(1.0f, 16.0f, graph);
+  REQUIRE(times.summary().find("GPU 2.000 ms: zero 0.000 ms, missing 2.000 ms") != std::string::npos);
 }

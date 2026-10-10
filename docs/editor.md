@@ -41,7 +41,7 @@ Per frame, in this order:
 | `Capture.h` | The editor's command line, and `CaptureRun`, which steps a scripted run to its screenshots ([Screenshots](#screenshots)) |
 | `LogPanel.h` | `LogBuffer`, a spdlog sink registered with `core::Log` for the panel's lifetime, and the panel with a level threshold, text filter, auto-scroll and `file:line` links |
 | `TypeFilter.h` | The multi-select type filter shared by the panels: a set of checked names where none means all, the combo that edits it, and the asset browser's row test |
-| `StatisticsPanel.h` | Frame time history, per-pass CPU and GPU times from the graph, draw and triangle counts, VMA budget per heap; drawn as a window or as the overlay in the viewport's corner |
+| `StatisticsPanel.h` | Frame time history, per-pass CPU and GPU times from the graph (`n/a` for unavailable GPU samples), draw and triangle counts, VMA budget per heap; drawn as a window or as the overlay in the viewport's corner |
 
 The frame, as `apps/editor/main.cpp` orders it:
 

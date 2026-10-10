@@ -76,7 +76,7 @@ The editor's image of the same flags is not the player's. The editor draws throu
 
 - `capture run on "Adreno (TM) 830", Vulkan 1.3.284, writing /data/data/io.github.pacheco95.sonnet/files/final.png`: the device, its Vulkan version and the file.
 - `screenshot 1080x2340 written to ...` once it is.
-- `capture frame times over the last 100 frames: CPU 2.04 ms a frame, 5.27 ms apart; GPU 4.961 ms: skinning 0.002 ms, cull 0.008 ms, ...`: over the last hundred frames before the one that copies the screenshot, or fewer when the run drew fewer, the mean CPU time of a frame, the mean time between frames, and each render-graph pass's mean GPU time with their sum ([rendering.md](rendering.md#render-graph)). The CPU time is the simulation and the recording, without the waits for a frame slot and a swapchain image, which are the GPU's and the display's. The frame that copies the screenshot is left out, since that copy is the capture's work, not the game's.
+- `capture frame times over the last 100 frames: CPU 2.04 ms a frame, 5.27 ms apart; GPU 4.961 ms: skinning 0.002 ms, cull 0.008 ms, ...`: over the last hundred frames before the one that copies the screenshot, or fewer when the run drew fewer, the mean CPU time of a frame, the mean time between frames, and each render-graph pass's mean GPU time with their sum ([rendering.md](rendering.md#render-graph)). The CPU time is the simulation and the recording, without the waits for a frame slot and a swapchain image, which are the GPU's and the display's. The frame that copies the screenshot is left out, since that copy is the capture's work, not the game's. GPU means exclude unavailable samples; a pass with no available samples prints `n/a`, and the GPU total prints `n/a` if any listed pass has no available samples. Available equal timestamps still print `0.000 ms`.
 - `capture failed: <reason>` when it fails.
 - The last line, `exit ok` for exit code 0 or `exit with failure` for 1. On a phone nobody sees the exit code, and this line is how the run reports it.
 
@@ -226,6 +226,8 @@ xcrun devicectl device copy from --device <device-id> --domain-type appDataConta
 The build's real output path is `build/ios-<debug|release>/apps/player/<Debug|RelWithDebInfo>-iphoneos/sonnet_player.app`, and the commands above were confirmed against it, not just a hand-built `vkprobe`, by the runs [roadmap.md](roadmap.md#m10-ios-export) records: `agents/m10-mac-checks` (the build, the macOS export fix and signing) and `agents/m10-device-checks` (ADR-0018's six checks, on an iPhone 15 Pro Max).
 
 M13 rendering was also checked on Apple A17 Pro with iOS 27.0 and MoltenVK 1.4.2: TAA uses history, the depth-pyramid fixture keeps 2 of 27 draws for identical pixels, and blended shadows have partial coverage. The device reports BC as well as ASTC HDR, so the default HDR target is BC6H; a diagnostic ASTC HDR run also passes. Captures, frame times, reproduction patches and the outstanding automatic-selection case are in the [iPhone M13 report](reports/iphone-m13.md).
+
+iOS stress captures have produced zero and inconsistent GPU timestamps ([issue 152](https://github.com/Pacheco95/sonnet/issues/152)). Availability is now preserved, but available zero intervals alone do not establish GPU headroom. The [timestamp investigation](reports/iphone-m14-timestamps.md) records the reporting fix and the outstanding device and independent Metal validation; no platform cause has been established.
 
 ## What an export is
 

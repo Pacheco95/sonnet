@@ -72,7 +72,7 @@ public:
   void waitIdle() override;
 
   TransientAllocation allocateTransient(std::uint64_t size) override;
-  std::span<const std::uint64_t> timestamps() const override;
+  std::span<const Timestamp> timestamps() const override;
   MemoryBudget memoryBudget() const override;
 
   std::uint32_t validationMessageCount() const override {
@@ -174,7 +174,7 @@ private:
     bool uploadsRecorded{false};
     bool prepared{false};            // waited for, garbage freed, pools reset: ready for this slot's use
     std::uint32_t timestampCount{0}; // highest index written plus one
-    std::vector<std::uint64_t> timestampResults;
+    std::vector<Timestamp> timestampResults;
   };
 
   struct PendingPresent {

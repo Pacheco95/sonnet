@@ -22,13 +22,15 @@ public:
   }
   // Means over the frames recorded, oldest gone first: "over the last 100 frames: CPU 2.10 ms a
   // frame, 16.67 ms apart; GPU 3.05 ms: shadow cascade 0 0.20 ms, ...". A pass is averaged over
-  // the frames that ran it, in the order of the latest frame, and the GPU total is their sum.
+  // available samples of frames that ran it, in the order of the latest frame. A pass without
+  // samples and a total missing any pass are n/a; otherwise the total is their sum.
   [[nodiscard]] std::string summary() const;
 
 private:
   struct Pass {
     std::string name;
     float gpuMilliseconds;
+    bool gpuAvailable;
   };
   struct Frame {
     float cpuMilliseconds;

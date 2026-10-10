@@ -9,7 +9,8 @@ void FrameTimes::record(float cpuMilliseconds, float intervalMilliseconds, const
   Frame frame{.cpuMilliseconds = cpuMilliseconds, .intervalMilliseconds = intervalMilliseconds, .passes = {}};
   frame.passes.reserve(graph.passes.size());
   for (const renderer::PassTiming &pass : graph.passes) {
-    frame.passes.push_back({.name = pass.name, .gpuMilliseconds = pass.gpuMilliseconds});
+    frame.passes.push_back(
+        {.name = pass.name, .gpuMilliseconds = pass.gpuMilliseconds, .gpuAvailable = pass.gpuAvailable});
   }
   if (m_frames.size() < Capacity) {
     m_frames.push_back(std::move(frame));
@@ -34,6 +35,7 @@ std::string FrameTimes::summary() const {
   const Frame &latest = m_frames[(m_next + m_frames.size() - 1) % m_frames.size()];
   std::string passes;
   float gpu = 0.0f;
+  bool complete = true;
   for (auto current = latest.passes.begin(); current != latest.passes.end(); ++current) {
     const Pass &pass = *current;
     // A name twice in a frame is averaged once, from its first pass.
@@ -44,17 +46,22 @@ std::string FrameTimes::summary() const {
     int ran = 0;
     for (const Frame &frame : m_frames) {
       const auto found = std::ranges::find(frame.passes, pass.name, &Pass::name);
-      if (found != frame.passes.end()) {
+      if (found != frame.passes.end() && found->gpuAvailable) {
         sum += found->gpuMilliseconds;
         ++ran;
       }
+    }
+    if (ran == 0) {
+      complete = false;
+      passes += std::format("{}{} n/a", passes.empty() ? "" : ", ", pass.name);
+      continue;
     }
     const float mean = sum / static_cast<float>(ran);
     gpu += mean;
     passes += std::format("{}{} {:.3f} ms", passes.empty() ? "" : ", ", pass.name, mean);
   }
-  return std::format("over the last {} frames: CPU {:.2f} ms a frame, {:.2f} ms apart; GPU {:.3f} ms: {}",
-                     m_frames.size(), cpu / frames, interval / frames, gpu, passes);
+  return std::format("over the last {} frames: CPU {:.2f} ms a frame, {:.2f} ms apart; GPU {}: {}", m_frames.size(),
+                     cpu / frames, interval / frames, complete ? std::format("{:.3f} ms", gpu) : "n/a", passes);
 }
 
 } // namespace sonnet::runtime

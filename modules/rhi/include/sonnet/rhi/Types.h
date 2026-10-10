@@ -555,6 +555,11 @@ constexpr std::size_t MaxBarriersPerCall = 64;
 // Timestamps a frame may write; results come back when the slot is reused (IDevice::timestamps).
 constexpr std::uint32_t MaxTimestamps = 512;
 
+struct Timestamp {
+  std::uint64_t nanoseconds{0};
+  bool available{false};
+};
+
 struct HeapBudget {
   std::uint64_t usage{0};
   std::uint64_t budget{0};

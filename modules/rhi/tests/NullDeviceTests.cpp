@@ -100,6 +100,11 @@ TEST_CASE("null device transient allocations and timestamps follow the frame slo
   }
   static_cast<void>(device->beginFrame());
   REQUIRE(device->timestamps().size() == 3);
+  REQUIRE(device->timestamps()[0].available);
+  REQUIRE(device->timestamps()[0].nanoseconds == 0);
+  REQUIRE_FALSE(device->timestamps()[1].available);
+  REQUIRE(device->timestamps()[2].available);
+  REQUIRE(device->timestamps()[2].nanoseconds == 0);
   REQUIRE(device->allocateTransient(16).offset == 0);
   device->endFrame();
 }
