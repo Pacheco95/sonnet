@@ -1,0 +1,16 @@
+Short run 1
+[14:12:15.471] [info] [player] [main.cpp:152] capture frame times over the last 100 frames: CPU 6.24 ms a frame, 22.35 ms apart; GPU 0.657 ms: cull 0.003 ms, shadow cascade 0 0.001 ms, shadow cascade 1 0.005 ms, shadow cascade 2 0.022 ms, shadow cascade 3 0.147 ms, depth 0.039 ms, depth pyramid 0.031 ms, occlusion cull 0.001 ms, depth late 0.000 ms, light clustering 0.000 ms, forward 0.272 ms, taa 0.099 ms, bloom down 0 0.011 ms, bloom down 1 0.002 ms, bloom down 2 0.000 ms, bloom down 3 0.000 ms, bloom down 4 0.001 ms, bloom up 3 0.001 ms, bloom up 2 0.001 ms, bloom up 1 0.000 ms, bloom up 0 0.002 ms, tonemap 0.007 ms, present 0.010 ms
+[14:12:15.530] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+Short run 2
+[14:12:48.536] [info] [player] [main.cpp:152] capture frame times over the last 100 frames: CPU 6.36 ms a frame, 22.37 ms apart; GPU 0.222 ms: cull 0.001 ms, shadow cascade 0 0.000 ms, shadow cascade 1 0.002 ms, shadow cascade 2 0.008 ms, shadow cascade 3 0.049 ms, depth 0.014 ms, depth pyramid 0.011 ms, occlusion cull 0.000 ms, depth late 0.000 ms, light clustering 0.000 ms, forward 0.094 ms, taa 0.032 ms, bloom down 0 0.003 ms, bloom down 1 0.001 ms, bloom down 2 0.000 ms, bloom down 3 0.000 ms, bloom down 4 0.000 ms, bloom up 3 0.000 ms, bloom up 2 0.000 ms, bloom up 1 0.001 ms, bloom up 0 0.000 ms, tonemap 0.003 ms, present 0.003 ms
+[14:12:48.593] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+Short run 3
+[14:12:53.878] [info] [player] [main.cpp:152] capture frame times over the last 100 frames: CPU 6.36 ms a frame, 22.72 ms apart; GPU 0.000 ms: cull 0.000 ms, shadow cascade 0 0.000 ms, shadow cascade 1 0.000 ms, shadow cascade 2 0.000 ms, shadow cascade 3 0.000 ms, depth 0.000 ms, depth pyramid 0.000 ms, occlusion cull 0.000 ms, depth late 0.000 ms, light clustering 0.000 ms, forward 0.000 ms, taa 0.000 ms, bloom down 0 0.000 ms, bloom down 1 0.000 ms, bloom down 2 0.000 ms, bloom down 3 0.000 ms, bloom down 4 0.000 ms, bloom up 3 0.000 ms, bloom up 2 0.000 ms, bloom up 1 0.000 ms, bloom up 0 0.000 ms, tonemap 0.000 ms, present 0.000 ms
+[14:12:53.939] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+
+Sustained fresh-process run
+[15:24:43.931] [info] [player] [main.cpp:152] capture frame times over the last 100 frames: CPU 9.58 ms a frame, 49.01 ms apart; GPU 0.000 ms: cull 0.000 ms, shadow cascade 0 0.000 ms, shadow cascade 1 0.000 ms, shadow cascade 2 0.000 ms, shadow cascade 3 0.000 ms, depth 0.000 ms, depth pyramid 0.000 ms, occlusion cull 0.000 ms, depth late 0.000 ms, light clustering 0.000 ms, forward 0.000 ms, taa 0.000 ms, bloom down 0 0.000 ms, bloom down 1 0.000 ms, bloom down 2 0.000 ms, bloom down 3 0.000 ms, bloom down 4 0.000 ms, bloom up 3 0.000 ms, bloom up 2 0.000 ms, bloom up 1 0.000 ms, bloom up 0 0.000 ms, tonemap 0.000 ms, present 0.000 ms
+[15:24:43.997] [info] [platform] [SdlEntryPoint.cpp:96] exit ok
+Wall duration: 1544.003721 seconds; launch command exit code: 0.
