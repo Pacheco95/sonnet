@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "name": "Showcase",
   "engineVersion": "0.14.0",
   "startScene": "scenes/main.scene.json",

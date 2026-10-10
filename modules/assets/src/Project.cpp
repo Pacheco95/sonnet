@@ -30,6 +30,16 @@ core::Result<Project> Project::open(const std::filesystem::path &directory) {
     return std::unexpected(
         core::Error{std::format("{}: not valid JSON", project.file().string()), core::ErrorCategory::Io});
   }
+  if (document.contains("version") && !document["version"].is_number_integer()) {
+    return std::unexpected(core::Error{std::format("{}: the version is not an integer", project.file().string()),
+                                       core::ErrorCategory::Io});
+  }
+  const int version = document.value("version", 1);
+  if (version > ProjectFileVersion || version < 1) {
+    return std::unexpected(core::Error{std::format("{}: project version {} is not supported by this engine's {}",
+                                                   project.file().string(), version, ProjectFileVersion),
+                                       core::ErrorCategory::Io});
+  }
   project.name = document.value("name", project.root.filename().string());
   project.engineVersion = document.value("engineVersion", std::string{});
   project.startScene = document.value("startScene", project.startScene);
@@ -42,6 +52,7 @@ core::Result<Project> Project::open(const std::filesystem::path &directory) {
 
 core::Result<void> Project::save() const {
   const json document{
+      {"version", ProjectFileVersion},
       {"name", name},
       {"engineVersion", core::engineVersion().toString()},
       {"startScene", startScene},

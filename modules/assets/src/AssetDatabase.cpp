@@ -402,6 +402,15 @@ void AssetDatabase::scanFile(const std::filesystem::path &file) {
   bool rewrite = false;
   if (auto existing = readSidecar(sidecar)) {
     document = std::move(*existing);
+    // A sidecar from a newer engine is left alone: rewriting it here would drop what it knows
+    // and this engine does not.
+    const int version =
+        document.contains("version") && document["version"].is_number_integer() ? document["version"].get<int>() : 1;
+    if (version > SidecarVersion) {
+      SONNET_LOG_ERROR("{}: sidecar version {} is newer than this engine's {}, skipped", sidecar.string(), version,
+                       SidecarVersion);
+      return;
+    }
   } else {
     document = json{{"version", SidecarVersion},
                     {"uuid", core::Uuid::generate().toString()},

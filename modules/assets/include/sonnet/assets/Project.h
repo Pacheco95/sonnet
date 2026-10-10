@@ -9,6 +9,9 @@
 
 namespace sonnet::assets {
 
+// The schema version of project.json. A file without one is version 1; a newer one is refused.
+constexpr int ProjectFileVersion = 1;
+
 // A project folder with its project.json (docs/assets.md, "Project file"). Everything in the
 // project is referenced relative to the folder, so a project is portable. The editor opens one
 // to edit it and the player to run it (ADR-0011); creating one, which needs a starter scene, is
