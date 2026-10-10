@@ -194,6 +194,7 @@ ctest --preset linux-debug
 | [0022](docs/decisions/0022-gameplay-events-and-script-properties.md) | Physics events, script properties and several scripts per entity | Accepted |
 | [0023](docs/decisions/0023-animation-blending-morph-targets-and-particles.md) | Animation blending, morph targets and GPU particles | Accepted |
 | [0024](docs/decisions/0024-temporal-anti-aliasing-and-occlusion-culling.md) | Temporal anti-aliasing, occlusion culling and compressed HDR environments | Accepted |
+| [0025](docs/decisions/0025-file-formats-at-1.0.md) | File formats at 1.0.0 | Proposed |
 
 ## License
 
