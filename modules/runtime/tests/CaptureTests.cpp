@@ -221,3 +221,28 @@ TEST_CASE("unavailable GPU samples are excluded while measured zero remains vali
   times.record(1.0f, 16.0f, graph);
   REQUIRE(times.summary().find("GPU 2.000 ms: zero 0.000 ms, missing 2.000 ms") != std::string::npos);
 }
+
+TEST_CASE("the thermal state ends the frame times as first, last and worst", "[runtime][capture]") {
+  using platform::ThermalState;
+  const auto ends = [](const runtime::FrameTimes &times, std::string_view tail) {
+    const std::string summary = times.summary();
+    return summary.size() >= tail.size() && summary.compare(summary.size() - tail.size(), tail.size(), tail) == 0;
+  };
+  runtime::FrameTimes times;
+  times.record(1.0f, 16.0f, renderer::GraphStatistics{});
+  REQUIRE(times.summary().find("thermal") == std::string::npos); // none sampled, none claimed
+
+  times.recordThermal(ThermalState::Unknown);
+  REQUIRE(ends(times, "; thermal n/a"));
+
+  times.recordThermal(ThermalState::Nominal);
+  times.recordThermal(ThermalState::Serious);
+  times.recordThermal(ThermalState::Fair);
+  REQUIRE(ends(times, "; thermal n/a -> fair (worst serious)"));
+
+  runtime::FrameTimes rising;
+  rising.record(1.0f, 16.0f, renderer::GraphStatistics{});
+  rising.recordThermal(ThermalState::Nominal);
+  rising.recordThermal(ThermalState::Serious);
+  REQUIRE(ends(rising, "; thermal nominal -> serious (worst serious)"));
+}

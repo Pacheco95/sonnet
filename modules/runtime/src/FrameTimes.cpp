@@ -20,6 +20,16 @@ void FrameTimes::record(float cpuMilliseconds, float intervalMilliseconds, const
   m_next = (m_next + 1) % Capacity;
 }
 
+void FrameTimes::recordThermal(platform::ThermalState state) {
+  if (!m_thermalSeen) {
+    m_thermalFirst = state;
+    m_thermalSeen = true;
+  }
+  m_thermalLast = state;
+  // The enumerators run from cool to hot, with Unknown first, so the largest is the worst.
+  m_thermalWorst = std::max(m_thermalWorst, state);
+}
+
 std::string FrameTimes::summary() const {
   if (m_frames.empty()) {
     return "no frames recorded";
@@ -60,8 +70,16 @@ std::string FrameTimes::summary() const {
     gpu += mean;
     passes += std::format("{}{} {:.3f} ms", passes.empty() ? "" : ", ", pass.name, mean);
   }
-  return std::format("over the last {} frames: CPU {:.2f} ms a frame, {:.2f} ms apart; GPU {}: {}", m_frames.size(),
-                     cpu / frames, interval / frames, complete ? std::format("{:.3f} ms", gpu) : "n/a", passes);
+  std::string thermal;
+  if (m_thermalSeen) {
+    thermal = m_thermalWorst == platform::ThermalState::Unknown
+                  ? "; thermal n/a"
+                  : std::format("; thermal {} -> {} (worst {})", platform::toString(m_thermalFirst),
+                                platform::toString(m_thermalLast), platform::toString(m_thermalWorst));
+  }
+  return std::format("over the last {} frames: CPU {:.2f} ms a frame, {:.2f} ms apart; GPU {}: {}{}", m_frames.size(),
+                     cpu / frames, interval / frames, complete ? std::format("{:.3f} ms", gpu) : "n/a", passes,
+                     thermal);
 }
 
 } // namespace sonnet::runtime

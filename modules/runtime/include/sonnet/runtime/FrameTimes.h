@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sonnet/platform/Thermal.h>
 #include <sonnet/renderer/RenderGraph.h>
 
 #include <cstddef>
@@ -17,6 +18,10 @@ public:
   // One frame: the CPU's time for it, the time since the frame before, and the graph's statistics,
   // whose GPU times are those of an earlier frame (docs/rendering.md, "Render graph").
   void record(float cpuMilliseconds, float intervalMilliseconds, const renderer::GraphStatistics &graph);
+  // The system's thermal state, sampled by the caller about once a second. The summary ends with
+  // the first state, the last and the worst seen: "thermal nominal -> serious (worst serious)".
+  // Unknown states never count as worst, and a run that saw only Unknown says "thermal n/a".
+  void recordThermal(platform::ThermalState state);
   [[nodiscard]] std::size_t count() const noexcept {
     return m_frames.size();
   }
@@ -37,6 +42,11 @@ private:
     float intervalMilliseconds;
     std::vector<Pass> passes;
   };
+
+  bool m_thermalSeen{false};
+  platform::ThermalState m_thermalFirst{platform::ThermalState::Unknown};
+  platform::ThermalState m_thermalLast{platform::ThermalState::Unknown};
+  platform::ThermalState m_thermalWorst{platform::ThermalState::Unknown};
 
   std::vector<Frame> m_frames; // a ring of Capacity once full
   std::size_t m_next{0};       // where the next frame goes once full
