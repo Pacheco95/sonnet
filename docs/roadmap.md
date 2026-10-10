@@ -170,6 +170,8 @@ Deferred: the Debug build's occlusion timings on MoltenVK, which look inflated e
 
 Done when the targets are met, or the shortfall is documented with numbers, and CI is green on every job.
 
+Done (version 0.15.0): the desktop target is met with a wide margin, the phone target on the Galaxy S25 Ultra by a thin one, and the shortfall on the iPhone is documented in its report. Carried forward rather than blocking: the iPhone's sustained slowdown ([#159](https://github.com/Pacheco95/sonnet/issues/159)), which cannot be split into GPU and thermal causes until the zero GPU timestamps are explained ([#152](https://github.com/Pacheco95/sonnet/issues/152)); the MoltenVK blend warning ([#59](https://github.com/Pacheco95/sonnet/issues/59)), which needs a Mac to reproduce; and [the thread sanitizer's blind spot](#the-thread-sanitizer-cannot-see-the-vulkan-driver), which no change in this milestone could reach. The parallel transform hierarchy waited for a benchmark, and none asked.
+
 ## 1.0.0
 
 Not a milestone and not dated: the engine is in development and nothing waits for a release. 1.0.0 is tagged when the project, scene, prefab, material, sidecar and bundle formats have stopped changing, and not before. The audit of how each format is versioned today and a proposed compatibility promise (read every older schema, refuse a newer one, rebuild bundles instead of migrating them) are in the closed [PR #151](https://github.com/Pacheco95/sonnet/pull/151), to start from when the time comes.
