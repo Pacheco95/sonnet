@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Showcase",
-  "engineVersion": "0.16.0",
+  "engineVersion": "0.17.0",
   "startScene": "scenes/main.scene.json",
   "assetRoots": [
     "assets",
