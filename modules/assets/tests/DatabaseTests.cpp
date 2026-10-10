@@ -75,6 +75,26 @@ const AssetInfo *byName(const AssetDatabase &database, std::string_view name, As
 
 } // namespace
 
+TEST_CASE("a sidecar from a newer engine is skipped and left as it was", "[assets][database]") {
+  Fixture fixture;
+  {
+    AssetDatabase database{fixture.renderer, fixture.jobs};
+    database.open(fixture.root, fixture.roots);
+  }
+  const std::filesystem::path sidecar = fixture.root / "assets" / "wood.png.meta";
+  const std::string newer = R"({"version": 99, "uuid": "9e1f0c34-5a7b-4d2e-8f10-2b3c4d5e6f70", "futureField": true})";
+  REQUIRE(core::writeFile(sidecar, std::string_view{newer}).has_value());
+
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  REQUIRE(database.findByPath(fixture.root / "assets" / "wood.png") == nullptr);
+  // The other assets are unaffected, and the file keeps the fields this engine does not know.
+  REQUIRE(byName(database, "crate", AssetType::Model) != nullptr);
+  const auto after = core::readFile(sidecar);
+  REQUIRE(after.has_value());
+  REQUIRE(std::string_view{reinterpret_cast<const char *>(after->data()), after->size()} == newer);
+}
+
 TEST_CASE("opening a project writes sidecars and keeps identities across reopens", "[assets][database]") {
   Fixture fixture;
   core::Uuid woodUuid;

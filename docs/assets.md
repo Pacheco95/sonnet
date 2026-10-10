@@ -8,7 +8,7 @@ Every asset has a UUID assigned at import and stored in a sidecar file next to t
 
 An asset may produce sub-assets: a glTF file yields meshes, materials, textures, skins and animation clips, each with its own stable UUID derived from the parent's UUID and the sub-asset name (`core::Uuid::derive`, `mesh/0`, `material/2`, `image/1`, `skin/0`, `animation/1`) so re-import keeps them. The twelve built-in primitive meshes have fixed identities of the same kind (`assets::builtin::box()` and the others), so a scene made of primitives references them like any other mesh. They are box, sphere, plane, cylinder, capsule, cone, torus, ramp, stairs, hemisphere, arch and icosphere, and `assets::builtin::all()` lists them in menu order for the database and the hierarchy. Adding a shape is a generator in `renderer::primitives`, an identity and an entry there, and a branch in `AssetDatabase::mesh`; the identity is never renamed, since scene files hold it.
 
-The sidecar is JSON: a `version`, the `uuid`, the asset `type`, the import `settings`, and for a glTF file a hash of the file's content and the list of its sub-assets with their names and, for a mesh, its default material per slot, so opening a project does not parse every model and a sidecar committed with the project stays valid in every checkout. Version 2 of the sidecar lists a model's skins and clips among the sub-assets; a glTF file whose sidecar is older is parsed again on the next scan and its list rewritten. Sidecars belong in version control next to their sources.
+The sidecar is JSON: a `version`, the `uuid`, the asset `type`, the import `settings`, and for a glTF file a hash of the file's content and the list of its sub-assets with their names and, for a mesh, its default material per slot, so opening a project does not parse every model and a sidecar committed with the project stays valid in every checkout. Version 2 of the sidecar lists a model's skins and clips among the sub-assets; a glTF file whose sidecar is older is parsed again on the next scan and its list rewritten. A sidecar with a newer version than the engine knows is logged and skipped, its file untouched, so an older engine never rewrites it without the fields it cannot read. Sidecars belong in version control next to their sources.
 
 ## Source and cooked
 
@@ -93,6 +93,7 @@ A project is a folder with a `project.json` at its root:
 
 ```json
 {
+  "version": 1,
   "name": "Basic",
   "engineVersion": "0.5.0",
   "startScene": "scenes/main.scene.json",
@@ -100,7 +101,7 @@ A project is a folder with a `project.json` at its root:
 }
 ```
 
-Everything in the project is referenced relative to this folder so projects are portable. `assets::Project` reads and writes it and resolves paths against the folder, because the editor and the player both open projects ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)); creating one with its starter scene needs `world` and stays in the editor ([editor.md](editor.md#projects-and-scenes)).
+`version` is the schema version of the file, independent of the engine version ([conventions.md](conventions.md#versioning)): a file without one is version 1, a newer one than the engine knows is refused, and every save writes the current one. `engineVersion` only records the engine that last saved it. Everything in the project is referenced relative to this folder so projects are portable. `assets::Project` reads and writes it and resolves paths against the folder, because the editor and the player both open projects ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)); creating one with its starter scene needs `world` and stays in the editor ([editor.md](editor.md#projects-and-scenes)).
 
 ## Scene file
 

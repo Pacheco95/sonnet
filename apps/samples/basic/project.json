@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "name": "Basic",
   "engineVersion": "0.6.0",
   "startScene": "scenes/main.scene.json",
