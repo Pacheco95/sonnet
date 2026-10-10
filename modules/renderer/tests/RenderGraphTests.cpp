@@ -128,7 +128,7 @@ TEST_CASE("imported images end in their requested layout and transient ones are 
     device->endFrame();
     REQUIRE(countLines(*device, "barrier \"backbuffer\" ColorAttachment->Present") == 1);
     REQUIRE(graph.statistics().transientImageCount == 1);
-    REQUIRE(graph.statistics().transientImageBytes == 64 * 64 * 4);
+    REQUIRE(graph.statistics().transientImageBytes == std::uint64_t{64} * 64 * 4);
   }
   device->destroyImage(swapchainImage);
 }
