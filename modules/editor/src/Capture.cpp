@@ -46,6 +46,9 @@ public:
         return opened;
       }
     }
+    if (options.renderSize) {
+      return std::unexpected(captureError("--render-size is the player's: the editor's viewport is its panel's size"));
+    }
     if (options.shadingTerm) {
       m_editor.setShadingTerm(*options.shadingTerm);
     }

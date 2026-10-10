@@ -3,6 +3,8 @@
 #include <sonnet/core/Error.h>
 #include <sonnet/renderer/Renderer.h>
 
+#include <glm/vec2.hpp>
+
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -32,6 +34,9 @@ struct CaptureOptions {
   std::filesystem::path viewport; // --screenshot: the scene as PNG, the editor's viewport or the player's window
   std::filesystem::path window;   // --screenshot-window: the whole editor window as PNG; the editor's only
   std::uint32_t settleFrames{10}; // frames drawn after the assets have loaded, before anything else
+  // --render-size: what the scene is drawn at, scaled to the window; the player's only. The window's
+  // own size when empty.
+  std::optional<glm::uvec2> renderSize;
 };
 
 // An application's arguments: the content (the editor's project folder, the player's project
@@ -71,6 +76,10 @@ struct CommandLineOption {
 // without floating-point std::from_chars, which alone would set the player's minimum iOS
 // (ADR-0018, open question 3). It takes what from_chars took before it.
 [[nodiscard]] std::optional<float> parseSeconds(std::string_view text);
+
+// --render-size's value: `WIDTHxHEIGHT`, two decimal integers from 1 to MaxRenderSide, as in `1080x1920`.
+[[nodiscard]] std::optional<glm::uvec2> parseRenderSize(std::string_view text);
+constexpr std::uint32_t MaxRenderSide = 16384;
 
 // What --help prints: the application's flags, the shading terms, the exit codes and an example.
 [[nodiscard]] std::string commandLineUsage(CaptureApplication application);

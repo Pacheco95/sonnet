@@ -367,6 +367,33 @@ TEST_CASE("a player's capture run writes the scene under the preferences directo
   std::filesystem::remove(written);
 }
 
+TEST_CASE("a capture with --render-size draws and writes at that size, not the window's", "[runtime][capture][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const runtime::CaptureOptions options = playerCapture(
+      fixture.platform, {"--settle-frames", "2", "--render-size", "96x64", "--screenshot", "shots/sized.png"});
+  REQUIRE(options.renderSize == glm::uvec2{96, 64});
+  const std::filesystem::path written = fixture.platform.prefPath("sonnet", "runtime_tests") / "shots" / "sized.png";
+  std::filesystem::remove(written);
+  {
+    runtime::GameDesc desc = fixture.desc();
+    desc.paused = true;
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(project).has_value());
+    runtime::CaptureRun run{options};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
+    REQUIRE(game.target().size() == glm::uvec2{96, 64});
+  }
+  const Png png = readPng(written);
+  REQUIRE(png.width == 96);
+  REQUIRE(png.height == 64);
+  REQUIRE(fixture.swapchain->extent() != glm::uvec2{96, 64}); // the window kept its own size
+  std::filesystem::remove(written);
+}
+
 TEST_CASE("--scene opens another of a bundle's scenes for the capture", "[runtime][capture][gpu]") {
   Fixture fixture;
   const std::filesystem::path project = sampleProject(fixture.platform);
