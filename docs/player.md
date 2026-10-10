@@ -105,7 +105,7 @@ ADR-0018 decides what counts as running on a device and how a device's agent rep
 5. **A finger** held on the playground, by hand ([scripting.md](scripting.md#input)).
 6. **The frame times** of step 3, from the capture runs' logs, recorded in the roadmap beside the desktop's and the Mac's.
 
-The report returns the PNGs, the logs (`adb logcat -d -s Sonnet`, and `adb logcat -d -b crash`, which should be empty), the Vulkan description, the device model and OS version (`adb shell getprop ro.product.model` and `ro.build.version.release`), and one line per check saying pass or fail, and for checks 4 and 5 who did them. The PNGs are compared by eye with a Linux capture of the same arguments, not byte for byte, since the GPUs differ and the phone's window is portrait. Serial numbers, build fingerprints and home paths stay out of it.
+The report returns the PNGs, the logs (`adb logcat -d -s Sonnet`, and `adb logcat -d -b crash`, which should be empty), the Vulkan description, the device model and OS version (`adb shell getprop ro.product.model` and `ro.build.version.release`), and one line per check saying pass or fail, and for checks 4 and 5 who did them. The PNGs are compared by eye with a Linux capture of the same arguments, not byte for byte, since the GPUs differ and the phone's window is portrait. Hardware identifiers, build fingerprints and home paths stay out of it.
 
 ## The lifecycle
 
@@ -227,7 +227,7 @@ The build's real output path is `build/ios-<debug|release>/apps/player/<Debug|Re
 
 M13 rendering was also checked on Apple A17 Pro with iOS 27.0 and MoltenVK 1.4.2: TAA uses history, the depth-pyramid fixture keeps 2 of 27 draws for identical pixels, and blended shadows have partial coverage. The device reports BC as well as ASTC HDR, so the default HDR target is BC6H; a diagnostic ASTC HDR run also passes. Captures, frame times, reproduction patches and the outstanding automatic-selection case are in the [iPhone M13 report](reports/iphone-m13.md).
 
-iOS stress captures have produced zero and inconsistent GPU timestamps ([issue 152](https://github.com/Pacheco95/sonnet/issues/152)). Availability is now preserved, but available zero intervals alone do not establish GPU headroom. The [timestamp investigation](reports/iphone-m14-timestamps.md) records the reporting fix and the outstanding device and independent Metal validation; no platform cause has been established.
+On Apple A17 Pro / iOS 27.0 / MoltenVK 1.4.2, stress captures can have no host-available GPU timestamp samples even after the frame's ALL_COMMANDS timeline value completes ([issue 152](https://github.com/Pacheco95/sonnet/issues/152)). Device controls recovered all 46 queries by explicitly waiting for query results, after a further 0.182–2.063 ms. The engine keeps readback nonblocking and prints `n/a` when a pass has no available samples; the former zero/dropping totals could include unavailable queries as zero. This is a measured MoltenVK/platform readback limit, not evidence of GPU headroom or a lack of Metal counters: the independent trace shows working counter-stage sampling and about 22.6 ms of active GPU work per frame in the short stress run. The [timestamp investigation](reports/iphone-m14-timestamps.md) records the runs, comparison tolerance, sustained results and remaining uncertainties. An upstream issue about host timestamp availability after a completed timeline wait is worth filing; none was filed.
 
 ## What an export is
 
