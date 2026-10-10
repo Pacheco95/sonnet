@@ -97,10 +97,28 @@ TEST_CASE("the editor and the player share one table", "[runtime][capture]") {
     REQUIRE(line.has_value() == option.player);
     players += option.player ? 1 : 0;
   }
-  REQUIRE(players == 5);
+  REQUIRE(players == 6);
   // The player's window is its scene, which its line for --screenshot says.
   REQUIRE(usage.contains("the scene, at the window's size"));
   REQUIRE(!usage.contains("viewport"));
+}
+
+TEST_CASE("--render-size takes two sizes from 1 to the limit", "[runtime][capture]") {
+  REQUIRE(runtime::parseRenderSize("1080x1920") == glm::uvec2{1080, 1920});
+  REQUIRE(runtime::parseRenderSize("1x1") == glm::uvec2{1, 1});
+  REQUIRE(runtime::parseRenderSize("16384x16384") == glm::uvec2{16384, 16384});
+  for (const std::string_view bad : {"", "1080", "x", "1080x", "x1920", "0x1920", "1080x0", "16385x1", "-1x5",
+                                     "1080X1920", "1080 x1920", "1080x1920x2", "1.5x2", "0x10"}) {
+    INFO(bad);
+    REQUIRE_FALSE(runtime::parseRenderSize(bad).has_value());
+  }
+  const auto line = player({"--render-size", "1080x1920", "--screenshot", "a.png"});
+  REQUIRE(line.has_value());
+  REQUIRE(line->capture->renderSize == glm::uvec2{1080, 1920});
+  const auto bad = player({"--render-size", "wide", "--screenshot", "a.png"});
+  REQUIRE_FALSE(bad.has_value());
+  REQUIRE(bad.error().message.find("--render-size") != std::string::npos);
+  REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->renderSize.has_value());
 }
 
 TEST_CASE("--play takes what floating-point from_chars took", "[runtime][capture]") {

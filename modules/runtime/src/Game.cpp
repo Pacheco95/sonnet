@@ -267,9 +267,9 @@ void Game::render(rhi::ICommandList &commands, const std::optional<rhi::Swapchai
     m_graph.execute(commands);
     return;
   }
-  // The scene is drawn at the window's size in the renderer's own formats, then copied into the
-  // acquired image, whose format the surface chose.
-  m_target.resize(swapchainImage->extent);
+  // The scene is drawn at the window's size, or the render size asked for, in the renderer's own
+  // formats, then scaled into the acquired image, whose format the surface chose.
+  m_target.resize(m_renderSize.value_or(swapchainImage->extent));
   const renderer::GraphImage backbuffer = m_graph.importImage(swapchainImage->image, rhi::ImageLayout::Present);
   if (m_target.isValid()) {
     const renderer::GraphImage color = m_graph.importImage(m_target.color());

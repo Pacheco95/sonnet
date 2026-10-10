@@ -74,6 +74,11 @@ public:
 
   // One term of the forward shading instead of the final image (docs/rendering.md).
   void setShadingTerm(renderer::DebugView view);
+  // Draws the scene at this size, scaled to the window by the present pass, instead of at the
+  // window's size; empty goes back to the window's (a capture's --render-size).
+  void setRenderSize(std::optional<glm::uvec2> size) noexcept {
+    m_renderSize = size;
+  }
   // The next frame starts temporal anti-aliasing's history over (SceneView::resetHistory).
   void cutHistory() {
     m_cutHistory = true;
@@ -132,6 +137,7 @@ private:
   renderer::Renderer m_renderer;
   renderer::RenderGraph m_graph;
   renderer::RenderTarget m_target;
+  std::optional<glm::uvec2> m_renderSize;
   assets::AssetDatabase m_assets;
   world::World m_world;
   // After the world, which they register into and have to be destroyed before; scripts after

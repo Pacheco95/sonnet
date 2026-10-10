@@ -50,7 +50,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 7> Options{{
+constexpr std::array<CommandLineOption, 8> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -63,6 +63,9 @@ constexpr std::array<CommandLineOption, 7> Options{{
     {"--shading-term", "TERM", "show one term of the forward shading instead of the final image", "sun-direct", true,
      ""},
     {"--settle-frames", "N", "frames drawn after the assets have loaded, before anything else (10)", "4", true, ""},
+    {"--render-size", "WxH",
+     "draw the scene at this size and scale it to the window, so 1080x1920 measures a phone at 1080p", "1080x1920",
+     true, ""},
 }};
 
 } // namespace
@@ -73,6 +76,24 @@ std::span<const CommandLineOption> commandLineOptions() noexcept {
 
 bool takes(CaptureApplication application, const CommandLineOption &option) noexcept {
   return application == CaptureApplication::Editor || option.player;
+}
+
+std::optional<glm::uvec2> parseRenderSize(std::string_view text) {
+  const std::size_t x = text.find('x');
+  if (x == std::string_view::npos) {
+    return std::nullopt;
+  }
+  std::array<std::uint32_t, 2> side{};
+  const std::array<std::string_view, 2> parts{text.substr(0, x), text.substr(x + 1)};
+  for (std::size_t i = 0; i < 2; ++i) {
+    const std::string_view part = parts[i];
+    const auto [end, error] = std::from_chars(part.data(), part.data() + part.size(), side[i]);
+    if (part.empty() || error != std::errc{} || end != part.data() + part.size() || side[i] == 0 ||
+        side[i] > MaxRenderSide) {
+      return std::nullopt;
+    }
+  }
+  return glm::uvec2{side[0], side[1]};
 }
 
 std::optional<float> parseSeconds(std::string_view text) {
@@ -256,6 +277,12 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
         return std::unexpected(captureError(std::format("--settle-frames takes a count, not \"{}\"", value)));
       }
       capture.settleFrames = frames;
+    } else if (arg == "--render-size") {
+      capture.renderSize = parseRenderSize(value);
+      if (!capture.renderSize) {
+        return std::unexpected(captureError(
+            std::format("--render-size takes WIDTHxHEIGHT from 1x1 to {0}x{0}, not \"{1}\"", MaxRenderSide, value)));
+      }
     } else if (arg == "--shading-term") {
       capture.shadingTerm = shadingTerm(value);
       if (!capture.shadingTerm) {
@@ -378,6 +405,10 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
   }
   if (options.shadingTerm) {
     m_game.setShadingTerm(*options.shadingTerm);
+  }
+  if (options.renderSize) {
+    SONNET_LOG_INFO("capture draws at {}x{}, scaled to the window", options.renderSize->x, options.renderSize->y);
+    m_game.setRenderSize(options.renderSize);
   }
   return {};
 }

@@ -310,3 +310,22 @@ TEST_CASE("a capture of an entity that is not there fails without writing", "[ed
   }
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("the editor refuses --render-size, which is the player's", "[editor][capture][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "capture_render_size";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Capture").has_value());
+    editor::CaptureOptions options;
+    options.renderSize = glm::uvec2{1080, 1920};
+    options.viewport = directory / "shots" / "viewport.png";
+    options.settleFrames = 1;
+    editor::CaptureRun capture{options};
+    REQUIRE(fixture.run(editor, capture) == editor::CaptureRun::Status::Failed);
+    REQUIRE(!std::filesystem::exists(directory / "shots" / "viewport.png"));
+  }
+  std::filesystem::remove_all(directory);
+}
