@@ -6,6 +6,7 @@
 #include <sonnet/platform/Application.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
+#include <sonnet/platform/Thermal.h>
 #include <sonnet/platform/Window.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
@@ -143,6 +144,12 @@ public:
     // and a swapchain image, which are the GPU's and the display's time. The frame that copies
     // the screenshot out is the capture's work rather than the game's, and is left out.
     const renderer::GraphStatistics &statistics = m_game->graph().statistics();
+    // The thermal state changes over seconds, so a second is often enough and the call stays out of
+    // the frame's cost.
+    if (now - m_lastThermal >= std::chrono::seconds{1}) {
+      m_frameTimes.recordThermal(platform::thermalState());
+      m_lastThermal = now;
+    }
     if (std::ranges::none_of(statistics.passes, [](const auto &pass) { return pass.name == "screenshot"; })) {
       m_frameTimes.record(std::chrono::duration<float, std::milli>((updated - now) + (recorded - recording)).count(),
                           interval * 1000.0f, statistics);
@@ -224,6 +231,7 @@ private:
   runtime::GameCaptureTarget m_captureTarget{*m_game};
   std::optional<runtime::CaptureRun> m_capture;
   runtime::FrameTimes m_frameTimes;
+  std::chrono::steady_clock::time_point m_lastThermal{}; // the epoch: the first capture frame samples
   std::chrono::steady_clock::time_point m_lastFrame{std::chrono::steady_clock::now()};
   std::chrono::steady_clock::time_point m_background;
   std::uint64_t m_backgroundFrames{0};
