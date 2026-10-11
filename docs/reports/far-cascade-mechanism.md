@@ -58,7 +58,7 @@ An earlier version of this report predicted a smaller map would not help. The me
 - Basic sample, desktop, 1280×720: the screenshot with a 1024 far map differs from the 2048 one by at most 1 in 255 and by more than 2 in no pixel.
 - The cascade regression (`renderer_tests "[shadow]"`) now runs the far map at 256 and 1024 against the others at 256 and 1024: 207 assertions pass on Lavapipe.
 - S25, sustained, `--play 600` at the window's 1080×2340, the final build with the 1024 far map, started cool (status 0, skin 37.8 °C): GPU 27.79 ms, 27.82 ms apart, CPU 15.6 ms, cascade 3 10.25 ms (37 % of the frame), forward 10.05 ms. The earlier run with the 2048 map (`s25-m14.md`) was 31.85 ms and 13.96 ms (44 %). The clock fell the same way, 1200 MHz to 734 MHz by 420 s, but the thermal status stopped at 2 (skin 42.0 °C) and the run lasted about 900 s; the earlier run reached status 3. Part of the 4.1 ms gain may therefore be a milder throttle, but the cascade's own gain at the same 734 MHz, 3.7 ms or 27 %, matches the 25 % of the cold run. The target (33 ms) is met with 5.2 ms to spare, from 1.1 ms.
-- Not measured: the iPad ([the follow-up issue](https://github.com/Pacheco95/sonnet/issues)), a second sustained run, the desktop frame time (the pass only got smaller).
+- Not measured: the iPad ([issue 178](https://github.com/Pacheco95/sonnet/issues/178)), a second sustained run, the desktop frame time (the pass only got smaller).
 
 ## Reproduce
 
