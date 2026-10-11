@@ -1185,6 +1185,12 @@ void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle
 
 // ---- Frame preparation ----
 
+std::uint32_t Renderer::cascadeMapSize(std::uint32_t cascade) const {
+  return cascade + 1 == CascadeCount
+             ? std::min(m_settings.farShadowMapSize.value_or(m_settings.shadowMapSize), m_settings.shadowMapSize)
+             : m_settings.shadowMapSize;
+}
+
 void Renderer::computeCascades(ViewState &v, float aspect) {
   const SceneView &view = *v.view;
   const float nearPlane = view.camera.nearPlane;
@@ -1227,20 +1233,19 @@ void Renderer::computeCascades(ViewState &v, float aspect) {
     }
     radius = std::ceil(radius * 16.0f) / 16.0f;
     // Leave room for the 3x3 bilinear filter and receiver offset after texel snapping.
-    radius *= static_cast<float>(m_settings.shadowMapSize) /
-              std::max(1.0f, static_cast<float>(m_settings.shadowMapSize) - 10.0f);
+    const float mapSize = static_cast<float>(cascadeMapSize(c));
+    radius *= mapSize / std::max(1.0f, mapSize - 10.0f);
     const float extension = farPlane; // casters this far behind the slice still count
     const glm::mat4 lightView = glm::lookAt(centre - lightDirection * (radius + extension), centre, up);
     glm::mat4 lightProjection = orthoReversedZ(-radius, radius, -radius, radius, 0.0f, 2.0f * radius + extension);
-    const float halfResolution = static_cast<float>(m_settings.shadowMapSize) * 0.5f;
+    const float halfResolution = mapSize * 0.5f;
     const glm::vec4 origin = lightProjection * lightView * glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
     const glm::vec2 snapped = glm::round(glm::vec2{origin} * halfResolution) / halfResolution;
     const glm::vec2 offset = snapped - glm::vec2{origin};
     lightProjection[3][0] += offset.x;
     lightProjection[3][1] += offset.y;
     const float blendStart = split - (split - previousSplit) * 0.1f;
-    v.cascades[c] = Cascade{lightProjection * lightView, split, blendStart,
-                            2.0f * radius / static_cast<float>(m_settings.shadowMapSize)};
+    v.cascades[c] = Cascade{lightProjection * lightView, split, blendStart, 2.0f * radius / mapSize};
     sliceNear = blendStart;
     previousSplit = split;
   }
@@ -2806,7 +2811,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
 
   if (v.cascadesActive) {
     for (std::uint32_t c = 0; c < CascadeCount; ++c) {
-      v.cascadeImages[c] = graph.createImage({.size = {m_settings.shadowMapSize, m_settings.shadowMapSize},
+      v.cascadeImages[c] = graph.createImage({.size = {cascadeMapSize(c), cascadeMapSize(c)},
                                               .format = DepthFormat,
                                               .debugName = std::format("shadow cascade {}", c)});
       graph.addPass(

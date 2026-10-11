@@ -87,8 +87,12 @@ enum class AntiAliasing : std::uint8_t {
 struct RendererSettings {
   bool shadows{true};
   std::uint32_t shadowMapSize{2048}; // per cascade
-  float shadowDistance{80.0f};       // metres of view depth the cascades cover
-  float shadowBias{0.0015f}; // the cascades', in reversed-Z depth units; receiver offset also follows the texel size
+  // The last cascade's map, at most shadowMapSize; unset, the same as the others. It draws the
+  // whole scene's casters at a few triangles to a texel, so on a tile-based GPU its cost follows
+  // its size and the phone player sets it (docs/reports/far-cascade-mechanism.md).
+  std::optional<std::uint32_t> farShadowMapSize{};
+  float shadowDistance{80.0f}; // metres of view depth the cascades cover
+  float shadowBias{0.0015f};   // the cascades', in reversed-Z depth units; receiver offset also follows the texel size
   // Spot and point lights that ask for a shadow (Light::castsShadows) get depth maps, per view, up
   // to this many lights; the rest still illuminate, without shadows. A spot light takes one map and
   // a point light six, one per cube face, and a view has Renderer::MaxLocalShadows maps in all, so
@@ -560,6 +564,7 @@ private:
   void recordParticleDraws(rhi::ICommandList &commands, const ViewState &v);
   void releaseParticles(bool all);
   void releaseSkinnedVertices(bool all);
+  [[nodiscard]] std::uint32_t cascadeMapSize(std::uint32_t cascade) const;
   void computeCascades(ViewState &v, float aspect);
   void selectLocalShadows(ViewState &v) const;
   // How many local shadow maps the view's lights get, which ensureIndirectBuffers sizes the cull
