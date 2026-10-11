@@ -81,7 +81,7 @@ The Android player's setting went from 1024 to 512, measured on the S25 on 2026-
 
 ## Follow-up: a coarser shadow range ([ADR-0025](../decisions/0025-shadow-levels-of-detail.md))
 
-The far cascade draws each caster's coarser index range on the phone player, measured on the S25 on 2026-10-11 (`android-release`, stress scene, the 512 far map). The stress scene's icospheres (320 triangles) get a 98-triangle range that deviates by 9.2 % of the radius as recorded (10.3 % measured), against a half-texel tolerance of 18 cm on a 1 m sphere at the far cascade's 37 cm texel; its boxes have 12 triangles and keep them.
+The far cascade draws each caster's coarser index range on the phone player, measured on the S25 on 2026-10-11 (`android-release`, stress scene, the 512 far map). The stress scene's icospheres (320 triangles) get a 98-triangle range that deviates by 9.2 % of the radius as recorded (10.3 % measured against the ideal sphere), against a half-texel tolerance of 18 cm on a 1 m sphere at the far cascade's 37 cm texel; its boxes have 12 triangles and keep them.
 
 | | Cold cascade 3 | Cold GPU total | Sustained cascade 3 | Sustained GPU total |
 |---|---:|---:|---:|---:|
@@ -94,5 +94,7 @@ The far cascade draws each caster's coarser index range on the phone player, mea
 - The cold cascade is lower than the earlier probe's 80-triangle point (2.20 ms) predicted; the probe changed every pass's spheres and ran a different build, and the cause of the gap was not isolated. The numbers above are the implementation's.
 - Picture: 1920x1080 phone captures against the 512 map without the range. The final image differs by 0.038 levels of 255 on average (worst 8, no pixel over 8); the shadow-factor view by 0.086 on average (worst 42, 0.1 % of pixels over 8, all in the far rows). The 512 map against the 1024 one differed by 0.56 and 1.5 %.
 - Desktop: the setting is unset there, so no draw takes the coarse range; `runtime_tests` and the whole suite (14 tests) pass on Lavapipe, including the showcase golden.
-- Not measured: the iPad and iPhone with the range ([ADR-0025](../decisions/0025-shadow-levels-of-detail.md) sets it for iOS too), a second sustained run.
+- The error margin was then widened from 1.5 to 1.75, after macOS CI measured a coarse range 10.4 % from the fine surface against 9.9 % recorded. The estimate-to-true ratio of an icosphere's fine vertices is 1.36 to 1.57 at 1.5 and at most 1.50 at 1.75. The stress sphere's range is now 102 triangles, recorded at about 10 % and measured at 8.4 % (fine vertices to the coarse surface). The S25 figures above were taken at 1.5 and not repeated.
+- The iPad (A16, 1024 far map, three runs a set, thermal nominal; [ios-shadow-lod.md](ios-shadow-lod.md)): cascade 3 4.65 ms without the range, 1.23 and 1.18 ms with it (-74 %); the GPU frame 41.40 to 38.03 and 37.96 ms (-8 %); the interval 42.37 to 39.02 and 38.93 ms. The shadow-factor view differs by 0.092 levels on average (0.11 % of pixels over 8).
+- Not measured: the iPhone with the range, a second sustained S25 run, the far cascade's triangle count on iOS (the player does not print it).
 
