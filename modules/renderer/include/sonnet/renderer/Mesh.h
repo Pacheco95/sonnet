@@ -82,10 +82,11 @@ struct MeshData {
 // The most a coarse shadow range may deviate from its submesh, as a fraction of the mesh's bounding
 // radius (half its largest extent), and the fewest triangles a submesh needs to be given one.
 constexpr float ShadowRangeError = 0.10f;
-// meshoptimizer's error is a quadric estimate and underestimates what a coarse face of a rounded
-// surface is from the fine one (a 78-triangle icosphere reports 0.098 and measures 0.14), so the range is
-// simplified to ShadowRangeError over this and records the estimate times it.
-constexpr float ShadowRangeErrorMargin = 1.5f;
+// meshoptimizer's error is a quadric estimate and underestimates how far the fine vertices are from
+// the coarse surface (icospheres measure 1.4 to 1.6 times it, and the ratio differs between
+// platforms), so the range is simplified to ShadowRangeError over this and records the estimate
+// times it.
+constexpr float ShadowRangeErrorMargin = 1.75f;
 constexpr std::uint32_t ShadowRangeMinTriangles = 64;
 
 // Gives each submesh of an unskinned, unmorphed mesh a coarser range of its indices, simplified over

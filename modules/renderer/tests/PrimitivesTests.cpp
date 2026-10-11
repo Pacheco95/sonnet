@@ -7,12 +7,48 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <string>
 
 using namespace sonnet::renderer;
 using Catch::Approx;
 
 namespace {
+
+// The nearest point of the triangle abc to p (Ericson, Real-Time Collision Detection, 5.1.5).
+glm::vec3 closestPointOnTriangle(const glm::vec3 &p, const glm::vec3 &a, const glm::vec3 &b, const glm::vec3 &c) {
+  const glm::vec3 ab = b - a;
+  const glm::vec3 ac = c - a;
+  const float d1 = glm::dot(ab, p - a);
+  const float d2 = glm::dot(ac, p - a);
+  if (d1 <= 0.0f && d2 <= 0.0f) {
+    return a;
+  }
+  const float d3 = glm::dot(ab, p - b);
+  const float d4 = glm::dot(ac, p - b);
+  if (d3 >= 0.0f && d4 <= d3) {
+    return b;
+  }
+  const float vc = d1 * d4 - d3 * d2;
+  if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+    return a + ab * (d1 / (d1 - d3));
+  }
+  const float d5 = glm::dot(ab, p - c);
+  const float d6 = glm::dot(ac, p - c);
+  if (d6 >= 0.0f && d5 <= d6) {
+    return c;
+  }
+  const float vb = d5 * d2 - d1 * d6;
+  if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+    return a + ac * (d2 / (d2 - d6));
+  }
+  const float va = d3 * d6 - d5 * d4;
+  if (va <= 0.0f && d4 - d3 >= 0.0f && d5 - d6 >= 0.0f) {
+    return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+  }
+  const float scale = 1.0f / (va + vb + vc);
+  return a + ab * (vb * scale) + ac * (vc * scale);
+}
 
 struct Case {
   std::string name;
@@ -230,17 +266,20 @@ TEST_CASE("a coarse shadow range keeps the vertices and stays within its error",
   for (const std::uint32_t index : mesh.shadowIndices) {
     REQUIRE(index < mesh.vertices.size());
   }
-  // The coarse surface is inscribed in the sphere: no coarse vertex is off it, and the worst a
-  // coarse triangle's centre can be inside it is the error the range reports.
-  const float radius = 0.5f;
+  // The error is how far the fine surface is from the coarse one: the worst distance of a fine
+  // vertex to its nearest coarse triangle.
   float deepest = 0.0f;
-  for (std::size_t t = 0; t + 2 < mesh.shadowIndices.size(); t += 3) {
-    const glm::vec3 centre =
-        (mesh.vertices[mesh.shadowIndices[t]].position + mesh.vertices[mesh.shadowIndices[t + 1]].position +
-         mesh.vertices[mesh.shadowIndices[t + 2]].position) /
-        3.0f;
-    deepest = std::max(deepest, radius - glm::length(centre));
+  for (const Vertex &vertex : mesh.vertices) {
+    float nearest = std::numeric_limits<float>::max();
+    for (std::size_t t = 0; t + 2 < mesh.shadowIndices.size(); t += 3) {
+      const glm::vec3 point = closestPointOnTriangle(vertex.position, mesh.vertices[mesh.shadowIndices[t]].position,
+                                                     mesh.vertices[mesh.shadowIndices[t + 1]].position,
+                                                     mesh.vertices[mesh.shadowIndices[t + 2]].position);
+      nearest = std::min(nearest, glm::length(vertex.position - point));
+    }
+    deepest = std::max(deepest, nearest);
   }
+  const float radius = 0.5f;
   INFO("recorded " << submesh.shadowError << ", measured " << deepest / radius);
   REQUIRE(deepest / radius <= submesh.shadowError);
   // Rebuilding replaces the range rather than appending a second one.
