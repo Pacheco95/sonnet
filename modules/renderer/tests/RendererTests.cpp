@@ -3358,3 +3358,64 @@ TEST_CASE("the cost of a second view at the showcase's scale and at ten thousand
     }
   }
 }
+
+// A far cascade draws the coarse range of a caster whose coarse surface is within a fraction of a
+// texel (ADR-0025): the same casters survive culling, with fewer triangles, and a caster too big
+// for the tolerance keeps its fine range.
+TEST_CASE("a far shadow cascade draws the coarse range of a small caster", "[renderer][gpu][shadow][lod]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  {
+    RendererSettings fine = testSettings();
+    RendererSettings lod = fine;
+    lod.shadowLodCascade = 3u;
+    Renderer fineRenderer{*device, shaderDir(platform), fine};
+    Renderer lodRenderer{*device, shaderDir(platform), lod};
+    MeshData sphere = primitives::icosphere(0.5f, 3);
+    buildShadowRange(sphere);
+    REQUIRE(sphere.submeshes[0].shadowIndexCount > 0);
+    const MeshHandle fineMesh = fineRenderer.createMesh(sphere, "sphere");
+    const MeshHandle lodMesh = lodRenderer.createMesh(sphere, "sphere");
+    const float scale = GENERATE(1.0f, 400.0f); // a metre across, and a kilometre
+    const auto scene = [&](MeshHandle mesh, std::vector<DrawItem> &draws) {
+      draws.clear();
+      for (int i = -3; i <= 3; ++i) {
+        draws.push_back(DrawItem{
+            .mesh = mesh,
+            .transform =
+                glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{2.0f * static_cast<float>(i), 0.0f, -6.0f}),
+                           glm::vec3{scale}),
+            .color = {0.7f, 0.7f, 0.7f, 1.0f}});
+      }
+    };
+    std::vector<DrawItem> fineDraws;
+    std::vector<DrawItem> lodDraws;
+    scene(fineMesh, fineDraws);
+    scene(lodMesh, lodDraws);
+    GpuScene fineScene{*device, fineRenderer, {64, 64}};
+    GpuScene lodScene{*device, lodRenderer, {64, 64}};
+    SceneView fineView = boxScene(fineDraws);
+    SceneView lodView = boxScene(lodDraws);
+    fineView.sun.direction = lodView.sun.direction = glm::normalize(glm::vec3{0.3f, -1.0f, -0.2f});
+    for (int frame = 0; frame < 8; ++frame) {
+      fineScene.render(fineView, 1);
+      lodScene.render(lodView, 1);
+    }
+    REQUIRE(fineRenderer.statistics().visibleCountsKnown);
+    REQUIRE(lodRenderer.statistics().visibleCountsKnown);
+    REQUIRE(lodRenderer.statistics().visibleShadowDrawCount == fineRenderer.statistics().visibleShadowDrawCount);
+    INFO("fine " << fineRenderer.statistics().visibleShadowTriangleCount << " lod "
+                 << lodRenderer.statistics().visibleShadowTriangleCount);
+    if (scale == 1.0f) {
+      REQUIRE(lodRenderer.statistics().visibleShadowTriangleCount <
+              fineRenderer.statistics().visibleShadowTriangleCount);
+    } else {
+      REQUIRE(lodRenderer.statistics().visibleShadowTriangleCount ==
+              fineRenderer.statistics().visibleShadowTriangleCount);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+    fineRenderer.destroyMesh(fineMesh);
+    lodRenderer.destroyMesh(lodMesh);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}

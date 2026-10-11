@@ -20,11 +20,18 @@ struct Vertex {
 };
 static_assert(sizeof(Vertex) == 48);
 
-// A range of the index buffer drawn with one material slot.
+// A range of the index buffer drawn with one material slot. It may carry a second, coarser range
+// of the same vertices that the far shadow cascades draw (ADR-0025): `shadowIndexCount` is 0 when
+// there is none, `shadowFirstIndex` counts into the uploaded index buffer, which holds
+// `MeshData::shadowIndices` after `MeshData::indices`, and `shadowError` is the worst distance the
+// coarse surface is from the fine one as a fraction of the mesh's bounding radius.
 struct Submesh {
   std::uint32_t firstIndex{0};
   std::uint32_t indexCount{0};
   std::uint32_t materialSlot{0};
+  std::uint32_t shadowFirstIndex{0};
+  std::uint32_t shadowIndexCount{0};
+  float shadowError{0.0f};
 };
 
 // The joints that deform one vertex and their weights, which sum to one: indices into the skin's
@@ -60,6 +67,7 @@ struct Bounds {
 struct MeshData {
   std::vector<Vertex> vertices;
   std::vector<std::uint32_t> indices;
+  std::vector<std::uint32_t> shadowIndices; // the submeshes' coarse ranges, one after another (ADR-0025)
   std::vector<Submesh> submeshes;
   std::vector<SkinWeights> skin;
   std::uint32_t morphTargetCount{0};
@@ -70,6 +78,21 @@ struct MeshData {
   }
   [[nodiscard]] Bounds bounds() const;
 };
+
+// The most a coarse shadow range may deviate from its submesh, as a fraction of the mesh's bounding
+// radius (half its largest extent), and the fewest triangles a submesh needs to be given one.
+constexpr float ShadowRangeError = 0.10f;
+// meshoptimizer's error is a quadric estimate and underestimates what a coarse face of a rounded
+// surface is from the fine one (a 78-triangle icosphere reports 0.098 and measures 0.14), so the range is
+// simplified to ShadowRangeError over this and records the estimate times it.
+constexpr float ShadowRangeErrorMargin = 1.5f;
+constexpr std::uint32_t ShadowRangeMinTriangles = 64;
+
+// Gives each submesh of an unskinned, unmorphed mesh a coarser range of its indices, simplified over
+// the same vertices (meshoptimizer, borders locked) within ShadowRangeError, kept in `shadowIndices`
+// only where it has at most half the triangles. Replaces any range the mesh had; call it once the
+// fine indices are final (ADR-0025).
+void buildShadowRange(MeshData &mesh);
 
 // Per-vertex tangents from the triangles' uv derivatives (Lengyel), for meshes that carry none.
 void generateTangents(MeshData &mesh);

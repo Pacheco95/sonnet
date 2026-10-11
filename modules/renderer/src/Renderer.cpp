@@ -169,9 +169,12 @@ struct CullDraw {
   std::uint32_t batch;
   std::uint32_t batchFirst;
   std::uint32_t flags;
+  std::uint32_t shadowIndexCount; // the coarse range a far cascade's job draws instead (ADR-0025)
+  std::uint32_t shadowFirstIndex;
 };
-static_assert(sizeof(CullDraw) == 48);
+static_assert(sizeof(CullDraw) == 56);
 constexpr std::uint32_t CullSelected = 1u << 0;
+constexpr std::uint32_t CullCoarse = 1u << 1;
 
 // Mirror of shaders/cull.slang.
 struct CullConstants {
@@ -185,7 +188,7 @@ struct CullConstants {
   std::uint64_t pyramid;      // occlusion culling (ADR-0024): the pyramid to test against
   std::uint64_t words;        // the state buffer: counters, then phase one's record of the candidates
   std::uint32_t lateBase;     // the job's first late command
-  std::uint32_t flags;        // OcclusionTest, RecordState and HasCounter
+  std::uint32_t flags;        // OcclusionTest, RecordState, HasCounter and ShadowCoarse
   std::uint32_t stateBase;    // the job's first word of that record
   std::uint32_t counter;      // the pair of counters survivors are added to
 };
@@ -194,6 +197,7 @@ static_assert(sizeof(CullConstants) <= rhi::PushConstantSize);
 constexpr std::uint32_t OcclusionTest = 1u << 0;
 constexpr std::uint32_t RecordState = 1u << 1;
 constexpr std::uint32_t HasCounter = 1u << 2;
+constexpr std::uint32_t ShadowCoarse = 1u << 3;
 // The state buffer starts with every view's counters: the opaque scene draws and their triangles
 // that survived culling, then the shadow draws and theirs.
 constexpr std::uint32_t CounterViews = 8;
@@ -737,7 +741,7 @@ MeshHandle Renderer::createMesh(const MeshData &data, std::string debugName) {
   SONNET_ASSERT(!data.vertices.empty() && data.indices.size() % 3 == 0, "mesh \"{}\" is not a triangle list",
                 debugName);
   const std::uint64_t vertexBytes = data.vertices.size() * sizeof(Vertex);
-  const std::uint64_t indexBytes = data.indices.size() * sizeof(std::uint32_t);
+  const std::uint64_t indexBytes = (data.indices.size() + data.shadowIndices.size()) * sizeof(std::uint32_t);
   const rhi::BufferHandle vertices =
       m_device.createBuffer({.size = vertexBytes,
                              .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::TransferDst,
@@ -748,6 +752,10 @@ MeshHandle Renderer::createMesh(const MeshData &data, std::string debugName) {
                              .debugName = std::format("{} indices", debugName)});
   m_device.uploadBuffer(vertices, 0, std::as_bytes(std::span{data.vertices}));
   m_device.uploadBuffer(indices, 0, std::as_bytes(std::span{data.indices}));
+  if (!data.shadowIndices.empty()) {
+    m_device.uploadBuffer(indices, data.indices.size() * sizeof(std::uint32_t),
+                          std::as_bytes(std::span{data.shadowIndices}));
+  }
   rhi::BufferHandle morph;
   std::uint32_t morphTargets = 0;
   if (data.morphTargetCount > 0 &&
@@ -777,6 +785,16 @@ MeshHandle Renderer::createMesh(const MeshData &data, std::string debugName) {
   std::vector<Submesh> submeshes = data.submeshes;
   if (submeshes.empty()) {
     submeshes.push_back(Submesh{0, static_cast<std::uint32_t>(data.indices.size()), 0});
+  }
+  // A coarse range that does not lie in the shadow indices the mesh brought is dropped, so a bad
+  // bundle draws the fine range instead of reading past the buffer.
+  const std::size_t totalIndices = data.indices.size() + data.shadowIndices.size();
+  for (Submesh &submesh : submeshes) {
+    if (submesh.shadowIndexCount > 0 &&
+        (submesh.shadowFirstIndex < data.indices.size() ||
+         std::size_t{submesh.shadowFirstIndex} + submesh.shadowIndexCount > totalIndices)) {
+      submesh.shadowIndexCount = 0;
+    }
   }
   Mesh mesh{std::move(debugName),
             vertices,
@@ -1370,6 +1388,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     v.statistics.visibleDrawCount = counts.draws;
     v.statistics.visibleTriangleCount = counts.triangles;
     v.statistics.visibleShadowDrawCount = counts.shadowDraws;
+    v.statistics.visibleShadowTriangleCount = counts.shadowTriangles;
   }
   v.resolved.clear();
   v.skinJobs.clear();
@@ -1393,6 +1412,14 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
       cameraView;
   v.jitteredViewProjection = v.viewProjection;
   v.previousViewProjection = v.viewProjection;
+  // The world-space error a far cascade tolerates in a caster (ADR-0025): a fraction of the texel of
+  // the first cascade that draws coarse ranges, 0 when none does.
+  float coarseTolerance = 0.0f;
+  if (m_settings.shadowLodCascade && m_settings.shadows && view.hasSun) {
+    computeCascades(v, static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u)));
+    const std::uint32_t cascade = std::min(*m_settings.shadowLodCascade, CascadeCount - 1);
+    coarseTolerance = m_settings.shadowLodTexels * v.cascades[cascade].texelSize;
+  }
   for (std::size_t i = 0; i < view.draws.size(); ++i) {
     const DrawItem &item = view.draws[i];
     const Mesh *mesh = m_meshes.find(item.mesh);
@@ -1419,6 +1446,10 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     if (vertices.current == rhi::InvalidBindlessIndex) {
       continue; // the bindless vertex-buffer array is full, which the device has logged
     }
+    const Submesh &range = mesh->submeshes[item.submesh];
+    const glm::vec3 halfSize = (maximum - minimum) * 0.5f;
+    const bool coarse = range.shadowIndexCount > 0 &&
+                        range.shadowError * std::max({halfSize.x, halfSize.y, halfSize.z}) <= coarseTolerance;
     v.resolved.push_back(ResolvedDraw{.objectIndex = static_cast<std::uint32_t>(i),
                                       .mesh = mesh,
                                       .vertexBuffer = vertices.current,
@@ -1428,6 +1459,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
                                       .extent = (maximum - minimum) * 0.5f,
                                       .doubleSided = desc.doubleSided,
                                       .mirrored = glm::determinant(glm::mat3{item.transform}) < 0.0f,
+                                      .coarse = coarse,
                                       .blended = desc.alphaMode == AlphaMode::Blend,
                                       .masked = desc.alphaMode == AlphaMode::Mask,
                                       .viewDepth = -viewPosition.z});
@@ -1454,7 +1486,10 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     if (da.submesh.firstIndex != db.submesh.firstIndex) {
       return da.submesh.firstIndex < db.submesh.firstIndex;
     }
-    return da.submesh.indexCount < db.submesh.indexCount;
+    if (da.submesh.indexCount != db.submesh.indexCount) {
+      return da.submesh.indexCount < db.submesh.indexCount;
+    }
+    return da.coarse < db.coarse;
   };
   std::ranges::sort(v.opaqueOrder, byBatch);
   std::ranges::sort(v.blendedOrder, [&](std::uint32_t a, std::uint32_t b) {
@@ -1600,7 +1635,7 @@ void Renderer::buildBatches(const ViewState &v, std::span<const std::uint32_t> o
       Batch &last = batches.back();
       if (last.mesh == draw.mesh && last.submesh.firstIndex == draw.submesh.firstIndex &&
           last.submesh.indexCount == draw.submesh.indexCount && last.pipeline == pipeline &&
-          last.mirrored == draw.mirrored) {
+          last.mirrored == draw.mirrored && last.coarse == draw.coarse) {
         ++last.drawCount;
         continue;
       }
@@ -1609,6 +1644,7 @@ void Renderer::buildBatches(const ViewState &v, std::span<const std::uint32_t> o
                             .submesh = draw.submesh,
                             .pipeline = pipeline,
                             .mirrored = draw.mirrored,
+                            .coarse = draw.coarse,
                             .firstDraw = position,
                             .drawCount = 1});
   }
@@ -1728,21 +1764,21 @@ void Renderer::recordCulling(rhi::ICommandList &commands, ViewState &v) {
     return job.opaque ? v.frameBuffers.opaqueCandidates : v.frameBuffers.allCandidates;
   };
   const auto push = [&](const CullJob &job, std::uint32_t threads, std::uint32_t commandBase) {
-    const CullConstants constants{.viewProjection = job.viewProjection,
-                                  .draws = candidates(job),
-                                  .visible = visible,
-                                  .drawCount = threads,
-                                  .commandBase = commandBase,
-                                  .visibleBase = job.firstVisible,
-                                  .selectedOnly = job.selectedOnly ? 1u : 0u,
-                                  .pyramid = job.pyramid,
-                                  .words = state,
-                                  .lateBase = job.lateCommand,
-                                  .flags = (job.pyramid != 0 ? OcclusionTest : 0u) |
-                                           (job.occlusion ? RecordState : 0u) |
-                                           (job.counter != NoCounter ? HasCounter : 0u),
-                                  .stateBase = job.stateBase,
-                                  .counter = job.counter};
+    const CullConstants constants{
+        .viewProjection = job.viewProjection,
+        .draws = candidates(job),
+        .visible = visible,
+        .drawCount = threads,
+        .commandBase = commandBase,
+        .visibleBase = job.firstVisible,
+        .selectedOnly = job.selectedOnly ? 1u : 0u,
+        .pyramid = job.pyramid,
+        .words = state,
+        .lateBase = job.lateCommand,
+        .flags = (job.pyramid != 0 ? OcclusionTest : 0u) | (job.occlusion ? RecordState : 0u) |
+                 (job.counter != NoCounter ? HasCounter : 0u) | (job.shadowCoarse ? ShadowCoarse : 0u),
+        .stateBase = job.stateBase,
+        .counter = job.counter};
     commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   };
 
@@ -2431,7 +2467,9 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                                           .firstIndex = draw.submesh.firstIndex,
                                           .batch = static_cast<std::uint32_t>(index),
                                           .batchFirst = batch.firstDraw,
-                                          .flags = selected ? CullSelected : 0u};
+                                          .flags = (selected ? CullSelected : 0u) | (draw.coarse ? CullCoarse : 0u),
+                                          .shadowIndexCount = draw.submesh.shadowIndexCount,
+                                          .shadowFirstIndex = draw.submesh.shadowFirstIndex};
         }
       }
     });
@@ -2728,6 +2766,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
     cascadeJobs[c] = reserveCullJob(v, false);
     if (cascadeJobs[c]) {
       cascadeJobs[c]->viewProjection = v.cascades[c].matrix;
+      cascadeJobs[c]->shadowCoarse = m_settings.shadowLodCascade && c >= *m_settings.shadowLodCascade;
     }
   }
   // The pre-pass and the forward pass cull with the matrix they rasterise with.

@@ -1,3 +1,5 @@
+find_package(meshoptimizer CONFIG REQUIRED)
+
 sonnet_add_module(renderer
   SOURCES
     src/Camera.cpp
@@ -10,6 +12,8 @@ sonnet_add_module(renderer
     src/Texture.cpp
   PUBLIC_DEPENDS
     sonnet::rhi
+  DEPENDS
+    meshoptimizer::meshoptimizer
 )
 
 # Engine shaders. sonnet.slang is a module the entry-point files import; only entry-point files

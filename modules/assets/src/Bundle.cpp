@@ -342,6 +342,7 @@ std::vector<std::byte> encodeMesh(const renderer::MeshData &mesh) {
   writer.tag("MESH");
   writer.array(std::span{mesh.vertices});
   writer.array(std::span{mesh.indices});
+  writer.array(std::span{mesh.shadowIndices});
   writer.array(std::span{mesh.submeshes});
   writer.array(std::span{mesh.skin});
   writer.u32(mesh.morphTargetCount);
@@ -357,6 +358,7 @@ core::Result<renderer::MeshData> decodeMesh(std::span<const std::byte> payload) 
   renderer::MeshData mesh;
   reader.array(mesh.vertices);
   reader.array(mesh.indices);
+  reader.array(mesh.shadowIndices);
   reader.array(mesh.submeshes);
   reader.array(mesh.skin);
   mesh.morphTargetCount = reader.u32();

@@ -215,3 +215,57 @@ TEST_CASE("round sides repeat the texture a whole number of times, about once a 
   }
   REQUIRE(capsuleV == Approx(2.0f + 0.5f * 3.14159265f).epsilon(1e-4f));
 }
+
+TEST_CASE("a coarse shadow range keeps the vertices and stays within its error", "[renderer][primitives][shadow]") {
+  MeshData mesh = primitives::icosphere(0.5f, 3); // 1280 triangles
+  buildShadowRange(mesh);
+  REQUIRE(mesh.submeshes.size() == 1);
+  const Submesh &submesh = mesh.submeshes[0];
+  REQUIRE(submesh.shadowIndexCount > 0);
+  REQUIRE(submesh.shadowIndexCount % 3 == 0);
+  REQUIRE(submesh.shadowIndexCount * 2 <= submesh.indexCount);
+  REQUIRE(submesh.shadowFirstIndex == mesh.indices.size());
+  REQUIRE(mesh.shadowIndices.size() == submesh.shadowIndexCount);
+  REQUIRE(submesh.shadowError <= ShadowRangeError + 1.0e-4f);
+  for (const std::uint32_t index : mesh.shadowIndices) {
+    REQUIRE(index < mesh.vertices.size());
+  }
+  // The coarse surface is inscribed in the sphere: no coarse vertex is off it, and the worst a
+  // coarse triangle's centre can be inside it is the error the range reports.
+  const float radius = 0.5f;
+  float deepest = 0.0f;
+  for (std::size_t t = 0; t + 2 < mesh.shadowIndices.size(); t += 3) {
+    const glm::vec3 centre =
+        (mesh.vertices[mesh.shadowIndices[t]].position + mesh.vertices[mesh.shadowIndices[t + 1]].position +
+         mesh.vertices[mesh.shadowIndices[t + 2]].position) /
+        3.0f;
+    deepest = std::max(deepest, radius - glm::length(centre));
+  }
+  INFO("recorded " << submesh.shadowError << ", measured " << deepest / radius);
+  REQUIRE(deepest / radius <= submesh.shadowError);
+  // Rebuilding replaces the range rather than appending a second one.
+  const std::size_t first = mesh.shadowIndices.size();
+  buildShadowRange(mesh);
+  REQUIRE(mesh.shadowIndices.size() == first);
+}
+
+TEST_CASE("a mesh that a coarse range cannot serve gets none", "[renderer][primitives][shadow]") {
+  SECTION("too few triangles") {
+    MeshData mesh = primitives::box();
+    buildShadowRange(mesh);
+    REQUIRE(mesh.shadowIndices.empty());
+  }
+  SECTION("skinned") {
+    MeshData mesh = primitives::icosphere(0.5f, 3);
+    mesh.skin.assign(mesh.vertices.size(), SkinWeights{});
+    buildShadowRange(mesh);
+    REQUIRE(mesh.shadowIndices.empty());
+  }
+  SECTION("morphed") {
+    MeshData mesh = primitives::icosphere(0.5f, 3);
+    mesh.morphTargetCount = 1;
+    mesh.morphDeltas.assign(mesh.vertices.size(), MorphDelta{});
+    buildShadowRange(mesh);
+    REQUIRE(mesh.shadowIndices.empty());
+  }
+}

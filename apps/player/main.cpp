@@ -55,12 +55,15 @@ using namespace sonnet;
   runtime::GameDesc desc;
   // A capture run draws its settle frames before it plays, as the editor's does.
   desc.paused = line.capture.has_value();
-  // The far cascade's cost on a phone's tile-based GPU follows its map: 512 pays on the Adreno
-  // 830, 1024 is enough on the A16 (docs/reports/far-cascade-mechanism.md).
+  // The far cascade's cost on a phone's tile-based GPU follows its map and its triangle count: 512
+  // pays on the Adreno 830, 1024 is enough on the A16 (docs/reports/far-cascade-mechanism.md), and
+  // its casters draw their coarser shadow range (ADR-0025).
 #if defined(__ANDROID__)
   desc.renderer.farShadowMapSize = 512;
+  desc.renderer.shadowLodCascade = 3;
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
   desc.renderer.farShadowMapSize = 1024;
+  desc.renderer.shadowLodCascade = 3;
 #endif
   return desc;
 }

@@ -247,6 +247,8 @@ public struct CullDraw {
   public uint batch;      // which of the job's commands this draw adds an instance to
   public uint batchFirst; // the batch's first slot in the job's run of the visible list
   public uint flags;
+  public uint shadowIndexCount; // the coarse range a far cascade's job draws instead (ADR-0025)
+  public uint shadowFirstIndex;
 };
 
 public static const uint CullSelected = 1u << 0;
