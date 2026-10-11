@@ -52,7 +52,7 @@ An earlier version of this report predicted a smaller map would not help. The me
 
 ## Fix: a smaller map for the last cascade
 
-`RendererSettings::farShadowMapSize` (unset by default, meaning the same as `shadowMapSize`; capped at `shadowMapSize`) sizes the last cascade's map; the other cascades keep `shadowMapSize`. The player sets it to 512 on Android and iOS (it first shipped as 1024, PR #179) (`__ANDROID__` and `TARGET_OS_IPHONE`; `hostPlatform()` is the cooking host and says Linux on a phone), so desktop output is unchanged: the stress scene's final and shadow-factor captures are byte-identical to the 2048 ones. The texel size and the texel snapping follow the cascade's own size, and the shader already reads each image's dimensions.
+`RendererSettings::farShadowMapSize` (unset by default, meaning the same as `shadowMapSize`; capped at `shadowMapSize`) sizes the last cascade's map; the other cascades keep `shadowMapSize`. The player sets it to 512 on Android and 1024 on iOS (both first shipped as 1024, PR #179) (`__ANDROID__` and `TARGET_OS_IPHONE`; `hostPlatform()` is the cooking host and says Linux on a phone), so desktop output is unchanged: the stress scene's final and shadow-factor captures are byte-identical to the 2048 ones. The texel size and the texel snapping follow the cascade's own size, and the shader already reads each image's dimensions.
 
 - S25, cold stress run, two runs, with the far map set to 1024 for every platform (before the setting became mobile-only; the final build's mobile path was built but not re-run on the phone): cascade 3 6.31 and 6.31 ms (from 8.4), the GPU total 17.5 ms (from 19.6). That is 25 % off the cascade, not the "well below" the issue hopes for: the 3.3 ms floor and the part that follows the map size remain, and 512 would give 3.7 ms at a 37 cm texel.
 - Basic sample, desktop, 1280×720: the screenshot with a 1024 far map differs from the 2048 one by at most 1 in 255 and by more than 2 in no pixel.
@@ -66,7 +66,7 @@ The map-size sweep is not reproducible from the tree: the probe was temporary (s
 
 ## Follow-up: a 512 map on phones ([issue 180](https://github.com/Pacheco95/sonnet/issues/180))
 
-The player's phone setting went from 1024 to 512, measured on the S25 on 2026-10-11 (`android-release`, stress scene).
+The Android player's setting went from 1024 to 512, measured on the S25 on 2026-10-11 (`android-release`, stress scene).
 
 | Far map | Cold cascade 3 | Cold GPU total | Sustained cascade 3 | Sustained GPU total |
 |---|---:|---:|---:|---:|
@@ -77,4 +77,4 @@ The player's phone setting went from 1024 to 512, measured on the S25 on 2026-10
 - Cold: two runs, 3.641 and 3.648 ms, the frame at the 60 Hz cap (16.65 ms apart). This matches the sweep's 3.70 ms and sits at the 3.3 ms floor.
 - Sustained: `--play 600`, started cool (status 0, skin 37.9 °C); the clock fell 1200 to 734 MHz and the thermal status stopped at 2 (skin 42.1 °C), the same as the 1024 run, so the comparison with it is like for like. GPU 23.77 ms, CPU 13.88 ms, 4.3 ms of cascade 3 less than at 1024 and 8 ms less than at 2048. The target (33 ms) is met with 9.2 ms to spare.
 - Picture: 1920x1080 phone captures, 512 against 1024. The final image differs by 0.17 levels on average (worst 24, 0.08 % of pixels by more than 8). The shadow-factor view differs by 0.56 on average (worst 106, 1.5 % of pixels by more than 8), mostly in the far rows: the far shadows are softer, a 37 cm texel at 80 m.
-- Not measured: the iPad with 512 (the 1024 result is in [ios-far-cascade.md](ios-far-cascade.md); `TARGET_OS_IPHONE` takes 512 too).
+- The iPad, 512 against 1024 in one session ([ios-far-cascade-512.md](ios-far-cascade-512.md)): cascade 3 4.65 to 4.09 ms (12 %), the GPU frame 1.5 %, against 40 % on the S25. iOS therefore keeps 1024 and only Android takes 512.
