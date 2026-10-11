@@ -1,6 +1,6 @@
 # ADR-0025: A coarser index range for the far shadow cascades
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-11
 
 ## Context
