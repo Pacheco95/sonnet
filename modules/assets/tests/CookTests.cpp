@@ -5,6 +5,7 @@
 #include <sonnet/core/JobSystem.h>
 
 #include <sonnet/platform/Platform.h>
+#include <sonnet/renderer/Primitives.h>
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
 
@@ -123,6 +124,21 @@ TEST_CASE("cooking a mesh keeps its submeshes and their slots", "[assets][cook]"
   REQUIRE(cooked.submeshes[1].indexCount == half);
   REQUIRE(cooked.submeshes[1].materialSlot == 2);
   REQUIRE(triangles(cooked) == triangles(source));
+}
+
+TEST_CASE("cooking a mesh rebuilds its coarse shadow range over the reordered indices", "[assets][cook][shadow]") {
+  renderer::MeshData mesh = renderer::primitives::icosphere(0.5f, 3);
+  renderer::buildShadowRange(mesh);
+  REQUIRE(!mesh.shadowIndices.empty());
+  const renderer::MeshData cooked = cookMesh(mesh);
+  REQUIRE(cooked.submeshes.size() == 1);
+  const renderer::Submesh &submesh = cooked.submeshes[0];
+  REQUIRE(submesh.shadowIndexCount > 0);
+  REQUIRE(submesh.shadowFirstIndex == cooked.indices.size());
+  REQUIRE(cooked.shadowIndices.size() == submesh.shadowIndexCount);
+  for (const std::uint32_t index : cooked.shadowIndices) {
+    REQUIRE(index < cooked.vertices.size());
+  }
 }
 
 TEST_CASE("cooking a skinned mesh keeps each vertex with its weights", "[assets][cook]") {

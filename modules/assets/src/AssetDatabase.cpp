@@ -878,6 +878,7 @@ renderer::MeshHandle AssetDatabase::mesh(const core::Uuid &uuid) {
     } else {
       data = renderer::primitives::icosphere();
     }
+    renderer::buildShadowRange(data);
     m_meshes[uuid] = m_renderer.createMesh(data, info->name);
     m_meshData[uuid] = std::move(data);
     return m_meshes[uuid];

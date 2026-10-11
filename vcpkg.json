@@ -20,6 +20,7 @@
       ]
     },
     "vulkan-headers",
+    "meshoptimizer",
     {
       "name": "vulkan-loader",
       "platform": "!android & !ios"

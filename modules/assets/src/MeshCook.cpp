@@ -304,6 +304,7 @@ renderer::MeshData cookMesh(const MeshData &mesh, MeshCookStatistics *statistics
     statistics->verticesAfter = static_cast<std::uint32_t>(cooked.vertices.size());
     statistics->cacheMissesAfter = averageCacheMissRatio(cooked.indices);
   }
+  renderer::buildShadowRange(cooked); // the reorder made the source's range stale (ADR-0025)
   return cooked;
 }
 

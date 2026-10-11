@@ -50,7 +50,8 @@ struct RenderStatistics {
   bool visibleCountsKnown{false};
   std::uint32_t visibleDrawCount{0}; // scene passes' survivors, early and late
   std::uint32_t visibleTriangleCount{0};
-  std::uint32_t visibleShadowDrawCount{0}; // the survivors summed over the shadow passes
+  std::uint32_t visibleShadowDrawCount{0};     // the survivors summed over the shadow passes
+  std::uint32_t visibleShadowTriangleCount{0}; // and their triangles, the coarse ranges' where a cascade drew them
 };
 
 // One term of the forward shading written in place of the final colour, before tone mapping, to
@@ -91,6 +92,11 @@ struct RendererSettings {
   // whole scene's casters at a few triangles to a texel, so on a tile-based GPU its cost follows
   // its size and the phone player sets it (docs/reports/far-cascade-mechanism.md).
   std::optional<std::uint32_t> farShadowMapSize{};
+  // The first cascade that draws casters through their coarser shadow range (ADR-0025), which only
+  // a draw whose coarse surface is within `shadowLodTexels` of that cascade's texels keeps to;
+  // unset, every cascade draws the fine range. The phone player sets it to the far cascade.
+  std::optional<std::uint32_t> shadowLodCascade{};
+  float shadowLodTexels{0.5f};
   float shadowDistance{80.0f}; // metres of view depth the cascades cover
   float shadowBias{0.0015f};   // the cascades', in reversed-Z depth units; receiver offset also follows the texel size
   // Spot and point lights that ask for a shadow (Light::castsShadows) get depth maps, per view, up
@@ -399,6 +405,7 @@ private:
     glm::vec3 extent; // half size
     bool doubleSided;
     bool mirrored; // the transform's upper 3x3 has a negative determinant: the winding reverses
+    bool coarse;   // the far cascades may draw the submesh's coarse range (ADR-0025)
     bool blended;
     bool masked;
     float viewDepth;
@@ -411,6 +418,7 @@ private:
     Submesh submesh;
     std::uint32_t pipeline;  // index into a pipeline pair: 1 for double-sided
     bool mirrored;           // drawn with a clockwise front face
+    bool coarse;             // its draws may use the coarse shadow range; part of the key so a command's range is one
     std::uint32_t firstDraw; // into the order list, and into a job's run of the visible list
     std::uint32_t drawCount;
   };
@@ -424,6 +432,7 @@ private:
     std::uint32_t firstCommand{0}; // the job's first batch's command in the command buffer
     std::uint32_t firstVisible{0}; // the job's first slot in the visible list
     bool selectedOnly{false};
+    bool shadowCoarse{false}; // a far cascade: draws the coarse range of the candidates marked for it (ADR-0025)
     // Occlusion culling (ADR-0024), set on the depth job only. `pyramid` is the address of the
     // previous frame's depth pyramid, or 0 when there is none to test phase one against.
     bool occlusion{false};

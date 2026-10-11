@@ -19,9 +19,12 @@ struct CullDraw {
   uint batch;      // which of the job's commands this draw adds an instance to
   uint batchFirst; // the batch's first slot in the job's run of the visible list
   uint flags;
+  uint shadowIndexCount; // the coarse range a far cascade's job draws instead (ADR-0025)
+  uint shadowFirstIndex;
 };
 
 static const uint CullSelected = 1u << 0;
+static const uint CullCoarse = 1u << 1;
 
 struct CullConstants {
   float4x4 viewProjection;
@@ -47,6 +50,7 @@ struct CullConstants {
 static const uint OcclusionTest = 1u << 0;
 static const uint RecordState = 1u << 1;
 static const uint HasCounter = 1u << 2;
+static const uint ShadowCoarse = 1u << 3;
 
 [[vk::push_constant]]
 ConstantBuffer<CullConstants> cull;
@@ -138,10 +142,10 @@ bool occluded(float4x4 m, float3 center, float3 extent) {
 
 // A survivor counts as a draw and as its triangles in the job's counters, which a later frame
 // reads back for the statistics.
-void count(CullDraw candidate) {
+void count(uint indexCount) {
   if ((cull.flags & HasCounter) != 0) {
     InterlockedAdd(cull.words[cull.counter], 1u);
-    InterlockedAdd(cull.words[cull.counter + 1], candidate.indexCount / 3);
+    InterlockedAdd(cull.words[cull.counter + 1], indexCount / 3);
   }
 }
 
@@ -188,7 +192,12 @@ void computeMain(uint3 thread: SV_DispatchThreadID) {
   if (!kept) {
     return;
   }
-  count(candidate);
+  // A far cascade's job draws the coarse range of the candidates marked for it (ADR-0025); the
+  // mark is part of the batch's key, so every draw of the batch agrees.
+  const bool coarse = (cull.flags & ShadowCoarse) != 0 && (candidate.flags & CullCoarse) != 0;
+  const uint indexCount = coarse ? candidate.shadowIndexCount : candidate.indexCount;
+  const uint firstIndex = coarse ? candidate.shadowFirstIndex : candidate.firstIndex;
+  count(indexCount);
   const uint command = (cull.commandBase + candidate.batch) * CommandWords;
   const uint run = cull.visibleBase + candidate.batchFirst;
   uint slot = 0;
@@ -197,8 +206,8 @@ void computeMain(uint3 thread: SV_DispatchThreadID) {
   // Every draw of a batch carries the same index range, so the first survivor writes the rest of
   // the command; the others only add instances. The clear left the vertex offset at zero.
   if (slot == 0) {
-    commandWords[command + IndexCountWord] = candidate.indexCount;
-    commandWords[command + FirstIndexWord] = candidate.firstIndex;
+    commandWords[command + IndexCountWord] = indexCount;
+    commandWords[command + FirstIndexWord] = firstIndex;
     commandWords[command + FirstInstanceWord] = run;
   }
 }
@@ -226,7 +235,7 @@ void lateMain(uint3 thread: SV_DispatchThreadID) {
   uint slot = 0;
   InterlockedAdd(commandWords[late + InstanceCountWord], 1u, slot);
   cull.visible[run + early + slot] = candidate.objectIndex;
-  count(candidate);
+  count(candidate.indexCount);
   commandWords[late + IndexCountWord] = candidate.indexCount;
   commandWords[late + FirstIndexWord] = candidate.firstIndex;
   commandWords[late + FirstInstanceWord] = run + early;

@@ -1,7 +1,10 @@
 #include <sonnet/renderer/Mesh.h>
 
+#include <meshoptimizer.h>
+
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace sonnet::renderer {
 
@@ -15,6 +18,69 @@ Bounds MeshData::bounds() const {
     result.max = glm::max(result.max, vertex.position);
   }
   return result;
+}
+
+void buildShadowRange(MeshData &mesh) {
+  mesh.shadowIndices.clear();
+  for (Submesh &submesh : mesh.submeshes) {
+    submesh.shadowFirstIndex = 0;
+    submesh.shadowIndexCount = 0;
+    submesh.shadowError = 0.0f;
+  }
+  if (!mesh.skin.empty() || mesh.morphTargetCount > 0 || mesh.vertices.empty()) {
+    return; // a deformed draw reads its own vertex buffer, which the coarse range is not made for
+  }
+  const Bounds bounds = mesh.bounds();
+  const glm::vec3 size = bounds.max - bounds.min;
+  const float radius = 0.5f * std::max({size.x, size.y, size.z});
+  if (radius <= 0.0f) {
+    return;
+  }
+  if (mesh.submeshes.empty()) {
+    mesh.submeshes.push_back(Submesh{0, static_cast<std::uint32_t>(mesh.indices.size()), 0});
+  }
+  // The simplifier needs the topology of the surface, which a mesh with a vertex per corner or per
+  // seam does not have: weld the positions for it, then name each result vertex by the first
+  // original vertex at that position.
+  std::vector<std::uint32_t> remap(mesh.vertices.size());
+  const meshopt_Stream stream{&mesh.vertices[0].position, sizeof(glm::vec3), sizeof(Vertex)};
+  const std::size_t uniqueCount =
+      meshopt_generateVertexRemapMulti(remap.data(), nullptr, mesh.vertices.size(), mesh.vertices.size(), &stream, 1);
+  std::vector<glm::vec3> positions(uniqueCount);
+  std::vector<std::uint32_t> representative(uniqueCount, std::numeric_limits<std::uint32_t>::max());
+  for (std::uint32_t i = 0; i < mesh.vertices.size(); ++i) {
+    if (representative[remap[i]] == std::numeric_limits<std::uint32_t>::max()) {
+      representative[remap[i]] = i;
+      positions[remap[i]] = mesh.vertices[i].position;
+    }
+  }
+  std::vector<std::uint32_t> welded;
+  std::vector<std::uint32_t> simplified;
+  for (Submesh &submesh : mesh.submeshes) {
+    if (submesh.indexCount % 3 != 0 || submesh.indexCount / 3 < ShadowRangeMinTriangles ||
+        std::size_t{submesh.firstIndex} + submesh.indexCount > mesh.indices.size()) {
+      continue;
+    }
+    welded.resize(submesh.indexCount);
+    for (std::uint32_t i = 0; i < submesh.indexCount; ++i) {
+      welded[i] = remap[mesh.indices[submesh.firstIndex + i]];
+    }
+    simplified.resize(submesh.indexCount);
+    float error = 0.0f;
+    const std::size_t count =
+        meshopt_simplify(simplified.data(), welded.data(), submesh.indexCount, &positions[0].x, uniqueCount,
+                         sizeof(glm::vec3), 0, ShadowRangeError * radius / ShadowRangeErrorMargin,
+                         meshopt_SimplifyLockBorder | meshopt_SimplifyErrorAbsolute, &error);
+    if (count == 0 || count * 2 > submesh.indexCount) {
+      continue;
+    }
+    submesh.shadowFirstIndex = static_cast<std::uint32_t>(mesh.indices.size() + mesh.shadowIndices.size());
+    submesh.shadowIndexCount = static_cast<std::uint32_t>(count);
+    submesh.shadowError = error * ShadowRangeErrorMargin / radius;
+    for (std::size_t i = 0; i < count; ++i) {
+      mesh.shadowIndices.push_back(representative[simplified[i]]);
+    }
+  }
 }
 
 void generateTangents(MeshData &mesh) {

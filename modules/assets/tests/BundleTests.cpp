@@ -3,6 +3,7 @@
 
 #include <sonnet/assets/Bundle.h>
 #include <sonnet/assets/Cook.h>
+#include <sonnet/renderer/Primitives.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -51,6 +52,19 @@ TEST_CASE("a mesh payload round-trips through the cooked form", "[assets][bundle
   REQUIRE(decoded->submeshes[0].materialSlot == 1);
   REQUIRE(decoded->skin.size() == 3);
   REQUIRE(decoded->skin[2].joints.x == 3u);
+}
+
+TEST_CASE("a mesh's coarse shadow range round-trips through the cooked form", "[assets][bundle][shadow]") {
+  renderer::MeshData source = renderer::primitives::icosphere(0.5f, 3);
+  renderer::buildShadowRange(source);
+  REQUIRE(!source.shadowIndices.empty());
+  const auto decoded = decodeMesh(encodeMesh(source));
+  REQUIRE(decoded.has_value());
+  REQUIRE(decoded->shadowIndices == source.shadowIndices);
+  REQUIRE(decoded->submeshes.size() == 1);
+  REQUIRE(decoded->submeshes[0].shadowFirstIndex == source.submeshes[0].shadowFirstIndex);
+  REQUIRE(decoded->submeshes[0].shadowIndexCount == source.submeshes[0].shadowIndexCount);
+  REQUIRE(decoded->submeshes[0].shadowError == source.submeshes[0].shadowError);
 }
 
 TEST_CASE("skins, clips and models round-trip through the cooked form", "[assets][bundle]") {

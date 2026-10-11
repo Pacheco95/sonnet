@@ -78,3 +78,23 @@ The Android player's setting went from 1024 to 512, measured on the S25 on 2026-
 - Sustained: `--play 600`, started cool (status 0, skin 37.9 °C); the clock fell 1200 to 734 MHz and the thermal status stopped at 2 (skin 42.1 °C), the same as the 1024 run, so the comparison with it is like for like. GPU 23.77 ms, CPU 13.88 ms, 4.3 ms of cascade 3 less than at 1024 and 8 ms less than at 2048. The target (33 ms) is met with 9.2 ms to spare.
 - Picture: 1920x1080 phone captures, 512 against 1024. The final image differs by 0.17 levels on average (worst 24, 0.08 % of pixels by more than 8). The shadow-factor view differs by 0.56 on average (worst 106, 1.5 % of pixels by more than 8), mostly in the far rows: the far shadows are softer, a 37 cm texel at 80 m.
 - The iPad, 512 against 1024 in one session ([ios-far-cascade-512.md](ios-far-cascade-512.md)): cascade 3 4.65 to 4.09 ms (12 %), the GPU frame 1.5 %, against 40 % on the S25. iOS therefore keeps 1024 and only Android takes 512.
+
+## Follow-up: a coarser shadow range ([ADR-0025](../decisions/0025-shadow-levels-of-detail.md))
+
+The far cascade draws each caster's coarser index range on the phone player, measured on the S25 on 2026-10-11 (`android-release`, stress scene, the 512 far map). The stress scene's icospheres (320 triangles) get a 98-triangle range that deviates by 9.2 % of the radius as recorded (10.3 % measured against the ideal sphere), against a half-texel tolerance of 18 cm on a 1 m sphere at the far cascade's 37 cm texel; its boxes have 12 triangles and keep them.
+
+| | Cold cascade 3 | Cold GPU total | Sustained cascade 3 | Sustained GPU total |
+|---|---:|---:|---:|---:|
+| 2048 map | 8.4 ms | 19.6 ms | 13.96 ms | 31.85 ms |
+| 1024 map | 6.31 ms | 17.5 ms | 10.25 ms | 27.79 ms |
+| 512 map | 3.64 ms | 14.83 ms | 5.99 ms | 23.77 ms |
+| 512 map, coarse range | 0.86 and 0.87 ms | 14.05 and 13.92 ms | 1.19 ms | 19.05 ms |
+
+- Sustained: `--play 600`, started cool (status 0, skin 37.9 °C); the clock fell 1050 to 734 MHz and the thermal status stopped at 2 (skin 42.0 °C), the same path as the 512 run, so the comparison is like for like. GPU 19.05 ms, CPU 12.13 ms, forward 10.63 ms; the 33 ms target has 14 ms to spare, from 9.2.
+- The cold cascade is lower than the earlier probe's 80-triangle point (2.20 ms) predicted; the probe changed every pass's spheres and ran a different build, and the cause of the gap was not isolated. The numbers above are the implementation's.
+- Picture: 1920x1080 phone captures against the 512 map without the range. The final image differs by 0.038 levels of 255 on average (worst 8, no pixel over 8); the shadow-factor view by 0.086 on average (worst 42, 0.1 % of pixels over 8, all in the far rows). The 512 map against the 1024 one differed by 0.56 and 1.5 %.
+- Desktop: the setting is unset there, so no draw takes the coarse range; `runtime_tests` and the whole suite (14 tests) pass on Lavapipe, including the showcase golden.
+- The error margin was then widened from 1.5 to 1.75, after macOS CI measured a coarse range 10.4 % from the fine surface against 9.9 % recorded. The estimate-to-true ratio of an icosphere's fine vertices is 1.36 to 1.57 at 1.5 and at most 1.50 at 1.75. The stress sphere's range is now 102 triangles, recorded at about 10 % and measured at 8.4 % (fine vertices to the coarse surface). The S25 figures above were taken at 1.5 and not repeated.
+- The iPad (A16, 1024 far map, three runs a set, thermal nominal; [ios-shadow-lod.md](ios-shadow-lod.md)): cascade 3 4.65 ms without the range, 1.23 and 1.18 ms with it (-74 %); the GPU frame 41.40 to 38.03 and 37.96 ms (-8 %); the interval 42.37 to 39.02 and 38.93 ms. The shadow-factor view differs by 0.092 levels on average (0.11 % of pixels over 8).
+- Not measured: the iPhone with the range, a second sustained S25 run, the far cascade's triangle count on iOS (the player does not print it).
+

@@ -11,7 +11,7 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | `core` | Fundamental types, `Handle<Tag>`, logging (spdlog), assertions, UUIDs, hashing, GLM configuration macros, Tracy zones | GLM, spdlog, Tracy |
 | `platform` | `IWindow`, input event types, the application callback interface, file-system paths. Contains the SDL3 implementation | `core`, SDL3, Vulkan headers (surface handle types only) |
 | `rhi` | Render hardware interface: device, swapchain, buffers, images, samplers, pipelines, command recording. Contains the Vulkan 1.4 implementation | `platform`, Vulkan-HPP, vk-bootstrap, VMA |
-| `renderer` | Render graph, frame resources, materials, meshes, cameras, lights, the rendering passes, engine shaders | `rhi` |
+| `renderer` | Render graph, frame resources, materials, meshes, cameras, lights, the rendering passes, engine shaders | `rhi`, meshoptimizer |
 | `assets` | Asset identity, database, importers (glTF, images, KTX2), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
 | `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save, skeletal animation ([world.md](world.md)) | `assets`, flecs, nlohmann-json |
 | `physics` | Rigid bodies, colliders, raycasts and debug outlines behind `IPhysicsWorld`, with the Jolt implementation ([physics.md](physics.md)) | `world`, Jolt |

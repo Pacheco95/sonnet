@@ -384,6 +384,9 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     } else if (needTangents) {
       renderer::generateTangents(out.data);
     }
+    if (!out.data.vertices.empty() && !out.data.indices.empty()) {
+      renderer::buildShadowRange(out.data); // on the import's worker, with the rest (ADR-0025)
+    }
     import.meshes.push_back(std::move(out));
   }
 
