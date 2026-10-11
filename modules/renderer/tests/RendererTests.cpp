@@ -507,6 +507,7 @@ TEST_CASE("an unoccluded plane stays lit across every shadow cascade", "[rendere
     auto settings = testSettings();
     settings.debugView = DebugView::ShadowFactor;
     settings.shadowMapSize = GENERATE(256u, 1024u);
+    settings.farShadowMapSize = GENERATE(256u, 1024u);
     Renderer renderer{*device, shaderDir(platform), settings};
     const auto plane = renderer.createMesh(primitives::plane({400.0f, 400.0f}), "receiver");
     const std::array draws{DrawItem{.mesh = plane}};

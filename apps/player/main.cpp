@@ -27,6 +27,10 @@
 #include <string_view>
 #include <variant>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 namespace {
 
 using namespace sonnet;
@@ -51,6 +55,10 @@ using namespace sonnet;
   runtime::GameDesc desc;
   // A capture run draws its settle frames before it plays, as the editor's does.
   desc.paused = line.capture.has_value();
+  // The far cascade's cost on a phone's tile-based GPU follows its map (docs/rendering.md).
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+  desc.renderer.farShadowMapSize = 1024;
+#endif
   return desc;
 }
 
