@@ -948,6 +948,45 @@ TEST_CASE("the basic sample's menu opens and closes its popup from clicks", "[ru
   REQUIRE_FALSE(game.input().mouseDown(platform::MouseButton::Left));
 }
 
+TEST_CASE("the basic sample's options popup opens inside a portrait window", "[runtime][samples][gui][gpu]") {
+  // A phone held upright, the S25's 1080x2340 at a third of the size: the reference canvas is
+  // landscape, so a popup placed beside the menu fell off the right edge there.
+  Fixture fixture{{360, 780}};
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  REQUIRE(game.openScene("scenes/menu.scene.json").has_value());
+  fixture.frame(game);
+  fixture.frame(game);
+
+  flecs::entity canvas;
+  for (const flecs::entity root : game.world().roots()) {
+    if (root.get<world::Name>().value == "Canvas") {
+      canvas = root;
+    }
+  }
+  REQUIRE(canvas.is_valid());
+  click(game, centreOf(game, game.world().findByPath(canvas, "Menu/Buttons/Options")));
+  fixture.frame(game);
+  fixture.frame(game);
+
+  const glm::vec2 window{fixture.window->size()};
+  for (const char *path : {"OptionsPanel", "OptionsPanel/Close"}) {
+    const gui::GuiElement *element =
+        gui::findElement(game.gui().elements(), game.world().findByPath(canvas, path).id());
+    REQUIRE(element != nullptr);
+    INFO(path << " spans " << element->rect.min.x << "," << element->rect.min.y << " to " << element->rect.max.x << ","
+              << element->rect.max.y << " in a " << window.x << "x" << window.y << " window");
+    REQUIRE(element->rect.min.x >= 0.0f);
+    REQUIRE(element->rect.min.y >= 0.0f);
+    REQUIRE(element->rect.max.x <= window.x);
+    REQUIRE(element->rect.max.y <= window.y);
+  }
+}
+
 TEST_CASE("the basic sample plays from its menu, pauses and goes back", "[runtime][samples][gui][gpu]") {
   Fixture fixture;
   const std::filesystem::path project = sampleProject(fixture.platform);
