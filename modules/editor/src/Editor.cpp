@@ -203,17 +203,20 @@ void Editor::event(const platform::Event &event) {
     }
   };
   if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
-    handle(platform::MouseMoved{.position = relative(moved->window, moved->position), .delta = moved->delta});
+    handle(platform::MouseMoved{
+        .position = relative(moved->window, moved->position), .delta = moved->delta, .fromTouch = moved->fromTouch});
   } else if (const auto *pressed = std::get_if<platform::MouseButtonPressed>(&event)) {
     // A click elsewhere in the editor is not the game's.
     if (source.hovered) {
       handle(platform::MouseButtonPressed{.button = pressed->button,
                                           .position = relative(pressed->window, pressed->position),
-                                          .clicks = pressed->clicks});
+                                          .clicks = pressed->clicks,
+                                          .fromTouch = pressed->fromTouch});
     }
   } else if (const auto *released = std::get_if<platform::MouseButtonReleased>(&event)) {
     handle(platform::MouseButtonReleased{.button = released->button,
-                                         .position = relative(released->window, released->position)});
+                                         .position = relative(released->window, released->position),
+                                         .fromTouch = released->fromTouch});
   } else if (const auto *down = std::get_if<platform::TouchDown>(&event)) {
     // A finger elsewhere in the editor is not the game's. The image's own rectangle decides, not
     // ImGui's hover, which follows the finger's synthesised mouse only from the next frame.
@@ -351,6 +354,10 @@ void Editor::update(float dt) {
     m_gui.releaseAll();
   }
   m_gameInputWasActive = gameInput;
+  // The mouse off the game's image, or the game not taking input, is no longer over the UI.
+  if (!gameInput || !gameInputSource().hovered) {
+    static_cast<void>(m_gui.event(platform::MouseLeftWindow{}));
+  }
   // The world's frame after the UI edited it: systems, then what the renderer draws. The game
   // input's presses and releases last one frame. Playing with the Game panel on screen, the game
   // is seen through the scene's camera, and that is where a scene without an AudioListener is

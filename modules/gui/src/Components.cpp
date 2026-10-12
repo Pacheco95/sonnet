@@ -37,6 +37,7 @@ void registerComponents(world::World &world) {
   world.registerComponent<GuiButton>("GuiButton")
       .member<bool>("interactable")
       .member<glm::vec4>("normal")
+      .member<glm::vec4>("hovered")
       .member<glm::vec4>("pressed")
       .member<glm::vec4>("disabled");
   world.registerComponent<GuiLayout>("GuiLayout")

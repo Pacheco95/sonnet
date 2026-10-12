@@ -225,6 +225,8 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
     return WindowFocusChanged{true, event.window.windowID};
   case SDL_EVENT_WINDOW_FOCUS_LOST:
     return WindowFocusChanged{false, event.window.windowID};
+  case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+    return MouseLeftWindow{event.window.windowID};
   case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
     return WindowCloseRequested{event.window.windowID};
   case SDL_EVENT_KEY_DOWN:
@@ -236,9 +238,10 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
   case SDL_EVENT_MOUSE_MOTION: {
     // A finger works as the left button: SDL moves its mouse to where the finger lands before
     // pressing. That move is a jump from wherever the last finger lifted, not motion.
-    const bool landing = event.motion.which == SDL_TOUCH_MOUSEID && (event.motion.state & SDL_BUTTON_LMASK) == 0;
+    const bool fromTouch = event.motion.which == SDL_TOUCH_MOUSEID;
+    const bool landing = fromTouch && (event.motion.state & SDL_BUTTON_LMASK) == 0;
     const glm::vec2 delta = landing ? glm::vec2{0.0f, 0.0f} : glm::vec2{event.motion.xrel, event.motion.yrel};
-    return MouseMoved{{event.motion.x, event.motion.y}, delta, event.motion.windowID};
+    return MouseMoved{{event.motion.x, event.motion.y}, delta, event.motion.windowID, fromTouch};
   }
   case SDL_EVENT_MOUSE_BUTTON_DOWN:
   case SDL_EVENT_MOUSE_BUTTON_UP: {
@@ -247,10 +250,11 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
       return std::nullopt;
     }
     const glm::vec2 position{event.button.x, event.button.y};
+    const bool fromTouch = event.button.which == SDL_TOUCH_MOUSEID;
     if (event.button.down) {
-      return MouseButtonPressed{button, position, event.button.clicks, event.button.windowID};
+      return MouseButtonPressed{button, position, event.button.clicks, event.button.windowID, fromTouch};
     }
-    return MouseButtonReleased{button, position, event.button.windowID};
+    return MouseButtonReleased{button, position, event.button.windowID, fromTouch};
   }
   case SDL_EVENT_MOUSE_WHEEL: {
     const float sign = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;

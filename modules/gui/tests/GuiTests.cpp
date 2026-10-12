@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -77,6 +78,9 @@ struct Fixture {
   }
   bool release(glm::vec2 at) {
     return system.event(platform::MouseButtonReleased{.button = platform::MouseButton::Left, .position = at});
+  }
+  void move(glm::vec2 at, bool fromTouch = false) {
+    REQUIRE_FALSE(system.event(platform::MouseMoved{.position = at, .delta = {}, .fromTouch = fromTouch}));
   }
   [[nodiscard]] std::vector<gui::GuiEventKind> kinds() const {
     std::vector<gui::GuiEventKind> out;
@@ -398,6 +402,66 @@ TEST_CASE("losing the window's focus releases a held button without a click", "[
   REQUIRE_FALSE(f.release({50.0f, 50.0f})); // nothing is held any more
 }
 
+TEST_CASE("the front-most interactive element under the mouse is hovered", "[gui][input]") {
+  Fixture f;
+  const flecs::entity canvas = f.canvas();
+  const flecs::entity play = f.button("Play", canvas, {0.0f, 0.0f}, {100.0f, 100.0f});
+  const flecs::entity quit = f.button("Quit", canvas, {200.0f, 0.0f}, {300.0f, 100.0f});
+  f.update();
+  REQUIRE_FALSE(f.system.hovered(play.id())); // the mouse has not been seen yet
+
+  f.move({50.0f, 50.0f});
+  f.update();
+  REQUIRE(f.system.hovered(play.id()));
+  REQUIRE_FALSE(f.system.hovered(quit.id()));
+
+  // The button moves away under a still mouse.
+  play.get_mut<gui::GuiRect>().offsetMin = {400.0f, 0.0f};
+  play.get_mut<gui::GuiRect>().offsetMax = {500.0f, 100.0f};
+  f.update();
+  REQUIRE_FALSE(f.system.hovered(play.id()));
+
+  // A press and a release say where the mouse is too.
+  REQUIRE(f.press({250.0f, 50.0f}));
+  f.update();
+  REQUIRE(f.system.hovered(quit.id()));
+  REQUIRE(f.release({450.0f, 50.0f}));
+  f.update();
+  REQUIRE(f.system.hovered(play.id()));
+
+  // An image that blocks input in front stops the hover, as it stops a press.
+  const flecs::entity shade = f.stretched("Shade", canvas, {0.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 0.0f}, {0.0f, 0.0f});
+  shade.set<gui::GuiImage>({.blocksInput = true});
+  f.update();
+  REQUIRE_FALSE(f.system.hovered(play.id()));
+}
+
+TEST_CASE("leaving the window, losing the focus and a finger leave nothing hovered", "[gui][input]") {
+  Fixture f;
+  const flecs::entity canvas = f.canvas();
+  const flecs::entity play = f.button("Play", canvas, {0.0f, 0.0f}, {100.0f, 100.0f});
+  f.update();
+  const auto hoveredAfter = [&](const platform::Event &event) {
+    f.move({50.0f, 50.0f});
+    f.update();
+    REQUIRE(f.system.hovered(play.id()));
+    REQUIRE_FALSE(f.system.event(event));
+    f.update();
+    return f.system.hovered(play.id());
+  };
+  REQUIRE_FALSE(hoveredAfter(platform::MouseLeftWindow{}));
+  REQUIRE_FALSE(hoveredAfter(platform::WindowFocusChanged{.focused = false}));
+  REQUIRE_FALSE(hoveredAfter(platform::MouseMoved{.position = {50.0f, 50.0f}, .delta = {}, .fromTouch = true}));
+
+  // A tap: the finger's synthesised mouse presses and releases over the button.
+  REQUIRE(f.system.event(platform::MouseButtonPressed{
+      .button = platform::MouseButton::Left, .position = {50.0f, 50.0f}, .clicks = 1, .fromTouch = true}));
+  REQUIRE(f.system.event(platform::MouseButtonReleased{
+      .button = platform::MouseButton::Left, .position = {50.0f, 50.0f}, .fromTouch = true}));
+  f.update();
+  REQUIRE_FALSE(f.system.hovered(play.id()));
+}
+
 TEST_CASE("every component round-trips through the scene file", "[gui][scene]") {
   Fixture f;
   const flecs::entity canvas =
@@ -421,6 +485,7 @@ TEST_CASE("every component round-trips through the scene file", "[gui][scene]") 
                            .wrap = true});
   panel.set<gui::GuiButton>({.interactable = false,
                              .normal = {0.1f, 0.1f, 0.1f, 1.0f},
+                             .hovered = {0.15f, 0.15f, 0.15f, 1.0f},
                              .pressed = {0.2f, 0.2f, 0.2f, 1.0f},
                              .disabled = {0.3f, 0.3f, 0.3f, 1.0f}});
   panel.set<gui::GuiLayout>({.axis = gui::GuiAxis::Row,
@@ -442,6 +507,35 @@ TEST_CASE("every component round-trips through the scene file", "[gui][scene]") 
   REQUIRE(loaded.get<gui::GuiImage>().texture == panel.get<gui::GuiImage>().texture);
   REQUIRE(loaded.get<gui::GuiLayout>().axis == gui::GuiAxis::Row);
   REQUIRE(other.world.roots().front().get<gui::GuiCanvas>().order == 3);
+  REQUIRE(loaded.get<gui::GuiButton>().hovered == glm::vec4{0.15f, 0.15f, 0.15f, 1.0f});
+}
+
+TEST_CASE("a button saved before the hovered tint loads the default", "[gui][scene]") {
+  Fixture f;
+  const flecs::entity canvas = f.canvas();
+  f.button("Play", canvas, {0.0f, 0.0f}, {100.0f, 100.0f}).get_mut<gui::GuiButton>().hovered = {0.0f, 0.0f, 0.0f, 0.0f};
+  nlohmann::json saved = world::saveScene(f.world);
+  // A version 3 scene written before the field existed.
+  std::size_t erased = 0;
+  const std::function<void(nlohmann::json &)> erase = [&](nlohmann::json &node) {
+    if (node.is_object()) {
+      if (const auto button = node.find("GuiButton"); button != node.end()) {
+        erased += button->erase("hovered");
+      }
+    }
+    if (node.is_structured()) {
+      for (nlohmann::json &child : node) {
+        erase(child);
+      }
+    }
+  };
+  erase(saved);
+  REQUIRE(erased == 1);
+
+  Fixture other;
+  REQUIRE(world::loadScene(other.world, saved).has_value());
+  const flecs::entity loaded = other.world.findByPath(other.world.roots().front(), "Play");
+  REQUIRE(loaded.get<gui::GuiButton>().hovered == gui::GuiButton{}.hovered);
 }
 
 TEST_CASE("an image draws one quad in its rectangle and tint, in draw order", "[gui][draw]") {
@@ -471,19 +565,25 @@ TEST_CASE("a button tints its image by state", "[gui][draw]") {
       f.image("Play", canvas, {0.0f, 0.0f}, {100.0f, 100.0f}, {.tint = {1.0f, 1.0f, 1.0f, 1.0f}});
   play.set<gui::GuiButton>({.interactable = true,
                             .normal = {1.0f, 1.0f, 1.0f, 1.0f},
+                            .hovered = {0.75f, 0.75f, 0.75f, 1.0f},
                             .pressed = {0.5f, 0.5f, 0.5f, 1.0f},
                             .disabled = {0.25f, 0.25f, 0.25f, 0.5f}});
   f.build();
   REQUIRE(f.system.quads()[0].color == glm::vec4{1.0f});
 
+  f.move({50.0f, 50.0f});
+  f.build();
+  REQUIRE(f.system.quads()[0].color == glm::vec4{0.75f, 0.75f, 0.75f, 1.0f});
+
   REQUIRE(f.press({50.0f, 50.0f}));
   f.build();
-  REQUIRE(f.system.quads()[0].color == glm::vec4{0.5f, 0.5f, 0.5f, 1.0f});
+  REQUIRE(f.system.quads()[0].color == glm::vec4{0.5f, 0.5f, 0.5f, 1.0f}); // pressed wins over hovered
   REQUIRE(f.release({50.0f, 50.0f}));
 
   play.get_mut<gui::GuiButton>().interactable = false;
   f.build();
-  REQUIRE(f.system.quads()[0].color == glm::vec4{0.25f, 0.25f, 0.25f, 0.5f});
+  REQUIRE(f.system.quads()[0].color == glm::vec4{0.25f, 0.25f, 0.25f, 0.5f}); // under the mouse, but disabled
+  f.move({500.0f, 500.0f});
 
   // The button's tint multiplies the image's own.
   play.get_mut<gui::GuiImage>().tint = {1.0f, 0.5f, 1.0f, 1.0f};

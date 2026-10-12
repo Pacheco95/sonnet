@@ -76,7 +76,10 @@ void GuiSystem::buildQuads(renderer::Renderer &renderer, assets::AssetDatabase &
     if (const GuiImage *image = entity.try_get<GuiImage>()) {
       glm::vec4 color = image->tint;
       if (const GuiButton *button = entity.try_get<GuiButton>()) {
-        color *= !button->interactable ? button->disabled : pressed(element.entity) ? button->pressed : button->normal;
+        color *= !button->interactable     ? button->disabled
+                 : pressed(element.entity) ? button->pressed
+                 : hovered(element.entity) ? button->hovered
+                                           : button->normal;
       }
       renderer::TextureHandle texture;
       if (!image->texture.isNil()) {
