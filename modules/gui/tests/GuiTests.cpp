@@ -1,13 +1,23 @@
+#include "Draw.h"
+
 #include <sonnet/gui/GuiSystem.h>
 
+#include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/platform/InputState.h>
+#include <sonnet/platform/Platform.h>
+#include <sonnet/renderer/RenderTarget.h>
+#include <sonnet/renderer/Renderer.h>
+#include <sonnet/rhi/NullDevice.h>
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <memory>
 #include <vector>
 
 using namespace sonnet;
@@ -74,6 +84,26 @@ struct Fixture {
       out.push_back(event.kind);
     }
     return out;
+  }
+};
+
+// A renderer on the null device and an asset database over it, for the draw tests.
+struct DrawFixture : Fixture {
+  platform::Platform platform{{.headless = true}};
+  std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 1}};
+  assets::AssetDatabase assets{renderer, jobs};
+
+  // An image over `rect` of a canvas that needs no scaling.
+  flecs::entity image(const char *name, flecs::entity canvas, glm::vec2 min, glm::vec2 max, gui::GuiImage spec) {
+    const flecs::entity entity = element(name, canvas, {0.0f, 0.0f}, min, max);
+    entity.set<gui::GuiImage>(spec);
+    return entity;
+  }
+  void build() {
+    update();
+    system.buildQuads(renderer, assets);
   }
 };
 
@@ -412,4 +442,139 @@ TEST_CASE("every component round-trips through the scene file", "[gui][scene]") 
   REQUIRE(loaded.get<gui::GuiImage>().texture == panel.get<gui::GuiImage>().texture);
   REQUIRE(loaded.get<gui::GuiLayout>().axis == gui::GuiAxis::Row);
   REQUIRE(other.world.roots().front().get<gui::GuiCanvas>().order == 3);
+}
+
+TEST_CASE("an image draws one quad in its rectangle and tint, in draw order", "[gui][draw]") {
+  DrawFixture f;
+  const flecs::entity canvas = f.canvas();
+  f.image("Back", canvas, {10.0f, 20.0f}, {110.0f, 70.0f}, {.tint = {1.0f, 0.5f, 0.25f, 1.0f}});
+  f.image("Front", canvas, {50.0f, 50.0f}, {60.0f, 60.0f}, {.tint = {0.0f, 1.0f, 0.0f, 0.5f}});
+  const flecs::entity clear = f.image("Clear", canvas, {0.0f, 0.0f}, {5.0f, 5.0f}, {.tint = {1.0f, 1.0f, 1.0f, 0.0f}});
+  clear.set<gui::GuiText>({}); // a label draws nothing yet
+  f.element("Empty", canvas, {0.0f, 0.0f}, {0.0f, 0.0f}, {9.0f, 9.0f});
+  f.build();
+
+  const std::span<const renderer::OverlayQuad> quads = f.system.quads();
+  REQUIRE(quads.size() == 2); // the transparent one and the element without an image are skipped
+  REQUIRE(quads[0].min == glm::vec2{10.0f, 20.0f});
+  REQUIRE(quads[0].max == glm::vec2{110.0f, 70.0f});
+  REQUIRE(quads[0].color == glm::vec4{1.0f, 0.5f, 0.25f, 1.0f});
+  REQUIRE_FALSE(quads[0].texture.isValid());
+  REQUIRE(quads[1].min == glm::vec2{50.0f, 50.0f});
+  REQUIRE(quads[1].color.a == Approx(0.5f));
+}
+
+TEST_CASE("a button tints its image by state", "[gui][draw]") {
+  DrawFixture f;
+  const flecs::entity canvas = f.canvas();
+  const flecs::entity play =
+      f.image("Play", canvas, {0.0f, 0.0f}, {100.0f, 100.0f}, {.tint = {1.0f, 1.0f, 1.0f, 1.0f}});
+  play.set<gui::GuiButton>({.interactable = true,
+                            .normal = {1.0f, 1.0f, 1.0f, 1.0f},
+                            .pressed = {0.5f, 0.5f, 0.5f, 1.0f},
+                            .disabled = {0.25f, 0.25f, 0.25f, 0.5f}});
+  f.build();
+  REQUIRE(f.system.quads()[0].color == glm::vec4{1.0f});
+
+  REQUIRE(f.press({50.0f, 50.0f}));
+  f.build();
+  REQUIRE(f.system.quads()[0].color == glm::vec4{0.5f, 0.5f, 0.5f, 1.0f});
+  REQUIRE(f.release({50.0f, 50.0f}));
+
+  play.get_mut<gui::GuiButton>().interactable = false;
+  f.build();
+  REQUIRE(f.system.quads()[0].color == glm::vec4{0.25f, 0.25f, 0.25f, 0.5f});
+
+  // The button's tint multiplies the image's own.
+  play.get_mut<gui::GuiImage>().tint = {1.0f, 0.5f, 1.0f, 1.0f};
+  play.get_mut<gui::GuiButton>().interactable = true;
+  f.build();
+  REQUIRE(f.system.quads()[0].color == glm::vec4{1.0f, 0.5f, 1.0f, 1.0f});
+}
+
+TEST_CASE("a disabled subtree draws nothing, and an image still loading waits", "[gui][draw]") {
+  DrawFixture f;
+  const flecs::entity canvas = f.canvas();
+  const flecs::entity panel = f.image("Panel", canvas, {0.0f, 0.0f}, {100.0f, 100.0f}, {});
+  f.image("Inside", panel, {0.0f, 0.0f}, {10.0f, 10.0f}, {});
+  f.image("Missing", canvas, {0.0f, 0.0f}, {10.0f, 10.0f}, {.texture = core::Uuid::generate()});
+  f.build();
+  REQUIRE(f.system.quads().size() == 2); // the unknown texture is skipped, not drawn white
+
+  panel.add<world::Disabled>();
+  f.build();
+  REQUIRE(f.system.quads().empty());
+}
+
+TEST_CASE("the pass is declared only when something draws", "[gui][draw]") {
+  DrawFixture f;
+  renderer::RenderGraph graph{*f.device};
+  renderer::RenderTarget target{*f.device, "game"};
+  target.resize({64, 64});
+  const auto frame = [&] {
+    rhi::ICommandList &commands = f.device->beginFrame();
+    graph.reset();
+    f.system.addPass(f.renderer, f.assets, graph, graph.importImage(target.color()));
+    graph.execute(commands);
+    f.device->endFrame();
+  };
+  const auto declared = [&] {
+    return std::ranges::any_of(graph.statistics().passes, [](const auto &pass) { return pass.name == "overlay"; });
+  };
+
+  f.update({64.0f, 64.0f});
+  frame();
+  REQUIRE_FALSE(declared()); // no canvas
+  const flecs::entity canvas = f.canvas();
+  f.image("Box", canvas, {0.0f, 0.0f}, {10.0f, 10.0f}, {});
+  f.update({64.0f, 64.0f});
+  frame();
+  REQUIRE(declared());
+}
+
+TEST_CASE("a nine-slice keeps its corners at the border size and stretches the rest", "[gui][draw]") {
+  DrawFixture f;
+  gui::GuiElement element;
+  element.rect = {{100.0f, 200.0f}, {200.0f, 260.0f}}; // 100 x 60
+  element.scale = 2.0f;
+  renderer::TextureData pixels;
+  pixels.size = {16, 16};
+  pixels.data.assign(std::size_t{16} * 16 * 4, std::byte{255});
+  const renderer::TextureHandle texture = f.renderer.createTexture(pixels, "slice");
+  // Left 4, top 2, right 4, bottom 2 texels of a 16 x 16 texture, at twice the size.
+  const gui::GuiImage image{.texture = {}, .tint = {}, .slice = {4.0f, 2.0f, 4.0f, 2.0f}, .blocksInput = false};
+  std::vector<renderer::OverlayQuad> quads;
+  gui::appendImage(quads, element, image, {1.0f, 1.0f, 1.0f, 1.0f}, texture, {16, 16});
+  REQUIRE(quads.size() == 9);
+  // Row by row. The top-left corner: 8 x 4 pixels, the texture's top-left 4 x 2 texels.
+  REQUIRE(quads[0].min == glm::vec2{100.0f, 200.0f});
+  REQUIRE(quads[0].max == glm::vec2{108.0f, 204.0f});
+  REQUIRE(quads[0].uvMin == glm::vec2{0.0f, 0.0f});
+  REQUIRE(quads[0].uvMax == glm::vec2{0.25f, 0.125f});
+  // The middle of the top row stretches between the corners.
+  REQUIRE(quads[1].min == glm::vec2{108.0f, 200.0f});
+  REQUIRE(quads[1].max == glm::vec2{192.0f, 204.0f});
+  REQUIRE(quads[1].uvMin == glm::vec2{0.25f, 0.0f});
+  REQUIRE(quads[1].uvMax == glm::vec2{0.75f, 0.125f});
+  // The centre, and the bottom-right corner ending at the rectangle's corner.
+  REQUIRE(quads[4].min == glm::vec2{108.0f, 204.0f});
+  REQUIRE(quads[4].max == glm::vec2{192.0f, 256.0f});
+  REQUIRE(quads[8].min == glm::vec2{192.0f, 256.0f});
+  REQUIRE(quads[8].max == glm::vec2{200.0f, 260.0f});
+  REQUIRE(quads[8].uvMax == glm::vec2{1.0f, 1.0f});
+
+  // Borders wider than the rectangle shrink together, and the empty centre is not drawn.
+  quads.clear();
+  element.rect = {{0.0f, 0.0f}, {8.0f, 60.0f}};
+  gui::appendImage(quads, element, image, {1.0f, 1.0f, 1.0f, 1.0f}, texture, {16, 16});
+  REQUIRE(quads.size() == 6);
+  REQUIRE(quads[0].max.x == Approx(4.0f));
+  REQUIRE(quads[1].min.x == Approx(4.0f));
+
+  // Without borders, or without a texture, one quad.
+  quads.clear();
+  gui::appendImage(quads, element, gui::GuiImage{}, {1.0f, 1.0f, 1.0f, 1.0f}, texture, {16, 16});
+  gui::appendImage(quads, element, image, {1.0f, 1.0f, 1.0f, 1.0f}, renderer::TextureHandle{}, {0, 0});
+  REQUIRE(quads.size() == 2);
+  f.renderer.destroyTexture(texture);
 }

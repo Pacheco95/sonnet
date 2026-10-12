@@ -277,6 +277,26 @@ struct DebugConstants {
 };
 static_assert(sizeof(DebugConstants) <= rhi::PushConstantSize);
 
+// Mirror of Quad and OverlayConstants in shaders/overlay.slang.
+struct GpuOverlayQuad {
+  glm::vec2 min;
+  glm::vec2 max;
+  glm::vec2 uvMin;
+  glm::vec2 uvMax;
+  glm::vec4 color;
+  std::uint32_t texture; // bindless index
+  std::uint32_t padding0;
+  std::uint32_t padding1;
+  std::uint32_t padding2;
+};
+static_assert(sizeof(GpuOverlayQuad) == 64);
+
+struct OverlayConstants {
+  glm::vec2 targetSize;
+  std::uint32_t sampler;
+};
+static_assert(sizeof(OverlayConstants) <= rhi::PushConstantSize);
+
 // Mirror of shaders/skin.slang.
 struct SkinConstants {
   std::uint64_t source;
@@ -477,6 +497,11 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                   .cullMode = rhi::CullMode::None,
                   .topology = rhi::Topology::LineList,
                   .debugName = "debug lines"});
+  defineGraphics(m_overlayPipeline, "overlay",
+                 {.colorFormats = {ColorFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .blend = rhi::BlendMode::Alpha,
+                  .debugName = "overlay"});
   // Particles: depth-tested against the scene, not written, blended into the HDR target.
   for (std::size_t blend = 0; blend < 2; ++blend) {
     defineGraphics(m_particleDrawPipelines[blend], "particles",
@@ -590,6 +615,7 @@ Renderer::~Renderer() {
                                              m_cullPipeline,
                                              m_clusterPipeline,
                                              m_debugLinePipeline,
+                                             m_overlayPipeline,
                                              m_outlinePipeline,
                                              m_taaPipeline,
                                              m_fxaaPipeline,
@@ -623,9 +649,9 @@ const char *antiAliasingName(AntiAliasing mode) noexcept {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 14> Names{"cluster", "cull", "debug",  "depth",   "forward",
-                                                          "hiz",     "ibl",  "id",     "outline", "particles",
-                                                          "post",    "skin", "skybox", "taa"};
+  static constexpr std::array<std::string_view, 15> Names{"cluster",   "cull", "debug", "depth",   "forward",
+                                                          "hiz",       "ibl",  "id",    "outline", "overlay",
+                                                          "particles", "post", "skin",  "skybox",  "taa"};
   return Names;
 }
 
@@ -923,6 +949,11 @@ void Renderer::destroyTexture(TextureHandle handle) {
 
 bool Renderer::isValid(TextureHandle handle) const {
   return m_textures.contains(handle);
+}
+
+glm::uvec2 Renderer::textureSize(TextureHandle handle) const {
+  const Texture *texture = m_textures.find(handle);
+  return texture != nullptr ? m_device.imageDesc(texture->image).size : glm::uvec2{0};
 }
 
 std::uint32_t Renderer::textureIndex(TextureHandle handle) const {
@@ -3175,6 +3206,48 @@ void Renderer::recordDebugLines(rhi::ICommandList &commands, const SceneView &vi
   commands.bindBuffers({&binding, 1});
   commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   commands.draw(static_cast<std::uint32_t>(view.debugLines.size() * 2));
+}
+
+void Renderer::addOverlayPass(RenderGraph &graph, GraphImage target, std::span<const OverlayQuad> quads) {
+  if (quads.empty()) {
+    return;
+  }
+  const glm::uvec2 size = graph.imageDesc(target).size;
+  graph.addPass(
+      "overlay", [&](PassBuilder &builder) { builder.color(target, rhi::LoadOp::Load); },
+      [this, quads, size](rhi::ICommandList &commands, const PassResources &) {
+        recordOverlay(commands, quads, size);
+      });
+}
+
+void Renderer::recordOverlay(rhi::ICommandList &commands, std::span<const OverlayQuad> quads, glm::uvec2 targetSize) {
+  SONNET_ZONE();
+  const std::uint64_t bytes = quads.size() * sizeof(GpuOverlayQuad);
+  const rhi::TransientAllocation allocation = m_device.allocateTransient(bytes);
+  if (allocation.data.empty()) {
+    SONNET_LOG_WARN("{} overlay quads do not fit the frame's transient memory", quads.size());
+    return;
+  }
+  auto *gpu = reinterpret_cast<GpuOverlayQuad *>(allocation.data.data());
+  for (const OverlayQuad &quad : quads) {
+    *gpu++ = {.min = quad.min,
+              .max = quad.max,
+              .uvMin = quad.uvMin,
+              .uvMax = quad.uvMax,
+              .color = quad.color,
+              .texture = textureIndex(quad.texture),
+              .padding0 = 0,
+              .padding1 = 0,
+              .padding2 = 0};
+  }
+  const OverlayConstants constants{.targetSize = glm::vec2{targetSize},
+                                   .sampler = m_device.samplerIndex(m_linearClampSampler)};
+  commands.bindPipeline(m_overlayPipeline);
+  const rhi::BufferBinding binding{
+      .binding = rhi::PassStorageBinding, .buffer = allocation.buffer, .offset = allocation.offset, .size = bytes};
+  commands.bindBuffers({&binding, 1});
+  commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+  commands.draw(static_cast<std::uint32_t>(quads.size() * 6));
 }
 
 } // namespace sonnet::renderer

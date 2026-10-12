@@ -28,6 +28,7 @@ set_property(GLOBAL PROPERTY SONNET_ENGINE_SHADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ibl.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/id.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/outline.slang"
+  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/overlay.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/particles.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/post.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/skin.slang"

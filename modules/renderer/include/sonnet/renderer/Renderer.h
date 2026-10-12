@@ -129,6 +129,18 @@ struct RendererSettings {
   core::JobSystem *jobs{nullptr};
 };
 
+// A rectangle of a texture in target pixels (origin top-left, y down), for Renderer::addOverlayPass.
+// `color` multiplies the texture. Both are sRGB, as authored: the target is display-encoded already,
+// so the pass blends them in that space and encodes the texture's sampled value back into it.
+struct OverlayQuad {
+  glm::vec2 min{0.0f, 0.0f};
+  glm::vec2 max{0.0f, 0.0f};
+  glm::vec2 uvMin{0.0f, 0.0f};
+  glm::vec2 uvMax{1.0f, 1.0f};
+  glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+  TextureHandle texture{}; // the white default for an invalid handle: a plain rectangle
+};
+
 // Owns meshes, textures, materials, environments and the engine pipelines, and adds the scene
 // passes to a render graph (docs/rendering.md, "The renderer module today"). Creation throws
 // when a shader is missing or rejected; per-frame calls never throw.
@@ -179,6 +191,8 @@ public:
   [[nodiscard]] TextureHandle createTexture(const TextureData &data, std::string debugName);
   void destroyTexture(TextureHandle handle);
   [[nodiscard]] bool isValid(TextureHandle handle) const;
+  // The texture's size in texels; zero for an invalid handle.
+  [[nodiscard]] glm::uvec2 textureSize(TextureHandle handle) const;
   // The bindless index shaders read the texture through; the white default for an invalid handle.
   [[nodiscard]] std::uint32_t textureIndex(TextureHandle handle) const;
   // Forgets an emitter's particles, so it starts over, with its burst, the next time it is drawn.
@@ -233,6 +247,11 @@ public:
   // `depth` without writing it, so it has to come before a pass that discards the depth. Adds
   // nothing when there are no lines. Same lifetime rule as addScenePasses.
   void addDebugLinePass(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth);
+
+  // Declares the overlay pass: `quads` in order, alpha blended over `target`, which keeps what it
+  // holds, in one draw. Adds nothing when there are none. The game UI draws through it. `quads`
+  // and the textures they name must outlive the graph's execute.
+  void addOverlayPass(RenderGraph &graph, GraphImage target, std::span<const OverlayQuad> quads);
 
   // What the scene passes of the frame's `view`th declared view submitted; the first is the one
   // a single-view frame has.
@@ -632,6 +651,7 @@ private:
   void addBloomPasses(RenderGraph &graph, const SceneView &view, GraphImage hdr, glm::uvec2 size, GraphImage &result);
   void recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask);
   void recordDebugLines(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
+  void recordOverlay(rhi::ICommandList &commands, std::span<const OverlayQuad> quads, glm::uvec2 targetSize);
 
   rhi::IDevice &m_device;
   RendererSettings m_settings;
@@ -653,6 +673,7 @@ private:
   rhi::PipelineHandle m_presentPipeline; // only when the settings named a present format
   rhi::PipelineHandle m_outlinePipeline;
   rhi::PipelineHandle m_debugLinePipeline;
+  rhi::PipelineHandle m_overlayPipeline;
   rhi::PipelineHandle m_clusterPipeline;
   rhi::PipelineHandle m_cullPipeline;
   rhi::PipelineHandle m_clearCommandsPipeline;
