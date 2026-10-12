@@ -827,3 +827,114 @@ TEST_CASE("the showcase resolves to its golden image, and to the unresolved fram
   REQUIRE(versus.mean <= 9.0);
   REQUIRE(versus.fractionOver <= 0.04);
 }
+
+namespace {
+
+// The centre of a laid-out element, in the window's coordinates.
+[[nodiscard]] glm::vec2 centreOf(runtime::Game &game, flecs::entity entity) {
+  const gui::GuiElement *element = gui::findElement(game.gui().elements(), entity.id());
+  REQUIRE(element != nullptr);
+  return (element->rect.min + element->rect.max) * 0.5f;
+}
+
+void click(runtime::Game &game, glm::vec2 at) {
+  game.event(platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = at, .clicks = 1});
+  game.event(platform::MouseButtonReleased{.button = platform::MouseButton::Left, .position = at});
+}
+
+} // namespace
+
+TEST_CASE("the basic sample's menu opens and closes its popup from clicks", "[runtime][samples][gui][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  REQUIRE(game.openScene("scenes/menu.scene.json").has_value());
+  // The first frames start the scripts and lay the canvas out.
+  fixture.frame(game);
+  fixture.frame(game);
+
+  const auto find = [&](std::string_view path) {
+    for (const flecs::entity root : game.world().roots()) {
+      if (root.get<world::Name>().value == "Canvas") {
+        const flecs::entity found = game.world().findByPath(root, path);
+        REQUIRE(found.is_valid());
+        return found;
+      }
+    }
+    FAIL("the menu has no canvas");
+  };
+  const flecs::entity popup = find("OptionsPanel");
+  const flecs::entity options = find("Menu/Buttons/Options");
+  const flecs::entity quit = find("Menu/Buttons/Quit");
+  REQUIRE(popup.has<world::Disabled>());
+
+  // A click on Options opens the popup, and the game never sees it.
+  click(game, centreOf(game, options));
+  fixture.frame(game);
+  REQUIRE_FALSE(popup.has<world::Disabled>());
+  REQUIRE_FALSE(game.input().mousePressed(platform::MouseButton::Left));
+  REQUIRE_FALSE(game.input().mouseDown(platform::MouseButton::Left));
+
+  // The popup is laid out now; its Close button hides it again.
+  fixture.frame(game);
+  click(game, centreOf(game, find("OptionsPanel/Close")));
+  fixture.frame(game);
+  REQUIRE(popup.has<world::Disabled>());
+
+  // Quit is not interactable: nothing happens, and the press is still the dimmed backdrop's.
+  click(game, centreOf(game, quit));
+  fixture.frame(game);
+  REQUIRE(popup.has<world::Disabled>());
+  // A click beside the menu lands on the dim layer, which blocks input without being a button.
+  click(game, {5.0f, 5.0f});
+  fixture.frame(game);
+  REQUIRE_FALSE(game.input().mouseDown(platform::MouseButton::Left));
+}
+
+TEST_CASE("the basic sample's menu resolves to its golden image", "[runtime][capture][golden][gui][gpu]") {
+  Fixture fixture{{320, 240}};
+  if (fixture.device->info().driverName != "llvmpipe") {
+    SKIP("golden images are rendered on Lavapipe");
+  }
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  const std::filesystem::path directory = goldenDirectory(fixture.platform);
+  if (project.empty() || directory.empty()) {
+    SKIP("the basic sample and its golden images were not found in a checkout above the test binary");
+  }
+  const std::filesystem::path golden = directory / "menu.png";
+  const runtime::CaptureOptions options =
+      playerCapture(fixture.platform, {"--settle-frames", "6", "--screenshot", "golden/menu.png"});
+  std::filesystem::remove(options.viewport);
+  runtime::GameDesc desc = fixture.desc();
+  desc.renderer.antialiasing = renderer::AntiAliasing::None;
+  {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(project).has_value());
+    REQUIRE(game.openScene("scenes/menu.scene.json").has_value());
+    runtime::CaptureRun run{options};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
+  }
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
+#endif
+  const bool update = std::getenv("SONNET_UPDATE_GOLDEN") != nullptr;
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+  if (update) {
+    std::filesystem::copy_file(options.viewport, golden, std::filesystem::copy_options::overwrite_existing);
+  }
+  REQUIRE(std::filesystem::is_regular_file(golden));
+  const ErrorImage against = compare(readPng(options.viewport), readPng(golden), 32);
+  std::filesystem::remove(options.viewport);
+  INFO("against the golden: mean " << against.mean << ", max " << against.maximum
+                                   << ", over 32: " << against.fractionOver);
+  REQUIRE(against.mean <= 1.5);
+  REQUIRE(against.maximum <= 96);
+  REQUIRE(against.fractionOver <= 0.002);
+}

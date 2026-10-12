@@ -2,7 +2,7 @@
 
 The game UI: menus, a heads-up display, a pause screen as entities in the scene, with components that `gui` registers, lays out and hit-tests ([ADR-0026](decisions/0026-game-ui.md)). Depends on `world` publicly, so `core`, `platform`, `rhi`, `renderer` and `assets` come with it. `scripting` links it to read its events, as it links `physics`. It is not `ui`, which stays Dear ImGui for the editor and which the player never links.
 
-This is M15 in three parts: the components, layout, input and events; the drawing of images and rectangles (below); and then fonts and the editor's view of a canvas. Text is not drawn yet.
+This is M15 in parts: the components, layout, input and events; the drawing of images and rectangles; the editor's view of a canvas and the sample menu; and fonts and text, which are still to come, so text is not drawn yet.
 
 | Header | Contents |
 |---|---|
@@ -53,6 +53,14 @@ Positions are window coordinates and are mapped to the target by the ratio of th
 - **Loading.** An image whose texture is still being imported draws nothing, rather than a white rectangle that would flash, and is asked for again on the next frame.
 - **Not clipped.** Elements are not clipped to their parents or to the safe area.
 
+## In the editor
+
+The editor owns a `GuiSystem` like the player's `Game` does ([editor.md](editor.md#game-view)). It lays the canvases out against the Game panel's image every frame, in edit mode as in play mode, so a layout is seen while it is made; draws them into the Game view's target after the scene's passes; and, in play mode with the panel focused, offers the panel's pointer events to the UI before the game. Pausing, stopping, losing the focus or closing the panel calls `GuiSystem::releaseAll`, which lets go of every held pointer without a click. A selected element is outlined over the image. The viewport (the editor's own camera) shows no UI.
+
+## The sample
+
+`apps/samples/basic/scenes/menu.scene.json` is the menu: a `Dim` image that blocks input, a nine-sliced `Menu` panel with a column of three buttons (Play, Options, and a Quit that is not interactable), and an `OptionsPanel` popup that starts `Disabled`. `scripts/toggle_button.lua` shows or hides its `target` entity when its button is clicked, which is how Options opens the popup and Close shuts it. Run it with `sonnet_player apps/samples/basic --scene scenes/menu.scene.json`.
+
 ## Tests
 
-`gui_tests` run headless, without a GPU: anchors, offsets and pivots against hand-computed rectangles, row and column layouts with spacing, padding and alignment, the canvas scale for width, height and between, a safe-area inset, canvas order, a disabled subtree hidden and input-less, hit testing over overlapping canvases and siblings, capture of a pointer until its release, one click for a press and release inside and none for a release outside, a finger and its synthesised mouse as one press, a consumed touch absent from `InputState`, the window-to-target mapping, the scene round trip of every component, the quads of images (rectangle, tint, draw order, the button's state tints, a disabled subtree, a texture still loading), the nine-slice rectangles and texture coordinates against hand-computed values, and that the pass is declared only when something draws. `runtime_tests` draws a box through `Game` and finds it in the screenshot; `renderer_tests` reads a quad back from the top-left on Lavapipe. `scripting_tests` runs a Lua `onPress`, `onRelease` and `onClick`.
+`gui_tests` run headless, without a GPU: anchors, offsets and pivots against hand-computed rectangles, row and column layouts with spacing, padding and alignment, the canvas scale for width, height and between, a safe-area inset, canvas order, a disabled subtree hidden and input-less, hit testing over overlapping canvases and siblings, capture of a pointer until its release, one click for a press and release inside and none for a release outside, a finger and its synthesised mouse as one press, a consumed touch absent from `InputState`, the window-to-target mapping, the scene round trip of every component, the quads of images (rectangle, tint, draw order, the button's state tints, a disabled subtree, a texture still loading), the nine-slice rectangles and texture coordinates against hand-computed values, and that the pass is declared only when something draws. `runtime_tests` draws a box through `Game` and finds it in the screenshot; `renderer_tests` reads a quad back from the top-left on Lavapipe, `runtime_tests` clicks the sample menu's buttons through `Game` (Options opens the popup, Close hides it, Quit and the dim layer do nothing, and no click reaches the game's input) and compares a capture of the menu with `tests/golden/menu.png` on Lavapipe, and `editor_tests` lays the UI out against the Game panel in edit mode. `scripting_tests` runs a Lua `onPress`, `onRelease` and `onClick`.
