@@ -125,6 +125,7 @@ Components are read and written through reflection, generically ([world.md](worl
 | `float`, `double` | number |
 | integers | integer |
 | `bool` | boolean |
+| `std::string` | string (it was `nil` before [M15](gui.md#text)'s labels needed it) |
 | enum | the constant's name as a string (`"Dynamic"`); writing accepts the name or its integer value |
 | asset identity (`core::Uuid`) | the canonical string, or `nil` for none |
 | `vec3`, `quat` | tables `{x, y, z}` and `{x, y, z, w}` with the `vec3` and `quat` metatables below |
