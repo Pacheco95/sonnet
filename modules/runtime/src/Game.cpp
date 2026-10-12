@@ -282,6 +282,9 @@ void Game::render(rhi::ICommandList &commands, const std::optional<rhi::Swapchai
     const renderer::GraphImage color = m_graph.importImage(m_target.color());
     const renderer::GraphImage depth = m_graph.importImage(m_target.depth());
     m_renderer.addScenePasses(m_graph, m_view, color, depth);
+    // The UI over the finished scene, before the screenshot copies it: a capture shows what the
+    // player sees.
+    m_gui.addPass(m_renderer, m_assets, m_graph, color);
     // The scene as the present pass reads it: tone mapped and display-encoded already.
     if (m_screenshotRequest) {
       m_screenshots.add(m_graph, color, m_target.size(), renderer::Renderer::ColorFormat,

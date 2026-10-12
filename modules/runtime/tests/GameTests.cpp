@@ -180,6 +180,45 @@ struct Png {
 
 } // namespace
 
+TEST_CASE("the game UI is drawn over the scene and in the screenshot", "[runtime][gui][gpu]") {
+  Fixture fixture;
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  const flecs::entity canvas = game.world().createEntity("Canvas");
+  canvas.set<gui::GuiCanvas>({.referenceSize = {640.0f, 480.0f}});
+  const flecs::entity box = game.world().createEntity("Box", canvas);
+  box.set<gui::GuiRect>({.anchorMin = {0.0f, 0.0f},
+                         .anchorMax = {0.0f, 0.0f},
+                         .pivot = {0.5f, 0.5f},
+                         .offsetMin = {0.0f, 0.0f},
+                         .offsetMax = {100.0f, 100.0f}});
+  box.set<gui::GuiImage>({.tint = {1.0f, 0.0f, 0.0f, 1.0f}});
+
+  const std::filesystem::path written = fixture.platform.prefPath("sonnet", "runtime_tests") / "shots" / "gui.png";
+  std::filesystem::remove(written);
+  game.requestScreenshot(written);
+  fixture.frame(game);
+  REQUIRE(
+      std::ranges::any_of(game.graph().statistics().passes, [](const auto &pass) { return pass.name == "overlay"; }));
+  const auto result = game.takeScreenshotResult();
+  REQUIRE((result.has_value() && result->has_value()));
+
+  // Opaque red at the top-left, where the box is, and not at the other corner.
+  const Png png = readPng(written);
+  const auto at = [&](int x, int y) {
+    return &png.rgba[(static_cast<std::size_t>(y) * static_cast<std::size_t>(png.width) + static_cast<std::size_t>(x)) *
+                     4];
+  };
+  REQUIRE((at(50, 50)[0] > 250 && at(50, 50)[1] < 5 && at(50, 50)[2] < 5));
+  REQUIRE(at(png.width - 50, png.height - 50)[0] < 200);
+  std::filesystem::remove(written);
+
+  // The same scene without the UI declares no overlay pass.
+  game.world().destroyEntity(canvas);
+  fixture.frame(game);
+  REQUIRE(
+      std::ranges::none_of(game.graph().statistics().passes, [](const auto &pass) { return pass.name == "overlay"; }));
+}
+
 TEST_CASE("a touch on a button is the UI's and a touch elsewhere is the game's", "[runtime][gpu]") {
   Fixture fixture;
   runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
