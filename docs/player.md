@@ -10,7 +10,7 @@ It is the editor's play mode with the editing removed. There is no edit mode to 
 
 Per frame, in the order `apps/player/main.cpp` calls them:
 
-1. `event` for every translated platform event, which all becomes game input; there is no panel to compete for it, so the whole window is the game's.
+1. `event` for every translated platform event. The game UI takes a press on a button, with the motion and release that follow it ([gui.md](gui.md#input)); the rest becomes game input, since there is no panel to compete for it.
 2. `update(dt)` polls the database for changed sources (nothing in bundle mode), hands the audio device the camera as its fallback listener, runs `World::progress` — the fixed steps with physics and the scripts' `fixedUpdate`, the scripts' `update`, the animators, physics interpolation, the transform system, the skin palettes and the audio — and then builds the draw list, the light list, the sun and the environment from the world ([world.md](world.md#draw-list)).
 3. `render(commands, swapchainImage)` resets the graph, sizes the target to the acquired image, declares the scene passes into it and the present pass into the swapchain image, and executes ([rendering.md](rendering.md#frame-structure)). Without an image — minimised, or a swapchain being recreated — the simulation still ran and nothing is drawn.
 4. `afterPresent`, once the frame is submitted, writes the screenshot the frame copied, when a capture asked for one ([Capture runs](#capture-runs)).
