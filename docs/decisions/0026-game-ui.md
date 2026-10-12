@@ -1,6 +1,6 @@
 # ADR-0026: Game UI is scene entities drawn by a `gui` module
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-11
 
 ## Context

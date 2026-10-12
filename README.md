@@ -196,7 +196,7 @@ ctest --preset linux-debug
 | [0023](docs/decisions/0023-animation-blending-morph-targets-and-particles.md) | Animation blending, morph targets and GPU particles | Accepted |
 | [0024](docs/decisions/0024-temporal-anti-aliasing-and-occlusion-culling.md) | Temporal anti-aliasing, occlusion culling and compressed HDR environments | Accepted |
 | [0025](docs/decisions/0025-shadow-levels-of-detail.md) | A coarser index range for the far shadow cascades | Accepted |
-| [0026](docs/decisions/0026-game-ui.md) | Game UI is scene entities drawn by a `gui` module | Proposed |
+| [0026](docs/decisions/0026-game-ui.md) | Game UI is scene entities drawn by a `gui` module | Accepted |
 
 ## License
 
