@@ -86,7 +86,7 @@
             "x": 1920,
             "y": 1080
           },
-          "match": 0.5,
+          "match": 0.0,
           "safeArea": false,
           "order": 0
         },

@@ -50,12 +50,13 @@ write("stress", [
     entity("Stress", (0, 0, 0), {"Scripts": {"slots": [{"script": STRESS_SCRIPT, "properties": {}}]}}),
 ])
 
-# The HUD's own cost is the overlay pass's, so the scene behind it is only a sky.
+# The HUD's own cost is the overlay pass's, so the scene behind it is only a sky. The canvas scales
+# by width, so the whole grid is on screen in portrait too, in the top third of a phone.
 write("hud_stress", [
     entity("Camera", (0, 2, 6), {"Camera": {"fovY": 1.0, "nearPlane": 0.1}, "AudioListener": None}, scene="hud_stress"),
     entity("Sky", (0, 0, 0), {"Environment": {"map": SKY, "intensity": 1.0, "exposure": 1.0}}, scene="hud_stress"),
     entity("HUD", (0, 0, 0), {
-        "GuiCanvas": {"referenceSize": {"x": 1920, "y": 1080}, "match": 0.5, "safeArea": False, "order": 0},
+        "GuiCanvas": {"referenceSize": {"x": 1920, "y": 1080}, "match": 0.0, "safeArea": False, "order": 0},
         "Scripts": {"slots": [{"script": HUD_STRESS_SCRIPT, "properties": {}}]},
     }, scene="hud_stress"),
 ])
