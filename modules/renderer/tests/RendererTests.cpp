@@ -129,6 +129,7 @@ struct GpuScene {
   RenderGraph graph;
   RenderTarget target;
   BufferHandle readback;
+  std::span<const OverlayQuad> overlay; // drawn over the scene, when there are any
   // Wall-clock time of each frame's endFrame, where the frame is submitted. MoltenVK encodes the
   // recorded commands into Metal there, one Metal draw per indirect command (ADR-0016), which no
   // pass's recording time includes.
@@ -157,6 +158,7 @@ struct GpuScene {
       const GraphImage depth = graph.importImage(target.depth());
       renderer.addScenePasses(graph, view, color, depth, {0.0f, 0.0f, 0.0f, 1.0f});
       renderer.addDebugLinePass(graph, view, color, depth);
+      renderer.addOverlayPass(graph, color, overlay);
       if (frame == frames - 1) {
         graph.addPass(
             "readback", [&](PassBuilder &b) { b.transferSrc(color); },
@@ -2144,6 +2146,71 @@ TEST_CASE("debug lines are depth-tested against the scene on a GPU", "[renderer]
     REQUIRE(near(32, 40, red));
     REQUIRE(device->validationMessageCount() == 0);
     renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("overlay quads are one draw after the scene, and none add no pass", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  const std::array quads{OverlayQuad{.min = {0.0f, 0.0f}, .max = {8.0f, 8.0f}},
+                         OverlayQuad{.min = {8.0f, 8.0f}, .max = {16.0f, 16.0f}, .color = {1.0f, 0.0f, 0.0f, 0.5f}}};
+  const auto frame = [&](std::span<const OverlayQuad> overlay) {
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    const GraphImage color = graph.importImage(target.color());
+    renderer.addOverlayPass(graph, color, overlay);
+    graph.execute(commands);
+    device->endFrame();
+  };
+
+  frame({});
+  REQUIRE_FALSE(hasPass(graph, "overlay"));
+  frame(quads);
+  REQUIRE(hasPass(graph, "overlay"));
+  REQUIRE(countLines(*device, "bindPipeline \"overlay\"") == 1);
+  REQUIRE(countLines(*device, "draw 12 x1") == 1); // six vertices a quad
+}
+
+TEST_CASE("overlay quads are placed from the top-left, blended and textured on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    // Two texels side by side, red and blue, sRGB like a UI image is imported.
+    TextureData data;
+    data.size = {2, 1};
+    data.data = {std::byte{255}, std::byte{0}, std::byte{0},   std::byte{255},
+                 std::byte{0},   std::byte{0}, std::byte{255}, std::byte{255}};
+    const TextureHandle texture = renderer.createTexture(data, "two texels");
+    REQUIRE(renderer.textureSize(texture) == glm::uvec2{2, 1});
+    REQUIRE(renderer.textureSize(TextureHandle{}) == glm::uvec2{0, 0});
+
+    const std::array quads{// Opaque red in the top-left corner.
+                           OverlayQuad{.min = {0.0f, 0.0f}, .max = {16.0f, 16.0f}, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
+                           // Half-transparent green over the black scene, lower right.
+                           OverlayQuad{.min = {32.0f, 32.0f}, .max = {48.0f, 48.0f}, .color = {0.0f, 1.0f, 0.0f, 0.5f}},
+                           // The texture across the lower left: red to the left, blue to the right.
+                           OverlayQuad{.min = {0.0f, 48.0f}, .max = {32.0f, 56.0f}, .texture = texture}};
+    GpuScene scene{*device, renderer, {64, 64}};
+    scene.overlay = quads;
+    scene.render(boxScene({}));
+
+    const Pixel corner = scene.pixel(8, 8);
+    REQUIRE((corner.r > 250 && corner.g < 5 && corner.b < 5));
+    REQUIRE(scene.pixel(40, 8).r < 5); // nothing top-right: y runs down
+    const Pixel half = scene.pixel(40, 40);
+    REQUIRE((half.g > 120 && half.g < 136 && half.r < 8));
+    const Pixel left = scene.pixel(2, 52);
+    const Pixel right = scene.pixel(29, 52);
+    REQUIRE((left.r > 240 && left.b < 15));
+    REQUIRE((right.b > 240 && right.r < 15));
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyTexture(texture);
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
