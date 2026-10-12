@@ -59,7 +59,7 @@ bool GuiSystem::event(const platform::Event &event) {
                                [&](const Capture &capture) { return capture.pointer == GuiPointer{true, moved->id}; });
   }
   if (const auto *focus = std::get_if<WindowFocusChanged>(&event); focus != nullptr && !focus->focused) {
-    cancelAll();
+    releaseAll();
   }
   return false;
 }
@@ -96,7 +96,7 @@ bool GuiSystem::release(GuiPointer pointer, glm::vec2 position) {
   return true;
 }
 
-void GuiSystem::cancelAll() {
+void GuiSystem::releaseAll() {
   while (!m_captures.empty()) {
     const Capture capture = m_captures.front();
     m_captures.erase(m_captures.begin());
