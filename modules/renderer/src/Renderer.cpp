@@ -285,9 +285,9 @@ struct GpuOverlayQuad {
   glm::vec2 uvMax;
   glm::vec4 color;
   std::uint32_t texture; // bindless index
+  std::uint32_t kind;    // OverlayKind
   std::uint32_t padding0;
   std::uint32_t padding1;
-  std::uint32_t padding2;
 };
 static_assert(sizeof(GpuOverlayQuad) == 64);
 
@@ -3236,9 +3236,9 @@ void Renderer::recordOverlay(rhi::ICommandList &commands, std::span<const Overla
               .uvMax = quad.uvMax,
               .color = quad.color,
               .texture = textureIndex(quad.texture),
+              .kind = static_cast<std::uint32_t>(quad.kind),
               .padding0 = 0,
-              .padding1 = 0,
-              .padding2 = 0};
+              .padding1 = 0};
   }
   const OverlayConstants constants{.targetSize = glm::vec2{targetSize},
                                    .sampler = m_device.samplerIndex(m_linearClampSampler)};
