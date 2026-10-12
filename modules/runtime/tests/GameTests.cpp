@@ -895,10 +895,15 @@ TEST_CASE("the basic sample's menu opens and closes its popup from clicks", "[ru
   fixture.frame(game);
   REQUIRE(popup.has<world::Disabled>());
 
-  // Quit is not interactable: nothing happens, and the press is still the dimmed backdrop's.
-  click(game, centreOf(game, quit));
-  fixture.frame(game);
-  REQUIRE(popup.has<world::Disabled>());
+  // Quit ends the game where the platform lets it, and is hidden where it does not.
+  REQUIRE(quit.has<world::Disabled>() == !platform::canQuit());
+  if (platform::canQuit()) {
+    REQUIRE_FALSE(game.takeQuitRequest());
+    click(game, centreOf(game, quit));
+    fixture.frame(game);
+    REQUIRE(game.takeQuitRequest());
+    REQUIRE(popup.has<world::Disabled>());
+  }
   // A click beside the menu lands on the dim layer, which blocks input without being a button.
   click(game, {5.0f, 5.0f});
   fixture.frame(game);
