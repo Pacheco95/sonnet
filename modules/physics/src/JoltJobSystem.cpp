@@ -11,6 +11,17 @@ JoltJobSystem::JoltJobSystem(core::JobSystem &jobs, JPH::uint maxJobs, JPH::uint
 }
 
 JoltJobSystem::~JoltJobSystem() {
+  waitForWorkers();
+}
+
+void JoltJobSystem::WaitForJobs(Barrier *barrier) {
+  JPH::JobSystemWithBarrier::WaitForJobs(barrier);
+  // A barrier can finish jobs before their queued callbacks run. Drain those references before
+  // the next step, or finished jobs accumulate until the bounded free list runs out of slots.
+  waitForWorkers();
+}
+
+void JoltJobSystem::waitForWorkers() {
   for (std::uint32_t count = m_inFlight->load(std::memory_order_acquire); count != 0;
        count = m_inFlight->load(std::memory_order_acquire)) {
     m_inFlight->wait(count, std::memory_order_acquire);

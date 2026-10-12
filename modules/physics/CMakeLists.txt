@@ -16,7 +16,10 @@ sonnet_add_module(physics
 
 sonnet_add_module_test(physics
   SOURCES
+    tests/JoltJobSystemTests.cpp
     tests/PhysicsTests.cpp
+  DEPENDS
+    Jolt::Jolt
 )
 if(TARGET physics_tests)
   sonnet_add_engine_shaders(physics_tests)
