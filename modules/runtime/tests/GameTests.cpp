@@ -552,24 +552,26 @@ TEST_CASE("a bundle cooked for a phone is refused on a device without ASTC", "[r
 
   runtime::GameDesc desc;
   desc.audioOutput = false;
-  runtime::Game game{*window, *device, *swapchain, desc};
-  REQUIRE(game.open(root).has_value());
-  for (const assets::CookPlatform target :
-       {assets::CookPlatform::Android, assets::CookPlatform::IOS, assets::CookPlatform::Linux}) {
-    REQUIRE(
-        assets::cook(game.assets(), project,
-                     {.outputDirectory = root / "export" / std::string{assets::toString(target)}, .platform = target})
-            .has_value());
-  }
+  {
+    runtime::Game game{*window, *device, *swapchain, desc};
+    REQUIRE(game.open(root).has_value());
+    for (const assets::CookPlatform target :
+         {assets::CookPlatform::Android, assets::CookPlatform::IOS, assets::CookPlatform::Linux}) {
+      REQUIRE(
+          assets::cook(game.assets(), project,
+                       {.outputDirectory = root / "export" / std::string{assets::toString(target)}, .platform = target})
+              .has_value());
+    }
 
-  for (const char *mobile : {"android", "ios"}) {
-    const auto opened = game.open(root / "export" / mobile / "game.sbundle");
-    REQUIRE_FALSE(opened.has_value());
-    REQUIRE(opened.error().message.contains(std::format("cooked for {}", mobile)));
-    REQUIRE_FALSE(game.assets().isOpen()); // nothing of it stays loaded
-  }
-  REQUIRE(game.open(root / "export" / "linux" / "game.sbundle").has_value());
-  REQUIRE(game.name() == "Phone");
+    for (const char *mobile : {"android", "ios"}) {
+      const auto opened = game.open(root / "export" / mobile / "game.sbundle");
+      REQUIRE_FALSE(opened.has_value());
+      REQUIRE(opened.error().message.contains(std::format("cooked for {}", mobile)));
+      REQUIRE_FALSE(game.assets().isOpen()); // nothing of it stays loaded
+    }
+    REQUIRE(game.open(root / "export" / "linux" / "game.sbundle").has_value());
+    REQUIRE(game.name() == "Phone");
+  } // closes the bundle before the cleanup removes it; Windows refuses to delete an open file
   std::filesystem::remove_all(root);
 }
 
