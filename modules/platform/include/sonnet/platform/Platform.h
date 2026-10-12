@@ -6,6 +6,10 @@
 
 #include <vulkan/vulkan_core.h>
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -13,6 +17,17 @@
 #include <vector>
 
 namespace sonnet::platform {
+
+// Whether a game may end itself (docs/platform.md, "Quitting"). iOS gives an app no sanctioned way
+// to exit, and Apple's guidelines ask apps not to; everywhere else the quit is the one the window's
+// close button makes.
+[[nodiscard]] constexpr bool canQuit() noexcept {
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+  return false;
+#else
+  return true;
+#endif
+}
 
 struct PlatformDesc {
   // Uses SDL's offscreen video driver: windows exist, nothing is displayed, Vulkan still loads.

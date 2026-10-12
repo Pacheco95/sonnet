@@ -112,6 +112,11 @@ public:
   [[nodiscard]] const platform::InputState &input() const noexcept {
     return m_input;
   }
+  // True once if a script called `game.quit()` since the last call (docs/scripting.md, "game");
+  // the application ends the run.
+  [[nodiscard]] bool takeQuitRequest() {
+    return m_scripts->takeQuitRequest();
+  }
   // The project's name, for the window title; the bundle's manifest gives the same.
   [[nodiscard]] const std::string &name() const noexcept {
     return m_name;

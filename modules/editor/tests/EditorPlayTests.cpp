@@ -165,6 +165,32 @@ TEST_CASE("play mode runs physics and scripts and stop puts everything back", "[
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a script's game.quit stops play and leaves the editor open", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "quit";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Quit").has_value());
+    const auto script = editor.assets().createScript(directory / "scripts" / "quitter.lua",
+                                                     "local Q = {}\nfunction Q:update(dt) game.quit() end\nreturn Q\n");
+    REQUIRE(script.has_value());
+    byName(editor.world(), "Box").set<scripting::Scripts>({.slots = {{.script = *script}}});
+    fixture.frame(editor);
+
+    editor.play();
+    REQUIRE(editor.isPlaying());
+    for (int frame = 0; frame < 3 && editor.isPlaying(); ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE_FALSE(editor.isPlaying());
+    REQUIRE(editor.scripts().instanceCount() == 0);
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("an edit made before play can be undone after stop, and the play's own edits are gone", "[editor][gpu]") {
   Fixture fixture;
   editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};

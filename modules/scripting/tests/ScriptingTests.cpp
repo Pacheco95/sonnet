@@ -961,3 +961,32 @@ TEST_CASE("a button's events reach the scripts of its entity as onPress, onRelea
   fixture.run(1);
   REQUIRE(fixture.trace().size() == 3); // each event is delivered once
 }
+
+TEST_CASE("game.quit asks the application to quit once, and reset forgets a request", "[scripting][game]") {
+  Fixture fixture;
+  REQUIRE(fixture.scripts->run("assert(game.canQuit())", "can").has_value());
+  REQUIRE_FALSE(fixture.scripts->takeQuitRequest());
+
+  REQUIRE(fixture.scripts->run("game.quit() game.quit()", "quit").has_value());
+  REQUIRE(fixture.scripts->takeQuitRequest());
+  REQUIRE_FALSE(fixture.scripts->takeQuitRequest()); // taken
+
+  REQUIRE(fixture.scripts->run("game.quit()", "again").has_value());
+  fixture.scripts->reset();
+  REQUIRE_FALSE(fixture.scripts->takeQuitRequest());
+}
+
+TEST_CASE("game.quit does nothing where the platform cannot quit", "[scripting][game]") {
+  Fixture fixture;
+  fixture.scripts.reset();
+  fixture.scripts = scripting::createScriptRuntime({.world = &fixture.world,
+                                                    .assets = &fixture.assets,
+                                                    .physics = fixture.physics.get(),
+                                                    .animation = &fixture.animation,
+                                                    .gui = &fixture.gui,
+                                                    .input = &fixture.input,
+                                                    .view = &fixture.view,
+                                                    .canQuit = false});
+  REQUIRE(fixture.scripts->run("assert(not game.canQuit()) game.quit()", "quit").has_value());
+  REQUIRE_FALSE(fixture.scripts->takeQuitRequest());
+}

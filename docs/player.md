@@ -108,6 +108,10 @@ ADR-0018 decides what counts as running on a device and how a device's agent rep
 
 The report returns the PNGs, the logs (`adb logcat -d -s Sonnet`, and `adb logcat -d -b crash`, which should be empty), the Vulkan description, the device model and OS version (`adb shell getprop ro.product.model` and `ro.build.version.release`), and one line per check saying pass or fail, and for checks 4 and 5 who did them. The PNGs are compared by eye with a Linux capture of the same arguments, not byte for byte, since the GPUs differ and the phone's window is portrait. Hardware identifiers, build fingerprints and home paths stay out of it.
 
+## Quitting
+
+The player ends on the window's close button, the platform's quit, or a script's `game.quit()` ([scripting.md](scripting.md#game)). The last takes the same path: `Game::takeQuitRequest` is read after the frame's update, and the frame returns `AppResult::Success`, so SDL runs `SDL_AppQuit` and the teardown is the one the other two use. On Android SDL finishes the activity, which returns to the launcher; the call has not been run on a phone yet. iOS gives an app no sanctioned way to exit and Apple's guidelines ask apps not to, so `platform::canQuit()` is false there: `game.quit()` does nothing and `game.canQuit()` lets a project hide its Quit button.
+
 ## The lifecycle
 
 A phone sends the player to the background and brings it back, and the player handles the events `platform` translates for it ([platform.md](platform.md#background-and-foreground)), between two frames:

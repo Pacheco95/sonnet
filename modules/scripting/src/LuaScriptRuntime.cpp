@@ -196,7 +196,7 @@ class LuaScriptRuntime final : public IScriptRuntime {
 public:
   explicit LuaScriptRuntime(const ScriptDesc &desc)
       : m_world(*desc.world), m_assets(*desc.assets), m_physics(desc.physics), m_animation(desc.animation),
-        m_gui(desc.gui), m_input(desc.input), m_view(desc.view) {
+        m_gui(desc.gui), m_input(desc.input), m_view(desc.view), m_canQuit(desc.canQuit) {
     registerComponents(m_world);
     // No io, os, package or debug: scripts reach the engine through its tables only, the same on
     // every platform the player runs on (ADR-0009).
@@ -222,6 +222,7 @@ public:
     m_types.vec3Metatable = prelude.get<sol::table>(0);
     m_types.quatMetatable = prelude.get<sol::table>(1);
     bindLog();
+    bindGame();
     bindEntity();
     bindWorld();
     if (m_input != nullptr) {
@@ -261,11 +262,16 @@ public:
   LuaScriptRuntime &operator=(const LuaScriptRuntime &) = delete;
 
   void reset() override {
+    m_quitRequested = false;
     m_instances.clear();
     m_classes.clear();
     m_modules.clear();
     m_resolved.clear();
     m_lua.collect_garbage();
+  }
+
+  bool takeQuitRequest() override {
+    return std::exchange(m_quitRequested, false);
   }
 
   void seedRandom(std::uint64_t seed) override {
@@ -1094,6 +1100,17 @@ private:
     m_lua.set_function("print", log(spdlog::level::info));
   }
 
+  void bindGame() {
+    sol::table table = m_lua.create_named_table("game");
+    table.set_function("canQuit", [this] { return m_canQuit; });
+    table.set_function("quit", [this] {
+      if (m_canQuit) {
+        SONNET_LOG_INFO("a script asked the game to quit");
+        m_quitRequested = true;
+      }
+    });
+  }
+
   void bindEntity() {
     m_lua.new_usertype<LuaEntity>(
         "Entity", sol::no_constructor, "isValid",
@@ -1326,6 +1343,8 @@ private:
   const gui::GuiSystem *m_gui;
   const platform::InputState *m_input;
   const ScriptView *m_view;
+  bool m_canQuit;
+  bool m_quitRequested{false};
   // Declared first so it is destroyed last: every sol reference below points into it.
   sol::state m_lua;
   LuaTypes m_types;
