@@ -912,6 +912,79 @@ TEST_CASE("the basic sample's menu opens and closes its popup from clicks", "[ru
   REQUIRE_FALSE(game.input().mouseDown(platform::MouseButton::Left));
 }
 
+TEST_CASE("the basic sample plays from its menu, pauses and goes back", "[runtime][samples][gui][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  REQUIRE(game.openScene("scenes/menu.scene.json").has_value());
+  // The scene root of that name, or an invalid entity.
+  const auto root = [&](std::string_view name) {
+    for (const flecs::entity entity : game.world().roots()) {
+      if (entity.get<world::Name>().value == name) {
+        return entity;
+      }
+    }
+    return flecs::entity{};
+  };
+  const auto find = [&](std::string_view canvas, std::string_view path) {
+    REQUIRE(root(canvas).is_valid());
+    const flecs::entity found = game.world().findByPath(root(canvas), path);
+    REQUIRE(found.is_valid());
+    return found;
+  };
+  // The elevator's script moves it by its dt every frame.
+  const auto elevatorHeight = [&] { return root("Elevator").get<world::Transform>().position.y; };
+  fixture.frame(game);
+  fixture.frame(game);
+
+  // Play loads the playground after the frame that heard the click, with its HUD laid out.
+  click(game, centreOf(game, find("Canvas", "Menu/Buttons/Play")));
+  fixture.frame(game);
+  REQUIRE(root("Ball").is_valid());
+  REQUIRE_FALSE(root("Canvas").is_valid());
+  fixture.frame(game);
+  const flecs::entity pauseMenu = find("HUD", "PauseMenu");
+  REQUIRE(pauseMenu.has<world::Disabled>());
+  REQUIRE(find("HUD", "Score").get<gui::GuiText>().text == "Score 0");
+
+  // Pause stops the game's time and shows the menu, while the scripts still run.
+  click(game, centreOf(game, find("HUD", "Pause")));
+  fixture.frame(game);
+  REQUIRE(game.world().timeScale() == 0.0f);
+  REQUIRE_FALSE(pauseMenu.has<world::Disabled>());
+  fixture.frame(game);
+  const float paused = elevatorHeight();
+  for (int i = 0; i < 5; ++i) {
+    fixture.frame(game);
+  }
+  REQUIRE(elevatorHeight() == paused);
+
+  // The Pause button is behind the menu's dim layer now; Resume is what lets the game go on.
+  click(game, centreOf(game, find("HUD", "Pause")));
+  fixture.frame(game);
+  REQUIRE(game.world().timeScale() == 0.0f);
+  click(game, centreOf(game, find("HUD", "PauseMenu/Panel/Buttons/Resume")));
+  fixture.frame(game);
+  REQUIRE(game.world().timeScale() == 1.0f);
+  REQUIRE(pauseMenu.has<world::Disabled>());
+  fixture.frame(game);
+  REQUIRE(elevatorHeight() != paused);
+
+  // Main menu from a pause goes back to the title, at real time again.
+  click(game, centreOf(game, find("HUD", "Pause")));
+  fixture.frame(game);
+  fixture.frame(game);
+  click(game, centreOf(game, find("HUD", "PauseMenu/Panel/Buttons/MainMenu")));
+  fixture.frame(game);
+  REQUIRE(root("Canvas").is_valid());
+  REQUIRE_FALSE(root("Ball").is_valid());
+  REQUIRE(game.world().timeScale() == 1.0f);
+}
+
 TEST_CASE("a scene a script asks for that does not load leaves the running one", "[runtime][gpu]") {
   Fixture fixture;
   const std::filesystem::path project = sampleProject(fixture.platform);

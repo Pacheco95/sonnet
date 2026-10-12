@@ -596,7 +596,9 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
     REQUIRE(sink->problems.empty());
     // The sweeper, the elevator, the ball, the spawner and the two pickups; the first crate to land
     // under the spawner fell through the trigger of the one that takes crates, which went away.
-    REQUIRE(editor.scripts().instanceCount() == 5);
+    // Then the HUD's score label and Pause button, and the pause menu's three buttons: Disabled on
+    // the menu hides them from the UI but does not reach the children's scripts.
+    REQUIRE(editor.scripts().instanceCount() == 10);
     REQUIRE(!has("Crate coin"));
     REQUIRE(has("Coin"));   // the ball's, which nothing has touched
     REQUIRE(crates() == 2); // one every 1.5 s
