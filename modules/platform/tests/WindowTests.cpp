@@ -35,6 +35,13 @@ TEST_CASE("window reports the requested size", "[platform][window]") {
   REQUIRE(!window->isMinimized());
 }
 
+TEST_CASE("a window without a reported inset has the whole window as its safe area", "[platform][window]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  requireVulkan(platform);
+  const auto window = platform.createWindow({.title = "test", .size = {640, 360}});
+  REQUIRE(window->safeArea() == sonnet::platform::WindowRect{{0, 0}, {640, 360}});
+}
+
 TEST_CASE("window title can be changed", "[platform][window]") {
   sonnet::platform::Platform platform{{.headless = true}};
   requireVulkan(platform);

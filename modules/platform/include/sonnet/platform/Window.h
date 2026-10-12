@@ -65,6 +65,10 @@ public:
   [[nodiscard]] virtual WindowRect restoredRect() const = 0;
   // The display the window is mostly on; empty when SDL names none.
   [[nodiscard]] virtual std::optional<Display> display() const = 0;
+  // The part of the window not covered by a notch, rounded corners or the home indicator, in the
+  // window's own coordinates (the ones of size() and of the input events, with the origin at its
+  // top-left). The whole window where the platform reports no inset, as on a desktop.
+  [[nodiscard]] virtual WindowRect safeArea() const = 0;
   [[nodiscard]] virtual std::string_view title() const = 0;
   virtual void setTitle(std::string_view title) = 0;
   virtual void show() = 0;

@@ -25,6 +25,7 @@ public:
   [[nodiscard]] glm::ivec2 position() const override;
   [[nodiscard]] WindowRect restoredRect() const override;
   [[nodiscard]] std::optional<Display> display() const override;
+  [[nodiscard]] WindowRect safeArea() const override;
   [[nodiscard]] std::string_view title() const override;
   void setTitle(std::string_view title) override;
   void show() override;

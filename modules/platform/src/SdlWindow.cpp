@@ -114,6 +114,14 @@ std::optional<Display> SdlWindow::display() const {
   return displayFromSdl(SDL_GetDisplayForWindow(m_window));
 }
 
+WindowRect SdlWindow::safeArea() const {
+  SDL_Rect area{};
+  if (SDL_GetWindowSafeArea(m_window, &area) && area.w > 0 && area.h > 0) {
+    return {{area.x, area.y}, {static_cast<unsigned>(area.w), static_cast<unsigned>(area.h)}};
+  }
+  return {{0, 0}, size()};
+}
+
 std::string_view SdlWindow::title() const {
   return m_title;
 }
