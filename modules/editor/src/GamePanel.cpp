@@ -28,7 +28,7 @@ void GamePanel::hide() {
   resizeTarget({0, 0});
 }
 
-void GamePanel::draw(bool &open) {
+void GamePanel::draw(bool &open, const std::function<void(const ViewportInput &)> &overlay) {
   m_input = {};
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0.0f, 0.0f});
   const bool visible = ImGui::Begin("Game", &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -60,6 +60,9 @@ void GamePanel::draw(bool &open) {
                           .leftDoubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left),
                           .leftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left),
                           .drawList = ImGui::GetWindowDrawList()};
+  if (overlay && m_target.isValid()) {
+    overlay(m_input);
+  }
   ImGui::End();
 }
 

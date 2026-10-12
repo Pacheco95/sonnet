@@ -7,7 +7,6 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 #include <sonnet/core/Version.h>
-#include <sonnet/gui/Components.h>
 #include <sonnet/world/Scene.h>
 
 #include <SDL3/SDL_events.h>
@@ -52,12 +51,13 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                // Platform windows need a display; the headless driver has none.
                .viewports = !platform.isHeadless()}),
       m_renderer(device, platform.basePath() / "shaders", {.jobs = &m_jobs}), m_graph(device), m_picker(device),
-      m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}),
+      m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}), m_gui(m_world),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)), m_animation(m_world, m_assets),
       m_scripts(scripting::createScriptRuntime({.world = &m_world,
                                                 .assets = &m_assets,
                                                 .physics = m_physics.get(),
                                                 .animation = &m_animation,
+                                                .gui = &m_gui,
                                                 .input = &m_input,
                                                 .view = &m_scriptView})),
       // A headless editor is a test's: it mixes without a device rather than making a sound.
@@ -66,9 +66,6 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_selection) {
-  // The inspector lists what is registered, and the game UI's components are the game's, not a
-  // system the editor runs yet (docs/gui.md).
-  gui::registerComponents(m_world);
   if (!platform.isHeadless()) {
     setFileDialogBackend(makeSdlFileDialogBackend(window.nativeHandle()));
     setLayoutFile(platform.prefPath("sonnet", "editor") / "layout.ini");
@@ -198,33 +195,39 @@ void Editor::event(const platform::Event &event) {
   const auto relative = [&](platform::WindowId window, glm::vec2 position) {
     return m_windowOrigins.relativeToImage(window, position, source.origin);
   };
+  // The game UI takes a press on a button first, then the game gets what is left, as in the player.
+  const auto handle = [&](const platform::Event &translated) {
+    if (!m_gui.event(translated)) {
+      m_input.handle(translated);
+    }
+  };
   if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
-    m_input.handle(platform::MouseMoved{.position = relative(moved->window, moved->position), .delta = moved->delta});
+    handle(platform::MouseMoved{.position = relative(moved->window, moved->position), .delta = moved->delta});
   } else if (const auto *pressed = std::get_if<platform::MouseButtonPressed>(&event)) {
     // A click elsewhere in the editor is not the game's.
     if (source.hovered) {
-      m_input.handle(platform::MouseButtonPressed{.button = pressed->button,
-                                                  .position = relative(pressed->window, pressed->position),
-                                                  .clicks = pressed->clicks});
+      handle(platform::MouseButtonPressed{.button = pressed->button,
+                                          .position = relative(pressed->window, pressed->position),
+                                          .clicks = pressed->clicks});
     }
   } else if (const auto *released = std::get_if<platform::MouseButtonReleased>(&event)) {
-    m_input.handle(platform::MouseButtonReleased{.button = released->button,
-                                                 .position = relative(released->window, released->position)});
+    handle(platform::MouseButtonReleased{.button = released->button,
+                                         .position = relative(released->window, released->position)});
   } else if (const auto *down = std::get_if<platform::TouchDown>(&event)) {
     // A finger elsewhere in the editor is not the game's. The image's own rectangle decides, not
     // ImGui's hover, which follows the finger's synthesised mouse only from the next frame.
     const glm::vec2 position = relative(down->window, down->position);
     const glm::vec2 size = source.size;
     if (position.x >= 0.0f && position.y >= 0.0f && position.x < size.x && position.y < size.y) {
-      m_input.handle(platform::TouchDown{.id = down->id, .position = position});
+      handle(platform::TouchDown{.id = down->id, .position = position});
     }
   } else if (const auto *motion = std::get_if<platform::TouchMotion>(&event)) {
-    m_input.handle(platform::TouchMotion{
+    handle(platform::TouchMotion{
         .id = motion->id, .position = relative(motion->window, motion->position), .delta = motion->delta});
   } else if (const auto *up = std::get_if<platform::TouchUp>(&event)) {
-    m_input.handle(platform::TouchUp{.id = up->id, .position = relative(up->window, up->position)});
+    handle(platform::TouchUp{.id = up->id, .position = relative(up->window, up->position)});
   } else {
-    m_input.handle(event);
+    handle(event);
   }
 }
 
@@ -321,7 +324,7 @@ void Editor::update(float dt) {
   }
   m_lookDelta = {0.0f, 0.0f};
   if (m_viewState.game) {
-    m_gamePanel.draw(m_viewState.game);
+    m_gamePanel.draw(m_viewState.game, [this](const ViewportInput &input) { drawGameOverlay(input); });
   } else {
     m_gamePanel.hide();
   }
@@ -344,6 +347,7 @@ void Editor::update(float dt) {
   const bool gameInput = gameInputActive();
   if (m_gameInputWasActive && !gameInput) {
     m_input.releaseAll();
+    m_gui.releaseAll();
   }
   m_gameInputWasActive = gameInput;
   // The world's frame after the UI edited it: systems, then what the renderer draws. The game
@@ -365,6 +369,12 @@ void Editor::update(float dt) {
   m_scriptView = {.camera = camera, .size = gameInputSource().size};
   m_world.progress(dt);
   m_input.beginFrame();
+  // The scripts heard the buttons' events during the frame. The UI is laid out against the Game
+  // view, in edit mode too, so a layout is seen as it is made; with the panel closed there is
+  // nothing to lay out for.
+  m_gui.endFrame();
+  const glm::uvec2 gameSize = m_gamePanel.target().size();
+  m_gui.update(glm::vec2{gameSize}, glm::vec2{gameSize}, {{0, 0}, gameSize});
   world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
   world::buildLightList(m_world, m_lights);
   world::buildParticleList(m_world, m_assets, m_particles);
@@ -429,6 +439,23 @@ void Editor::update(float dt) {
     std::ranges::copy(m_world.children(entity), std::back_inserter(pending));
   }
   updateTitle();
+}
+
+void Editor::drawGameOverlay(const ViewportInput &input) {
+  if (input.drawList == nullptr) {
+    return;
+  }
+  // The element, with its canvas or without one: whatever is selected and laid out is outlined.
+  for (const core::Uuid &uuid : m_selection.items()) {
+    const flecs::entity entity = m_world.find(uuid);
+    const gui::GuiElement *element = entity ? gui::findElement(m_gui.elements(), entity.id()) : nullptr;
+    if (element == nullptr) {
+      continue;
+    }
+    const ImVec2 min{input.origin.x + element->rect.min.x, input.origin.y + element->rect.min.y};
+    const ImVec2 max{input.origin.x + element->rect.max.x, input.origin.y + element->rect.max.y};
+    input.drawList->AddRect(min, max, IM_COL32(255, 153, 26, 255), 0.0f, 0, 2.0f);
+  }
 }
 
 void Editor::drawViewportOverlay(const ViewportInput &input) {
@@ -1179,6 +1206,8 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
   if (gameTarget.isValid()) {
     gameColor = m_graph.importImage(gameTarget.color());
     m_renderer.addScenePasses(m_graph, m_gameView, gameColor, m_graph.importImage(gameTarget.depth()));
+    // The game UI over the finished scene, as the player draws it.
+    m_gui.addPass(m_renderer, m_assets, m_graph, gameColor);
   }
   // A screenshot waits for a frame that has what it asks for: a viewport target, and a swapchain
   // image for the window.
@@ -1989,6 +2018,7 @@ void Editor::pause() {
   m_audio->pause();
   // Keys held down are let go: nothing runs to read them, and the release is not seen later.
   m_input.releaseAll();
+  m_gui.releaseAll();
   SONNET_LOG_INFO("pause");
 }
 
@@ -2130,6 +2160,7 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
   m_scripts->reset();
   m_audio->stopAll();
   m_input = {};
+  m_gui.releaseAll();
   const auto restoreSnapshot = [this] {
     m_world.clearScene();
     m_cutHistory = true;

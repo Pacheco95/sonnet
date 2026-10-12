@@ -58,6 +58,10 @@ public:
   // an image that blocks input, and the motion and release of a pointer holding one. The rest are
   // the game's.
   [[nodiscard]] bool event(const platform::Event &event);
+  // Lets go of every held pointer without a click, as losing the window's focus does: for an
+  // application that stops sending the game its events (a paused play mode). The releases are
+  // recorded like any other.
+  void releaseAll();
   // Forgets the events delivered this frame.
   void endFrame() noexcept {
     m_events.clear();
@@ -99,7 +103,6 @@ private:
 
   [[nodiscard]] bool press(GuiPointer pointer, glm::vec2 position);
   [[nodiscard]] bool release(GuiPointer pointer, glm::vec2 position);
-  void cancelAll();
   // The front-most element that takes pointer events at a position in target pixels.
   [[nodiscard]] flecs::entity_t hit(glm::vec2 position) const;
   // The pointer lets go of the entity: Release and Click once no other holds it.
