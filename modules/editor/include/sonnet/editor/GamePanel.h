@@ -6,6 +6,8 @@
 #include <sonnet/rhi/Device.h>
 #include <sonnet/ui/ImGuiLayer.h>
 
+#include <functional>
+
 namespace sonnet::editor {
 
 // The dockable game view: a render target of its own, sized to the panel, that the editor draws
@@ -20,7 +22,8 @@ public:
   GamePanel(const GamePanel &) = delete;
   GamePanel &operator=(const GamePanel &) = delete;
 
-  void draw(bool &open);
+  // `overlay`, when given, draws over the image with the frame's input, as the viewport's does.
+  void draw(bool &open, const std::function<void(const ViewportInput &)> &overlay = {});
   // The panel is closed this frame: releases the target and forgets the last frame's input.
   void hide();
 

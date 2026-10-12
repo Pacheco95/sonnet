@@ -23,6 +23,7 @@
 #include <sonnet/audio/AudioDevice.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/JobSystem.h>
+#include <sonnet/gui/GuiSystem.h>
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/InputState.h>
@@ -255,6 +256,11 @@ public:
   [[nodiscard]] const platform::InputState &gameInput() const noexcept {
     return m_input;
   }
+  // The game UI over the Game view: laid out against the panel every frame, taking the pointer
+  // while playing (docs/gui.md, docs/editor.md).
+  [[nodiscard]] const gui::GuiSystem &gui() const noexcept {
+    return m_gui;
+  }
   // The panel layout lives in `file` (an ImGui ini): read on the first frame, written every few
   // seconds after a change and when the editor is destroyed; it carries the shown panels and the
   // overlays too. A missing or unsplit layout gets the default one. Call before the first `update`;
@@ -424,6 +430,8 @@ private:
   void startFileDialog(DialogTarget target, const FileDialogRequest &request);
   void pollFileDialog();
   void drawViewportOverlay(const ViewportInput &input);
+  // The outline of each selected UI element over the Game view's image.
+  void drawGameOverlay(const ViewportInput &input);
   void buildLayout(unsigned dockspace, BuiltinLayout layout);
   void applyPendingLayout();
   void drawSaveLayoutModal();
@@ -461,6 +469,7 @@ private:
   // After the world, which they register into and have to be destroyed before; scripts after
   // physics so their fixed update follows the physics step (ADR-0009).
   platform::InputState m_input;
+  gui::GuiSystem m_gui;
   // The viewport's camera and size, for scripts turning a pointer into a ray.
   scripting::ScriptView m_scriptView;
   std::unique_ptr<physics::IPhysicsWorld> m_physics;

@@ -2,6 +2,7 @@
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/gui/Components.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
@@ -174,6 +175,54 @@ TEST_CASE("the Game view draws through the scene camera beside the Scene view", 
     REQUIRE(editor.renderer().statistics(1).temporalHistoryUsed);
     editor.stop();
     fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("the game UI is laid out against the Game panel and drawn into it, in edit mode too",
+          "[editor][gpu][game-view][gui]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "game_gui";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "GameGui").has_value());
+    const flecs::entity canvas = editor.world().createEntity("Canvas");
+    canvas.set<gui::GuiCanvas>({});
+    const flecs::entity bar = editor.world().createEntity("Bar", canvas);
+    bar.set<gui::GuiRect>({.anchorMin = {0.0f, 0.0f},
+                           .anchorMax = {1.0f, 1.0f},
+                           .pivot = {0.5f, 0.5f},
+                           .offsetMin = {0.0f, 0.0f},
+                           .offsetMax = {0.0f, 0.0f}});
+    bar.set<gui::GuiImage>({.tint = {1.0f, 0.0f, 0.0f, 1.0f}});
+
+    // With the panel closed there is nothing to lay out for, so nothing is drawn.
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    const gui::GuiElement *closed = gui::findElement(editor.gui().elements(), bar.id());
+    REQUIRE(closed != nullptr);
+    REQUIRE(closed->rect.size() == glm::vec2{0.0f, 0.0f});
+    REQUIRE(editor.gui().quads().empty());
+
+    // Not playing, the panel shows the canvas at its own size, so a layout is seen as it is made.
+    fixture.showGame(editor);
+    const glm::vec2 panel{editor.gamePanel().target().size()};
+    REQUIRE(panel.x > 0.0f);
+    const gui::GuiElement *open = gui::findElement(editor.gui().elements(), bar.id());
+    REQUIRE(open != nullptr);
+    REQUIRE(open->rect.min == glm::vec2{0.0f, 0.0f});
+    REQUIRE(open->rect.max == panel);
+    REQUIRE(editor.gui().quads().size() == 1);
+    REQUIRE(editor.gui().quads()[0].max == panel);
+
+    // A Disabled tag, which is how a script hides a panel, takes it out of the layout.
+    bar.add<world::Disabled>();
+    fixture.frame(editor);
+    REQUIRE(gui::findElement(editor.gui().elements(), bar.id()) == nullptr);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
