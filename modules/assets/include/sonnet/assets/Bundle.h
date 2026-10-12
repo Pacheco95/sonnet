@@ -29,7 +29,8 @@ namespace sonnet::assets {
 // The cooked form of a project (docs/assets.md, "Cooking and export"), one file: a header, the
 // payload blobs back to back, and a CBOR index at the end holding the manifest, the assets by
 // identity and the scene and prefab files by their project-relative path (ADR-0011).
-constexpr std::uint32_t BundleVersion = 4; // 4: a mesh carries its far shadow range; 3: an HDR environment is KTX2
+constexpr std::uint32_t BundleVersion = 5; // 5: the Font type, whose index entry carries its preload ranges; 4: a mesh
+                                           // carries its far shadow range; 3: an HDR environment is KTX2
 constexpr std::string_view BundleExtension = ".sbundle";
 
 // What a bundle is cooked for. The desktop platforms cook the same bytes, with compressed
@@ -70,6 +71,7 @@ struct BundleAsset {
   std::string name;
   core::Uuid parent;                 // nil for a file asset
   std::vector<core::Uuid> materials; // Mesh: the default material per slot
+  std::vector<GlyphRange> preload;   // Font: the codepoints to rasterise at load
 };
 
 // Reads a bundle: the index at open, a payload when it is asked for. Cheap to keep open, since
@@ -149,8 +151,8 @@ private:
 };
 
 // The payload encodings. Textures keep the KTX2 bytes the editor already caches, environments a
-// UASTC HDR KTX2 file (cookHdrKtx2), scripts their source and sounds their encoded file, so those
-// four need no function here; the rest are
+// UASTC HDR KTX2 file (cookHdrKtx2), scripts their source, and sounds and fonts their encoded file, so
+// those five need no function here; the rest are
 // below. Every decode is defensive: a truncated or foreign payload is an Io error, never a read
 // past the end.
 [[nodiscard]] std::vector<std::byte> encodeMesh(const renderer::MeshData &mesh);

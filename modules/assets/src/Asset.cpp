@@ -88,6 +88,8 @@ std::string_view toString(AssetType type) noexcept {
     return "Skin";
   case AssetType::Animation:
     return "Animation";
+  case AssetType::Font:
+    return "Font";
   }
   return "?";
 }
@@ -95,7 +97,7 @@ std::string_view toString(AssetType type) noexcept {
 std::optional<AssetType> assetTypeFromString(std::string_view name) noexcept {
   for (const AssetType type :
        {AssetType::Texture, AssetType::Mesh, AssetType::Material, AssetType::Model, AssetType::Environment,
-        AssetType::Script, AssetType::Sound, AssetType::Skin, AssetType::Animation}) {
+        AssetType::Script, AssetType::Sound, AssetType::Skin, AssetType::Animation, AssetType::Font}) {
     if (toString(type) == name) {
       return type;
     }
@@ -115,6 +117,27 @@ TextureSettings TextureSettings::fromJson(const json &object) {
 
 json TextureSettings::toJson() const {
   return json{{"srgb", srgb}, {"mipmaps", mipmaps}, {"compress", compress}};
+}
+
+FontSettings FontSettings::fromJson(const json &object) {
+  FontSettings settings;
+  if (object.is_object() && object.contains("preload") && object["preload"].is_array()) {
+    settings.preload.clear();
+    for (const json &range : object["preload"]) {
+      if (range.is_array() && range.size() == 2 && range[0].is_number_unsigned() && range[1].is_number_unsigned()) {
+        settings.preload.push_back({range[0].get<std::uint32_t>(), range[1].get<std::uint32_t>()});
+      }
+    }
+  }
+  return settings;
+}
+
+json FontSettings::toJson() const {
+  json ranges = json::array();
+  for (const GlyphRange &range : preload) {
+    ranges.push_back(json::array({range.first, range.last}));
+  }
+  return json{{"preload", std::move(ranges)}};
 }
 
 json saveMaterial(const MaterialSource &material) {

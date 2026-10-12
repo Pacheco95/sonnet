@@ -181,11 +181,17 @@ TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundl
                             .type = AssetType::Mesh,
                             .name = "Crate",
                             .parent = modelId,
-                            .materials = {materialId, {}}}, // a slot with no material stays empty
+                            .materials = {materialId, {}},
+                            .preload = {}}, // a slot with no material stays empty
                            encodeMesh(triangleMesh()))
                 .has_value());
     REQUIRE(writer
-                ->addAsset({.uuid = modelId, .type = AssetType::Model, .name = "crate", .parent = {}, .materials = {}},
+                ->addAsset({.uuid = modelId,
+                            .type = AssetType::Model,
+                            .name = "crate",
+                            .parent = {},
+                            .materials = {},
+                            .preload = {}},
                            encodeModel({}))
                 .has_value());
     // A script's payload is its source, stored as it is.
@@ -194,7 +200,8 @@ TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundl
                             .type = AssetType::Script,
                             .name = "spin",
                             .parent = {},
-                            .materials = {}},
+                            .materials = {},
+                            .preload = {}},
                            bytesOf("return {}\n"))
                 .has_value());
     REQUIRE(writer->addFile("scenes/main.scene.json", encodeJson({{"version", 2}})).has_value());
@@ -264,5 +271,13 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   (*bytes)[8] = std::byte{BundleVersion + 1};
   REQUIRE(core::writeFile(future, *bytes).has_value());
   REQUIRE(!Bundle::open(future).has_value());
+
+  // The version before the Font type: refused, and the message names both versions, so a player
+  // asked to open an old bundle says to cook it again.
+  (*bytes)[8] = std::byte{4};
+  REQUIRE(core::writeFile(future, *bytes).has_value());
+  const auto old = Bundle::open(future);
+  REQUIRE(!old.has_value());
+  REQUIRE(old.error().message.find("bundle version 4 is not version 5") != std::string::npos);
   std::filesystem::remove_all(directory);
 }
