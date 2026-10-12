@@ -8,7 +8,7 @@ import sys
 
 TYPES = "feat|fix|perf|refactor|docs|test|build|ci|style|chore|revert"
 SCOPES = (
-    "core|platform|rhi|renderer|assets|world|physics|scripting|audio|runtime|ui|editor|player|cook|samples|cmake|deps|docs"
+    "core|platform|rhi|renderer|assets|world|physics|gui|scripting|audio|runtime|ui|editor|player|cook|samples|cmake|deps|docs"
     "|tools|ci|skills|android|ios"
 )
 SUBJECT = re.compile(rf"^({TYPES})(\(({SCOPES})\))?!?: [a-z0-9].*[^.]$")
