@@ -197,6 +197,8 @@ Not in the first version: rich text and inline images, text input fields and IME
 
 **Done when** a sample game has a main menu, a heads-up display and a pause screen made of UI entities, with the title screen loading the game scene on a click and a Quit button that ends the game through `game.quit()` (hidden where `game.canQuit()` is false, on iOS), and runs from its project folder and from the cooked bundle on Linux, Windows, macOS, the Galaxy S25 Ultra and the iPad, the golden capture matching and the HUD costing no more than 0.2 ms of GPU time on the S25 at 200 elements; and a second sample, a game module with a C++ component and system and a Lua script that reads it, builds against the installed engine in CI, plays in the editor, and exports a custom player on all three desktops. CI is green on every job, and `tools/check_dependencies.py` still shows the player free of `ui` and `editor`.
 
+The HUD budget's scene is `scenes/hud_stress.scene.json` in the basic sample: two hundred elements, a third of them labels changing every frame ([gui.md](gui.md#the-sample)). Its `overlay` pass takes 0.008 ms of GPU time on an RTX 4090 in Release at 1920×1080, the desktop reference for the S25's measurement.
+
 Sizing: the UI is the larger half (a module, a pass, a font pipeline, editor support, three platforms) and the hook the riskier (packaging the engine). If either grows beyond what one milestone carries, they split into M15 and M16 at the ADRs, in this order.
 
 ## 1.0.0

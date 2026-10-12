@@ -83,6 +83,8 @@ The editor's image of the same flags is not the player's. The editor draws throu
 
 **Measuring the performance target.** `--scene scenes/stress.scene.json --play 3` on the basic sample is the README's scene: `scripts/stress.lua` builds a hundred by a hundred boxes and icospheres and a hundred point lights when it plays, the grid and the lights of `renderer_tests "[benchmark]"` ([rendering.md](rendering.md#gpu-driven-submission)), and the frame-times line above is the measurement. The scene is written by `tools/generate_stress_scene.py`. The window's size is the device's, so a desktop run is not at the target's 1080p unless the window is.
 
+**Measuring the HUD budget.** `--scene scenes/hud_stress.scene.json --play 3` is M15's: `scripts/hud_stress.lua` builds two hundred elements on a canvas, a grid of twenty by ten tiles filling the reference size, a third of them labels whose numbers change every frame and the rest nine-sliced panels and plain rectangles, over a sky. The `overlay` pass in the frame-times line is the HUD's GPU time, which the budget holds to 0.2 ms on the Galaxy S25 Ultra ([gui.md](gui.md#the-sample)). The same tool writes the scene.
+
 **On a phone.** The arguments go in the `args` extra, split on whitespace ([Running on Android](#running-on-android)). The whole `am start` is quoted once for `adb shell`, so the phone's shell keeps the extra as one string, and `-S` stops a player that is running first, since an activity already running takes no new arguments. The file is in the app's `files/`, which `run-as` reads, byte for byte through `adb shell` or `adb exec-out`:
 
 ```bash

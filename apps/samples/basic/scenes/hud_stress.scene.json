@@ -1,0 +1,104 @@
+{
+  "version": 3,
+  "entities": [
+    {
+      "uuid": "333bf773-c412-57d2-8f26-2aff984e4eb1",
+      "name": "Camera",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 2,
+            "z": 6
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "Camera": {
+          "fovY": 1.0,
+          "nearPlane": 0.1
+        },
+        "AudioListener": null
+      }
+    },
+    {
+      "uuid": "ec8c228c-af2f-5284-959e-22504ce717cb",
+      "name": "Sky",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "Environment": {
+          "map": "0238c936-ba15-474c-a8a7-53a87650359e",
+          "intensity": 1.0,
+          "exposure": 1.0
+        }
+      }
+    },
+    {
+      "uuid": "6e7fe31d-d739-5a80-bb6b-02c0d5b95a20",
+      "name": "HUD",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiCanvas": {
+          "referenceSize": {
+            "x": 1920,
+            "y": 1080
+          },
+          "match": 0.5,
+          "safeArea": false,
+          "order": 0
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "5c0a1b2c-0003-4d4e-9f00-000000000070",
+              "properties": {}
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

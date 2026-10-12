@@ -1149,3 +1149,34 @@ TEST_CASE("a script that sets a label's text changes the next captured frame", "
   REQUIRE(compare(before, after, 32).fractionOver > 0.001); // the pixels changed
   std::filesystem::remove_all(root);
 }
+
+TEST_CASE("the HUD stress scene builds two hundred elements of which a third are labels",
+          "[runtime][samples][gui][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const auto sink = std::make_shared<ProblemSink>();
+  core::Log::addSink(sink);
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  REQUIRE(game.openScene("scenes/hud_stress.scene.json").has_value());
+  // The first frame starts the script, the second lays out what it built and loads the font, and
+  // the third measures the M15 budget's load: every element drawn, every label's glyphs with it.
+  for (int i = 0; i < 3; ++i) {
+    fixture.frame(game);
+  }
+  const auto elements = game.gui().elements();
+  REQUIRE(elements.size() == 201); // the canvas and its two hundred tiles
+  const auto labels = std::ranges::count_if(elements, [&](const gui::GuiElement &element) {
+    return flecs::entity{game.world().ecs(), element.entity}.has<gui::GuiText>();
+  });
+  REQUIRE(labels == 67);
+  // The labels count frames, so their text changes and is drawn every frame.
+  REQUIRE(glyphQuads(game) >= 67);
+  REQUIRE(
+      std::ranges::any_of(game.graph().statistics().passes, [](const auto &pass) { return pass.name == "overlay"; }));
+  REQUIRE(sink->problems.empty());
+  core::Log::removeSink(sink);
+}
