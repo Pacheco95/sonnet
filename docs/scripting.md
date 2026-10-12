@@ -5,7 +5,7 @@ Gameplay scripts in Lua, behind `IScriptRuntime`, with Lua 5.5 and sol2 as the o
 | Header | Contents |
 |---|---|
 | `Components.h` | `ScriptSlot`, `Scripts` and `registerComponents` |
-| `ScriptRuntime.h` | `IScriptRuntime`, `ScriptDesc`, `PropertyType`, `PropertyDecl` and `createScriptRuntime` |
+| `ScriptRuntime.h` | `IScriptRuntime` (with `takeQuitRequest`), `ScriptDesc`, `PropertyType`, `PropertyDecl` and `createScriptRuntime` |
 
 ## Scripts and instances
 
@@ -210,6 +210,10 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 ### Game UI
 
 The `Gui*` components of [gui.md](gui.md) are components like the others: `self.entity:set("GuiText", { text = "Score 12" })` changes a label, and `entity:add("Disabled")` and `entity:remove("Disabled")` hide and show a panel with everything under it (there is no `entity:enable()`). The only addition is the three button hooks above; `input.touches()` and the mouse never report a pointer that a button took.
+
+### game
+
+`game.quit()` asks the application to end the game, and `game.canQuit()` says whether it can. The request is taken after the frame's scripts have run, so the rest of the frame still runs. In the player it ends the run as the window's close button does ([player.md](player.md#quitting)); in the editor it is the Stop button, with its prompt for the play's edits, and the editor stays open. Where `canQuit()` is false, which is iOS, `quit()` does nothing: a project hides its Quit button there (`GuiRect` and `Disabled` are enough: `if not game.canQuit() then self.entity:add("Disabled") end` in `start`).
 
 ### log
 

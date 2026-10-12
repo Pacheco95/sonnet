@@ -81,6 +81,10 @@ Positions, the mouse's and the touches' alike, are in window coordinates: SDL's 
 
 `thermalState()` (`Thermal.h`) returns how hard the system says it is working to shed heat: `Nominal`, `Fair`, `Serious` or `Critical`, the four levels iOS names, or `Unknown`. It is cheap enough to call once a second. iOS and macOS read `NSProcessInfo.thermalState` (one Objective-C++ file, `ThermalApple.mm`). Android reads the NDK's `AThermal_getCurrentThermalStatus` and folds its seven levels into the four: none is `Nominal`, light and moderate are `Fair`, severe is `Serious`, and critical, emergency and shutdown are `Critical`. Linux and Windows have no such value and answer `Unknown`, which is deliberately not `Nominal`: a run that cannot tell has not been shown to stay cool. It is a level, not a temperature; no public in-app API gives degrees. The player's capture line reports it ([player.md](player.md#capture-runs)).
 
+## Quitting
+
+`canQuit()` in `Platform.h` is false on iOS and true elsewhere: whether a game may end itself. The game's `game.quit()` asks for it only where it is true ([player.md](player.md#quitting)).
+
 ## Headless
 
 `PlatformDesc::headless` selects SDL's offscreen video driver: windows exist and report sizes, nothing is displayed, and the Vulkan library still loads, so the same code paths run in tests and CI. SDL assertions abort instead of opening their dialog. `platform_tests` uses it for every test that needs the subsystem.
