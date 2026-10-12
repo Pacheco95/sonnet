@@ -285,6 +285,10 @@ public:
     static_cast<void>(randomseed(static_cast<lua_Integer>(seed)));
   }
 
+  void bindLua(const std::function<void(sol::state_view)> &bind) override {
+    bind(sol::state_view{m_lua});
+  }
+
   core::Result<void> run(std::string_view code, std::string_view chunkName) override {
     sol::load_result chunk = m_lua.load(code, std::format("={}", chunkName), sol::load_mode::text);
     if (!chunk.valid()) {

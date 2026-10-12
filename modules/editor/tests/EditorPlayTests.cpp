@@ -558,6 +558,25 @@ TEST_CASE("pause freezes play mode, edits land on the frozen scene, stop from pa
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("the generic editor refuses a project that needs a game module", "[editor][gpu][module]") {
+  Fixture fixture;
+  const std::optional<std::filesystem::path> manifest =
+      editor::locateSource("apps/samples/hook/project.json", {}, fixture.platform.basePath());
+  if (!manifest) {
+    SKIP("the sample was not found above " << fixture.platform.basePath().string());
+  }
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  // Refused before anything is read (ADR-0027), so the checkout's sample gets nothing written
+  // and no scene loads without its Orbit to be saved that way.
+  const auto opened = editor.openProject(manifest->parent_path());
+  REQUIRE(!opened.has_value());
+  REQUIRE(opened.error().message ==
+          "project \"Hook\" needs the game module \"hook\"; this editor was built without one");
+  for (const flecs::entity root : editor.world().roots()) {
+    REQUIRE(root.get<world::Name>().value != "Orbiter");
+  }
+}
+
 TEST_CASE("the basic sample's playground plays its scripts and physics and resets on stop", "[editor][gpu][samples]") {
   Fixture fixture;
   const std::optional<std::filesystem::path> manifest =

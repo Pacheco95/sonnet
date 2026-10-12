@@ -3,7 +3,8 @@
 The order of `add_subdirectory` calls in modules/CMakeLists.txt is the canonical dependency order. A
 module may include headers from, and link, only itself and modules listed before it. CMake only
 rejects cycles, so a forward link that is not a cycle, and any forward `#include`, would otherwise
-pass. The player and the cook tool also never reach the editor-only modules.
+pass. The player, the cook tool and a project's game module (`apps/samples/*/native`, ADR-0027) also
+never reach the editor-only modules.
 
 With `--graphviz FILE.dot`, the edges of the configured CMake target graph (from
 `cmake --graphviz=FILE.dot <build dir>`) are checked against the same order too, which sees links
@@ -63,7 +64,7 @@ def check_graph(dot: Path, rank: dict[str, int]) -> list[str]:
         dst_module = dst[len("sonnet_"):] if dst.startswith("sonnet_") and dst[len("sonnet_"):] in rank else None
         if dst_module is None:
             continue
-        if src in APP_TARGETS:
+        if src in APP_TARGETS or src.startswith("sonnet_game_"):
             if src != "sonnet_editor_app" and dst_module in EDITOR_ONLY:
                 problems.append(f"GRAPH  {src} links editor-only module `{dst_module}`")
             continue
@@ -112,10 +113,12 @@ def main() -> int:
             for match in INCLUDE_RE.finditer(text):
                 check("includes", src, text.count("\n", 0, match.start()) + 1, match.group(1))
 
-    for app in NO_EDITOR_APPS:
-        base = ROOT / "apps" / app
+    no_editor = [ROOT / "apps" / app for app in NO_EDITOR_APPS]
+    no_editor += sorted((ROOT / "apps" / "samples").glob("*/native"))
+    for base in no_editor:
         if not base.is_dir():
             continue
+        app = base.relative_to(ROOT / "apps").as_posix()
         files = [(p, INCLUDE_RE) for p in sources(base)]
         if (base / "CMakeLists.txt").exists():
             files.append((base / "CMakeLists.txt", None))

@@ -112,3 +112,37 @@ function(sonnet_copy_slang_runtime TARGET)
       "$<TARGET_FILE_DIR:${TARGET}>"
     VERBATIM)
 endfunction()
+
+# sonnet_add_game_module(<name> SOURCES ... DEPENDS ...)
+#
+# Called by a project's native/CMakeLists.txt, which the engine's build adds when it is configured
+# with SONNET_GAME (ADR-0027, docs/player.md#game-modules). Creates the static library
+# sonnet_game_<name>, linked to sonnet::runtime and through it every module up to runtime, never
+# ui or editor (tools/check_dependencies.py). One of its sources defines the entry point
+# `void registerGame(sonnet::runtime::GameRegistry &)`. <name> is the project.json `module`.
+function(sonnet_add_game_module NAME)
+  cmake_parse_arguments(ARG "" "" "SOURCES;DEPENDS" ${ARGN})
+  if(NOT NAME STREQUAL SONNET_GAME_MODULE)
+    message(FATAL_ERROR "sonnet_add_game_module(${NAME}): ${SONNET_GAME}/project.json names the module "
+                        "\"${SONNET_GAME_MODULE}\"")
+  endif()
+  set(target sonnet_game_${NAME})
+  add_library(${target} STATIC ${ARG_SOURCES})
+  target_link_libraries(${target} PUBLIC sonnet::runtime PRIVATE sonnet::warnings ${ARG_DEPENDS})
+  target_compile_definitions(${target} PRIVATE SONNET_MODULE="${NAME}")
+  set_target_properties(${target} PROPERTIES FOLDER "Game" COMPILE_WARNING_AS_ERROR ON)
+  set_property(GLOBAL PROPERTY SONNET_GAME_TARGET ${target})
+endfunction()
+
+# sonnet_link_game(<target>)
+#
+# Gives an application the generated header sonnet/game/LinkedGame.h, whose
+# sonnet::game::linkedModule() is the game module the build links in, or null without
+# SONNET_GAME, and links that module.
+function(sonnet_link_game TARGET)
+  target_include_directories(${TARGET} PRIVATE "${SONNET_GAME_INCLUDE_DIR}")
+  get_property(game GLOBAL PROPERTY SONNET_GAME_TARGET)
+  if(game)
+    target_link_libraries(${TARGET} PRIVATE ${game})
+  endif()
+endfunction()

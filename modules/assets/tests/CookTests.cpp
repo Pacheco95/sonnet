@@ -331,7 +331,8 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   REQUIRE(document->at("version") == 2);
 }
 
-TEST_CASE("a font cooks as the file itself, with its preload ranges, into a version 5 bundle", "[assets][cook][font]") {
+TEST_CASE("a font cooks as the file itself, with its preload ranges, into the current bundle version",
+          "[assets][cook][font]") {
   ProjectFixture fixture;
   const std::filesystem::path out = fixture.root / "export";
   std::vector<std::byte> file(3000);
@@ -376,11 +377,11 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into a vers
   REQUIRE(cooked != nullptr);
   REQUIRE(cooked->bytes == file); // byte for byte
   REQUIRE(cooked->preload == std::vector<GlyphRange>{{65, 90}});
-  // The header says version 5.
+  // The header says version 6.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 5);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 5);
+  REQUIRE(BundleVersion == 6);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 6);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {

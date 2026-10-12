@@ -10,7 +10,8 @@
 namespace sonnet::assets {
 
 // The schema version of project.json. A file without one is version 1; a newer one is refused.
-constexpr int ProjectFileVersion = 1;
+// 2: `module`, the game module the project needs (ADR-0027); a version 1 file has none.
+constexpr int ProjectFileVersion = 2;
 
 // A project folder with its project.json (docs/assets.md, "Project file"). Everything in the
 // project is referenced relative to the folder, so a project is portable. The editor opens one
@@ -22,6 +23,9 @@ struct Project {
   std::string engineVersion; // as last saved
   std::string startScene{"scenes/main.scene.json"};
   std::vector<std::string> assetRoots{"assets", "shaders", "scripts"};
+  // The game module whose components and systems the project's scenes use, empty for none: only
+  // a player or an editor linked with it opens the project (ADR-0027).
+  std::string module;
 
   [[nodiscard]] static core::Result<Project> open(const std::filesystem::path &directory);
   [[nodiscard]] core::Result<void> save() const;

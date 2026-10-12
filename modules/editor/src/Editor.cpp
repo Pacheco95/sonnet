@@ -34,6 +34,14 @@ namespace {
 
 constexpr const char *ModalId = "Project";
 
+// A modal's error, wrapped at the dialog's fixed width: an error names paths and modules, longer
+// than one line of it.
+void drawWrappedError(const std::string &message) {
+  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.4f, 0.4f, 1.0f});
+  ImGui::TextWrapped("%s", message.c_str());
+  ImGui::PopStyleColor();
+}
+
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity ? entity.try_get<world::Name>() : nullptr;
   return name != nullptr ? name->value : std::string{};
@@ -42,8 +50,8 @@ std::string nameOf(flecs::entity entity) {
 } // namespace
 
 Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
-               const rhi::ISwapchain &swapchain, bool explorer)
-    : m_window(window), m_device(device), m_swapchain(swapchain), m_basePath(platform.basePath()),
+               const rhi::ISwapchain &swapchain, bool explorer, const runtime::GameModule *module)
+    : m_window(window), m_device(device), m_swapchain(swapchain), m_basePath(platform.basePath()), m_module(module),
       m_imgui({.window = &window,
                .device = &device,
                .swapchainFormat = swapchain.format(),
@@ -77,6 +85,13 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   m_inspectorPanel.setParticleReset([this](flecs::entity entity) { m_renderer.resetParticles(entity.id()); });
   m_hierarchyPanel.setAssets(&m_assets);
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  // The module's components and systems go in after the engine's and before any scene loads, as
+  // the player registers them.
+  if (m_module != nullptr) {
+    runtime::GameRegistry registry{m_world, *m_scripts};
+    m_module->registerGame(registry);
+    SONNET_LOG_INFO("registered the game module \"{}\"", m_module->name);
+  }
   newScene();
   SONNET_LOG_INFO("editor ready");
 }
@@ -911,7 +926,7 @@ void Editor::drawModal() {
     ImGui::TextUnformatted(m_modalMessage.c_str());
   }
   if (!m_modalError.empty()) {
-    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
   const bool exportSucceeded = m_modal == Modal::Export && !m_modalMessage.empty() && m_modalError.empty();
   if (exportSucceeded) {
@@ -1311,6 +1326,13 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   if (!project) {
     return std::unexpected(project.error());
   }
+  // Refused before anything is read: a scene naming components this editor does not have would
+  // load without them and lose them on save.
+  if (const auto linked =
+          runtime::checkGameModule(std::format("project \"{}\"", project->name), project->module, m_module, "editor");
+      !linked) {
+    return std::unexpected(linked.error());
+  }
   if (isPlaying()) {
     stop();
   }
@@ -1555,7 +1577,7 @@ void Editor::drawCloseTabModal() {
     ImGui::CloseCurrentPopup();
   }
   if (!m_modalError.empty()) {
-    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
 }
 
@@ -1613,7 +1635,6 @@ void Editor::cancelQuit() {
 }
 
 void Editor::drawStopModal() {
-  constexpr ImVec4 errorColour{0.95f, 0.4f, 0.4f, 1.0f};
   if (m_stopAnswered) {
     ImGui::TextWrapped(
         "%zu of the edits could not be applied: the entities they changed are not in the restored scene.",
@@ -1651,7 +1672,7 @@ void Editor::drawStopModal() {
   ImGui::SameLine();
   ImGui::TextUnformatted("Save as");
   if (!m_modalError.empty()) {
-    ImGui::TextColored(errorColour, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
   const bool keep = ImGui::Button("Keep", ImVec2{120.0f, 0.0f});
   ImGui::SameLine();
@@ -1699,7 +1720,7 @@ void Editor::drawQuitModal() {
   if (m_modal == Modal::None) {
     ImGui::CloseCurrentPopup();
   } else if (!m_modalError.empty()) {
-    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
 }
 
@@ -1736,7 +1757,7 @@ void Editor::drawSaveLayoutModal() {
     ImGui::CloseCurrentPopup();
   }
   if (!m_modalError.empty()) {
-    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
 }
 

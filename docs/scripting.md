@@ -116,6 +116,8 @@ Lua is compiled as C++, so a Lua error unwinds C++ frames as an exception and ev
 
 Scripts get Lua's `base`, `math`, `string`, `table`, `utf8` and `coroutine` libraries, without `dofile` and `loadfile`, and none of `io`, `os`, `package` or `debug`: a script reaches the engine through the tables below only, and `require` for the project's other scripts, and runs the same in the player on every platform.
 
+A game module adds its own globals through `GameRegistry::bindLua` before any script runs, such as the hook sample's `hook.period` ([player.md](player.md#game-modules)); its components need no binding, since they reach Lua through reflection like the engine's.
+
 ### Components
 
 Components are read and written through reflection, generically ([world.md](world.md#components)): every component registered with the world is reachable by its scene-file name, including those of `physics` and `scripting`. Values map to Lua as follows:

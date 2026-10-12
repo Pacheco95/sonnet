@@ -1,11 +1,13 @@
-# The generic runtime an exported game ships as (docs/player.md). It links no editor code and,
-# in release, no Dear ImGui; the engine shaders go next to it and export copies them along.
+# The generic runtime an exported game ships as (docs/player.md), or the game's own with a game
+# module (ADR-0027). It links no editor code and, in release, no Dear ImGui; the engine shaders go
+# next to it and export copies them along.
 sonnet_add_executable(player
   SOURCES
     main.cpp
   DEPENDS
     sonnet::runtime
 )
+sonnet_link_game(sonnet_player_app)
 sonnet_add_engine_shaders(sonnet_player_app)
 
 if(ANDROID)

@@ -4,5 +4,6 @@ sonnet_add_executable(editor
   DEPENDS
     sonnet::editor
 )
+sonnet_link_game(sonnet_editor_app)
 sonnet_add_engine_shaders(sonnet_editor_app)
 sonnet_copy_slang_runtime(sonnet_editor_app)

@@ -56,4 +56,5 @@ include(SonnetShaders)
 enable_testing()
 
 add_subdirectory(modules)
+include(SonnetGame)
 add_subdirectory(apps)

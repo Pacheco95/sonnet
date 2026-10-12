@@ -34,6 +34,7 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
+#include <sonnet/runtime/GameModule.h>
 #include <sonnet/runtime/Screenshot.h>
 #include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/ui/ImGuiLayer.h>
@@ -67,9 +68,11 @@ namespace sonnet::editor {
 class Editor {
 public:
   // The swapchain only tells the ImGui pipeline its format and image count. `explorer` serves
-  // the flecs explorer, for Debug builds of the application.
+  // the flecs explorer, for Debug builds of the application. `module` is the game module the
+  // editor was linked with, registered before any scene loads; without one the editor refuses a
+  // project that needs a module (ADR-0027).
   Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
-         const rhi::ISwapchain &swapchain, bool explorer = false);
+         const rhi::ISwapchain &swapchain, bool explorer = false, const runtime::GameModule *module = nullptr);
   ~Editor();
   Editor(const Editor &) = delete;
   Editor &operator=(const Editor &) = delete;
@@ -459,6 +462,7 @@ private:
   rhi::IDevice &m_device;
   const rhi::ISwapchain &m_swapchain;
   std::filesystem::path m_basePath;
+  const runtime::GameModule *m_module;
   // First of the members that outlive work, so everything scheduling onto it is destroyed before
   // it is (ADR-0013).
   core::JobSystem m_jobs;

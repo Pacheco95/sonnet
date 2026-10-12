@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "preload": [
+      [
+        32,
+        126
+      ],
+      [
+        160,
+        255
+      ]
+    ]
+  },
+  "type": "Font",
+  "uuid": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f101",
+  "version": 2
+}

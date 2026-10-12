@@ -174,7 +174,8 @@ TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundl
     auto writer = BundleWriter::create(file, {.name = "Basic",
                                               .engineVersion = {}, // the writer stamps the running version
                                               .platform = CookPlatform::Windows,
-                                              .startScene = "scenes/main.scene.json"});
+                                              .startScene = "scenes/main.scene.json",
+                                              .module = "hook"});
     REQUIRE(writer.has_value());
     REQUIRE(writer
                 ->addAsset({.uuid = meshId,
@@ -215,6 +216,7 @@ TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundl
     REQUIRE(bundle->manifest().name == "Basic");
     REQUIRE(bundle->manifest().platform == CookPlatform::Windows);
     REQUIRE(bundle->manifest().startScene == "scenes/main.scene.json");
+    REQUIRE(bundle->manifest().module == "hook");
     REQUIRE(!bundle->manifest().engineVersion.empty()); // stamped by the writer
     REQUIRE(bundle->assets().size() == 3);
     REQUIRE(bundle->files() == std::vector<std::string>{"prefabs/crate.prefab.json", "scenes/main.scene.json"});
@@ -261,8 +263,8 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   // A bundle whose version is not this one: readable header, refused anyway.
   const std::filesystem::path future = directory / "future.sbundle";
   {
-    auto writer =
-        BundleWriter::create(future, {.name = "Future", .engineVersion = {}, .platform = {}, .startScene = {}});
+    auto writer = BundleWriter::create(
+        future, {.name = "Future", .engineVersion = {}, .platform = {}, .startScene = {}, .module = {}});
     REQUIRE(writer.has_value());
     REQUIRE(writer->finish().has_value());
   }
@@ -272,12 +274,12 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   REQUIRE(core::writeFile(future, *bytes).has_value());
   REQUIRE(!Bundle::open(future).has_value());
 
-  // The version before the Font type: refused, and the message names both versions, so a player
-  // asked to open an old bundle says to cook it again.
-  (*bytes)[8] = std::byte{4};
+  // The version before the manifest named the game module: refused, and the message names both
+  // versions, so a player asked to open an old bundle says to cook it again.
+  (*bytes)[8] = std::byte{5};
   REQUIRE(core::writeFile(future, *bytes).has_value());
   const auto old = Bundle::open(future);
   REQUIRE(!old.has_value());
-  REQUIRE(old.error().message.find("bundle version 4 is not version 5") != std::string::npos);
+  REQUIRE(old.error().message.find("bundle version 5 is not version 6") != std::string::npos);
   std::filesystem::remove_all(directory);
 }

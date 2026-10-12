@@ -15,6 +15,7 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
+#include <sonnet/runtime/GameModule.h>
 #include <sonnet/runtime/Screenshot.h>
 #include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/world/Animation.h>
@@ -35,6 +36,9 @@ struct GameDesc {
   // Opens scenes without simulating them until play(): a capture run draws its settle frames
   // first, as the editor does before it plays (docs/player.md, "Capture runs").
   bool paused{false};
+  // The game module this player was linked with, registered before any scene loads; null for the
+  // generic player, which refuses a project or bundle that needs one (ADR-0027).
+  const GameModule *module{nullptr};
 };
 
 // The generic runtime (docs/player.md): the world and its subsystems, running the start scene of
@@ -176,6 +180,7 @@ private:
   std::optional<std::filesystem::path> m_screenshotRequest;
   std::optional<core::Result<void>> m_screenshotResult;
   bool m_paused{false};
+  const GameModule *m_module{nullptr};
   // Logged once: a scene with no Camera is drawn from the fallback instead of not at all.
   bool m_warnedAboutCamera{false};
 };

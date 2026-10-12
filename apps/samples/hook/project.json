@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "name": "Hook",
+  "engineVersion": "0.18.0",
+  "startScene": "scenes/main.scene.json",
+  "assetRoots": ["assets", "scripts"],
+  "module": "hook"
+}

@@ -9,12 +9,13 @@ sonnet_add_module(scripting
   PUBLIC_DEPENDS
     sonnet::physics
     sonnet::gui
-  DEPENDS
-    # Lua compiled as C++, so its errors unwind C++ frames (ADR-0009); sol2 has to know.
+    # Public for a game module's Lua bindings (ADR-0027), which take a sol::state_view. Lua is
+    # compiled as C++, so its errors unwind C++ frames (ADR-0009); sol2 has to know, in every
+    # translation unit that includes it, so the definitions are public too.
     unofficial::lua::lua-cpp
     sol2::sol2
 )
-target_compile_definitions(sonnet_scripting PRIVATE SOL_USING_CXX_LUA=1 SOL_ALL_SAFETIES_ON=1)
+target_compile_definitions(sonnet_scripting PUBLIC SOL_USING_CXX_LUA=1 SOL_ALL_SAFETIES_ON=1)
 # sol2 calls every bound function through a pointer it takes from Lua userdata without a null check
 # (function_detail::call), so GCC 14's -Wnull-dereference flags whichever bindings its inlining
 # reaches, differently at -O2 and -O3. Nothing in this file can show GCC the pointer is set (#36).

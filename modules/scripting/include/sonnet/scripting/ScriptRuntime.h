@@ -7,8 +7,10 @@
 #include <sonnet/renderer/Camera.h>
 
 #include <nlohmann/json.hpp>
+#include <sol/forward.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -101,6 +103,11 @@ public:
   virtual void seedRandom(std::uint64_t seed) = 0;
   // Runs a chunk outside any entity with the same globals scripts see, for tests and tools.
   [[nodiscard]] virtual core::Result<void> run(std::string_view code, std::string_view chunkName) = 0;
+  // Calls `bind` on the Lua state scripts run in, now, for native functions and types that
+  // reflection does not cover: a game module's (ADR-0027). The state lives as long as the
+  // runtime and `reset` keeps its globals, so a binding made before the first script holds for
+  // every play.
+  virtual void bindLua(const std::function<void(sol::state_view)> &bind) = 0;
   [[nodiscard]] virtual std::uint32_t instanceCount() const = 0;
   // True once if a script called `game.quit()` since the last call, or since `reset`. The
   // application ends the game or, in the editor, asks to stop play (docs/scripting.md, "game").

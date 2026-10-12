@@ -82,11 +82,15 @@ jobs:
             preset: macos-debug
           # Plain Release, not the presets' RelWithDebInfo: it compiles assertions out and GCC's -O3 inlining
           # reports places -O2 does not, and warnings are errors (#36).
+          # One Release job per desktop builds the hook sample's game module into the player and the editor
+          # and runs game_module_tests (ADR-0027); its generic tests still check that a binary without the
+          # module refuses the project.
           - name: Linux GCC Release
             cache: linux-gcc
             os: ubuntu-24.04
             preset: linux-release
             build-type: Release
+            game: apps/samples/hook
             cc: gcc-14
             cxx: g++-14
           - name: Linux Clang Release
@@ -101,6 +105,7 @@ jobs:
             os: windows-latest
             preset: windows-release
             build-type: Release
+            game: apps/samples/hook
           - name: Windows clang-cl Release
             cache: windows-clang-cl
             os: windows-latest
@@ -113,6 +118,7 @@ jobs:
             os: macos-latest
             preset: macos-release
             build-type: Release
+            game: apps/samples/hook
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
@@ -187,7 +193,7 @@ jobs:
           echo "VCPKG_BINARY_SOURCES=clear;files,$RUNNER_TEMP/vcpkg-cache,readwrite" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }} ${{ matrix.build-type && format('-DCMAKE_BUILD_TYPE={0}', matrix.build-type) || '' }}
+        run: cmake --preset ${{ matrix.preset }} ${{ matrix.build-type && format('-DCMAKE_BUILD_TYPE={0}', matrix.build-type) || '' }} ${{ matrix.game && format('-DSONNET_GAME={0}', matrix.game) || '' }}
 
       # Saved right after the configure that installs the ports, so a failing build or test still saves it,
       # and only from main, so pull requests cannot evict main's entries. Pruned to the archives this

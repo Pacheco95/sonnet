@@ -98,15 +98,16 @@ A project is a folder with a `project.json` at its root:
 
 ```json
 {
-  "version": 1,
-  "name": "Basic",
-  "engineVersion": "0.5.0",
+  "version": 2,
+  "name": "Hook",
+  "engineVersion": "0.18.0",
   "startScene": "scenes/main.scene.json",
-  "assetRoots": ["assets", "shaders", "scripts"]
+  "assetRoots": ["assets", "scripts"],
+  "module": "hook"
 }
 ```
 
-`version` is the schema version of the file, independent of the engine version ([conventions.md](conventions.md#versioning)): a file without one is version 1, a newer one than the engine knows is refused, and every save writes the current one. `engineVersion` only records the engine that last saved it. Everything in the project is referenced relative to this folder so projects are portable. `assets::Project` reads and writes it and resolves paths against the folder, because the editor and the player both open projects ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)); creating one with its starter scene needs `world` and stays in the editor ([editor.md](editor.md#projects-and-scenes)).
+`version` is the schema version of the file, independent of the engine version ([conventions.md](conventions.md#versioning)): a file without one is version 1, a newer one than the engine knows is refused, and every save writes the current one. `engineVersion` only records the engine that last saved it. `module` names the project's game module, the C++ its scenes' components and systems come from ([ADR-0027](decisions/0027-game-modules.md), [player.md](player.md#game-modules)); version 2 added it, a version 1 file and a project without native code have none, and only a player or an editor built with that module opens the project. Everything in the project is referenced relative to this folder so projects are portable. `assets::Project` reads and writes it and resolves paths against the folder, because the editor and the player both open projects ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)); creating one with its starter scene needs `world` and stays in the editor ([editor.md](editor.md#projects-and-scenes)).
 
 ## Scene file
 
@@ -128,7 +129,7 @@ The three desktop platforms cook the same bytes and differ only in which player 
 
 A bundle is one file, `<name>.sbundle` ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)): a 32-byte header (the magic `SONNETBN`, the format version, and where the index is), the payload blobs back to back, and the index at the end. The index is CBOR, so it is a JSON document at both ends:
 
-The format version is `BundleVersion`, 5 today: 5 added the Font type and its `preload` ranges in the index, 4 a mesh's far shadow range, 3 HDR environments as KTX2. `Bundle::open` refuses any other version with `bundle version N is not version 5`, so a bundle is cooked again after an engine upgrade that changes it; a project's scenes and sidecars are not touched by it, and a project made before version 5 keeps its scenes.
+The format version is `BundleVersion`, 6 today: 6 added the game module's name to the manifest (`module`, empty for none), which the player checks before anything loads ([player.md](player.md#game-modules)), 5 the Font type and its `preload` ranges in the index, 4 a mesh's far shadow range, 3 HDR environments as KTX2. `Bundle::open` refuses any other version with `bundle version N is not version 6`, so a bundle is cooked again after an engine upgrade that changes it; a project's scenes and sidecars are not touched by it, and a project made before version 6 keeps its scenes.
 
 - `manifest`: the project's `name`, the `engineVersion` that cooked it, the `platform` it was cooked for, and the `startScene` as a path.
 - `assets`: one entry per asset with its `uuid`, `type`, `name`, the `parent` it is a sub-asset of, a mesh's default `materials`, a font's `preload` ranges, and the `offset` and `size` of its payload.
