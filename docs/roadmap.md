@@ -204,6 +204,19 @@ The hook landed in [PR #209](https://github.com/Pacheco95/sonnet/pull/209) ([pla
 
 Sizing: the UI was the larger half (a module, a pass, a font pipeline, editor support, three platforms), and it is done. The hook was sized for packaging the engine and loading a shared library in the editor; ADR-0027 needs neither, so it stays in M15 rather than splitting into an M16.
 
+## M16: Nested scene instances
+
+Accepted 2026-10-12. [ADR-0028](decisions/0028-nested-scene-instances.md) follows Godot's model of instancing, addressed by identity rather than by name path. It comes before terrain by the [1.0.0](#100) rule, since it changes the scene and prefab formats, and because a scene today drops what was changed inside a prefab instance without a warning ([world.md](world.md#prefabs)).
+
+- `world`: an instance's descendants get identities derived from the instance and their source entity, so a scene can address them; a scene stores what a descendant changed (components, a rename, removed components) as `instanced` entries, compared by value, since flecs copies an instance's children; children added under an instance are saved; a source child is hidden with `Disabled` rather than deleted; prefabs nest to any depth and load in dependency order through one function the editor and the player share, which refuses cycles.
+- Formats: the scene and prefab version becomes 4 and the bundle's 7.
+- `editor`: "Save as prefab" from a selection, "Make local" on an instance, the inspector marking and reverting what an instance's descendant changed, and an instance's descendants editable in the hierarchy.
+- `scripting`: `entity:child("Axle/Hub")`, a path of names from an entity.
+
+Done when the playground has a prefab built from other prefabs, a scene that places it, changes one of its nested children, adds a child under another and hides a third, and keeps all three after a save and a reload in the editor, the player and the cooked bundle; a change to the inner prefab reaches what the scene did not change; undo restores a deleted instance with its changes; "Save as prefab" and "Make local" work in the editor; and CI is green on every job.
+
+Not in the first version: per-field overrides, which come next, starting with script properties; placing a scene file; live updates of instances when a prefab changes; reordering or deleting an instance's source children; creating a prefab variant from the editor; applying an instance's changes back to its prefab.
+
 ## 1.0.0
 
 Not a milestone and not dated: the engine is in development and nothing waits for a release. 1.0.0 is tagged when the project, scene, prefab, material, sidecar and bundle formats have stopped changing, and not before. The audit of how each format is versioned today and a proposed compatibility promise (read every older schema, refuse a newer one, rebuild bundles instead of migrating them) are in the closed [PR #151](https://github.com/Pacheco95/sonnet/pull/151), to start from when the time comes.
@@ -236,4 +249,4 @@ The fix is in the top-level `CMakeLists.txt`: for an `-osx` triplet, when neithe
 
 ## Later
 
-Nested scene instances beyond prefabs, terrain, native file dialogs, incremental cooking. The game UI and the game-module hook moved into [M15](#m15-game-ui-and-the-game-module-hook). Temporal anti-aliasing and particles moved into [M13](#m13-rendering-quality) and [M12](#m12-animation-and-effects).
+Terrain, native file dialogs, incremental cooking. Nested scene instances moved into [M16](#m16-nested-scene-instances). The game UI and the game-module hook moved into [M15](#m15-game-ui-and-the-game-module-hook). Temporal anti-aliasing and particles moved into [M13](#m13-rendering-quality) and [M12](#m12-animation-and-effects).

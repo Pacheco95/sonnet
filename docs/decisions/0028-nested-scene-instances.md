@@ -1,6 +1,6 @@
 # ADR-0028: Nested scene instances are prefab instances whose children are addressed by derived identities
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-12
 
 ## Context
@@ -23,7 +23,7 @@ Constraints found in the code:
 
 ## Decision
 
-Proposed. The spike on `spike/nested-instances` (commit 928cce9) prototyped what follows in `world` and answered the five questions the first draft asked; its findings are at the end of this section.
+The spike on `spike/nested-instances` (commit 928cce9) prototyped what follows in `world` and answered the five questions the first draft asked; its findings are at the end of this section.
 
 **Any prefab can be instantiated into a scene or into another prefab, to any depth. An instance's descendants take identities derived from the instance's identity and their source entity's, so a scene can address them across loads, renames and moves, and saves only what differs from the source.**
 
