@@ -368,6 +368,11 @@ void Editor::update(float dt) {
   m_audio->setFallbackListener(camera.position, camera.rotation);
   m_scriptView = {.camera = camera, .size = gameInputSource().size};
   m_world.progress(dt);
+  // A script's `game.quit()` is the Stop button here, with its prompt for the play's edits; the
+  // editor stays open.
+  if (m_scripts->takeQuitRequest()) {
+    requestStop();
+  }
   m_input.beginFrame();
   // The scripts heard the buttons' events during the frame. The UI is laid out against the Game
   // view, in edit mode too, so a layout is seen as it is made; with the panel closed there is

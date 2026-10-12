@@ -5,6 +5,7 @@
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
+#include <sonnet/platform/Platform.h>
 #include <sonnet/world/Scene.h>
 
 #include <format>
@@ -50,7 +51,8 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                 .animation = &m_animation,
                                                 .gui = &m_gui,
                                                 .input = &m_input,
-                                                .view = &m_scriptView})),
+                                                .view = &m_scriptView,
+                                                .canQuit = platform::canQuit()})),
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})), m_screenshots(device),
       m_paused(desc.paused) {
   // A player is always playing: there is no edit mode to switch out of. A capture run holds the

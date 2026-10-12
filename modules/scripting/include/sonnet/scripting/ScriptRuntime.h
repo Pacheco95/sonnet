@@ -78,6 +78,7 @@ struct ScriptDesc {
   const gui::GuiSystem *gui{nullptr};               // its events reach scripts as onPress, onRelease and onClick
   const platform::InputState *input{nullptr};
   const ScriptView *view{nullptr};
+  bool canQuit{true}; // false where the platform has no way to end a game (platform::canQuit)
 };
 
 // Runs the Scripts components of a world (ADR-0009, ADR-0022, docs/scripting.md). In play mode
@@ -101,6 +102,9 @@ public:
   // Runs a chunk outside any entity with the same globals scripts see, for tests and tools.
   [[nodiscard]] virtual core::Result<void> run(std::string_view code, std::string_view chunkName) = 0;
   [[nodiscard]] virtual std::uint32_t instanceCount() const = 0;
+  // True once if a script called `game.quit()` since the last call, or since `reset`. The
+  // application ends the game or, in the editor, asks to stop play (docs/scripting.md, "game").
+  [[nodiscard]] virtual bool takeQuitRequest() = 0;
   // The properties the script's class declares, sorted by name, loading the class if need be:
   // what the inspector draws, in edit mode too. An error when the script is missing or has not
   // loaded; a revision that fails keeps answering with the last one that loaded.

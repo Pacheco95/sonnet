@@ -242,6 +242,16 @@ TEST_CASE("a touch on a button is the UI's and a touch elsewhere is the game's",
   REQUIRE(game.gui().events().empty()); // delivered, then forgotten
 }
 
+TEST_CASE("a script's game.quit reaches the application through Game", "[runtime][gpu]") {
+  Fixture fixture;
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE_FALSE(game.takeQuitRequest());
+  REQUIRE(game.scripts().run("game.quit()", "quit").has_value());
+  fixture.frame(game);
+  REQUIRE(game.takeQuitRequest() == platform::canQuit());
+  REQUIRE_FALSE(game.takeQuitRequest());
+}
+
 TEST_CASE("the player runs a project folder's start scene", "[runtime][gpu]") {
   Fixture fixture;
   const std::filesystem::path project = sampleProject(fixture.platform);

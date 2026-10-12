@@ -143,6 +143,9 @@ public:
     }
 
     m_game->update(dt);
+    if (m_game->takeQuitRequest()) {
+      return platform::AppResult::Success;
+    }
     const auto updated = std::chrono::steady_clock::now();
     rhi::ICommandList &commands = m_device->beginFrame();
     const std::optional<rhi::SwapchainImage> image = m_swapchain->acquire();
