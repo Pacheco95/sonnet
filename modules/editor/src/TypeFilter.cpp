@@ -11,14 +11,14 @@ namespace sonnet::editor {
 
 namespace {
 
-constexpr std::array<assets::AssetType, 9> AssetTypes{
-    assets::AssetType::Texture, assets::AssetType::Mesh,        assets::AssetType::Material,
-    assets::AssetType::Model,   assets::AssetType::Environment, assets::AssetType::Script,
-    assets::AssetType::Sound,   assets::AssetType::Skin,        assets::AssetType::Animation,
+constexpr std::array<assets::AssetType, 10> AssetTypes{
+    assets::AssetType::Texture,     assets::AssetType::Mesh,   assets::AssetType::Material, assets::AssetType::Model,
+    assets::AssetType::Environment, assets::AssetType::Script, assets::AssetType::Sound,    assets::AssetType::Skin,
+    assets::AssetType::Animation,   assets::AssetType::Font,
 };
 
-constexpr std::array<const char *, 9> AssetTypeNames{
-    "Textures", "Meshes", "Materials", "Models", "Environments", "Scripts", "Sounds", "Skins", "Animations",
+constexpr std::array<const char *, 10> AssetTypeNames{
+    "Textures", "Meshes", "Materials", "Models", "Environments", "Scripts", "Sounds", "Skins", "Animations", "Fonts",
 };
 
 bool containsIgnoringCase(std::string_view text, std::string_view needle) {
