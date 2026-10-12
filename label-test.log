@@ -1,0 +1,133 @@
+Filters: "a script that sets a label's text changes the next captured frame"
+Randomness seeded to: 3920938464
+[01:05:53.429] [info] [platform] [Platform.cpp:92] SDL 3.4.16 initialised, video driver "offscreen" (headless)
+[01:05:53.434] [debug] [platform] [SdlWindow.cpp:53] window "runtime_tests" created: 32<id> logical, 32<id> pixels
+[01:05:53.434] [debug] [platform] [Platform.cpp:70] Vulkan loader "/usr/local/lib/libvulkan.1.4.341.dylib" kept mapped for the process
+[01:05:53.456] [debug] [rhi] [VulkanDevice.cpp:1343] WARNING-CreateInstance-status-message: vkCreateInstance(): Khronos Validation Layer Active:
+    Current Enables: VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT.
+    Current Disables: None.
+
+[01:05:53.457] [debug] [rhi] [VulkanDevice.cpp:247] Vulkan loader 1.4.341
+[01:05:53.469] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.334 device "Apple silicon Mac", driver MoltenVK 1.4.1, loader 1.4.341, validation on, BC, ASTC, ASTC HDR
+[01:05:53.469] [debug] [rhi] [VulkanSwapchain.cpp:127] swapchain 32<id>, 3 images, B8G8R8A8Unorm, Fifo, surface transform Identity
+[01:05:53.470] [debug] [core] [JobSystem.cpp:78] job system started with 13 workers
+[01:05:53.470] [debug] [renderer] [Renderer.cpp:689] shader module cluster: 46772 bytes
+[01:05:53.470] [debug] [renderer] [Renderer.cpp:695] pipeline "light clustering" from cluster
+[01:05:53.472] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "light clustering" from shader "cluster"
+[01:05:53.472] [debug] [renderer] [Renderer.cpp:689] shader module cull: 73392 bytes
+[01:05:53.473] [debug] [renderer] [Renderer.cpp:695] pipeline "cull" from cull
+[01:05:53.474] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "cull" from shader "cull"
+[01:05:53.474] [debug] [renderer] [Renderer.cpp:695] pipeline "clear draw commands" from cull
+[01:05:53.474] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "clear draw commands" from shader "cull"
+[01:05:53.474] [debug] [renderer] [Renderer.cpp:695] pipeline "cull late" from cull
+[01:05:53.475] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "cull late" from shader "cull"
+[01:05:53.475] [debug] [renderer] [Renderer.cpp:695] pipeline "publish counters" from cull
+[01:05:53.475] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "publish counters" from shader "cull"
+[01:05:53.475] [debug] [renderer] [Renderer.cpp:695] pipeline "merge late commands" from cull
+[01:05:53.475] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "merge late commands" from shader "cull"
+[01:05:53.476] [debug] [renderer] [Renderer.cpp:689] shader module debug: 7764 bytes
+[01:05:53.476] [debug] [renderer] [Renderer.cpp:695] pipeline "debug lines" from debug
+[01:05:53.476] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "debug lines" from shader "debug"
+[01:05:53.477] [debug] [renderer] [Renderer.cpp:689] shader module depth: 80480 bytes
+[01:05:53.477] [debug] [renderer] [Renderer.cpp:695] pipeline "depth" from depth
+[01:05:53.478] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "depth" from shader "depth"
+[01:05:53.478] [debug] [renderer] [Renderer.cpp:695] pipeline "depth motion" from depth
+[01:05:53.480] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "depth motion" from shader "depth"
+[01:05:53.480] [debug] [renderer] [Renderer.cpp:695] pipeline "shadow" from depth
+[01:05:53.481] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "shadow" from shader "depth"
+[01:05:53.481] [debug] [renderer] [Renderer.cpp:695] pipeline "depth double sided" from depth
+[01:05:53.482] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "depth double sided" from shader "depth"
+[01:05:53.482] [debug] [renderer] [Renderer.cpp:695] pipeline "depth motion double sided" from depth
+[01:05:53.482] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "depth motion double sided" from shader "depth"
+[01:05:53.482] [debug] [renderer] [Renderer.cpp:695] pipeline "shadow" from depth
+[01:05:53.482] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "shadow" from shader "depth"
+[01:05:53.483] [debug] [renderer] [Renderer.cpp:689] shader module forward: 160108 bytes
+[01:05:53.484] [debug] [renderer] [Renderer.cpp:695] pipeline "forward" from forward
+[01:05:53.489] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "forward" from shader "forward"
+[01:05:53.489] [debug] [renderer] [Renderer.cpp:695] pipeline "forward blend" from forward
+[01:05:53.490] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "forward blend" from shader "forward"
+[01:05:53.490] [debug] [renderer] [Renderer.cpp:695] pipeline "forward double sided" from forward
+[01:05:53.491] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "forward double sided" from shader "forward"
+[01:05:53.491] [debug] [renderer] [Renderer.cpp:695] pipeline "forward blend double sided" from forward
+[01:05:53.491] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "forward blend double sided" from shader "forward"
+[01:05:53.492] [debug] [renderer] [Renderer.cpp:689] shader module hiz: 24856 bytes
+[01:05:53.492] [debug] [renderer] [Renderer.cpp:695] pipeline "depth pyramid base" from hiz
+[01:05:53.492] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "depth pyramid base" from shader "hiz"
+[01:05:53.492] [debug] [renderer] [Renderer.cpp:695] pipeline "depth pyramid level" from hiz
+[01:05:53.492] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "depth pyramid level" from shader "hiz"
+[01:05:53.493] [debug] [renderer] [Renderer.cpp:689] shader module ibl: 81400 bytes
+[01:05:53.493] [debug] [renderer] [Renderer.cpp:695] pipeline "equirect to cube" from ibl
+[01:05:53.494] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "equirect to cube" from shader "ibl"
+[01:05:53.494] [debug] [renderer] [Renderer.cpp:695] pipeline "cube mip" from ibl
+[01:05:53.494] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "cube mip" from shader "ibl"
+[01:05:53.494] [debug] [renderer] [Renderer.cpp:695] pipeline "irradiance" from ibl
+[01:05:53.495] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "irradiance" from shader "ibl"
+[01:05:53.495] [debug] [renderer] [Renderer.cpp:695] pipeline "prefilter" from ibl
+[01:05:53.495] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "prefilter" from shader "ibl"
+[01:05:53.495] [debug] [renderer] [Renderer.cpp:695] pipeline "brdf lut" from ibl
+[01:05:53.496] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "brdf lut" from shader "ibl"
+[01:05:53.496] [debug] [renderer] [Renderer.cpp:689] shader module id: 43924 bytes
+[01:05:53.496] [debug] [renderer] [Renderer.cpp:695] pipeline "id" from id
+[01:05:53.497] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "id" from shader "id"
+[01:05:53.497] [debug] [renderer] [Renderer.cpp:695] pipeline "selection mask" from id
+[01:05:53.498] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "selection mask" from shader "id"
+[01:05:53.498] [debug] [renderer] [Renderer.cpp:695] pipeline "id double sided" from id
+[01:05:53.498] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "id double sided" from shader "id"
+[01:05:53.498] [debug] [renderer] [Renderer.cpp:695] pipeline "selection mask double sided" from id
+[01:05:53.498] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "selection mask double sided" from shader "id"
+[01:05:53.498] [debug] [renderer] [Renderer.cpp:689] shader module outline: 11252 bytes
+[01:05:53.498] [debug] [renderer] [Renderer.cpp:695] pipeline "outline" from outline
+[01:05:53.499] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "outline" from shader "outline"
+[01:05:53.499] [debug] [renderer] [Renderer.cpp:689] shader module overlay: 18484 bytes
+[01:05:53.499] [debug] [renderer] [Renderer.cpp:695] pipeline "overlay" from overlay
+[01:05:53.499] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "overlay" from shader "overlay"
+[01:05:53.500] [debug] [renderer] [Renderer.cpp:689] shader module particles: 55344 bytes
+[01:05:53.500] [debug] [renderer] [Renderer.cpp:695] pipeline "particles alpha" from particles
+[01:05:53.501] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "particles alpha" from shader "particles"
+[01:05:53.501] [debug] [renderer] [Renderer.cpp:695] pipeline "particles additive" from particles
+[01:05:53.501] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "particles additive" from shader "particles"
+[01:05:53.501] [debug] [renderer] [Renderer.cpp:695] pipeline "particle reset" from particles
+[01:05:53.502] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "particle reset" from shader "particles"
+[01:05:53.502] [debug] [renderer] [Renderer.cpp:695] pipeline "particle simulation" from particles
+[01:05:53.502] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "particle simulation" from shader "particles"
+[01:05:53.503] [debug] [renderer] [Renderer.cpp:689] shader module post: 76408 bytes
+[01:05:53.503] [debug] [renderer] [Renderer.cpp:695] pipeline "bloom downsample" from post
+[01:05:53.504] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "bloom downsample" from shader "post"
+[01:05:53.504] [debug] [renderer] [Renderer.cpp:695] pipeline "bloom upsample" from post
+[01:05:53.505] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "bloom upsample" from shader "post"
+[01:05:53.505] [debug] [renderer] [Renderer.cpp:695] pipeline "tonemap" from post
+[01:05:53.505] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "tonemap" from shader "post"
+[01:05:53.505] [debug] [renderer] [Renderer.cpp:695] pipeline "fxaa" from post
+[01:05:53.506] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "fxaa" from shader "post"
+[01:05:53.506] [debug] [renderer] [Renderer.cpp:695] pipeline "present" from post
+[01:05:53.506] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "present" from shader "post"
+[01:05:53.507] [debug] [renderer] [Renderer.cpp:689] shader module skin: 20984 bytes
+[01:05:53.507] [debug] [renderer] [Renderer.cpp:695] pipeline "skinning" from skin
+[01:05:53.507] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "skinning" from shader "skin"
+[01:05:53.507] [debug] [renderer] [Renderer.cpp:689] shader module skybox: 37012 bytes
+[01:05:53.508] [debug] [renderer] [Renderer.cpp:695] pipeline "skybox" from skybox
+[01:05:53.508] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "skybox" from shader "skybox"
+[01:05:53.509] [debug] [renderer] [Renderer.cpp:689] shader module taa: 71340 bytes
+[01:05:53.509] [debug] [renderer] [Renderer.cpp:695] pipeline "taa resolve" from taa
+[01:05:53.511] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "taa resolve" from shader "taa"
+[01:05:53.511] [debug] [renderer] [Renderer.cpp:937] texture "white": 1x1 R8G8B8A8Unorm, 1 levels
+[01:05:53.511] [debug] [renderer] [Renderer.cpp:937] texture "flat normal": 1x1 R8G8B8A8Unorm, 1 levels
+[01:05:53.511] [debug] [renderer] [Renderer.cpp:540] renderer ready, shaders from shaders
+[01:05:53.520] [debug] [world] [World.cpp:104] world ready with 15 components
+[01:05:53.522] [debug] [physics] [JoltPhysicsWorld.cpp:368] physics ready
+[01:05:53.522] [debug] [world] [Animation.cpp:62] animation ready
+[01:05:53.522] [debug] [scripting] [LuaScriptRuntime.cpp:251] scripting ready, Lua 5.5.1
+[01:05:53.523] [debug] [audio] [MiniaudioDevice.cpp:71] audio ready: 48000 Hz, 2 channels, no output device
+[01:05:53.523] [info] [assets] [Project.cpp:49] opened project "Label" at <temporary-path>
+[01:05:53.523] [info] [assets] [AssetDatabase.cpp:217] asset database: 9 assets in <temporary-path>
+[01:05:53.523] [info] [runtime] [Game.cpp:210] playing "Label": 2 entities
+[01:05:53.523] [warn] [runtime] [Game.cpp:233] the scene has no Camera; drawing from the fallback view
+[01:05:53.524] [debug] [renderer] [RenderTarget.cpp:38] render target "game" 32<id>
+[01:05:53.545] [debug] [renderer] [Renderer.cpp:937] texture "gui glyph atlas": 1024x1024 R8Unorm, 1 levels
+[01:05:53.547] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene hdr" 32<id> allocated
+[01:05:53.573] [info] [runtime] [Screenshot.cpp:75] screenshot 32<id> written to <home>/Library/Application Support/sonnet/runtime_tests/shots/label_before.png
+[01:05:53.588] [debug] [renderer] [Renderer.cpp:937] texture "gui glyph atlas": 1024x1024 R8Unorm, 1 levels
+[01:05:53.606] [info] [runtime] [Screenshot.cpp:75] screenshot 32<id> written to <home>/Library/Application Support/sonnet/runtime_tests/shots/label_after.png
+===============================================================================
+All tests passed (40 assertions in 1 test case)
+

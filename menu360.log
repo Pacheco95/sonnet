@@ -1,0 +1,396 @@
+[01:03:57.703] [info] [platform] [SdlEntryPoint.cpp:57] Sonnet 0.18.0
+[01:03:57.753] [info] [platform] [Platform.cpp:92] SDL 3.4.16 initialised, video driver "cocoa"
+[01:03:57.789] [debug] [platform] [SdlWindow.cpp:53] window "Sonnet" created: 128<id> logical, 256<id> pixels
+[01:03:57.790] [debug] [platform] [Platform.cpp:70] Vulkan loader "<home>/repositories/sonnet/build/macos-debug-local/apps/player/sonnet_player" kept mapped for the process
+[01:03:57.790] [warn] [rhi] [VulkanDevice.cpp:202] validation requested but VK_LAYER_KHRONOS_validation is not installed
+[mvk-info] MoltenVK version 1.4.2, supporting Vulkan version 1.4.357.
+	The following 154 Vulkan extensions are supported:
+	VK_KHR_16bit_storage v1
+	VK_KHR_8bit_storage v1
+	VK_KHR_bind_memory2 v1
+	VK_KHR_buffer_device_address v1
+	VK_KHR_calibrated_timestamps v1
+	VK_KHR_copy_commands2 v1
+	VK_KHR_create_renderpass2 v1
+	VK_KHR_dedicated_allocation v3
+	VK_KHR_deferred_host_operations v4
+	VK_KHR_depth_stencil_resolve v1
+	VK_KHR_descriptor_update_template v1
+	VK_KHR_device_group v4
+	VK_KHR_device_group_creation v1
+	VK_KHR_driver_properties v1
+	VK_KHR_dynamic_rendering v1
+	VK_KHR_dynamic_rendering_local_read v1
+	VK_KHR_external_fence v1
+	VK_KHR_external_fence_capabilities v1
+	VK_KHR_external_memory v1
+	VK_KHR_external_memory_capabilities v1
+	VK_KHR_external_semaphore v1
+	VK_KHR_external_semaphore_capabilities v1
+	VK_KHR_format_feature_flags2 v2
+	VK_KHR_fragment_shader_barycentric v1
+	VK_KHR_get_memory_requirements2 v1
+	VK_KHR_get_physical_device_properties2 v2
+	VK_KHR_get_surface_capabilities2 v1
+	VK_KHR_global_priority v1
+	VK_KHR_image_format_list v1
+	VK_KHR_imageless_framebuffer v1
+	VK_KHR_incremental_present v2
+	VK_KHR_index_type_uint8 v1
+	VK_KHR_line_rasterization v1
+	VK_KHR_load_store_op_none v1
+	VK_KHR_maintenance1 v2
+	VK_KHR_maintenance2 v1
+	VK_KHR_maintenance3 v1
+	VK_KHR_maintenance4 v2
+	VK_KHR_maintenance5 v1
+	VK_KHR_maintenance6 v1
+	VK_KHR_maintenance7 v1
+	VK_KHR_maintenance8 v1
+	VK_KHR_maintenance9 v1
+	VK_KHR_map_memory2 v1
+	VK_KHR_multiview v1
+	VK_KHR_portability_subset v1
+	VK_KHR_present_id v1
+	VK_KHR_present_id2 v1
+	VK_KHR_present_wait v1
+	VK_KHR_present_wait2 v1
+	VK_KHR_push_descriptor v2
+	VK_KHR_relaxed_block_layout v1
+	VK_KHR_robustness2 v1
+	VK_KHR_sampler_mirror_clamp_to_edge v3
+	VK_KHR_sampler_ycbcr_conversion v14
+	VK_KHR_separate_depth_stencil_layouts v1
+	VK_KHR_shader_draw_parameters v1
+	VK_KHR_shader_expect_assume v1
+	VK_KHR_shader_float_controls v4
+	VK_KHR_shader_float_controls2 v1
+	VK_KHR_shader_float16_int8 v1
+	VK_KHR_shader_fma v1
+	VK_KHR_shader_integer_dot_product v1
+	VK_KHR_shader_maximal_reconvergence v1
+	VK_KHR_shader_non_semantic_info v1
+	VK_KHR_shader_quad_control v1
+	VK_KHR_shader_relaxed_extended_instruction v1
+	VK_KHR_shader_subgroup_extended_types v1
+	VK_KHR_shader_subgroup_rotate v2
+	VK_KHR_shader_subgroup_uniform_control_flow v1
+	VK_KHR_shader_terminate_invocation v1
+	VK_KHR_spirv_1_4 v1
+	VK_KHR_storage_buffer_storage_class v1
+	VK_KHR_surface v25
+	VK_KHR_surface_maintenance1 v1
+	VK_KHR_surface_protected_capabilities v1
+	VK_KHR_swapchain v70
+	VK_KHR_swapchain_maintenance1 v1
+	VK_KHR_swapchain_mutable_format v1
+	VK_KHR_synchronization2 v1
+	VK_KHR_timeline_semaphore v2
+	VK_KHR_uniform_buffer_standard_layout v1
+	VK_KHR_variable_pointers v1
+	VK_KHR_vertex_attribute_divisor v1
+	VK_KHR_vulkan_memory_model v3
+	VK_KHR_zero_initialize_workgroup_memory v1
+	VK_EXT_4444_formats v1
+	VK_EXT_buffer_device_address v2
+	VK_EXT_calibrated_timestamps v2
+	VK_EXT_debug_marker v4
+	VK_EXT_debug_report v10
+	VK_EXT_debug_utils v2
+	VK_EXT_depth_clip_control v1
+	VK_EXT_descriptor_indexing v2
+	VK_EXT_extended_dynamic_state v1
+	VK_EXT_extended_dynamic_state2 v1
+	VK_EXT_extended_dynamic_state3 v2
+	VK_EXT_external_memory_host v1
+	VK_EXT_external_memory_metal v1
+	VK_EXT_fragment_shader_interlock v1
+	VK_EXT_global_priority v2
+	VK_EXT_global_priority_query v1
+	VK_EXT_hdr_metadata v3
+	VK_EXT_headless_surface v1
+	VK_EXT_host_image_copy v1
+	VK_EXT_host_query_reset v1
+	VK_EXT_image_2d_view_of_3d v1
+	VK_EXT_image_robustness v1
+	VK_EXT_index_type_uint8 v1
+	VK_EXT_inline_uniform_block v1
+	VK_EXT_layer_settings v2
+	VK_EXT_legacy_dithering v2
+	VK_EXT_line_rasterization v1
+	VK_EXT_load_store_op_none v1
+	VK_EXT_memory_budget v1
+	VK_EXT_metal_objects v2
+	VK_EXT_metal_surface v1
+	VK_EXT_non_seamless_cube_map v1
+	VK_EXT_pipeline_creation_cache_control v3
+	VK_EXT_pipeline_creation_feedback v1
+	VK_EXT_pipeline_robustness v1
+	VK_EXT_post_depth_coverage v1
+	VK_EXT_primitive_topology_list_restart v1
+	VK_EXT_private_data v1
+	VK_EXT_provoking_vertex v1
+	VK_EXT_robustness2 v1
+	VK_EXT_sample_locations v1
+	VK_EXT_sampler_filter_minmax v2
+	VK_EXT_scalar_block_layout v1
+	VK_EXT_separate_stencil_usage v1
+	VK_EXT_shader_atomic_float v1
+	VK_EXT_shader_demote_to_helper_invocation v1
+	VK_EXT_shader_stencil_export v1
+	VK_EXT_shader_subgroup_ballot v1
+	VK_EXT_shader_subgroup_vote v1
+	VK_EXT_shader_viewport_index_layer v1
+	VK_EXT_subgroup_size_control v2
+	VK_EXT_surface_maintenance1 v1
+	VK_EXT_swapchain_colorspace v5
+	VK_EXT_swapchain_maintenance1 v1
+	VK_EXT_texel_buffer_alignment v1
+	VK_EXT_texture_compression_astc_hdr v1
+	VK_EXT_tooling_info v1
+	VK_EXT_vertex_attribute_divisor v3
+	VK_AMD_gpu_shader_half_float v2
+	VK_AMD_negative_viewport_height v1
+	VK_AMD_shader_image_load_store_lod v1
+	VK_AMD_shader_trinary_minmax v1
+	VK_GOOGLE_display_timing v1
+	VK_IMG_format_pvrtc v1
+	VK_INTEL_shader_integer_functions2 v1
+	VK_MVK_macos_surface v3
+	VK_MVK_moltenvk v37
+	VK_NV_fragment_shader_barycentric v1
+[mvk-info] GPU device:
+	model: Apple silicon Mac
+	type: Integrated
+[device details redacted]
+[device details redacted]
+	pipelineCacheUUID: <id>
+	GPU memory available: 28753 MB
+	GPU memory used: 0 MB
+	Metal Shading Language 4.0
+	supports the following GPU Features:
+[device details redacted]
+[device details redacted]
+[device details redacted]
+[device details redacted]
+		Read-Write Texture Tier 2
+[mvk-info] Created VkInstance for Vulkan version 1.4.357, as requested by app, with the following 3 Vulkan extensions enabled:
+	VK_KHR_surface v25
+	VK_EXT_debug_utils v2
+	VK_EXT_metal_surface v1
+[01:03:57.790] [debug] [rhi] [VulkanDevice.cpp:247] Vulkan loader 1.4.357
+[mvk-info] Vulkan semaphores using MTLEvent.
+[mvk-info] Descriptor sets binding resources using Metal3 argument buffers.
+[mvk-info] Created VkDevice to run on GPU Apple silicon Mac
+	VK_KHR_portability_subset v1
+	VK_KHR_swapchain v70
+	VK_EXT_memory_budget v1
+[01:03:58.106] [info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.357 device "Apple silicon Mac", driver MoltenVK 1.4.2, loader 1.4.357, BC, ASTC, ASTC HDR
+[mvk-info] Created 3 swapchain images with size (2560, 1440) and contents scale 2.0 in layer CAMetalLayer: SDL3_cocoametalview (<id>) on screen Built-in Retina Display.
+[01:03:58.107] [debug] [rhi] [VulkanSwapchain.cpp:127] swapchain 256<id>, 3 images, B8G8R8A8Unorm, Fifo, surface transform Identity
+[01:03:58.107] [debug] [core] [JobSystem.cpp:78] job system started with 13 workers
+[01:03:58.108] [debug] [renderer] [Renderer.cpp:689] shader module cluster: 46772 bytes
+[01:03:58.108] [debug] [renderer] [Renderer.cpp:695] pipeline "light clustering" from cluster
+[01:03:58.136] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "light clustering" from shader "cluster"
+[01:03:58.136] [debug] [renderer] [Renderer.cpp:689] shader module cull: 73392 bytes
+[01:03:58.136] [debug] [renderer] [Renderer.cpp:695] pipeline "cull" from cull
+[01:03:58.164] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "cull" from shader "cull"
+[01:03:58.164] [debug] [renderer] [Renderer.cpp:695] pipeline "clear draw commands" from cull
+[01:03:58.180] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "clear draw commands" from shader "cull"
+[01:03:58.180] [debug] [renderer] [Renderer.cpp:695] pipeline "cull late" from cull
+[01:03:58.206] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "cull late" from shader "cull"
+[01:03:58.206] [debug] [renderer] [Renderer.cpp:695] pipeline "publish counters" from cull
+[01:03:58.221] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "publish counters" from shader "cull"
+[01:03:58.221] [debug] [renderer] [Renderer.cpp:695] pipeline "merge late commands" from cull
+[01:03:58.237] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "merge late commands" from shader "cull"
+[01:03:58.237] [debug] [renderer] [Renderer.cpp:689] shader module debug: 7764 bytes
+[01:03:58.237] [debug] [renderer] [Renderer.cpp:695] pipeline "debug lines" from debug
+[01:03:58.272] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "debug lines" from shader "debug"
+[01:03:58.272] [debug] [renderer] [Renderer.cpp:689] shader module depth: 80480 bytes
+[01:03:58.272] [debug] [renderer] [Renderer.cpp:695] pipeline "depth" from depth
+[01:03:58.406] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "depth" from shader "depth"
+[01:03:58.406] [debug] [renderer] [Renderer.cpp:695] pipeline "depth motion" from depth
+[01:03:58.542] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "depth motion" from shader "depth"
+[01:03:58.542] [debug] [renderer] [Renderer.cpp:695] pipeline "shadow" from depth
+[01:03:58.677] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "shadow" from shader "depth"
+[01:03:58.677] [debug] [renderer] [Renderer.cpp:695] pipeline "depth double sided" from depth
+[01:03:58.678] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "depth double sided" from shader "depth"
+[01:03:58.678] [debug] [renderer] [Renderer.cpp:695] pipeline "depth motion double sided" from depth
+[01:03:58.678] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "depth motion double sided" from shader "depth"
+[01:03:58.678] [debug] [renderer] [Renderer.cpp:695] pipeline "shadow" from depth
+[01:03:58.679] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "shadow" from shader "depth"
+[01:03:58.679] [debug] [renderer] [Renderer.cpp:689] shader module forward: 160108 bytes
+[01:03:58.680] [debug] [renderer] [Renderer.cpp:695] pipeline "forward" from forward
+[01:03:58.916] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "forward" from shader "forward"
+[01:03:58.916] [debug] [renderer] [Renderer.cpp:695] pipeline "forward blend" from forward
+[01:03:58.917] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "forward blend" from shader "forward"
+[01:03:58.917] [debug] [renderer] [Renderer.cpp:695] pipeline "forward double sided" from forward
+[01:03:58.918] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "forward double sided" from shader "forward"
+[01:03:58.918] [debug] [renderer] [Renderer.cpp:695] pipeline "forward blend double sided" from forward
+[01:03:58.918] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "forward blend double sided" from shader "forward"
+[01:03:58.919] [debug] [renderer] [Renderer.cpp:689] shader module hiz: 24856 bytes
+[01:03:58.919] [debug] [renderer] [Renderer.cpp:695] pipeline "depth pyramid base" from hiz
+[01:03:58.970] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "depth pyramid base" from shader "hiz"
+[01:03:58.970] [debug] [renderer] [Renderer.cpp:695] pipeline "depth pyramid level" from hiz
+[01:03:58.987] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "depth pyramid level" from shader "hiz"
+[01:03:58.987] [debug] [renderer] [Renderer.cpp:689] shader module ibl: 81400 bytes
+[01:03:58.988] [debug] [renderer] [Renderer.cpp:695] pipeline "equirect to cube" from ibl
+[01:03:59.068] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "equirect to cube" from shader "ibl"
+[01:03:59.068] [debug] [renderer] [Renderer.cpp:695] pipeline "cube mip" from ibl
+[01:03:59.182] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "cube mip" from shader "ibl"
+[01:03:59.182] [debug] [renderer] [Renderer.cpp:695] pipeline "irradiance" from ibl
+[01:03:59.309] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "irradiance" from shader "ibl"
+[01:03:59.309] [debug] [renderer] [Renderer.cpp:695] pipeline "prefilter" from ibl
+[01:03:59.435] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "prefilter" from shader "ibl"
+[01:03:59.435] [debug] [renderer] [Renderer.cpp:695] pipeline "brdf lut" from ibl
+[01:03:59.529] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "brdf lut" from shader "ibl"
+[01:03:59.530] [debug] [renderer] [Renderer.cpp:689] shader module id: 43924 bytes
+[01:03:59.530] [debug] [renderer] [Renderer.cpp:695] pipeline "id" from id
+[mvk-warn] VK_ERROR_FEATURE_NOT_PRESENT: Blending is enabled for attachment with format VK_FORMAT_R32_UINT, which does not support it.
+[01:03:59.625] [warn] [rhi] [VulkanDevice.cpp:1340] mvk-warn: VK_ERROR_FEATURE_NOT_PRESENT: Blending is enabled for attachment with format VK_FORMAT_R32_UINT, which does not support it.
+[01:03:59.625] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "id" from shader "id"
+[01:03:59.625] [debug] [renderer] [Renderer.cpp:695] pipeline "selection mask" from id
+[mvk-warn] VK_ERROR_FEATURE_NOT_PRESENT: Blending is enabled for attachment with format VK_FORMAT_R32_UINT, which does not support it.
+[01:03:59.695] [warn] [rhi] [VulkanDevice.cpp:1340] mvk-warn: VK_ERROR_FEATURE_NOT_PRESENT: Blending is enabled for attachment with format VK_FORMAT_R32_UINT, which does not support it.
+[01:03:59.696] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "selection mask" from shader "id"
+[01:03:59.696] [debug] [renderer] [Renderer.cpp:695] pipeline "id double sided" from id
+[mvk-warn] VK_ERROR_FEATURE_NOT_PRESENT: Blending is enabled for attachment with format VK_FORMAT_R32_UINT, which does not support it.
+[01:03:59.696] [warn] [rhi] [VulkanDevice.cpp:1340] mvk-warn: VK_ERROR_FEATURE_NOT_PRESENT: Blending is enabled for attachment with format VK_FORMAT_R32_UINT, which does not support it.
+[01:03:59.696] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "id double sided" from shader "id"
+[01:03:59.696] [debug] [renderer] [Renderer.cpp:695] pipeline "selection mask double sided" from id
+[mvk-warn] VK_ERROR_FEATURE_NOT_PRESENT: Blending is enabled for attachment with format VK_FORMAT_R32_UINT, which does not support it.
+[01:03:59.696] [warn] [rhi] [VulkanDevice.cpp:1340] mvk-warn: VK_ERROR_FEATURE_NOT_PRESENT: Blending is enabled for attachment with format VK_FORMAT_R32_UINT, which does not support it.
+[01:03:59.696] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "selection mask double sided" from shader "id"
+[01:03:59.696] [debug] [renderer] [Renderer.cpp:689] shader module outline: 11252 bytes
+[01:03:59.696] [debug] [renderer] [Renderer.cpp:695] pipeline "outline" from outline
+[01:03:59.740] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "outline" from shader "outline"
+[01:03:59.741] [debug] [renderer] [Renderer.cpp:689] shader module overlay: 18484 bytes
+[01:03:59.741] [debug] [renderer] [Renderer.cpp:695] pipeline "overlay" from overlay
+[01:03:59.792] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "overlay" from shader "overlay"
+[01:03:59.792] [debug] [renderer] [Renderer.cpp:689] shader module particles: 55344 bytes
+[01:03:59.792] [debug] [renderer] [Renderer.cpp:695] pipeline "particles alpha" from particles
+[01:03:59.871] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "particles alpha" from shader "particles"
+[01:03:59.871] [debug] [renderer] [Renderer.cpp:695] pipeline "particles additive" from particles
+[01:03:59.872] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "particles additive" from shader "particles"
+[01:03:59.872] [debug] [renderer] [Renderer.cpp:695] pipeline "particle reset" from particles
+[01:03:59.886] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "particle reset" from shader "particles"
+[01:03:59.886] [debug] [renderer] [Renderer.cpp:695] pipeline "particle simulation" from particles
+[01:03:59.911] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "particle simulation" from shader "particles"
+[01:03:59.911] [debug] [renderer] [Renderer.cpp:689] shader module post: 76408 bytes
+[01:03:59.912] [debug] [renderer] [Renderer.cpp:695] pipeline "bloom downsample" from post
+[01:03:59.968] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "bloom downsample" from shader "post"
+[01:03:59.968] [debug] [renderer] [Renderer.cpp:695] pipeline "bloom upsample" from post
+[01:04:00.019] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "bloom upsample" from shader "post"
+[01:04:00.019] [debug] [renderer] [Renderer.cpp:695] pipeline "tonemap" from post
+[01:04:00.067] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "tonemap" from shader "post"
+[01:04:00.067] [debug] [renderer] [Renderer.cpp:695] pipeline "fxaa" from post
+[01:04:00.119] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "fxaa" from shader "post"
+[01:04:00.119] [debug] [renderer] [Renderer.cpp:695] pipeline "present" from post
+[01:04:00.165] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "present" from shader "post"
+[01:04:00.166] [debug] [renderer] [Renderer.cpp:689] shader module skin: 20984 bytes
+[01:04:00.166] [debug] [renderer] [Renderer.cpp:695] pipeline "skinning" from skin
+[01:04:00.193] [debug] [rhi] [VulkanDevice.cpp:1037] compute pipeline "skinning" from shader "skin"
+[01:04:00.193] [debug] [renderer] [Renderer.cpp:689] shader module skybox: 37012 bytes
+[01:04:00.193] [debug] [renderer] [Renderer.cpp:695] pipeline "skybox" from skybox
+[01:04:00.306] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "skybox" from shader "skybox"
+[01:04:00.306] [debug] [renderer] [Renderer.cpp:689] shader module taa: 71340 bytes
+[01:04:00.306] [debug] [renderer] [Renderer.cpp:695] pipeline "taa resolve" from taa
+[01:04:00.401] [debug] [rhi] [VulkanDevice.cpp:1021] pipeline "taa resolve" from shader "taa"
+[01:04:00.401] [debug] [renderer] [Renderer.cpp:937] texture "white": 1x1 R8G8B8A8Unorm, 1 levels
+[01:04:00.401] [debug] [renderer] [Renderer.cpp:937] texture "flat normal": 1x1 R8G8B8A8Unorm, 1 levels
+[01:04:00.401] [debug] [renderer] [Renderer.cpp:540] renderer ready, shaders from shaders
+[01:04:00.411] [debug] [world] [World.cpp:104] world ready with 15 components
+[01:04:00.413] [debug] [physics] [JoltPhysicsWorld.cpp:368] physics ready
+[01:04:00.413] [debug] [world] [Animation.cpp:62] animation ready
+[01:04:00.413] [debug] [scripting] [LuaScriptRuntime.cpp:251] scripting ready, Lua 5.5.1
+[01:04:00.471] [debug] [audio] [MiniaudioDevice.cpp:71] audio ready: 48000 Hz, 2 channels, output device
+[01:04:00.471] [info] [player] [main.cpp:109] capture run on "Apple silicon Mac", Vulkan 1.4.357, writing /tmp/sonnet-issue193/menu-360.png
+[01:04:00.471] [info] [assets] [Project.cpp:49] opened project "Basic" at <home>/repositories/sonnet/apps/samples/basic
+[01:04:00.474] [info] [assets] [AssetDatabase.cpp:217] asset database: 49 assets in <home>/repositories/sonnet/apps/samples/basic
+[01:04:00.474] [info] [world] [Scene.cpp:341] loaded prefab <id> from <home>/repositories/sonnet/apps/samples/basic/prefabs/crate.prefab.json
+[01:04:00.474] [info] [world] [Scene.cpp:341] loaded prefab <id> from <home>/repositories/sonnet/apps/samples/basic/prefabs/physics-crate.prefab.json
+[01:04:00.478] [info] [runtime] [Game.cpp:210] playing "Basic": 18 entities
+[01:04:00.499] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/apps/samples/basic/assets/models/reed.glb: 1 meshes, 1 materials, 0 images, 6 nodes, 1 skins, 1 animations
+[01:04:00.499] [debug] [renderer] [Renderer.cpp:879] mesh "Sphere": 561 vertices, 960 triangles, 1 submeshes
+[01:04:00.500] [debug] [renderer] [Renderer.cpp:879] mesh "Cylinder": 134 vertices, 128 triangles, 1 submeshes
+[01:04:00.501] [debug] [renderer] [Renderer.cpp:879] mesh "Capsule": 594 vertices, 1024 triangles, 1 submeshes
+[01:04:00.501] [debug] [renderer] [Renderer.cpp:879] mesh "Plane": 4 vertices, 2 triangles, 1 submeshes
+[01:04:00.501] [debug] [renderer] [Renderer.cpp:937] texture "pending": 1x1 R8G8B8A8Srgb, 1 levels
+[01:04:00.501] [debug] [renderer] [Renderer.cpp:879] mesh "Box": 24 vertices, 12 triangles, 1 submeshes
+[01:04:00.502] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/apps/samples/basic/assets/models/walker.glb: 1 meshes, 1 materials, 0 images, 6 nodes, 0 skins, 2 animations
+[01:04:00.502] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/apps/samples/basic/assets/models/crate.glb: 2 meshes, 2 materials, 2 images, 2 nodes, 0 skins, 0 animations
+[01:04:00.503] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/apps/samples/basic/assets/models/jelly.glb: 1 meshes, 1 materials, 0 images, 1 nodes, 0 skins, 1 animations
+[01:04:00.504] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/apps/samples/basic/assets/models/beacon.glb: 2 meshes, 2 materials, 0 images, 3 nodes, 0 skins, 1 animations
+[01:04:00.504] [debug] [renderer] [Renderer.cpp:1051] environment "sky" from a 256x128 map
+[01:04:00.505] [debug] [renderer] [RenderTarget.cpp:38] render target "game" 256<id>
+[01:04:00.505] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow cascade 0" 2048x2048 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow cascade 1" 2048x2048 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow cascade 2" 2048x2048 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow cascade 3" 2048x2048 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow point 0 face 0" 1024x1024 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow point 0 face 1" 1024x1024 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow point 0 face 2" 1024x1024 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow point 0 face 3" 1024x1024 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow point 0 face 4" 1024x1024 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow point 0 face 5" 1024x1024 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "shadow spot 1" 1024x1024 allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "motion" 256<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene hdr" 256<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 0" 128<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 1" 64<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 2" 32<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 3" 16<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 4" 8<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 3" 16<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 2" 32<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 1" 64<id> allocated
+[01:04:00.506] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 0" 128<id> allocated
+[01:04:00.513] [info] [runtime] [Game.cpp:210] playing "Basic": 18 entities
+[01:04:00.513] [info] [runtime] [Capture.cpp:410] capture draws at 64<id>, scaled to the window
+[01:04:00.519] [debug] [renderer] [Renderer.cpp:879] mesh "reed/StemMesh": 91 vertices, 144 triangles, 1 submeshes
+[01:04:00.519] [debug] [renderer] [Renderer.cpp:879] mesh "walker/BlockMesh": 24 vertices, 12 triangles, 1 submeshes
+[01:04:00.519] [debug] [renderer] [Renderer.cpp:879] mesh "jelly/JellyMesh": 561 vertices, 960 triangles, 1 submeshes
+[01:04:00.519] [debug] [renderer] [Renderer.cpp:879] mesh "beacon/LampMesh": 24 vertices, 12 triangles, 1 submeshes
+[01:04:00.519] [debug] [renderer] [Renderer.cpp:879] mesh "beacon/HaloMesh": 325 vertices, 528 triangles, 1 submeshes
+[01:04:00.520] [debug] [renderer] [RenderTarget.cpp:38] render target "game" 64<id>
+[01:04:00.550] [debug] [renderer] [Renderer.cpp:937] texture "gui glyph atlas": 1024x1024 R8Unorm, 1 levels
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "motion" 64<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "scene hdr" 64<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 0" 32<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 1" 16<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 2" 8<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 3" 4<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom down 4" 2<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 3" 4<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 2" 8<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 1" 16<id> allocated
+[01:04:00.552] [debug] [renderer] [RenderGraph.cpp:176] transient image "bloom up 0" 32<id> allocated
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "shadow point 0 face 0" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "shadow point 0 face 1" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "shadow point 0 face 2" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "shadow point 0 face 3" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "shadow point 0 face 4" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "shadow point 0 face 5" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "shadow spot 1" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "motion" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "scene hdr" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 0" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 1" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 2" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 3" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom down 4" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 3" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 2" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 1" released
+[01:04:00.562] [debug] [renderer] [RenderGraph.cpp:192] transient image "bloom up 0" released
+[01:04:00.778] [debug] [renderer] [Renderer.cpp:937] texture "checker": 64x64 BC7Srgb, 7 levels
+[01:04:00.778] [debug] [renderer] [Renderer.cpp:937] texture "crate/image 0": 128x128 BC7Srgb, 8 levels
+[01:04:00.778] [debug] [renderer] [Renderer.cpp:937] texture "crate/image 1": 128x128 BC7Unorm, 8 levels
+[01:04:00.779] [debug] [renderer] [Renderer.cpp:879] mesh "crate/CrateMesh": 24 vertices, 12 triangles, 1 submeshes
+[01:04:00.779] [debug] [renderer] [Renderer.cpp:879] mesh "crate/BallMesh": 561 vertices, 960 triangles, 1 submeshes
+[01:04:00.878] [info] [runtime] [Screenshot.cpp:75] screenshot 64<id> written to /tmp/sonnet-issue193/menu-360.png
+[01:04:00.878] [info] [player] [main.cpp:173] capture frame times over the last 36 frames: CPU 1.56 ms a frame, 9.70 ms apart; GPU 1.190 ms: cull 0.073 ms, shadow cascade 0 0.132 ms, shadow cascade 1 0.081 ms, shadow cascade 2 0.065 ms, shadow cascade 3 0.059 ms, depth 0.027 ms, depth pyramid 0.109 ms, occlusion cull 0.023 ms, depth late 0.013 ms, light clustering 0.007 ms, forward 0.168 ms, taa 0.145 ms, bloom down 0 0.030 ms, bloom down 1 0.024 ms, bloom down 2 0.022 ms, bloom down 3 0.023 ms, bloom down 4 0.013 ms, bloom up 3 0.009 ms, bloom up 2 0.016 ms, bloom up 1 0.017 ms, bloom up 0 0.021 ms, tonemap 0.019 ms, overlay 0.014 ms, present 0.081 ms; thermal nominal -> nominal (worst nominal)
+[mvk-info] Destroyed VkDevice on GPU Apple silicon Mac
+[mvk-info] Destroyed VkPhysicalDevice for GPU Apple silicon Mac
+[mvk-info] Destroying VkInstance for Vulkan version 1.4.357 with 3 Vulkan extensions enabled.
+[01:04:00.947] [info] [platform] [SdlEntryPoint.cpp:96] exit ok

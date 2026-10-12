@@ -1,0 +1,222 @@
+-- Running vcpkg install
+Detecting compiler hash for triplet arm64-osx...
+Compiler found: /opt/homebrew/opt/llvm/bin/clang++
+The following packages are already installed:
+    catch2:arm64-osx@3.16.0
+  * egl-registry:arm64-osx@2025-05-27
+    fastgltf:arm64-osx@0.9.0
+    flecs:arm64-osx@4.1.6
+  * fmt:arm64-osx@12.2.0#1
+    glm:arm64-osx@1.0.3
+    imgui[core,vulkan-binding,sdl3-binding,docking-experimental]:arm64-osx@1.92.9#3
+    joltphysics[core,rtti]:arm64-osx@5.6.0#1
+    ktx:arm64-osx@5.0.0-rc2
+    lua[core,cpp]:arm64-osx@5.5.1#1
+    miniaudio:arm64-osx@0.11.25
+    moltenvk:arm64-osx@1.4.2
+    nlohmann-json:arm64-osx@3.12.0#3
+  * opengl-registry:arm64-osx@2026-08-03
+  * pthreads:arm64-osx@3.0.0#14
+    sdl3[core,vulkan]:arm64-osx@3.4.16#2
+    shader-slang:arm64-osx@2026.7.1#1
+  * simdjson[core,utf8-validation,threads,exceptions,deprecated]:arm64-osx@4.6.8
+    sol2:arm64-osx@3.5.0#1
+    spdlog[core,tz-offset,fmt]:arm64-osx@1.17.0#1
+    stb:arm64-osx@2024-07-29#1
+    tracy[core,crash-handler]:arm64-osx@0.13.1#1
+  * vcpkg-cmake:arm64-osx@2025-08-07
+  * vcpkg-cmake-config:arm64-osx@2026-07-21
+    vk-bootstrap:arm64-osx@1.4.357
+  * vulkan:arm64-osx@2023-12-17
+    vulkan-headers:arm64-osx@1.4.357.0
+    vulkan-loader:arm64-osx@1.4.357.0
+  * vulkan-memory-allocator:arm64-osx@3.4.0
+    vulkan-memory-allocator-hpp:arm64-osx@3.4.0
+  * zstd:arm64-osx@1.5.7
+The following packages will be built and installed:
+    meshoptimizer:arm64-osx@1.2
+Restored 0 package(s) from <home>/.cache/vcpkg/archives in 145 us. Use --debug to see more details.
+Installing 1/1 meshoptimizer:arm64-osx@1.2...
+meshoptimizer:arm64-osx@1.2 package ABI: f9b38f70603ec20e3958cec7874507b26f43216ab92f38bfb4cb76acc972d146
+Building meshoptimizer:arm64-osx@1.2...
+-- Using cached zeux-meshoptimizer-v1.2.tar.gz
+-- Cleaning sources at <home>/vcpkg/buildtrees/meshoptimizer/src/v1.2-ce6f2c5220.clean. Use --editable to skip cleaning for the packages you specify.
+-- Extracting source <home>/vcpkg/downloads/zeux-meshoptimizer-v1.2.tar.gz
+-- Applying patch dependencies.diff
+-- Using source at <home>/vcpkg/buildtrees/meshoptimizer/src/v1.2-ce6f2c5220.clean
+-- Configuring arm64-osx
+-- Building arm64-osx-dbg
+-- Building arm64-osx-rel
+-- Performing post-build validation
+Starting submission of meshoptimizer:arm64-osx@1.2 to 1 binary cache(s) in the background
+Elapsed time to handle meshoptimizer:arm64-osx: 2 s
+Installed contents are licensed to you by owners. Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.
+Packages installed in this vcpkg installation declare the following licenses:
+MIT
+catch2 provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(Catch2 CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE Catch2::Catch2 Catch2::Catch2WithMain)
+
+catch2 provides pkg-config modules:
+
+  # A modern, C++-native test framework for C++14 and above (links in default main)
+  catch2-with-main
+
+  # A modern, C++-native, test framework for C++14 and above
+  catch2
+
+fastgltf provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(fastgltf CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE fastgltf::fastgltf)
+
+The package flecs provides CMake targets:
+
+    find_package(flecs CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE $<IF:$<TARGET_EXISTS:flecs::flecs>,flecs::flecs,flecs::flecs_static>)
+
+The package glm provides CMake targets:
+
+    find_package(glm CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE glm::glm)
+
+    # Or use the header-only version
+    find_package(glm CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE glm::glm-header-only)
+
+Vulkan-Headers provides official find_package support:
+
+    find_package(VulkanHeaders CONFIG)
+    target_link_libraries(main PRIVATE Vulkan::Headers)
+
+sdl3 provides CMake targets:
+
+  find_package(SDL3 CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE SDL3::SDL3)
+
+imgui provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(imgui CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE imgui::imgui)
+
+joltphysics provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(Jolt CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE Jolt::Jolt)
+
+ktx provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(Ktx CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE KTX::ktx)
+
+lua provides CMake integration for the C library:
+
+  find_package(Lua REQUIRED)
+  target_include_directories(main PRIVATE ${LUA_INCLUDE_DIR})
+  target_link_libraries(main PRIVATE ${LUA_LIBRARIES})
+
+lua[cpp] provides a C++ library with exception handling:
+
+  find_package(unofficial-lua)
+  target_link_libraries(main PRIVATE unofficial::lua::lua-cpp)
+
+meshoptimizer provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(meshoptimizer CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE meshoptimizer::meshoptimizer)
+
+miniaudio is header-only and can be used from CMake via:
+
+  find_path(MINIAUDIO_INCLUDE_DIRS "miniaudio.h")
+  target_include_directories(main PRIVATE ${MINIAUDIO_INCLUDE_DIRS})
+
+moltenvk provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(unofficial-moltenvk CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE unofficial::moltenvk::moltenvk)
+
+The package nlohmann-json provides CMake targets:
+
+    find_package(nlohmann_json CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE nlohmann_json::nlohmann_json)
+
+The package nlohmann-json can be configured to not provide implicit conversions via a custom triplet file:
+
+    set(nlohmann-json_IMPLICIT_CONVERSIONS OFF)
+
+For more information, see the docs here:
+    
+    https://json.nlohmann.me/api/macros/json_use_implicit_conversions/
+
+shader-slang provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(slang CONFIG REQUIRED)
+  # note: 1 additional targets are not displayed.
+  target_link_libraries(main PRIVATE slang::gfx slang::slang slang::slang-llvm slang::slang-glslang)
+
+sol2 provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(sol2 CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE sol2::sol2)
+
+sol2 provides pkg-config modules:
+
+  # C++ <-> Lua Wrapper Library
+  sol2
+
+The package spdlog provides CMake targets:
+
+    find_package(spdlog CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE spdlog::spdlog)
+
+    # Or use the header-only version
+    find_package(spdlog CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE spdlog::spdlog_header_only)
+
+The package stb provides CMake targets:
+
+    find_package(Stb REQUIRED)
+    target_include_directories(main PRIVATE ${Stb_INCLUDE_DIR})
+tracy provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(Tracy CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE Tracy::TracyClient)
+
+vk-bootstrap provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(vk-bootstrap CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE vk-bootstrap::vk-bootstrap vk-bootstrap::vk-bootstrap-compiler-warnings)
+
+The package vulkan-loader provides the vulkan loader.
+Please be aware of https://github.com/KhronosGroup/Vulkan-Loader/blob/main/docs/LoaderApplicationInterface.md#bundling-the-loader-with-an-application
+
+vulkan-memory-allocator-hpp provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(unofficial-vulkan-memory-allocator-hpp CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE unofficial::VulkanMemoryAllocator-Hpp::VulkanMemoryAllocator-Hpp)
+
+Waiting for 1 remaining binary cache submissions...
+Completed submission of meshoptimizer:arm64-osx@1.2 to 1 binary cache(s) in 60.3 ms (1/1)
+All requested installations completed successfully in: 2 s
+-- Running vcpkg install - done
+-- Sonnet 0.18.0: rhi=Vulkan editor=ON player=ON tests=ON samples=ON tracy=ON validation=ON sanitizers=OFF tsan=OFF coverage=OFF
+-- The OBJCXX compiler identification is Clang 22.1.0
+-- Detecting OBJCXX compiler ABI info
+-- Detecting OBJCXX compiler ABI info - done
+-- Check for working OBJCXX compiler: /opt/homebrew/opt/llvm/bin/clang++ - skipped
+-- Configuring done (6.0s)
+-- Generating done (0.1s)
+-- Build files have been written to: <home>/repositories/sonnet/build/macos-debug-local

@@ -1,0 +1,517 @@
+[1/328] Building OBJCXX object modules/platform/CMakeFiles/sonnet_platform.dir/src/ThermalApple.mm.o
+[2/328] Building CXX object modules/core/CMakeFiles/sonnet_core.dir/src/Assert.cpp.o
+[3/328] Building CXX object modules/core/CMakeFiles/sonnet_core.dir/src/File.cpp.o
+[4/328] Building CXX object modules/core/CMakeFiles/sonnet_core.dir/src/FileLock.cpp.o
+[5/328] Building CXX object modules/platform/CMakeFiles/sonnet_platform.dir/src/SdlDisplay.cpp.o
+[6/328] Building CXX object modules/platform/CMakeFiles/sonnet_platform.dir/src/SdlEntryPoint.cpp.o
+[7/328] Building CXX object modules/rhi/CMakeFiles/sonnet_rhi.dir/src/NullDevice.cpp.o
+[8/328] Building CXX object modules/rhi/CMakeFiles/sonnet_rhi.dir/src/VulkanCommandList.cpp.o
+[9/328] Building CXX object modules/rhi/CMakeFiles/sonnet_rhi.dir/src/Device.cpp.o
+[10/328] Building CXX object modules/core/CMakeFiles/sonnet_core.dir/src/Log.cpp.o
+[11/328] Building CXX object modules/platform/CMakeFiles/sonnet_platform.dir/src/Content.cpp.o
+[12/328] Building CXX object modules/core/CMakeFiles/sonnet_core.dir/src/Version.cpp.o
+[13/328] Building CXX object modules/core/CMakeFiles/sonnet_core.dir/src/Uuid.cpp.o
+[14/328] Building CXX object modules/rhi/CMakeFiles/sonnet_rhi.dir/src/VulkanTypes.cpp.o
+[15/328] Building CXX object modules/core/CMakeFiles/sonnet_core.dir/src/Error.cpp.o
+[16/328] Building CXX object modules/renderer/CMakeFiles/sonnet_renderer.dir/src/Mesh.cpp.o
+[17/328] Building CXX object modules/renderer/CMakeFiles/sonnet_renderer.dir/src/Texture.cpp.o
+[18/328] Building CXX object modules/core/CMakeFiles/sonnet_core.dir/src/JobSystem.cpp.o
+[19/328] Building CXX object modules/renderer/CMakeFiles/sonnet_renderer.dir/src/Picker.cpp.o
+[20/328] Linking CXX static library modules/core/libsonnet_core.a
+[21/328] Building CXX object modules/platform/CMakeFiles/sonnet_platform.dir/src/SdlWindow.cpp.o
+[22/328] Building CXX object modules/renderer/CMakeFiles/sonnet_renderer.dir/src/Primitives.cpp.o
+[23/328] Building CXX object modules/platform/CMakeFiles/sonnet_platform.dir/src/Platform.cpp.o
+[24/328] Linking CXX static library modules/platform/libsonnet_platform.a
+[25/328] Building CXX object modules/renderer/CMakeFiles/sonnet_renderer.dir/src/RenderTarget.cpp.o
+[26/328] Building CXX object modules/renderer/CMakeFiles/sonnet_renderer.dir/src/RenderGraph.cpp.o
+[27/328] Building CXX object modules/assets/CMakeFiles/sonnet_assets.dir/src/Asset.cpp.o
+[28/328] Building CXX object modules/rhi/CMakeFiles/sonnet_rhi.dir/src/VulkanSwapchain.cpp.o
+[29/328] Building CXX object modules/world/CMakeFiles/sonnet_world.dir/src/Components.cpp.o
+[30/328] Building CXX object modules/physics/CMakeFiles/sonnet_physics.dir/src/ColliderLines.cpp.o
+[31/328] Building CXX object modules/rhi/CMakeFiles/sonnet_rhi.dir/src/VulkanDevice.cpp.o
+[32/328] Linking CXX static library modules/rhi/libsonnet_rhi.a
+[33/328] Building CXX object modules/assets/CMakeFiles/sonnet_assets.dir/src/ImageImporter.cpp.o
+[34/328] Building CXX object modules/assets/CMakeFiles/sonnet_assets.dir/src/MeshCook.cpp.o
+[35/328] Building CXX object modules/assets/CMakeFiles/sonnet_assets.dir/src/Cook.cpp.o
+[36/328] Building CXX object modules/assets/CMakeFiles/sonnet_assets.dir/src/Ktx2.cpp.o
+[37/328] Building CXX object modules/gui/CMakeFiles/sonnet_gui.dir/src/Atlas.cpp.o
+[38/328] Building CXX object modules/assets/CMakeFiles/sonnet_assets.dir/src/Bundle.cpp.o
+[39/328] Building CXX object modules/gui/CMakeFiles/sonnet_gui.dir/src/Font.cpp.o
+[40/328] Building CXX object modules/physics/CMakeFiles/sonnet_physics.dir/src/Components.cpp.o
+[41/328] Building CXX object modules/renderer/CMakeFiles/sonnet_renderer.dir/src/Renderer.cpp.o
+[42/328] Building CXX object modules/world/CMakeFiles/sonnet_world.dir/src/DrawList.cpp.o
+[43/328] Linking CXX static library modules/renderer/libsonnet_renderer.a
+[44/328] Building CXX object modules/gui/CMakeFiles/sonnet_gui.dir/src/Text.cpp.o
+[45/328] Building CXX object modules/world/CMakeFiles/sonnet_world.dir/src/Scene.cpp.o
+[46/328] Building CXX object modules/assets/CMakeFiles/sonnet_assets.dir/src/AssetDatabase.cpp.o
+[47/328] Building CXX object modules/world/CMakeFiles/sonnet_world.dir/src/Animation.cpp.o
+[48/328] Building CXX object modules/gui/CMakeFiles/sonnet_gui.dir/src/Components.cpp.o
+[49/328] Building CXX object modules/assets/CMakeFiles/sonnet_assets.dir/src/GltfImporter.cpp.o
+[50/328] Building CXX object modules/gui/CMakeFiles/sonnet_gui.dir/src/Layout.cpp.o
+[51/328] Linking CXX static library modules/assets/libsonnet_assets.a
+[52/328] Building CXX object modules/gui/CMakeFiles/sonnet_gui.dir/src/Draw.cpp.o
+[53/328] Building CXX object modules/gui/CMakeFiles/sonnet_gui.dir/src/GuiSystem.cpp.o
+[54/328] Building CXX object modules/gui/CMakeFiles/sonnet_gui.dir/src/FontCache.cpp.o
+[55/328] Building CXX object modules/scripting/CMakeFiles/sonnet_scripting.dir/src/Components.cpp.o
+[56/328] slangc cluster.slang
+[57/328] slangc cull.slang
+[58/328] slangc depth.slang
+[59/328] Building CXX object modules/world/CMakeFiles/sonnet_world.dir/src/World.cpp.o
+[60/328] slangc ibl.slang
+[61/328] Linking CXX static library modules/world/libsonnet_world.a
+[62/328] Building CXX object modules/audio/CMakeFiles/sonnet_audio.dir/src/Components.cpp.o
+[63/328] Building CXX object modules/runtime/CMakeFiles/sonnet_runtime.dir/src/FrameTimes.cpp.o
+[64/328] slangc id.slang
+[65/328] Building CXX object modules/scripting/CMakeFiles/sonnet_scripting.dir/src/LuaReflection.cpp.o
+[66/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[67/328] Linking CXX static library modules/gui/libsonnet_gui.a
+[68/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[69/328] slangc post.slang
+[70/328] Building CXX object modules/runtime/CMakeFiles/sonnet_runtime.dir/src/Screenshot.cpp.o
+[71/328] slangc skybox.slang
+[72/328] slangc cull.slang
+[73/328] slangc cluster.slang
+[74/328] slangc taa.slang
+[75/328] slangc depth.slang
+[76/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[77/328] slangc id.slang
+[78/328] slangc ibl.slang
+[79/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[80/328] slangc skybox.slang
+[81/328] slangc post.slang
+[82/328] slangc cluster.slang
+[83/328] Building CXX object modules/physics/CMakeFiles/sonnet_physics.dir/src/JoltPhysicsWorld.cpp.o
+[84/328] slangc taa.slang
+[85/328] slangc hiz.slang
+[86/328] slangc cull.slang
+[87/328] Linking CXX static library modules/physics/libsonnet_physics.a
+[88/328] slangc depth.slang
+[89/328] slangc id.slang
+[90/328] slangc ibl.slang
+[91/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[92/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[93/328] slangc particles.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/particles.slang:174:8
+    |
+174 | float4 fragmentMain(VertexOutput input) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[94/328] slangc skin.slang
+[95/328] slangc skybox.slang
+[96/328] slangc cluster.slang
+[97/328] slangc post.slang
+[98/328] slangc taa.slang
+[99/328] slangc cull.slang
+[100/328] slangc depth.slang
+[101/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[102/328] slangc id.slang
+[103/328] slangc hiz.slang
+[104/328] slangc skin.slang
+[105/328] slangc skybox.slang
+[106/328] Building CXX object modules/runtime/CMakeFiles/sonnet_runtime.dir/src/Capture.cpp.o
+[107/328] Building CXX object modules/audio/CMakeFiles/sonnet_audio.dir/src/MiniaudioDevice.cpp.o
+[108/328] slangc ibl.slang
+[109/328] slangc particles.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/particles.slang:174:8
+    |
+174 | float4 fragmentMain(VertexOutput input) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[110/328] slangc debug.slang
+[111/328] slangc post.slang
+[112/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[113/328] slangc taa.slang
+[114/328] slangc cluster.slang
+[115/328] slangc cull.slang
+[116/328] slangc depth.slang
+[117/328] Linking CXX static library modules/audio/libsonnet_audio.a
+[118/328] Building CXX object modules/runtime/CMakeFiles/sonnet_runtime.dir/src/Game.cpp.o
+[119/328] slangc hiz.slang
+[120/328] slangc outline.slang
+[121/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[122/328] slangc id.slang
+[123/328] slangc skin.slang
+[124/328] slangc skybox.slang
+[125/328] slangc particles.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/particles.slang:174:8
+    |
+174 | float4 fragmentMain(VertexOutput input) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[126/328] slangc ibl.slang
+[127/328] slangc post.slang
+[128/328] slangc cull.slang
+[129/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[130/328] slangc cluster.slang
+[131/328] slangc taa.slang
+[132/328] slangc skin.slang
+[133/328] slangc hiz.slang
+[134/328] slangc id.slang
+[135/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[136/328] slangc skybox.slang
+[137/328] slangc cluster.slang
+[138/328] slangc depth.slang
+[139/328] slangc cull.slang
+[140/328] slangc post.slang
+[141/328] slangc taa.slang
+[142/328] slangc particles.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/particles.slang:174:8
+    |
+174 | float4 fragmentMain(VertexOutput input) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[143/328] slangc ibl.slang
+[144/328] slangc depth.slang
+[145/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[146/328] slangc hiz.slang
+[147/328] slangc id.slang
+[148/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[149/328] slangc ibl.slang
+[150/328] slangc skin.slang
+[151/328] slangc skybox.slang
+[152/328] slangc post.slang
+[153/328] slangc cull.slang
+[154/328] slangc cluster.slang
+[155/328] slangc particles.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/particles.slang:174:8
+    |
+174 | float4 fragmentMain(VertexOutput input) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[156/328] slangc depth.slang
+[157/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[158/328] slangc id.slang
+[159/328] slangc taa.slang
+[160/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[161/328] slangc skybox.slang
+[162/328] slangc ibl.slang
+[163/328] slangc post.slang
+[164/328] slangc taa.slang
+[165/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[166/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/FileDialog.cpp.o
+[167/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/FlyCamera.cpp.o
+[168/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/LightLines.cpp.o
+[169/328] Building CXX object modules/ui/CMakeFiles/sonnet_ui.dir/src/ImGuiLayer.cpp.o
+[170/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/GamePanel.cpp.o
+[171/328] Linking CXX static library modules/ui/libsonnet_ui.a
+[172/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Layout.cpp.o
+[173/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/LogPanel.cpp.o
+[174/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/CommandStack.cpp.o
+[175/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Gizmo.cpp.o
+[176/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/AssetCommands.cpp.o
+[177/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Export.cpp.o
+[178/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/EntityCommands.cpp.o
+[179/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/AssetBrowserPanel.cpp.o
+[180/328] Building CXX object modules/scripting/CMakeFiles/sonnet_scripting.dir/src/LuaScriptRuntime.cpp.o
+[181/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Capture.cpp.o
+[182/328] Linking CXX static library modules/scripting/libsonnet_scripting.a
+[183/328] slangc cluster.slang
+[184/328] Linking CXX static library modules/runtime/libsonnet_runtime.a
+[185/328] slangc cull.slang
+[186/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Preferences.cpp.o
+[187/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/StatisticsPanel.cpp.o
+[188/328] slangc depth.slang
+[189/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Selection.cpp.o
+[190/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/HierarchyPanel.cpp.o
+[191/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/ScriptSlots.cpp.o
+[192/328] slangc hiz.slang
+[193/328] slangc id.slang
+[194/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[195/328] slangc ibl.slang
+[196/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Recovery.cpp.o
+[197/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/InspectorPanel.cpp.o
+[198/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[199/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/ViewportPanel.cpp.o
+[200/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Project.cpp.o
+[201/328] slangc skin.slang
+[202/328] slangc skybox.slang
+[203/328] slangc post.slang
+[204/328] slangc particles.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/particles.slang:174:8
+    |
+174 | float4 fragmentMain(VertexOutput input) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[205/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/ShaderCompiler.cpp.o
+[206/328] slangc cluster.slang
+[207/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[208/328] slangc depth.slang
+[209/328] slangc id.slang
+[210/328] slangc cull.slang
+[211/328] slangc skybox.slang
+[212/328] slangc taa.slang
+[213/328] slangc post.slang
+[214/328] slangc ibl.slang
+[215/328] slangc taa.slang
+[216/328] slangc cluster.slang
+[217/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[218/328] slangc cull.slang
+[219/328] slangc depth.slang
+[220/328] slangc hiz.slang
+[221/328] slangc id.slang
+[222/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[223/328] slangc skybox.slang
+[224/328] slangc skin.slang
+[225/328] slangc ibl.slang
+[226/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[227/328] slangc post.slang
+[228/328] slangc taa.slang
+[229/328] slangc particles.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/particles.slang:174:8
+    |
+174 | float4 fragmentMain(VertexOutput input) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[230/328] slangc cluster.slang
+[231/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/TypeFilter.cpp.o
+[232/328] slangc depth.slang
+[233/328] slangc cull.slang
+[234/328] slangc id.slang
+[235/328] slangc ibl.slang
+[236/328] slangc skybox.slang
+[237/328] slangc overlay.slang
+warning[E41012]: profile implicitly upgraded
+  --> <home>/repositories/sonnet/modules/renderer/shaders/overlay.slang:71:8
+   |
+71 | float4 fragmentMain(VertexOutput input) : SV_Target {
+   |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+---'
+[238/328] slangc post.slang
+[239/328] slangc forward.slang
+warning[E41012]: profile implicitly upgraded
+   --> <home>/repositories/sonnet/modules/renderer/shaders/forward.slang:231:8
+    |
+231 | float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+    |        ^^^^^^^^^^^^ entry point 'fragmentMain' uses additional capabilities that are not part of the specified profile 'spirv_1_6'. The profile setting is automatically updated to include these capabilities: 'SPV_GOOGLE_user_type + spvDerivativeControl + spvImageQuery + spvImageGatherExtended + spvSparseResidency + spvMinLod + spvFragmentFullyCoveredEXT'
+----'
+[240/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/WindowState.cpp.o
+[241/328] Building CXX object modules/editor/CMakeFiles/sonnet_editor.dir/src/Editor.cpp.o
+[242/328] slangc taa.slang
+[243/328] Building CXX object modules/core/CMakeFiles/core_tests.dir/tests/VersionTests.cpp.o
+[244/328] Building CXX object modules/platform/CMakeFiles/platform_tests.dir/tests/ThermalTests.cpp.o
+[245/328] Building CXX object modules/platform/CMakeFiles/platform_tests.dir/tests/InputStateTests.cpp.o
+[246/328] Building CXX object modules/platform/CMakeFiles/platform_tests.dir/tests/PlatformTests.cpp.o
+[247/328] Building CXX object modules/platform/CMakeFiles/platform_tests.dir/tests/ContentTests.cpp.o
+[248/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/DeviceTests.cpp.o
+[249/328] Building CXX object modules/platform/CMakeFiles/platform_tests.dir/tests/WindowTests.cpp.o
+[250/328] Building CXX object modules/platform/CMakeFiles/platform_tests.dir/tests/EventTests.cpp.o
+[251/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/IdImageTests.cpp.o
+[252/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/ResourceTests.cpp.o
+[253/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/MeshTests.cpp.o
+[254/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/BindlessTests.cpp.o
+[255/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/IndirectTests.cpp.o
+[256/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/SwapchainTests.cpp.o
+[257/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/NullDeviceTests.cpp.o
+[258/328] Building CXX object modules/rhi/CMakeFiles/rhi_tests.dir/tests/TriangleTests.cpp.o
+[259/328] Building CXX object modules/renderer/CMakeFiles/renderer_tests.dir/tests/PrimitivesTests.cpp.o
+[260/328] Building CXX object modules/renderer/CMakeFiles/renderer_tests.dir/tests/PickingTests.cpp.o
+[261/328] Building CXX object modules/renderer/CMakeFiles/renderer_tests.dir/tests/RenderGraphTests.cpp.o
+[262/328] Building CXX object modules/assets/CMakeFiles/assets_tests.dir/tests/ProjectTests.cpp.o
+[263/328] Building CXX object modules/assets/CMakeFiles/assets_tests.dir/tests/EnvironmentTests.cpp.o
+[264/328] Building CXX object modules/gui/CMakeFiles/gui_tests.dir/__/__/tests/support/TestSupport.cpp.o
+[265/328] Building CXX object modules/assets/CMakeFiles/assets_tests.dir/tests/TextureTests.cpp.o
+[266/328] Building CXX object modules/world/CMakeFiles/world_tests.dir/tests/ComponentsTests.cpp.o
+[267/328] Building CXX object modules/assets/CMakeFiles/assets_tests.dir/tests/GltfTests.cpp.o
+[268/328] Building CXX object modules/assets/CMakeFiles/assets_tests.dir/tests/BundleTests.cpp.o
+[269/328] Building CXX object modules/scripting/CMakeFiles/scripting_tests.dir/__/__/tests/support/TestSupport.cpp.o
+[270/328] Building CXX object modules/runtime/CMakeFiles/runtime_tests.dir/__/__/tests/support/TestSupport.cpp.o
+[271/328] Building CXX object modules/world/CMakeFiles/world_tests.dir/tests/RepeatedMembersTests.cpp.o
+[272/328] Building CXX object modules/world/CMakeFiles/world_tests.dir/tests/DrawListTests.cpp.o
+[273/328] Building CXX object modules/world/CMakeFiles/world_tests.dir/tests/WorldTests.cpp.o
+[274/328] Building CXX object modules/world/CMakeFiles/world_tests.dir/tests/AnimationTests.cpp.o
+[275/328] Building CXX object modules/assets/CMakeFiles/assets_tests.dir/tests/DatabaseTests.cpp.o
+[276/328] Building CXX object modules/assets/CMakeFiles/assets_tests.dir/tests/CookTests.cpp.o
+[277/328] Building CXX object modules/renderer/CMakeFiles/renderer_tests.dir/tests/RendererTests.cpp.o
+[278/328] Linking CXX static library modules/editor/libsonnet_editor.a
+[279/328] Building CXX object modules/world/CMakeFiles/world_tests.dir/tests/SceneTests.cpp.o
+[280/328] Building CXX object modules/ui/CMakeFiles/ui_tests.dir/tests/ImGuiLayerTests.cpp.o
+[281/328] Building CXX object modules/runtime/CMakeFiles/runtime_tests.dir/tests/CaptureTests.cpp.o
+[282/328] Building CXX object modules/gui/CMakeFiles/gui_tests.dir/tests/GuiTests.cpp.o
+[283/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/FlyCameraTests.cpp.o
+[284/328] Building CXX object modules/physics/CMakeFiles/physics_tests.dir/tests/PhysicsTests.cpp.o
+[285/328] Building CXX object modules/gui/CMakeFiles/gui_tests.dir/tests/TextTests.cpp.o
+[286/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/LayoutTests.cpp.o
+[287/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/LightLinesTests.cpp.o
+[288/328] Building CXX object modules/audio/CMakeFiles/audio_tests.dir/tests/AudioTests.cpp.o
+[289/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/LogPanelTests.cpp.o
+[290/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/GizmoTests.cpp.o
+[291/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/ShaderTests.cpp.o
+[292/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/CommandTests.cpp.o
+[293/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/WindowOriginsTests.cpp.o
+[294/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/__/__/tests/support/TestSupport.cpp.o
+[295/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/FileDialogTests.cpp.o
+[296/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/InspectorTests.cpp.o
+[297/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/HierarchyPanelTests.cpp.o
+[298/328] Building CXX object modules/runtime/CMakeFiles/runtime_tests.dir/tests/GameTests.cpp.o
+[299/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/CaptureTests.cpp.o
+[300/328] Building CXX object modules/scripting/CMakeFiles/scripting_tests.dir/tests/ScriptingTests.cpp.o
+[301/328] Linking CXX executable modules/core/core_tests
+[302/328] Linking CXX executable modules/rhi/rhi_tests
+[303/328] Linking CXX executable modules/platform/platform_tests
+[304/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/GameViewTests.cpp.o
+[305/328] Linking CXX executable modules/renderer/renderer_tests
+[306/328] Linking CXX executable modules/assets/assets_tests
+[307/328] Linking CXX executable modules/world/world_tests
+[308/328] Linking CXX executable modules/gui/gui_tests
+[309/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/EditorPlayTests.cpp.o
+[310/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/RecoveryTests.cpp.o
+[311/328] Linking CXX executable modules/physics/physics_tests
+[312/328] Copying sample projects next to the binaries
+[313/328] Linking CXX executable modules/audio/audio_tests
+[314/328] Linking CXX executable modules/scripting/scripting_tests
+[315/328] Linking CXX executable modules/ui/ui_tests
+ld: warning: ignoring duplicate libraries: 'vcpkg_installed/arm64-osx/debug/lib/libSDL3.a'
+[316/328] Linking CXX executable modules/runtime/runtime_tests
+[317/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/TypeFilterTests.cpp.o
+[318/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/ProjectTests.cpp.o
+[319/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/WindowStateTests.cpp.o
+[320/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/ScriptSlotsTests.cpp.o
+[321/328] Building CXX object modules/editor/CMakeFiles/editor_tests.dir/tests/EditorTests.cpp.o
+[322/328] Linking CXX executable modules/editor/editor_tests
+ld: warning: ignoring duplicate libraries: 'vcpkg_installed/arm64-osx/debug/lib/libSDL3.a'
+[323/328] Building CXX object apps/cook/CMakeFiles/sonnet_cook_app.dir/main.cpp.o
+[324/328] Linking CXX executable apps/cook/sonnet_cook
+[325/328] Building CXX object apps/player/CMakeFiles/sonnet_player_app.dir/main.cpp.o
+[326/328] Building CXX object apps/editor/CMakeFiles/sonnet_editor_app.dir/main.cpp.o
+[327/328] Linking CXX executable apps/player/sonnet_player; Copying player binary next to editor for export
+[328/328] Linking CXX executable apps/editor/sonnet_editor
+ld: warning: ignoring duplicate libraries: 'vcpkg_installed/arm64-osx/debug/lib/libSDL3.a'
