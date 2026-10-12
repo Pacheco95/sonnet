@@ -90,6 +90,9 @@ std::optional<assets::AssetType> InspectorPanel::assetTypeOfMember(std::string_v
   if (member == "clip") {
     return assets::AssetType::Animation;
   }
+  if (member == "font") {
+    return assets::AssetType::Font;
+  }
   if (member == "texture" || member.ends_with("Texture")) {
     return assets::AssetType::Texture;
   }
@@ -301,6 +304,9 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
   case assets::AssetType::Sound:
     drawSound(*info);
     break;
+  case assets::AssetType::Font:
+    drawFont(*info);
+    break;
   case assets::AssetType::Skin:
     if (const assets::Skin *skin = m_assets.skin(uuid)) {
       ImGui::Text("%zu joints", skin->joints.size());
@@ -318,6 +324,23 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
       ImGui::TextDisabled("(not loaded)");
     }
     break;
+  }
+}
+
+void InspectorPanel::drawFont(const assets::AssetInfo &info) {
+  const assets::FontSource *font = m_assets.font(info.uuid);
+  if (font == nullptr) {
+    ImGui::TextDisabled("(cannot be read)");
+    return;
+  }
+  ImGui::Text("%zu bytes", font->bytes.size());
+  // The sidecar's list, rasterised when the font loads; it is edited in the .meta file.
+  ImGui::TextUnformatted("Preloaded codepoints");
+  for (const assets::GlyphRange &range : font->preload) {
+    ImGui::TextDisabled("U+%04X to U+%04X", range.first, range.last);
+  }
+  if (font->preload.empty()) {
+    ImGui::TextDisabled("none: every glyph is rasterised when first drawn");
   }
 }
 
@@ -889,9 +912,14 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     track();
   } else if (member.type == ecs.id<core::Uuid>()) {
     // An asset reference: a pick is one edit, activated and finished in the same frame.
-    if (drawAssetPicker(at<core::Uuid>(field, 0), assetTypeOfMember(name))) {
+    const std::optional<assets::AssetType> assetType = assetTypeOfMember(name);
+    core::Uuid &identity = at<core::Uuid>(field, 0);
+    if (drawAssetPicker(identity, assetType)) {
       m_activated = true;
       m_deactivatedAfterEdit = true;
+    }
+    if (identity.isNil() && assetType == assets::AssetType::Font) {
+      ImGui::TextColored(ImVec4{1.0f, 0.75f, 0.3f, 1.0f}, "No font: the text is not drawn");
     }
   } else if (type.has<flecs::Primitive>()) {
     switch (scalarWidget(ecs, member)) {

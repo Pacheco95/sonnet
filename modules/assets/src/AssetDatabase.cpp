@@ -31,6 +31,7 @@ enum class SourceKind {
   Material,
   Script,
   Sound,
+  Font,
 };
 
 // Lower-cased extension, with the double extension of material files.
@@ -61,6 +62,9 @@ SourceKind kindOf(const std::filesystem::path &file) {
   if (extension == ".wav" || extension == ".ogg" || extension == ".mp3" || extension == ".flac") {
     return SourceKind::Sound;
   }
+  if (extension == ".ttf" || extension == ".otf") {
+    return SourceKind::Font;
+  }
   return SourceKind::Unknown;
 }
 
@@ -79,6 +83,8 @@ AssetType typeOf(SourceKind kind) {
     return AssetType::Script;
   case SourceKind::Sound:
     return AssetType::Sound;
+  case SourceKind::Font:
+    return AssetType::Font;
   case SourceKind::Unknown:
     break;
   }
@@ -176,8 +182,13 @@ AssetDatabase::~AssetDatabase() {
 void AssetDatabase::registerBuiltins() {
   for (const builtin::Entry &entry : builtin::all()) {
     const core::Uuid uuid = entry.uuid();
-    m_assets[uuid] = AssetInfo{
-        .uuid = uuid, .type = AssetType::Mesh, .source = "builtin", .name = entry.name, .parent = {}, .materials = {}};
+    m_assets[uuid] = AssetInfo{.uuid = uuid,
+                               .type = AssetType::Mesh,
+                               .source = "builtin",
+                               .name = entry.name,
+                               .parent = {},
+                               .materials = {},
+                               .preload = {}};
   }
 }
 
@@ -269,7 +280,8 @@ core::Result<void> AssetDatabase::openBundle(const std::filesystem::path &file) 
                                      .source = file,
                                      .name = asset.name,
                                      .parent = asset.parent,
-                                     .materials = asset.materials};
+                                     .materials = asset.materials,
+                                     .preload = asset.preload};
   }
   m_bundle = std::move(*bundle);
   SONNET_LOG_INFO("asset database: {} cooked assets from {}", m_bundle->assets().size(), file.string());
@@ -347,7 +359,8 @@ void AssetDatabase::registerGltfSubAssets(const core::Uuid &uuid, const json &su
                    .source = parent.source,
                    .name = entry.value("name", std::string{}),
                    .parent = uuid,
-                   .materials = {}};
+                   .materials = {},
+                   .preload = {}};
     if (entry.contains("materials") && entry["materials"].is_array()) {
       for (const json &material : entry["materials"]) {
         info.materials.push_back(material.is_string()
@@ -414,7 +427,9 @@ void AssetDatabase::scanFile(const std::filesystem::path &file) {
   } else {
     document = json{{"version", SidecarVersion},
                     {"uuid", core::Uuid::generate().toString()},
-                    {"settings", kind == SourceKind::Image ? TextureSettings{}.toJson() : json::object()}};
+                    {"settings", kind == SourceKind::Image  ? TextureSettings{}.toJson()
+                                 : kind == SourceKind::Font ? FontSettings{}.toJson()
+                                                            : json::object()}};
     rewrite = true;
   }
   const core::Uuid uuid = core::Uuid::parse(document["uuid"].get<std::string>()).value();
@@ -423,8 +438,13 @@ void AssetDatabase::scanFile(const std::filesystem::path &file) {
                      m_assets[uuid].source.string());
     return;
   }
-  m_assets[uuid] = AssetInfo{
-      .uuid = uuid, .type = typeOf(kind), .source = file, .name = stemOf(file), .parent = {}, .materials = {}};
+  m_assets[uuid] = AssetInfo{.uuid = uuid,
+                             .type = typeOf(kind),
+                             .source = file,
+                             .name = stemOf(file),
+                             .parent = {},
+                             .materials = {},
+                             .preload = {}};
   m_files[uuid] = FileRecord{.sidecar = sidecar,
                              .sourceTime = sourceTime,
                              .sourceHash = {},
@@ -1260,6 +1280,29 @@ const SoundSource *AssetDatabase::sound(const core::Uuid &uuid) {
   return &source;
 }
 
+const FontSource *AssetDatabase::font(const core::Uuid &uuid) {
+  if (const auto it = m_fonts.find(uuid); it != m_fonts.end()) {
+    return &it->second;
+  }
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Font || m_failed.contains(uuid)) {
+    return nullptr;
+  }
+  auto bytes = m_bundle ? bundlePayload(uuid) : readOptionalFile(info->source, uuid, m_failed);
+  if (!bytes) {
+    return nullptr;
+  }
+  FontSource &source = m_fonts[uuid];
+  source.bytes = std::move(*bytes);
+  if (m_bundle) {
+    source.preload = info->preload;
+  } else if (const auto file = m_files.find(uuid); file != m_files.end()) {
+    source.preload = FontSettings::fromJson(file->second.settings).preload;
+  }
+  source.revision = ++m_revision;
+  return &source;
+}
+
 const Skin *AssetDatabase::skin(const core::Uuid &uuid) {
   const AssetInfo *info = find(uuid);
   if (info == nullptr || info->type != AssetType::Skin) {
@@ -1509,6 +1552,9 @@ void AssetDatabase::unloadFile(const core::Uuid &uuid) {
   case AssetType::Sound:
     m_sounds.erase(uuid);
     break;
+  case AssetType::Font:
+    m_fonts.erase(uuid);
+    break;
   }
 }
 
@@ -1605,6 +1651,12 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
     break;
   case AssetType::Sound:
     if (sound(uuid) == nullptr) {
+      return std::unexpected(
+          core::Error{std::format("{}: re-import failed", info->source.string()), core::ErrorCategory::Io});
+    }
+    break;
+  case AssetType::Font:
+    if (font(uuid) == nullptr) {
       return std::unexpected(
           core::Error{std::format("{}: re-import failed", info->source.string()), core::ErrorCategory::Io});
     }

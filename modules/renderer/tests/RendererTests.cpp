@@ -2215,6 +2215,87 @@ TEST_CASE("overlay quads are placed from the top-left, blended and textured on a
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+TEST_CASE("glyph and image quads in order are still one overlay draw", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({32, 32});
+  // The kind is per quad and the shader branches on it, so images and glyphs interleave in the
+  // order given without a draw or a pipeline switch between them.
+  const std::array quads{OverlayQuad{.min = {0.0f, 0.0f}, .max = {8.0f, 8.0f}},
+                         OverlayQuad{.min = {8.0f, 8.0f}, .max = {16.0f, 16.0f}, .kind = OverlayKind::Glyph},
+                         OverlayQuad{.min = {16.0f, 16.0f}, .max = {24.0f, 24.0f}},
+                         OverlayQuad{.min = {0.0f, 24.0f}, .max = {8.0f, 32.0f}, .kind = OverlayKind::Glyph}};
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addOverlayPass(graph, graph.importImage(target.color()), quads);
+  graph.execute(commands);
+  device->endFrame();
+  REQUIRE(countLines(*device, "bindPipeline \"overlay\"") == 1);
+  REQUIRE(countLines(*device, "draw 24 x1") == 1);
+}
+
+TEST_CASE("a glyph quad draws coverage from an R8 distance field, smooth at two scales, in the colour given",
+          "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    // A disc of radius 20.5 texels in a 64 by 64 field: 128 on the outline, falling 128/6 a texel
+    // to zero six texels outside it, as the gui module's glyphs are.
+    TextureData field;
+    field.size = {64, 64};
+    field.format = Format::R8Unorm;
+    field.data.resize(std::size_t{64} * 64);
+    for (int y = 0; y < 64; ++y) {
+      for (int x = 0; x < 64; ++x) {
+        const float distance = std::hypot(static_cast<float>(x) + 0.5f - 32.0f, static_cast<float>(y) + 0.5f - 32.0f);
+        const float value = std::clamp(128.0f + (20.5f - distance) * (128.0f / 6.0f), 0.0f, 255.0f);
+        field.data[static_cast<std::size_t>(y) * 64 + static_cast<std::size_t>(x)] =
+            static_cast<std::byte>(static_cast<unsigned char>(value));
+      }
+    }
+    const TextureHandle texture = renderer.createTexture(field, "disc field");
+    REQUIRE(renderer.isValid(texture));
+
+    // The field at 1:1 on the left, and at half size on the right, in two colours. Mid-grey would
+    // read 188 if the glyph path encoded it as an image's texel is: it is blended as it is.
+    const std::array quads{OverlayQuad{.min = {0.0f, 0.0f},
+                                       .max = {64.0f, 64.0f},
+                                       .color = {0.5f, 0.5f, 0.5f, 1.0f},
+                                       .texture = texture,
+                                       .kind = OverlayKind::Glyph},
+                           OverlayQuad{.min = {64.0f, 0.0f},
+                                       .max = {96.0f, 32.0f},
+                                       .color = {1.0f, 0.0f, 0.0f, 1.0f},
+                                       .texture = texture,
+                                       .kind = OverlayKind::Glyph}};
+    GpuScene scene{*device, renderer, {128, 64}};
+    scene.overlay = quads;
+    scene.render(boxScene({}));
+
+    const Pixel inside = scene.pixel(32, 32);
+    REQUIRE((inside.r > 122 && inside.r < 134));
+    REQUIRE((inside.g > 122 && inside.g < 134));
+    REQUIRE(scene.pixel(1, 1).r < 3); // outside the disc, past the field's fall-off: no coverage
+    // Pixel (52, 32) is centred on the outline: about half coverage, not 0 or 255.
+    const Pixel edge = scene.pixel(52, 32);
+    REQUIRE((edge.r > 50 && edge.r < 80));
+
+    const Pixel small = scene.pixel(80, 16); // the centre at half size
+    REQUIRE((small.r > 250 && small.g < 5 && small.b < 5));
+    REQUIRE(scene.pixel(65, 1).r < 5);
+    // At half size the outline is at 10.25 pixels from the centre: pixel 90 is a quarter outside.
+    const Pixel smallEdge = scene.pixel(90, 16);
+    REQUIRE((smallEdge.r > 20 && smallEdge.r < 235));
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyTexture(texture);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("culling keeps what the frustum holds and drops the rest on a GPU", "[renderer][culling][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);

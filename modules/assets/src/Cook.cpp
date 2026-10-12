@@ -83,6 +83,7 @@ core::Result<CookReport> cook(AssetDatabase &database, const Project &project, c
       continue;
     }
     std::optional<std::vector<std::byte>> payload;
+    std::vector<GlyphRange> preload;
     switch (info->type) {
     case AssetType::Mesh:
       if (const renderer::MeshData *data = database.meshData(info->uuid)) {
@@ -138,6 +139,12 @@ core::Result<CookReport> cook(AssetDatabase &database, const Project &project, c
         payload = sound->bytes;
       }
       break;
+    case AssetType::Font:
+      if (const FontSource *font = database.font(info->uuid)) {
+        payload = font->bytes;
+        preload = font->preload;
+      }
+      break;
     case AssetType::Skin:
       if (const Skin *skin = database.skin(info->uuid)) {
         payload = encodeSkin(*skin);
@@ -159,7 +166,8 @@ core::Result<CookReport> cook(AssetDatabase &database, const Project &project, c
                                          .type = info->type,
                                          .name = info->name,
                                          .parent = info->parent,
-                                         .materials = info->materials},
+                                         .materials = info->materials,
+                                         .preload = std::move(preload)},
                                         *payload);
     if (!added) {
       return std::unexpected(added.error());

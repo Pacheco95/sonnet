@@ -331,6 +331,58 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   REQUIRE(document->at("version") == 2);
 }
 
+TEST_CASE("a font cooks as the file itself, with its preload ranges, into a version 5 bundle", "[assets][cook][font]") {
+  ProjectFixture fixture;
+  const std::filesystem::path out = fixture.root / "export";
+  std::vector<std::byte> file(3000);
+  for (std::size_t i = 0; i < file.size(); ++i) {
+    file[i] = static_cast<std::byte>((i * 31 + 7) & 0xFF);
+  }
+  REQUIRE(core::writeFile(fixture.root / "assets" / "ui.ttf", file).has_value());
+  // No sidecar yet: the scan writes one with the default ranges.
+  core::Uuid fontId;
+  {
+    AssetDatabase database{fixture.renderer, fixture.jobs};
+    database.open(fixture.root, fixture.project.assetRoots);
+    fontId = idOf(database, "ui", AssetType::Font);
+    REQUIRE(assetTypeFromString("Font") == AssetType::Font);
+    REQUIRE(toString(AssetType::Font) == "Font");
+    const FontSource *source = database.font(fontId);
+    REQUIRE(source != nullptr);
+    REQUIRE(source->bytes == file);
+    REQUIRE(source->preload == FontSettings{}.preload);
+    REQUIRE(database.font(builtin::box()) == nullptr);
+  }
+  // The sidecar is the settings: edited by hand, then cooked.
+  const std::filesystem::path sidecar = fixture.root / "assets" / "ui.ttf.meta";
+  const auto sidecarBytes = core::readFile(sidecar);
+  REQUIRE(sidecarBytes.has_value());
+  auto document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(sidecarBytes->data()), sidecarBytes->size()});
+  REQUIRE(document["settings"]["preload"] == nlohmann::json::parse("[[32,126],[160,255]]"));
+  document["settings"]["preload"] = nlohmann::json::parse("[[65,90]]");
+  REQUIRE(core::writeFile(sidecar, document.dump(2)).has_value());
+  {
+    AssetDatabase database{fixture.renderer, fixture.jobs};
+    database.open(fixture.root, fixture.project.assetRoots);
+    const auto report = cook(database, fixture.project, {.outputDirectory = out, .platform = CookPlatform::Linux});
+    REQUIRE(report.has_value());
+    REQUIRE(report->warnings.empty());
+  }
+  AssetDatabase player{fixture.renderer, fixture.jobs};
+  REQUIRE(player.openBundle(out / "game.sbundle").has_value());
+  REQUIRE(player.find(fontId)->type == AssetType::Font);
+  const FontSource *cooked = player.font(fontId);
+  REQUIRE(cooked != nullptr);
+  REQUIRE(cooked->bytes == file); // byte for byte
+  REQUIRE(cooked->preload == std::vector<GlyphRange>{{65, 90}});
+  // The header says version 5.
+  const auto bytes = core::readFile(out / "game.sbundle");
+  REQUIRE(bytes.has_value());
+  REQUIRE(BundleVersion == 5);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 5);
+}
+
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {
   platform::Platform platform{{.headless = true}};
   const std::filesystem::path sample = test::findInSource(platform.basePath(), "apps/samples/basic");

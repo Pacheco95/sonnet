@@ -28,10 +28,19 @@ enum class AssetType : std::uint8_t {
   Sound,       // a .wav, .ogg, .mp3 or .flac file, played by the audio module
   Skin,        // a glTF skin: the joints of a skinned mesh
   Animation,   // a glTF animation clip
+  Font,        // a .ttf or .otf file, rasterised on demand by the gui module
 };
 
 [[nodiscard]] std::string_view toString(AssetType type) noexcept;
 [[nodiscard]] std::optional<AssetType> assetTypeFromString(std::string_view name) noexcept;
+
+// Codepoints `first` to `last`, both included.
+struct GlyphRange {
+  std::uint32_t first{0};
+  std::uint32_t last{0};
+
+  bool operator==(const GlyphRange &) const = default;
+};
 
 // What the database knows about an asset before it is loaded (docs/assets.md, "Database").
 struct AssetInfo {
@@ -41,6 +50,7 @@ struct AssetInfo {
   std::string name;                  // the file's stem, or the sub-asset's own name
   core::Uuid parent;                 // nil for a file asset
   std::vector<core::Uuid> materials; // Mesh: the default material per slot, nil for none
+  std::vector<GlyphRange> preload;   // Font in a bundle: the codepoints to rasterise at load
 };
 
 // The import settings of an image, kept in its sidecar and shown in the inspector.
@@ -92,6 +102,25 @@ struct ScriptSource {
 // with every read, like a script's.
 struct SoundSource {
   std::vector<std::byte> bytes;
+  std::uint64_t revision{0};
+};
+
+// The import settings of a font, kept in its sidecar: the codepoints the gui module rasterises when
+// the font loads, so that the text of a game does not hitch on its first frame. The default is
+// Basic Latin and Latin-1.
+struct FontSettings {
+  std::vector<GlyphRange> preload{{0x20, 0x7E}, {0xA0, 0xFF}};
+
+  [[nodiscard]] static FontSettings fromJson(const nlohmann::json &json);
+  [[nodiscard]] nlohmann::json toJson() const;
+  bool operator==(const FontSettings &) const = default;
+};
+
+// A font file as last read, still encoded: the gui module parses it. The preload ranges come from
+// the sidecar, or from the bundle's index in a cooked game. The revision changes with every read.
+struct FontSource {
+  std::vector<std::byte> bytes;
+  std::vector<GlyphRange> preload;
   std::uint64_t revision{0};
 };
 

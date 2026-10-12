@@ -12,6 +12,7 @@ namespace sonnet::scripting {
 // structs to Lua, and the metatables vec3 and quat values carry so their operators work.
 struct LuaTypes {
   flecs::entity_t uuid{0};
+  flecs::entity_t string{0}; // std::string, which flecs reflects as an opaque type
   flecs::entity_t vec3{0};
   flecs::entity_t quat{0};
   sol::table vec3Metatable;
@@ -19,7 +20,7 @@ struct LuaTypes {
 };
 
 // A reflected value as Lua sees it (docs/scripting.md, "Components"): numbers and booleans as
-// themselves, enums as their constant's name, asset identities as their canonical string or nil,
+// themselves, strings as strings, enums as their constant's name, asset identities as their canonical string or nil,
 // structs as tables of their members, vec3 and quat with their metatables. Unsupported types
 // are nil.
 [[nodiscard]] sol::object toLua(sol::state_view lua, const flecs::world &world, const LuaTypes &types,

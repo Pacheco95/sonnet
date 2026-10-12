@@ -216,6 +216,7 @@ public:
     }
     flecs::world &ecs = m_world.ecs();
     m_types.uuid = ecs.id<core::Uuid>();
+    m_types.string = ecs.id<std::string>();
     m_types.vec3 = ecs.id<glm::vec3>();
     m_types.quat = ecs.id<glm::quat>();
     m_types.vec3Metatable = prelude.get<sol::table>(0);

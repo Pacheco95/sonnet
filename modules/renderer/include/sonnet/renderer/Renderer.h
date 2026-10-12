@@ -129,9 +129,16 @@ struct RendererSettings {
   core::JobSystem *jobs{nullptr};
 };
 
+// What an overlay quad's texture holds.
+enum class OverlayKind : std::uint32_t {
+  Image, // colour: sRGB-decoded by the sampler, encoded back into the target's space
+  Glyph, // an R8 signed distance field, 0.5 on the outline: coverage is read from it, `color` is the text's
+};
+
 // A rectangle of a texture in target pixels (origin top-left, y down), for Renderer::addOverlayPass.
 // `color` multiplies the texture. Both are sRGB, as authored: the target is display-encoded already,
-// so the pass blends them in that space and encodes the texture's sampled value back into it.
+// so the pass blends them in that space and encodes an image's sampled value back into it. A glyph
+// has no colour of its own: its red channel is a distance and `color` is all it is drawn with.
 struct OverlayQuad {
   glm::vec2 min{0.0f, 0.0f};
   glm::vec2 max{0.0f, 0.0f};
@@ -139,6 +146,7 @@ struct OverlayQuad {
   glm::vec2 uvMax{1.0f, 1.0f};
   glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
   TextureHandle texture{}; // the white default for an invalid handle: a plain rectangle
+  OverlayKind kind{OverlayKind::Image};
 };
 
 // Owns meshes, textures, materials, environments and the engine pipelines, and adds the scene
@@ -249,8 +257,8 @@ public:
   void addDebugLinePass(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth);
 
   // Declares the overlay pass: `quads` in order, alpha blended over `target`, which keeps what it
-  // holds, in one draw. Adds nothing when there are none. The game UI draws through it. `quads`
-  // and the textures they name must outlive the graph's execute.
+  // holds, in one draw whatever the quads' kinds. Adds nothing when there are none. The game UI draws through it.
+  // `quads` and the textures they name must outlive the graph's execute.
   void addOverlayPass(RenderGraph &graph, GraphImage target, std::span<const OverlayQuad> quads);
 
   // What the scene passes of the frame's `view`th declared view submitted; the first is the one

@@ -159,6 +159,11 @@ core::Result<Bundle> Bundle::open(const std::filesystem::path &file) {
     for (const json &material : entry.value("materials", json::array())) {
       asset.materials.push_back(uuidFrom(material));
     }
+    for (const json &range : entry.value("preload", json::array())) {
+      if (range.is_array() && range.size() == 2 && range[0].is_number_unsigned() && range[1].is_number_unsigned()) {
+        asset.preload.push_back({range[0].get<std::uint32_t>(), range[1].get<std::uint32_t>()});
+      }
+    }
     if (asset.uuid.isNil()) {
       continue;
     }
@@ -287,6 +292,13 @@ core::Result<void> BundleWriter::addAsset(const BundleAsset &asset, std::span<co
       materials.push_back(uuidJson(material));
     }
     entry["materials"] = std::move(materials);
+  }
+  if (!asset.preload.empty()) {
+    json ranges = json::array();
+    for (const GlyphRange &range : asset.preload) {
+      ranges.push_back(json::array({range.first, range.last}));
+    }
+    entry["preload"] = std::move(ranges);
   }
   m_assets.push_back(std::move(entry));
   return {};

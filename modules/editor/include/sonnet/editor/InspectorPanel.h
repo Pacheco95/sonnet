@@ -103,6 +103,7 @@ private:
   void drawMaterial(const assets::AssetInfo &info);
   void drawTexture(const assets::AssetInfo &info);
   void drawScript(const assets::AssetInfo &info);
+  void drawFont(const assets::AssetInfo &info);
   void drawSound(const assets::AssetInfo &info);
   // Records activation and edits of the last widget for the pending command.
   void track();
