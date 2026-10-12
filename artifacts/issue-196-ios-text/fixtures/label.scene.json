@@ -1,0 +1,10 @@
+{"version": 3, "entities": [
+    {"uuid": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f010", "name": "Canvas", "components": {"GuiCanvas": {}}},
+    {"uuid": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f011", "name": "Label", "parent": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f010",
+     "components": {
+       "GuiRect": {"anchorMin": {"x": 0, "y": 0}, "anchorMax": {"x": 1, "y": 1}, "offsetMin": {"x": 0, "y": 0},
+                   "offsetMax": {"x": 0, "y": 0}},
+       "GuiText": {"font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001", "text": "Score 0", "size": 200,
+                   "horizontal": "Center", "vertical": "Center"},
+       "Scripts": {"slots": [{"script": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f002", "properties": {}}]}}}
+  ]}

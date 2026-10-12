@@ -1,0 +1,83 @@
+[01:28:51.511] [info] [platform] [Platform.cpp:92] SDL 3.4.16 initialised, video driver "offscreen" (headless)
+[01:28:51.511] [info] [assets] [Project.cpp:49] opened project "Basic" at <home>/repositories/sonnet/build/issue-196/project
+[01:28:51.512] [debug] [renderer] [Renderer.cpp:689] shader module cluster: 9452 bytes
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "light clustering" from cluster
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:689] shader module cull: 19076 bytes
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "cull" from cull
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "clear draw commands" from cull
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "cull late" from cull
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "publish counters" from cull
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "merge late commands" from cull
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:689] shader module debug: 1892 bytes
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "debug lines" from debug
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:689] shader module depth: 18348 bytes
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "depth" from depth
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "depth motion" from depth
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "shadow" from depth
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "depth double sided" from depth
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "depth motion double sided" from depth
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "shadow" from depth
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:689] shader module forward: 36428 bytes
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "forward" from forward
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "forward blend" from forward
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "forward double sided" from forward
+[01:28:51.529] [debug] [renderer] [Renderer.cpp:695] pipeline "forward blend double sided" from forward
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module hiz: 6156 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "depth pyramid base" from hiz
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "depth pyramid level" from hiz
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module ibl: 17612 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "equirect to cube" from ibl
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "cube mip" from ibl
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "irradiance" from ibl
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "prefilter" from ibl
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "brdf lut" from ibl
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module id: 8996 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "id" from id
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "selection mask" from id
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "id double sided" from id
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "selection mask double sided" from id
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module outline: 2952 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "outline" from outline
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module overlay: 5104 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "overlay" from overlay
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module particles: 14692 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "particles alpha" from particles
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "particles additive" from particles
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "particle reset" from particles
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "particle simulation" from particles
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module post: 13296 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "bloom downsample" from post
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "bloom upsample" from post
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "tonemap" from post
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "fxaa" from post
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module skin: 7432 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "skinning" from skin
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:689] shader module skybox: 7616 bytes
+[01:28:51.530] [debug] [renderer] [Renderer.cpp:695] pipeline "skybox" from skybox
+[01:28:51.531] [debug] [renderer] [Renderer.cpp:689] shader module taa: 16192 bytes
+[01:28:51.531] [debug] [renderer] [Renderer.cpp:695] pipeline "taa resolve" from taa
+[01:28:51.531] [debug] [renderer] [Renderer.cpp:937] texture "white": 1x1 R8G8B8A8Unorm, 1 levels
+[01:28:51.531] [debug] [renderer] [Renderer.cpp:937] texture "flat normal": 1x1 R8G8B8A8Unorm, 1 levels
+[01:28:51.531] [debug] [renderer] [Renderer.cpp:540] renderer ready, shaders from <home>/repositories/sonnet/build/macos-release-local/apps/cook/shaders
+[01:28:51.531] [debug] [core] [JobSystem.cpp:78] job system started with 0 workers
+[01:28:51.532] [info] [assets] [AssetDatabase.cpp:217] asset database: 50 assets in <home>/repositories/sonnet/build/issue-196/project
+[01:28:51.533] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/build/issue-196/project/assets/models/crate.glb: 2 meshes, 2 materials, 2 images, 2 nodes, 0 skins, 0 animations
+[01:28:51.559] [debug] [renderer] [Renderer.cpp:937] texture "crate/image 0": 128x128 BC7Srgb, 8 levels
+[01:28:51.559] [debug] [renderer] [Renderer.cpp:937] texture "crate/image 1": 128x128 BC7Unorm, 8 levels
+[01:28:51.559] [debug] [renderer] [Renderer.cpp:879] mesh "crate/CrateMesh": 24 vertices, 12 triangles, 1 submeshes
+[01:28:51.559] [debug] [renderer] [Renderer.cpp:879] mesh "crate/BallMesh": 561 vertices, 960 triangles, 1 submeshes
+[01:28:51.560] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/build/issue-196/project/assets/models/walker.glb: 1 meshes, 1 materials, 0 images, 6 nodes, 0 skins, 2 animations
+[01:28:51.560] [debug] [renderer] [Renderer.cpp:879] mesh "walker/BlockMesh": 24 vertices, 12 triangles, 1 submeshes
+[01:28:51.560] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/build/issue-196/project/assets/models/beacon.glb: 2 meshes, 2 materials, 0 images, 3 nodes, 0 skins, 1 animations
+[01:28:51.560] [debug] [renderer] [Renderer.cpp:879] mesh "beacon/LampMesh": 24 vertices, 12 triangles, 1 submeshes
+[01:28:51.560] [debug] [renderer] [Renderer.cpp:879] mesh "beacon/HaloMesh": 325 vertices, 528 triangles, 1 submeshes
+[01:28:51.560] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/build/issue-196/project/assets/models/jelly.glb: 1 meshes, 1 materials, 0 images, 1 nodes, 0 skins, 1 animations
+[01:28:51.560] [debug] [renderer] [Renderer.cpp:879] mesh "jelly/JellyMesh": 561 vertices, 960 triangles, 1 submeshes
+[01:28:51.560] [debug] [assets] [GltfImporter.cpp:534] <home>/repositories/sonnet/build/issue-196/project/assets/models/reed.glb: 1 meshes, 1 materials, 0 images, 6 nodes, 1 skins, 1 animations
+[01:28:51.560] [debug] [renderer] [Renderer.cpp:879] mesh "reed/StemMesh": 91 vertices, 144 triangles, 1 submeshes
+[01:28:51.561] [debug] [renderer] [Renderer.cpp:937] texture "pending": 1x1 R8G8B8A8Srgb, 1 levels
+[01:28:51.603] [info] [assets] [Bundle.cpp:346] wrote build/issue-196/bundle/game.sbundle (43 assets, 8 files, 550936 bytes)
+[01:28:51.603] [info] [assets] [Cook.cpp:208] cooked "Basic" for ios: 43 assets, 8 scenes and prefabs, 0 warnings
+build/issue-196/bundle/game.sbundle: 43 assets, 8 scenes and prefabs, 545310 bytes
+meshes: 1610 vertices welded to 1604
+[01:28:51.603] [debug] [renderer] [Renderer.cpp:937] texture "checker": 64x64 BC7Srgb, 7 levels
