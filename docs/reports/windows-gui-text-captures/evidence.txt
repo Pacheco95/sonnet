@@ -1,0 +1,37 @@
+Device line (1080p menu capture)
+[info] [rhi] [VulkanDevice.cpp:165] Vulkan 1.4.329 device "NVIDIA GeForce RTX 4090", driver NVIDIA 596.49, loader 1.4.357, validation on, BC
+
+Menu capture, 1920x1080
+[info] [runtime] [Screenshot.cpp:75] screenshot 1920x1080 written to .../menu-1080p.png
+[info] [player] [main.cpp:173] capture frame times over the last 60 frames: CPU 1.78 ms a frame, 2.74 ms apart; GPU 0.235 ms: ... forward 0.048 ms, taa 0.043 ms, ... tonemap 0.009 ms, overlay 0.009 ms, present 0.004 ms; thermal n/a
+
+Menu capture, 640x360
+[info] [runtime] [Screenshot.cpp:75] screenshot 640x360 written to .../menu-360p.png
+[info] [player] [main.cpp:173] capture frame times over the last 57 frames: CPU 1.76 ms a frame, 2.66 ms apart; GPU 0.115 ms: ... forward 0.013 ms, taa 0.008 ms, ... tonemap 0.003 ms, overlay 0.003 ms, present 0.004 ms; thermal n/a
+
+gui_tests
+All tests passed (82584 assertions in 40 test cases)
+
+renderer_tests
+All tests passed (34922 assertions in 95 test cases)
+
+assets_tests
+All tests passed (1443 assertions in 55 test cases)
+
+runtime_tests
+test cases:  25 |   8 passed | 1 failed | 16 skipped
+assertions: 161 | 160 passed | 1 failed |  0 skipped
+
+runtime_tests failure
+modules/runtime/tests/GameTests.cpp(562): FAILED:
+  {Unknown expression after the reported line}
+due to unexpected exception with message:
+  remove_all: the file is already being used by another process: ".../sonnet_runtime_mobile"
+(test: "a bundle cooked for a phone is refused on a device without ASTC", GameTests.cpp:520; unchanged by this PR's diff)
+
+runtime_tests skip (representative; all 16 skips share this message)
+modules/runtime/tests/GameTests.cpp(89): SKIPPED:
+explicitly with message:
+  headless surfaces are not supported here: SDL_Vulkan_CreateSurface failed:
+  VK_EXT_headless_surface extension is not enabled in the Vulkan instance.
+  (Platform, SdlWindow.cpp:153)
