@@ -104,7 +104,10 @@ public:
 
   // A prefab instance: IsA the prefab, with its own Identity, Name and Transform, and fresh
   // identities on the instantiated children. `prefab` must carry flecs::Prefab.
-  flecs::entity instantiate(flecs::entity prefab, std::string_view name, flecs::entity parent = {});
+  flecs::entity instantiate(flecs::entity prefab, std::string_view name, flecs::entity parent = {},
+                            core::Uuid uuid = {});
+  // SPIKE: gives every entity of a loaded prefab its PrefabOrigin.
+  void markPrefabOrigins(flecs::entity prefabRoot);
   [[nodiscard]] flecs::entity prefabOf(flecs::entity entity) const;
   [[nodiscard]] bool isInstance(flecs::entity entity) const;
 

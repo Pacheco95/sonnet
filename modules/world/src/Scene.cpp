@@ -43,13 +43,61 @@ json saveEntity(const World &world, flecs::entity entity, flecs::entity parent) 
   return entry;
 }
 
+void saveSubtree(const World &world, flecs::entity entity, flecs::entity parent, json &entities, bool prefab);
+
+// SPIKE (ADR-0028): an instantiated descendant is written only where it differs from the prefab
+// entity it was copied from, as an "instanced" entry addressed by its derived identity. A child
+// without a PrefabSource was added by hand and is written whole.
+void saveInstanceChildren(const World &world, flecs::entity node, json &entities, bool prefab) {
+  for (const flecs::entity child : world.children(node)) {
+    if (!child.has<Identity>() || child.has<EditorOnly>()) {
+      continue;
+    }
+    const PrefabSource *source = child.try_get<PrefabSource>();
+    const flecs::entity origin = source != nullptr ? world.find(source->uuid) : flecs::entity{};
+    if (!origin) {
+      saveSubtree(world, child, node, entities, prefab);
+      continue;
+    }
+    json components = json::object();
+    json removed = json::array();
+    for (const ComponentInfo &component : world.components()) {
+      const bool has = child.has(component.id);
+      const bool had = origin.has(component.id);
+      if (has && (!had || (!component.tag && world.componentToJson(child, component.id) !=
+                                                  world.componentToJson(origin, component.id)))) {
+        components[component.name] = component.tag ? json{} : world.componentToJson(child, component.id);
+      } else if (!has && had) {
+        removed.push_back(component.name);
+      }
+    }
+    const std::string name = child.get<Name>().value;
+    const bool renamed = name != origin.get<Name>().value;
+    if (!components.empty() || !removed.empty() || renamed) {
+      json entry;
+      entry["uuid"] = world.uuidOf(child).toString();
+      entry["instanced"] = true;
+      if (renamed) {
+        entry["name"] = name;
+      }
+      entry["components"] = std::move(components);
+      if (!removed.empty()) {
+        entry["removed"] = std::move(removed);
+      }
+      entities.push_back(std::move(entry));
+    }
+    saveInstanceChildren(world, child, entities, prefab);
+  }
+}
+
 void saveSubtree(const World &world, flecs::entity entity, flecs::entity parent, json &entities, bool prefab) {
   if (!prefab && !isSceneEntity(entity)) {
     return;
   }
   entities.push_back(saveEntity(world, entity, parent));
   if (world.isInstance(entity)) {
-    return; // instantiated children come back with the prefab
+    saveInstanceChildren(world, entity, entities, prefab);
+    return;
   }
   for (const flecs::entity child : world.children(entity)) {
     saveSubtree(world, child, entity, entities, prefab);
@@ -170,6 +218,28 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
     if (!uuid) {
       return fail(std::format("entity {} has no valid uuid", loaded.size()));
     }
+    if (entry.value("instanced", false)) {
+      const flecs::entity target = world.find(*uuid);
+      if (!target) {
+        SONNET_LOG_WARN("{}: override for {} has no entity in its prefab any more", source, uuid->toString());
+        continue;
+      }
+      if (entry.contains("name")) {
+        target.set<Name>({entry["name"].get<std::string>()});
+      }
+      const json overrides = entry.value("components", json::object());
+      for (const auto &[componentName, value] : overrides.items()) {
+        if (const ComponentInfo *info = world.findComponent(componentName)) {
+          world.componentFromJson(target, info->id, value);
+        }
+      }
+      for (const json &componentName : entry.value("removed", json::array())) {
+        if (const ComponentInfo *info = world.findComponent(componentName.get<std::string>())) {
+          target.remove(info->id);
+        }
+      }
+      continue;
+    }
     if (world.find(*uuid)) {
       return fail(std::format("entity {} is already in the world", uuid->toString()));
     }
@@ -182,8 +252,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
         return fail(std::format("entity \"{}\" refers to prefab {}, which is not loaded", name,
                                 entry["prefab"].get<std::string>()));
       }
-      entity = world.instantiate(prefab, name);
-      entity.set<Identity>({*uuid});
+      entity = world.instantiate(prefab, name, {}, *uuid);
     } else {
       entity = world.createEntity(name, {}, *uuid);
     }
@@ -321,6 +390,7 @@ core::Result<flecs::entity> loadPrefabFrom(World &world, const json &prefab, std
   if (!root) {
     return std::unexpected(core::Error{"a prefab has exactly one root entity", core::ErrorCategory::Io});
   }
+  world.markPrefabOrigins(root);
   return root;
 }
 
@@ -369,6 +439,7 @@ flecs::entity loadModelPrefab(World &world, const assets::Model &model, const co
   if (!model.animations.empty()) {
     root.set<Animator>({.clip = model.animations.front(), .time = 0.0f, .speed = 1.0f, .playing = true, .loop = true});
   }
+  world.markPrefabOrigins(root);
   return root;
 }
 
