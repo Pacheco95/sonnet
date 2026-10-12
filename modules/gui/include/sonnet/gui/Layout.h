@@ -4,6 +4,8 @@
 
 #include <flecs.h>
 
+#include <functional>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -12,6 +14,8 @@ class World;
 }
 
 namespace sonnet::gui {
+
+struct GuiText;
 
 // An axis-aligned rectangle in target pixels, `min` inclusive and `max` exclusive.
 struct PixelRect {
@@ -35,12 +39,18 @@ struct GuiElement {
   float scale{1.0f};           // reference pixels to target pixels, the canvas's
 };
 
+// The size of a text as one unwrapped block, in reference pixels at its `size`; none while its font
+// is not loaded. GuiSystem measures with its fonts; a layout without a measurer fits nothing.
+using TextMeasure = std::function<std::optional<glm::vec2>(const GuiText &)>;
+
 // Lays out every visible canvas of the world for a target of `targetSize` pixels, whose safe area
-// is `safeArea` (the whole target where it has none). The result is in draw order: canvases by
-// `order` then entity, and under each its tree depth first in sibling order, so an element comes
-// after its parent and the elements before it, and what is later is in front. An entity with the
-// Disabled tag, its subtree, and a canvas under a disabled entity are left out.
-[[nodiscard]] std::vector<GuiElement> layoutGui(const world::World &world, glm::vec2 targetSize, PixelRect safeArea);
+// is `safeArea` (the whole target where it has none), sizing the GuiFit elements with `measure`.
+// The result is in draw order: canvases by `order` then entity, and under each its tree depth first
+// in sibling order, so an element comes after its parent and the elements before it, and what is
+// later is in front. An entity with the Disabled tag, its subtree, and a canvas under a disabled
+// entity are left out.
+[[nodiscard]] std::vector<GuiElement> layoutGui(const world::World &world, glm::vec2 targetSize, PixelRect safeArea,
+                                                const TextMeasure &measure = {});
 
 // The element of an entity in a layout, or null where it is hidden or not an element.
 [[nodiscard]] const GuiElement *findElement(std::span<const GuiElement> layout, flecs::entity_t entity) noexcept;

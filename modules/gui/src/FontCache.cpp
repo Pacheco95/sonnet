@@ -82,6 +82,11 @@ LoadedFont *FontCache::get(const core::Uuid &uuid, assets::AssetDatabase &assets
   return m_fonts.emplace(uuid, std::move(font)).first->second.get();
 }
 
+const LoadedFont *FontCache::find(const core::Uuid &uuid) const {
+  const auto it = m_fonts.find(uuid);
+  return it == m_fonts.end() ? nullptr : it->second.get();
+}
+
 const AtlasGlyph &FontCache::glyph(LoadedFont &font, std::uint32_t glyph) {
   if (const AtlasGlyph *found = font.atlas.find(glyph)) {
     return *found;

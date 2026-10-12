@@ -58,7 +58,8 @@ public:
   // Lays the canvases out for a target of `targetSize` pixels shown in a window of `windowSize` in
   // the coordinates of the input events, whose `safeArea` insets the canvases that ask for it, and
   // finds what the mouse is over. Run once a frame after the world has updated; event() hit-tests
-  // against the result.
+  // against the result. A GuiFit is measured with the fonts buildQuads has loaded, so it keeps its
+  // GuiRect's size until the frame after its text is first drawn.
   void update(glm::vec2 targetSize, glm::vec2 windowSize, platform::WindowRect safeArea);
   // Offers an event to the UI before the game. True when it is consumed: a press on a button or
   // an image that blocks input, and the motion and release of a pointer holding one. The rest are

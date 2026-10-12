@@ -92,6 +92,14 @@ struct GuiLayout {
   GuiAlignment alignment{GuiAlignment::Start};
 };
 
+// Sizes the element to its text plus `padding` (left, top, right, bottom): the largest of the
+// GuiText on the element and on its visible children, each as one unwrapped block. The size takes
+// the place of the GuiRect's, around its pivot or in a parent's GuiLayout. Without text, or while a
+// font is not loaded, the GuiRect's own size holds.
+struct GuiFit {
+  glm::vec4 padding{0.0f, 0.0f, 0.0f, 0.0f};
+};
+
 // Registers the components above with the world's reflection under their scene-file names. Done
 // by GuiSystem; separate for tools that read scenes without running a UI. Idempotent.
 void registerComponents(world::World &world);

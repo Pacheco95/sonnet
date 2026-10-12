@@ -492,6 +492,7 @@ TEST_CASE("every component round-trips through the scene file", "[gui][scene]") 
                              .spacing = 12.0f,
                              .padding = {1.0f, 2.0f, 3.0f, 4.0f},
                              .alignment = gui::GuiAlignment::End});
+  panel.set<gui::GuiFit>({.padding = {5.0f, 6.0f, 7.0f, 8.0f}});
 
   const nlohmann::json saved = world::saveScene(f.world);
   REQUIRE(saved["version"] == 3);
@@ -506,6 +507,7 @@ TEST_CASE("every component round-trips through the scene file", "[gui][scene]") 
   REQUIRE(text.horizontal == gui::GuiAlignment::Center);
   REQUIRE(loaded.get<gui::GuiImage>().texture == panel.get<gui::GuiImage>().texture);
   REQUIRE(loaded.get<gui::GuiLayout>().axis == gui::GuiAxis::Row);
+  REQUIRE(loaded.get<gui::GuiFit>().padding == glm::vec4{5.0f, 6.0f, 7.0f, 8.0f});
   REQUIRE(other.world.roots().front().get<gui::GuiCanvas>().order == 3);
   REQUIRE(loaded.get<gui::GuiButton>().hovered == glm::vec4{0.15f, 0.15f, 0.15f, 1.0f});
 }

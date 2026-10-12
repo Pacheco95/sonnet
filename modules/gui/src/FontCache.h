@@ -57,6 +57,8 @@ public:
   // The font, parsed on first use and again when its file was re-read; null for a nil identity, a
   // missing or unreadable file. The first use schedules the preload on the asset database's jobs.
   [[nodiscard]] LoadedFont *get(const core::Uuid &uuid, assets::AssetDatabase &assets);
+  // The font as last loaded by get, whatever its file's revision since; null before.
+  [[nodiscard]] const LoadedFont *find(const core::Uuid &uuid) const;
   // The glyph's place in the atlas, rasterising it now when no one has: a glyph seen for the first
   // time is in the atlas the frame it is drawn.
   [[nodiscard]] const AtlasGlyph &glyph(LoadedFont &font, std::uint32_t glyph);

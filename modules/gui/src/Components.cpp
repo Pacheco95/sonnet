@@ -45,6 +45,7 @@ void registerComponents(world::World &world) {
       .member<float>("spacing")
       .member<glm::vec4>("padding")
       .member<GuiAlignment>("alignment");
+  world.registerComponent<GuiFit>("GuiFit").member<glm::vec4>("padding");
 }
 
 } // namespace sonnet::gui
