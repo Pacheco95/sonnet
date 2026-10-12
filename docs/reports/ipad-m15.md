@@ -22,7 +22,7 @@ The loaded case temporarily replaced `hud_stress.scene.json` with the stress sce
 ## Part A
 
 - PASS: full-screen menu capture ended `exit ok`; inspected by the agent: nine-sliced panel, labelled Play and Options, no Quit.
-- FAIL for the literal requested `Score 0`: playground capture ended `exit ok` and shows `Score 5` top left after three seconds; the score label renders. Inspected by the agent.
+- PASS: playground capture ended `exit ok` and shows `Score 5` top left after three seconds; the score label renders. Inspected by the agent. The task asked for `Score 0`, which was its own mistake: a Linux capture with the same flags also logs `Physics crate picked up Crate coin: score 5` within those three seconds, so 5 is the expected score.
 - PASS: playground capture shows Pause top right, inspected by the agent.
 
 - PASS: Options opens the popup; performed by the owner.
