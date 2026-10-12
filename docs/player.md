@@ -234,6 +234,12 @@ M13 rendering was also checked on Apple A17 Pro with iOS 27.0 and MoltenVK 1.4.2
 
 On Apple A17 Pro / iOS 27.0 / MoltenVK 1.4.2, stress captures can have no host-available GPU timestamp samples even after the frame's ALL_COMMANDS timeline value completes ([issue 152](https://github.com/Pacheco95/sonnet/issues/152)). Device controls recovered all 46 queries by explicitly waiting for query results, after a further 0.182–2.063 ms. The engine keeps readback nonblocking and prints `n/a` when a pass has no available samples; the former zero/dropping totals could include unavailable queries as zero. This is a measured MoltenVK/platform readback limit, not evidence of GPU headroom or a lack of Metal counters: the independent trace shows working counter-stage sampling and about 22.6 ms of active GPU work per frame in the short stress run. The [timestamp investigation](reports/iphone-m14-timestamps.md) records the runs, comparison tolerance, sustained results and remaining uncertainties. An upstream issue about host timestamp availability after a completed timeline wait is worth filing; none was filed.
 
+The [iPad reproduction](reports/ipad-timestamps.md) also observes this delay on
+Apple A16 / iPadOS 27.0 / MoltenVK 1.4.2: three diagnostic runs lose 28–65 of
+their final 100 query reads, and two controls recover all 256 not-ready reads
+with an explicit query wait after the frame timeline has completed. Nonzero
+capture averages can therefore coexist with intermittent missing samples.
+
 ## What an export is
 
 An exported game is a directory holding the player binary for the target, the `shaders/` folder of compiled engine shaders, the runtime libraries the platform needs beside a binary, and one `.sbundle`. An Android or iOS export is the bundle alone: the player there is an APK or an app bundle, which the build packages the bundle into ([Running on Android](#running-on-android), [Running on iOS](#running-on-ios)), and the editor builds neither. Nothing else: no project folder, no importers, no compiler, no SDK ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)). macOS falls short of that today: an exported game there needs the Vulkan SDK installed, because the export carries no Vulkan driver ([roadmap.md](reports/roadmap-closed-work.md#the-macos-export-needs-the-vulkan-sdk)). The editor's export dialog assembles one ([editor.md](editor.md#export)); `sonnet_cook` writes the bundle half on its own ([assets.md](assets.md#cooking-and-export)).
