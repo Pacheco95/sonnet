@@ -5,6 +5,7 @@
 
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Window.h>
+#include <sonnet/renderer/Renderer.h>
 
 #include <flecs.h>
 
@@ -12,6 +13,9 @@
 #include <span>
 #include <vector>
 
+namespace sonnet::assets {
+class AssetDatabase;
+}
 namespace sonnet::world {
 class World;
 }
@@ -67,6 +71,22 @@ public:
   [[nodiscard]] std::span<const GuiElement> elements() const noexcept {
     return m_elements;
   }
+
+  // Turns the last layout into quads, in draw order: each element's GuiImage, its texture or a plain
+  // rectangle, nine-sliced where it has borders, tinted by the GuiButton on the same entity for its
+  // state (normal, pressed, or not interactable). An image whose texture is still loading draws
+  // nothing yet. Text is not drawn.
+  void buildQuads(const renderer::Renderer &renderer, assets::AssetDatabase &assets);
+  // The quads of the last buildQuads, which stay valid until the next.
+  [[nodiscard]] std::span<const renderer::OverlayQuad> quads() const noexcept {
+    return m_quads;
+  }
+  // Declares the pass that draws the UI over `target`, the finished scene, after the scene's last
+  // pass. Declares nothing when no element draws, so a game without a UI pays nothing. The quads
+  // are this system's, and have to survive the graph's execute.
+  void addPass(renderer::Renderer &renderer, assets::AssetDatabase &assets, renderer::RenderGraph &graph,
+               renderer::GraphImage target);
+
   // Whether a pointer is holding the entity's button.
   [[nodiscard]] bool pressed(flecs::entity_t entity) const noexcept;
 
@@ -88,6 +108,7 @@ private:
   world::World &m_world;
   std::vector<GuiElement> m_elements;
   std::vector<GuiEvent> m_events;
+  std::vector<renderer::OverlayQuad> m_quads;
   std::vector<Capture> m_captures;
   glm::vec2 m_pointerScale{1.0f, 1.0f}; // window coordinates to target pixels
 };

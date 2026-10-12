@@ -2,13 +2,13 @@
 
 The game UI: menus, a heads-up display, a pause screen as entities in the scene, with components that `gui` registers, lays out and hit-tests ([ADR-0026](decisions/0026-game-ui.md)). Depends on `world` publicly, so `core`, `platform`, `rhi`, `renderer` and `assets` come with it. `scripting` links it to read its events, as it links `physics`. It is not `ui`, which stays Dear ImGui for the editor and which the player never links.
 
-This part of M15 is the components, the layout, the input and the events. Drawing, fonts and the editor's view of a canvas are the next two parts, so a canvas is not drawn yet.
+This is M15 in three parts: the components, layout, input and events; the drawing of images and rectangles (below); and then fonts and the editor's view of a canvas. Text is not drawn yet.
 
 | Header | Contents |
 |---|---|
 | `Components.h` | `GuiCanvas`, `GuiRect`, `GuiImage`, `GuiText`, `GuiButton`, `GuiLayout`, their enums, and `registerComponents` |
 | `Layout.h` | `layoutGui`: the rectangle of every element, in draw order; `GuiElement`, `PixelRect`, `findElement` |
-| `GuiSystem.h` | `GuiSystem`: the layout of a frame, the events offered to it before the game, and the `GuiEvent`s it records |
+| `GuiSystem.h` | `GuiSystem`: the layout of a frame, the events offered to it before the game, the `GuiEvent`s it records, and the quads and the pass that draw it |
 
 ## Components
 
@@ -42,6 +42,17 @@ Positions are window coordinates and are mapped to the target by the ratio of th
 
 `GuiSystem` records a `GuiEvent` (kind, entity, pointer) for a button: `Press` when a pointer goes down on it, `Release` when the last one holding it goes up, and `Click` after that release when it was over the button. `scripting` delivers them at the start of each `update` frame as `onPress(self)`, `onRelease(self)` and `onClick(self)` on the instances of the button's entity, in slot order ([scripting.md](scripting.md#events)). The application calls `endFrame` after the world's frame; `Game` does.
 
+## Drawing
+
+`GuiSystem::addPass(renderer, assets, graph, target)` builds the frame's quads and declares the renderer's overlay pass ([rendering.md](rendering.md#frame-structure)) over `target`. `runtime::Game::render` calls it after the scene passes and before the screenshot, into the same target the player copies to the swapchain and the capture reads, so a capture shows what the player sees. A game with no canvas, or none that draws, declares no pass and renders byte for byte as before.
+
+- **What is drawn.** Each element with a `GuiImage`, in the layout's draw order (a parent, then its children in sibling order; later is in front). Without a texture it is a plain rectangle of its tint. A `GuiText` draws nothing yet.
+- **Colour.** Authored in sRGB with alpha and blended as it is, in the display-encoded space the target is already in. The texture's colour is multiplied by the tint, so the UI image has to be an sRGB colour texture (the import default).
+- **Buttons.** A `GuiButton` on the same entity multiplies the image's tint by its `normal`, `pressed` (while a pointer holds it) or `disabled` (not `interactable`) tint.
+- **Nine-slice.** With a non-zero `slice` (left, top, right, bottom in texels) and a texture the image is nine quads: the corners keep the border's size times the canvas scale, the edges and the centre stretch. Borders wider than the rectangle shrink together to fit, and a band with no room is left out.
+- **Loading.** An image whose texture is still being imported draws nothing, rather than a white rectangle that would flash, and is asked for again on the next frame.
+- **Not clipped.** Elements are not clipped to their parents or to the safe area.
+
 ## Tests
 
-`gui_tests` run headless, without a GPU: anchors, offsets and pivots against hand-computed rectangles, row and column layouts with spacing, padding and alignment, the canvas scale for width, height and between, a safe-area inset, canvas order, a disabled subtree hidden and input-less, hit testing over overlapping canvases and siblings, capture of a pointer until its release, one click for a press and release inside and none for a release outside, a finger and its synthesised mouse as one press, a consumed touch absent from `InputState`, the window-to-target mapping, and the scene round trip of every component. `scripting_tests` runs a Lua `onPress`, `onRelease` and `onClick`.
+`gui_tests` run headless, without a GPU: anchors, offsets and pivots against hand-computed rectangles, row and column layouts with spacing, padding and alignment, the canvas scale for width, height and between, a safe-area inset, canvas order, a disabled subtree hidden and input-less, hit testing over overlapping canvases and siblings, capture of a pointer until its release, one click for a press and release inside and none for a release outside, a finger and its synthesised mouse as one press, a consumed touch absent from `InputState`, the window-to-target mapping, the scene round trip of every component, the quads of images (rectangle, tint, draw order, the button's state tints, a disabled subtree, a texture still loading), the nine-slice rectangles and texture coordinates against hand-computed values, and that the pass is declared only when something draws. `runtime_tests` draws a box through `Game` and finds it in the screenshot; `renderer_tests` reads a quad back from the top-left on Lavapipe. `scripting_tests` runs a Lua `onPress`, `onRelease` and `onClick`.
