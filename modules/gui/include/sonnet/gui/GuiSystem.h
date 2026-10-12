@@ -10,6 +10,7 @@
 #include <flecs.h>
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -21,6 +22,8 @@ class World;
 }
 
 namespace sonnet::gui {
+
+class FontCache;
 
 // A mouse button or a finger. The mouse's pointers are its buttons, told apart by `id`.
 struct GuiPointer {
@@ -49,6 +52,7 @@ struct GuiEvent {
 class GuiSystem {
 public:
   explicit GuiSystem(world::World &world);
+  ~GuiSystem();
 
   // Lays the canvases out for a target of `targetSize` pixels shown in a window of `windowSize` in
   // the coordinates of the input events, whose `safeArea` insets the canvases that ask for it.
@@ -78,9 +82,11 @@ public:
 
   // Turns the last layout into quads, in draw order: each element's GuiImage, its texture or a plain
   // rectangle, nine-sliced where it has borders, tinted by the GuiButton on the same entity for its
-  // state (normal, pressed, or not interactable). An image whose texture is still loading draws
-  // nothing yet. Text is not drawn.
-  void buildQuads(const renderer::Renderer &renderer, assets::AssetDatabase &assets);
+  // state (normal, pressed, or not interactable), then its GuiText, a quad a glyph. An image whose
+  // texture is still loading draws nothing yet, and neither does text without a font. A glyph seen
+  // for the first time is rasterised now and in its font's atlas this frame; an atlas page that
+  // gained glyphs is uploaded again, at most once a frame (docs/gui.md, "Text").
+  void buildQuads(renderer::Renderer &renderer, assets::AssetDatabase &assets);
   // The quads of the last buildQuads, which stay valid until the next.
   [[nodiscard]] std::span<const renderer::OverlayQuad> quads() const noexcept {
     return m_quads;
@@ -112,6 +118,8 @@ private:
   std::vector<GuiElement> m_elements;
   std::vector<GuiEvent> m_events;
   std::vector<renderer::OverlayQuad> m_quads;
+  std::unique_ptr<FontCache> m_fonts;
+  std::uint64_t m_frame{0}; // update() calls: what the atlas pages' one upload a frame counts
   std::vector<Capture> m_captures;
   glm::vec2 m_pointerScale{1.0f, 1.0f}; // window coordinates to target pixels
 };

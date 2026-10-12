@@ -1,5 +1,7 @@
 #include <sonnet/gui/GuiSystem.h>
 
+#include "FontCache.h"
+
 #include <sonnet/world/World.h>
 
 #include <algorithm>
@@ -21,11 +23,14 @@ namespace {
 
 } // namespace
 
-GuiSystem::GuiSystem(world::World &world) : m_world(world) {
+GuiSystem::GuiSystem(world::World &world) : m_world(world), m_fonts(std::make_unique<FontCache>()) {
   registerComponents(world);
 }
 
+GuiSystem::~GuiSystem() = default;
+
 void GuiSystem::update(glm::vec2 targetSize, glm::vec2 windowSize, platform::WindowRect safeArea) {
+  ++m_frame;
   m_pointerScale = windowSize.x > 0.0f && windowSize.y > 0.0f ? targetSize / windowSize : glm::vec2{1.0f};
   const glm::vec2 min = glm::vec2{safeArea.position} * m_pointerScale;
   m_elements = layoutGui(m_world, targetSize, {min, min + glm::vec2{safeArea.size} * m_pointerScale});
