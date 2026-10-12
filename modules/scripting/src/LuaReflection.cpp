@@ -56,6 +56,9 @@ sol::object toLua(sol::state_view lua, const flecs::world &world, const LuaTypes
     const auto uuid = read<core::Uuid>(data);
     return uuid.isNil() ? sol::make_object(lua, sol::lua_nil) : sol::make_object(lua, uuid.toString());
   }
+  if (type == types.string) {
+    return sol::make_object(lua, *static_cast<const std::string *>(data));
+  }
   const flecs::entity entity{world, type};
   if (const flecs::Primitive *primitive = entity.try_get<flecs::Primitive>()) {
     // The kinds are not constant expressions, hence no switch.
@@ -143,6 +146,13 @@ std::optional<std::string> fromLua(const sol::object &value, const flecs::world 
       return std::format("\"{}\" is not an asset identity", value.as<std::string_view>());
     }
     write(data, *uuid);
+    return std::nullopt;
+  }
+  if (type == types.string) {
+    if (value.get_type() != sol::type::string) {
+      return "expected a string";
+    }
+    *static_cast<std::string *>(data) = value.as<std::string>();
     return std::nullopt;
   }
   const flecs::entity entity{world, type};

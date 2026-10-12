@@ -297,6 +297,29 @@ TEST_CASE("components cross into Lua through reflection", "[scripting]") {
   REQUIRE(probe.get<physics::RigidBody>().type == physics::BodyType::Kinematic);
 }
 
+TEST_CASE("a string member reads and writes as a Lua string", "[scripting][gui]") {
+  Fixture fixture{{"label.lua", R"lua(
+    local Label = {}
+    function Label:start()
+      local e = self.entity
+      assert(e:get("GuiText").text == "Score 0", tostring(e:get("GuiText").text))
+      e:set("GuiText", { text = "Score 12" })
+      local text = e:get("GuiText")
+      assert(text.text == "Score 12" and text.size == 32, text.text)
+      local ok, message = pcall(function() e:set("GuiText", { text = 12 }) end)
+      assert(not ok and message:find("text: expected a string"), message)
+    end
+    return Label
+  )lua"}};
+  const flecs::entity label = fixture.scripted("Label", "label.lua");
+  label.set<gui::GuiText>({.font = {}, .text = "Score 0"});
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  REQUIRE(fixture.sink->find("stops on") == nullptr);
+  REQUIRE(label.get<gui::GuiText>().text == "Score 12");
+  REQUIRE(label.get<gui::GuiText>().size == 32.0f); // the other members stay
+}
+
 TEST_CASE("scripts find, create, instantiate and destroy entities", "[scripting]") {
   Fixture fixture{{"spawner.lua", R"lua(
     local Spawner = {}
