@@ -5,6 +5,7 @@
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/gui/Components.h>
 #include <sonnet/physics/Components.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
@@ -178,6 +179,29 @@ struct Png {
 }
 
 } // namespace
+
+TEST_CASE("a touch on a button is the UI's and a touch elsewhere is the game's", "[runtime][gpu]") {
+  Fixture fixture;
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  const flecs::entity canvas = game.world().createEntity("Canvas");
+  canvas.set<gui::GuiCanvas>({.referenceSize = {640.0f, 480.0f}});
+  const flecs::entity button = game.world().createEntity("Button", canvas);
+  button.set<gui::GuiRect>({.anchorMin = {0.0f, 0.0f},
+                            .anchorMax = {0.0f, 0.0f},
+                            .pivot = {0.5f, 0.5f},
+                            .offsetMin = {0.0f, 0.0f},
+                            .offsetMax = {100.0f, 100.0f}});
+  button.set<gui::GuiButton>({});
+  fixture.frame(game); // lays the canvas out
+
+  game.event(platform::TouchDown{.id = 1, .position = {50.0f, 50.0f}});
+  game.event(platform::TouchDown{.id = 2, .position = {400.0f, 300.0f}});
+  REQUIRE(game.input().touches().size() == 1);
+  REQUIRE(game.input().touches()[0].id == 2);
+  REQUIRE(game.gui().events().size() == 1);
+  fixture.frame(game);
+  REQUIRE(game.gui().events().empty()); // delivered, then forgotten
+}
 
 TEST_CASE("the player runs a project folder's start scene", "[runtime][gpu]") {
   Fixture fixture;

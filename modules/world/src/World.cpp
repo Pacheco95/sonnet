@@ -112,6 +112,10 @@ World::~World() {
 void World::registerComponents() {
   using Radians = flecs::units::angle::Radians;
   {
+    const glm::vec2 v2{};
+    m_world.component<glm::vec2>("vec2")
+        .member<float>("x", 0, offsetOf(v2, v2.x))
+        .member<float>("y", 0, offsetOf(v2, v2.y));
     const glm::vec3 v{};
     m_world.component<glm::vec3>("vec3")
         .member<float>("x", 0, offsetOf(v, v.x))

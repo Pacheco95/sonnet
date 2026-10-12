@@ -42,12 +42,13 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                        settings.jobs = &m_jobs;
                                                        return settings;
                                                      }()),
-      m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}),
+      m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}), m_gui(m_world),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)), m_animation(m_world, m_assets),
       m_scripts(scripting::createScriptRuntime({.world = &m_world,
                                                 .assets = &m_assets,
                                                 .physics = m_physics.get(),
                                                 .animation = &m_animation,
+                                                .gui = &m_gui,
                                                 .input = &m_input,
                                                 .view = &m_scriptView})),
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})), m_screenshots(device),
@@ -211,8 +212,11 @@ core::Result<void> Game::startScene(const json &scene) {
 }
 
 void Game::event(const platform::Event &event) {
-  // Everything the window gets is the game's; there is no editor panel to compete for it.
-  m_input.handle(event);
+  // A press on a button is the UI's, with the motion and release that follow it; everything else
+  // the window gets is the game's, since there is no editor panel to compete for it.
+  if (!m_gui.event(event)) {
+    m_input.handle(event);
+  }
 }
 
 void Game::update(float dt) {
@@ -237,6 +241,9 @@ void Game::update(float dt) {
 
   m_world.progress(dt);
   m_input.beginFrame();
+  // The scripts heard the buttons' events during the frame; the layout follows what they changed.
+  m_gui.endFrame();
+  m_gui.update(glm::vec2{m_renderSize.value_or(m_window.pixelSize())}, glm::vec2{m_window.size()}, m_window.safeArea());
 
   world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
   world::buildLightList(m_world, m_lights);

@@ -5,6 +5,7 @@
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
+#include <sonnet/gui/GuiSystem.h>
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/InputState.h>
 #include <sonnet/world/Animation.h>
@@ -195,7 +196,7 @@ class LuaScriptRuntime final : public IScriptRuntime {
 public:
   explicit LuaScriptRuntime(const ScriptDesc &desc)
       : m_world(*desc.world), m_assets(*desc.assets), m_physics(desc.physics), m_animation(desc.animation),
-        m_input(desc.input), m_view(desc.view) {
+        m_gui(desc.gui), m_input(desc.input), m_view(desc.view) {
     registerComponents(m_world);
     // No io, os, package or debug: scripts reach the engine through its tables only, the same on
     // every platform the player runs on (ADR-0009).
@@ -356,6 +357,7 @@ private:
       deliverEvents();
     } else if (std::string_view{hook} == "update") {
       deliverAnimationEvents();
+      deliverGuiEvents();
     }
     for (auto &[key, instance] : m_instances) {
       // A script earlier in this frame may have destroyed the entity.
@@ -446,6 +448,28 @@ private:
            it != m_instances.end() && it->first.entity == event.entity; ++it) {
         if (it->second.started) {
           call(it->first, it->second, "onAnimationEvent", event.name, event.argument);
+        }
+      }
+    }
+  }
+
+  // The buttons' events since the last frame, to the instances of the button's entity, in slot
+  // order, before the frame's update hooks: onPress(self), onRelease(self) and onClick(self).
+  void deliverGuiEvents() {
+    if (m_gui == nullptr) {
+      return;
+    }
+    flecs::world &ecs = m_world.ecs();
+    for (const gui::GuiEvent &event : m_gui->events()) {
+      if (!ecs.is_alive(event.entity) || flecs::entity{ecs, event.entity}.has<world::Disabled>()) {
+        continue;
+      }
+      using Kind = gui::GuiEventKind;
+      const char *hook = event.kind == Kind::Press ? "onPress" : event.kind == Kind::Release ? "onRelease" : "onClick";
+      for (auto it = m_instances.lower_bound({event.entity, 0});
+           it != m_instances.end() && it->first.entity == event.entity; ++it) {
+        if (it->second.started) {
+          call(it->first, it->second, hook);
         }
       }
     }
@@ -1298,6 +1322,7 @@ private:
   assets::AssetDatabase &m_assets;
   physics::IPhysicsWorld *m_physics;
   const world::AnimationSystem *m_animation;
+  const gui::GuiSystem *m_gui;
   const platform::InputState *m_input;
   const ScriptView *m_view;
   // Declared first so it is destroyed last: every sol reference below points into it.

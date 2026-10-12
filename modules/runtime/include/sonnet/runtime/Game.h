@@ -5,6 +5,7 @@
 #include <sonnet/audio/AudioDevice.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/JobSystem.h>
+#include <sonnet/gui/GuiSystem.h>
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/InputState.h>
@@ -62,7 +63,8 @@ public:
   // Starts the simulation of a game opened paused; a game not paused is playing already.
   void play();
 
-  // 1. Every event, as the platform delivers it, becomes game input.
+  // 1. Every event, as the platform delivers it, is the UI's if it lands on a button, and game
+  //    input otherwise.
   void event(const platform::Event &event);
   // 2. The world's frame: the fixed steps with physics and the scripts, the animators, the
   //    transforms, the audio; then the draw list the renderer is handed.
@@ -104,6 +106,9 @@ public:
   [[nodiscard]] audio::IAudioDevice &audio() noexcept {
     return *m_audio;
   }
+  [[nodiscard]] gui::GuiSystem &gui() noexcept {
+    return m_gui;
+  }
   [[nodiscard]] const platform::InputState &input() const noexcept {
     return m_input;
   }
@@ -143,6 +148,8 @@ private:
   // After the world, which they register into and have to be destroyed before; scripts after
   // physics so their fixed update follows the physics step (ADR-0009).
   platform::InputState m_input;
+  // Offered the events before the input, and heard by the scripts.
+  gui::GuiSystem m_gui;
   // The camera and the window's size, for scripts turning a pointer into a ray.
   scripting::ScriptView m_scriptView;
   std::unique_ptr<physics::IPhysicsWorld> m_physics;

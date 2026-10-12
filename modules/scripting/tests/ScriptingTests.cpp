@@ -4,6 +4,7 @@
 #include <sonnet/core/File.h>
 #include <sonnet/core/JobSystem.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/gui/GuiSystem.h>
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/InputState.h>
 #include <sonnet/platform/Platform.h>
@@ -76,6 +77,7 @@ struct Fixture {
   // than inline, few enough that a fixture per test case stays cheap.
   core::JobSystem jobs{{.workerCount = 2}};
   std::unique_ptr<physics::IPhysicsWorld> physics = physics::createPhysicsWorld(world, assets, jobs);
+  gui::GuiSystem gui{world};
   platform::InputState input;
   scripting::ScriptView view;
   world::AnimationSystem animation{world, assets};
@@ -94,6 +96,7 @@ struct Fixture {
                                               .assets = &assets,
                                               .physics = physics.get(),
                                               .animation = &animation,
+                                              .gui = &gui,
                                               .input = &input,
                                               .view = &view});
     core::Log::addSink(sink);
@@ -890,4 +893,48 @@ TEST_CASE("an animation event reaches the scripts of its entity as onAnimationEv
   // A second lap crosses it again.
   fixture.run(60);
   REQUIRE(std::ranges::count(fixture.trace(), "event Drum beat half") == 2); // the next lap
+}
+
+namespace {
+
+constexpr const char *ButtonListener = R"lua(
+  local Menu = {}
+  function Menu:onPress() print("@press " .. self.entity:name()) end
+  function Menu:onRelease() print("@release " .. self.entity:name()) end
+  function Menu:onClick() print("@click " .. self.entity:name()) end
+  return Menu
+)lua";
+
+} // namespace
+
+TEST_CASE("a button's events reach the scripts of its entity as onPress, onRelease and onClick", "[scripting][gui]") {
+  Fixture fixture{{"menu.lua", ButtonListener}};
+  const flecs::entity canvas = fixture.world.createEntity("Canvas");
+  canvas.set<gui::GuiCanvas>({});
+  const flecs::entity play = fixture.world.createEntity("Play", canvas);
+  play.set<gui::GuiRect>({.anchorMin = {0.0f, 0.0f},
+                          .anchorMax = {0.0f, 0.0f},
+                          .pivot = {0.5f, 0.5f},
+                          .offsetMin = {0.0f, 0.0f},
+                          .offsetMax = {100.0f, 50.0f}});
+  play.set<gui::GuiButton>({});
+  play.set<scripting::Scripts>({.slots = {{.script = fixture.script("menu.lua")}}});
+  fixture.world.setPlaying(true);
+  fixture.run(1); // start
+  fixture.gui.update({1920.0f, 1080.0f}, {1920.0f, 1080.0f}, {{0, 0}, {1920, 1080}});
+
+  REQUIRE(fixture.gui.event(
+      platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = {10, 10}, .clicks = 1}));
+  REQUIRE(fixture.trace().empty()); // delivered with the next frame
+  fixture.run(1);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"press Play"});
+  fixture.gui.endFrame();
+
+  REQUIRE(
+      fixture.gui.event(platform::MouseButtonReleased{.button = platform::MouseButton::Left, .position = {20, 20}}));
+  fixture.run(1);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"press Play", "release Play", "click Play"});
+  fixture.gui.endFrame();
+  fixture.run(1);
+  REQUIRE(fixture.trace().size() == 3); // each event is delivered once
 }

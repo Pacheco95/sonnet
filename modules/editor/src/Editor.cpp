@@ -7,6 +7,7 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 #include <sonnet/core/Version.h>
+#include <sonnet/gui/Components.h>
 #include <sonnet/world/Scene.h>
 
 #include <SDL3/SDL_events.h>
@@ -65,6 +66,9 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_selection) {
+  // The inspector lists what is registered, and the game UI's components are the game's, not a
+  // system the editor runs yet (docs/gui.md).
+  gui::registerComponents(m_world);
   if (!platform.isHeadless()) {
     setFileDialogBackend(makeSdlFileDialogBackend(window.nativeHandle()));
     setLayoutFile(platform.prefPath("sonnet", "editor") / "layout.ini");
