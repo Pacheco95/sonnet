@@ -54,7 +54,13 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                 .view = &m_scriptView,
                                                 .canQuit = platform::canQuit()})),
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})), m_screenshots(device),
-      m_paused(desc.paused) {
+      m_paused(desc.paused), m_module(desc.module) {
+  // The module's components and systems go in after the engine's and before any scene loads.
+  if (m_module != nullptr) {
+    GameRegistry registry{m_world, *m_scripts};
+    m_module->registerGame(registry);
+    SONNET_LOG_INFO("registered the game module \"{}\"", m_module->name);
+  }
   // A player is always playing: there is no edit mode to switch out of. A capture run holds the
   // simulation until its settle frames are drawn.
   m_world.setPlaying(!m_paused);
@@ -88,6 +94,11 @@ core::Result<void> Game::openProject(const std::filesystem::path &directory) {
   auto project = assets::Project::open(directory);
   if (!project) {
     return std::unexpected(project.error());
+  }
+  if (const auto linked =
+          checkGameModule(std::format("project \"{}\"", project->name), project->module, m_module, "player");
+      !linked) {
+    return std::unexpected(linked.error());
   }
   reset();
   m_assets.open(project->root, project->assetRoots);
@@ -153,6 +164,12 @@ core::Result<void> Game::openBundle(const std::filesystem::path &file) {
         core::Error{std::format("{}: the bundle was cooked for {}, whose ASTC textures this device ({}) cannot sample",
                                 file.string(), platform, m_device.info().deviceName),
                     core::ErrorCategory::Io});
+  }
+  if (const auto linked = checkGameModule(std::format("bundle \"{}\"", bundle.manifest().name),
+                                          bundle.manifest().module, m_module, "player");
+      !linked) {
+    m_assets.close();
+    return std::unexpected(linked.error());
   }
   m_name = bundle.manifest().name;
   loadPrefabs();

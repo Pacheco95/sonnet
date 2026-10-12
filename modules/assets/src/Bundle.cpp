@@ -149,6 +149,7 @@ core::Result<Bundle> Bundle::open(const std::filesystem::path &file) {
   bundle.m_manifest.platform =
       cookPlatformFromString(manifest.value("platform", std::string{"linux"})).value_or(CookPlatform::Linux);
   bundle.m_manifest.startScene = manifest.value("startScene", std::string{});
+  bundle.m_manifest.module = manifest.value("module", std::string{});
 
   for (const json &entry : index.value("assets", json::array())) {
     BundleAsset asset;
@@ -319,7 +320,8 @@ core::Result<void> BundleWriter::finish() {
       {"manifest", json{{"name", m_manifest.name},
                         {"engineVersion", m_manifest.engineVersion},
                         {"platform", toString(m_manifest.platform)},
-                        {"startScene", m_manifest.startScene}}},
+                        {"startScene", m_manifest.startScene},
+                        {"module", m_manifest.module}}},
       {"assets", m_assets},
       {"files", m_files},
   };

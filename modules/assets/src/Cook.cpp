@@ -71,7 +71,8 @@ core::Result<CookReport> cook(AssetDatabase &database, const Project &project, c
       report.bundle, {.name = project.name,
                       .engineVersion = {},
                       .platform = options.platform,
-                      .startScene = selectedScene ? project.relative(*selectedScene) : project.startScene});
+                      .startScene = selectedScene ? project.relative(*selectedScene) : project.startScene,
+                      .module = project.module});
   if (!writer) {
     return std::unexpected(writer.error());
   }

@@ -42,8 +42,8 @@ std::string nameOf(flecs::entity entity) {
 } // namespace
 
 Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
-               const rhi::ISwapchain &swapchain, bool explorer)
-    : m_window(window), m_device(device), m_swapchain(swapchain), m_basePath(platform.basePath()),
+               const rhi::ISwapchain &swapchain, bool explorer, const runtime::GameModule *module)
+    : m_window(window), m_device(device), m_swapchain(swapchain), m_basePath(platform.basePath()), m_module(module),
       m_imgui({.window = &window,
                .device = &device,
                .swapchainFormat = swapchain.format(),
@@ -77,6 +77,13 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   m_inspectorPanel.setParticleReset([this](flecs::entity entity) { m_renderer.resetParticles(entity.id()); });
   m_hierarchyPanel.setAssets(&m_assets);
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  // The module's components and systems go in after the engine's and before any scene loads, as
+  // the player registers them.
+  if (m_module != nullptr) {
+    runtime::GameRegistry registry{m_world, *m_scripts};
+    m_module->registerGame(registry);
+    SONNET_LOG_INFO("registered the game module \"{}\"", m_module->name);
+  }
   newScene();
   SONNET_LOG_INFO("editor ready");
 }
@@ -1310,6 +1317,13 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   auto project = assets::Project::open(directory);
   if (!project) {
     return std::unexpected(project.error());
+  }
+  // Refused before anything is read: a scene naming components this editor does not have would
+  // load without them and lose them on save.
+  if (const auto linked =
+          runtime::checkGameModule(std::format("project \"{}\"", project->name), project->module, m_module, "editor");
+      !linked) {
+    return std::unexpected(linked.error());
   }
   if (isPlaying()) {
     stop();

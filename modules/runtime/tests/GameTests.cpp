@@ -1,6 +1,7 @@
 #include <sonnet/runtime/Capture.h>
 #include <sonnet/runtime/Game.h>
 
+#include <sonnet/assets/Bundle.h>
 #include <sonnet/assets/Cook.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
@@ -282,6 +283,41 @@ TEST_CASE("the player runs a project folder's start scene", "[runtime][gpu]") {
   REQUIRE(std::ranges::any_of(passes, [](const auto &pass) { return pass.name == "present"; }));
   REQUIRE(sink->problems.empty()); // no validation message and nothing warned about
   core::Log::removeSink(sink);
+}
+
+TEST_CASE("the generic player refuses a project or a bundle that needs a game module", "[runtime][module][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform, "hook");
+  if (project.empty()) {
+    SKIP("the hook sample was not found in a checkout above the test binary");
+  }
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+
+  // Refused before anything loads (ADR-0027): the scene's Orbit would otherwise be dropped.
+  const auto opened = game.open(project);
+  REQUIRE(!opened.has_value());
+  REQUIRE(opened.error().message ==
+          "project \"Hook\" needs the game module \"hook\"; this player was built without one");
+  REQUIRE(game.world().roots().empty());
+
+  // A bundle records the module its project needs, and is refused the same way.
+  const std::filesystem::path bundle = std::filesystem::temp_directory_path() / "sonnet_runtime_module.sbundle";
+  {
+    auto writer = assets::BundleWriter::create(bundle, {.name = "Hook",
+                                                        .engineVersion = {},
+                                                        .platform = assets::CookPlatform::Linux,
+                                                        .startScene = "scenes/main.scene.json",
+                                                        .module = "hook"});
+    REQUIRE(writer.has_value());
+    REQUIRE(writer->addFile("scenes/main.scene.json", assets::encodeJson({{"version", 3}})).has_value());
+    REQUIRE(writer->finish().has_value());
+  }
+  const auto cooked = game.open(bundle);
+  REQUIRE(!cooked.has_value());
+  REQUIRE(cooked.error().message ==
+          "bundle \"Hook\" needs the game module \"hook\"; this player was built without one");
+  REQUIRE(game.assets().bundle() == nullptr); // closed again, so the file can go
+  std::filesystem::remove(bundle);
 }
 
 TEST_CASE("the player runs the same project cooked into a bundle", "[runtime][gpu]") {

@@ -4,6 +4,7 @@
 #include <sonnet/editor/Capture.h>
 #include <sonnet/editor/Editor.h>
 #include <sonnet/editor/WindowState.h>
+#include <sonnet/game/LinkedGame.h>
 #include <sonnet/platform/Application.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
@@ -87,7 +88,8 @@ public:
         m_placement(std::move(main.placement)),
         m_device(rhi::createDevice({.platform = &platform, .applicationName = "Sonnet Editor"})),
         m_swapchain(m_device->createSwapchain(*m_window)),
-        m_editor(std::make_unique<editor::Editor>(platform, *m_window, *m_device, *m_swapchain, Explorer)) {
+        m_editor(std::make_unique<editor::Editor>(platform, *m_window, *m_device, *m_swapchain, Explorer,
+                                                  game::linkedModule())) {
     if (!line.project.empty()) {
       if (const auto opened = m_editor->openProject(line.project); !opened) {
         SONNET_LOG_ERROR("{}", opened.error().toString());

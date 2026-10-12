@@ -21,6 +21,7 @@ TEST_CASE("a project file round-trips and resolves paths relative to its folder"
   written.name = "Playground";
   written.startScene = "scenes/start.scene.json";
   written.assetRoots = {"assets", "scripts"};
+  written.module = "playground";
   REQUIRE(written.save().has_value());
   REQUIRE(core::writeFile(root / "scenes" / "start.scene.json", std::string_view{"{}"}).has_value());
   REQUIRE(core::writeFile(root / "scenes" / "crate.prefab.json", std::string_view{"{}"}).has_value());
@@ -30,6 +31,7 @@ TEST_CASE("a project file round-trips and resolves paths relative to its folder"
   REQUIRE(opened->name == "Playground");
   REQUIRE(opened->startScene == "scenes/start.scene.json");
   REQUIRE(opened->assetRoots == std::vector<std::string>{"assets", "scripts"});
+  REQUIRE(opened->module == "playground");
   // The version is stamped on save, not carried from the value that was written.
   REQUIRE(!opened->engineVersion.empty());
   REQUIRE(opened->file() == root / "project.json");
@@ -62,6 +64,8 @@ TEST_CASE("a project file carries a schema version, a missing one is 1 and a new
   const auto saved = core::readFile(root / "project.json");
   REQUIRE(saved.has_value());
   REQUIRE(parseJson(*saved).value("version", 0) == ProjectFileVersion);
+  // A project without a game module writes no field for it.
+  REQUIRE(!parseJson(*saved).contains("module"));
 
   // A file from before the field existed opens as version 1.
   REQUIRE(core::writeFile(root / "project.json", std::string_view{R"({"name": "Old", "engineVersion": "0.14.0"})"})
@@ -69,6 +73,7 @@ TEST_CASE("a project file carries a schema version, a missing one is 1 and a new
   const auto old = Project::open(root);
   REQUIRE(old.has_value());
   REQUIRE(old->name == "Old");
+  REQUIRE(old->module.empty());
 
   // A newer one is an error naming both versions, and the file is not touched.
   const std::string newer = R"({"version": 99, "name": "Newer"})";

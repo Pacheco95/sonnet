@@ -5,6 +5,7 @@ sonnet_add_module(runtime
     src/Capture.cpp
     src/FrameTimes.cpp
     src/Game.cpp
+    src/GameModule.cpp
     src/Screenshot.cpp
   PUBLIC_DEPENDS
     sonnet::audio
@@ -17,6 +18,7 @@ sonnet_add_module_test(runtime
   SOURCES
     tests/CaptureTests.cpp
     tests/GameTests.cpp
+    tests/GameModuleTests.cpp
 )
 if(TARGET runtime_tests)
   sonnet_add_engine_shaders(runtime_tests)

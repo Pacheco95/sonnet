@@ -3,6 +3,7 @@
 #include <sonnet/assets/Bundle.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/game/LinkedGame.h>
 #include <sonnet/platform/Application.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
@@ -55,6 +56,7 @@ using namespace sonnet;
   runtime::GameDesc desc;
   // A capture run draws its settle frames before it plays, as the editor's does.
   desc.paused = line.capture.has_value();
+  desc.module = game::linkedModule();
   // The far cascade's cost on a phone's tile-based GPU follows its map and its triangle count: 512
   // pays on the Adreno 830, 1024 is enough on the A16 (docs/reports/far-cascade-mechanism.md), and
   // its casters draw their coarser shadow range (ADR-0025).

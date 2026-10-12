@@ -38,6 +38,7 @@ cmake --preset linux-debug             # also windows-debug, macos-debug, linux-
 cmake --build --preset linux-debug
 ctest --preset linux-debug --output-on-failure
 ctest --preset linux-debug -R core_tests            # one module's tests
+cmake --preset linux-debug -B build/hook -DSONNET_GAME=apps/samples/hook   # player and editor with a project's game module (docs/player.md#game-modules)
 # one case or tag: run the <module>_tests binary directly, e.g. core_tests "[handle]"
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic   # right-drag the viewport, WASD/QE; W/E/R gizmos, Ctrl+P play
 ./build/linux-debug/apps/editor/sonnet_editor --help                # the capture flags below, the shading terms, the exit codes

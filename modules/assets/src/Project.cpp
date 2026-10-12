@@ -43,6 +43,7 @@ core::Result<Project> Project::open(const std::filesystem::path &directory) {
   project.name = document.value("name", project.root.filename().string());
   project.engineVersion = document.value("engineVersion", std::string{});
   project.startScene = document.value("startScene", project.startScene);
+  project.module = document.value("module", std::string{});
   if (document.contains("assetRoots") && document["assetRoots"].is_array()) {
     project.assetRoots = document["assetRoots"].get<std::vector<std::string>>();
   }
@@ -51,13 +52,16 @@ core::Result<Project> Project::open(const std::filesystem::path &directory) {
 }
 
 core::Result<void> Project::save() const {
-  const json document{
+  json document{
       {"version", ProjectFileVersion},
       {"name", name},
       {"engineVersion", core::engineVersion().toString()},
       {"startScene", startScene},
       {"assetRoots", assetRoots},
   };
+  if (!module.empty()) {
+    document["module"] = module;
+  }
   return core::writeFile(file(), document.dump(2) + "\n");
 }
 
