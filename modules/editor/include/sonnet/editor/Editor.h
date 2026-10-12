@@ -415,6 +415,8 @@ private:
   // Runs `action` now, or once the stop dialog has been answered when play holds edits to decide on.
   void afterStopPrompt(std::function<void()> action);
   [[nodiscard]] bool hasPlayChanges() const;
+  // A script's `game.loadScene` while playing (docs/editor.md, "Play mode").
+  void loadPlayScene(const std::string &scene);
   void answerStop();
   void closeStopPrompt();
   enum class PlayEnd : std::uint8_t {
@@ -515,6 +517,7 @@ private:
   std::size_t m_skippedChanges{0};
   bool m_stopAnswered{false};    // the dialog stays to report skipped edits after the answer
   bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
+  bool m_playLeftScene{false};   // a script loaded another scene: the play's edits are not the snapshot's
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;
   std::filesystem::path m_shaderSources;
   std::unordered_map<std::string, std::filesystem::file_time_type> m_shaderTimes;

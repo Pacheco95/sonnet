@@ -3,6 +3,7 @@
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/LightLines.h>
 
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
@@ -372,6 +373,8 @@ void Editor::update(float dt) {
   // editor stays open.
   if (m_scripts->takeQuitRequest()) {
     requestStop();
+  } else if (const std::optional<std::string> scene = m_scripts->takeSceneRequest()) {
+    loadPlayScene(*scene);
   }
   m_input.beginFrame();
   // The scripts heard the buttons' events during the frame. The UI is laid out against the Game
@@ -2006,6 +2009,7 @@ void Editor::play() {
   }
   m_snapshot = world::saveScene(m_world);
   m_dirtyBeforePlay = isDirty();
+  m_playLeftScene = false;
   // The edits made before play stay undoable after it; the ones made during it get a stack of
   // their own, which stop drops with the running scene.
   m_historyBeforePlay = std::move(m_commands);
@@ -2043,7 +2047,7 @@ void Editor::stop() {
 }
 
 bool Editor::hasPlayChanges() const {
-  return isPlaying() &&
+  return isPlaying() && !m_playLeftScene &&
          std::ranges::any_of(m_commands.done(), [](const auto &command) { return command->isSceneEdit(); });
 }
 
@@ -2134,6 +2138,46 @@ void Editor::cancelStop() {
     m_stopAnswered = false;
     m_afterStop = {};
   }
+}
+
+void Editor::loadPlayScene(const std::string &scene) {
+  // As the player's Game::openScene: relative to the project, replacing the running scene with
+  // its script instances, sounds and held input. The tab and the snapshot stay the scene play
+  // started from, which Stop restores; the play's edits were made to the scene that left, so
+  // they are dropped rather than offered back.
+  const auto fail = [&](const core::Error &error) {
+    SONNET_LOG_ERROR("loading {} for a script: {}", scene, error.toString());
+  };
+  if (!m_project) {
+    fail(core::Error{"no project is open to take the scene from", core::ErrorCategory::Io});
+    return;
+  }
+  const auto bytes = core::readFile(m_project->resolve(scene));
+  if (!bytes) {
+    fail(bytes.error());
+    return;
+  }
+  const nlohmann::json document = assets::parseJson(*bytes);
+  if (document.is_discarded()) {
+    fail(core::Error{"not valid JSON", core::ErrorCategory::Io});
+    return;
+  }
+  m_world.setPlaying(false);
+  m_world.clearScene();
+  m_scripts->reset();
+  m_audio->stopAll();
+  m_input = {};
+  m_gui.releaseAll();
+  m_commands = CommandStack{};
+  m_playLeftScene = true;
+  m_cutHistory = true;
+  const auto loaded = world::loadScene(m_world, document);
+  if (!loaded) {
+    fail(loaded.error());
+  }
+  m_world.setPlaying(true);
+  m_selection.prune(m_world);
+  SONNET_LOG_INFO("playing {}", scene);
 }
 
 core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &file) {

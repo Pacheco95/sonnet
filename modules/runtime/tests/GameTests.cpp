@@ -912,6 +912,27 @@ TEST_CASE("the basic sample's menu opens and closes its popup from clicks", "[ru
   REQUIRE_FALSE(game.input().mouseDown(platform::MouseButton::Left));
 }
 
+TEST_CASE("a scene a script asks for that does not load leaves the running one", "[runtime][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  REQUIRE(game.openScene("scenes/menu.scene.json").has_value());
+  fixture.frame(game);
+  const std::size_t entities = game.world().roots().size();
+  const auto sink = std::make_shared<ProblemSink>();
+  core::Log::addSink(sink);
+  REQUIRE(game.scripts().run(R"(game.loadScene("scenes/missing.scene.json"))", "missing").has_value());
+  fixture.frame(game);
+  core::Log::removeSink(sink);
+  REQUIRE(game.world().roots().size() == entities);
+  REQUIRE(sink->problems.size() == 1);
+  REQUIRE(sink->problems.front().starts_with("loading scenes/missing.scene.json for a script"));
+}
+
 TEST_CASE("the basic sample's menu resolves to its golden image", "[runtime][capture][golden][gui][gpu]") {
   Fixture fixture{{320, 240}};
   if (fixture.device->info().driverName != "llvmpipe") {
