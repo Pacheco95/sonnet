@@ -15,7 +15,8 @@ Modules are listed in dependency order. A module may depend only on modules earl
 | `assets` | Asset identity, database, importers (glTF, images, KTX2), cooking, hot reload | `renderer`, fastgltf, stb, KTX, nlohmann-json |
 | `world` | ECS world wrapper (flecs), core components, systems scheduling, scene load and save, skeletal animation ([world.md](world.md)) | `assets`, flecs, nlohmann-json |
 | `physics` | Rigid bodies, colliders, raycasts and debug outlines behind `IPhysicsWorld`, with the Jolt implementation ([physics.md](physics.md)) | `world`, Jolt |
-| `scripting` | Lua scripts on entities behind `IScriptRuntime`, with the Lua and sol2 implementation ([scripting.md](scripting.md)) | `physics`, Lua, sol2 |
+| `gui` | The game UI: canvases, rectangles, images, text and buttons as scene components, their layout, hit testing and click events ([gui.md](gui.md)) | `world` |
+| `scripting` | Lua scripts on entities behind `IScriptRuntime`, with the Lua and sol2 implementation ([scripting.md](scripting.md)) | `physics`, `gui`, Lua, sol2 |
 | `audio` | Sounds on entities behind `IAudioDevice`, with the miniaudio implementation ([audio.md](audio.md)) | `world`, miniaudio |
 | `runtime` | `Game`: the world and its subsystems running a project or a cooked bundle, for the player; the capture flags, their parser and the screenshots, shared with the editor ([player.md](player.md#capture-runs)) | `audio`, `scripting` |
 | `ui` | Dear ImGui layer: context, SDL3 and Vulkan backends, texture display, fonts. Editor and debug builds only | `rhi`, `platform`, ImGui |
@@ -113,6 +114,7 @@ Initialization and resource creation may throw; the hot loop never throws; recov
 - [World](world.md)
 - [Assets](assets.md)
 - [Physics](physics.md)
+- [Game UI](gui.md)
 - [Scripting](scripting.md)
 - [Audio](audio.md)
 - [Player](player.md)

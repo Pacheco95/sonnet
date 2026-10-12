@@ -20,6 +20,7 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 | `ui`, `editor`, `apps/editor` | `docs/editor.md` |
 | `assets`, file formats | `docs/assets.md` |
 | `physics` | `docs/physics.md` |
+| `gui` | `docs/gui.md` |
 | `audio` | `docs/audio.md` |
 | `runtime`, `apps/player`, `apps/cook`, export | `docs/player.md` |
 | `scripting`, the Lua API | `docs/scripting.md` |
@@ -73,7 +74,7 @@ Machine-specific notes (tool locations, checkouts of the previous iterations to 
 
 ## Architecture in one page
 
-- **Modules in dependency order**: `core → platform → rhi → renderer → assets → world → physics → scripting → audio → runtime → ui → editor`. A module links only modules earlier in the dependency order; `modules/CMakeLists.txt` adds them in this order and that order is the canonical statement of the architecture. `apps/editor`, `apps/player` and `apps/cook` are executables; `apps/samples/*` are project folders.
+- **Modules in dependency order**: `core → platform → rhi → renderer → assets → world → physics → gui → scripting → audio → runtime → ui → editor`. A module links only modules earlier in the dependency order; `modules/CMakeLists.txt` adds them in this order and that order is the canonical statement of the architecture. `apps/editor`, `apps/player` and `apps/cook` are executables; `apps/samples/*` are project folders.
 - **Interfaces live with their owner.** There is no `api` module. `platform` holds `IWindow` and the SDL3 implementation; `rhi` holds the device interfaces and the Vulkan implementation. Upward communication uses interfaces, callbacks and data handed down, never a dependency.
 - **One `#if`-switched site**: the `rhi` device factory. The documented exception is `ui`, which links `sonnet::rhi_vulkan` to include the Vulkan implementation headers for Dear ImGui's backend.
 - **The engine does not own `main()`.** It implements SDL3's callback model so desktop and mobile share one lifecycle. Frame ordering lives in the app, not in modules.
