@@ -557,10 +557,10 @@ TEST_CASE("a bundle cooked for a phone is refused on a device without ASTC", "[r
     REQUIRE(game.open(root).has_value());
     for (const assets::CookPlatform target :
          {assets::CookPlatform::Android, assets::CookPlatform::IOS, assets::CookPlatform::Linux}) {
-      REQUIRE(assets::cook(
-                  game.assets(), project,
-                  {.outputDirectory = root / "export" / std::string{assets::toString(target)}, .platform = target})
-                  .has_value());
+      REQUIRE(
+          assets::cook(game.assets(), project,
+                       {.outputDirectory = root / "export" / std::string{assets::toString(target)}, .platform = target})
+              .has_value());
     }
 
     for (const char *mobile : {"android", "ios"}) {
