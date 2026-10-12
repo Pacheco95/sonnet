@@ -223,6 +223,34 @@ TEST_CASE("the mouse a finger moves jumps to where it lands", "[platform][input]
   REQUIRE(std::get<MouseMoved>(*translateEvent(landing)).delta == glm::vec2{90.0f, 0.0f});
 }
 
+TEST_CASE("mouse events SDL synthesises from a finger are marked", "[platform][input]") {
+  SDL_Event moved = makeEvent(SDL_EVENT_MOUSE_MOTION);
+  moved.motion.which = SDL_TOUCH_MOUSEID;
+  SDL_Event pressed = makeEvent(SDL_EVENT_MOUSE_BUTTON_DOWN);
+  pressed.button.which = SDL_TOUCH_MOUSEID;
+  pressed.button.button = SDL_BUTTON_LEFT;
+  pressed.button.down = true;
+  SDL_Event released = pressed;
+  released.type = SDL_EVENT_MOUSE_BUTTON_UP;
+  released.button.down = false;
+  REQUIRE(std::get<MouseMoved>(*translateEvent(moved)).fromTouch);
+  REQUIRE(std::get<MouseButtonPressed>(*translateEvent(pressed)).fromTouch);
+  REQUIRE(std::get<MouseButtonReleased>(*translateEvent(released)).fromTouch);
+  // A real mouse's are not.
+  moved.motion.which = 1;
+  pressed.button.which = 1;
+  released.button.which = 1;
+  REQUIRE_FALSE(std::get<MouseMoved>(*translateEvent(moved)).fromTouch);
+  REQUIRE_FALSE(std::get<MouseButtonPressed>(*translateEvent(pressed)).fromTouch);
+  REQUIRE_FALSE(std::get<MouseButtonReleased>(*translateEvent(released)).fromTouch);
+}
+
+TEST_CASE("the mouse leaving a window translates with the window", "[platform][input]") {
+  SDL_Event left = makeEvent(SDL_EVENT_WINDOW_MOUSE_LEAVE);
+  left.window.windowID = 3;
+  REQUIRE(std::get<MouseLeftWindow>(*translateEvent(left)).window == 3);
+}
+
 TEST_CASE("window and pointer events say which window they came from", "[platform][input]") {
   SDL_Event motion = makeEvent(SDL_EVENT_MOUSE_MOTION);
   motion.motion.windowID = 7;

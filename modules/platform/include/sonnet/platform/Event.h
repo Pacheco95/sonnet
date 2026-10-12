@@ -18,6 +18,9 @@ namespace sonnet::platform {
 // ignore it; the editor, whose undocked panels are OS windows of their own, cannot: a position is
 // relative to the window it arrived in, and a resize or a close request of a panel's window is not
 // the main window's. 0 is a window SDL did not name (a synthesised event), taken as the main one.
+//
+// On a touch screen SDL also reports the first finger as the mouse's left button; those mouse
+// events say so with `fromTouch`, since there is no cursor to hover with.
 using WindowId = std::uint32_t;
 
 struct WindowResized {
@@ -36,6 +39,10 @@ struct WindowMaximized {
 struct WindowRestored {};
 struct WindowFocusChanged {
   bool focused;
+  WindowId window{0};
+};
+// The mouse left the window's client area.
+struct MouseLeftWindow {
   WindowId window{0};
 };
 struct WindowCloseRequested {
@@ -61,17 +68,20 @@ struct MouseMoved {
   glm::vec2 position;
   glm::vec2 delta;
   WindowId window{0};
+  bool fromTouch{false};
 };
 struct MouseButtonPressed {
   MouseButton button;
   glm::vec2 position;
   std::uint8_t clicks;
   WindowId window{0};
+  bool fromTouch{false};
 };
 struct MouseButtonReleased {
   MouseButton button;
   glm::vec2 position;
   WindowId window{0};
+  bool fromTouch{false};
 };
 struct MouseWheel {
   glm::vec2 delta; // +y away from the user
@@ -106,9 +116,10 @@ struct LowMemory {};
 // The OS is ending the application; SDL ends the loop after this event.
 struct Terminating {};
 
-using Event = std::variant<WindowResized, WindowMoved, WindowMinimized, WindowMaximized, WindowRestored,
-                           WindowFocusChanged, WindowCloseRequested, QuitRequested, KeyPressed, KeyReleased, TextInput,
-                           MouseMoved, MouseButtonPressed, MouseButtonReleased, MouseWheel, TouchDown, TouchUp,
-                           TouchMotion, WillEnterBackground, DidEnterForeground, LowMemory, Terminating>;
+using Event =
+    std::variant<WindowResized, WindowMoved, WindowMinimized, WindowMaximized, WindowRestored, WindowFocusChanged,
+                 MouseLeftWindow, WindowCloseRequested, QuitRequested, KeyPressed, KeyReleased, TextInput, MouseMoved,
+                 MouseButtonPressed, MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion,
+                 WillEnterBackground, DidEnterForeground, LowMemory, Terminating>;
 
 } // namespace sonnet::platform
