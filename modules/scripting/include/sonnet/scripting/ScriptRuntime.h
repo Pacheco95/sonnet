@@ -18,6 +18,9 @@
 namespace sonnet::assets {
 class AssetDatabase;
 }
+namespace sonnet::gui {
+class GuiSystem;
+}
 namespace sonnet::physics {
 class IPhysicsWorld;
 }
@@ -72,6 +75,7 @@ struct ScriptDesc {
   assets::AssetDatabase *assets{nullptr};
   physics::IPhysicsWorld *physics{nullptr};
   const world::AnimationSystem *animation{nullptr}; // its events reach scripts as onAnimationEvent
+  const gui::GuiSystem *gui{nullptr};               // its events reach scripts as onPress, onRelease and onClick
   const platform::InputState *input{nullptr};
   const ScriptView *view{nullptr};
 };

@@ -8,6 +8,7 @@ sonnet_add_module(scripting
     src/LuaScriptRuntime.cpp
   PUBLIC_DEPENDS
     sonnet::physics
+    sonnet::gui
   DEPENDS
     # Lua compiled as C++, so its errors unwind C++ frames (ADR-0009); sol2 has to know.
     unofficial::lua::lua-cpp
