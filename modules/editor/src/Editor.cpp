@@ -34,6 +34,14 @@ namespace {
 
 constexpr const char *ModalId = "Project";
 
+// A modal's error, wrapped at the dialog's fixed width: an error names paths and modules, longer
+// than one line of it.
+void drawWrappedError(const std::string &message) {
+  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.4f, 0.4f, 1.0f});
+  ImGui::TextWrapped("%s", message.c_str());
+  ImGui::PopStyleColor();
+}
+
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity ? entity.try_get<world::Name>() : nullptr;
   return name != nullptr ? name->value : std::string{};
@@ -918,7 +926,7 @@ void Editor::drawModal() {
     ImGui::TextUnformatted(m_modalMessage.c_str());
   }
   if (!m_modalError.empty()) {
-    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
   const bool exportSucceeded = m_modal == Modal::Export && !m_modalMessage.empty() && m_modalError.empty();
   if (exportSucceeded) {
@@ -1569,7 +1577,7 @@ void Editor::drawCloseTabModal() {
     ImGui::CloseCurrentPopup();
   }
   if (!m_modalError.empty()) {
-    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
 }
 
@@ -1627,7 +1635,6 @@ void Editor::cancelQuit() {
 }
 
 void Editor::drawStopModal() {
-  constexpr ImVec4 errorColour{0.95f, 0.4f, 0.4f, 1.0f};
   if (m_stopAnswered) {
     ImGui::TextWrapped(
         "%zu of the edits could not be applied: the entities they changed are not in the restored scene.",
@@ -1665,7 +1672,7 @@ void Editor::drawStopModal() {
   ImGui::SameLine();
   ImGui::TextUnformatted("Save as");
   if (!m_modalError.empty()) {
-    ImGui::TextColored(errorColour, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
   const bool keep = ImGui::Button("Keep", ImVec2{120.0f, 0.0f});
   ImGui::SameLine();
@@ -1713,7 +1720,7 @@ void Editor::drawQuitModal() {
   if (m_modal == Modal::None) {
     ImGui::CloseCurrentPopup();
   } else if (!m_modalError.empty()) {
-    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
 }
 
@@ -1750,7 +1757,7 @@ void Editor::drawSaveLayoutModal() {
     ImGui::CloseCurrentPopup();
   }
   if (!m_modalError.empty()) {
-    ImGui::TextColored(ImVec4{0.95f, 0.4f, 0.4f, 1.0f}, "%s", m_modalError.c_str());
+    drawWrappedError(m_modalError);
   }
 }
 
