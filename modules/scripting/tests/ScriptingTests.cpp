@@ -923,7 +923,8 @@ TEST_CASE("a button's events reach the scripts of its entity as onPress, onRelea
   fixture.run(1); // start
   fixture.gui.update({1920.0f, 1080.0f}, {1920.0f, 1080.0f}, {{0, 0}, {1920, 1080}});
 
-  REQUIRE(fixture.gui.event(platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = {10, 10}}));
+  REQUIRE(fixture.gui.event(
+      platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = {10, 10}, .clicks = 1}));
   REQUIRE(fixture.trace().empty()); // delivered with the next frame
   fixture.run(1);
   REQUIRE(fixture.trace() == std::vector<std::string>{"press Play"});

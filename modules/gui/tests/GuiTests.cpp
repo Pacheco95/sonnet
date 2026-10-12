@@ -62,7 +62,8 @@ struct Fixture {
   }
 
   bool press(glm::vec2 at) {
-    return system.event(platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = at});
+    return system.event(
+        platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = at, .clicks = 1});
   }
   bool release(glm::vec2 at) {
     return system.event(platform::MouseButtonReleased{.button = platform::MouseButton::Left, .position = at});
@@ -299,7 +300,8 @@ TEST_CASE("a pointer is captured until its release, and a click needs the releas
   REQUIRE(f.system.events().empty());
 
   // Only the left button makes events; another is consumed over a button all the same.
-  REQUIRE(f.system.event(platform::MouseButtonPressed{.button = platform::MouseButton::Right, .position = {50, 50}}));
+  REQUIRE(f.system.event(
+      platform::MouseButtonPressed{.button = platform::MouseButton::Right, .position = {50, 50}, .clicks = 1}));
   REQUIRE(f.system.event(platform::MouseButtonReleased{.button = platform::MouseButton::Right, .position = {50, 50}}));
   REQUIRE(f.system.events().empty());
 }
