@@ -71,12 +71,13 @@ struct GuiText {
   bool wrap{false};
 };
 
-// Makes the element take pointer events. Its tints replace the `tint` of the GuiImage on the same
-// entity while it is normal, pressed or not interactable. It carries no script: the Scripts on the
-// same entity hear its onClick, onPress and onRelease.
+// Makes the element take pointer events. Its tints multiply the `tint` of the GuiImage on the same
+// entity while it is normal, under the mouse, pressed or not interactable. It carries no script:
+// the Scripts on the same entity hear its onClick, onPress and onRelease.
 struct GuiButton {
   bool interactable{true};
   glm::vec4 normal{1.0f, 1.0f, 1.0f, 1.0f};
+  glm::vec4 hovered{0.9f, 0.9f, 0.9f, 1.0f};
   glm::vec4 pressed{0.8f, 0.8f, 0.8f, 1.0f};
   glm::vec4 disabled{0.5f, 0.5f, 0.5f, 0.5f};
 };

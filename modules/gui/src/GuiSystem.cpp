@@ -34,6 +34,8 @@ void GuiSystem::update(glm::vec2 targetSize, glm::vec2 windowSize, platform::Win
   m_pointerScale = windowSize.x > 0.0f && windowSize.y > 0.0f ? targetSize / windowSize : glm::vec2{1.0f};
   const glm::vec2 min = glm::vec2{safeArea.position} * m_pointerScale;
   m_elements = layoutGui(m_world, targetSize, {min, min + glm::vec2{safeArea.size} * m_pointerScale});
+  // Hit-tested after the layout, so the hover follows a button that moves under a still mouse.
+  m_hovered = m_mouse ? hit(*m_mouse * m_pointerScale) : 0;
 }
 
 bool GuiSystem::pressed(flecs::entity_t entity) const noexcept {
@@ -43,13 +45,20 @@ bool GuiSystem::pressed(flecs::entity_t entity) const noexcept {
 
 bool GuiSystem::event(const platform::Event &event) {
   using namespace platform;
+  // A finger is no cursor: the mouse SDL synthesises from it hovers over nothing.
+  const auto track = [this](glm::vec2 position, bool fromTouch) {
+    m_mouse = fromTouch ? std::nullopt : std::optional{position};
+  };
   if (const auto *down = std::get_if<MouseButtonPressed>(&event)) {
+    track(down->position, down->fromTouch);
     return press(mouse(down->button), down->position);
   }
   if (const auto *up = std::get_if<MouseButtonReleased>(&event)) {
+    track(up->position, up->fromTouch);
     return release(mouse(up->button), up->position);
   }
-  if (std::holds_alternative<MouseMoved>(event)) {
+  if (const auto *moved = std::get_if<MouseMoved>(&event)) {
+    track(moved->position, moved->fromTouch);
     // The mouse's motion belongs to the UI while any of its buttons is held on it.
     return std::ranges::any_of(m_captures, [](const Capture &capture) { return !capture.pointer.touch; });
   }
@@ -65,6 +74,12 @@ bool GuiSystem::event(const platform::Event &event) {
   }
   if (const auto *focus = std::get_if<WindowFocusChanged>(&event); focus != nullptr && !focus->focused) {
     releaseAll();
+    m_mouse.reset();
+    m_hovered = 0;
+  }
+  if (std::holds_alternative<MouseLeftWindow>(event)) {
+    m_mouse.reset();
+    m_hovered = 0;
   }
   return false;
 }
