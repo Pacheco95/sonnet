@@ -938,3 +938,103 @@ TEST_CASE("the basic sample's menu resolves to its golden image", "[runtime][cap
   REQUIRE(against.maximum <= 96);
   REQUIRE(against.fractionOver <= 0.002);
 }
+
+namespace {
+
+// A project of one label whose script changes its text on the twelfth update, with the sample's font.
+std::filesystem::path labelProject(const std::filesystem::path &sample) {
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_runtime_label";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  std::filesystem::create_directories(root / "scenes");
+  assets::Project project;
+  project.root = root;
+  project.name = "Label";
+  project.assetRoots = {"assets"};
+  REQUIRE(project.save().has_value());
+  std::filesystem::copy_file(sample / "assets" / "fonts" / "NotoSans-Regular.ttf", root / "assets" / "font.ttf");
+  REQUIRE(core::writeFile(root / "assets" / "font.ttf.meta",
+                          std::string_view{R"({"version": 2, "uuid": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
+                                            "settings": {"preload": [[32, 126]]}})"})
+              .has_value());
+  REQUIRE(core::writeFile(root / "assets" / "label.lua", std::string_view{R"(
+local Label = {}
+function Label:start()
+  self.frames = 0
+end
+function Label:update(dt)
+  self.frames = self.frames + 1
+  if self.frames == 12 then
+    self.entity:set("GuiText", { text = "Score 12" })
+  end
+end
+return Label
+)"})
+              .has_value());
+  REQUIRE(core::writeFile(root / "assets" / "label.lua.meta",
+                          std::string_view{R"({"version": 2, "uuid": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f002",
+                                            "type": "Script", "settings": {}})"})
+              .has_value());
+  REQUIRE(core::writeFile(root / "scenes" / "main.scene.json", std::string_view{R"({"version": 3, "entities": [
+    {"uuid": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f010", "name": "Canvas", "components": {"GuiCanvas": {}}},
+    {"uuid": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f011", "name": "Label", "parent": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f010",
+     "components": {
+       "GuiRect": {"anchorMin": {"x": 0, "y": 0}, "anchorMax": {"x": 1, "y": 1}, "offsetMin": {"x": 0, "y": 0},
+                   "offsetMax": {"x": 0, "y": 0}},
+       "GuiText": {"font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001", "text": "Score 0", "size": 200,
+                   "horizontal": "Center", "vertical": "Center"},
+       "Scripts": {"slots": [{"script": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f002", "properties": {}}]}}}
+  ]})"})
+              .has_value());
+  return root;
+}
+
+[[nodiscard]] std::size_t glyphQuads(runtime::Game &game) {
+  return static_cast<std::size_t>(std::ranges::count_if(
+      game.gui().quads(), [](const renderer::OverlayQuad &quad) { return quad.kind == renderer::OverlayKind::Glyph; }));
+}
+
+} // namespace
+
+TEST_CASE("a script that sets a label's text changes the next captured frame", "[runtime][capture][gui][gpu]") {
+  Fixture fixture{{320, 240}};
+  const std::filesystem::path sample = sampleProject(fixture.platform);
+  if (sample.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const std::filesystem::path root = labelProject(sample);
+  runtime::GameDesc desc = fixture.desc();
+  desc.renderer.antialiasing = renderer::AntiAliasing::None;
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+  REQUIRE(game.open(root).has_value());
+
+  const auto shot = [&](std::string_view name) {
+    const runtime::CaptureOptions options =
+        playerCapture(fixture.platform, {"--settle-frames", "1", "--screenshot", name});
+    runtime::CaptureRun run{options};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
+    return readPng(options.viewport);
+  };
+  fixture.frame(game);
+  REQUIRE(glyphQuads(game) == 6);                     // "Score 0"
+  const auto before = shot("shots/label_before.png"); // a few frames, well short of the script's twelfth
+
+  flecs::entity label;
+  for (const flecs::entity canvas : game.world().roots()) {
+    if (canvas.get<world::Name>().value == "Canvas") {
+      label = game.world().findByPath(canvas, "Label");
+    }
+  }
+  REQUIRE(label.is_valid());
+  int frames = 0;
+  while (label.get<gui::GuiText>().text != "Score 12" && frames++ < 40) {
+    fixture.frame(game);
+  }
+  REQUIRE(label.get<gui::GuiText>().text == "Score 12");
+  // The update that set the text and the render after it were one frame: the new glyphs, among them
+  // one seen for the first time, are drawn already.
+  REQUIRE(glyphQuads(game) == 7);
+  const auto after = shot("shots/label_after.png");
+  REQUIRE(compare(before, after, 32).fractionOver > 0.001); // the pixels changed
+  std::filesystem::remove_all(root);
+}
