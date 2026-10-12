@@ -53,7 +53,7 @@ The low 32 bits of a flecs id are the pick id the id pass writes ([rendering.md]
 
 ## Prefabs
 
-A prefab is a flecs prefab entity with an `Identity`, loaded from a `.prefab.json` file, and an instance is an entity that `IsA` it. Registered components are inherited (`OnInstantiate, Inherit`): an instance shares the prefab's values until it writes a component, which overrides it. `Identity` and `WorldTransform` are never inherited; `instantiate` gives the instance its own identity, name and transform, and gives the instantiated children identities and world transforms of their own. The scene stores an instance as its prefab's UUID plus the components it owns, and not the children, which come back with the prefab. Children added under an instance by hand are therefore not saved in M2; nested scene instances beyond prefabs are listed under "Later" in the roadmap.
+A prefab is a flecs prefab entity with an `Identity`, loaded from a `.prefab.json` file, and an instance is an entity that `IsA` it. Registered components are inherited (`OnInstantiate, Inherit`): an instance shares the prefab's values until it writes a component, which overrides it. `Identity` and `WorldTransform` are never inherited; `instantiate` gives the instance its own identity, name and transform, and gives the instantiated children identities and world transforms of their own. The scene stores an instance as its prefab's UUID plus the components it owns, and not the children, which come back with the prefab. Children added under an instance by hand are therefore not saved yet; [ADR-0028](decisions/0028-nested-scene-instances.md) settles how they will be, with nested prefabs, in [M16](roadmap.md#m16-nested-scene-instances).
 
 ## Scenes
 
