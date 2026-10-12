@@ -990,3 +990,74 @@ TEST_CASE("game.quit does nothing where the platform cannot quit", "[scripting][
   REQUIRE(fixture.scripts->run("assert(not game.canQuit()) game.quit()", "quit").has_value());
   REQUIRE_FALSE(fixture.scripts->takeQuitRequest());
 }
+
+TEST_CASE("game.loadScene leaves the last scene asked for to the application, once", "[scripting][game]") {
+  Fixture fixture;
+  REQUIRE_FALSE(fixture.scripts->takeSceneRequest());
+  REQUIRE(fixture.scripts->run(R"(game.loadScene("scenes/a.scene.json") game.loadScene("scenes/b.scene.json"))", "load")
+              .has_value());
+  REQUIRE(fixture.scripts->takeSceneRequest() == "scenes/b.scene.json");
+  REQUIRE_FALSE(fixture.scripts->takeSceneRequest()); // taken
+
+  REQUIRE(fixture.scripts->run(R"(game.loadScene("scenes/a.scene.json"))", "again").has_value());
+  fixture.scripts->reset();
+  REQUIRE_FALSE(fixture.scripts->takeSceneRequest());
+  REQUIRE_FALSE(fixture.scripts->run("game.loadScene()", "nothing").has_value());
+}
+
+namespace {
+
+constexpr const char *PauseButton = R"lua(
+  local Pause = {}
+  function Pause:update(dt) print("@update " .. dt) end
+  function Pause:onClick()
+    game.setTimeScale(game.timeScale() == 0 and 1 or 0)
+    print("@scale " .. game.timeScale())
+  end
+  return Pause
+)lua";
+
+} // namespace
+
+TEST_CASE("a time scale of 0 stops the game's time while its buttons still answer", "[scripting][game][gui]") {
+  Fixture fixture{{"pause.lua", PauseButton}};
+  const flecs::entity canvas = fixture.world.createEntity("Canvas");
+  canvas.set<gui::GuiCanvas>({});
+  const flecs::entity pause = fixture.world.createEntity("Pause", canvas);
+  pause.set<gui::GuiRect>({.anchorMin = {0.0f, 0.0f},
+                           .anchorMax = {0.0f, 0.0f},
+                           .pivot = {0.5f, 0.5f},
+                           .offsetMin = {0.0f, 0.0f},
+                           .offsetMax = {100.0f, 50.0f}});
+  pause.set<gui::GuiButton>({});
+  pause.set<scripting::Scripts>({.slots = {{.script = fixture.script("pause.lua")}}});
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  fixture.gui.update({1920.0f, 1080.0f}, {1920.0f, 1080.0f}, {{0, 0}, {1920, 1080}});
+  const auto click = [&] {
+    REQUIRE(fixture.gui.event(
+        platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = {10, 10}, .clicks = 1}));
+    REQUIRE(
+        fixture.gui.event(platform::MouseButtonReleased{.button = platform::MouseButton::Left, .position = {10, 10}}));
+    fixture.run(1);
+    fixture.gui.endFrame();
+  };
+
+  click();
+  REQUIRE(fixture.world.timeScale() == 0.0f);
+  fixture.run(1);
+  const std::vector<std::string> trace = fixture.trace();
+  // The click's frame has begun at the old scale; the next one still runs update, on no time.
+  REQUIRE(trace.size() == 4);
+  REQUIRE(trace[1] == "scale 0.0");
+  REQUIRE(trace[2] == trace[0]);
+  REQUIRE(trace[3] == "update 0.0");
+
+  click();
+  REQUIRE(fixture.world.timeScale() == 1.0f);
+  REQUIRE(fixture.trace().at(4) == "scale 1.0");
+
+  REQUIRE_FALSE(fixture.scripts->run("game.setTimeScale(-1)", "negative").has_value());
+  REQUIRE_FALSE(fixture.scripts->run("game.setTimeScale(0/0)", "nan").has_value());
+  REQUIRE(fixture.world.timeScale() == 1.0f);
+}

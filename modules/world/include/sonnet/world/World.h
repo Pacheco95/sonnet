@@ -172,6 +172,13 @@ public:
   [[nodiscard]] bool isPaused() const noexcept {
     return m_paused;
   }
+  // Game time runs at `scale` times real time while playing (docs/world.md, "Phases and play
+  // mode"): the fixed steps and every system's delta follow it, so 0 stops the simulation while
+  // the scripts' update still runs. Negative is 0; starting or stopping play sets it back to 1.
+  void setTimeScale(float scale);
+  [[nodiscard]] float timeScale() const noexcept {
+    return m_timeScale;
+  }
   // Runs the frame's phases, with as many fixed steps as the accumulated time holds in play
   // mode; world transforms are up to date afterwards.
   void progress(float dt);
@@ -204,6 +211,7 @@ private:
   float m_fixedDelta;
   std::uint32_t m_maxFixedSteps;
   float m_accumulator{0.0f};
+  float m_timeScale{1.0f};
   bool m_playing{false};
   bool m_paused{false};
 };

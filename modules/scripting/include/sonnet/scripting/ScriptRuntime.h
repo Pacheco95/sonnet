@@ -105,6 +105,10 @@ public:
   // True once if a script called `game.quit()` since the last call, or since `reset`. The
   // application ends the game or, in the editor, asks to stop play (docs/scripting.md, "game").
   [[nodiscard]] virtual bool takeQuitRequest() = 0;
+  // The scene a script last asked for with `game.loadScene(path)` since the last call, or since
+  // `reset`, project-relative as the script gave it. The application replaces the running scene
+  // with it after the frame (docs/scripting.md, "game").
+  [[nodiscard]] virtual std::optional<std::string> takeSceneRequest() = 0;
   // The properties the script's class declares, sorted by name, loading the class if need be:
   // what the inspector draws, in edit mode too. An error when the script is missing or has not
   // loaded; a revision that fails keeps answering with the last one that loaded.

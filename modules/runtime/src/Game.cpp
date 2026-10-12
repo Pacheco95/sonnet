@@ -117,11 +117,13 @@ core::Result<void> Game::openScene(const std::filesystem::path &scene) {
   if (!document) {
     return std::unexpected(document.error());
   }
-  // The running scene goes with its script instances and sounds, as a new game's does.
+  // The running scene goes with its script instances, sounds and held pointers, as a new game's
+  // does.
   m_world.setPlaying(false);
   m_world.clearScene();
   m_scripts->reset();
   m_audio->stopAll();
+  m_gui.releaseAll();
   m_warnedAboutCamera = false;
   return startScene(*document);
 }
@@ -242,6 +244,13 @@ void Game::update(float dt) {
   m_scriptView = {.camera = camera, .size = glm::vec2{m_window.size()}};
 
   m_world.progress(dt);
+  // A script's `game.loadScene` takes effect between frames, so this frame lays out and draws
+  // the new scene; one that cannot load leaves the running scene as it is.
+  if (const std::optional<std::string> requested = m_scripts->takeSceneRequest()) {
+    if (const auto opened = openScene(*requested); !opened) {
+      SONNET_LOG_ERROR("loading {} for a script: {}", *requested, opened.error().toString());
+    }
+  }
   m_input.beginFrame();
   // The scripts heard the buttons' events during the frame; the layout follows what they changed.
   m_gui.endFrame();
@@ -255,7 +264,7 @@ void Game::update(float dt) {
   m_view.joints = m_joints;
   m_view.morphWeights = m_morphWeights;
   m_view.particles = m_particles;
-  m_view.deltaTime = dt;
+  m_view.deltaTime = dt * m_world.timeScale(); // particles keep game time
   m_view.lights = m_lights;
   const std::optional<renderer::DirectionalLight> sun = world::sceneLight(m_world);
   m_view.hasSun = sun.has_value();

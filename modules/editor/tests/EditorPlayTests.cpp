@@ -4,6 +4,7 @@
 #include <sonnet/editor/ScriptSlots.h>
 
 #include <sonnet/core/Error.h>
+#include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/physics/Components.h>
 #include <sonnet/platform/Event.h>
@@ -185,6 +186,57 @@ TEST_CASE("a script's game.quit stops play and leaves the editor open", "[editor
     }
     REQUIRE_FALSE(editor.isPlaying());
     REQUIRE(editor.scripts().instanceCount() == 0);
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a script's game.loadScene replaces the running scene until stop", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "load";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Load").has_value());
+    REQUIRE(core::writeFile(directory / "scenes" / "other.scene.json", std::string_view{R"({"version": 3, "entities": [
+                              {"uuid": "6a1d7a52-6c3e-4f0e-9a51-1f4f0c0e0a01", "name": "Other"}]})"})
+                .has_value());
+    const auto script = editor.assets().createScript(
+        directory / "scripts" / "loader.lua",
+        "local L = {}\nfunction L:update(dt) game.loadScene(\"scenes/other.scene.json\") end\nreturn L\n");
+    REQUIRE(script.has_value());
+    world::World &world = editor.world();
+    const core::Uuid box = world.uuidOf(byName(world, "Box"));
+    world.find(box).set<scripting::Scripts>({.slots = {{.script = *script}}});
+    fixture.frame(editor);
+
+    const auto sink = std::make_shared<ProblemSink>();
+    core::Log::addSink(sink);
+    editor.play();
+    // An edit to the scene play started from, before the script swaps it out.
+    editor.commands().push(editor::renameCommand(box, "Box", "Renamed"), world);
+    REQUIRE_FALSE(editor.playChanges().empty());
+    fixture.frame(editor);
+    REQUIRE(editor.isPlaying());
+    REQUIRE(byName(world, "Other").is_valid());
+    REQUIRE_FALSE(world.find(box).is_valid());
+    REQUIRE(editor.scripts().instanceCount() == 0);
+
+    // A scene that does not load is reported and the running one plays on.
+    REQUIRE(editor.scripts().run(R"(game.loadScene("scenes/missing.scene.json"))", "missing").has_value());
+    fixture.frame(editor);
+    REQUIRE(byName(world, "Other").is_valid());
+    REQUIRE(sink->problems.size() == 1);
+    core::Log::removeSink(sink);
+
+    // The edit belonged to the scene that left, so Stop asks nothing and the snapshot is back.
+    editor.requestStop();
+    REQUIRE_FALSE(editor.stopPromptOpen());
+    REQUIRE_FALSE(editor.isPlaying());
+    REQUIRE(world.find(box).get<world::Name>().value == "Box");
+    REQUIRE(std::ranges::none_of(world.roots(),
+                                 [](flecs::entity entity) { return entity.get<world::Name>().value == "Other"; }));
     fixture.frame(editor);
   }
   fixture.device->waitIdle();
@@ -544,7 +596,9 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
     REQUIRE(sink->problems.empty());
     // The sweeper, the elevator, the ball, the spawner and the two pickups; the first crate to land
     // under the spawner fell through the trigger of the one that takes crates, which went away.
-    REQUIRE(editor.scripts().instanceCount() == 5);
+    // Then the HUD's score label and Pause button, and the pause menu's three buttons: Disabled on
+    // the menu hides them from the UI but does not reach the children's scripts.
+    REQUIRE(editor.scripts().instanceCount() == 10);
     REQUIRE(!has("Crate coin"));
     REQUIRE(has("Coin"));   // the ball's, which nothing has touched
     REQUIRE(crates() == 2); // one every 1.5 s

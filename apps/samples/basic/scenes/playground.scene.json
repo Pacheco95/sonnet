@@ -954,6 +954,932 @@
           "nearPlane": 0.1
         }
       }
+    },
+    {
+      "uuid": "477f5feb-6b36-516b-8457-bb28aee2ff7b",
+      "name": "HUD",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiCanvas": {
+          "referenceSize": {
+            "x": 1920,
+            "y": 1080
+          },
+          "match": 0.5,
+          "safeArea": true,
+          "order": 0
+        }
+      }
+    },
+    {
+      "uuid": "ae8f34a1-fb03-5551-9f30-1b8b6232fb79",
+      "name": "Score",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 0,
+            "y": 0
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 48,
+            "y": 32
+          },
+          "offsetMax": {
+            "x": 648,
+            "y": 112
+          }
+        },
+        "GuiText": {
+          "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
+          "text": "Score 0",
+          "size": 64,
+          "color": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "horizontal": "Start",
+          "vertical": "Center",
+          "wrap": false
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "5c0a1b2c-0003-4d4e-9f00-000000000060",
+              "properties": {}
+            }
+          ]
+        }
+      },
+      "parent": "477f5feb-6b36-516b-8457-bb28aee2ff7b"
+    },
+    {
+      "uuid": "e3d33ca4-70af-51bd-87cf-71a6307a4639",
+      "name": "Pause",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 1,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 1,
+            "y": 0
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": -248,
+            "y": 32
+          },
+          "offsetMax": {
+            "x": -48,
+            "y": 112
+          }
+        },
+        "GuiImage": {
+          "tint": {
+            "x": 0.25,
+            "y": 0.3,
+            "z": 0.45,
+            "w": 0.85
+          }
+        },
+        "GuiButton": {
+          "interactable": true,
+          "normal": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "pressed": {
+            "x": 0.6,
+            "y": 0.6,
+            "z": 0.6,
+            "w": 1
+          },
+          "disabled": {
+            "x": 0.45,
+            "y": 0.45,
+            "z": 0.45,
+            "w": 0.7
+          }
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "5c0a1b2c-0003-4d4e-9f00-000000000050",
+              "properties": {
+                "menu": "64cf3154-0e9a-594a-ab83-3487dd8debee"
+              }
+            }
+          ]
+        }
+      },
+      "parent": "477f5feb-6b36-516b-8457-bb28aee2ff7b"
+    },
+    {
+      "uuid": "cfc366a5-926c-5684-b1fb-dd556df0c362",
+      "name": "Label",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 1,
+            "y": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "GuiText": {
+          "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
+          "text": "Pause",
+          "size": 44,
+          "color": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "horizontal": "Center",
+          "vertical": "Center",
+          "wrap": false
+        }
+      },
+      "parent": "e3d33ca4-70af-51bd-87cf-71a6307a4639"
+    },
+    {
+      "uuid": "64cf3154-0e9a-594a-ab83-3487dd8debee",
+      "name": "PauseMenu",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 1,
+            "y": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "GuiImage": {
+          "tint": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 0.5
+          },
+          "blocksInput": true
+        },
+        "Disabled": null
+      },
+      "parent": "477f5feb-6b36-516b-8457-bb28aee2ff7b"
+    },
+    {
+      "uuid": "563f9d6e-82b5-58aa-999d-8e661ab0f9ce",
+      "name": "Panel",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "anchorMax": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": -300,
+            "y": -330
+          },
+          "offsetMax": {
+            "x": 300,
+            "y": 330
+          }
+        },
+        "GuiImage": {
+          "texture": "dfb644d8-00f0-4e56-9435-3e612b585e93",
+          "tint": {
+            "x": 0.55,
+            "y": 0.6,
+            "z": 0.8,
+            "w": 1
+          },
+          "slice": {
+            "x": 16,
+            "y": 16,
+            "z": 16,
+            "w": 16
+          }
+        }
+      },
+      "parent": "64cf3154-0e9a-594a-ab83-3487dd8debee"
+    },
+    {
+      "uuid": "f8f460d6-fd19-5cc3-b621-0750d123f8b5",
+      "name": "Title",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 1,
+            "y": 0
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 40
+          },
+          "offsetMax": {
+            "x": 0,
+            "y": 130
+          }
+        },
+        "GuiText": {
+          "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
+          "text": "Paused",
+          "size": 72,
+          "color": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "horizontal": "Center",
+          "vertical": "Center",
+          "wrap": false
+        }
+      },
+      "parent": "563f9d6e-82b5-58aa-999d-8e661ab0f9ce"
+    },
+    {
+      "uuid": "c124d57a-d4aa-5ecd-a843-22612248cd67",
+      "name": "Buttons",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 1,
+            "y": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "GuiLayout": {
+          "axis": "Column",
+          "spacing": 30,
+          "padding": {
+            "x": 60,
+            "y": 160,
+            "z": 60,
+            "w": 60
+          },
+          "alignment": "Center"
+        }
+      },
+      "parent": "563f9d6e-82b5-58aa-999d-8e661ab0f9ce"
+    },
+    {
+      "uuid": "1bc1c8d9-7605-5a9e-a947-78903596753d",
+      "name": "Resume",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "anchorMax": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 480,
+            "y": 120
+          }
+        },
+        "GuiImage": {
+          "tint": {
+            "x": 0.2,
+            "y": 0.65,
+            "z": 0.35,
+            "w": 1
+          }
+        },
+        "GuiButton": {
+          "interactable": true,
+          "normal": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "pressed": {
+            "x": 0.6,
+            "y": 0.6,
+            "z": 0.6,
+            "w": 1
+          },
+          "disabled": {
+            "x": 0.45,
+            "y": 0.45,
+            "z": 0.45,
+            "w": 0.7
+          }
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "5c0a1b2c-0003-4d4e-9f00-000000000050",
+              "properties": {
+                "menu": "64cf3154-0e9a-594a-ab83-3487dd8debee"
+              }
+            }
+          ]
+        }
+      },
+      "parent": "c124d57a-d4aa-5ecd-a843-22612248cd67"
+    },
+    {
+      "uuid": "4356b77a-fef5-5bc7-b15b-a21479d51b9c",
+      "name": "Label",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 1,
+            "y": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "GuiText": {
+          "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
+          "text": "Resume",
+          "size": 56,
+          "color": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "horizontal": "Center",
+          "vertical": "Center",
+          "wrap": false
+        }
+      },
+      "parent": "1bc1c8d9-7605-5a9e-a947-78903596753d"
+    },
+    {
+      "uuid": "1ca55cb8-8efd-50e7-83b9-f7ce99a78335",
+      "name": "MainMenu",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "anchorMax": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 480,
+            "y": 120
+          }
+        },
+        "GuiImage": {
+          "tint": {
+            "x": 0.95,
+            "y": 0.75,
+            "z": 0.2,
+            "w": 1
+          }
+        },
+        "GuiButton": {
+          "interactable": true,
+          "normal": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "pressed": {
+            "x": 0.6,
+            "y": 0.6,
+            "z": 0.6,
+            "w": 1
+          },
+          "disabled": {
+            "x": 0.45,
+            "y": 0.45,
+            "z": 0.45,
+            "w": 0.7
+          }
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "5c0a1b2c-0003-4d4e-9f00-000000000040",
+              "properties": {
+                "scene": "scenes/menu.scene.json"
+              }
+            }
+          ]
+        }
+      },
+      "parent": "c124d57a-d4aa-5ecd-a843-22612248cd67"
+    },
+    {
+      "uuid": "63f2b972-ba6e-5bd3-ae76-9f3ab88b6b90",
+      "name": "Label",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 1,
+            "y": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "GuiText": {
+          "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
+          "text": "Main menu",
+          "size": 56,
+          "color": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "horizontal": "Center",
+          "vertical": "Center",
+          "wrap": false
+        }
+      },
+      "parent": "1ca55cb8-8efd-50e7-83b9-f7ce99a78335"
+    },
+    {
+      "uuid": "d0e135fe-86a7-5097-a6c7-697d6df115ee",
+      "name": "Quit",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "anchorMax": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 480,
+            "y": 120
+          }
+        },
+        "GuiImage": {
+          "tint": {
+            "x": 0.8,
+            "y": 0.25,
+            "z": 0.25,
+            "w": 1
+          }
+        },
+        "GuiButton": {
+          "interactable": true,
+          "normal": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "pressed": {
+            "x": 0.6,
+            "y": 0.6,
+            "z": 0.6,
+            "w": 1
+          },
+          "disabled": {
+            "x": 0.45,
+            "y": 0.45,
+            "z": 0.45,
+            "w": 0.7
+          }
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "5c0a1b2c-0003-4d4e-9f00-000000000030",
+              "properties": {}
+            }
+          ]
+        }
+      },
+      "parent": "c124d57a-d4aa-5ecd-a843-22612248cd67"
+    },
+    {
+      "uuid": "94ee5dde-bcba-5d6a-a65c-425edaf4fd72",
+      "name": "Label",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "GuiRect": {
+          "anchorMin": {
+            "x": 0,
+            "y": 0
+          },
+          "anchorMax": {
+            "x": 1,
+            "y": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "offsetMin": {
+            "x": 0,
+            "y": 0
+          },
+          "offsetMax": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "GuiText": {
+          "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
+          "text": "Quit",
+          "size": 56,
+          "color": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+            "w": 1
+          },
+          "horizontal": "Center",
+          "vertical": "Center",
+          "wrap": false
+        }
+      },
+      "parent": "d0e135fe-86a7-5097-a6c7-697d6df115ee"
     }
   ]
 }

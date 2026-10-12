@@ -572,10 +572,18 @@ void World::setPlaying(bool playing) {
   m_paused = false;
   // A new run starts from a whole step, not from what was left when the last one stopped.
   m_accumulator = 0.0f;
+  setTimeScale(1.0f);
 }
 
 void World::setPaused(bool paused) {
   m_paused = paused && m_playing;
+}
+
+void World::setTimeScale(float scale) {
+  // flecs scales the frame's delta in frame_begin; systems that keep real time (audio) read the
+  // unscaled delta_time_raw.
+  m_timeScale = std::max(scale, 0.0f);
+  m_world.set_time_scale(m_timeScale);
 }
 
 void World::progress(float dt) {

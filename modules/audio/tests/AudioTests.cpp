@@ -181,6 +181,21 @@ TEST_CASE("a sound that does not loop ends, clears playing, and plays again when
   REQUIRE(loudness(fixture.audio->lastMix()) > 0.2f);
 }
 
+TEST_CASE("sound keeps real time when the world's time scale stops the game", "[audio]") {
+  Fixture fixture;
+  const flecs::entity beep = fixture.source("Beep", {.sound = fixture.beep, .spatial = false});
+  fixture.world.setPlaying(true);
+  fixture.world.setTimeScale(0.0f);
+  fixture.world.progress(0.1f);
+  REQUIRE(fixture.audio->lastMix().size() == std::size_t{4800} * 2);
+  REQUIRE(loudness(fixture.audio->lastMix()) > 0.2f);
+  // The quarter second the beep holds ends on the clock, not on the game's time.
+  for (int i = 0; i < 3; ++i) {
+    fixture.world.progress(0.1f);
+  }
+  REQUIRE_FALSE(fixture.audio->isPlaying(beep));
+}
+
 TEST_CASE("a paused device mixes nothing and carries on where it was", "[audio]") {
   Fixture fixture;
   const flecs::entity beep = fixture.source("Beep", {.sound = fixture.beep, .spatial = false});

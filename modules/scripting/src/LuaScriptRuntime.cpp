@@ -263,6 +263,7 @@ public:
 
   void reset() override {
     m_quitRequested = false;
+    m_sceneRequest.reset();
     m_instances.clear();
     m_classes.clear();
     m_modules.clear();
@@ -272,6 +273,10 @@ public:
 
   bool takeQuitRequest() override {
     return std::exchange(m_quitRequested, false);
+  }
+
+  std::optional<std::string> takeSceneRequest() override {
+    return std::exchange(m_sceneRequest, std::nullopt);
   }
 
   void seedRandom(std::uint64_t seed) override {
@@ -1109,6 +1114,15 @@ private:
         m_quitRequested = true;
       }
     });
+    // The last request of a frame wins; the application takes it once the frame's scripts have run.
+    table.set_function("loadScene", [this](const std::string &path) { m_sceneRequest = path; });
+    table.set_function("timeScale", [this] { return m_world.timeScale(); });
+    table.set_function("setTimeScale", [this](float scale, sol::this_state state) {
+      if (!std::isfinite(scale) || scale < 0.0f) {
+        raise(state, std::format("game.setTimeScale: the scale must be a number from 0 up, not {}", scale));
+      }
+      m_world.setTimeScale(scale);
+    });
   }
 
   void bindEntity() {
@@ -1345,6 +1359,7 @@ private:
   const ScriptView *m_view;
   bool m_canQuit;
   bool m_quitRequested{false};
+  std::optional<std::string> m_sceneRequest;
   // Declared first so it is destroyed last: every sol reference below points into it.
   sol::state m_lua;
   LuaTypes m_types;
