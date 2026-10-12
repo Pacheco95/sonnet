@@ -1,7 +1,7 @@
 #include "Font.h"
 
 // stb_truetype is header-only; this is its one implementation in the engine.
-#define STB_TRUETYPE_IMPLEMENTATION
+#define STB_TRUETYPE_IMPLEMENTATION // NOLINT(readability-identifier-naming): stb's switch, not ours
 #include <stb_truetype.h>
 
 namespace sonnet::gui {
@@ -84,14 +84,14 @@ float FontFace::kern(std::uint32_t left, std::uint32_t right) const {
 
 SdfBitmap FontFace::rasterise(std::uint32_t glyph) const {
   // 128 is the outline; the distance of SdfBorder pixels spans the whole byte range up to it.
-  constexpr unsigned char OnEdge = 128;
-  constexpr float DistanceScale = static_cast<float>(OnEdge) / static_cast<float>(SdfBorder);
+  constexpr unsigned char onEdge = 128;
+  constexpr float distanceScale = static_cast<float>(onEdge) / static_cast<float>(SdfBorder);
   int width = 0;
   int height = 0;
   int xOffset = 0;
   int yOffset = 0;
   unsigned char *texels = stbtt_GetGlyphSDF(m_info.get(), m_unit * static_cast<float>(SdfSize), static_cast<int>(glyph),
-                                            SdfBorder, OnEdge, DistanceScale, &width, &height, &xOffset, &yOffset);
+                                            SdfBorder, onEdge, distanceScale, &width, &height, &xOffset, &yOffset);
   SdfBitmap bitmap;
   if (texels != nullptr) {
     bitmap.size = {width, height};

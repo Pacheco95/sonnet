@@ -2253,7 +2253,8 @@ TEST_CASE("a glyph quad draws coverage from an R8 distance field, smooth at two 
       for (int x = 0; x < 64; ++x) {
         const float distance = std::hypot(static_cast<float>(x) + 0.5f - 32.0f, static_cast<float>(y) + 0.5f - 32.0f);
         const float value = std::clamp(128.0f + (20.5f - distance) * (128.0f / 6.0f), 0.0f, 255.0f);
-        field.data[static_cast<std::size_t>(y * 64 + x)] = static_cast<std::byte>(static_cast<unsigned char>(value));
+        field.data[static_cast<std::size_t>(y) * 64 + static_cast<std::size_t>(x)] =
+            static_cast<std::byte>(static_cast<unsigned char>(value));
       }
     }
     const TextureHandle texture = renderer.createTexture(field, "disc field");

@@ -92,7 +92,9 @@ TEST_CASE("a glyph is rasterised at 48 pixels with a 6 pixel border around its o
   REQUIRE(a.size == glm::ivec2{37, 46});
   REQUIRE(a.offset == glm::vec2{-4.0f, -40.0f});
   REQUIRE(a.texels.size() == std::size_t{37} * 46);
-  const auto at = [&](int x, int y) { return a.texels[static_cast<std::size_t>(y * a.size.x + x)]; };
+  const auto at = [&](int x, int y) {
+    return a.texels[static_cast<std::size_t>(y) * static_cast<std::size_t>(a.size.x) + static_cast<std::size_t>(x)];
+  };
   REQUIRE(at(0, 0) == 0);    // the corner is farther than the border from the outline
   REQUIRE(at(18, 20) > 200); // the middle of the box is deep inside
   REQUIRE(at(18, 45) < 64);  // five pixels below the baseline, outside the box and nearly out of the field
@@ -228,7 +230,8 @@ TEST_CASE("the atlas packs glyphs without overlap and finds them again", "[gui][
   for (std::uint32_t glyph = 1; glyph <= 400; ++glyph) {
     gui::SdfBitmap bitmap;
     bitmap.size = {side(random), side(random)};
-    bitmap.texels.assign(static_cast<std::size_t>(bitmap.size.x * bitmap.size.y), static_cast<std::uint8_t>(glyph));
+    bitmap.texels.assign(static_cast<std::size_t>(bitmap.size.x) * static_cast<std::size_t>(bitmap.size.y),
+                         static_cast<std::uint8_t>(glyph));
     placed.push_back(atlas.insert(glyph, bitmap));
   }
   for (std::size_t i = 0; i < placed.size(); ++i) {

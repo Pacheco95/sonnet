@@ -24,8 +24,8 @@ namespace sonnet::gui::test {
       break;
     }
   }
+  // No statement after a FAIL: MSVC reads it as unreachable, which is an error there.
   FAIL("modules/gui/tests/data/TestFont.ttf is not in any parent of the test binary");
-  return {};
 }
 
 } // namespace sonnet::gui::test

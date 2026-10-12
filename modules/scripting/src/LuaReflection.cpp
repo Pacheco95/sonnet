@@ -22,7 +22,7 @@ const std::byte *at(const void *data, std::int32_t offset) {
 
 template <typename T> T read(const void *data) {
   T value;
-  std::memcpy(&value, data, sizeof(T));
+  std::memcpy(static_cast<void *>(&value), data, sizeof(T));
   return value;
 }
 

@@ -101,7 +101,7 @@ void GuiSystem::buildQuads(renderer::Renderer &renderer, assets::AssetDatabase &
     const TextLayout layout =
         layoutText(font->face, text->text, pixelSize, element.rect, text->horizontal, text->vertical, text->wrap);
     const float scale = pixelSize / static_cast<float>(SdfSize);
-    constexpr float PageTexels = static_cast<float>(AtlasPageSize);
+    constexpr float pageTexels = static_cast<float>(AtlasPageSize);
     for (const PlacedGlyph &placed : layout.glyphs) {
       const AtlasGlyph &glyph = m_fonts->glyph(*font, placed.glyph);
       if (glyph.size.x == 0 || glyph.size.y == 0) {
@@ -111,8 +111,8 @@ void GuiSystem::buildQuads(renderer::Renderer &renderer, assets::AssetDatabase &
       pageQuads.push_back({m_quads.size(), font, glyph.page});
       m_quads.push_back({.min = min,
                          .max = min + glm::vec2{glyph.size} * scale,
-                         .uvMin = glm::vec2{glyph.position} / PageTexels,
-                         .uvMax = glm::vec2{glyph.position + glyph.size} / PageTexels,
+                         .uvMin = glm::vec2{glyph.position} / pageTexels,
+                         .uvMax = glm::vec2{glyph.position + glyph.size} / pageTexels,
                          .color = text->color,
                          .texture = {},
                          .kind = renderer::OverlayKind::Glyph});

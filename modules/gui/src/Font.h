@@ -10,7 +10,7 @@
 #include <string_view>
 #include <vector>
 
-struct stbtt_fontinfo;
+struct stbtt_fontinfo; // NOLINT(readability-identifier-naming): stb_truetype's type
 
 namespace sonnet::gui {
 
