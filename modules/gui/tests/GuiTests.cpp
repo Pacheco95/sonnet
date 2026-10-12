@@ -539,7 +539,7 @@ TEST_CASE("a nine-slice keeps its corners at the border size and stretches the r
   element.scale = 2.0f;
   renderer::TextureData pixels;
   pixels.size = {16, 16};
-  pixels.data.assign(16 * 16 * 4, std::byte{255});
+  pixels.data.assign(std::size_t{16} * 16 * 4, std::byte{255});
   const renderer::TextureHandle texture = f.renderer.createTexture(pixels, "slice");
   // Left 4, top 2, right 4, bottom 2 texels of a 16 x 16 texture, at twice the size.
   const gui::GuiImage image{.texture = {}, .tint = {}, .slice = {4.0f, 2.0f, 4.0f, 2.0f}, .blocksInput = false};
