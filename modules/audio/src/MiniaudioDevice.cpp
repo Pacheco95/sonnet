@@ -64,8 +64,9 @@ public:
     m_listeners = ecs.query_builder<>("AudioListeners").with<AudioListener>().without<world::Disabled>().build();
     // Not a simulation system: in edit mode it stops what play mode left playing and mixes the
     // preview. Declared after the transform system, so positions are this frame's.
+    // Sound runs on real time: the world's time scale pauses the game, not what it is heard saying.
     m_system = ecs.system("Audio").kind(world.phase(world::Phase::PreRender)).run([this](flecs::iter &it) {
-      update(it.delta_time());
+      update(it.world().get_info()->delta_time_raw);
     });
     SONNET_LOG_DEBUG("audio ready: {} Hz, {} channels, {}", m_sampleRate, m_channels,
                      m_hasOutput ? "output device" : "no output device");

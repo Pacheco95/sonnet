@@ -255,7 +255,7 @@ void Game::update(float dt) {
   m_view.joints = m_joints;
   m_view.morphWeights = m_morphWeights;
   m_view.particles = m_particles;
-  m_view.deltaTime = dt;
+  m_view.deltaTime = dt * m_world.timeScale(); // particles keep game time
   m_view.lights = m_lights;
   const std::optional<renderer::DirectionalLight> sun = world::sceneLight(m_world);
   m_view.hasSun = sun.has_value();

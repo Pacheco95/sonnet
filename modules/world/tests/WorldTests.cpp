@@ -218,6 +218,43 @@ TEST_CASE("a paused world freezes the simulation and keeps its accumulator", "[w
   REQUIRE_FALSE(world.isPaused());
 }
 
+TEST_CASE("the time scale slows the simulation's time and zero stops it", "[world][play][time-scale]") {
+  world::World world({.fixedDelta = 0.25f, .maxFixedSteps = 8});
+  int fixedSteps = 0;
+  world.ecs().system("FixedProbe").kind(world.phase(world::Phase::FixedUpdate)).run([&](flecs::iter &) {
+    ++fixedSteps;
+  });
+  // A simulation system in Update still runs at scale 0, with a zero delta.
+  std::vector<float> updates;
+  world.addToSimulation(
+      world.ecs().system("UpdateProbe").kind(world.phase(world::Phase::Update)).run([&](flecs::iter &it) {
+        updates.push_back(it.delta_time());
+      }));
+  world.setPlaying(true);
+
+  world.setTimeScale(0.5f);
+  REQUIRE(world.timeScale() == 0.5f);
+  world.progress(1.0f);
+  REQUIRE(fixedSteps == 2);
+  REQUIRE(updates.back() == 0.5f);
+
+  world.setTimeScale(0.0f);
+  world.progress(1.0f);
+  REQUIRE(fixedSteps == 2);
+  REQUIRE(updates.size() == 2);
+  REQUIRE(updates.back() == 0.0f);
+
+  world.setTimeScale(-3.0f);
+  REQUIRE(world.timeScale() == 0.0f);
+
+  // Stopping, like starting, runs at real time again.
+  world.setPlaying(false);
+  REQUIRE(world.timeScale() == 1.0f);
+  world.setPlaying(true);
+  world.progress(0.5f);
+  REQUIRE(fixedSteps == 4);
+}
+
 TEST_CASE("components registered from outside the world reach the registry and scene JSON", "[world][components]") {
   struct Probe {
     float value{0.0f};
