@@ -1,6 +1,7 @@
 #include <sonnet/gui/GuiSystem.h>
 
 #include "FontCache.h"
+#include "Text.h"
 
 #include <sonnet/world/World.h>
 
@@ -33,7 +34,15 @@ void GuiSystem::update(glm::vec2 targetSize, glm::vec2 windowSize, platform::Win
   ++m_frame;
   m_pointerScale = windowSize.x > 0.0f && windowSize.y > 0.0f ? targetSize / windowSize : glm::vec2{1.0f};
   const glm::vec2 min = glm::vec2{safeArea.position} * m_pointerScale;
-  m_elements = layoutGui(m_world, targetSize, {min, min + glm::vec2{safeArea.size} * m_pointerScale});
+  // Fonts load when first drawn, by buildQuads: until then a fitted element keeps its own size.
+  const TextMeasure measure = [this](const GuiText &text) -> std::optional<glm::vec2> {
+    const LoadedFont *font = m_fonts->find(text.font);
+    if (font == nullptr) {
+      return std::nullopt;
+    }
+    return layoutText(font->face, text.text, text.size, {}, GuiAlignment::Start, GuiAlignment::Start, false).size;
+  };
+  m_elements = layoutGui(m_world, targetSize, {min, min + glm::vec2{safeArea.size} * m_pointerScale}, measure);
   // Hit-tested after the layout, so the hover follows a button that moves under a still mouse.
   m_hovered = m_mouse ? hit(*m_mouse * m_pointerScale) : 0;
 }

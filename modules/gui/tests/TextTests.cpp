@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <thread>
@@ -500,4 +501,117 @@ TEST_CASE("bytes that are not a font draw nothing", "[gui][font]") {
   REQUIRE(fixture.assets.reimport(fixture.font).has_value());
   gui::FontCache cache;
   REQUIRE(cache.get(fixture.font, fixture.assets) == nullptr);
+}
+
+namespace {
+
+// The test font's measure, as GuiSystem's once the font is loaded.
+[[nodiscard]] gui::TextMeasure measureWith(const gui::FontFace &face) {
+  return [&face](const gui::GuiText &text) -> std::optional<glm::vec2> {
+    return gui::layoutText(face, text.text, text.size, {}, gui::GuiAlignment::Start, gui::GuiAlignment::Start, false)
+        .size;
+  };
+}
+
+// A button at the canvas's top-left whose own rectangle is (100, 100) to (300, 200), pivot centred,
+// fitted to its children with `padding`.
+flecs::entity fittedButton(world::World &world, flecs::entity parent, glm::vec4 padding) {
+  const flecs::entity button = world.createEntity("Button", parent);
+  button.set<gui::GuiRect>(
+      {.anchorMin = {0.0f, 0.0f}, .anchorMax = {0.0f, 0.0f}, .offsetMin = {100, 100}, .offsetMax = {300, 200}});
+  button.set<gui::GuiFit>({.padding = padding});
+  return button;
+}
+
+[[nodiscard]] bool near(const gui::PixelRect &rect, glm::vec2 min, glm::vec2 max) {
+  return glm::all(glm::lessThan(glm::abs(rect.min - min), glm::vec2{0.01f})) &&
+         glm::all(glm::lessThan(glm::abs(rect.max - max), glm::vec2{0.01f}));
+}
+
+flecs::entity textChild(world::World &world, const char *name, flecs::entity parent, std::string text) {
+  const flecs::entity label = world.createEntity(name, parent);
+  label.set<gui::GuiRect>(
+      {.anchorMin = {0.0f, 0.0f}, .anchorMax = {1.0f, 1.0f}, .offsetMin = {0, 0}, .offsetMax = {0, 0}});
+  label.set<gui::GuiText>({.text = std::move(text), .size = 100.0f});
+  return label;
+}
+
+} // namespace
+
+TEST_CASE("a fitted button is its label's size plus padding around its pivot", "[gui][font][layout]") {
+  const gui::FontFace face = testFace();
+  world::World world;
+  gui::registerComponents(world);
+  const flecs::entity canvas = world.createEntity("Canvas");
+  canvas.set<gui::GuiCanvas>({});
+  const flecs::entity button = fittedButton(world, canvas, {10.0f, 5.0f, 20.0f, 15.0f});
+  const flecs::entity label = textChild(world, "Label", button, "AV");
+  // A disabled label takes no room.
+  const flecs::entity longer = textChild(world, "Longer", button, "AVAV");
+  longer.add<world::Disabled>();
+  const auto rectOf = [&](float scale = 1.0f) {
+    const glm::vec2 target = glm::vec2{1920.0f, 1080.0f} * scale;
+    const auto elements = gui::layoutGui(world, target, {{0.0f, 0.0f}, target}, measureWith(face));
+    return gui::findElement(elements, button.id())->rect;
+  };
+
+  // "AV" is 0.6 + 0.6 - 0.1 em wide and ascent - descent 1 em tall: 110 x 100, 140 x 120 padded,
+  // centred on the authored rectangle's centre (200, 150).
+  REQUIRE(near(rectOf(), {130.0f, 90.0f}, {270.0f, 210.0f}));
+  // With the canvas scale, padding and text both.
+  REQUIRE(near(rectOf(2.0f), {260.0f, 180.0f}, {540.0f, 420.0f}));
+
+  // The largest of its texts: "AVAV" is 2.4 - 0.2 - 0.05 em.
+  longer.remove<world::Disabled>();
+  REQUIRE(rectOf().size().x == Approx(215.0f + 30.0f));
+  // Its own text counts like a child's.
+  longer.add<world::Disabled>();
+  button.set<gui::GuiText>({.text = "AVAVAV", .size = 100.0f});
+  REQUIRE(rectOf().size().x == Approx((0.6f * 6 - 0.1f * 3 - 0.05f * 2) * 100.0f + 30.0f));
+  button.remove<gui::GuiText>();
+
+  // No measurer and no text both keep the authored size.
+  REQUIRE(gui::findElement(gui::layoutGui(world, {1920, 1080}, {{0, 0}, {1920, 1080}}), button.id())->rect ==
+          gui::PixelRect{{100.0f, 100.0f}, {300.0f, 200.0f}});
+  label.destruct();
+  REQUIRE(near(rectOf(), {100.0f, 100.0f}, {300.0f, 200.0f}));
+}
+
+TEST_CASE("a fitted button takes its size in a column", "[gui][font][layout]") {
+  const gui::FontFace face = testFace();
+  world::World world;
+  gui::registerComponents(world);
+  const flecs::entity canvas = world.createEntity("Canvas");
+  canvas.set<gui::GuiCanvas>({});
+  const flecs::entity column = world.createEntity("Column", canvas);
+  column.set<gui::GuiRect>(
+      {.anchorMin = {0.0f, 0.0f}, .anchorMax = {0.0f, 0.0f}, .offsetMin = {0, 0}, .offsetMax = {400, 600}});
+  column.set<gui::GuiLayout>({.axis = gui::GuiAxis::Column, .spacing = 10.0f});
+  const flecs::entity fitted = fittedButton(world, column, {5.0f, 5.0f, 5.0f, 5.0f});
+  textChild(world, "Label", fitted, "AV");
+  const flecs::entity fixed = world.createEntity("Fixed", column);
+  fixed.set<gui::GuiRect>({.offsetMin = {0, 0}, .offsetMax = {50, 20}});
+
+  const auto elements = gui::layoutGui(world, {1920, 1080}, {{0, 0}, {1920, 1080}}, measureWith(face));
+  REQUIRE(near(gui::findElement(elements, fitted.id())->rect, {0.0f, 0.0f}, {120.0f, 110.0f}));
+  REQUIRE(near(gui::findElement(elements, fixed.id())->rect, {0.0f, 120.0f}, {50.0f, 140.0f}));
+}
+
+TEST_CASE("a fitted button keeps its own size until its label's font has loaded", "[gui][font][layout]") {
+  FontFixture fixture;
+  const flecs::entity canvas = fixture.canvas();
+  const flecs::entity button = fittedButton(fixture.world, canvas, {});
+  textChild(fixture.world, "Label", button, "AV").get_mut<gui::GuiText>().font = fixture.font;
+  const auto rect = [&] { return gui::findElement(fixture.system.elements(), button.id())->rect; };
+
+  // The first frame lays out before anything has drawn the label, which loads its font.
+  fixture.build();
+  REQUIRE(near(rect(), {100.0f, 100.0f}, {300.0f, 200.0f}));
+  fixture.build();
+  REQUIRE(near(rect(), {145.0f, 100.0f}, {255.0f, 200.0f}));
+
+  // A text whose font never loads keeps it too, though another measures.
+  textChild(fixture.world, "Missing", button, "A").get_mut<gui::GuiText>().font = core::Uuid::generate();
+  fixture.build();
+  REQUIRE(near(rect(), {100.0f, 100.0f}, {300.0f, 200.0f}));
 }
