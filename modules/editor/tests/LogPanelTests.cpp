@@ -146,7 +146,9 @@ struct PanelDriver {
   static void setModifiers(ImGuiKeyChord chord, bool down) {
     ImGuiIO &io = ImGui::GetIO();
     if ((chord & ImGuiMod_Ctrl) != 0) {
-      io.AddKeyEvent(ImGuiMod_Ctrl, down);
+      // A backend sends Cmd as Super, which ImGui on macOS swaps to ImGuiMod_Ctrl; Ctrl there
+      // becomes Super, and Ctrl+click a right-click.
+      io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, down);
     }
     if ((chord & ImGuiMod_Shift) != 0) {
       io.AddKeyEvent(ImGuiMod_Shift, down);
