@@ -35,6 +35,16 @@ struct ViewportInput {
 // distance that focus used. The pivot is kept until the next focus or until WASD moves the camera.
 class ViewportPanel {
 public:
+  // Everything about where the viewport looks from; a scene tab keeps its own.
+  struct View {
+    FlyCamera camera;
+    glm::vec3 focusTarget{0.0f};
+    bool hasFocusTarget{false};
+    glm::vec3 pivot{0.0f};
+    bool hasPivot{false};
+    float focusDistance{10.0f}; // how far the last focus stood back, for a pivot without an object
+  };
+
   ViewportPanel(rhi::IDevice &device, ui::ImGuiLayer &imgui);
   ~ViewportPanel();
   ViewportPanel(const ViewportPanel &) = delete;
@@ -65,10 +75,16 @@ public:
     return m_target;
   }
   [[nodiscard]] const FlyCamera &camera() const noexcept {
-    return m_camera;
+    return m_view.camera;
   }
   [[nodiscard]] FlyCamera &camera() noexcept {
-    return m_camera;
+    return m_view.camera;
+  }
+  [[nodiscard]] const View &view() const noexcept {
+    return m_view;
+  }
+  void setView(const View &view) {
+    m_view = view;
   }
   [[nodiscard]] bool cameraActive() const noexcept {
     return m_cameraActive;
@@ -83,16 +99,11 @@ private:
   ui::ImGuiLayer &m_imgui;
   renderer::RenderTarget m_target;
   ImTextureID m_texture{0};
-  FlyCamera m_camera;
+  View m_view;
   ViewportInput m_input;
   bool m_cameraActive{false};
   bool m_wheelForGame{false};
-  glm::vec3 m_focusTarget{0.0f};
-  bool m_hasFocusTarget{false};
   bool m_orbiting{false}; // the active camera drag is the middle button's orbit
-  glm::vec3 m_pivot{0.0f};
-  bool m_hasPivot{false};
-  float m_focusDistance{10.0f}; // how far the last focus stood back, for a pivot without an object
 };
 
 } // namespace sonnet::editor

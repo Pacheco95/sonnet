@@ -395,7 +395,7 @@ private:
   };
 
   // An open scene. The active tab's state lives in the editor's own members (the world, the
-  // undo history, the selection, the path); the others hold theirs here, the world as scene JSON,
+  // undo history, the selection, the path, the viewport's view); the others hold theirs here, the world as scene JSON,
   // which is what play mode's snapshot round-trips too.
   struct SceneTab {
     std::uint64_t id{0};
@@ -403,6 +403,7 @@ private:
     nlohmann::json content;
     CommandStack commands;
     Selection selection;
+    ViewportPanel::View view;
   };
 
   void drawMenuBar();
