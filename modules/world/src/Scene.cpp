@@ -20,9 +20,9 @@ using nlohmann::json;
 
 // A string member, or `fallback` when the member is missing or not a string. Read through
 // get_ref: GCC 14 at -O3 flags nlohmann's value<std::string> with a false null dereference.
-std::string stringOr(const json &object, const char *key, std::string fallback) {
+std::string stringOr(const json &object, const char *key, std::string_view fallback) {
   const auto it = object.find(key);
-  return it != object.end() && it->is_string() ? it->get_ref<const std::string &>() : std::move(fallback);
+  return it != object.end() && it->is_string() ? it->get_ref<const std::string &>() : std::string{fallback};
 }
 
 bool isSceneEntity(flecs::entity entity) {
