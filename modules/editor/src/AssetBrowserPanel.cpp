@@ -19,7 +19,7 @@ namespace sonnet::editor {
 
 namespace {
 
-// What "New script" writes: every hook, empty, and the shape a script has to return.
+// What the New asset menu's Script entry writes: every hook, empty, and the shape a script has to return.
 constexpr std::string_view ScriptTemplate = R"lua(-- Runs on its entity in play mode; see docs/scripting.md.
 local Script = {
   -- Values the inspector lets you change per entity, as in
@@ -83,12 +83,17 @@ void AssetBrowserPanel::draw(bool &open) {
   ImGui::SameLine();
   typeFilterCombo("##type", 130.0f, filterableAssetTypeNames(), m_types);
   ImGui::SameLine();
-  if (ImGui::Button("New material")) {
-    createMaterial();
+  if (ImGui::Button("New asset")) {
+    ImGui::OpenPopup("##new-asset");
   }
-  ImGui::SameLine();
-  if (ImGui::Button("New script")) {
-    createScript();
+  if (ImGui::BeginPopup("##new-asset")) {
+    if (ImGui::MenuItem("Material")) {
+      createMaterial();
+    }
+    if (ImGui::MenuItem("Script")) {
+      createScript();
+    }
+    ImGui::EndPopup();
   }
 
   const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
