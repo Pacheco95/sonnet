@@ -1445,6 +1445,7 @@ core::Result<std::filesystem::path> Editor::saveAsPrefab(core::Uuid entity) {
 
 void Editor::addTab() {
   m_tabs.emplace_back().id = m_nextTabId++;
+  m_viewportPanel.setView({}); // a new scene starts from the default camera
   m_activeTab = m_tabs.size() - 1;
   m_selectActiveTab = true;
 }
@@ -1462,6 +1463,7 @@ void Editor::stashActiveTab() {
   tab.path = m_scenePath;
   tab.commands = std::move(m_commands);
   tab.selection = std::move(m_selection);
+  tab.view = m_viewportPanel.view();
   m_commands = CommandStack{};
   m_selection = Selection{};
 }
@@ -1476,6 +1478,7 @@ void Editor::restoreTab(std::size_t index) {
   m_commands = std::move(tab.commands);
   m_selection = std::move(tab.selection);
   m_scenePath = tab.path;
+  m_viewportPanel.setView(tab.view);
   m_activeTab = index;
   m_selectActiveTab = true;
   tab.content = nlohmann::json{};

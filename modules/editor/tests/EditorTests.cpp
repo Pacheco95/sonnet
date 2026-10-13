@@ -389,6 +389,36 @@ TEST_CASE("scenes open in tabs that keep their own edits, undo history and selec
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("each scene tab keeps its own viewport camera", "[editor][gpu]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  const glm::vec3 home = editor.viewport().camera().camera().position;
+  const glm::vec3 a{-20.0f, 4.0f, 9.0f};
+  editor.viewport().camera().lookAt(a, {0.0f, 0.0f, 0.0f});
+  editor.viewport().camera().scaleSpeed(2.0f);
+  const float speed = editor.viewport().camera().speed();
+  fixture.frame(editor);
+
+  // A new scene starts from the default camera, not from where the last one was left.
+  editor.newScene();
+  REQUIRE(editor.viewport().camera().camera().position == home);
+  const glm::vec3 b{3.0f, 12.0f, -6.0f};
+  editor.viewport().camera().lookAt(b, {0.0f, 0.0f, 0.0f});
+  fixture.frame(editor);
+
+  editor.switchToTab(0);
+  CHECK(editor.viewport().camera().camera().position == a);
+  CHECK(editor.viewport().camera().speed() == Approx(speed));
+  editor.switchToTab(1);
+  CHECK(editor.viewport().camera().camera().position == b);
+
+  // Playing and stopping leaves the camera where it was.
+  editor.play();
+  fixture.frame(editor);
+  editor.stop();
+  CHECK(editor.viewport().camera().camera().position == b);
+}
+
 TEST_CASE("quitting asks about unsaved scenes before it exits", "[editor][gpu]") {
   Fixture fixture;
   const std::filesystem::path directory = scratch("quit");
