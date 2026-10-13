@@ -8,7 +8,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <SDL3/SDL_hints.h>
+#include <SDL3/SDL_stdinc.h>
+
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <future>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -250,3 +257,38 @@ TEST_CASE("Open scene... loads the picked file like the asset browser does", "[e
   CHECK(editor.scenePath() == std::filesystem::absolute(file).lexically_normal());
   CHECK(editor.tabCount() == 2); // the tab that already had it
 }
+
+#if defined(__linux__)
+TEST_CASE("SDL's zenity chooser reports a cancel as cancelled, not as an empty path", "[editor][filedialog]") {
+  // A zenity that answers --version and cancels everything else, the way the real one exits on Cancel.
+  const std::filesystem::path bin = std::filesystem::temp_directory_path() / "sonnet_fake_zenity";
+  std::filesystem::create_directories(bin);
+  {
+    std::ofstream script{bin / "zenity"};
+    script << "#!/bin/sh\n[ \"$1\" = --version ] && exit 0\nexit 1\n";
+  }
+  std::filesystem::permissions(bin / "zenity", std::filesystem::perms::owner_all);
+  const char *oldPathC = std::getenv("PATH");
+  const std::string oldPath = oldPathC != nullptr ? oldPathC : "";
+  const std::string path = bin.string() + ":" + oldPath;
+  setenv("PATH", path.c_str(), 1);
+  SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "PATH", path.c_str(), true);
+  SDL_SetHint(SDL_HINT_FILE_DIALOG_DRIVER, "zenity");
+
+  // Shared, so a chooser that answers after the wait gives up still has somewhere to write.
+  auto answered = std::make_shared<std::promise<FileDialogResult>>();
+  std::future<FileDialogResult> result = answered->get_future();
+  editor::makeSdlFileDialogBackend(nullptr)->show(
+      {.mode = FileDialogMode::OpenFile},
+      [answered](FileDialogResult picked) { answered->set_value(std::move(picked)); });
+  const bool ready = result.wait_for(std::chrono::seconds{10}) == std::future_status::ready;
+
+  setenv("PATH", oldPath.c_str(), 1);
+  SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "PATH", oldPath.c_str(), true);
+  SDL_ResetHint(SDL_HINT_FILE_DIALOG_DRIVER);
+  REQUIRE(ready);
+  const FileDialogResult cancelled = result.get();
+  CHECK(cancelled.kind == FileDialogResult::Kind::Cancelled);
+  CHECK(cancelled.path.empty());
+}
+#endif

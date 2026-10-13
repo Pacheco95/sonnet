@@ -26,7 +26,8 @@ void SDLCALL onSdlResult(void *userdata, const char *const *files, int) {
     if (result.error.empty()) {
       result.error = "the file chooser failed";
     }
-  } else if (files[0] == nullptr) {
+  } else if (files[0] == nullptr || files[0][0] == '\0') {
+    // SDL's zenity backend reports a cancel as one empty path rather than an empty list.
     result.kind = FileDialogResult::Kind::Cancelled;
   } else {
     result.kind = FileDialogResult::Kind::Picked;
