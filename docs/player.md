@@ -244,12 +244,23 @@ Installing to a device and reading its files back is `xcrun devicectl` rather th
 cmake --build --preset ios-debug -- -allowProvisioningUpdates -allowProvisioningDeviceRegistration
 xcrun devicectl device install app --device <device-id> \
   build/ios-debug/apps/player/Debug-iphoneos/sonnet_player.app
-xcrun devicectl device process launch --console --device <device-id> io.github.pacheco95.sonnet --scene scenes/playground.scene.json
+xcrun devicectl device process launch --console --terminate-existing --device <device-id> io.github.pacheco95.sonnet --scene scenes/playground.scene.json
 xcrun devicectl device copy from --device <device-id> --domain-type appDataContainer --domain-identifier io.github.pacheco95.sonnet \
   --source "Library/Application Support/sonnet/player/screenshot.png" --destination screenshot.png
 ```
 
 `Platform::prefPath("sonnet", "player")` is `Library/Application Support/sonnet/player/` inside the app's data container on iOS, the same path a capture run's relative output resolves against ([Capture runs](#capture-runs)). `devicectl device process launch`'s trailing arguments arrive the same way `am start`'s `args` extra does on Android, split on whitespace. Reporting a device run follows ADR-0018's six checks the same way Android's does ([Reporting a device run](#reporting-a-device-run)): the Vulkan description comes from the device-selection log line instead of `adb shell cmd gpu vkjson`, and checks 4 and 5 (the lifecycle and touch) need a person's hand on the phone, since no host command sends it a touch or a trip to the background the way `adb shell input` and `adb shell input keyevent KEYCODE_HOME` do for Android. XCUITest, directly or through Appium's WebDriverAgent, can tap a physical device, but only from a code-signed UI-test runner installed on it, which the project does not have; whether its Home press works on a physical device is unconfirmed.
+
+**Repeated captures and measurements.** Use `--terminate-existing` for every iOS capture launch: it terminates an already-running player before starting a fresh process with the requested scene and capture arguments. `--console` alone does not guarantee that new arguments are applied to an existing process. For a ten-minute stress capture:
+
+```bash
+xcrun devicectl device process launch --console --terminate-existing --device <device-id> io.github.pacheco95.sonnet \
+  --scene scenes/stress.scene.json --play 600 --screenshot stress-sustained.png
+xcrun devicectl device copy from --device <device-id> --domain-type appDataContainer --domain-identifier io.github.pacheco95.sonnet \
+  --source "Library/Application Support/sonnet/player/stress-sustained.png" --destination stress-sustained.png
+```
+
+Keep the screen on and the player in the foreground throughout the run. Accept the measurement only when the operator or the retrieved capture confirms the expected stress grid, the current run writes its screenshot, and its log includes both `capture frame times over the last ...` and `exit ok` ([Capture runs](#capture-runs)). A console connection failure without those results is a failed measurement attempt and provides no evidence of stress-scene performance or thermal throttling. If the connection failure recurs with a fresh process kept in the foreground, investigate it separately ([issue 158](https://github.com/Pacheco95/sonnet/issues/158)).
 
 The build's real output path is `build/ios-<debug|release>/apps/player/<Debug|RelWithDebInfo>-iphoneos/sonnet_player.app`, and the commands above were confirmed against it, not just a hand-built `vkprobe`, by the runs [roadmap.md](roadmap.md#m10-ios-export) records: `agents/m10-mac-checks` (the build, the macOS export fix and signing) and `agents/m10-device-checks` (ADR-0018's six checks, on an iPhone 15 Pro Max).
 
