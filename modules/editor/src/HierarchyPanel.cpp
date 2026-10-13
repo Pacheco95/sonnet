@@ -289,8 +289,9 @@ void HierarchyPanel::acceptDrop(core::Uuid newParent) {
       const core::Uuid dragged{bytes};
       const flecs::entity entity = m_world.find(dragged);
       const flecs::entity parent = m_world.find(newParent);
-      const bool valid = entity && dragged != newParent && (!parent || !m_world.isDescendant(parent, entity)) &&
-                         m_world.parentOf(entity) != parent;
+      // Part of a prefab instance stays where the prefab puts it.
+      const bool valid = entity && !entity.has<world::PrefabSource>() && dragged != newParent &&
+                         (!parent || !m_world.isDescendant(parent, entity)) && m_world.parentOf(entity) != parent;
       if (valid) {
         m_commands.push(reparentCommand(dragged, newParent), m_world);
       }
@@ -353,10 +354,18 @@ void HierarchyPanel::drawContextMenu(flecs::entity entity) {
     ImGui::EndMenu();
   }
   ImGui::Separator();
-  if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
+  const bool part = entity.has<world::PrefabSource>();
+  if (m_world.isInstance(entity) && !part && ImGui::MenuItem("Make local")) {
+    m_commands.push(makeLocalCommand(m_world.uuidOf(entity)), m_world);
+  }
+  if (m_saveAsPrefab && !part && ImGui::MenuItem("Save as prefab")) {
+    m_saveAsPrefab(m_world.uuidOf(entity));
+  }
+  ImGui::Separator();
+  if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, !part)) {
     duplicateSelection();
   }
-  if (ImGui::MenuItem("Delete", "Del")) {
+  if (ImGui::MenuItem(part ? "Hide" : "Delete", "Del")) {
     deleteSelection();
   }
 }
@@ -382,8 +391,16 @@ void HierarchyPanel::deleteSelection() {
   std::vector<std::unique_ptr<ICommand>> commands;
   for (const core::Uuid uuid : m_selection.items()) {
     const flecs::entity entity = m_world.find(uuid);
-    if (!entity || entity.has<world::PrefabSource>()) {
-      continue; // part of a prefab instance, which comes back with the instance (ADR-0028)
+    if (!entity) {
+      continue;
+    }
+    if (entity.has<world::PrefabSource>()) {
+      // Part of a prefab instance, which would bring it back: hidden instead (ADR-0028).
+      if (!entity.has<world::Disabled>()) {
+        commands.push_back(componentCommand(uuid, "Disabled", std::nullopt, std::make_optional(nlohmann::json{}),
+                                            std::format("hide {}", nameOf(entity))));
+      }
+      continue;
     }
     const bool covered = std::ranges::any_of(m_selection.items(), [&](const core::Uuid &other) {
       const flecs::entity ancestor = m_world.find(other);
@@ -397,7 +414,7 @@ void HierarchyPanel::deleteSelection() {
     return;
   }
   const std::string description = commands.size() == 1 ? std::string{commands[0]->description()}
-                                                       : std::format("delete {} entities", commands.size());
+                                                       : std::format("delete or hide {} entities", commands.size());
   m_commands.push(compositeCommand(description, std::move(commands)), m_world);
   m_selection.clear();
 }

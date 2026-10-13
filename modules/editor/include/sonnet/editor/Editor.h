@@ -97,6 +97,10 @@ public:
   // (so the next start is quiet), logs a warning and leaves the starter scene.
   void reopenLastProject();
   [[nodiscard]] core::Result<void> createProject(const std::filesystem::path &directory, std::string name);
+  // "Save as prefab" (ADR-0028): writes the subtree under `entity` to a new file in the project's
+  // `prefabs` folder, named after the entity, loads it and replaces the subtree by an instance of
+  // it as one undoable command. Returns the file written.
+  [[nodiscard]] core::Result<std::filesystem::path> saveAsPrefab(core::Uuid entity);
   // Opens the scene in a tab of its own, or switches to the tab that already has it. A failure
   // leaves the current tab as it was.
   [[nodiscard]] core::Result<void> openScene(const std::filesystem::path &file);

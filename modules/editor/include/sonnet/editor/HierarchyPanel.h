@@ -36,6 +36,12 @@ public:
     m_assets = assets;
   }
 
+  // What "Save as prefab" does with an entity, which needs the project; without it the menu
+  // item is not offered.
+  void setSaveAsPrefab(std::function<void(core::Uuid)> saveAsPrefab) {
+    m_saveAsPrefab = std::move(saveAsPrefab);
+  }
+
   void draw(bool &open);
 
   // The context menu's creations, also used by the Edit menu. `parent` nil creates a root.
@@ -43,6 +49,8 @@ public:
   // An entity with a MeshRenderer of the given mesh asset, named after it.
   void createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent);
   void instantiatePrefab(flecs::entity prefab, core::Uuid parent);
+  // Deletes the outermost selected entities and hides the selected parts of prefab instances,
+  // which a scene cannot delete (ADR-0028).
   void deleteSelection();
   void duplicateSelection();
   // Opens or closes the entity and everything under it at the next draw; a nil `root` does it for the whole tree.
@@ -82,6 +90,7 @@ private:
   Selection &m_selection;
   CommandStack &m_commands;
   std::function<void()> m_focus;
+  std::function<void(core::Uuid)> m_saveAsPrefab;
   struct PendingOpen {
     core::Uuid root;
     bool open;

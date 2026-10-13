@@ -304,3 +304,41 @@ TEST_CASE("a prefab that contains itself is refused with the chain", "[world][pr
   REQUIRE(!world.find(b));
   REQUIRE(world.find(plain)); // the others still load
 }
+
+TEST_CASE("make local turns an instance into ordinary entities with the same identities", "[world][prefab][nested]") {
+  const Prefabs files;
+  json scene;
+  std::vector<core::Uuid> identities;
+  {
+    world::World world;
+    files.load(world);
+    const flecs::entity cart = world.instantiate(world.find(files.cart), "Cart 1");
+    const flecs::entity axle = childNamed(world, cart, "Axle");
+    childNamed(world, axle, "Hub").ensure<world::MeshRenderer>().color.r = 1.0f;
+    collect(world, cart, identities);
+
+    world.makeLocal(cart);
+    std::vector<core::Uuid> after;
+    collect(world, cart, after);
+    REQUIRE(after == identities);
+    REQUIRE(!world.isInstance(cart));
+    REQUIRE(!world.isInstance(axle)); // the instance inside goes local with it
+    for (const core::Uuid &uuid : after) {
+      REQUIRE(!world.find(uuid).has<world::PrefabSource>());
+    }
+    REQUIRE(cart.owns<world::Transform>());
+    REQUIRE(childNamed(world, axle, "Hub").get<world::MeshRenderer>().color.r == Approx(1.0f));
+    scene = world::saveScene(world);
+  }
+  // Saved whole, the entities load without the prefabs.
+  for (const json &entry : scene["entities"]) {
+    REQUIRE(!entry.contains("prefab"));
+    REQUIRE(!entry.contains("instanced"));
+  }
+  world::World world;
+  REQUIRE(world::loadScene(world, scene).has_value());
+  std::vector<core::Uuid> loaded;
+  collect(world, world.roots().front(), loaded);
+  REQUIRE(loaded == identities);
+  REQUIRE(world.find(identities.back()).get<world::MeshRenderer>().color.r == Approx(1.0f));
+}

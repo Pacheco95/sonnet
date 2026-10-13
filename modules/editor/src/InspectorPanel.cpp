@@ -462,7 +462,10 @@ void InspectorPanel::drawEntity(flecs::entity entity) {
     m_edit.reset(); // the selection changed under a pending edit
   }
   drawName(entity);
-  if (const flecs::entity prefab = m_world.prefabOf(entity)) {
+  const flecs::entity source = m_world.sourceOf(entity);
+  if (const flecs::entity instance = m_world.instanceOf(entity)) {
+    ImGui::TextDisabled("Part of %s", instance.get<world::Name>().value.c_str());
+  } else if (const flecs::entity prefab = m_world.prefabOf(entity)) {
     const world::Name *name = prefab.try_get<world::Name>();
     ImGui::TextDisabled("Instance of %s", name != nullptr ? name->value.c_str() : "prefab");
   }
@@ -470,8 +473,11 @@ void InspectorPanel::drawEntity(flecs::entity entity) {
   ImGui::Separator();
   for (const world::ComponentInfo &info : m_world.components()) {
     if (entity.has(info.id)) {
-      drawComponent(entity, info);
+      drawComponent(entity, source, info);
     }
+  }
+  if (source) {
+    drawRemovedComponents(entity, source);
   }
   ImGui::Spacing();
   drawAddComponent(entity);
@@ -492,10 +498,20 @@ void InspectorPanel::drawName(flecs::entity entity) {
   }
 }
 
-void InspectorPanel::drawComponent(flecs::entity entity, const world::ComponentInfo &info) {
+void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, const world::ComponentInfo &info) {
   const core::Uuid uuid = m_world.uuidOf(entity);
   const bool inherited = !entity.owns(info.id);
-  const std::string label = inherited ? std::format("{} (inherited)", info.name) : info.name;
+  // What differs from the prefab (ADR-0028): a part of an instance compared by value with its
+  // source, which reverting copies back or removes; an instance's own override of a component
+  // its prefab has, which reverting removes so the prefab's shows through. The transform places
+  // the instance and is its own.
+  const flecs::entity prefab = m_world.prefabOf(entity);
+  const bool changed = source ? m_world.differs(entity, source, info)
+                              : prefab && !inherited && prefab.has(info.id) && info.name != "Transform" &&
+                                    m_world.differs(entity, prefab, info);
+  const std::string label = inherited ? std::format("{} (inherited)", info.name)
+                            : changed ? std::format("{} (changed)", info.name)
+                                      : info.name;
   ImGui::PushID(info.name.c_str());
   // The transform is structural: every scene entity has one and it cannot be removed.
   bool keep = true;
@@ -506,6 +522,18 @@ void InspectorPanel::drawComponent(flecs::entity entity, const world::ComponentI
     m_commands.push(componentCommand(uuid, info.name, std::make_optional(before), std::nullopt,
                                      std::format("remove {}", info.name)),
                     m_world);
+    ImGui::PopID();
+    return;
+  }
+  if (opened && changed && ImGui::SmallButton("Revert to prefab")) {
+    const nlohmann::json before = info.tag ? nlohmann::json{} : m_world.componentToJson(entity, info.id);
+    std::optional<nlohmann::json> after;
+    if (source && source.has(info.id)) {
+      after = info.tag ? nlohmann::json{} : m_world.componentToJson(source, info.id);
+    }
+    m_commands.push(
+        componentCommand(uuid, info.name, std::make_optional(before), after, std::format("revert {}", info.name)),
+        m_world);
     ImGui::PopID();
     return;
   }
@@ -557,6 +585,25 @@ void InspectorPanel::drawComponent(flecs::entity entity, const world::ComponentI
     }
   }
   ImGui::PopID();
+}
+
+void InspectorPanel::drawRemovedComponents(flecs::entity entity, flecs::entity source) {
+  for (const world::ComponentInfo &info : m_world.components()) {
+    if (entity.has(info.id) || !source.has(info.id)) {
+      continue;
+    }
+    ImGui::PushID(info.name.c_str());
+    ImGui::TextDisabled("%s (removed)", info.name.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Restore")) {
+      m_commands.push(
+          componentCommand(m_world.uuidOf(entity), info.name, std::nullopt,
+                           std::make_optional(info.tag ? nlohmann::json{} : m_world.componentToJson(source, info.id)),
+                           std::format("restore {}", info.name)),
+          m_world);
+    }
+    ImGui::PopID();
+  }
 }
 
 void InspectorPanel::drawAddComponent(flecs::entity entity) {

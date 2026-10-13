@@ -84,7 +84,7 @@ public:
   [[nodiscard]] std::vector<flecs::entity> children(flecs::entity entity) const;
   [[nodiscard]] bool isDescendant(flecs::entity entity, flecs::entity ancestor) const;
   // The descendant of `root` at a path of names joined by '/' ("Hips/Spine"), taking the first
-  // child of each name in id order; null when a name is missing, `root` for an empty path.
+  // child of each name in sibling order; null when a name is missing, `root` for an empty path.
   [[nodiscard]] flecs::entity findByPath(flecs::entity root, std::string_view path) const;
   // The world matrix from the hierarchy's local transforms, current even between runs of the
   // transform system.
@@ -119,6 +119,15 @@ public:
   // The instance whose identity `descendant`'s is derived from: its nearest ancestor that is an
   // instance and not itself a copy. Null when `descendant` has no PrefabSource.
   [[nodiscard]] flecs::entity instanceOf(flecs::entity descendant) const;
+  // The prefab entity an instance's descendant was copied from; null for any other entity.
+  [[nodiscard]] flecs::entity sourceOf(flecs::entity descendant) const;
+  // Whether `entity` has `component` where `source` has not, or holds a different value: what a
+  // scene stores of an instance's descendant and what the inspector marks as changed.
+  [[nodiscard]] bool differs(flecs::entity entity, flecs::entity source, const ComponentInfo &component) const;
+  // Turns an instance into ordinary entities ("Make local"): the instance and every instance copied
+  // inside it take their own copy of each component they inherit and drop their IsA, and their
+  // descendants drop their PrefabSource. Every entity keeps its identity.
+  void makeLocal(flecs::entity instance);
 
   // Registers a component with reflection under the name scene files use, inherited by prefab
   // instances; the caller adds the members on the returned component. `tag` for a component

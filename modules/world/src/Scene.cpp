@@ -54,12 +54,9 @@ json saveInstanced(const World &world, flecs::entity entity, flecs::entity sourc
   json components = json::object();
   json removed = json::array();
   for (const ComponentInfo &component : world.components()) {
-    const bool has = entity.has(component.id);
-    const bool had = source.has(component.id);
-    if (has && (!had || (!component.tag &&
-                         world.componentToJson(entity, component.id) != world.componentToJson(source, component.id)))) {
+    if (world.differs(entity, source, component)) {
       components[component.name] = component.tag ? json{} : world.componentToJson(entity, component.id);
-    } else if (!has && had) {
+    } else if (!entity.has(component.id) && source.has(component.id)) {
       removed.push_back(component.name);
     }
   }
@@ -85,13 +82,12 @@ json saveInstanced(const World &world, flecs::entity entity, flecs::entity sourc
 // added under them whole.
 void saveInstanceChildren(const World &world, flecs::entity node, json &entities, bool prefab) {
   for (const flecs::entity child : world.children(node)) {
-    const PrefabSource *source = child.try_get<PrefabSource>();
-    if (source == nullptr) {
+    if (!child.has<PrefabSource>()) {
       saveSubtree(world, child, node, entities, prefab);
       continue;
     }
-    if (const flecs::entity origin = world.find(source->uuid)) {
-      if (json entry = saveInstanced(world, child, origin); !entry.is_null()) {
+    if (const flecs::entity source = world.sourceOf(child)) {
+      if (json entry = saveInstanced(world, child, source); !entry.is_null()) {
         entities.push_back(std::move(entry));
       }
     }

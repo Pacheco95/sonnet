@@ -509,6 +509,47 @@ flecs::entity World::instanceOf(flecs::entity descendant) const {
   return {};
 }
 
+flecs::entity World::sourceOf(flecs::entity descendant) const {
+  const PrefabSource *source = descendant ? descendant.try_get<PrefabSource>() : nullptr;
+  return source != nullptr ? find(source->uuid) : flecs::entity{};
+}
+
+bool World::differs(flecs::entity entity, flecs::entity source, const ComponentInfo &component) const {
+  if (!entity.has(component.id)) {
+    return false;
+  }
+  if (!source.has(component.id)) {
+    return true;
+  }
+  return !component.tag && componentToJson(entity, component.id) != componentToJson(source, component.id);
+}
+
+void World::makeLocal(flecs::entity instance) {
+  SONNET_ASSERT(isInstance(instance) && !instance.has<PrefabSource>(), "making local what is not an instance");
+  // Collected first: instanceOf reads the links this removes.
+  std::vector<flecs::entity> entities{instance};
+  const auto collect = [&](const auto &self, flecs::entity node) -> void {
+    for (const flecs::entity child : children(node)) {
+      if (instanceOf(child) == instance) {
+        entities.push_back(child);
+        self(self, child);
+      }
+    }
+  };
+  collect(collect, instance);
+  for (const flecs::entity entity : entities) {
+    if (const flecs::entity base = entity.target(flecs::IsA)) {
+      for (const ComponentInfo &component : m_components) {
+        if (entity.has(component.id) && !entity.owns(component.id)) {
+          entity.add(component.id); // an override, initialised from the inherited value
+        }
+      }
+      entity.remove(flecs::IsA, base);
+    }
+    entity.remove<PrefabSource>();
+  }
+}
+
 const ComponentInfo *World::findComponent(std::string_view name) const {
   const auto it = std::ranges::find(m_components, name, &ComponentInfo::name);
   return it != m_components.end() ? &*it : nullptr;

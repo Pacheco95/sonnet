@@ -339,6 +339,45 @@ private:
   std::string m_description;
 };
 
+class MakeLocalCommand final : public ICommand {
+public:
+  explicit MakeLocalCommand(core::Uuid instance) : m_instance(instance) {
+  }
+
+  void apply(world::World &world) override {
+    const flecs::entity entity = require(world, m_instance, "make local");
+    if (!entity) {
+      return;
+    }
+    m_description = std::format("make {} local", entity.get<world::Name>().value);
+    m_snapshot = world::saveSubtree(world, entity);
+    m_parent = world.uuidOf(world.parentOf(entity));
+    world.makeLocal(entity);
+  }
+  bool reapply(world::World &world) override {
+    const flecs::entity entity = world.find(m_instance);
+    if (!entity || !world.isInstance(entity) || entity.has<world::PrefabSource>()) {
+      return false;
+    }
+    apply(world);
+    return true;
+  }
+  // The local entities make way for the instance as it was saved, with the same identities.
+  void revert(world::World &world) override {
+    world.destroyEntity(require(world, m_instance, m_description));
+    restoreSubtree(world, m_snapshot, m_parent, m_description);
+  }
+  std::string_view description() const override {
+    return m_description.empty() ? std::string_view{"make local"} : std::string_view{m_description};
+  }
+
+private:
+  core::Uuid m_instance;
+  core::Uuid m_parent;
+  json m_snapshot;
+  std::string m_description;
+};
+
 class InstantiatePrefabCommand final : public ICommand {
 public:
   InstantiatePrefabCommand(core::Uuid prefab, std::string name, core::Uuid parent, core::Uuid uuid)
@@ -447,6 +486,23 @@ std::unique_ptr<ICommand> componentCommand(core::Uuid entity, std::string compon
 std::unique_ptr<ICommand> instantiatePrefabCommand(core::Uuid prefab, std::string name, core::Uuid parent,
                                                    core::Uuid uuid) {
   return std::make_unique<InstantiatePrefabCommand>(prefab, std::move(name), parent, uuid);
+}
+
+std::unique_ptr<ICommand> makeLocalCommand(core::Uuid instance) {
+  return std::make_unique<MakeLocalCommand>(instance);
+}
+
+json prefabFromSubtree(const world::World &world, core::Uuid entity) {
+  return withFreshIdentities(world, world::saveSubtree(world, world.find(entity)), {});
+}
+
+std::unique_ptr<ICommand> replaceWithInstanceCommand(const world::World &world, core::Uuid entity, core::Uuid prefab) {
+  const flecs::entity original = world.find(entity);
+  const std::string name = original.get<world::Name>().value;
+  std::vector<std::unique_ptr<ICommand>> steps;
+  steps.push_back(deleteEntityCommand(entity));
+  steps.push_back(instantiatePrefabCommand(prefab, name, world.uuidOf(world.parentOf(original)), entity));
+  return compositeCommand(std::format("save {} as a prefab", name), std::move(steps));
 }
 
 std::unique_ptr<ICommand> compositeCommand(std::string description, std::vector<std::unique_ptr<ICommand>> commands) {
