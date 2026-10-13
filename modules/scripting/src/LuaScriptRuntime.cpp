@@ -1192,6 +1192,10 @@ private:
           }
           return children;
         },
+        "child",
+        [this](const LuaEntity &entity, std::string_view path, sol::this_state state) {
+          return entityObject(path.empty() ? flecs::entity{} : m_world.findByPath(alive(state, entity), path));
+        },
         "worldPosition",
         [this](const LuaEntity &entity, sol::this_state state) {
           return makeVec3(glm::vec3{world::World::worldMatrix(alive(state, entity))[3]});
