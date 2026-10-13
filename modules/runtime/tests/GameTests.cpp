@@ -14,6 +14,7 @@
 #include <sonnet/rhi/NullDevice.h>
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/world/Components.h>
+#include <sonnet/world/DrawList.h>
 #include <sonnet/world/Scene.h>
 
 #include <catch2/catch_approx.hpp>
@@ -721,6 +722,18 @@ TEST_CASE("the playground's pallet of crates keeps its changes from a project an
     REQUIRE(!world.findByPath(pallet, "Crate A").has<world::Disabled>());
     REQUIRE(changed(world::saveScene(world)) == changed(authored));
     game.update(1.0f / 60.0f);
+    // Hiding Crate C hides its lid too, which only the crate's own tag says.
+    std::vector<renderer::DrawItem> draws;
+    std::vector<glm::mat4> joints;
+    std::vector<float> morphWeights;
+    world::buildDrawList(world, game.assets(), draws, joints, morphWeights);
+    const auto drawn = [&](std::string_view path) {
+      return std::ranges::contains(draws, world::World::pickId(world.findByPath(pallet, path)),
+                                   &renderer::DrawItem::id);
+    };
+    REQUIRE(drawn("Crate A/Lid"));
+    REQUIRE(!drawn("Crate C"));
+    REQUIRE(!drawn("Crate C/Lid"));
   };
   {
     runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};

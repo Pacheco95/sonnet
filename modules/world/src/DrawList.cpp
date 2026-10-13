@@ -4,14 +4,25 @@
 
 namespace sonnet::world {
 
+namespace {
+
+// The entities with `Components` that are shown: an entity is hidden by its own Disabled tag or
+// by an ancestor's, so hiding a part of an instance hides what is under it too (ADR-0028).
+template <typename... Components> flecs::query<Components...> shown(const World &world) {
+  return world.ecs().query_builder<Components...>().template without<Disabled>().self().up(flecs::ChildOf).build();
+}
+
+} // namespace
+
 void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vector<renderer::DrawItem> &draws,
                    std::vector<glm::mat4> &joints, std::vector<float> &morphWeights) {
   SONNET_ZONE();
   draws.clear();
   joints.clear();
   morphWeights.clear();
-  world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const MeshRenderer &meshRenderer) {
-    if (!meshRenderer.visible || entity.has<Disabled>()) {
+  const auto meshes = shown<const WorldTransform, const MeshRenderer>(world);
+  meshes.each([&](flecs::entity entity, const WorldTransform &transform, const MeshRenderer &meshRenderer) {
+    if (!meshRenderer.visible) {
       return;
     }
     // Requested rather than loaded: an asset that is not in memory yet imports on the job system
@@ -68,10 +79,8 @@ void buildParticleList(const World &world, assets::AssetDatabase &assets,
   SONNET_ZONE();
   emitters.clear();
   const bool playing = world.isPlaying();
-  world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const ParticleEmitter &emitter) {
-    if (entity.has<Disabled>()) {
-      return;
-    }
+  const auto particles = shown<const WorldTransform, const ParticleEmitter>(world);
+  particles.each([&](flecs::entity entity, const WorldTransform &transform, const ParticleEmitter &emitter) {
     emitters.push_back(
         {.key = entity.id(),
          .transform = transform.matrix,
@@ -100,10 +109,8 @@ void buildParticleList(const World &world, assets::AssetDatabase &assets,
 void buildLightList(const World &world, std::vector<renderer::Light> &lights) {
   SONNET_ZONE();
   lights.clear();
-  world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const PointLight &light) {
-    if (entity.has<Disabled>()) {
-      return;
-    }
+  const auto points = shown<const WorldTransform, const PointLight>(world);
+  points.each([&](const WorldTransform &transform, const PointLight &light) {
     lights.push_back(renderer::Light{.type = renderer::LightType::Point,
                                      .position = glm::vec3{transform.matrix[3]},
                                      .color = light.color,
@@ -111,10 +118,8 @@ void buildLightList(const World &world, std::vector<renderer::Light> &lights) {
                                      .range = light.range,
                                      .castsShadows = light.castsShadows});
   });
-  world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const SpotLight &light) {
-    if (entity.has<Disabled>()) {
-      return;
-    }
+  const auto spots = shown<const WorldTransform, const SpotLight>(world);
+  spots.each([&](const WorldTransform &transform, const SpotLight &light) {
     lights.push_back(renderer::Light{
         .type = renderer::LightType::Spot,
         .position = glm::vec3{transform.matrix[3]},
@@ -131,8 +136,9 @@ void buildLightList(const World &world, std::vector<renderer::Light> &lights) {
 
 std::optional<renderer::DirectionalLight> sceneLight(const World &world) {
   std::optional<renderer::DirectionalLight> result;
-  world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const DirectionalLight &light) {
-    if (result || entity.has<Disabled>()) {
+  const auto suns = shown<const WorldTransform, const DirectionalLight>(world);
+  suns.each([&](const WorldTransform &transform, const DirectionalLight &light) {
+    if (result) {
       return;
     }
     result = renderer::DirectionalLight{.direction =
@@ -145,8 +151,8 @@ std::optional<renderer::DirectionalLight> sceneLight(const World &world) {
 
 std::optional<renderer::Camera> sceneCamera(const World &world) {
   std::optional<renderer::Camera> result;
-  world.ecs().each([&](flecs::entity entity, const WorldTransform &transform, const Camera &camera) {
-    if (result || entity.has<Disabled>()) {
+  shown<const WorldTransform, const Camera>(world).each([&](const WorldTransform &transform, const Camera &camera) {
+    if (result) {
       return;
     }
     const Transform placed = Transform::fromMatrix(transform.matrix);
@@ -164,8 +170,8 @@ renderer::Camera fallbackCamera() {
 
 std::optional<SceneEnvironment> sceneEnvironment(const World &world, assets::AssetDatabase &assets) {
   std::optional<SceneEnvironment> result;
-  world.ecs().each([&](flecs::entity entity, const Environment &environment) {
-    if (result || entity.has<Disabled>()) {
+  shown<const Environment>(world).each([&](const Environment &environment) {
+    if (result) {
       return;
     }
     if (const renderer::EnvironmentHandle handle = assets.environment(environment.map)) {

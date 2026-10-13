@@ -220,6 +220,6 @@ struct Spin {
 
 struct Static {};
 struct EditorOnly {}; // never serialized into scenes
-struct Disabled {};   // skipped by the draw list and the simulation systems
+struct Disabled {};   // the draw list skips it and its subtree, the simulation systems it alone
 
 } // namespace sonnet::world

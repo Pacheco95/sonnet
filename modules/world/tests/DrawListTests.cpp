@@ -64,6 +64,37 @@ TEST_CASE("the draw list resolves every visible mesh renderer through the databa
   REQUIRE(world.fromPickId(boxDraw->id) == box);
 }
 
+TEST_CASE("a disabled entity hides its subtree from the draw and light lists", "[world][drawlist]") {
+  Fixture fixture;
+  world::World &world = fixture.world;
+  std::vector<renderer::DrawItem> draws;
+  std::vector<glm::mat4> joints;
+  std::vector<float> morphWeights;
+  std::vector<renderer::Light> lights;
+
+  // A hidden part of an instance keeps its children, which must go with it (ADR-0028).
+  const flecs::entity crate = world.createEntity("Crate");
+  crate.set<world::MeshRenderer>({.mesh = assets::builtin::box()});
+  const flecs::entity lid = world.createEntity("Lid", crate);
+  lid.set<world::MeshRenderer>({.mesh = assets::builtin::box()});
+  const flecs::entity lamp = world.createEntity("Lamp", lid);
+  lamp.set<world::PointLight>({});
+  crate.add<world::Disabled>();
+  world.progress(0.016f);
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
+  world::buildLightList(world, lights);
+  REQUIRE(draws.empty());
+  REQUIRE(lights.empty());
+
+  // Shown again, the whole subtree draws.
+  crate.remove<world::Disabled>();
+  world.progress(0.016f);
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
+  world::buildLightList(world, lights);
+  REQUIRE(draws.size() == 2);
+  REQUIRE(lights.size() == 1);
+}
+
 TEST_CASE("a draw item carries the world matrix of the frame before", "[world][drawlist]") {
   Fixture fixture;
   world::World &world = fixture.world;
