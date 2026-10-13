@@ -26,7 +26,7 @@ struct Flag {
   bool ViewState::*member;
 };
 
-constexpr std::array<Flag, 10> Flags{{
+constexpr std::array<Flag, 11> Flags{{
     {"Viewport", &ViewState::viewport},
     {"Game", &ViewState::game},
     {"Hierarchy", &ViewState::hierarchy},
@@ -37,6 +37,7 @@ constexpr std::array<Flag, 10> Flags{{
     {"Overlay", &ViewState::overlay},
     {"Colliders", &ViewState::colliders},
     {"LightGizmos", &ViewState::lightGizmos},
+    {"CameraGizmos", &ViewState::cameraGizmos},
 }};
 
 bool iequals(std::string_view a, std::string_view b) noexcept {
