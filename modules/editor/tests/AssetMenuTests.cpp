@@ -42,11 +42,13 @@ TEST_CASE("sortAssetRows orders the asset browser by a column", "[editor][assets
       makeAsset(AssetType::Material, "builtin", "Default"),
   };
   std::vector<AssetRow> rows;
+  rows.reserve(infos.size());
   for (const AssetInfo &info : infos) {
     rows.push_back({&info, assetSourceLabel(info, root)});
   }
   const auto names = [&] {
     std::vector<std::string> result;
+    result.reserve(rows.size());
     for (const AssetRow &row : rows) {
       result.push_back(row.info->name);
     }
