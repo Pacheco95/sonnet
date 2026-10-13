@@ -195,6 +195,33 @@ TEST_CASE("the scene light and camera come from their entities' transforms", "[w
   REQUIRE(view->nearPlane == Approx(0.5f));
 }
 
+TEST_CASE("the camera list holds every shown camera, the scene camera first", "[world][drawlist]") {
+  world::World world;
+  std::vector<renderer::Camera> cameras;
+  world::buildCameraList(world, cameras);
+  REQUIRE(cameras.empty());
+
+  const flecs::entity main = world.createEntity("Main");
+  main.set<world::Camera>({.fovY = glm::radians(50.0f)});
+  main.set<world::Transform>({.position = {0.0f, 1.0f, 5.0f}});
+  const flecs::entity rig = world.createEntity("Rig");
+  rig.set<world::Transform>({.position = {2.0f, 0.0f, 0.0f}});
+  const flecs::entity second = world.createEntity("Second", rig);
+  second.set<world::Camera>({.nearPlane = 0.5f});
+  world.progress(0.016f);
+  world::buildCameraList(world, cameras);
+  REQUIRE(cameras.size() == 2);
+  REQUIRE(cameras.front().position == world::sceneCamera(world)->position);
+  REQUIRE(cameras[1].position == glm::vec3{2.0f, 0.0f, 0.0f});
+  REQUIRE(cameras[1].nearPlane == Approx(0.5f));
+
+  // A hidden parent hides the camera under it.
+  rig.add<world::Disabled>();
+  world.progress(0.016f);
+  world::buildCameraList(world, cameras);
+  REQUIRE(cameras.size() == 1);
+}
+
 TEST_CASE("the scene environment needs a loadable map", "[world][drawlist]") {
   Fixture fixture;
   world::World &world = fixture.world;
