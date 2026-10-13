@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "entities": [
     {
       "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000001",
@@ -1880,6 +1880,91 @@
         }
       },
       "parent": "d0e135fe-86a7-5097-a6c7-697d6df115ee"
+    },
+    {
+      "uuid": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d10",
+      "name": "Pallet",
+      "prefab": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d01",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 7.0,
+            "y": 0.0,
+            "z": -7.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "94d6cacd-b68e-8078-b3c6-a50e8b0dd776",
+      "instanced": true,
+      "components": {
+        "MeshRenderer": {
+          "mesh": "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.9,
+            "y": 0.2,
+            "z": 0.15,
+            "w": 1.0
+          },
+          "visible": true
+        }
+      }
+    },
+    {
+      "uuid": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d11",
+      "name": "Lantern",
+      "parent": "3e0df5e1-9897-8f0a-b124-d135756e9577",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 0.35,
+            "y": 0.35,
+            "z": 0.35
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "fe3d3b79-c4ee-8f48-8944-6b1596b2c621",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 1.0,
+            "y": 0.85,
+            "z": 0.4,
+            "w": 1.0
+          },
+          "visible": true
+        }
+      }
+    },
+    {
+      "uuid": "f10ef5e1-9898-8f0a-be22-d135756d9577",
+      "instanced": true,
+      "components": {
+        "Disabled": null
+      }
     }
   ]
 }
