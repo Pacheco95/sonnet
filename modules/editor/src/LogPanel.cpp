@@ -64,6 +64,14 @@ bool containsCaseInsensitive(std::string_view text, std::string_view needle) {
 
 } // namespace
 
+std::string formatLogEntry(const LogEntry &entry) {
+  if (entry.file.empty()) {
+    return std::format("{} [{}] [{}] {}", entry.time, levelName(entry.level), entry.module, entry.message);
+  }
+  return std::format("{} [{}] [{}] {}:{} {}", entry.time, levelName(entry.level), entry.module, entry.file, entry.line,
+                     entry.message);
+}
+
 void LogBuffer::log(const spdlog::details::log_msg &msg) {
   // spdlog's localtime rather than std::chrono's time zones, which Apple's libc++ lacks.
   const std::tm local = spdlog::details::os::localtime(std::chrono::system_clock::to_time_t(msg.time));
@@ -82,6 +90,7 @@ void LogBuffer::log(const spdlog::details::log_msg &msg) {
   if (m_entries.size() >= Capacity) {
     m_entries.pop_front();
   }
+  entry.sequence = m_sequence++;
   m_entries.push_back(std::move(entry));
   ++m_revision;
 }
@@ -118,6 +127,14 @@ void LogPanel::draw(bool &open) {
   if (const std::uint64_t revision = m_buffer->revision(); revision != m_revision) {
     m_entries = m_buffer->snapshot();
     m_revision = revision;
+    // Entries that rolled out of the buffer or were cleared leave the selection too.
+    ImGuiSelectionBasicStorage kept;
+    for (const LogEntry &entry : m_entries) {
+      if (m_selection.Contains(static_cast<ImGuiID>(entry.sequence))) {
+        kept.SetItemSelected(static_cast<ImGuiID>(entry.sequence), true);
+      }
+    }
+    m_selection.Swap(kept);
   }
 
   constexpr const char *levels[] = {"trace", "debug", "info", "warn", "error", "critical"};
@@ -133,14 +150,37 @@ void LogPanel::draw(bool &open) {
     m_buffer->clear();
   }
 
+  // The menu belongs to the Log window rather than the entries: a popup inside the multi-select
+  // scope counts as part of it, and a click on the menu would clear the selection and close it.
+  const ImGuiID menu = ImGui::GetID("##log-menu");
   if (ImGui::BeginChild("entries", ImVec2{0.0f, 0.0f}, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
-    int index = 0;
+    m_rows.clear();
     for (const LogEntry &entry : m_entries) {
-      if (static_cast<int>(entry.level) < m_minimumLevel ||
-          !(containsCaseInsensitive(entry.message, m_filter) || containsCaseInsensitive(entry.module, m_filter))) {
-        continue;
+      if (visible(entry)) {
+        m_rows.push_back(&entry);
       }
-      ImGui::PushID(index++);
+    }
+    // Rows are selected by the entry's sequence number, so the selection survives new entries,
+    // the oldest ones rolling out and the filters hiding rows.
+    constexpr ImGuiMultiSelectFlags flags = ImGuiMultiSelectFlags_ClearOnEscape |
+                                            ImGuiMultiSelectFlags_ClearOnClickVoid | ImGuiMultiSelectFlags_BoxSelect1d;
+    ImGuiMultiSelectIO *requests = ImGui::BeginMultiSelect(flags, m_selection.Size, static_cast<int>(m_rows.size()));
+    m_selection.UserData = &m_rows;
+    m_selection.AdapterIndexToStorageId = [](ImGuiSelectionBasicStorage *self, int index) {
+      const auto &rows = *static_cast<std::vector<const LogEntry *> *>(self->UserData);
+      return static_cast<ImGuiID>(rows[static_cast<std::size_t>(index)]->sequence);
+    };
+    m_selection.ApplyRequests(requests);
+    for (int index = 0; index < static_cast<int>(m_rows.size()); ++index) {
+      const LogEntry &entry = *m_rows[static_cast<std::size_t>(index)];
+      const auto id = static_cast<ImGuiID>(entry.sequence);
+      ImGui::PushID(static_cast<int>(id));
+      // The row's selectable spans the line under the text; AllowOverlap lets the location link
+      // drawn over it take its own clicks.
+      const float rowStart = ImGui::GetCursorPosX();
+      ImGui::SetNextItemSelectionUserData(index);
+      ImGui::Selectable("##row", m_selection.Contains(id), ImGuiSelectableFlags_AllowOverlap);
+      ImGui::SameLine(rowStart);
       ImGui::PushStyleColor(ImGuiCol_Text, levelColor(entry.level));
       ImGui::TextUnformatted(entry.time.c_str());
       ImGui::SameLine();
@@ -162,12 +202,66 @@ void LogPanel::draw(bool &open) {
       ImGui::PopStyleColor();
       ImGui::PopID();
     }
+    m_selection.ApplyRequests(ImGui::EndMultiSelect());
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C)) {
+      copySelection();
+    }
+    if (ImGui::IsWindowHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+      ImGui::OpenPopup(menu);
+    }
     if (m_autoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f) {
       ImGui::SetScrollHereY(1.0f);
     }
   }
   ImGui::EndChild();
+  drawContextMenu();
   ImGui::End();
+}
+
+bool LogPanel::visible(const LogEntry &entry) const {
+  return static_cast<int>(entry.level) >= m_minimumLevel &&
+         (containsCaseInsensitive(entry.message, m_filter) || containsCaseInsensitive(entry.module, m_filter));
+}
+
+void LogPanel::drawContextMenu() {
+  if (!ImGui::BeginPopup("##log-menu")) {
+    return;
+  }
+  if (ImGui::MenuItem("Copy", "Ctrl+C", false, !selectionText().empty())) {
+    copySelection();
+  }
+  if (ImGui::MenuItem("Copy all")) {
+    copyAll();
+  }
+  ImGui::EndPopup();
+}
+
+std::string LogPanel::selectionText() const {
+  std::string text;
+  for (const LogEntry &entry : m_entries) {
+    if (m_selection.Contains(static_cast<ImGuiID>(entry.sequence)) && visible(entry)) {
+      text += formatLogEntry(entry);
+      text += '\n';
+    }
+  }
+  return text;
+}
+
+void LogPanel::copySelection() const {
+  if (const std::string text = selectionText(); !text.empty()) {
+    ImGui::SetClipboardText(text.c_str());
+  }
+}
+
+void LogPanel::copyAll() const {
+  std::string text;
+  for (const LogEntry &entry : m_entries) {
+    if (visible(entry)) {
+      text += formatLogEntry(entry);
+      text += '\n';
+    }
+  }
+  ImGui::SetClipboardText(text.c_str());
 }
 
 } // namespace sonnet::editor
