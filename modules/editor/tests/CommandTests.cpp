@@ -3,6 +3,7 @@
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/EntityCommands.h>
+#include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/Selection.h>
 
 #include <sonnet/assets/AssetDatabase.h>
@@ -11,6 +12,7 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
 #include <sonnet/world/Components.h>
+#include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
 #include <catch2/catch_approx.hpp>
@@ -266,7 +268,7 @@ TEST_CASE("reparent and component commands restore exactly what they changed", "
 
   // Instantiation is a command too.
   const flecs::entity prefab = world.createEntity("Crate");
-  prefab.add(flecs::Prefab);
+  world.makePrefab(prefab);
   prefab.set<world::MeshRenderer>({});
   const core::Uuid instance = core::Uuid::generate();
   std::vector<std::unique_ptr<editor::ICommand>> batch;
@@ -370,4 +372,97 @@ TEST_CASE("a composite reapplies the parts it can and leaves the others alone", 
   none.push_back(editor::renameCommand(gone, "g", "G"));
   const auto onlyMissing = editor::compositeCommand("none", std::move(none));
   REQUIRE_FALSE(onlyMissing->reapply(world));
+}
+
+TEST_CASE("an instance's duplicate keeps what its descendants changed, under identities of its own",
+          "[editor][commands][prefab]") {
+  world::World world;
+  editor::CommandStack commands;
+  const flecs::entity prefab = world.createEntity("Cart");
+  world.createEntity("Wheel", prefab).set<world::MeshRenderer>({});
+  world.makePrefab(prefab);
+
+  // The command passes its identity to instantiate, so the children derive from it.
+  const core::Uuid uuid = core::Uuid::generate();
+  commands.push(editor::instantiatePrefabCommand(world.uuidOf(prefab), "Cart 1", {}, uuid), world);
+  const flecs::entity wheel = world.children(world.find(uuid))[0];
+  REQUIRE(world.uuidOf(wheel) == world::World::instancedIdentity(uuid, world.uuidOf(world.children(prefab)[0])));
+  wheel.ensure<world::MeshRenderer>().color.r = 0.25f;
+  world.createEntity("Lamp", wheel);
+
+  const core::Uuid copy = core::Uuid::generate();
+  commands.push(editor::duplicateEntityCommand(uuid, copy), world);
+  const flecs::entity copyWheel =
+      world.find(world::World::instancedIdentity(copy, wheel.get<world::PrefabSource>().uuid));
+  REQUIRE(copyWheel);
+  REQUIRE(world.parentOf(copyWheel) == world.find(copy));
+  REQUIRE(copyWheel.get<world::MeshRenderer>().color.r == Approx(0.25f));
+  REQUIRE(world.children(copyWheel).size() == 1); // the added child, under the copy's wheel
+  REQUIRE(world.children(wheel).size() == 1);
+  REQUIRE(commands.undo(world));
+  REQUIRE(!world.find(copy));
+}
+
+TEST_CASE("deleting part of an instance hides it, and make local is undone whole", "[editor][commands][prefab]") {
+  world::World world;
+  editor::CommandStack commands;
+  editor::Selection selection;
+  editor::HierarchyPanel hierarchy{world, selection, commands, [] {}};
+  const flecs::entity prefab = world.createEntity("Cart");
+  world.createEntity("Wheel", prefab).set<world::MeshRenderer>({});
+  world.makePrefab(prefab);
+  const flecs::entity cart = world.instantiate(prefab, "Cart 1");
+  const core::Uuid cartUuid = world.uuidOf(cart);
+  const flecs::entity wheel = world.children(cart)[0];
+  const core::Uuid wheelUuid = world.uuidOf(wheel);
+
+  // Delete hides the part, and the instance and the part are still there.
+  selection.select(wheelUuid);
+  hierarchy.deleteSelection();
+  REQUIRE(world.find(wheelUuid).has<world::Disabled>());
+  REQUIRE(commands.undo(world));
+  REQUIRE(!world.find(wheelUuid).has<world::Disabled>());
+  // Neither is a part duplicated.
+  selection.select(wheelUuid);
+  hierarchy.duplicateSelection();
+  REQUIRE(world.children(cart).size() == 1);
+  REQUIRE(world.roots().size() == 1);
+
+  commands.push(editor::makeLocalCommand(cartUuid), world);
+  REQUIRE(!world.isInstance(cart));
+  REQUIRE(!world.find(wheelUuid).has<world::PrefabSource>());
+  REQUIRE(commands.undo(world));
+  const flecs::entity restored = world.find(cartUuid);
+  REQUIRE(world.isInstance(restored));
+  REQUIRE(world.find(wheelUuid).has<world::PrefabSource>());
+  REQUIRE(commands.redo(world));
+  REQUIRE(!world.isInstance(world.roots().front()));
+}
+
+TEST_CASE("save as prefab replaces a subtree by an instance of it, and undo brings the subtree back",
+          "[editor][commands][prefab]") {
+  world::World world;
+  editor::CommandStack commands;
+  const flecs::entity cart = world.createEntity("Cart");
+  cart.set<world::Transform>({.position = {2.0f, 0.0f, 0.0f}});
+  world.createEntity("Wheel", cart).set<world::MeshRenderer>({.color = {0.25f, 0.0f, 0.0f, 1.0f}});
+  const core::Uuid uuid = world.uuidOf(cart);
+
+  const nlohmann::json document = editor::prefabFromSubtree(world, uuid);
+  REQUIRE(document["entities"].size() == 2);
+  REQUIRE(document["entities"][0]["uuid"] != uuid.toString());
+  const auto prefab = world::loadPrefab(world, document);
+  REQUIRE(prefab.has_value());
+  commands.push(editor::replaceWithInstanceCommand(world, uuid, world.uuidOf(*prefab)), world);
+  const flecs::entity instance = world.find(uuid);
+  REQUIRE(world.prefabOf(instance) == *prefab);
+  REQUIRE(instance.get<world::Name>().value == "Cart");
+  REQUIRE(instance.get<world::Transform>().position.x == Approx(2.0f));
+  REQUIRE(world.children(instance)[0].get<world::MeshRenderer>().color.r == Approx(0.25f));
+  REQUIRE(world.roots().size() == 1);
+  REQUIRE(commands.undo(world));
+  REQUIRE(!world.isInstance(world.find(uuid)));
+  REQUIRE(world.children(world.find(uuid)).size() == 1);
+  REQUIRE(commands.redo(world));
+  REQUIRE(world.isInstance(world.find(uuid)));
 }

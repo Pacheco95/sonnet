@@ -1,0 +1,160 @@
+{
+  "version": 4,
+  "entities": [
+    {
+      "uuid": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d01",
+      "name": "Pallet",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d02",
+      "name": "Base",
+      "parent": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d01",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.1,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 3.4,
+            "y": 0.2,
+            "z": 1.3
+          }
+        },
+        "MeshRenderer": {
+          "mesh": "a464f023-844b-8938-9df4-75487155e36d",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.45,
+            "y": 0.3,
+            "z": 0.18,
+            "w": 1.0
+          },
+          "visible": true
+        }
+      }
+    },
+    {
+      "uuid": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d03",
+      "name": "Crate A",
+      "parent": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d01",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": -1.1,
+            "y": 0.7,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d04",
+      "name": "Crate B",
+      "parent": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d01",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.7,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d05",
+      "name": "Crate C",
+      "parent": "5e1d0c4a-7b2f-4a19-8c3d-2a6f9b1e0d01",
+      "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
+      "components": {
+        "Transform": {
+          "position": {
+            "x": 1.1,
+            "y": 0.7,
+            "z": 0.0
+          },
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      }
+    },
+    {
+      "uuid": "7b664d20-fed7-8c37-b097-0a198d7aac3a",
+      "instanced": true,
+      "components": {
+        "MeshRenderer": {
+          "mesh": "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40",
+          "material": "00000000-0000-0000-0000-000000000000",
+          "color": {
+            "x": 0.25,
+            "y": 0.45,
+            "z": 0.9,
+            "w": 1.0
+          },
+          "visible": true
+        }
+      }
+    }
+  ]
+}

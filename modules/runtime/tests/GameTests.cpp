@@ -3,6 +3,7 @@
 
 #include <sonnet/assets/Bundle.h>
 #include <sonnet/assets/Cook.h>
+#include <sonnet/assets/Json.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
@@ -13,7 +14,9 @@
 #include <sonnet/rhi/NullDevice.h>
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/world/Components.h>
+#include <sonnet/world/Scene.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <spdlog/sinks/base_sink.h>
@@ -31,6 +34,7 @@
 #include <vector>
 
 using namespace sonnet;
+using Catch::Approx;
 
 namespace {
 
@@ -667,6 +671,67 @@ TEST_CASE("the playground's pickup is collected the same from a project and from
   };
   REQUIRE(picked(play(project)) == 1);
   REQUIRE(picked(play(out / "game.sbundle")) == 1);
+  std::filesystem::remove_all(out);
+}
+
+// M16's criterion (ADR-0028): the playground places a pallet, a prefab holding three instances of
+// the crate prefab and itself changing Crate B's lid. The scene turns Crate A's lid red, adds a
+// lantern under Crate B and hides Crate C, and all of it comes back from the project and from
+// the bundle, and saves again under the same derived identities.
+TEST_CASE("the playground's pallet of crates keeps its changes from a project and from a bundle",
+          "[runtime][samples][gpu][nested]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const std::filesystem::path out = std::filesystem::temp_directory_path() / "sonnet_runtime_pallet";
+  std::filesystem::remove_all(out);
+  const auto file = core::readFile(project / "scenes" / "playground.scene.json");
+  REQUIRE(file.has_value());
+  const nlohmann::json authored = assets::parseJson(*file);
+  // The identities a save writes for what the scene changed inside its instances.
+  const auto changed = [](const nlohmann::json &scene) {
+    std::vector<std::string> uuids;
+    for (const nlohmann::json &entry : scene["entities"]) {
+      if (entry.value("instanced", false) || entry.value("name", std::string{}) == "Lantern") {
+        uuids.push_back(entry["uuid"].get<std::string>() + entry.value("parent", std::string{}));
+      }
+    }
+    std::ranges::sort(uuids);
+    return uuids;
+  };
+  const auto check = [&](const std::filesystem::path &source) {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(source).has_value());
+    REQUIRE(game.openScene("scenes/playground.scene.json").has_value());
+    world::World &world = game.world();
+    flecs::entity pallet;
+    for (const flecs::entity root : world.roots()) {
+      if (root.get<world::Name>().value == "Pallet") {
+        pallet = root;
+      }
+    }
+    REQUIRE(world.isInstance(pallet));
+    REQUIRE(world.findByPath(pallet, "Crate A/Lid").get<world::MeshRenderer>().color.r == Approx(0.9f));
+    REQUIRE(world.findByPath(pallet, "Crate B/Lid").get<world::MeshRenderer>().color.b == Approx(0.9f));
+    REQUIRE(world.findByPath(pallet, "Crate C/Lid").get<world::MeshRenderer>().color.b == Approx(0.3f));
+    REQUIRE(world.findByPath(pallet, "Crate B/Lantern"));
+    REQUIRE(world.findByPath(pallet, "Crate C").has<world::Disabled>());
+    REQUIRE(!world.findByPath(pallet, "Crate A").has<world::Disabled>());
+    REQUIRE(changed(world::saveScene(world)) == changed(authored));
+    game.update(1.0f / 60.0f);
+  };
+  {
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(project).has_value());
+    const auto opened = assets::Project::open(project);
+    REQUIRE(opened.has_value());
+    REQUIRE(assets::cook(game.assets(), *opened, {.outputDirectory = out}).has_value());
+  }
+  REQUIRE(changed(authored).size() == 3);
+  check(project);
+  check(out / "game.sbundle");
   std::filesystem::remove_all(out);
 }
 

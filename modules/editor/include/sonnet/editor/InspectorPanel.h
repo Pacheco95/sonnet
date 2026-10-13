@@ -83,7 +83,9 @@ private:
   void drawSelection(flecs::entity entity);
   void drawEntity(flecs::entity entity);
   void drawName(flecs::entity entity);
-  void drawComponent(flecs::entity entity, const world::ComponentInfo &info);
+  // `source` is the prefab entity a part of an instance was copied from, null otherwise.
+  void drawComponent(flecs::entity entity, flecs::entity source, const world::ComponentInfo &info);
+  void drawRemovedComponents(flecs::entity entity, flecs::entity source);
   void drawAddComponent(flecs::entity entity);
   // The `Scripts` component: the slot list with its buttons and one widget per declared property.
   void drawScripts(flecs::entity entity);

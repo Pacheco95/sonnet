@@ -335,6 +335,8 @@ TEST_CASE("scripts find, create, instantiate and destroy entities", "[scripting]
       assert(p == vec3(5, 2, 0), tostring(p))
       local crate = world.instantiate("Crate")
       assert(crate:name() == "Crate" and crate:has("BoxCollider"))
+      assert(crate:child("Lid/Hinge"):name() == "Hinge")
+      assert(crate:child("Lid/Nothing") == nil and crate:child("") == nil)
       world.instantiate("Crate", "Second crate", self.entity)
       local ok, message = pcall(world.instantiate, "Unknown")
       assert(not ok and message:find("no prefab"), message)
@@ -347,7 +349,8 @@ TEST_CASE("scripts find, create, instantiate and destroy entities", "[scripting]
     return Spawner
   )lua"}};
   const flecs::entity prefab = fixture.world.createEntity("Crate");
-  prefab.add(flecs::Prefab);
+  fixture.world.createEntity("Hinge", fixture.world.createEntity("Lid", prefab));
+  fixture.world.makePrefab(prefab);
   prefab.set<physics::BoxCollider>({});
   const flecs::entity spawner = fixture.scripted("Spawner", "spawner.lua");
   spawner.set<world::Transform>({.position = {5.0f, 0.0f, 0.0f}});

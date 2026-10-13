@@ -1362,3 +1362,40 @@ TEST_CASE("the choices on the restore dialog", "[editor][gpu][recovery]") {
     REQUIRE(std::filesystem::exists(editor::Recovery::quarantineRoot(key)));
   }
 }
+
+TEST_CASE("save as prefab writes a prefab file the reopened project places again", "[editor][gpu][prefab]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("save-as-prefab");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Test").has_value());
+    world::World &world = editor.world();
+    core::Uuid box;
+    for (const flecs::entity root : world.roots()) {
+      if (root.get<world::Name>().value == "Box") {
+        box = world.uuidOf(root);
+      }
+    }
+    REQUIRE(!box.isNil());
+    world.createEntity("Lid", world.find(box));
+    const auto file = editor.saveAsPrefab(box);
+    REQUIRE(file.has_value());
+    REQUIRE(*file == directory / "prefabs" / "Box.prefab.json");
+    REQUIRE(std::filesystem::exists(*file));
+    REQUIRE(world.isInstance(world.find(box)));
+    REQUIRE(editor.saveAsPrefab(box).value() == directory / "prefabs" / "Box 2.prefab.json");
+    REQUIRE(editor.commands().undo(world)); // the second replacement
+    fixture.frame(editor);
+    REQUIRE(editor.saveScene().has_value());
+
+    REQUIRE(editor.openProject(directory).has_value());
+    const flecs::entity reopened = world.find(box);
+    REQUIRE(world.isInstance(reopened));
+    REQUIRE(world.children(reopened).size() == 1);
+    REQUIRE(world.children(reopened)[0].get<world::Name>().value == "Lid");
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}

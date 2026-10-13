@@ -495,7 +495,7 @@ TEST_CASE("every component round-trips through the scene file", "[gui][scene]") 
   panel.set<gui::GuiFit>({.padding = {5.0f, 6.0f, 7.0f, 8.0f}});
 
   const nlohmann::json saved = world::saveScene(f.world);
-  REQUIRE(saved["version"] == 3);
+  REQUIRE(saved["version"] == world::SceneVersion);
 
   Fixture other;
   REQUIRE(world::loadScene(other.world, saved).has_value());

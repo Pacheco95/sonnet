@@ -136,6 +136,9 @@ void HierarchyPanel::draw(bool &open) {
       drawNode(root);
     }
   }
+  if (m_afterTree) {
+    std::exchange(m_afterTree, nullptr)();
+  }
   // The rest of the window: a drop target for the root and the background context menu.
   const ImVec2 remaining = ImGui::GetContentRegionAvail();
   ImGui::InvisibleButton("background", ImVec2{std::max(remaining.x, 1.0f), std::max(remaining.y, 24.0f)});
@@ -289,8 +292,9 @@ void HierarchyPanel::acceptDrop(core::Uuid newParent) {
       const core::Uuid dragged{bytes};
       const flecs::entity entity = m_world.find(dragged);
       const flecs::entity parent = m_world.find(newParent);
-      const bool valid = entity && dragged != newParent && (!parent || !m_world.isDescendant(parent, entity)) &&
-                         m_world.parentOf(entity) != parent;
+      // Part of a prefab instance stays where the prefab puts it.
+      const bool valid = entity && !entity.has<world::PrefabSource>() && dragged != newParent &&
+                         (!parent || !m_world.isDescendant(parent, entity)) && m_world.parentOf(entity) != parent;
       if (valid) {
         m_commands.push(reparentCommand(dragged, newParent), m_world);
       }
@@ -353,11 +357,21 @@ void HierarchyPanel::drawContextMenu(flecs::entity entity) {
     ImGui::EndMenu();
   }
   ImGui::Separator();
-  if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
-    duplicateSelection();
+  // These replace or destroy entities the tree is still drawing, so they run once it is drawn.
+  const core::Uuid uuid = m_world.uuidOf(entity);
+  const bool part = entity.has<world::PrefabSource>();
+  if (m_world.isInstance(entity) && !part && ImGui::MenuItem("Make local")) {
+    m_afterTree = [this, uuid] { m_commands.push(makeLocalCommand(uuid), m_world); };
   }
-  if (ImGui::MenuItem("Delete", "Del")) {
-    deleteSelection();
+  if (m_saveAsPrefab && !part && ImGui::MenuItem("Save as prefab")) {
+    m_afterTree = [this, uuid] { m_saveAsPrefab(uuid); };
+  }
+  ImGui::Separator();
+  if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, !part)) {
+    m_afterTree = [this] { duplicateSelection(); };
+  }
+  if (ImGui::MenuItem(part ? "Hide" : "Delete", "Del")) {
+    m_afterTree = [this] { deleteSelection(); };
   }
 }
 
@@ -385,6 +399,14 @@ void HierarchyPanel::deleteSelection() {
     if (!entity) {
       continue;
     }
+    if (entity.has<world::PrefabSource>()) {
+      // Part of a prefab instance, which would bring it back: hidden instead (ADR-0028).
+      if (!entity.has<world::Disabled>()) {
+        commands.push_back(componentCommand(uuid, "Disabled", std::nullopt, std::make_optional(nlohmann::json{}),
+                                            std::format("hide {}", nameOf(entity))));
+      }
+      continue;
+    }
     const bool covered = std::ranges::any_of(m_selection.items(), [&](const core::Uuid &other) {
       const flecs::entity ancestor = m_world.find(other);
       return other != uuid && ancestor && m_world.isDescendant(entity, ancestor);
@@ -397,7 +419,7 @@ void HierarchyPanel::deleteSelection() {
     return;
   }
   const std::string description = commands.size() == 1 ? std::string{commands[0]->description()}
-                                                       : std::format("delete {} entities", commands.size());
+                                                       : std::format("delete or hide {} entities", commands.size());
   m_commands.push(compositeCommand(description, std::move(commands)), m_world);
   m_selection.clear();
 }
@@ -406,7 +428,8 @@ void HierarchyPanel::duplicateSelection() {
   std::vector<std::unique_ptr<ICommand>> commands;
   std::vector<core::Uuid> copies;
   for (const core::Uuid uuid : m_selection.items()) {
-    if (m_world.find(uuid)) {
+    // Part of a prefab instance is not copied alone: what it changed is relative to the instance.
+    if (const flecs::entity entity = m_world.find(uuid); entity && !entity.has<world::PrefabSource>()) {
       copies.push_back(core::Uuid::generate());
       commands.push_back(duplicateEntityCommand(uuid, copies.back()));
     }

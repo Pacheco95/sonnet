@@ -28,7 +28,7 @@ A bundle is refused before anything in it loads when the device cannot sample th
 
 Either way every model is loaded as a prefab under its own identity, so a scene can place one ([world.md](world.md#prefabs)), and the window takes the project's name as its title. A failure to open leaves an empty world and returns the error; the application stops rather than showing an empty scene.
 
-`runtime_tests` runs the basic sample headless on Lavapipe, as a project folder and then cooked into a bundle, and checks that both load the same scene, that the scene and present passes run, that a scene without a camera falls back, and that neither path logs a warning — including past the game's destruction, where a bundle that released nothing would show up as the renderer's leak warnings.
+`runtime_tests` runs the basic sample headless on Lavapipe, as a project folder and then cooked into a bundle, and checks that both load the same scene, that the scene and present passes run, that a scene without a camera falls back, that the playground's pallet keeps what the scene changed inside its nested instances and saves it under the same derived identities, and that neither path logs a warning — including past the game's destruction, where a bundle that released nothing would show up as the renderer's leak warnings.
 
 ## Game modules
 

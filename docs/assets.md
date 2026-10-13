@@ -111,7 +111,7 @@ A project is a folder with a `project.json` at its root:
 
 ## Scene file
 
-Scenes are JSON produced by the `world` serializer: a list of entities with their UUID, name, parent, components with reflected fields, and prefab references. Prefab instances store only overrides. The format is versioned with a top-level `version` field; migrations are applied on load and old versions are never written. The format as built, with an example, is in [world.md](world.md#scenes).
+Scenes are JSON produced by the `world` serializer: a list of entities with their UUID, name, parent, components with reflected fields, and prefab references. Prefab instances store only overrides, and what their descendants changed. The format is versioned with a top-level `version` field; migrations are applied on load and old versions are never written. The format as built, with an example, is in [world.md](world.md#scenes).
 
 ## Reading JSON and CBOR
 
@@ -129,7 +129,7 @@ The three desktop platforms cook the same bytes and differ only in which player 
 
 A bundle is one file, `<name>.sbundle` ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)): a 32-byte header (the magic `SONNETBN`, the format version, and where the index is), the payload blobs back to back, and the index at the end. The index is CBOR, so it is a JSON document at both ends:
 
-The format version is `BundleVersion`, 6 today: 6 added the game module's name to the manifest (`module`, empty for none), which the player checks before anything loads ([player.md](player.md#game-modules)), 5 the Font type and its `preload` ranges in the index, 4 a mesh's far shadow range, 3 HDR environments as KTX2. `Bundle::open` refuses any other version with `bundle version N is not version 6`, so a bundle is cooked again after an engine upgrade that changes it; a project's scenes and sidecars are not touched by it, and a project made before version 6 keeps its scenes.
+The format version is `BundleVersion`, 7 today: 7 carries scenes and prefabs that may hold version 4's `instanced` entries ([world.md](world.md#scenes)), 6 added the game module's name to the manifest (`module`, empty for none), which the player checks before anything loads ([player.md](player.md#game-modules)), 5 the Font type and its `preload` ranges in the index, 4 a mesh's far shadow range, 3 HDR environments as KTX2. `Bundle::open` refuses any other version with `bundle version N is not version 7`, so a bundle is cooked again after an engine upgrade that changes it; a project's scenes and sidecars are not touched by it, and a project made before version 7 keeps its scenes.
 
 - `manifest`: the project's `name`, the `engineVersion` that cooked it, the `platform` it was cooked for, and the `startScene` as a path.
 - `assets`: one entry per asset with its `uuid`, `type`, `name`, the `parent` it is a sub-asset of, a mesh's default `materials`, a font's `preload` ranges, and the `offset` and `size` of its payload.

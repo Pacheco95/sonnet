@@ -19,6 +19,18 @@ struct Identity {
   core::Uuid uuid;
 };
 
+// The link from a prefab instance's descendant to the prefab entity it was copied from (ADR-0028).
+// flecs copies a prefab's children into an instance whole and without a link back, so every
+// entity of a loaded prefab carries its own identity as a PrefabOrigin, which the copies receive;
+// instantiate turns it into the copy's PrefabSource and derives the copy's Identity from the
+// instance's and that source's. Neither is serialized.
+struct PrefabOrigin {
+  core::Uuid uuid;
+};
+struct PrefabSource {
+  core::Uuid uuid;
+};
+
 // Position among the siblings, from a counter in World: creation order, so a scene loaded in
 // file order lists in file order however flecs recycles entity ids. Not serialized.
 struct SiblingOrder {

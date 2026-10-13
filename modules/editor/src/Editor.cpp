@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <format>
 #include <fstream>
@@ -84,6 +85,11 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   m_inspectorPanel.setScripts(m_scripts.get());
   m_inspectorPanel.setParticleReset([this](flecs::entity entity) { m_renderer.resetParticles(entity.id()); });
   m_hierarchyPanel.setAssets(&m_assets);
+  m_hierarchyPanel.setSaveAsPrefab([this](core::Uuid entity) {
+    if (const auto saved = saveAsPrefab(entity); !saved) {
+      SONNET_LOG_ERROR("{}", saved.error().toString());
+    }
+  });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   // The module's components and systems go in after the engine's and before any scene loads, as
   // the player registers them.
@@ -1386,17 +1392,54 @@ void Editor::loadPrefabs() {
   if (!m_project) {
     return;
   }
-  for (const std::filesystem::path &file : m_project->files(".prefab.json")) {
-    if (const auto loaded = world::loadPrefabFile(m_world, file); !loaded) {
-      SONNET_LOG_ERROR("{}", loaded.error().toString());
-    }
-  }
-  // Every glTF file is a prefab too, under the model's identity, so scenes can place it.
+  // Every glTF file is a prefab too, under the model's identity, so scenes and prefabs can place
+  // it; models reference nothing, so they come first.
   for (const assets::AssetInfo *info : m_assets.assets(assets::AssetType::Model)) {
     if (const assets::Model *model = m_assets.model(info->uuid)) {
       static_cast<void>(world::loadModelPrefab(m_world, *model, info->uuid, info->name));
     }
   }
+  for (const core::Error &error : world::loadPrefabFiles(m_world, m_project->files(".prefab.json"))) {
+    SONNET_LOG_ERROR("{}", error.toString());
+  }
+}
+
+core::Result<std::filesystem::path> Editor::saveAsPrefab(core::Uuid entity) {
+  const flecs::entity root = m_world.find(entity);
+  if (!m_project || !root || root.has<world::PrefabSource>()) {
+    return std::unexpected(core::Error{"save as prefab needs an open project and a scene entity outside an instance",
+                                       core::ErrorCategory::Unknown});
+  }
+  // The entity's name, kept to the characters every file system takes, with a number added
+  // until it names no file yet.
+  const std::string name = root.get<world::Name>().value;
+  std::string stem;
+  for (const char c : name) {
+    const bool safe = std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '-' || c == '_' || c == ' ';
+    stem += safe ? c : '_';
+  }
+  if (stem.empty()) {
+    stem = "prefab";
+  }
+  const std::filesystem::path directory = m_project->root / "prefabs";
+  std::filesystem::path path = directory / (stem + ".prefab.json");
+  for (int n = 2; std::filesystem::exists(path); ++n) {
+    path = directory / std::format("{} {}.prefab.json", stem, n);
+  }
+  const nlohmann::json document = prefabFromSubtree(m_world, entity);
+  std::error_code error;
+  std::filesystem::create_directories(directory, error);
+  if (const auto written = core::writeFile(path, document.dump(2) + '\n'); !written) {
+    return std::unexpected(written.error());
+  }
+  const auto prefab = world::loadPrefab(m_world, document);
+  if (!prefab) {
+    return std::unexpected(prefab.error());
+  }
+  m_commands.push(replaceWithInstanceCommand(m_world, entity, m_world.uuidOf(*prefab)), m_world);
+  m_selection.select(entity);
+  SONNET_LOG_INFO("saved {} as the prefab {}", name, path.string());
+  return path;
 }
 
 void Editor::addTab() {

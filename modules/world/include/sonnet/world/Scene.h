@@ -8,6 +8,8 @@
 #include <nlohmann/json.hpp>
 
 #include <filesystem>
+#include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -16,10 +18,12 @@ namespace sonnet::world {
 // The scene and prefab file format (docs/world.md, "Scenes"): a versioned envelope around flecs'
 // JSON for each component. Migrations run on load; the current version is what is written.
 // Version 2 references meshes by asset identity where version 1 named a primitive; version 3
-// replaces the `Script` component by `Scripts`, a list of slots.
-constexpr int SceneVersion = 3;
+// replaces the `Script` component by `Scripts`, a list of slots; version 4 stores what an
+// instance's descendants changed as "instanced" entries (ADR-0028).
+constexpr int SceneVersion = 4;
 
-// Every scene entity, parents before children, prefab instances with their overrides only.
+// Every scene entity, parents before children, prefab instances as their overrides and what
+// their descendants changed.
 [[nodiscard]] nlohmann::json saveScene(const World &world);
 // One entity and its descendants in the same format, whatever they are, for the editor's delete
 // and duplicate commands; the root's parent is not recorded. loadScene brings them back.
@@ -37,6 +41,19 @@ constexpr int SceneVersion = 3;
 [[nodiscard]] core::Result<void> savePrefabFile(const World &world, flecs::entity root,
                                                 const std::filesystem::path &path);
 [[nodiscard]] core::Result<flecs::entity> loadPrefabFile(World &world, const std::filesystem::path &path);
+
+// A prefab document to load with others, and where it came from, for messages.
+struct PrefabDocument {
+  std::string source;
+  nlohmann::json document;
+};
+// Loads prefab documents in dependency order, so a prefab may place instances of the others
+// whatever the order they come in. Prefabs referenced from outside the set, the models', must be
+// loaded first. A document that fails to load, or that contains itself through others, is
+// refused with the reason (the chain, for a cycle) and the others load; returns the refusals.
+[[nodiscard]] std::vector<core::Error> loadPrefabs(World &world, std::vector<PrefabDocument> documents);
+// The same for prefab files; one that cannot be read is refused too.
+[[nodiscard]] std::vector<core::Error> loadPrefabFiles(World &world, std::span<const std::filesystem::path> paths);
 
 // A glTF file's node hierarchy as a prefab (docs/assets.md, "Importers"): the root carries the
 // model's identity and name, every node becomes a child with the node's transform and, for a

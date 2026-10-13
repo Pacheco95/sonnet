@@ -274,13 +274,12 @@ TEST_CASE("components registered from outside the world reach the registry and s
 TEST_CASE("a prefab instance shares components until it overrides them", "[world][prefab]") {
   world::World world;
   const flecs::entity prefab = world.createEntity("Crate");
-  prefab.add(flecs::Prefab);
   prefab.set<world::MeshRenderer>({.mesh = assets::builtin::box(), .color = {1.0f, 0.0f, 0.0f, 1.0f}});
   prefab.set<world::Transform>({.position = {0.0f, 3.0f, 0.0f}});
   const flecs::entity lid = world.createEntity("Lid", prefab);
-  lid.add(flecs::Prefab);
   lid.set<world::MeshRenderer>({.mesh = assets::builtin::plane()});
   lid.set<world::Transform>({.position = {0.0f, 0.5f, 0.0f}});
+  world.makePrefab(prefab);
 
   const flecs::entity instance = world.instantiate(prefab, "Crate 1");
   REQUIRE(world.isInstance(instance));

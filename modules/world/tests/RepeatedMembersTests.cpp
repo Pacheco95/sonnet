@@ -164,7 +164,7 @@ TEST_CASE("a version 2 scene migrates each Script to a one-slot Scripts", "[worl
   REQUIRE(slots.slots[0].properties.empty());
 
   const nlohmann::json saved = world::saveScene(world);
-  REQUIRE(saved["version"] == 3);
+  REQUIRE(saved["version"] == world::SceneVersion);
   const nlohmann::json &components = saved["entities"][0]["components"];
   REQUIRE(!components.contains("Script"));
   REQUIRE(components["Scripts"]["slots"][0]["script"] == "5a0c2f5e-0002-4a5b-8c9d-0000000000aa");
