@@ -204,6 +204,13 @@ The hook landed in [PR #209](https://github.com/Pacheco95/sonnet/pull/209) ([pla
 
 Sizing: the UI was the larger half (a module, a pass, a font pipeline, editor support, three platforms), and it is done. The hook was sized for packaging the engine and loading a shared library in the editor; ADR-0027 needs neither, so it stays in M15 rather than splitting into an M16.
 
+Done (version 0.19.0). The basic sample's menu, HUD and pause screen were checked on every platform: Options and Close, Play into the playground's HUD, Pause, Resume, Main menu, and Quit from the pause menu and from the title screen.
+
+- **Desktops:** from the project folder and from a cooked bundle on macOS ([#213](https://github.com/Pacheco95/sonnet/issues/213)) and Windows ([#214](https://github.com/Pacheco95/sonnet/issues/214)); on Linux, `runtime_tests` click through the same flow.
+- **Phones:** from the cooked bundle, which is the only way a phone runs a game. On the Galaxy S25 Ultra the flow was driven by `adb` taps. It found the Options popup laid out for landscape and off the screen in portrait, which [PR #215](https://github.com/Pacheco95/sonnet/pull/215) fixed, with a portrait test. Quit there finishes the activity. The iPad ran the flow with Quit hidden ([report](reports/ipad-m15.md)).
+
+The menu golden matches in CI, and the HUD costs 0.085 ms on the S25 at 200 elements, under the 0.2 ms budget. The hook sample builds with `SONNET_GAME` in CI and plays the same in the editor and in `Game`. It exports a custom player that runs on all three desktops, and also runs on the S25 and the iPad. CI is green on every job, and `tools/check_dependencies.py` keeps the player free of `ui` and `editor`. The generic desktop player's refusal of a module's bundle was checked on Linux only. The next work is [M16](#m16-nested-scene-instances).
+
 ## M16: Nested scene instances
 
 Accepted 2026-10-12. [ADR-0028](decisions/0028-nested-scene-instances.md) follows Godot's model of instancing, addressed by identity rather than by name path. It comes before terrain by the [1.0.0](#100) rule, since it changes the scene and prefab formats, and because a scene today drops what was changed inside a prefab instance without a warning ([world.md](world.md#prefabs)).
