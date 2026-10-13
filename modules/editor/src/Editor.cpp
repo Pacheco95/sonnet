@@ -1,5 +1,6 @@
 #include <sonnet/editor/Editor.h>
 
+#include <sonnet/editor/CameraLines.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/LightLines.h>
 
@@ -460,6 +461,13 @@ void Editor::update(float dt) {
   if (m_viewState.lightGizmos && !m_world.isPlaying()) {
     appendSpotLightLines(m_lights, m_debugLines);
   }
+  if (m_viewState.cameraGizmos && !m_world.isPlaying()) {
+    // The Game view's aspect is the one the scene is seen at; without the panel, the viewport's.
+    const glm::uvec2 size = gameSize.y > 0 ? gameSize : m_viewportPanel.target().size();
+    const float aspect = size.y > 0 ? static_cast<float>(size.x) / static_cast<float>(size.y) : 1.0f;
+    world::buildCameraList(m_world, m_cameras);
+    appendCameraFrustumLines(m_cameras, aspect, m_debugLines);
+  }
   m_view.debugLines = m_debugLines;
   // The selection and everything under it: selecting a parent outlines its whole subtree.
   m_outlineIds.clear();
@@ -729,6 +737,7 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Statistics overlay", nullptr, &m_viewState.overlay);
     ImGui::MenuItem("Physics colliders", nullptr, &m_viewState.colliders);
     ImGui::MenuItem("Light gizmos", nullptr, &m_viewState.lightGizmos);
+    ImGui::MenuItem("Camera gizmos", nullptr, &m_viewState.cameraGizmos);
     ImGui::Separator();
     if (ImGui::BeginMenu("Layouts")) {
       for (const BuiltinLayout builtin : {BuiltinLayout::Default, BuiltinLayout::Play}) {

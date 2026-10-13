@@ -299,6 +299,10 @@ public:
   void setShowLightGizmos(bool show) noexcept {
     m_viewState.lightGizmos = show;
   }
+  // Every camera's view frustum at the Game view's aspect in edit mode, from the View menu.
+  void setShowCameraGizmos(bool show) noexcept {
+    m_viewState.cameraGizmos = show;
+  }
   // The term of the forward shading the viewport shows, from View > Shading term.
   void setShadingTerm(renderer::DebugView view);
   // View > Anti-aliasing: takes effect on the next frame.
@@ -495,6 +499,7 @@ private:
   std::vector<renderer::ParticleEmitterItem> m_particles;
   std::vector<renderer::DebugLine> m_debugLines;
   std::vector<renderer::Light> m_lights;
+  std::vector<renderer::Camera> m_cameras;
   renderer::SceneView m_view;
   // The Game view's: the scene's camera over the same draws, a distinct object (ADR-0021).
   renderer::SceneView m_gameView;

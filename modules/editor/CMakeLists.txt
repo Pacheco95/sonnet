@@ -5,6 +5,7 @@ sonnet_add_module(editor
   SOURCES
     src/AssetBrowserPanel.cpp
     src/AssetCommands.cpp
+    src/CameraLines.cpp
     src/Capture.cpp
     src/CommandStack.cpp
     src/Editor.cpp
@@ -41,6 +42,7 @@ sonnet_add_module(editor
 sonnet_add_module_test(editor
   SOURCES
     tests/AssetMenuTests.cpp
+    tests/CameraLinesTests.cpp
     tests/CaptureTests.cpp
     tests/CommandTests.cpp
     tests/EditorTests.cpp

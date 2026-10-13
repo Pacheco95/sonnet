@@ -22,6 +22,7 @@ struct ViewState {
   bool overlay{true};
   bool colliders{false};
   bool lightGizmos{false};
+  bool cameraGizmos{false};
 
   [[nodiscard]] bool operator==(const ViewState &) const noexcept = default;
 };

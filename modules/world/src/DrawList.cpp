@@ -12,6 +12,11 @@ template <typename... Components> flecs::query<Components...> shown(const World 
   return world.ecs().query_builder<Components...>().template without<Disabled>().self().up(flecs::ChildOf).build();
 }
 
+renderer::Camera placedCamera(const WorldTransform &transform, const Camera &camera) {
+  const Transform placed = Transform::fromMatrix(transform.matrix);
+  return {.position = placed.position, .rotation = placed.rotation, .fovY = camera.fovY, .nearPlane = camera.nearPlane};
+}
+
 } // namespace
 
 void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vector<renderer::DrawItem> &draws,
@@ -152,14 +157,18 @@ std::optional<renderer::DirectionalLight> sceneLight(const World &world) {
 std::optional<renderer::Camera> sceneCamera(const World &world) {
   std::optional<renderer::Camera> result;
   shown<const WorldTransform, const Camera>(world).each([&](const WorldTransform &transform, const Camera &camera) {
-    if (result) {
-      return;
+    if (!result) {
+      result = placedCamera(transform, camera);
     }
-    const Transform placed = Transform::fromMatrix(transform.matrix);
-    result = renderer::Camera{
-        .position = placed.position, .rotation = placed.rotation, .fovY = camera.fovY, .nearPlane = camera.nearPlane};
   });
   return result;
+}
+
+void buildCameraList(const World &world, std::vector<renderer::Camera> &cameras) {
+  cameras.clear();
+  shown<const WorldTransform, const Camera>(world).each([&](const WorldTransform &transform, const Camera &camera) {
+    cameras.push_back(placedCamera(transform, camera));
+  });
 }
 
 renderer::Camera fallbackCamera() {
