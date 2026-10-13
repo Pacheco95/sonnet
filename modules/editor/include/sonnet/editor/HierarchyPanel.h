@@ -91,6 +91,8 @@ private:
   CommandStack &m_commands;
   std::function<void()> m_focus;
   std::function<void(core::Uuid)> m_saveAsPrefab;
+  // A context-menu action that changes the tree, run after the tree is drawn.
+  std::function<void()> m_afterTree;
   struct PendingOpen {
     core::Uuid root;
     bool open;

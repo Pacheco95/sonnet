@@ -1,4 +1,5 @@
 #include <sonnet/editor/CommandStack.h>
+#include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/Selection.h>
 
@@ -174,4 +175,57 @@ TEST_CASE("every built-in shape can be created, saved and loaded again", "[edito
     REQUIRE(roots[i].get<world::Name>().value == assets::builtin::all()[i].name);
   }
   std::filesystem::remove(path);
+}
+
+// Regression: "Save as prefab" from the row's context menu destroyed the entity and its children
+// while the tree was still drawing them, and the next read of a child asserted in flecs.
+TEST_CASE("the context menu's save as prefab runs after the tree is drawn", "[editor][hierarchy][prefab]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  panel.setSaveAsPrefab([&](core::Uuid entity) {
+    const auto prefab = world::loadPrefab(world, editor::prefabFromSubtree(world, entity));
+    REQUIRE(prefab.has_value());
+    commands.push(editor::replaceWithInstanceCommand(world, entity, world.uuidOf(*prefab)), world);
+  });
+  const flecs::entity colonnade = world.createEntity("Colonnade");
+  world.createEntity("Column", colonnade);
+  world.createEntity("Column", colonnade);
+  const core::Uuid uuid = world.uuidOf(colonnade);
+  frame(panel);
+
+  ImGuiIO &io = ImGui::GetIO();
+  // Moves the mouse down `window` until the item `id` is hovered.
+  const auto hover = [&](const ImGuiWindow *window, ImGuiID id) {
+    for (float y = window->Pos.y; y < window->Pos.y + window->Size.y; y += 2.0f) {
+      io.AddMousePosEvent(window->Pos.x + 40.0f, y);
+      frame(panel);
+      if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const auto click = [&](ImGuiMouseButton button) {
+    io.AddMouseButtonEvent(button, true);
+    frame(panel);
+    io.AddMouseButtonEvent(button, false);
+    frame(panel);
+  };
+  ImGuiWindow *hierarchy = ImGui::FindWindowByName("Hierarchy");
+  REQUIRE(hierarchy != nullptr);
+  const int pick = static_cast<int>(world::World::pickId(colonnade));
+  REQUIRE(hover(hierarchy, ImHashStr("node", 0, ImHashData(&pick, sizeof(pick), hierarchy->ID))));
+  click(ImGuiMouseButton_Right);
+  REQUIRE(!ImGui::GetCurrentContext()->OpenPopupStack.empty());
+  ImGuiWindow *menu = ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  REQUIRE(menu != nullptr);
+  REQUIRE(hover(menu, ImHashStr("Save as prefab", 0, menu->ID)));
+  click(ImGuiMouseButton_Left);
+
+  REQUIRE(world.isInstance(world.find(uuid)));
+  REQUIRE(world.children(world.find(uuid)).size() == 2);
+  frame(panel);
 }

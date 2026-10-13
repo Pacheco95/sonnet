@@ -136,6 +136,9 @@ void HierarchyPanel::draw(bool &open) {
       drawNode(root);
     }
   }
+  if (m_afterTree) {
+    std::exchange(m_afterTree, nullptr)();
+  }
   // The rest of the window: a drop target for the root and the background context menu.
   const ImVec2 remaining = ImGui::GetContentRegionAvail();
   ImGui::InvisibleButton("background", ImVec2{std::max(remaining.x, 1.0f), std::max(remaining.y, 24.0f)});
@@ -354,19 +357,21 @@ void HierarchyPanel::drawContextMenu(flecs::entity entity) {
     ImGui::EndMenu();
   }
   ImGui::Separator();
+  // These replace or destroy entities the tree is still drawing, so they run once it is drawn.
+  const core::Uuid uuid = m_world.uuidOf(entity);
   const bool part = entity.has<world::PrefabSource>();
   if (m_world.isInstance(entity) && !part && ImGui::MenuItem("Make local")) {
-    m_commands.push(makeLocalCommand(m_world.uuidOf(entity)), m_world);
+    m_afterTree = [this, uuid] { m_commands.push(makeLocalCommand(uuid), m_world); };
   }
   if (m_saveAsPrefab && !part && ImGui::MenuItem("Save as prefab")) {
-    m_saveAsPrefab(m_world.uuidOf(entity));
+    m_afterTree = [this, uuid] { m_saveAsPrefab(uuid); };
   }
   ImGui::Separator();
   if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, !part)) {
-    duplicateSelection();
+    m_afterTree = [this] { duplicateSelection(); };
   }
   if (ImGui::MenuItem(part ? "Hide" : "Delete", "Del")) {
-    deleteSelection();
+    m_afterTree = [this] { deleteSelection(); };
   }
 }
 
