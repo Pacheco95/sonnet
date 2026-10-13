@@ -222,7 +222,12 @@ Accepted 2026-10-12. [ADR-0028](decisions/0028-nested-scene-instances.md) follow
 
 Done when the playground has a prefab built from other prefabs, a scene that places it, changes one of its nested children, adds a child under another and hides a third, and keeps all three after a save and a reload in the editor, the player and the cooked bundle; a change to the inner prefab reaches what the scene did not change; undo restores a deleted instance with its changes; "Save as prefab" and "Make local" work in the editor; and CI is green on every job.
 
-Progress: the `world` part and the formats are in (scene and prefab version 4, bundle version 7), with the editor's instantiate and duplicate commands deriving the same identities. So are the editor's part: "Save as prefab", "Make local", the inspector marking and reverting what a part of an instance changed, and Delete hiding a part. `entity:child` and the playground's pallet, a prefab of crate prefabs that the scene changes, extends and hides inside, are in too; `runtime_tests` finds all three changes from the project and the cooked bundle. Still to check: the editor by hand, the phones, and CI.
+Done (version 0.20.0, [PR #218](https://github.com/Pacheco95/sonnet/pull/218)). The playground places `prefabs/pallet.prefab.json`, three instances of the crate prefab with Crate B's lid turned blue inside the prefab. The scene turns Crate A's lid red, two levels down, adds a lantern under Crate B and hides Crate C.
+
+- **Desktops:** on Linux, `runtime_tests` finds all three changes, and the prefab's own, from the project folder and from the cooked bundle, and a save writes the same derived identities. `world_tests` cover a prefab change reaching what a scene did not change, undo restoring a deleted instance with its changes, Make local keeping identities, and a cycle refused. `editor_tests` run Save as prefab through to a reopened project and click it from the hierarchy's context menu, which found a crash fixed in the same PR. The editor and player captures show the pallet.
+- **Phones:** to be run from the cooked bundle on the Galaxy S25 Ultra and the iPad before this merges.
+
+CI is green on every job. Prefabs are not listed in the asset browser yet ([#219](https://github.com/Pacheco95/sonnet/issues/219)). Per-field overrides, starting with script properties, are [ADR-0028](decisions/0028-nested-scene-instances.md)'s first follow-up.
 
 Not in the first version: per-field overrides, which come next, starting with script properties; placing a scene file; live updates of instances when a prefab changes; reordering or deleting an instance's source children; creating a prefab variant from the editor; applying an instance's changes back to its prefab.
 
