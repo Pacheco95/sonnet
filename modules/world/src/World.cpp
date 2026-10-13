@@ -24,15 +24,22 @@ std::size_t offsetOf(const Component &component, const Member &member) noexcept 
 }
 
 // Instantiated children are new entities: they need identities and world transforms of their
-// own. The children are collected first, since adding to them while iterating is not allowed.
-void adoptInstantiatedChildren(World &world, flecs::entity node) {
+// own. A copy's identity derives from the instance's and the prefab entity it came from, whose
+// PrefabOrigin flecs copied, at every depth. The children are collected first, since adding to
+// them while iterating is not allowed.
+void adoptInstantiatedChildren(World &world, flecs::entity node, const core::Uuid &instance) {
   for (const flecs::entity child : world.children(node)) {
     if (!child.has<Identity>()) {
-      child.set<Identity>({core::Uuid::generate()});
+      const PrefabOrigin *origin = child.try_get<PrefabOrigin>();
+      SONNET_ASSERT(origin != nullptr, "an instantiated child has no PrefabOrigin");
+      const core::Uuid source = origin->uuid;
+      child.remove<PrefabOrigin>();
+      child.set<PrefabSource>({source});
+      child.set<Identity>({World::instancedIdentity(instance, source)});
     }
     world.assignOrder(child);
     child.add<WorldTransform>();
-    adoptInstantiatedChildren(world, child);
+    adoptInstantiatedChildren(world, child, instance);
   }
 }
 
@@ -138,6 +145,9 @@ void World::registerComponents() {
   // is the scene file's envelope. None is inherited from a prefab except the name, which an
   // instance's children show until renamed.
   m_world.component<Identity>("Identity").add(flecs::OnInstantiate, flecs::DontInherit);
+  // Copied into each instantiated child (flecs' default), which is how a copy learns its source.
+  m_world.component<PrefabOrigin>("PrefabOrigin");
+  m_world.component<PrefabSource>("PrefabSource").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<WorldTransform>("WorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<PreviousWorldTransform>("PreviousWorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<SiblingOrder>("SiblingOrder").add(flecs::OnInstantiate, flecs::DontInherit);
@@ -442,10 +452,14 @@ flecs::entity World::fromPickId(std::uint32_t id) const {
   return m_world.get_alive(id);
 }
 
-flecs::entity World::instantiate(flecs::entity prefab, std::string_view name, flecs::entity parent) {
+flecs::entity World::instantiate(flecs::entity prefab, std::string_view name, flecs::entity parent, core::Uuid uuid) {
   SONNET_ASSERT(prefab.has(flecs::Prefab), "instantiating an entity that is not a prefab");
+  if (uuid.isNil()) {
+    uuid = core::Uuid::generate();
+  }
   flecs::entity entity = m_world.entity().is_a(prefab);
-  entity.set<Identity>({core::Uuid::generate()});
+  entity.set<Identity>({uuid});
+  entity.remove<PrefabOrigin>(); // the root is IsA the prefab and the source of nothing
   entity.set<Name>({std::string{name}});
   // Own copies of what places the instance; the rest stays shared until edited.
   const Transform *transform = prefab.try_get<Transform>();
@@ -455,8 +469,20 @@ flecs::entity World::instantiate(flecs::entity prefab, std::string_view name, fl
   if (parent) {
     entity.child_of(parent);
   }
-  adoptInstantiatedChildren(*this, entity);
+  adoptInstantiatedChildren(*this, entity, uuid);
   return entity;
+}
+
+void World::makePrefab(flecs::entity root) {
+  root.add(flecs::Prefab);
+  root.set<PrefabOrigin>({uuidOf(root)});
+  for (const flecs::entity child : children(root)) {
+    makePrefab(child);
+  }
+}
+
+core::Uuid World::instancedIdentity(const core::Uuid &instance, const core::Uuid &source) {
+  return core::Uuid::derive(instance, source.toString());
 }
 
 flecs::entity World::prefabOf(flecs::entity entity) const {
@@ -469,6 +495,18 @@ flecs::entity World::prefabOf(flecs::entity entity) const {
 
 bool World::isInstance(flecs::entity entity) const {
   return prefabOf(entity).is_valid();
+}
+
+flecs::entity World::instanceOf(flecs::entity descendant) const {
+  if (!descendant || !descendant.has<PrefabSource>()) {
+    return {};
+  }
+  for (flecs::entity ancestor = descendant.parent(); ancestor; ancestor = ancestor.parent()) {
+    if (isInstance(ancestor) && !ancestor.has<PrefabSource>()) {
+      return ancestor;
+    }
+  }
+  return {};
 }
 
 const ComponentInfo *World::findComponent(std::string_view name) const {

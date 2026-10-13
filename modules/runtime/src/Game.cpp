@@ -8,7 +8,9 @@
 #include <sonnet/platform/Platform.h>
 #include <sonnet/world/Scene.h>
 
+#include <algorithm>
 #include <format>
+#include <iterator>
 #include <utility>
 
 namespace sonnet::runtime {
@@ -185,30 +187,35 @@ core::Result<void> Game::openBundle(const std::filesystem::path &file) {
 }
 
 void Game::loadPrefabs() {
-  // Authored prefabs first: a scene's instances need their base loaded.
+  // The models' prefabs first, since they reference nothing, then the authored ones in the order
+  // their instances need (docs/world.md, "Prefabs").
+  loadModelPrefabs();
+  std::vector<core::Error> errors;
   if (const assets::Bundle *bundle = m_assets.bundle()) {
+    std::vector<world::PrefabDocument> documents;
     for (const std::string &path : bundle->files()) {
       if (!path.ends_with(".prefab.json")) {
         continue;
       }
       const auto payload = bundle->read(path);
-      const auto document = payload ? assets::decodeJson(*payload) : std::unexpected(payload.error());
-      const auto loaded = document ? world::loadPrefab(m_world, *document) : std::unexpected(document.error());
-      if (!loaded) {
-        SONNET_LOG_ERROR("{}: {}", path, loaded.error().toString());
+      auto document = payload ? assets::decodeJson(*payload) : std::unexpected(payload.error());
+      if (!document) {
+        errors.push_back(core::Error{std::format("{}: {}", path, document.error().message), document.error().category,
+                                     document.error().location});
+        continue;
       }
+      documents.push_back({path, std::move(*document)});
     }
+    std::ranges::move(world::loadPrefabs(m_world, std::move(documents)), std::back_inserter(errors));
   } else {
     // The project's prefab files live anywhere under it, as they do for the editor.
     assets::Project project;
     project.root = m_assets.projectRoot();
-    for (const std::filesystem::path &file : project.files(".prefab.json")) {
-      if (const auto loaded = world::loadPrefabFile(m_world, file); !loaded) {
-        SONNET_LOG_ERROR("{}", loaded.error().toString());
-      }
-    }
+    errors = world::loadPrefabFiles(m_world, project.files(".prefab.json"));
   }
-  loadModelPrefabs();
+  for (const core::Error &error : errors) {
+    SONNET_LOG_ERROR("{}", error.toString());
+  }
 }
 
 void Game::loadModelPrefabs() {

@@ -1386,16 +1386,15 @@ void Editor::loadPrefabs() {
   if (!m_project) {
     return;
   }
-  for (const std::filesystem::path &file : m_project->files(".prefab.json")) {
-    if (const auto loaded = world::loadPrefabFile(m_world, file); !loaded) {
-      SONNET_LOG_ERROR("{}", loaded.error().toString());
-    }
-  }
-  // Every glTF file is a prefab too, under the model's identity, so scenes can place it.
+  // Every glTF file is a prefab too, under the model's identity, so scenes and prefabs can place
+  // it; models reference nothing, so they come first.
   for (const assets::AssetInfo *info : m_assets.assets(assets::AssetType::Model)) {
     if (const assets::Model *model = m_assets.model(info->uuid)) {
       static_cast<void>(world::loadModelPrefab(m_world, *model, info->uuid, info->name));
     }
+  }
+  for (const core::Error &error : world::loadPrefabFiles(m_world, m_project->files(".prefab.json"))) {
+    SONNET_LOG_ERROR("{}", error.toString());
   }
 }
 

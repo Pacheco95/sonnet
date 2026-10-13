@@ -347,7 +347,7 @@ TEST_CASE("scripts find, create, instantiate and destroy entities", "[scripting]
     return Spawner
   )lua"}};
   const flecs::entity prefab = fixture.world.createEntity("Crate");
-  prefab.add(flecs::Prefab);
+  fixture.world.makePrefab(prefab);
   prefab.set<physics::BoxCollider>({});
   const flecs::entity spawner = fixture.scripted("Spawner", "spawner.lua");
   spawner.set<world::Transform>({.position = {5.0f, 0.0f, 0.0f}});

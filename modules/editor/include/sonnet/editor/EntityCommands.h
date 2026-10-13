@@ -22,10 +22,12 @@ namespace sonnet::editor {
 [[nodiscard]] std::unique_ptr<ICommand> createEntityCommand(std::string name, core::Uuid parent,
                                                             nlohmann::json components = nlohmann::json::object(),
                                                             core::Uuid uuid = {});
-// Deletes the subtree; undo brings it back with the same identities under the same parent.
+// Deletes the subtree; undo brings it back with the same identities under the same parent. Not
+// for part of a prefab instance (a PrefabSource), which the instance would bring back on load.
 [[nodiscard]] std::unique_ptr<ICommand> deleteEntityCommand(core::Uuid entity);
 // A copy of the subtree with fresh identities next to the original, named "<name> copy"; the
-// copy's root gets `copy` as its identity, or a fresh one when nil.
+// copy's root gets `copy` as its identity, or a fresh one when nil. Not for part of a prefab
+// instance, whose changes are relative to the instance.
 [[nodiscard]] std::unique_ptr<ICommand> duplicateEntityCommand(core::Uuid entity, core::Uuid copy = {});
 // Moves the entity under `parent` (nil for the root) keeping its world transform.
 [[nodiscard]] std::unique_ptr<ICommand> reparentCommand(core::Uuid entity, core::Uuid parent);

@@ -14,15 +14,28 @@ namespace {
 using nlohmann::json;
 
 // Every identity in a saved subtree replaced by a fresh one, parents included, so a copy
-// coexists with the original. Done once so redo recreates the same copy.
-json withFreshIdentities(json document, core::Uuid root) {
+// coexists with the original. An instance's descendant takes the identity the copied instance
+// will derive for it from the same source (ADR-0028). Done once so redo recreates the same copy.
+json withFreshIdentities(const world::World &world, json document, core::Uuid root) {
   std::unordered_map<std::string, std::string> mapping;
   bool first = true;
   for (json &entry : document["entities"]) {
-    const std::string old = entry["uuid"].get<std::string>();
-    mapping[old] = (first && !root.isNil() ? root : core::Uuid::generate()).toString();
-    entry["uuid"] = mapping[old];
-    first = false;
+    if (!entry.value("instanced", false)) {
+      const std::string old = entry["uuid"].get<std::string>();
+      mapping[old] = (first && !root.isNil() ? root : core::Uuid::generate()).toString();
+      entry["uuid"] = mapping[old];
+      first = false;
+    }
+  }
+  for (json &entry : document["entities"]) {
+    if (entry.value("instanced", false)) {
+      const flecs::entity original = world.find(*core::Uuid::parse(entry["uuid"].get<std::string>()));
+      const std::string instance = world.uuidOf(world.instanceOf(original)).toString();
+      const core::Uuid copy = world::World::instancedIdentity(*core::Uuid::parse(mapping.at(instance)),
+                                                              original.get<world::PrefabSource>().uuid);
+      mapping[entry["uuid"].get<std::string>()] = copy.toString();
+      entry["uuid"] = copy.toString();
+    }
   }
   for (json &entry : document["entities"]) {
     if (entry.contains("parent")) {
@@ -159,7 +172,7 @@ public:
       if (!source) {
         return;
       }
-      m_copy = withFreshIdentities(world::saveSubtree(world, source), m_root);
+      m_copy = withFreshIdentities(world, world::saveSubtree(world, source), m_root);
       json &root = m_copy["entities"][0];
       root["name"] = root["name"].get<std::string>() + " copy";
       m_root = *core::Uuid::parse(root["uuid"].get<std::string>());
@@ -338,8 +351,7 @@ public:
     if (!prefab || !prefab.has(flecs::Prefab)) {
       return;
     }
-    const flecs::entity entity = world.instantiate(prefab, m_name, world.find(m_parent));
-    entity.set<world::Identity>({m_uuid});
+    world.instantiate(prefab, m_name, world.find(m_parent), m_uuid);
   }
   bool reapply(world::World &world) override {
     const flecs::entity prefab = world.find(m_prefab);

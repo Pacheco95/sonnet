@@ -382,8 +382,8 @@ void HierarchyPanel::deleteSelection() {
   std::vector<std::unique_ptr<ICommand>> commands;
   for (const core::Uuid uuid : m_selection.items()) {
     const flecs::entity entity = m_world.find(uuid);
-    if (!entity) {
-      continue;
+    if (!entity || entity.has<world::PrefabSource>()) {
+      continue; // part of a prefab instance, which comes back with the instance (ADR-0028)
     }
     const bool covered = std::ranges::any_of(m_selection.items(), [&](const core::Uuid &other) {
       const flecs::entity ancestor = m_world.find(other);
@@ -406,7 +406,8 @@ void HierarchyPanel::duplicateSelection() {
   std::vector<std::unique_ptr<ICommand>> commands;
   std::vector<core::Uuid> copies;
   for (const core::Uuid uuid : m_selection.items()) {
-    if (m_world.find(uuid)) {
+    // Part of a prefab instance is not copied alone: what it changed is relative to the instance.
+    if (const flecs::entity entity = m_world.find(uuid); entity && !entity.has<world::PrefabSource>()) {
       copies.push_back(core::Uuid::generate());
       commands.push_back(duplicateEntityCommand(uuid, copies.back()));
     }

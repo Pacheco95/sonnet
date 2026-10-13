@@ -266,7 +266,7 @@ TEST_CASE("reparent and component commands restore exactly what they changed", "
 
   // Instantiation is a command too.
   const flecs::entity prefab = world.createEntity("Crate");
-  prefab.add(flecs::Prefab);
+  world.makePrefab(prefab);
   prefab.set<world::MeshRenderer>({});
   const core::Uuid instance = core::Uuid::generate();
   std::vector<std::unique_ptr<editor::ICommand>> batch;
@@ -370,4 +370,33 @@ TEST_CASE("a composite reapplies the parts it can and leaves the others alone", 
   none.push_back(editor::renameCommand(gone, "g", "G"));
   const auto onlyMissing = editor::compositeCommand("none", std::move(none));
   REQUIRE_FALSE(onlyMissing->reapply(world));
+}
+
+TEST_CASE("an instance's duplicate keeps what its descendants changed, under identities of its own",
+          "[editor][commands][prefab]") {
+  world::World world;
+  editor::CommandStack commands;
+  const flecs::entity prefab = world.createEntity("Cart");
+  world.createEntity("Wheel", prefab).set<world::MeshRenderer>({});
+  world.makePrefab(prefab);
+
+  // The command passes its identity to instantiate, so the children derive from it.
+  const core::Uuid uuid = core::Uuid::generate();
+  commands.push(editor::instantiatePrefabCommand(world.uuidOf(prefab), "Cart 1", {}, uuid), world);
+  const flecs::entity wheel = world.children(world.find(uuid))[0];
+  REQUIRE(world.uuidOf(wheel) == world::World::instancedIdentity(uuid, world.uuidOf(world.children(prefab)[0])));
+  wheel.ensure<world::MeshRenderer>().color.r = 0.25f;
+  world.createEntity("Lamp", wheel);
+
+  const core::Uuid copy = core::Uuid::generate();
+  commands.push(editor::duplicateEntityCommand(uuid, copy), world);
+  const flecs::entity copyWheel =
+      world.find(world::World::instancedIdentity(copy, wheel.get<world::PrefabSource>().uuid));
+  REQUIRE(copyWheel);
+  REQUIRE(world.parentOf(copyWheel) == world.find(copy));
+  REQUIRE(copyWheel.get<world::MeshRenderer>().color.r == Approx(0.25f));
+  REQUIRE(world.children(copyWheel).size() == 1); // the added child, under the copy's wheel
+  REQUIRE(world.children(wheel).size() == 1);
+  REQUIRE(commands.undo(world));
+  REQUIRE(!world.find(copy));
 }

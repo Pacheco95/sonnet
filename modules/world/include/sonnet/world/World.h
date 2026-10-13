@@ -102,11 +102,23 @@ public:
   [[nodiscard]] static std::uint32_t pickId(flecs::entity entity) noexcept;
   [[nodiscard]] flecs::entity fromPickId(std::uint32_t id) const;
 
-  // A prefab instance: IsA the prefab, with its own Identity, Name and Transform, and fresh
-  // identities on the instantiated children. `prefab` must carry flecs::Prefab.
-  flecs::entity instantiate(flecs::entity prefab, std::string_view name, flecs::entity parent = {});
+  // A prefab instance: IsA the prefab, with its own Identity (`uuid`, or a fresh one when nil),
+  // Name and Transform. The instantiated descendants take identities derived from `uuid` and
+  // their PrefabSource (instancedIdentity), so the same identity gives the same descendants.
+  // `prefab` must carry flecs::Prefab.
+  flecs::entity instantiate(flecs::entity prefab, std::string_view name, flecs::entity parent = {},
+                            core::Uuid uuid = {});
+  // Makes `root` and every descendant a flecs prefab and records each one's identity as its
+  // PrefabOrigin, which instantiate needs. Every way of building a prefab ends with this, since
+  // flecs does not tag the children it copied into an instance that became a prefab afterwards.
+  void makePrefab(flecs::entity root);
+  // The identity of the descendant of instance `instance` copied from prefab entity `source`.
+  [[nodiscard]] static core::Uuid instancedIdentity(const core::Uuid &instance, const core::Uuid &source);
   [[nodiscard]] flecs::entity prefabOf(flecs::entity entity) const;
   [[nodiscard]] bool isInstance(flecs::entity entity) const;
+  // The instance whose identity `descendant`'s is derived from: its nearest ancestor that is an
+  // instance and not itself a copy. Null when `descendant` has no PrefabSource.
+  [[nodiscard]] flecs::entity instanceOf(flecs::entity descendant) const;
 
   // Registers a component with reflection under the name scene files use, inherited by prefab
   // instances; the caller adds the members on the returned component. `tag` for a component

@@ -5,9 +5,11 @@
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <fstream>
+#include <unordered_map>
 #include <utility>
 
 namespace sonnet::world {
@@ -43,13 +45,68 @@ json saveEntity(const World &world, flecs::entity entity, flecs::entity parent) 
   return entry;
 }
 
+void saveSubtree(const World &world, flecs::entity entity, flecs::entity parent, json &entities, bool prefab);
+
+// An instance's descendant as an "instanced" entry: what differs from the prefab entity it was
+// copied from, compared by value since flecs copied the whole entity (ADR-0028). Null when
+// nothing does.
+json saveInstanced(const World &world, flecs::entity entity, flecs::entity source) {
+  json components = json::object();
+  json removed = json::array();
+  for (const ComponentInfo &component : world.components()) {
+    const bool has = entity.has(component.id);
+    const bool had = source.has(component.id);
+    if (has && (!had || (!component.tag &&
+                         world.componentToJson(entity, component.id) != world.componentToJson(source, component.id)))) {
+      components[component.name] = component.tag ? json{} : world.componentToJson(entity, component.id);
+    } else if (!has && had) {
+      removed.push_back(component.name);
+    }
+  }
+  const std::string &name = entity.get<Name>().value;
+  const bool renamed = name != source.get<Name>().value;
+  if (components.empty() && removed.empty() && !renamed) {
+    return nullptr;
+  }
+  json entry;
+  entry["uuid"] = world.uuidOf(entity).toString();
+  entry["instanced"] = true;
+  if (renamed) {
+    entry["name"] = name;
+  }
+  entry["components"] = std::move(components);
+  if (!removed.empty()) {
+    entry["removed"] = std::move(removed);
+  }
+  return entry;
+}
+
+// The descendants of an instance, at every depth: the copies as what they changed, the children
+// added under them whole.
+void saveInstanceChildren(const World &world, flecs::entity node, json &entities, bool prefab) {
+  for (const flecs::entity child : world.children(node)) {
+    const PrefabSource *source = child.try_get<PrefabSource>();
+    if (source == nullptr) {
+      saveSubtree(world, child, node, entities, prefab);
+      continue;
+    }
+    if (const flecs::entity origin = world.find(source->uuid)) {
+      if (json entry = saveInstanced(world, child, origin); !entry.is_null()) {
+        entities.push_back(std::move(entry));
+      }
+    }
+    saveInstanceChildren(world, child, entities, prefab);
+  }
+}
+
 void saveSubtree(const World &world, flecs::entity entity, flecs::entity parent, json &entities, bool prefab) {
   if (!prefab && !isSceneEntity(entity)) {
     return;
   }
   entities.push_back(saveEntity(world, entity, parent));
   if (world.isInstance(entity)) {
-    return; // instantiated children come back with the prefab
+    saveInstanceChildren(world, entity, entities, prefab);
+    return;
   }
   for (const flecs::entity child : world.children(entity)) {
     saveSubtree(world, child, entity, entities, prefab);
@@ -136,12 +193,26 @@ core::Result<json> migrate(const json &input, std::string_view source) {
     migrateVersion2(document);
     SONNET_LOG_INFO("{}: migrated scene version 2 to 3", source);
   }
+  // Version 4 adds "instanced" entries, which a version 3 file does not have: nothing to change.
   document["version"] = SceneVersion;
   return document;
 }
 
-core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &input, bool asPrefab,
-                                                      std::string_view source) {
+void setComponents(World &world, flecs::entity entity, const json &entry) {
+  if (!entry.contains("components") || !entry["components"].is_object()) {
+    return;
+  }
+  for (const auto &[componentName, value] : entry["components"].items()) {
+    const ComponentInfo *info = world.findComponent(componentName);
+    if (info == nullptr) {
+      SONNET_LOG_WARN("entity {}: unknown component \"{}\" ignored", entry.value("uuid", std::string{}), componentName);
+      continue;
+    }
+    world.componentFromJson(entity, info->id, value);
+  }
+}
+
+core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &input, std::string_view source) {
   auto migrated = migrate(input, source);
   if (!migrated) {
     return std::unexpected(migrated.error());
@@ -170,6 +241,29 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
     if (!uuid) {
       return fail(std::format("entity {} has no valid uuid", loaded.size()));
     }
+    if (entry.value("instanced", false)) {
+      // What an instance's descendant changed; the descendant came with the instance, which the
+      // file lists before it.
+      const flecs::entity target = world.find(*uuid);
+      if (!target || !target.has<PrefabSource>()) {
+        SONNET_LOG_WARN("{}: changes to {} skipped, its prefab no longer has the entity", source, uuid->toString());
+        continue;
+      }
+      if (entry.contains("name") && entry["name"].is_string()) {
+        target.set<Name>({entry["name"].get<std::string>()});
+      }
+      setComponents(world, target, entry);
+      if (entry.contains("removed") && entry["removed"].is_array()) {
+        for (const json &componentName : entry["removed"]) {
+          const ComponentInfo *info =
+              componentName.is_string() ? world.findComponent(componentName.get<std::string>()) : nullptr;
+          if (info != nullptr) {
+            target.remove(info->id);
+          }
+        }
+      }
+      continue;
+    }
     if (world.find(*uuid)) {
       return fail(std::format("entity {} is already in the world", uuid->toString()));
     }
@@ -182,25 +276,12 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
         return fail(std::format("entity \"{}\" refers to prefab {}, which is not loaded", name,
                                 entry["prefab"].get<std::string>()));
       }
-      entity = world.instantiate(prefab, name);
-      entity.set<Identity>({*uuid});
+      entity = world.instantiate(prefab, name, {}, *uuid);
     } else {
       entity = world.createEntity(name, {}, *uuid);
     }
-    if (asPrefab) {
-      entity.add(flecs::Prefab);
-    }
     loaded.push_back(entity);
-    if (entry.contains("components") && entry["components"].is_object()) {
-      for (const auto &[componentName, value] : entry["components"].items()) {
-        const ComponentInfo *info = world.findComponent(componentName);
-        if (info == nullptr) {
-          SONNET_LOG_WARN("entity \"{}\": unknown component \"{}\" ignored", name, componentName);
-          continue;
-        }
-        world.componentFromJson(entity, info->id, value);
-      }
-    }
+    setComponents(world, entity, entry);
     if (entry.contains("parent") && entry["parent"].is_string()) {
       const auto parentUuid = core::Uuid::parse(entry["parent"].get_ref<const std::string &>());
       if (!parentUuid) {
@@ -263,7 +344,7 @@ json saveScene(const World &world) {
 }
 
 core::Result<std::vector<flecs::entity>> loadScene(World &world, const json &scene) {
-  return loadEntities(world, scene, false, "scene");
+  return loadEntities(world, scene, "scene");
 }
 
 core::Result<void> saveSceneFile(const World &world, const std::filesystem::path &path) {
@@ -275,7 +356,7 @@ core::Result<std::vector<flecs::entity>> loadSceneFile(World &world, const std::
   if (!document) {
     return std::unexpected(document.error());
   }
-  auto loaded = loadEntities(world, *document, false, path.string());
+  auto loaded = loadEntities(world, *document, path.string());
   if (!loaded) {
     return std::unexpected(core::Error{std::format("{}: {}", path.string(), loaded.error().message),
                                        core::ErrorCategory::Io, loaded.error().location});
@@ -302,7 +383,7 @@ core::Result<flecs::entity> loadPrefab(World &world, const json &prefab) {
 }
 
 core::Result<flecs::entity> loadPrefabFrom(World &world, const json &prefab, std::string_view source) {
-  auto loaded = loadEntities(world, prefab, true, source);
+  auto loaded = loadEntities(world, prefab, source);
   if (!loaded) {
     return std::unexpected(loaded.error());
   }
@@ -321,6 +402,7 @@ core::Result<flecs::entity> loadPrefabFrom(World &world, const json &prefab, std
   if (!root) {
     return std::unexpected(core::Error{"a prefab has exactly one root entity", core::ErrorCategory::Io});
   }
+  world.makePrefab(root);
   return root;
 }
 
@@ -342,17 +424,120 @@ core::Result<flecs::entity> loadPrefabFile(World &world, const std::filesystem::
   return root;
 }
 
+namespace {
+
+// The identity of a prefab document's root and the prefabs it instantiates, read from the raw
+// entries, which every version writes the same way.
+struct PrefabLinks {
+  std::string root;
+  std::vector<std::string> uses;
+};
+
+PrefabLinks prefabLinks(const json &document) {
+  PrefabLinks links;
+  if (!document.is_object() || !document.contains("entities") || !document["entities"].is_array()) {
+    return links;
+  }
+  for (const json &entry : document["entities"]) {
+    if (!entry.is_object()) {
+      continue;
+    }
+    if (entry.contains("prefab") && entry["prefab"].is_string()) {
+      links.uses.push_back(entry["prefab"].get<std::string>());
+    }
+    if (links.root.empty() && !entry.contains("parent") && entry.contains("uuid") && entry["uuid"].is_string()) {
+      links.root = entry["uuid"].get<std::string>();
+    }
+  }
+  return links;
+}
+
+} // namespace
+
+std::vector<core::Error> loadPrefabs(World &world, std::vector<PrefabDocument> documents) {
+  std::vector<PrefabLinks> links;
+  std::unordered_map<std::string, std::size_t> byRoot;
+  for (std::size_t i = 0; i < documents.size(); ++i) {
+    links.push_back(prefabLinks(documents[i].document));
+    if (!links.back().root.empty()) {
+      byRoot.emplace(links.back().root, i);
+    }
+  }
+  // Depth first over the uses, loading a document after the ones it uses. A document met again
+  // while its own uses are being loaded closes a cycle: every document on it is refused, with
+  // the chain, and the ones using them then fail for want of them.
+  enum class State {
+    Unvisited,
+    Loading,
+    Done
+  };
+  std::vector<State> state(documents.size(), State::Unvisited);
+  std::vector<bool> refused(documents.size(), false);
+  std::vector<std::size_t> path;
+  std::vector<core::Error> errors;
+  const auto visit = [&](const auto &self, std::size_t index) -> void {
+    if (state[index] == State::Done) {
+      return;
+    }
+    if (state[index] == State::Loading) {
+      std::string chain;
+      for (auto it = std::ranges::find(path, index); it != path.end(); ++it) {
+        chain += std::format("{} -> ", documents[*it].source);
+        refused[*it] = true;
+      }
+      errors.push_back(core::Error{
+          std::format("{}: the prefab contains itself: {}{}", documents[index].source, chain, documents[index].source),
+          core::ErrorCategory::Io});
+      return;
+    }
+    state[index] = State::Loading;
+    path.push_back(index);
+    for (const std::string &use : links[index].uses) {
+      if (const auto it = byRoot.find(use); it != byRoot.end()) {
+        self(self, it->second);
+      }
+    }
+    path.pop_back();
+    state[index] = State::Done;
+    if (refused[index]) {
+      return;
+    }
+    if (const auto root = loadPrefabFrom(world, documents[index].document, documents[index].source); !root) {
+      errors.push_back(core::Error{std::format("{}: {}", documents[index].source, root.error().message),
+                                   core::ErrorCategory::Io, root.error().location});
+    }
+  };
+  for (std::size_t i = 0; i < documents.size(); ++i) {
+    visit(visit, i);
+  }
+  return errors;
+}
+
+std::vector<core::Error> loadPrefabFiles(World &world, std::span<const std::filesystem::path> paths) {
+  std::vector<PrefabDocument> documents;
+  std::vector<core::Error> errors;
+  for (const std::filesystem::path &path : paths) {
+    auto document = readJson(path);
+    if (!document) {
+      errors.push_back(document.error());
+      continue;
+    }
+    documents.push_back({path.string(), std::move(*document)});
+  }
+  std::vector<core::Error> refused = loadPrefabs(world, std::move(documents));
+  errors.insert(errors.end(), std::make_move_iterator(refused.begin()), std::make_move_iterator(refused.end()));
+  return errors;
+}
+
 flecs::entity loadModelPrefab(World &world, const assets::Model &model, const core::Uuid &uuid, std::string_view name) {
   SONNET_ASSERT(!world.find(uuid), "model prefab {} is already loaded", uuid.toString());
   flecs::entity root = world.createEntity(name, {}, uuid);
-  root.add(flecs::Prefab);
   std::vector<flecs::entity> entities;
   entities.reserve(model.nodes.size());
   for (std::size_t n = 0; n < model.nodes.size(); ++n) {
     const assets::ModelNode &node = model.nodes[n];
     const flecs::entity parent = node.parent >= 0 ? entities[static_cast<std::size_t>(node.parent)] : root;
     flecs::entity entity = world.createEntity(node.name, parent, core::Uuid::derive(uuid, std::format("node/{}", n)));
-    entity.add(flecs::Prefab);
     entity.set<Transform>({.position = node.position, .rotation = node.rotation, .scale = node.scale});
     if (!node.mesh.isNil()) {
       entity.set<MeshRenderer>({.mesh = node.mesh, .material = {}, .color = {1.0f, 1.0f, 1.0f, 1.0f}, .visible = true});
@@ -369,6 +554,7 @@ flecs::entity loadModelPrefab(World &world, const assets::Model &model, const co
   if (!model.animations.empty()) {
     root.set<Animator>({.clip = model.animations.front(), .time = 0.0f, .speed = 1.0f, .playing = true, .loop = true});
   }
+  world.makePrefab(root);
   return root;
 }
 

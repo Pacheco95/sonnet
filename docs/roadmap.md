@@ -222,6 +222,8 @@ Accepted 2026-10-12. [ADR-0028](decisions/0028-nested-scene-instances.md) follow
 
 Done when the playground has a prefab built from other prefabs, a scene that places it, changes one of its nested children, adds a child under another and hides a third, and keeps all three after a save and a reload in the editor, the player and the cooked bundle; a change to the inner prefab reaches what the scene did not change; undo restores a deleted instance with its changes; "Save as prefab" and "Make local" work in the editor; and CI is green on every job.
 
+Progress: the `world` part and the formats are in (scene and prefab version 4, bundle version 7), with the editor's instantiate and duplicate commands deriving the same identities and the hierarchy keeping an instance's descendants out of delete and duplicate. The editor's commands, the inspector and hierarchy work, `entity:child` and the playground's nested prefab are next.
+
 Not in the first version: per-field overrides, which come next, starting with script properties; placing a scene file; live updates of instances when a prefab changes; reordering or deleting an instance's source children; creating a prefab variant from the editor; applying an instance's changes back to its prefab.
 
 ## 1.0.0
