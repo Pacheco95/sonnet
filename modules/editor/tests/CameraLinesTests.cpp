@@ -18,9 +18,9 @@ TEST_CASE("a camera's frustum opens at its field of view and aspect", "[editor][
                                 .rotation = glm::angleAxis(glm::half_pi<float>(), glm::vec3{0.0f, 1.0f, 0.0f}),
                                 .fovY = glm::half_pi<float>(),
                                 .nearPlane = 0.5f};
-  constexpr float Aspect = 2.0f;
+  constexpr float aspect = 2.0f;
   std::vector<renderer::DebugLine> lines;
-  editor::appendCameraFrustumLines(std::span{&camera, 1}, Aspect, lines);
+  editor::appendCameraFrustumLines(std::span{&camera, 1}, aspect, lines);
   REQUIRE(lines.size() == 12);
 
   int fromCamera = 0;
@@ -34,7 +34,7 @@ TEST_CASE("a camera's frustum opens at its field of view and aspect", "[editor][
       // At 90 degrees the half-height equals the distance, and the half-width is twice that.
       REQUIRE(-to.x == Approx(farDistance));
       REQUIRE(std::abs(to.y) == Approx(farDistance));
-      REQUIRE(std::abs(to.z) == Approx(farDistance * Aspect));
+      REQUIRE(std::abs(to.z) == Approx(farDistance * aspect));
       continue;
     }
     // A rectangle's edges lie in one cross-section of the view.
