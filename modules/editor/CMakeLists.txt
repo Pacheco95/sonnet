@@ -40,6 +40,7 @@ sonnet_add_module(editor
 
 sonnet_add_module_test(editor
   SOURCES
+    tests/AssetMenuTests.cpp
     tests/CaptureTests.cpp
     tests/CommandTests.cpp
     tests/EditorTests.cpp

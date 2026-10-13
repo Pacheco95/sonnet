@@ -91,6 +91,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
     }
   });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  m_assetBrowserPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   // The module's components and systems go in after the engine's and before any scene loads, as
   // the player registers them.
   if (m_module != nullptr) {

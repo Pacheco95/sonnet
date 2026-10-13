@@ -8,6 +8,8 @@
 #include <sonnet/core/Uuid.h>
 
 #include <cstdint>
+#include <filesystem>
+#include <functional>
 #include <string>
 
 namespace sonnet::editor {
@@ -20,14 +22,23 @@ constexpr const char *AssetDragPayload = "SONNET_ASSET";
 // an identity the database does not know.
 [[nodiscard]] std::string assetLabel(const assets::AssetDatabase &assets, const core::Uuid &uuid);
 
+// A file: URL for a directory, percent-encoded so a space or a non-ASCII byte survives the trip to the
+// platform's opener; the row menu's Show in file manager hands it to SDL_OpenURL.
+[[nodiscard]] std::string directoryUrl(const std::filesystem::path &directory);
+
 // The project's assets by type and name (docs/editor.md, "Asset browser"): a filter, a multi-select type
 // filter, one row per asset. Clicking inspects the asset without touching the selection; rows are drag sources; the
-// buttons create a material file in the assets folder and a script in the scripts folder.
+// buttons create a material file in the assets folder and a script in the scripts folder. A right-click on a row
+// copies the source path, shows its folder in the file manager, or opens a script in the external editor.
 class AssetBrowserPanel {
 public:
   AssetBrowserPanel(assets::AssetDatabase &assets, Selection &selection);
 
   void draw(bool &open);
+  // Opens a file at a line in the external editor; the row menu's Open entry for scripts uses it.
+  void setOpenHandler(std::function<void(const std::string &, int)> handler) {
+    m_open = std::move(handler);
+  }
 
   // The asset the inspector shows, in place of the selected entities, until the selection is next touched;
   // nil for none. Inspecting an asset leaves the selection (and the gizmo) as it is.
@@ -40,6 +51,7 @@ public:
   }
 
 private:
+  void drawContextMenu(const assets::AssetInfo &info);
   void createMaterial();
   void createScript();
 
@@ -49,6 +61,7 @@ private:
   std::uint64_t m_inspectedRevision = 0;
   std::string m_filter;
   TypeFilter m_types;
+  std::function<void(const std::string &, int)> m_open;
 };
 
 } // namespace sonnet::editor

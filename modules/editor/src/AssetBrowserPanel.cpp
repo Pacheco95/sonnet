@@ -4,6 +4,7 @@
 
 #include <sonnet/core/Log.h>
 
+#include <SDL3/SDL_misc.h>
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
@@ -52,6 +53,25 @@ return Script
 )lua";
 
 } // namespace
+
+// A file: URL for a directory, percent-encoded so a space or a non-ASCII byte survives the trip to the
+// platform's opener.
+std::string directoryUrl(const std::filesystem::path &directory) {
+  const std::string path = directory.generic_string();
+  std::string url = "file://";
+  if (path.empty() || path.front() != '/') {
+    url += '/'; // a drive letter: file:///C:/...
+  }
+  for (const char c : path) {
+    const auto byte = static_cast<unsigned char>(c);
+    if (std::isalnum(byte) != 0 || std::string_view{"/:-._~"}.contains(c)) {
+      url += c;
+    } else {
+      url += std::format("%{:02X}", byte);
+    }
+  }
+  return url;
+}
 
 std::string assetLabel(const assets::AssetDatabase &assets, const core::Uuid &uuid) {
   if (uuid.isNil()) {
@@ -120,6 +140,7 @@ void AssetBrowserPanel::draw(bool &open) {
         ImGui::TextUnformatted(info->name.c_str());
         ImGui::EndDragDropSource();
       }
+      drawContextMenu(*info);
       ImGui::TableNextColumn();
       const std::string_view type = assets::toString(info->type);
       ImGui::TextUnformatted(type.data(), type.data() + type.size());
@@ -134,6 +155,25 @@ void AssetBrowserPanel::draw(bool &open) {
     ImGui::EndTable();
   }
   ImGui::End();
+}
+
+void AssetBrowserPanel::drawContextMenu(const assets::AssetInfo &info) {
+  if (!ImGui::BeginPopupContextItem("##asset-menu")) {
+    return;
+  }
+  const bool hasFile = info.source != "builtin";
+  if (ImGui::MenuItem("Copy path", nullptr, false, hasFile)) {
+    ImGui::SetClipboardText(info.source.string().c_str());
+  }
+  if (ImGui::MenuItem("Show in file manager", nullptr, false, hasFile)) {
+    if (!SDL_OpenURL(directoryUrl(info.source.parent_path()).c_str())) {
+      SONNET_LOG_ERROR("cannot open {}: {}", info.source.parent_path().string(), SDL_GetError());
+    }
+  }
+  if (ImGui::MenuItem("Open", nullptr, false, hasFile && info.type == assets::AssetType::Script && m_open)) {
+    m_open(info.source.string(), 1);
+  }
+  ImGui::EndPopup();
 }
 
 void AssetBrowserPanel::createMaterial() {
