@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <span>
 #include <string>
 
 namespace sonnet::editor {
@@ -26,10 +27,31 @@ constexpr const char *AssetDragPayload = "SONNET_ASSET";
 // platform's opener; the row menu's Show in file manager hands it to SDL_OpenURL.
 [[nodiscard]] std::string directoryUrl(const std::filesystem::path &directory);
 
+// What the browser's Source column shows: the file relative to the project, "/ name" added for a sub-asset,
+// "built-in" for an asset without a file.
+[[nodiscard]] std::string assetSourceLabel(const assets::AssetInfo &info, const std::filesystem::path &projectRoot);
+
+// A listed asset with its Source text, computed once per frame for drawing and sorting.
+struct AssetRow {
+  const assets::AssetInfo *info = nullptr;
+  std::string source;
+};
+
+enum class AssetSortColumn {
+  Name,
+  Type,
+  Source
+};
+
+// Orders the rows by a column of the browser: Name and Source ignoring case, Type by the type's name, `descending`
+// reversing that key; ties go by name ascending, then identity, so the order is total.
+void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descending);
+
 // The project's assets by type and name (docs/editor.md, "Asset browser"): a filter, a multi-select type
-// filter, one row per asset. Clicking inspects the asset without touching the selection; rows are drag sources; the
-// buttons create a material file in the assets folder and a script in the scripts folder. A right-click on a row
-// copies the source path, shows its folder in the file manager, or opens a script in the external editor.
+// filter, one row per asset, sorted by the column header clicked last (Name by default). Clicking inspects the asset
+// without touching the selection; rows are drag sources; the buttons create a material file in the assets folder and a
+// script in the scripts folder. A right-click on a row copies the source path, shows its folder in the file manager, or
+// opens a script in the external editor.
 class AssetBrowserPanel {
 public:
   AssetBrowserPanel(assets::AssetDatabase &assets, Selection &selection);
@@ -61,6 +83,8 @@ private:
   std::uint64_t m_inspectedRevision = 0;
   std::string m_filter;
   TypeFilter m_types;
+  AssetSortColumn m_sortColumn = AssetSortColumn::Name;
+  bool m_sortDescending = false;
   std::function<void(const std::string &, int)> m_open;
 };
 
