@@ -18,6 +18,13 @@ namespace {
 
 using nlohmann::json;
 
+// A string member, or `fallback` when the member is missing or not a string. Read through
+// get_ref: GCC 14 at -O3 flags nlohmann's value<std::string> with a false null dereference.
+std::string stringOr(const json &object, const char *key, std::string fallback) {
+  const auto it = object.find(key);
+  return it != object.end() && it->is_string() ? it->get_ref<const std::string &>() : std::move(fallback);
+}
+
 bool isSceneEntity(flecs::entity entity) {
   return entity.has<Identity>() && !entity.has(flecs::Prefab) && !entity.has<EditorOnly>();
 }
@@ -129,7 +136,7 @@ void migrateVersion1(json &document) {
       continue;
     }
     json &meshRenderer = components["MeshRenderer"];
-    const std::string primitive = meshRenderer.value("primitive", std::string{"Box"});
+    const std::string primitive = stringOr(meshRenderer, "primitive", "Box");
     meshRenderer.erase("primitive");
     core::Uuid mesh = assets::builtin::box();
     for (const auto &[name, uuid] : Primitives) {
@@ -194,14 +201,14 @@ core::Result<json> migrate(const json &input, std::string_view source) {
   return document;
 }
 
-void setComponents(World &world, flecs::entity entity, const json &entry) {
+void setComponents(World &world, flecs::entity entity, const json &entry, const core::Uuid &uuid) {
   if (!entry.contains("components") || !entry["components"].is_object()) {
     return;
   }
   for (const auto &[componentName, value] : entry["components"].items()) {
     const ComponentInfo *info = world.findComponent(componentName);
     if (info == nullptr) {
-      SONNET_LOG_WARN("entity {}: unknown component \"{}\" ignored", entry.value("uuid", std::string{}), componentName);
+      SONNET_LOG_WARN("entity {}: unknown component \"{}\" ignored", uuid.toString(), componentName);
       continue;
     }
     world.componentFromJson(entity, info->id, value);
@@ -248,7 +255,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
       if (entry.contains("name") && entry["name"].is_string()) {
         target.set<Name>({entry["name"].get<std::string>()});
       }
-      setComponents(world, target, entry);
+      setComponents(world, target, entry, *uuid);
       if (entry.contains("removed") && entry["removed"].is_array()) {
         for (const json &componentName : entry["removed"]) {
           const ComponentInfo *info =
@@ -263,7 +270,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
     if (world.find(*uuid)) {
       return fail(std::format("entity {} is already in the world", uuid->toString()));
     }
-    const std::string name = entry.value("name", std::string{});
+    const std::string name = stringOr(entry, "name", {});
     flecs::entity entity;
     if (entry.contains("prefab")) {
       const auto prefabUuid = core::Uuid::parse(entry["prefab"].get<std::string>());
@@ -277,7 +284,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
       entity = world.createEntity(name, {}, *uuid);
     }
     loaded.push_back(entity);
-    setComponents(world, entity, entry);
+    setComponents(world, entity, entry, *uuid);
     if (entry.contains("parent") && entry["parent"].is_string()) {
       const auto parentUuid = core::Uuid::parse(entry["parent"].get_ref<const std::string &>());
       if (!parentUuid) {
