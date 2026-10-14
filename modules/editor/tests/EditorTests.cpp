@@ -1473,6 +1473,8 @@ TEST_CASE("save as prefab writes a prefab file the reopened project places again
     REQUIRE(*file == directory / "prefabs" / "Box.prefab.json");
     REQUIRE(std::filesystem::exists(*file));
     REQUIRE(world.isInstance(world.find(box)));
+    // The prefab knows its file, which is what lists it in the asset browser.
+    REQUIRE(world.prefabOf(world.find(box)).get<world::PrefabFile>().path == *file);
     REQUIRE(editor.saveAsPrefab(box).value() == directory / "prefabs" / "Box 2.prefab.json");
     REQUIRE(editor.commands().undo(world)); // the second replacement
     fixture.frame(editor);

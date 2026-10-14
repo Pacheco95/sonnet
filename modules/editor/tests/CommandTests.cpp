@@ -59,7 +59,7 @@ TEST_CASE("inspecting an asset keeps the selection until it is touched again", "
   world::World world;
   const core::Uuid entity = world.uuidOf(world.createEntity("a"));
   editor::Selection selection;
-  editor::AssetBrowserPanel browser{assets, selection};
+  editor::AssetBrowserPanel browser{assets, world, selection};
   const core::Uuid asset = core::Uuid::generate();
 
   selection.select(entity);

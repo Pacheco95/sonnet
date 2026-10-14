@@ -204,7 +204,7 @@ void Game::loadPrefabs() {
                                      document.error().location});
         continue;
       }
-      documents.push_back({path, std::move(*document)});
+      documents.push_back({path, std::move(*document), {}});
     }
     std::ranges::move(world::loadPrefabs(m_world, std::move(documents)), std::back_inserter(errors));
   } else {

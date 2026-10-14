@@ -5,6 +5,7 @@
 #include <sonnet/core/Uuid.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,13 @@ struct PrefabOrigin {
 };
 struct PrefabSource {
   core::Uuid uuid;
+};
+
+// The file a prefab was loaded from, on its root: what the asset browser lists and shows as the
+// Source. Set by loading a prefab file; a model's prefab and one loaded from memory have none.
+// Instances do not inherit it, and it is not serialized.
+struct PrefabFile {
+  std::filesystem::path path;
 };
 
 // Position among the siblings, from a counter in World: creation order, so a scene loaded in

@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -112,8 +113,10 @@ TEST_CASE("a prefab instance saves its overrides only and comes back as an insta
     REQUIRE(prefab->has(flecs::Prefab));
     REQUIRE(editing.uuidOf(*prefab) == prefabUuid);
     REQUIRE(editing.roots().empty());
+    REQUIRE(prefab->get<world::PrefabFile>().path == prefabPath);
 
     const flecs::entity instance = editing.instantiate(*prefab, "Crate 1");
+    REQUIRE(!instance.has<world::PrefabFile>()); // the file is the prefab's, not inherited
     instance.ensure<world::Transform>().position = {4.0f, 0.0f, 0.0f};
     instance.ensure<world::MeshRenderer>().color = {0.0f, 0.0f, 1.0f, 1.0f};
     instance.add<world::Static>();
@@ -150,6 +153,16 @@ TEST_CASE("a prefab instance saves its overrides only and comes back as an insta
     REQUIRE(children.size() == 1);
     REQUIRE(children[0].get<world::MeshRenderer>().mesh == assets::builtin::plane());
     REQUIRE(playing.roots().size() == 1);
+  }
+  {
+    // Loaded with others, the prefab knows its file too; from memory it has none.
+    world::World listing;
+    REQUIRE(world::loadPrefabFiles(listing, std::span{&prefabPath, 1}).empty());
+    REQUIRE(listing.find(prefabUuid).get<world::PrefabFile>().path == prefabPath);
+    world::World memory;
+    const auto fromMemory = world::loadPrefab(memory, world::savePrefab(listing, listing.find(prefabUuid)));
+    REQUIRE(fromMemory.has_value());
+    REQUIRE(!fromMemory->has<world::PrefabFile>());
   }
   std::filesystem::remove(prefabPath);
   std::filesystem::remove(scenePath);

@@ -17,8 +17,10 @@ constexpr std::array<assets::AssetType, 10> AssetTypes{
     assets::AssetType::Animation,   assets::AssetType::Font,
 };
 
-constexpr std::array<const char *, 10> AssetTypeNames{
-    "Textures", "Meshes", "Materials", "Models", "Environments", "Scripts", "Sounds", "Skins", "Animations", "Fonts",
+// The asset types' names, then prefabs, which are not database assets but list with them.
+constexpr std::array<const char *, AssetTypes.size() + 1> AssetTypeNames{
+    "Textures", "Meshes", "Materials",  "Models", "Environments", "Scripts",
+    "Sounds",   "Skins",  "Animations", "Fonts",  "Prefabs",
 };
 
 bool containsIgnoringCase(std::string_view text, std::string_view needle) {
@@ -90,6 +92,10 @@ bool assetPassesFilter(const assets::AssetInfo &info, std::string_view text, con
   }
   const auto found = std::ranges::find(AssetTypes, info.type);
   return found != AssetTypes.end() && types.matches(static_cast<std::size_t>(found - AssetTypes.begin()));
+}
+
+bool prefabPassesFilter(std::string_view name, std::string_view text, const TypeFilter &types) {
+  return containsIgnoringCase(name, text) && types.matches(AssetTypes.size());
 }
 
 } // namespace sonnet::editor

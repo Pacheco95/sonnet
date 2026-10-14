@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <string_view>
 
 using namespace sonnet;
 using namespace sonnet::editor;
@@ -86,4 +87,26 @@ TEST_CASE("the asset browser combines the checked types with the name filter", "
   types.clear();
   REQUIRE(assetPassesFilter(model, "hel", types));
   REQUIRE_FALSE(assetPassesFilter(model, "brick", types));
+}
+
+TEST_CASE("prefabs have their own entry after the asset types", "[editor][filter]") {
+  const auto names = filterableAssetTypeNames();
+  const std::size_t prefabs = filterableAssetTypes().size();
+  REQUIRE(names.size() == prefabs + 1);
+  REQUIRE(std::string_view{names[prefabs]} == "Prefabs");
+
+  const assets::AssetInfo texture = asset("Crate", assets::AssetType::Texture);
+  TypeFilter types;
+  REQUIRE(prefabPassesFilter("Crate", "", types));
+
+  types.set(prefabs, true);
+  REQUIRE(prefabPassesFilter("Crate", "", types));
+  REQUIRE(prefabPassesFilter("Crate", "cra", types));
+  REQUIRE_FALSE(prefabPassesFilter("Crate", "barrel", types));
+  REQUIRE_FALSE(assetPassesFilter(texture, "", types));
+
+  types.clear();
+  types.set(indexOf(assets::AssetType::Texture), true);
+  REQUIRE_FALSE(prefabPassesFilter("Crate", "", types));
+  REQUIRE(types.summary(names) == "Textures");
 }

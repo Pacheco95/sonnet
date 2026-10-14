@@ -148,6 +148,7 @@ void World::registerComponents() {
   // Copied into each instantiated child (flecs' default), which is how a copy learns its source.
   m_world.component<PrefabOrigin>("PrefabOrigin");
   m_world.component<PrefabSource>("PrefabSource").add(flecs::OnInstantiate, flecs::DontInherit);
+  m_world.component<PrefabFile>("PrefabFile").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<WorldTransform>("WorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<PreviousWorldTransform>("PreviousWorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
   // Copied, so an instance's children sort as the prefab's do before instantiate renumbers them.

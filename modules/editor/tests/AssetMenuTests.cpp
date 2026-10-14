@@ -44,13 +44,13 @@ TEST_CASE("sortAssetRows orders the asset browser by a column", "[editor][assets
   std::vector<AssetRow> rows;
   rows.reserve(infos.size());
   for (const AssetInfo &info : infos) {
-    rows.push_back({&info, assetSourceLabel(info, root)});
+    rows.push_back(assetRow(info, root));
   }
   const auto names = [&] {
     std::vector<std::string> result;
     result.reserve(rows.size());
     for (const AssetRow &row : rows) {
-      result.push_back(row.info->name);
+      result.push_back(row.name);
     }
     return result;
   };
@@ -74,4 +74,22 @@ TEST_CASE("assetSourceLabel is what the Source column shows", "[editor][assets]"
   CHECK(assetSourceLabel(makeAsset(AssetType::Model, "/game/models/ship.glb", "ship"), "/game") == "models/ship.glb");
   CHECK(assetSourceLabel(makeAsset(AssetType::Mesh, "/game/models/ship.glb", "Hull", sonnet::core::Uuid::generate()),
                          "/game") == "models/ship.glb / Hull");
+}
+
+TEST_CASE("a prefab row lists its file and sorts by its type among the assets", "[editor][assets]") {
+  using sonnet::assets::AssetType;
+  const std::filesystem::path root = "/game";
+  const sonnet::assets::AssetInfo model = makeAsset(AssetType::Model, "/game/models/ship.glb", "ship");
+  const sonnet::assets::AssetInfo script = makeAsset(AssetType::Script, "/game/scripts/turret.lua", "turret");
+  const AssetRow prefab = prefabRow(sonnet::core::Uuid::generate(), "Crate", "/game/prefabs/Crate.prefab.json", root);
+  CHECK(prefab.info == nullptr);
+  CHECK(prefab.type == "Prefab");
+  CHECK(prefab.source == "prefabs/Crate.prefab.json");
+  CHECK(prefab.file == std::filesystem::path{"/game/prefabs/Crate.prefab.json"});
+
+  std::vector<AssetRow> rows{assetRow(script, root), prefab, assetRow(model, root)};
+  sortAssetRows(rows, AssetSortColumn::Type, false);
+  CHECK(rows[0].name == "ship");
+  CHECK(rows[1].name == "Crate");
+  CHECK(rows[2].name == "turret");
 }

@@ -76,7 +76,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
-      m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_selection) {
+      m_inspectorPanel(m_world, m_assets, m_selection, m_commands),
+      m_assetBrowserPanel(m_assets, m_world, m_selection) {
   if (!platform.isHeadless()) {
     setFileDialogBackend(makeSdlFileDialogBackend(window.nativeHandle()));
     setLayoutFile(platform.prefPath("sonnet", "editor") / "layout.ini");
@@ -1512,7 +1513,8 @@ core::Result<std::filesystem::path> Editor::saveAsPrefab(core::Uuid entity) {
   if (const auto written = core::writeFile(path, document.dump(2) + '\n'); !written) {
     return std::unexpected(written.error());
   }
-  const auto prefab = world::loadPrefab(m_world, document);
+  // Loaded from the file, so the prefab knows it and the asset browser lists it.
+  const auto prefab = world::loadPrefabFile(m_world, path);
   if (!prefab) {
     return std::unexpected(prefab.error());
   }
