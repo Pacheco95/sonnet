@@ -51,6 +51,9 @@ public:
   // An entity with a MeshRenderer of the given mesh asset, named after it.
   void createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent);
   void instantiatePrefab(flecs::entity prefab, core::Uuid parent);
+  // What a dropped environment asset does, wherever it lands: it becomes the scene's sky, the map of
+  // the Environment that lights the scene, or of a new root named `name` when there is none.
+  void useEnvironment(core::Uuid map, std::string_view name);
   // What a dropped row does: moves the entity under `parent` (nil for the root) to `index` among the
   // other children there, as one command. Refused (false, nothing pushed) for part of a prefab instance,
   // a move under the entity itself or a descendant, a place before an instance's own children, which a

@@ -344,3 +344,29 @@ TEST_CASE("dragging a row onto the upper edge of another puts it before that row
   REQUIRE(names == std::vector<std::string>{"C", "A", "B"});
   REQUIRE(commands.undoDescription() == "reorder C");
 }
+
+TEST_CASE("an environment dropped on the hierarchy becomes the scene's sky", "[editor][hierarchy]") {
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const core::Uuid sky = core::Uuid::generate();
+  const core::Uuid dusk = core::Uuid::generate();
+
+  // No Environment yet: a new root, named after the asset and selected.
+  panel.useEnvironment(sky, "sky");
+  REQUIRE(world.roots().size() == 1);
+  const flecs::entity entity = world.roots().front();
+  REQUIRE(entity.get<world::Name>().value == "sky");
+  REQUIRE(entity.get<world::Environment>().map == sky);
+  REQUIRE(selection.contains(world.uuidOf(entity)));
+
+  // One already: its map changes and its other settings stay, as one undoable command.
+  entity.set<world::Environment>({.map = sky, .intensity = 0.25f, .exposure = 1.0f});
+  panel.useEnvironment(dusk, "dusk");
+  REQUIRE(world.roots().size() == 1);
+  CHECK(entity.get<world::Environment>().map == dusk);
+  CHECK(entity.get<world::Environment>().intensity == 0.25f);
+  REQUIRE(commands.undo(world));
+  CHECK(world.find(world.uuidOf(entity)).get<world::Environment>().map == sky);
+}

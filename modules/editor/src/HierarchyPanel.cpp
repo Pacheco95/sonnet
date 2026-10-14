@@ -8,6 +8,7 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/physics/Components.h>
 #include <sonnet/scripting/Components.h>
+#include <sonnet/world/DrawList.h>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -274,7 +275,7 @@ void HierarchyPanel::acceptDrop(flecs::entity row, bool openParent) {
     return;
   }
   const core::Uuid rowUuid = row ? m_world.uuidOf(row) : core::Uuid{};
-  // A model from the asset browser: an instance of its prefab under the drop target.
+  // A model from the asset browser: an instance of its prefab under the drop target; an environment: the sky.
   if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(AssetDragPayload)) {
     core::Uuid::Bytes bytes{};
     std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
@@ -287,6 +288,8 @@ void HierarchyPanel::acceptDrop(flecs::entity row, bool openParent) {
       if (auto command = appendScriptCommand(m_world, rowUuid, dropped)) {
         m_commands.push(std::move(command), m_world);
       }
+    } else if (asset != nullptr && asset->type == assets::AssetType::Environment) {
+      useEnvironment(dropped, asset->name);
     }
   }
   // An entity: the upper and lower quarters of a row put it before or after the row, the middle under the
@@ -458,6 +461,24 @@ void HierarchyPanel::createMeshEntity(std::string_view name, core::Uuid mesh, co
 void HierarchyPanel::instantiatePrefab(flecs::entity prefab, core::Uuid parent) {
   const core::Uuid uuid = core::Uuid::generate();
   m_commands.push(instantiatePrefabCommand(m_world.uuidOf(prefab), nameOf(prefab), parent, uuid), m_world);
+  m_selection.select(uuid);
+}
+
+void HierarchyPanel::useEnvironment(core::Uuid map, std::string_view name) {
+  const flecs::entity entity = world::environmentEntity(m_world);
+  if (!entity) {
+    createEntity(name, {}, {{"Environment", {{"map", map.toString()}}}});
+    return;
+  }
+  const core::Uuid uuid = m_world.uuidOf(entity);
+  const nlohmann::json before = m_world.componentToJson(entity, m_world.ecs().component<world::Environment>());
+  nlohmann::json after = before;
+  after["map"] = map.toString();
+  if (after != before) {
+    m_commands.push(
+        componentCommand(uuid, "Environment", std::make_optional(before), std::make_optional(after), "set environment"),
+        m_world);
+  }
   m_selection.select(uuid);
 }
 

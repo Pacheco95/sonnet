@@ -190,4 +190,8 @@ std::optional<SceneEnvironment> sceneEnvironment(const World &world, assets::Ass
   return result;
 }
 
+flecs::entity environmentEntity(const World &world) {
+  return shown<const Environment>(world).first();
+}
+
 } // namespace sonnet::world

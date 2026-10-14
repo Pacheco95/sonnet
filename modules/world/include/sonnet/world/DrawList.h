@@ -46,5 +46,7 @@ struct SceneEnvironment {
 // The first Environment component, its map loaded through the database; none without one or
 // when the map failed to load.
 [[nodiscard]] std::optional<SceneEnvironment> sceneEnvironment(const World &world, assets::AssetDatabase &assets);
+// The first shown entity with an Environment, the one sceneEnvironment reads first; null without one.
+[[nodiscard]] flecs::entity environmentEntity(const World &world);
 
 } // namespace sonnet::world
