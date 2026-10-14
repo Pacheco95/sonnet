@@ -538,6 +538,31 @@ TEST_CASE("reset drops instances and script state, and entities going away drop 
   REQUIRE(speeds == std::vector<float>{1.0f, 2.0f});
 }
 
+TEST_CASE("a script under a disabled entity gets no hooks until the entity is shown", "[scripting]") {
+  Fixture fixture{{"ticker.lua", R"lua(
+    local Ticker = {}
+    function Ticker:start() print("@start") end
+    function Ticker:update() print("@update") end
+    return Ticker
+  )lua"}};
+  const flecs::entity group = fixture.world.createEntity("Group");
+  const flecs::entity middle = fixture.world.createEntity("Middle", group);
+  const flecs::entity ticker = fixture.scripted("Ticker", "ticker.lua");
+  fixture.world.setParent(ticker, middle);
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"start", "update"});
+
+  group.add<world::Disabled>();
+  fixture.run(3);
+  REQUIRE(fixture.scripts->instanceCount() == 0);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"start", "update"});
+  // Shown again, it starts over, as an entity enabled on its own does.
+  group.remove<world::Disabled>();
+  fixture.run(1);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"start", "update", "start", "update"});
+}
+
 TEST_CASE("Scripts round-trips through a scene and a version 2 Script migrates into it", "[scripting][scene]") {
   Fixture fixture{{"spin.lua", "return {}"}};
   const core::Uuid spin = fixture.script("spin.lua");
