@@ -25,10 +25,6 @@ constexpr const char *AssetDragPayload = "SONNET_ASSET";
 // an identity the database does not know.
 [[nodiscard]] std::string assetLabel(const assets::AssetDatabase &assets, const core::Uuid &uuid);
 
-// A file: URL for a directory, percent-encoded so a space or a non-ASCII byte survives the trip to the
-// platform's opener; the row menu's Show in file manager hands it to SDL_OpenURL.
-[[nodiscard]] std::string directoryUrl(const std::filesystem::path &directory);
-
 // What the browser's Source column shows: the file relative to the project, "/ name" added for a sub-asset,
 // "built-in" for an asset without a file.
 [[nodiscard]] std::string assetSourceLabel(const assets::AssetInfo &info, const std::filesystem::path &projectRoot);
@@ -62,8 +58,8 @@ void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descen
 // The project's assets and prefab files by type and name (docs/editor.md, "Asset browser"): a filter, a multi-select
 // type filter, one row per asset or prefab, sorted by the column header clicked last (Name by default). Clicking an
 // asset inspects it without touching the selection; rows are drag sources; the buttons create a material file in the
-// assets folder and a script in the scripts folder. A right-click on a row copies the source path, shows its folder in
-// the file manager, or opens a script in the external editor.
+// assets folder and a script in the scripts folder. A right-click on a row copies the source path, selects it in the
+// file manager, or opens a script in the external editor.
 class AssetBrowserPanel {
 public:
   AssetBrowserPanel(assets::AssetDatabase &assets, world::World &world, Selection &selection);

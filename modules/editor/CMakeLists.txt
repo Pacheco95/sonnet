@@ -12,6 +12,7 @@ sonnet_add_module(editor
     src/EntityCommands.cpp
     src/Export.cpp
     src/FileDialog.cpp
+    src/FileManager.cpp
     src/FlyCamera.cpp
     src/GamePanel.cpp
     src/Gizmo.cpp
@@ -38,6 +39,10 @@ sonnet_add_module(editor
   DEPENDS
     slang::slang
 )
+if(WIN32)
+  # Show in file manager selects the file with SHOpenFolderAndSelectItems, which needs COM.
+  target_link_libraries(sonnet_editor PRIVATE shell32 ole32)
+endif()
 
 sonnet_add_module_test(editor
   SOURCES
