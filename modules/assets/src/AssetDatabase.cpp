@@ -1501,7 +1501,9 @@ core::Result<core::Uuid> AssetDatabase::registerFile(const std::filesystem::path
   return info->uuid;
 }
 
-void AssetDatabase::unregister(const core::Uuid &uuid) {
+void AssetDatabase::unregister(const core::Uuid &requested) {
+  // A copy: the caller's reference may be into m_assets (find()->uuid), which the loop below erases.
+  const core::Uuid uuid = requested;
   if (!m_files.contains(uuid)) {
     return;
   }

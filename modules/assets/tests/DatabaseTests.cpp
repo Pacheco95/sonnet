@@ -801,7 +801,8 @@ TEST_CASE("a file added under a root is registered, and unregistering forgets wh
   REQUIRE(database.mesh(meshUuid).isValid());
   const renderer::MaterialHandle crateMaterial = database.material(materialUuid);
   REQUIRE(fixture.renderer.isValid(crateMaterial));
-  database.unregister(crateUuid);
+  // Through the database's own AssetInfo, as the editor's undo passes it: its entry is erased mid-call.
+  database.unregister(crate->uuid);
   REQUIRE(database.find(crateUuid) == nullptr);
   REQUIRE(database.find(meshUuid) == nullptr);
   REQUIRE(database.find(materialUuid) == nullptr);
