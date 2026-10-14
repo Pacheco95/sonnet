@@ -79,9 +79,15 @@ public:
   // stays where it is on screen.
   void setParent(flecs::entity entity, flecs::entity parent);
   [[nodiscard]] flecs::entity parentOf(flecs::entity entity) const;
-  // Both list in creation order, which is file order for a loaded scene.
+  // Both list in sibling order: creation order unless setSiblingIndex moved an entity, and file
+  // order for a loaded scene.
   [[nodiscard]] std::vector<flecs::entity> roots() const;
   [[nodiscard]] std::vector<flecs::entity> children(flecs::entity entity) const;
+  // The entity's position among its siblings in roots() or children(), and a move to `index`
+  // there (past the end puts it last); the others keep their order. Renumbers the siblings'
+  // SiblingOrder, so a save and a load keep the new order through file order.
+  [[nodiscard]] std::size_t siblingIndex(flecs::entity entity) const;
+  void setSiblingIndex(flecs::entity entity, std::size_t index);
   [[nodiscard]] bool isDescendant(flecs::entity entity, flecs::entity ancestor) const;
   // The descendant of `root` at a path of names joined by '/' ("Hips/Spine"), taking the first
   // child of each name in sibling order; null when a name is missing, `root` for an empty path.
