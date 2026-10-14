@@ -40,6 +40,8 @@ Materials request their textures rather than load them, so neither `material` no
 | `.ttf`, `.otf` | assets | Font assets: the file, parsed and rasterised on demand by `gui` ([gui.md](gui.md#text)); the sidecar's `preload` ranges say which codepoints to rasterise at load ([Fonts](#fonts)) |
 | `.scene.json`, `.prefab.json` | world | Scenes and prefabs |
 
+The glTF importer reads two extensions, `KHR_materials_transmission` and `KHR_texture_transform` ([Materials](#materials)); `ReadExtensions` in `GltfImporter.cpp` lists them. A file whose `extensionsUsed` names others still imports, with one warning per import naming the file and every extension it does not read, so a model that looks wrong says why. A file whose `extensionsRequired` names one is refused, as the glTF specification asks, and the error names it.
+
 Import settings live in the sidecar file and are edited in the inspector. A texture's are `TextureSettings`: sRGB or linear, mipmaps, compression; changing them rewrites the sidecar and re-imports at once. The importers are also plain functions in `Importers.h` (`importImage`, `importHdr`, `importGltf`, `readKtx2`, `cookKtx2`, `cookAstcKtx2`, `cookHdrKtx2`) for tools and tests.
 
 ## Fonts
