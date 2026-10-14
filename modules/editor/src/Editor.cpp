@@ -1174,7 +1174,7 @@ void Editor::chooseAssetsToImport() {
 }
 
 void Editor::importFiles(std::span<const std::filesystem::path> files) {
-  auto command = importAssets(m_assets, files);
+  auto command = importAssets(m_assets, m_world, files);
   if (!command) {
     SONNET_LOG_ERROR("{}", command.error().toString());
     return;

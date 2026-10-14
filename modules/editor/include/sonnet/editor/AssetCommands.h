@@ -30,11 +30,13 @@ namespace sonnet::editor {
 // first asset root, and a glTF file into a folder of its own named after it, with the buffers and
 // images its URIs name at the same relative paths. A name already taken gets a number, as Save as
 // prefab does: `wood 2.png`, the folder `crate 2`. A file no importer reads is logged and skipped.
+// A model is also placed in `world` as a prefab, as opening the project does, so it can be
+// instanced; undo leaves the prefab loaded.
 // The result is the whole import as one command, already applied, for CommandStack::record: undo
 // unregisters what it added and deletes the copies, their sidecars and the folders it made; redo
 // copies the same files again and puts the sidecars back, so the identities stay. Fails, leaving
 // nothing behind, when no file could be imported or a copy failed.
-[[nodiscard]] core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &assets,
+[[nodiscard]] core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &assets, world::World &world,
                                                                    std::span<const std::filesystem::path> files);
 
 } // namespace sonnet::editor

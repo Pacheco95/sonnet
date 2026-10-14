@@ -2,6 +2,7 @@
 
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/world/Scene.h>
 
 #include <algorithm>
 #include <format>
@@ -100,7 +101,7 @@ public:
         m_description(std::move(description)) {
   }
 
-  [[nodiscard]] core::Result<void> copy() {
+  [[nodiscard]] core::Result<void> copy(world::World &world) {
     for (const std::filesystem::path &directory : m_directories) {
       if (std::error_code error; !std::filesystem::create_directory(directory, error) && error) {
         removeCopies(0);
@@ -124,17 +125,28 @@ public:
       }
     }
     for (const ImportCopy &copy : m_copies) {
-      if (assets::AssetDatabase::sourceType(copy.to)) {
-        if (const auto registered = m_assets.registerFile(copy.to); !registered) {
-          SONNET_LOG_ERROR("{}", registered.error().toString());
+      if (!assets::AssetDatabase::sourceType(copy.to)) {
+        continue;
+      }
+      const auto registered = m_assets.registerFile(copy.to);
+      if (!registered) {
+        SONNET_LOG_ERROR("{}", registered.error().toString());
+        continue;
+      }
+      // A model is placed as a prefab, as opening the project places every model, so it can be
+      // dropped on the hierarchy. An undo leaves the prefab loaded, and a redo finds it there.
+      const assets::AssetInfo *info = m_assets.find(*registered);
+      if (info->type == assets::AssetType::Model && !world.find(*registered)) {
+        if (const assets::Model *model = m_assets.model(*registered)) {
+          static_cast<void>(world::loadModelPrefab(world, *model, *registered, info->name));
         }
       }
     }
     return {};
   }
 
-  void apply(world::World &) override {
-    if (const auto copied = copy(); !copied) {
+  void apply(world::World &world) override {
+    if (const auto copied = copy(world); !copied) {
       SONNET_LOG_ERROR("{}", copied.error().toString());
     }
   }
@@ -203,7 +215,7 @@ std::filesystem::path freeName(const std::filesystem::path &directory, const std
 
 } // namespace
 
-core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &assets,
+core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &assets, world::World &world,
                                                      std::span<const std::filesystem::path> files) {
   if (!assets.isOpen() || assets.bundle() != nullptr || assets.roots().empty()) {
     return std::unexpected(core::Error{"importing needs an open project with an asset root", core::ErrorCategory::Io});
@@ -263,7 +275,7 @@ core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &asse
       imported == 1 ? std::format("import {}", last.string()) : std::format("import {} files", imported);
   auto command =
       std::make_unique<ImportAssetsCommand>(assets, std::move(copies), std::move(directories), std::move(description));
-  if (auto copied = command->copy(); !copied) {
+  if (auto copied = command->copy(world); !copied) {
     return std::unexpected(copied.error());
   }
   return command;

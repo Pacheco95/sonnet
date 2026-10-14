@@ -359,7 +359,7 @@ TEST_CASE("an import copies files and a glTF file's dependencies in, numbers cla
 
   const std::vector<std::filesystem::path> first{source / "wood.png", source / "model" / "crate.gltf",
                                                  source / "sky.hdr", source / "notes.txt"};
-  auto imported = editor::importAssets(assets, first);
+  auto imported = editor::importAssets(assets, world, first);
   REQUIRE(imported.has_value());
   REQUIRE((*imported)->description() == "import 3 files"); // the text file is skipped
   commands.record(std::move(*imported));
@@ -376,13 +376,16 @@ TEST_CASE("an import copies files and a glTF file's dependencies in, numbers cla
   REQUIRE(model != nullptr);
   REQUIRE(model->type == assets::AssetType::Model);
   const core::Uuid modelUuid = model->uuid;
+  // Placed as a prefab, so dropping it on the hierarchy makes an instance.
+  REQUIRE(world.find(modelUuid));
+  REQUIRE(world.find(modelUuid).has(flecs::Prefab));
   REQUIRE(assets.findByPath(crate / "textures" / "wood grain.png") != nullptr); // as opening would find it
   REQUIRE(assets.findByPath(root / "assets" / "sky.hdr")->type == assets::AssetType::Environment);
 
   // Names already taken get a number, the glTF file's folder too.
   const std::vector<std::filesystem::path> second{source / "wood.png", source / "model" / "crate.gltf",
                                                   source / "steel.material.json", source / "steel.material.json"};
-  imported = editor::importAssets(assets, second);
+  imported = editor::importAssets(assets, world, second);
   REQUIRE(imported.has_value());
   commands.record(std::move(*imported));
   REQUIRE(assets.findByPath(root / "assets" / "wood 2.png") != nullptr);
@@ -408,17 +411,18 @@ TEST_CASE("an import copies files and a glTF file's dependencies in, numbers cla
   REQUIRE(commands.redo(world));
   REQUIRE(assets.findByPath(crate / "crate.gltf") != nullptr);
   REQUIRE(assets.findByPath(crate / "crate.gltf")->uuid == modelUuid);
+  REQUIRE(world.find(modelUuid).has(flecs::Prefab)); // kept through undo, not placed twice
   REQUIRE(std::filesystem::is_regular_file(crate / "textures" / "wood grain.png"));
 
   // A dependency that is missing fails the import and leaves nothing behind.
   std::filesystem::remove(source / "model" / "crate.bin");
   const std::vector<std::filesystem::path> broken{source / "sky.hdr", source / "model" / "crate.gltf"};
-  REQUIRE_FALSE(editor::importAssets(assets, broken).has_value());
+  REQUIRE_FALSE(editor::importAssets(assets, world, broken).has_value());
   REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "sky 2.hdr"));
   REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "crate 2"));
   REQUIRE(assets.findByPath(root / "assets" / "sky 2.hdr") == nullptr);
   const std::vector<std::filesystem::path> nothing{source / "notes.txt"};
-  REQUIRE_FALSE(editor::importAssets(assets, nothing).has_value());
+  REQUIRE_FALSE(editor::importAssets(assets, world, nothing).has_value());
   assets.close();
   std::filesystem::remove_all(root);
   std::filesystem::remove_all(source);
