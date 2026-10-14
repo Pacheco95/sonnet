@@ -95,6 +95,21 @@ TEST_CASE("cooking a mesh welds its vertices and keeps the geometry", "[assets][
   REQUIRE(std::ranges::max(cooked.indices) < cooked.vertices.size());
 }
 
+TEST_CASE("cooking a mesh keeps vertices that differ only in their second UV set", "[assets][cook]") {
+  // Two triangles over the same corners, the second with its own second-set UVs: a seam in a
+  // lightmap or occlusion layout that the first set does not have.
+  MeshData source = unweldedGrid(1, 1);
+  for (std::size_t i = 3; i < source.vertices.size(); ++i) {
+    source.vertices[i].uv1 = {0.5f, 0.5f};
+  }
+  const MeshData cooked = cookMesh(source);
+  // The quad's diagonal corners are shared in the first set but not in the second: 6 vertices, not
+  // the 4 the first set alone would weld to, half of them on each layout.
+  REQUIRE(cooked.vertices.size() == 6);
+  REQUIRE(triangles(cooked) == triangles(source));
+  REQUIRE(std::ranges::count(cooked.vertices, glm::vec2{0.5f, 0.5f}, &Vertex::uv1) == 3);
+}
+
 TEST_CASE("cooking a mesh reorders it for the vertex cache", "[assets][cook]") {
   const MeshData source = unweldedGrid(24, 24);
   MeshCookStatistics statistics;
@@ -377,11 +392,11 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
   REQUIRE(cooked != nullptr);
   REQUIRE(cooked->bytes == file); // byte for byte
   REQUIRE(cooked->preload == std::vector<GlyphRange>{{65, 90}});
-  // The header says version 8.
+  // The header says version 9.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 8);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 8);
+  REQUIRE(BundleVersion == 9);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 9);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {

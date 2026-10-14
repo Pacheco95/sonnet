@@ -27,9 +27,10 @@ namespace {
 
 [[nodiscard]] renderer::MeshData triangleMesh() {
   renderer::MeshData mesh;
-  mesh.vertices = {{.position = {0.0f, 0.0f, 0.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}},
-                   {.position = {1.0f, 0.0f, 0.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}},
-                   {.position = {0.0f, 0.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 1.0f}}};
+  mesh.vertices = {
+      {.position = {0.0f, 0.0f, 0.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}},
+      {.position = {1.0f, 0.0f, 0.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}, .uv1 = {0.25f, 0.75f}},
+      {.position = {0.0f, 0.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 1.0f}}};
   mesh.indices = {0, 1, 2};
   mesh.submeshes = {{.firstIndex = 0, .indexCount = 3, .materialSlot = 1}};
   mesh.skin = {{.joints = {1u, 0u, 0u, 0u}, .weights = {1.0f, 0.0f, 0.0f, 0.0f}},
@@ -48,6 +49,7 @@ TEST_CASE("a mesh payload round-trips through the cooked form", "[assets][bundle
   REQUIRE(decoded->vertices.size() == source.vertices.size());
   REQUIRE(decoded->vertices[2].position == source.vertices[2].position);
   REQUIRE(decoded->vertices[1].uv == source.vertices[1].uv);
+  REQUIRE(decoded->vertices[1].uv1 == glm::vec2{0.25f, 0.75f});
   REQUIRE(decoded->submeshes.size() == 1);
   REQUIRE(decoded->submeshes[0].materialSlot == 1);
   REQUIRE(decoded->skin.size() == 3);
@@ -274,12 +276,12 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   REQUIRE(core::writeFile(future, *bytes).has_value());
   REQUIRE(!Bundle::open(future).has_value());
 
-  // The version before materials held texture transforms: refused, and the message names both
+  // The version before vertices held a second UV set: refused, and the message names both
   // versions, so a player asked to open an old bundle says to cook it again.
-  (*bytes)[8] = std::byte{7};
+  (*bytes)[8] = std::byte{8};
   REQUIRE(core::writeFile(future, *bytes).has_value());
   const auto old = Bundle::open(future);
   REQUIRE(!old.has_value());
-  REQUIRE(old.error().message.find("bundle version 7 is not version 8") != std::string::npos);
+  REQUIRE(old.error().message.find("bundle version 8 is not version 9") != std::string::npos);
   std::filesystem::remove_all(directory);
 }

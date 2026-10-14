@@ -9,6 +9,7 @@ struct Vertex {
   float3 normal;
   float4 tangent; // xyz in the normal's frame, w the bitangent sign
   float2 uv;
+  float2 uv1;
 };
 
 struct SkinWeights {

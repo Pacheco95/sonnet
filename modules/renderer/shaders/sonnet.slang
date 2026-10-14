@@ -35,6 +35,7 @@ public struct Vertex {
   public float3 normal;
   public float4 tangent; // xyz in the normal's frame, w the bitangent sign
   public float2 uv;
+  public float2 uv1; // zero where the mesh has no second set
 };
 
 [[vk::binding(5, 0)]]
@@ -87,6 +88,12 @@ public static const uint AlphaOpaque = 0;
 public static const uint AlphaMask = 1;
 public static const uint AlphaBlend = 2;
 public static const uint MaterialDoubleSided = 1u << 8;
+// A material's texture slots, as the bits of MaterialData::uvSets.
+public static const uint SlotBaseColor = 0;
+public static const uint SlotMetallicRoughness = 1;
+public static const uint SlotNormal = 2;
+public static const uint SlotOcclusion = 3;
+public static const uint SlotEmissive = 4;
 
 public struct MaterialData {
   public float4 baseColor;
@@ -102,7 +109,7 @@ public struct MaterialData {
   public uint emissiveTexture;
   public uint flags; // alpha mode in the low byte, MaterialDoubleSided above it
   public uint sampler;
-  public uint padding0;
+  public uint uvSets; // a slot's bit set: it reads Vertex::uv1 instead of Vertex::uv
   // Each slot's KHR_texture_transform: the 2x2 part by rows, then the offsets (uvTransform).
   public float4 baseColorUv;
   public float4 metallicRoughnessUv;
@@ -120,6 +127,12 @@ public struct MaterialData {
 // A texture slot's UV: its 2x2 matrix by rows, then its offset (KHR_texture_transform).
 public float2 uvTransform(float4 rows, float2 offset, float2 uv) {
   return float2(dot(rows.xy, uv), dot(rows.zw, uv)) + offset;
+}
+
+// The vertex UV set a material's slot reads, out of both sets interpolated together: Vertex::uv in
+// xy, Vertex::uv1 in zw.
+public float2 uvSet(MaterialData material, uint slot, float4 uvs) {
+  return ((material.uvSets >> slot) & 1u) != 0 ? uvs.zw : uvs.xy;
 }
 
 // ---- Shadows ----

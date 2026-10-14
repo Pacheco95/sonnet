@@ -90,16 +90,37 @@ core::Error parseError(const std::filesystem::path &path, fastgltf::Error error)
   return gltfError(path, "parsing", error);
 }
 
-// A slot's KHR_texture_transform, or the identity. `info` is one of fastgltf's optional
-// texture-info types. Its texCoord override is not read: meshes carry one UV set (#251).
+// The UV set a slot reads: its texture info's texCoord, or KHR_texture_transform's override of it.
+// `info` is one of fastgltf's optional texture-info types.
+template <typename OptionalInfo> std::size_t texCoordOf(const OptionalInfo &info) {
+  if (!info.has_value()) {
+    return 0;
+  }
+  if (info->transform != nullptr && info->transform->texCoordIndex.has_value()) {
+    return *info->transform->texCoordIndex;
+  }
+  return info->texCoordIndex;
+}
+
+// A slot's UV set and KHR_texture_transform, or set 0 untransformed. Meshes keep two sets, so a
+// slot that reads a later one reads set 0 (the material's import warns).
 template <typename OptionalInfo> renderer::TextureTransform transformOf(const OptionalInfo &info) {
+  const auto texCoord = static_cast<std::uint32_t>(texCoordOf(info) == 1 ? 1 : 0);
   if (!info.has_value() || info->transform == nullptr) {
-    return {};
+    return {.texCoord = texCoord};
   }
   const fastgltf::TextureTransform &transform = *info->transform;
   return {.offset = {transform.uvOffset[0], transform.uvOffset[1]},
           .rotation = transform.rotation,
-          .scale = {transform.uvScale[0], transform.uvScale[1]}};
+          .scale = {transform.uvScale[0], transform.uvScale[1]},
+          .texCoord = texCoord};
+}
+
+// The highest UV set any of a material's texture slots reads.
+std::size_t highestTexCoord(const fastgltf::Material &material) {
+  return std::max({texCoordOf(material.pbrData.baseColorTexture), texCoordOf(material.pbrData.metallicRoughnessTexture),
+                   texCoordOf(material.normalTexture), texCoordOf(material.occlusionTexture),
+                   texCoordOf(material.emissiveTexture)});
 }
 
 std::string nameOr(std::string_view name, const char *kind, std::size_t index) {
@@ -387,12 +408,31 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
             asset, asset.accessors[uv->accessorIndex],
             [&](glm::vec2 value, std::size_t i) { out.data.vertices[base + i].uv = value; });
       }
+      // The second set, which a material's slot may read instead (texCoord 1). A primitive without
+      // one keeps zeros, and a slot that asks for it there gets the same texel everywhere.
+      const fastgltf::Material *material =
+          primitive.materialIndex.has_value() && *primitive.materialIndex < asset.materials.size()
+              ? &asset.materials[*primitive.materialIndex]
+              : nullptr;
+      if (const auto uv1 = primitive.findAttribute("TEXCOORD_1"); uv1 != primitive.attributes.end()) {
+        fastgltf::iterateAccessorWithIndex<glm::vec2>(
+            asset, asset.accessors[uv1->accessorIndex],
+            [&](glm::vec2 value, std::size_t i) { out.data.vertices[base + i].uv1 = value; });
+      } else if (material != nullptr && highestTexCoord(*material) >= 1) {
+        SONNET_LOG_WARN("{}: mesh \"{}\" has a primitive without TEXCOORD_1 whose material reads it", path.string(),
+                        out.name);
+      }
       if (const auto tangent = primitive.findAttribute("TANGENT"); tangent != primitive.attributes.end()) {
         fastgltf::iterateAccessorWithIndex<glm::vec4>(
             asset, asset.accessors[tangent->accessorIndex],
             [&](glm::vec4 value, std::size_t i) { out.data.vertices[base + i].tangent = value; });
       } else {
         needTangents = true;
+        if (material != nullptr && texCoordOf(material->normalTexture) == 1) {
+          SONNET_LOG_WARN("{}: mesh \"{}\" has no tangents and a normal map on TEXCOORD_1; the generated tangents "
+                          "follow TEXCOORD_0, so its bumps may point the wrong way",
+                          path.string(), out.name);
+        }
       }
       // The first set of joints and weights; a primitive without them keeps zero weights, which
       // the skinning pass leaves in the bind pose.
@@ -483,6 +523,10 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
   for (std::size_t m = 0; m < asset.materials.size(); ++m) {
     const fastgltf::Material &material = asset.materials[m];
     GltfMaterial out{.name = nameOr(material.name, "material", m), .source = {}};
+    if (highestTexCoord(material) > 1) {
+      SONNET_LOG_WARN("{}: material \"{}\" reads TEXCOORD_{}; meshes keep two UV sets, so it reads TEXCOORD_0",
+                      path.string(), out.name, highestTexCoord(material));
+    }
     const fastgltf::PBRData &pbr = material.pbrData;
     out.source.baseColor = {pbr.baseColorFactor[0], pbr.baseColorFactor[1], pbr.baseColorFactor[2],
                             pbr.baseColorFactor[3]};

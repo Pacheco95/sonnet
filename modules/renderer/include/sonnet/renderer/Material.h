@@ -24,12 +24,15 @@ enum class TextureWrap : std::uint8_t {
   MirroredRepeat,
 };
 
-// KHR_texture_transform: a slot samples at offset + rotate(rotation) * (scale * uv), the rotation in
-// radians, counter-clockwise. The default is the identity.
+// How a texture slot reads its UVs: the vertex UV set it takes (glTF's texCoord, 0 for `Vertex::uv`
+// and 1 for `Vertex::uv1`), then KHR_texture_transform, sampling at
+// offset + rotate(rotation) * (scale * uv) with the rotation in radians, counter-clockwise. The
+// default is set 0 untransformed.
 struct TextureTransform {
   glm::vec2 offset{0.0f, 0.0f};
   float rotation{0.0f};
   glm::vec2 scale{1.0f, 1.0f};
+  std::uint32_t texCoord{0};
 
   bool operator==(const TextureTransform &) const = default;
 };

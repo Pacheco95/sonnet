@@ -6,7 +6,7 @@ import sonnet;
 
 struct VertexOutput {
   float4 position : SV_Position;
-  float2 uv : TEXCOORD0;
+  float4 uvs : TEXCOORD0; // Vertex::uv, then Vertex::uv1
   nointerpolation uint objectIndex : OBJECT0;
 };
 
@@ -15,7 +15,7 @@ VertexOutput transform(uint vertexId, uint objectIndex, float4x4 viewProjection)
   const Vertex vertex = vertexBuffers[objects[objectIndex].vertexBuffer][vertexId];
   VertexOutput output;
   output.position = mul(viewProjection, mul(model, float4(vertex.position, 1.0)));
-  output.uv = vertex.uv;
+  output.uvs = float4(vertex.uv, vertex.uv1);
   output.objectIndex = objectIndex;
   return output;
 }
@@ -34,17 +34,17 @@ VertexOutput shadowVertexMain(uint vertexId : SV_VertexID, uint startInstance : 
   return transform(vertexId, drawObject(startInstance, instance), viewProjection);
 }
 
-float surfaceAlpha(MaterialData material, uint objectIndex, float2 uv) {
+float surfaceAlpha(MaterialData material, uint objectIndex, float4 uvs) {
   return material.baseColor.a * objects[objectIndex].color.a *
          textures[material.baseColorTexture]
-             .Sample(samplers[material.sampler], uvTransform(material.baseColorUv, material.baseColorUvOffset, uv))
+             .Sample(samplers[material.sampler], uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, uvs)))
              .a;
 }
 
 // Masked materials cut holes; everything else keeps the rasterised depth.
-void alphaTest(uint objectIndex, float2 uv) {
+void alphaTest(uint objectIndex, float4 uvs) {
   const MaterialData material = frame.materials[objects[objectIndex].material];
-  if ((material.flags & 0xFF) == AlphaMask && surfaceAlpha(material, objectIndex, uv) < material.emissive.a) {
+  if ((material.flags & 0xFF) == AlphaMask && surfaceAlpha(material, objectIndex, uvs) < material.emissive.a) {
     discard;
   }
 }
@@ -65,16 +65,16 @@ void shadowFragmentMain(VertexOutput input) {
   const MaterialData material = frame.materials[objects[input.objectIndex].material];
   const uint alphaMode = material.flags & 0xFF;
   if (alphaMode == AlphaMask) {
-    alphaTest(input.objectIndex, input.uv);
+    alphaTest(input.objectIndex, input.uvs);
   } else if (alphaMode == AlphaBlend &&
-             surfaceAlpha(material, input.objectIndex, input.uv) <= orderedThreshold(input.position.xy)) {
+             surfaceAlpha(material, input.objectIndex, input.uvs) <= orderedThreshold(input.position.xy)) {
     discard;
   }
 }
 
 [shader("fragment")]
 void fragmentMain(VertexOutput input) {
-  alphaTest(input.objectIndex, input.uv);
+  alphaTest(input.objectIndex, input.uvs);
 }
 
 // The pre-pass under temporal anti-aliasing (ADR-0024): the same depth, and the screen-space motion
@@ -82,7 +82,7 @@ void fragmentMain(VertexOutput input) {
 // divided in the fragment stage, where they are perspective correct.
 struct MotionVertexOutput {
   float4 position : SV_Position;
-  float2 uv : TEXCOORD0;
+  float4 uvs : TEXCOORD0; // Vertex::uv, then Vertex::uv1
   nointerpolation uint objectIndex : OBJECT0;
   float4 currentClip : CLIP0;
   float4 previousClip : CLIP1;
@@ -101,7 +101,7 @@ MotionVertexOutput motionVertexMain(uint vertexId : SV_VertexID, uint startInsta
       float3(dot(previous.row0, previousPosition), dot(previous.row1, previousPosition), dot(previous.row2, previousPosition));
   MotionVertexOutput output;
   output.position = base.position;
-  output.uv = base.uv;
+  output.uvs = base.uvs;
   output.objectIndex = objectIndex;
   output.currentClip = mul(frame.unjitteredViewProjection, mul(model, float4(vertex.position, 1.0)));
   output.previousClip = mul(frame.previousViewProjection, float4(previousWorld, 1.0));
@@ -116,7 +116,7 @@ float2 clipToUv(float4 clip) {
 // A point that was behind the camera has no previous position and reads as still.
 [shader("fragment")]
 float2 motionFragmentMain(MotionVertexOutput input) : SV_Target {
-  alphaTest(input.objectIndex, input.uv);
+  alphaTest(input.objectIndex, input.uvs);
   if (input.previousClip.w <= 1.0e-4 || input.currentClip.w <= 1.0e-4) {
     return float2(0.0, 0.0);
   }
