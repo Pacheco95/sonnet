@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 struct SDL_Window;
 
@@ -26,6 +27,8 @@ struct FileDialogRequest {
   // A filter for the file modes, `pattern` being SDL's semicolon-separated extensions ("scene.json").
   std::string filterName{};
   std::string filterPattern{};
+  // OpenFile only: whether more than one file can be picked.
+  bool multiple{false};
 };
 
 struct FileDialogResult {
@@ -35,7 +38,8 @@ struct FileDialogResult {
     Failed
   };
   Kind kind{Kind::Cancelled};
-  std::filesystem::path path{};
+  std::filesystem::path path{};               // the pick, the first one of several
+  std::vector<std::filesystem::path> paths{}; // every file picked
   std::string error{};
 };
 

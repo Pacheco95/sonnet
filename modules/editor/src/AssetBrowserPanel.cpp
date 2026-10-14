@@ -153,6 +153,9 @@ void AssetBrowserPanel::draw(bool &open) {
     ImGui::End();
     return;
   }
+  m_drawnFrame = ImGui::GetFrameCount();
+  m_min = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y};
+  m_max = m_min + glm::vec2{ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
   ImGui::SetNextItemWidth(160.0f);
   ImGui::InputTextWithHint("##filter", "filter", &m_filter);
   ImGui::SameLine();
@@ -170,6 +173,13 @@ void AssetBrowserPanel::draw(bool &open) {
     }
     ImGui::EndPopup();
   }
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!m_import);
+  if (ImGui::Button("Import")) {
+    m_import();
+  }
+  ImGui::EndDisabled();
+  ImGui::SetItemTooltip("Copy images, glTF models and .hdr skies into the project; dropping files here does the same");
 
   const ImGuiTableFlags flags =
       ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Sortable;
@@ -228,6 +238,11 @@ void AssetBrowserPanel::draw(bool &open) {
     ImGui::EndTable();
   }
   ImGui::End();
+}
+
+bool AssetBrowserPanel::dropTarget(glm::vec2 screen) const {
+  return m_drawnFrame == ImGui::GetFrameCount() && screen.x >= m_min.x && screen.y >= m_min.y && screen.x < m_max.x &&
+         screen.y < m_max.y;
 }
 
 void AssetBrowserPanel::drawContextMenu(const AssetRow &row) {

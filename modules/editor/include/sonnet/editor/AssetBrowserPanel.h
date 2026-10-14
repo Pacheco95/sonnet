@@ -5,6 +5,7 @@
 #include <sonnet/editor/TypeFilter.h>
 
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/core/Math.h>
 #include <sonnet/core/Uuid.h>
 #include <sonnet/world/World.h>
 
@@ -58,8 +59,9 @@ void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descen
 // The project's assets and prefab files by type and name (docs/editor.md, "Asset browser"): a filter, a multi-select
 // type filter, one row per asset or prefab, sorted by the column header clicked last (Name by default). Clicking an
 // asset inspects it without touching the selection; rows are drag sources; the buttons create a material file in the
-// assets folder and a script in the scripts folder. A right-click on a row copies the source path, selects it in the
-// file manager, or opens a script in the external editor.
+// assets folder and a script in the scripts folder, or import files, as does a drop of files on the panel. A
+// right-click on a row copies the source path, selects it in the file manager, or opens a script in the external
+// editor.
 class AssetBrowserPanel {
 public:
   AssetBrowserPanel(assets::AssetDatabase &assets, world::World &world, Selection &selection);
@@ -69,6 +71,13 @@ public:
   void setOpenHandler(std::function<void(const std::string &, int)> handler) {
     m_open = std::move(handler);
   }
+  // What the Import button does; the editor opens a file chooser. The button is disabled without one.
+  void setImportHandler(std::function<void()> handler) {
+    m_import = std::move(handler);
+  }
+  // Whether a point in ImGui's screen space is on the panel as the last frame drew it with a project open, which is
+  // where a drop of files is an import.
+  [[nodiscard]] bool dropTarget(glm::vec2 screen) const;
 
   // The asset the inspector shows, in place of the selected entities, until the selection is next touched;
   // nil for none. Inspecting an asset leaves the selection (and the gizmo) as it is.
@@ -95,6 +104,10 @@ private:
   AssetSortColumn m_sortColumn = AssetSortColumn::Name;
   bool m_sortDescending = false;
   std::function<void(const std::string &, int)> m_open;
+  std::function<void()> m_import;
+  int m_drawnFrame = -1; // ImGui's frame count when the panel last showed a project
+  glm::vec2 m_min{0.0f};
+  glm::vec2 m_max{0.0f};
 };
 
 } // namespace sonnet::editor

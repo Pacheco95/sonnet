@@ -1,5 +1,6 @@
 #include <sonnet/editor/Editor.h>
 
+#include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/CameraLines.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/LightLines.h>
@@ -94,6 +95,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_assetBrowserPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  m_assetBrowserPanel.setImportHandler([this] { chooseAssetsToImport(); });
   // The module's components and systems go in after the engine's and before any scene loads, as
   // the player registers them.
   if (m_module != nullptr) {
@@ -210,6 +212,20 @@ void Editor::event(const platform::Event &event) {
   }
   if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
     m_lookDelta += moved->delta;
+  }
+  // A drop of files on the Assets panel imports them, the whole drop in one undo step.
+  if (const auto *dropped = std::get_if<platform::FileDropped>(&event)) {
+    m_droppedFiles.emplace_back(
+        std::u8string_view{reinterpret_cast<const char8_t *>(dropped->path.data()), dropped->path.size()});
+    return;
+  }
+  if (const auto *completed = std::get_if<platform::DropCompleted>(&event)) {
+    const std::vector<std::filesystem::path> files = std::exchange(m_droppedFiles, {});
+    const glm::vec2 screen = m_windowOrigins.origin(completed->window) + completed->position;
+    if (!files.empty() && m_assetBrowserPanel.dropTarget(screen)) {
+      importFiles(files);
+    }
+    return;
   }
   if (!gameInputActive()) {
     return;
@@ -1133,9 +1149,38 @@ void Editor::pollFileDialog() {
       }
     }
     break;
+  case DialogTarget::ImportAssets:
+    importFiles(result->paths);
+    break;
   case DialogTarget::None:
     break;
   }
+}
+
+void Editor::chooseAssetsToImport() {
+  if (!m_assets.isOpen() || m_assets.roots().empty()) {
+    return;
+  }
+  if (!m_fileDialog.available()) {
+    SONNET_LOG_ERROR("no file chooser is available here: drop the files on the Assets panel");
+    return;
+  }
+  startFileDialog(DialogTarget::ImportAssets,
+                  {.mode = FileDialogMode::OpenFile,
+                   .location = {}, // the files come from outside the project; the chooser's own default
+                   .filterName = "Images, glTF models and .hdr skies",
+                   .filterPattern = "png;jpg;jpeg;tga;bmp;ktx2;gltf;glb;hdr",
+                   .multiple = true});
+}
+
+void Editor::importFiles(std::span<const std::filesystem::path> files) {
+  auto command = importAssets(m_assets, files);
+  if (!command) {
+    SONNET_LOG_ERROR("{}", command.error().toString());
+    return;
+  }
+  SONNET_LOG_INFO("{}", (*command)->description());
+  m_commands.record(std::move(*command));
 }
 
 void Editor::chooseSceneToOpen() {

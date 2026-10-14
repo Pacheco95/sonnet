@@ -4,9 +4,12 @@
 
 #include <sonnet/assets/Asset.h>
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/core/Error.h>
 #include <sonnet/core/Uuid.h>
 
+#include <filesystem>
 #include <memory>
+#include <span>
 
 namespace sonnet::editor {
 
@@ -21,5 +24,17 @@ namespace sonnet::editor {
 [[nodiscard]] std::unique_ptr<ICommand> textureSettingsCommand(assets::AssetDatabase &assets, core::Uuid texture,
                                                                assets::TextureSettings before,
                                                                assets::TextureSettings after);
+
+// Copies files into the project and registers them, which is what the Assets panel's Import and a
+// drop of files on it do (docs/editor.md, "Importing assets"). Each file goes into the project's
+// first asset root, and a glTF file into a folder of its own named after it, with the buffers and
+// images its URIs name at the same relative paths. A name already taken gets a number, as Save as
+// prefab does: `wood 2.png`, the folder `crate 2`. A file no importer reads is logged and skipped.
+// The result is the whole import as one command, already applied, for CommandStack::record: undo
+// unregisters what it added and deletes the copies, their sidecars and the folders it made; redo
+// copies the same files again and puts the sidecars back, so the identities stay. Fails, leaving
+// nothing behind, when no file could be imported or a copy failed.
+[[nodiscard]] core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &assets,
+                                                                   std::span<const std::filesystem::path> files);
 
 } // namespace sonnet::editor
