@@ -162,7 +162,7 @@ public struct FrameConstants {
   public float4x4 unjitteredViewProjection;
   public float4x4 previousViewProjection; // the last frame's, unjittered
   public float4x4 inverseProjection;
-  public float4x4 inverseViewProjection; // of the jittered matrix
+  public float4x4 inverseViewProjection; // of the unjittered matrix: the sky's rays, which TAA does not jitter
   public float4x4 cascadeMatrices[CascadeCount];
   public float4 cascadeSplits; // view depth where each cascade ends
   public float4 cascadeBlendStarts;

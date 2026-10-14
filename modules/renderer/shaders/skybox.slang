@@ -1,5 +1,7 @@
 // The skybox: a full-screen triangle at the far plane, tested against the scene's depth so it
-// only covers what nothing else drew, sampling the environment cube by view direction.
+// only covers what nothing else drew, sampling the environment cube by view direction. The
+// direction is the unjittered camera's: the sky has no edges for TAA to resolve, and jittering it
+// would only average each pixel with its neighbours and soften the background.
 import sonnet;
 
 struct VertexOutput {

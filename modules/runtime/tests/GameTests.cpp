@@ -104,6 +104,7 @@ struct Fixture {
                          .bloom = false,
                          .antialiasing = renderer::AntiAliasing::None,
                          .environmentSize = 8,
+                         .maxEnvironmentSize = 8,
                          .irradianceSize = 4,
                          .irradianceSamples = 8,
                          .prefilteredSize = 8,

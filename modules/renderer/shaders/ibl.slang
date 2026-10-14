@@ -27,10 +27,19 @@ void equirectToCube(uint3 id : SV_DispatchThreadID) {
   if (id.x >= ibl.size || id.y >= ibl.size) {
     return;
   }
-  const float2 uv = (float2(id.xy) + 0.5) / float(ibl.size);
-  const float3 direction = cubeDirection(id.z, uv);
-  const float4 color = textures[ibl.source].SampleLevel(samplers[ibl.sampler], equirectUv(direction), 0.0);
-  storageImages[ibl.destination][id] = float4(color.rgb, 1.0);
+  // A quarter of the map's width spans a face, so a cube smaller than that takes n x n samples per
+  // texel, n the map texels across one, rather than skipping texels and aliasing sharp edges.
+  uint width, height, levels;
+  textures[ibl.source].GetDimensions(0, width, height, levels);
+  const uint n = clamp(uint(ceil(float(width) / (4.0 * float(ibl.size)))), 1u, 4u);
+  float3 color = float3(0.0);
+  for (uint j = 0; j < n; ++j) {
+    for (uint i = 0; i < n; ++i) {
+      const float2 uv = (float2(id.xy) + (float2(i, j) + 0.5) / float(n)) / float(ibl.size);
+      color += textures[ibl.source].SampleLevel(samplers[ibl.sampler], equirectUv(cubeDirection(id.z, uv)), 0.0).rgb;
+    }
+  }
+  storageImages[ibl.destination][id] = float4(color / float(n * n), 1.0);
 }
 
 // The next level of a cube's mip chain, read through the sampled view at the previous level.
