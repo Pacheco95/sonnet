@@ -216,6 +216,25 @@ TEST_CASE("a model's clip plays on each instance in play mode, looping or stoppi
   REQUIRE(lone.get<world::Transform>().position == glm::vec3{0.0f});
 }
 
+TEST_CASE("an animator under a disabled entity holds its time until the entity is shown", "[world][animation]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity group = world.createEntity("Group");
+  const flecs::entity rig = world.instantiate(fixture.prefab, "Rig", group);
+  world.setPlaying(true);
+  world.progress(0.25f);
+  REQUIRE(rig.get<world::Animator>().time == Approx(0.25f));
+
+  group.add<world::Disabled>();
+  world.progress(0.25f);
+  REQUIRE(rig.get<world::Animator>().time == Approx(0.25f));
+  group.remove<world::Disabled>();
+  world.progress(0.25f);
+  REQUIRE(rig.get<world::Animator>().time == Approx(0.5f));
+}
+
 TEST_CASE("a skinned mesh's pose follows its joints into the draw list, in edit mode too", "[world][animation]") {
   Fixture fixture;
   fixture.loadPayloads();

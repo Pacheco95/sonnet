@@ -89,6 +89,9 @@ public:
   // The world matrix from the hierarchy's local transforms, current even between runs of the
   // transform system.
   [[nodiscard]] static glm::mat4 worldMatrix(flecs::entity entity);
+  // Whether the entity or one of its ancestors has Disabled: a disabled entity takes its subtree
+  // with it. A query asks the same with `.without<Disabled>().self().up(flecs::ChildOf)`.
+  [[nodiscard]] static bool isDisabled(flecs::entity entity);
   // Deletes every scene entity; prefabs and editor-only entities stay.
   void clearScene();
   // Deletes every prefab, for switching projects. Instances lose their base first: clear the

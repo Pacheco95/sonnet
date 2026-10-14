@@ -127,6 +127,42 @@ TEST_CASE("simulation systems run only in play mode", "[world][play]") {
   REQUIRE(spinner.get<world::Transform>().rotation == turned);
 }
 
+TEST_CASE("a disabled entity stops the simulation systems for its whole subtree", "[world][play]") {
+  world::World world;
+  const flecs::entity group = world.createEntity("Group");
+  const flecs::entity middle = world.createEntity("Middle", group);
+  const flecs::entity spinner = world.createEntity("Spinner", middle);
+  const flecs::entity outside = world.createEntity("Outside");
+  spinner.set<world::Spin>({.axis = {0.0f, 1.0f, 0.0f}, .speed = glm::radians(90.0f)});
+  world.setPlaying(true);
+  world.progress(1.0f);
+  const glm::quat turned = spinner.get<world::Transform>().rotation;
+  REQUIRE(glm::angle(turned) == Approx(glm::radians(90.0f)).margin(1e-4f));
+
+  // Hiding an ancestor at run time re-matches the descendants of the cached system query.
+  group.add<world::Disabled>();
+  REQUIRE(world::World::isDisabled(spinner));
+  REQUIRE(world::World::isDisabled(group));
+  REQUIRE_FALSE(world::World::isDisabled(outside));
+  world.progress(1.0f);
+  REQUIRE(spinner.get<world::Transform>().rotation == turned);
+
+  group.remove<world::Disabled>();
+  REQUIRE_FALSE(world::World::isDisabled(spinner));
+  world.progress(1.0f);
+  REQUIRE(glm::angle(spinner.get<world::Transform>().rotation) == Approx(glm::radians(180.0f)).margin(1e-4f));
+
+  // Moved under a disabled entity, it stops too; moved back out, it turns again.
+  outside.add<world::Disabled>();
+  world.setParent(spinner, outside);
+  const glm::quat parked = spinner.get<world::Transform>().rotation;
+  world.progress(1.0f);
+  REQUIRE(spinner.get<world::Transform>().rotation == parked);
+  world.setParent(spinner, {});
+  world.progress(1.0f);
+  REQUIRE(spinner.get<world::Transform>().rotation != parked);
+}
+
 TEST_CASE("fixed-update systems step at the fixed timestep in play mode only", "[world][play][fixed]") {
   world::World world({.fixedDelta = 0.25f, .maxFixedSteps = 3});
   std::vector<float> steps;
