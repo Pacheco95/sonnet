@@ -159,6 +159,24 @@ TEST_CASE("sources play in play mode only and fall silent when it stops", "[audi
   REQUIRE(loudness(fixture.audio->lastMix()) == 0.0f);
 }
 
+TEST_CASE("a source under a disabled entity is silent until the entity is shown", "[audio]") {
+  Fixture fixture;
+  const flecs::entity group = fixture.world.createEntity("Group");
+  const flecs::entity hum =
+      fixture.source("Hum", {.sound = fixture.hum, .volume = 1.0f, .playing = true, .loop = true, .spatial = false});
+  fixture.world.setParent(hum, group);
+  fixture.world.setPlaying(true);
+  fixture.world.progress(0.1f);
+  REQUIRE(fixture.audio->isPlaying(hum));
+
+  group.add<world::Disabled>();
+  fixture.world.progress(0.1f);
+  REQUIRE(fixture.audio->playingCount() == 0);
+  group.remove<world::Disabled>();
+  fixture.world.progress(0.1f);
+  REQUIRE(fixture.audio->isPlaying(hum));
+}
+
 TEST_CASE("a sound that does not loop ends, clears playing, and plays again when set", "[audio]") {
   Fixture fixture;
   const flecs::entity beep = fixture.source("Beep", {.sound = fixture.beep, .spatial = false});
