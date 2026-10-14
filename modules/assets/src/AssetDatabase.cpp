@@ -1447,12 +1447,7 @@ core::Result<core::Uuid> AssetDatabase::createMaterial(const std::filesystem::pa
   if (const auto written = core::writeFile(path, assets::saveMaterial(source).dump(2) + "\n"); !written) {
     return std::unexpected(written.error());
   }
-  scanFile(path);
-  const AssetInfo *info = findByPath(path);
-  if (info == nullptr) {
-    return std::unexpected(core::Error{std::format("{}: not registered", path.string()), core::ErrorCategory::Io});
-  }
-  return info->uuid;
+  return registerFile(path);
 }
 
 core::Result<core::Uuid> AssetDatabase::createScript(const std::filesystem::path &file, std::string_view code) {
@@ -1467,12 +1462,78 @@ core::Result<core::Uuid> AssetDatabase::createScript(const std::filesystem::path
   if (const auto written = core::writeFile(path, code); !written) {
     return std::unexpected(written.error());
   }
+  return registerFile(path);
+}
+
+std::optional<AssetType> AssetDatabase::sourceType(const std::filesystem::path &file) {
+  const SourceKind kind = kindOf(file);
+  return kind == SourceKind::Unknown ? std::nullopt : std::make_optional(typeOf(kind));
+}
+
+core::Result<core::Uuid> AssetDatabase::registerFile(const std::filesystem::path &file) {
+  if (!isOpen() || m_bundle) {
+    return std::unexpected(core::Error{"no project is open", core::ErrorCategory::Io});
+  }
+  const std::filesystem::path path = std::filesystem::absolute(file).lexically_normal();
+  if (kindOf(path) == SourceKind::Unknown) {
+    return std::unexpected(
+        core::Error{std::format("{}: no importer reads this file", path.string()), core::ErrorCategory::Io});
+  }
+  const bool underRoot = std::ranges::any_of(m_roots, [&](const std::string &root) {
+    const std::filesystem::path relative = path.lexically_relative(m_projectRoot / root);
+    return !relative.empty() && *relative.begin() != "..";
+  });
+  if (!underRoot) {
+    return std::unexpected(
+        core::Error{std::format("{}: not under an asset root of the project", path.string()), core::ErrorCategory::Io});
+  }
+  if (const AssetInfo *registered = findByPath(path)) {
+    return registered->uuid;
+  }
+  if (std::error_code error; !std::filesystem::is_regular_file(path, error)) {
+    return std::unexpected(core::Error{std::format("{}: no such file", path.string()), core::ErrorCategory::Io});
+  }
   scanFile(path);
   const AssetInfo *info = findByPath(path);
   if (info == nullptr) {
     return std::unexpected(core::Error{std::format("{}: not registered", path.string()), core::ErrorCategory::Io});
   }
   return info->uuid;
+}
+
+void AssetDatabase::unregister(const core::Uuid &requested) {
+  // A copy: the caller's reference may be into m_assets (find()->uuid), which the loop below erases.
+  const core::Uuid uuid = requested;
+  if (!m_files.contains(uuid)) {
+    return;
+  }
+  // An import in flight would publish into the maps cleared below.
+  finishRequest(uuid);
+  unloadFile(uuid);
+  std::vector<core::Uuid> forgotten{uuid};
+  for (const auto &[subUuid, sub] : m_assets) {
+    if (sub.parent == uuid) {
+      forgotten.push_back(subUuid);
+    }
+  }
+  std::vector<core::Uuid> textures;
+  for (const core::Uuid &id : forgotten) {
+    if (const auto it = m_materials.find(id); it != m_materials.end()) {
+      m_renderer.destroyMaterial(it->second.handle);
+      m_materials.erase(it);
+    }
+    if (m_assets.at(id).type == AssetType::Texture) {
+      textures.push_back(id);
+    }
+    m_failed.erase(id);
+    m_assets.erase(id);
+  }
+  m_files.erase(uuid);
+  // Resolved again without the texture, which is unknown now, so they read the fallback rather
+  // than a destroyed texture.
+  for (const core::Uuid &texture : textures) {
+    refreshMaterials(texture);
+  }
 }
 
 // ---- Settings and reload ----

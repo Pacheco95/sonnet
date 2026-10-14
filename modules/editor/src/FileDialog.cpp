@@ -31,7 +31,10 @@ void SDLCALL onSdlResult(void *userdata, const char *const *files, int) {
     result.kind = FileDialogResult::Kind::Cancelled;
   } else {
     result.kind = FileDialogResult::Kind::Picked;
-    result.path = std::filesystem::path{std::u8string_view{reinterpret_cast<const char8_t *>(files[0])}};
+    for (const char *const *file = files; *file != nullptr; ++file) {
+      result.paths.emplace_back(std::u8string_view{reinterpret_cast<const char8_t *>(*file)});
+    }
+    result.path = result.paths.front();
   }
   call->done(std::move(result));
 }
@@ -63,6 +66,8 @@ public:
       SDL_SetPointerProperty(props, SDL_PROP_FILE_DIALOG_FILTERS_POINTER, const_cast<SDL_DialogFileFilter *>(&filter));
       SDL_SetNumberProperty(props, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER, 1);
     }
+    SDL_SetBooleanProperty(props, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN,
+                           request.mode == FileDialogMode::OpenFile && request.multiple);
     // The callback deletes the call; SDL calls it exactly once, even on an error.
     SDL_ShowFileDialogWithProperties(type, onSdlResult, new SdlCall{std::move(done)}, props);
     SDL_DestroyProperties(props);

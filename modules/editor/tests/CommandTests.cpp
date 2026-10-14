@@ -327,6 +327,107 @@ TEST_CASE("material and texture settings commands act on the database and undo",
   std::filesystem::remove_all(root);
 }
 
+TEST_CASE("an import copies files and a glTF file's dependencies in, numbers clashes and undoes as one step",
+          "[editor][commands][assets][import]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_import";
+  const std::filesystem::path source = std::filesystem::temp_directory_path() / "sonnet_editor_import_source";
+  std::filesystem::remove_all(root);
+  std::filesystem::remove_all(source);
+  std::filesystem::create_directories(root / "assets");
+  std::filesystem::create_directories(source / "model" / "textures");
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  world::World world;
+  editor::CommandStack commands;
+
+  // A glTF file with an external buffer and an image in a subfolder, named with an escaped space.
+  REQUIRE(core::writeFile(source / "model" / "crate.gltf", std::string_view{R"({"asset": {"version": "2.0"},
+                            "buffers": [{"uri": "crate.bin", "byteLength": 4}],
+                            "images": [{"uri": "textures/wood%20grain.png"}]})"})
+              .has_value());
+  REQUIRE(core::writeFile(source / "model" / "crate.bin", std::string_view{"abcd"}).has_value());
+  REQUIRE(core::writeFile(source / "model" / "textures" / "wood grain.png", std::string_view{"png"}).has_value());
+  REQUIRE(core::writeFile(source / "wood.png", std::string_view{"png"}).has_value());
+  REQUIRE(core::writeFile(source / "sky.hdr", std::string_view{"hdr"}).has_value());
+  REQUIRE(core::writeFile(source / "steel.material.json", std::string_view{R"({"version": 1})"}).has_value());
+  REQUIRE(core::writeFile(source / "notes.txt", std::string_view{"not an asset"}).has_value());
+
+  const std::vector<std::filesystem::path> first{source / "wood.png", source / "model" / "crate.gltf",
+                                                 source / "sky.hdr", source / "notes.txt"};
+  auto imported = editor::importAssets(assets, world, first);
+  REQUIRE(imported.has_value());
+  REQUIRE((*imported)->description() == "import 3 files"); // the text file is skipped
+  commands.record(std::move(*imported));
+  const std::filesystem::path crate = root / "assets" / "crate";
+  for (const std::filesystem::path &file :
+       {root / "assets" / "wood.png", root / "assets" / "sky.hdr", crate / "crate.gltf", crate / "crate.bin",
+        crate / "textures" / "wood grain.png"}) {
+    INFO(file.string());
+    REQUIRE(std::filesystem::is_regular_file(file));
+  }
+  REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "notes.txt"));
+  REQUIRE_FALSE(std::filesystem::exists(crate / "crate.bin.meta")); // no importer reads a buffer
+  const assets::AssetInfo *model = assets.findByPath(crate / "crate.gltf");
+  REQUIRE(model != nullptr);
+  REQUIRE(model->type == assets::AssetType::Model);
+  const core::Uuid modelUuid = model->uuid;
+  // Placed as a prefab, so dropping it on the hierarchy makes an instance.
+  REQUIRE(world.find(modelUuid));
+  REQUIRE(world.find(modelUuid).has(flecs::Prefab));
+  REQUIRE(assets.findByPath(crate / "textures" / "wood grain.png") != nullptr); // as opening would find it
+  REQUIRE(assets.findByPath(root / "assets" / "sky.hdr")->type == assets::AssetType::Environment);
+
+  // Names already taken get a number, the glTF file's folder too.
+  const std::vector<std::filesystem::path> second{source / "wood.png", source / "model" / "crate.gltf",
+                                                  source / "steel.material.json", source / "steel.material.json"};
+  imported = editor::importAssets(assets, world, second);
+  REQUIRE(imported.has_value());
+  commands.record(std::move(*imported));
+  REQUIRE(assets.findByPath(root / "assets" / "wood 2.png") != nullptr);
+  REQUIRE(assets.findByPath(root / "assets" / "crate 2" / "crate.gltf") != nullptr);
+  REQUIRE(std::filesystem::is_regular_file(root / "assets" / "crate 2" / "textures" / "wood grain.png"));
+  REQUIRE(assets.findByPath(root / "assets" / "steel.material.json") != nullptr);
+  REQUIRE(assets.findByPath(root / "assets" / "steel 2.material.json") != nullptr);
+
+  // One undo takes back the whole second import, sidecars and folders included.
+  REQUIRE(commands.undo(world));
+  REQUIRE(assets.findByPath(root / "assets" / "wood 2.png") == nullptr);
+  REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "wood 2.png"));
+  REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "wood 2.png.meta"));
+  REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "crate 2"));
+  REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "steel 2.material.json"));
+  REQUIRE(assets.findByPath(crate / "crate.gltf") != nullptr);
+
+  // And the first; its redo copies again under the same identities.
+  REQUIRE(commands.undo(world));
+  REQUIRE(assets.find(modelUuid) == nullptr);
+  REQUIRE_FALSE(std::filesystem::exists(crate));
+  REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "wood.png.meta"));
+  REQUIRE(commands.redo(world));
+  REQUIRE(assets.findByPath(crate / "crate.gltf") != nullptr);
+  REQUIRE(assets.findByPath(crate / "crate.gltf")->uuid == modelUuid);
+  REQUIRE(world.find(modelUuid).has(flecs::Prefab)); // kept through undo, not placed twice
+  REQUIRE(std::filesystem::is_regular_file(crate / "textures" / "wood grain.png"));
+
+  // A dependency that is missing fails the import and leaves nothing behind.
+  std::filesystem::remove(source / "model" / "crate.bin");
+  const std::vector<std::filesystem::path> broken{source / "sky.hdr", source / "model" / "crate.gltf"};
+  REQUIRE_FALSE(editor::importAssets(assets, world, broken).has_value());
+  REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "sky 2.hdr"));
+  REQUIRE_FALSE(std::filesystem::exists(root / "assets" / "crate 2"));
+  REQUIRE(assets.findByPath(root / "assets" / "sky 2.hdr") == nullptr);
+  const std::vector<std::filesystem::path> nothing{source / "notes.txt"};
+  REQUIRE_FALSE(editor::importAssets(assets, world, nothing).has_value());
+  assets.close();
+  std::filesystem::remove_all(root);
+  std::filesystem::remove_all(source);
+}
+
 TEST_CASE("reapply reads what undo restores from the restored scene and reports missing entities",
           "[editor][commands][reapply]") {
   world::World world;

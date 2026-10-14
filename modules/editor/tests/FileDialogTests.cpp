@@ -2,11 +2,14 @@
 #include <sonnet/editor/FileDialog.h>
 
 #include <sonnet/core/Error.h>
+#include <sonnet/core/File.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <imgui.h>
 
 #include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_stdinc.h>
@@ -292,3 +295,61 @@ TEST_CASE("SDL's zenity chooser reports a cancel as cancelled, not as an empty p
   CHECK(cancelled.path.empty());
 }
 #endif
+
+TEST_CASE("Import copies every file picked, and a drop of files imports only on the Assets panel",
+          "[editor][filedialog][import][gpu]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  const std::filesystem::path project = std::filesystem::temp_directory_path() / "sonnet_import_project";
+  const std::filesystem::path source = std::filesystem::temp_directory_path() / "sonnet_import_files";
+  std::filesystem::remove_all(project);
+  std::filesystem::remove_all(source);
+  std::filesystem::create_directories(source);
+  for (const char *name : {"a.png", "b.png", "c.png", "d.png"}) {
+    REQUIRE(core::writeFile(source / name, std::string_view{"png"}).has_value());
+  }
+  REQUIRE(editor.createProject(project, "Import").has_value());
+  auto state = std::make_shared<FakeBackend::State>();
+  editor.setFileDialogBackend(std::make_unique<FakeBackend>(state));
+  fixture.frame(editor);
+
+  editor.chooseAssetsToImport();
+  REQUIRE(state->shown == 1);
+  CHECK(state->last.mode == FileDialogMode::OpenFile);
+  CHECK(state->last.multiple);
+  state->done({.kind = FileDialogResult::Kind::Picked,
+               .path = source / "a.png",
+               .paths = {source / "a.png", source / "b.png"}});
+  fixture.frame(editor);
+  CHECK(editor.assets().findByPath(project / "assets" / "a.png") != nullptr);
+  CHECK(editor.assets().findByPath(project / "assets" / "b.png") != nullptr);
+  CHECK(editor.commands().undoDescription() == "import 2 files");
+
+  // Drops arrive in window coordinates; the panel knows where it is in ImGui's screen space.
+  const ImVec2 origin = ImGui::GetMainViewport()->Pos;
+  std::optional<glm::vec2> on;
+  std::optional<glm::vec2> off;
+  for (float y = 0.0f; y < 600.0f; y += 10.0f) {
+    for (float x = 0.0f; x < 800.0f; x += 10.0f) {
+      const bool target = editor.assetBrowser().dropTarget(glm::vec2{origin.x + x, origin.y + y});
+      (target ? on : off) = glm::vec2{x, y};
+    }
+  }
+  REQUIRE(on.has_value());
+  REQUIRE(off.has_value());
+  editor.event(platform::FileDropped{.path = (source / "c.png").string()});
+  editor.event(platform::DropCompleted{.position = *off});
+  CHECK(editor.assets().findByPath(project / "assets" / "c.png") == nullptr);
+  editor.event(platform::FileDropped{.path = (source / "c.png").string()});
+  editor.event(platform::FileDropped{.path = (source / "d.png").string()});
+  editor.event(platform::DropCompleted{.position = *on});
+  CHECK(editor.assets().findByPath(project / "assets" / "c.png") != nullptr);
+  CHECK(editor.assets().findByPath(project / "assets" / "d.png") != nullptr);
+  CHECK(editor.commands().undoDescription() == "import 2 files");
+  CHECK(editor.commands().size() == 2);
+
+  REQUIRE(editor.commands().undo(editor.world()));
+  CHECK_FALSE(std::filesystem::exists(project / "assets" / "d.png"));
+  CHECK(editor.assets().findByPath(project / "assets" / "a.png") != nullptr);
+  std::filesystem::remove_all(source);
+}

@@ -137,6 +137,12 @@ public:
   void chooseSceneToSave();
   // Ctrl+S and File > Save scene: saves to the scene's file, or asks for one when it has none.
   void saveSceneOrChoose();
+  // The Assets panel's Import: a chooser for any number of images, glTF models and .hdr skies,
+  // which `importFiles` copies in once picked.
+  void chooseAssetsToImport();
+  // Copies files into the project as one undoable import (docs/editor.md, "Importing assets"),
+  // which is what a pick of the chooser above and a drop of files on the Assets panel do.
+  void importFiles(std::span<const std::filesystem::path> files);
   [[nodiscard]] const std::string &modalPath() const noexcept {
     return m_modalPath;
   }
@@ -408,6 +414,7 @@ private:
     ModalPath,
     OpenScene,
     SaveScene,
+    ImportAssets,
   };
 
   // An open scene. The active tab's state lives in the editor's own members (the world, the
@@ -565,6 +572,7 @@ private:
   AssetBrowserPanel m_assetBrowserPanel;
 
   glm::vec2 m_lookDelta{0.0f, 0.0f};
+  std::vector<std::filesystem::path> m_droppedFiles; // the files of a drop until it completes
   glm::vec2 m_mouseBeforeLook{0.0f, 0.0f};
   std::optional<Selection::Mode> m_pendingPickMode;
   Modal m_modal{Modal::None};
