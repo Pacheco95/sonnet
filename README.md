@@ -201,6 +201,7 @@ ctest --preset linux-debug
 | [0026](docs/decisions/0026-game-ui.md) | Game UI is scene entities drawn by a `gui` module | Accepted |
 | [0027](docs/decisions/0027-game-modules.md) | A game module is a static library the engine build links into a player and an editor | Accepted |
 | [0028](docs/decisions/0028-nested-scene-instances.md) | Nested scene instances are prefab instances whose children are addressed by derived identities | Accepted |
+| [0029](docs/decisions/0029-compact-scene-files.md) | Scene files write vectors as arrays | Accepted |
 
 ## License
 
