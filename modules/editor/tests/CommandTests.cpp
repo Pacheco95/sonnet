@@ -293,6 +293,7 @@ TEST_CASE("a move to a sibling index reorders, crosses parents and undoes to the
   world.createEntity("B2", b);
   const auto names = [&](const std::vector<flecs::entity> &entities) {
     std::vector<std::string> result;
+    result.reserve(entities.size());
     for (const flecs::entity entity : entities) {
       result.push_back(entity.get<world::Name>().value);
     }

@@ -271,6 +271,7 @@ TEST_CASE("a sibling moved by index keeps its place through save and load", "[wo
   const flecs::entity a2 = world.createEntity("A2", a);
   const auto names = [&](const std::vector<flecs::entity> &entities) {
     std::vector<std::string> result;
+    result.reserve(entities.size());
     for (const flecs::entity entity : entities) {
       result.push_back(entity.get<world::Name>().value);
     }

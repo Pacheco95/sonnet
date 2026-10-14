@@ -250,6 +250,7 @@ TEST_CASE("a row moves among its siblings, but not before an instance's own chil
   const auto uuid = [&](flecs::entity entity) { return world.uuidOf(entity); };
   const auto names = [&](const std::vector<flecs::entity> &entities) {
     std::vector<std::string> result;
+    result.reserve(entities.size());
     for (const flecs::entity entity : entities) {
       result.push_back(entity.get<world::Name>().value);
     }
