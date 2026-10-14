@@ -45,7 +45,7 @@ bool showSelected(const std::filesystem::path &file) {
 // Runs `args` without a shell, its output discarded, and waits for it; true when it exits with 0.
 bool run(const char *const *args) {
   const SDL_PropertiesID props = SDL_CreateProperties();
-  SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, const_cast<char **>(args));
+  SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, static_cast<void *>(const_cast<char **>(args)));
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL);
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL);
