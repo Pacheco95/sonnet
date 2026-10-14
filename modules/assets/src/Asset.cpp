@@ -54,7 +54,7 @@ std::string_view toString(renderer::TextureWrap wrap) noexcept {
   return "Repeat";
 }
 
-// The texture slots' transforms by their key in a material file's "transforms".
+// The texture slots' UV sets and transforms by their key in a material file's "transforms".
 struct TransformSlot {
   const char *key;
   renderer::TextureTransform MaterialSource::*transform;
@@ -70,7 +70,8 @@ constexpr std::array<TransformSlot, 5> TransformSlots{{
 json transformToJson(const renderer::TextureTransform &transform) {
   return json{{"offset", json::array({transform.offset.x, transform.offset.y})},
               {"rotation", transform.rotation},
-              {"scale", json::array({transform.scale.x, transform.scale.y})}};
+              {"scale", json::array({transform.scale.x, transform.scale.y})},
+              {"texCoord", transform.texCoord}};
 }
 
 renderer::TextureTransform transformFromJson(const json &value) {
@@ -85,6 +86,7 @@ renderer::TextureTransform transformFromJson(const json &value) {
     vecFromJson(value["scale"], transform.scale);
   }
   transform.rotation = value.value("rotation", transform.rotation);
+  transform.texCoord = value.value("texCoord", transform.texCoord) == 1 ? 1u : 0u;
   return transform;
 }
 

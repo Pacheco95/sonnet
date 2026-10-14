@@ -11,14 +11,17 @@ namespace sonnet::renderer {
 struct MeshTag {};
 using MeshHandle = core::Handle<MeshTag>;
 
-// Matches `Vertex` in shaders/sonnet.slang under scalar block layout: 48 bytes, no padding.
+// Matches `Vertex` in shaders/sonnet.slang under scalar block layout: 56 bytes, no padding. `uv` is
+// glTF's TEXCOORD_0 and `uv1` its TEXCOORD_1, zero where a mesh has no second set; a material's
+// texture slot picks one (TextureTransform::texCoord).
 struct Vertex {
   glm::vec3 position;
   glm::vec3 normal;
   glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f}; // xyz in the normal's frame, w the bitangent sign
   glm::vec2 uv;
+  glm::vec2 uv1{0.0f, 0.0f};
 };
-static_assert(sizeof(Vertex) == 48);
+static_assert(sizeof(Vertex) == 56);
 
 // A range of the index buffer drawn with one material slot. It may carry a second, coarser range
 // of the same vertices that the far shadow cascades draw (ADR-0025): `shadowIndexCount` is 0 when

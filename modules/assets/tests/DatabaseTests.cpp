@@ -439,6 +439,30 @@ TEST_CASE("material files round-trip texture transforms and read version 1", "[a
   REQUIRE(*fromOlder == MaterialSource{});
 }
 
+TEST_CASE("material files round-trip each slot's UV set and read version 2 on set 0", "[assets][material]") {
+  MaterialSource source;
+  source.occlusionTransform.texCoord = 1;
+  source.normalTransform = {.offset = {0.5f, 0.0f}, .rotation = 0.0f, .scale = {1.0f, 1.0f}, .texCoord = 1};
+  const nlohmann::json document = saveMaterial(source);
+  // A slot on the second set is written even when it does not move.
+  REQUIRE(document["transforms"].size() == 2);
+  REQUIRE(document["transforms"]["occlusion"]["texCoord"] == 1);
+  const auto loaded = loadMaterial(document);
+  REQUIRE(loaded.has_value());
+  REQUIRE(*loaded == source);
+
+  // A version 2 file names no set: every slot reads the first.
+  nlohmann::json older = document;
+  older["version"] = 2;
+  older["transforms"]["occlusion"].erase("texCoord");
+  older["transforms"]["normal"].erase("texCoord");
+  const auto fromOlder = loadMaterial(older);
+  REQUIRE(fromOlder.has_value());
+  REQUIRE(fromOlder->occlusionTransform.texCoord == 0);
+  REQUIRE(fromOlder->normalTransform.texCoord == 0);
+  REQUIRE(fromOlder->normalTransform.offset == glm::vec2{0.5f, 0.0f});
+}
+
 TEST_CASE("the built-in mesh identities never change, since scene files hold them", "[assets][database]") {
   REQUIRE(builtin::box().toString() == "a464f023-844b-8938-9df4-75487155e36d");
   REQUIRE(builtin::sphere().toString() == "fe3d3b79-c4ee-8f48-8944-6b1596b2c621");

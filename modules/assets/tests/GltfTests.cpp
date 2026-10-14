@@ -225,6 +225,62 @@ TEST_CASE("a glTF material's KHR_texture_transform imports per texture slot", "[
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a glTF primitive's TEXCOORD_1 imports, and each slot reads the set it names", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_second_uv_set");
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(directory / "baked.gltf", "wood.png");
+  const auto bytes = core::readFile(directory / "baked.gltf");
+  REQUIRE(bytes.has_value());
+  nlohmann::json document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  // The second set from a buffer of its own: each vertex's index, so every vertex is told apart.
+  const std::size_t count = document["accessors"][0]["count"].get<std::size_t>();
+  std::vector<float> secondSet;
+  for (std::size_t i = 0; i < count; ++i) {
+    secondSet.insert(secondSet.end(), {static_cast<float>(i), 0.5f});
+  }
+  REQUIRE(core::writeFile(directory / "uv1.bin", std::as_bytes(std::span{secondSet})).has_value());
+  document["buffers"].push_back({{"uri", "uv1.bin"}, {"byteLength", secondSet.size() * sizeof(float)}});
+  document["bufferViews"].push_back(
+      {{"buffer", 1}, {"byteOffset", 0}, {"byteLength", secondSet.size() * sizeof(float)}});
+  document["accessors"].push_back({{"bufferView", document["bufferViews"].size() - 1},
+                                   {"componentType", 5126},
+                                   {"count", count},
+                                   {"type", "VEC2"}});
+  document["meshes"][0]["primitives"][0]["attributes"]["TEXCOORD_1"] = document["accessors"].size() - 1;
+  // Occlusion on the second set; the base colour names it too, but its KHR_texture_transform
+  // takes it back to the first.
+  document["extensionsUsed"] = {"KHR_texture_transform"};
+  nlohmann::json &material = document["materials"][0];
+  material["occlusionTexture"] = {{"index", 0}, {"texCoord", 1}};
+  material["pbrMetallicRoughness"]["baseColorTexture"] = {
+      {"index", 0}, {"texCoord", 1}, {"extensions", {{"KHR_texture_transform", {{"texCoord", 0}}}}}};
+  material["emissiveTexture"] = {{"index", 0}, {"extensions", {{"KHR_texture_transform", {{"texCoord", 1}}}}}};
+  REQUIRE(core::writeFile(directory / "baked.gltf", document.dump(2)).has_value());
+
+  const auto imported = importGltf(directory / "baked.gltf");
+  REQUIRE(imported.has_value());
+  const std::vector<renderer::Vertex> &vertices = imported->meshes[0].data.vertices;
+  REQUIRE(vertices.size() == count);
+  for (std::size_t i = 0; i < count; ++i) {
+    REQUIRE(vertices[i].uv1 == glm::vec2{static_cast<float>(i), 0.5f});
+  }
+  const MaterialSource &source = imported->materials[0].source;
+  REQUIRE(source.occlusionTransform == renderer::TextureTransform{.texCoord = 1});
+  REQUIRE(source.baseColorTransform == renderer::TextureTransform{});
+  REQUIRE(source.emissiveTransform == renderer::TextureTransform{.texCoord = 1});
+  REQUIRE(source.normalTransform.texCoord == 0);
+
+  // Without the attribute, the second set is zeros.
+  test::writeBoxGltf(directory / "plain.gltf", "wood.png");
+  const auto plain = importGltf(directory / "plain.gltf");
+  REQUIRE(plain.has_value());
+  for (const renderer::Vertex &vertex : plain->meshes[0].data.vertices) {
+    REQUIRE(vertex.uv1 == glm::vec2{0.0f, 0.0f});
+  }
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("a glTF file names the extensions it uses that the importer does not read", "[assets][gltf]") {
   const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_extensions");
   REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());

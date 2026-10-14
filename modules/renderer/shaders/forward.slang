@@ -9,7 +9,7 @@ struct VertexOutput {
   float3 worldPosition : POSITION0;
   float3 normal : NORMAL0;
   float4 tangent : TANGENT0;
-  float2 uv : TEXCOORD0;
+  float4 uvs : TEXCOORD0; // Vertex::uv, then Vertex::uv1
   float4 color : COLOR0;
   nointerpolation uint objectIndex : OBJECT0;
 };
@@ -28,7 +28,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_Sta
   output.worldPosition = world.xyz;
   output.normal = transformNormal(basis, vertex.normal);
   output.tangent = float4(transformDirection(basis, vertex.tangent.xyz), vertex.tangent.w * mirrorSign(basis));
-  output.uv = vertex.uv;
+  output.uvs = float4(vertex.uv, vertex.uv1);
   output.color = objects[objectIndex].color;
   return output;
 }
@@ -242,20 +242,20 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   const MaterialData material = frame.materials[objects[input.objectIndex].material];
   const uint alphaMode = material.flags & 0xFF;
 
-  const float2 baseColorUv = uvTransform(material.baseColorUv, material.baseColorUvOffset, input.uv);
+  const float2 baseColorUv = uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, input.uvs));
   float4 baseColor = material.baseColor * input.color * sampleMaterial(material.baseColorTexture, material.sampler, baseColorUv);
   if (alphaMode == AlphaMask && baseColor.a < material.emissive.a) {
     discard;
   }
   const float4 metallicRoughness =
       sampleMaterial(material.metallicRoughnessTexture, material.sampler,
-                     uvTransform(material.metallicRoughnessUv, material.metallicRoughnessUvOffset, input.uv));
+                     uvTransform(material.metallicRoughnessUv, material.metallicRoughnessUvOffset, uvSet(material, SlotMetallicRoughness, input.uvs)));
   const float metallic = saturate(material.metallic * metallicRoughness.b);
   const float roughness = clamp(material.roughness * metallicRoughness.g, 0.04, 1.0);
-  const float2 occlusionUv = uvTransform(material.occlusionUv, material.occlusionUvOffset, input.uv);
+  const float2 occlusionUv = uvTransform(material.occlusionUv, material.occlusionUvOffset, uvSet(material, SlotOcclusion, input.uvs));
   const float occlusion =
       lerp(1.0, sampleMaterial(material.occlusionTexture, material.sampler, occlusionUv).r, material.occlusionStrength);
-  const float2 emissiveUv = uvTransform(material.emissiveUv, material.emissiveUvOffset, input.uv);
+  const float2 emissiveUv = uvTransform(material.emissiveUv, material.emissiveUvOffset, uvSet(material, SlotEmissive, input.uvs));
   const float3 emissive = material.emissive.rgb * sampleMaterial(material.emissiveTexture, material.sampler, emissiveUv).rgb;
 
   float3 n = normalize(input.normal);
@@ -265,7 +265,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   const float3 geometricNormal = n;
   const float3 t = normalize(input.tangent.xyz - n * dot(n, input.tangent.xyz));
   const float3 b = cross(n, t) * input.tangent.w;
-  const float2 normalUv = uvTransform(material.normalUv, material.normalUvOffset, input.uv);
+  const float2 normalUv = uvTransform(material.normalUv, material.normalUvOffset, uvSet(material, SlotNormal, input.uvs));
   float3 tangentNormal = sampleMaterial(material.normalTexture, material.sampler, normalUv).xyz * 2.0 - 1.0;
   tangentNormal.xy = textureToMeshFrame(material.normalUv, tangentNormal.xy) * material.normalScale;
   n = normalize(t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z);

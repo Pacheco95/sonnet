@@ -49,6 +49,12 @@ constexpr std::uint32_t AlphaOpaque = 0;
 constexpr std::uint32_t AlphaMask = 1;
 constexpr std::uint32_t AlphaBlend = 2;
 constexpr std::uint32_t MaterialDoubleSided = 1u << 8;
+// A material's texture slots, as the bits of GpuMaterial::uvSets. Mirror of shaders/sonnet.slang.
+constexpr std::uint32_t SlotBaseColor = 0;
+constexpr std::uint32_t SlotMetallicRoughness = 1;
+constexpr std::uint32_t SlotNormal = 2;
+constexpr std::uint32_t SlotOcclusion = 3;
+constexpr std::uint32_t SlotEmissive = 4;
 
 struct GpuLight {
   glm::vec3 position;
@@ -88,7 +94,7 @@ struct GpuMaterial {
   std::uint32_t emissiveTexture;
   std::uint32_t flags;
   std::uint32_t sampler;
-  std::uint32_t padding;
+  std::uint32_t uvSets; // a slot's bit set: it reads Vertex::uv1 instead of Vertex::uv
   // Each slot's KHR_texture_transform, the 2x2 part by rows and then the offsets, so every vec4
   // stays 16-byte aligned for Metal.
   glm::vec4 baseColorUv;
@@ -402,6 +408,11 @@ glm::vec4 uvMatrix(const TextureTransform &transform) {
   const float c = std::cos(transform.rotation);
   const float s = std::sin(transform.rotation);
   return {c * transform.scale.x, -s * transform.scale.y, s * transform.scale.x, c * transform.scale.y};
+}
+
+// A slot's bit in GpuMaterial::uvSets: set when it reads the second UV set.
+std::uint32_t uvSetBit(const TextureTransform &transform, std::uint32_t slot) {
+  return transform.texCoord == 1 ? 1u << slot : 0u;
 }
 
 std::uint32_t groups(std::uint32_t size, std::uint32_t threads) {
@@ -2551,7 +2562,11 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                        .emissiveTexture = textureIndex(desc.emissiveTexture),
                        .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u),
                        .sampler = m_device.samplerIndex(m_materialSamplers[static_cast<std::size_t>(desc.wrap)]),
-                       .padding = 0,
+                       .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
+                                 uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
+                                 uvSetBit(desc.normalTransform, SlotNormal) |
+                                 uvSetBit(desc.occlusionTransform, SlotOcclusion) |
+                                 uvSetBit(desc.emissiveTransform, SlotEmissive),
                        .baseColorUv = uvMatrix(desc.baseColorTransform),
                        .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
                        .normalUv = uvMatrix(desc.normalTransform),

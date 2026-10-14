@@ -92,8 +92,8 @@ struct MaterialSource {
 };
 
 // The .material.json format, versioned like the scene files (docs/assets.md, "Materials").
-// Version 2 adds the texture transforms.
-constexpr int MaterialFileVersion = 2;
+// Version 2 adds the texture transforms, version 3 the UV set each slot reads.
+constexpr int MaterialFileVersion = 3;
 [[nodiscard]] nlohmann::json saveMaterial(const MaterialSource &material);
 [[nodiscard]] core::Result<MaterialSource> loadMaterial(const nlohmann::json &document);
 
