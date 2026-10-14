@@ -26,9 +26,10 @@ public:
     return m_frames.size();
   }
   // Means over the frames recorded, oldest gone first: "over the last 100 frames: CPU 2.10 ms a
-  // frame, 16.67 ms apart; GPU 3.05 ms: shadow cascade 0 0.20 ms, ...". A pass is averaged over
+  // frame, 16.67 ms apart; GPU 3.050 ms: shadow cascade 0 0.200 ms (100/100 samples), ...". A pass is averaged over
   // available samples of frames that ran it, in the order of the latest frame. A pass without
-  // samples and a total missing any pass are n/a; otherwise the total is their sum.
+  // samples and a total missing any pass are n/a; otherwise the total is their sum. Each pass
+  // reports available samples over frames that ran it, so partial availability stays visible.
   [[nodiscard]] std::string summary() const;
 
 private:

@@ -225,7 +225,8 @@ TEST_CASE("frame times are the means of the last hundred frames", "[runtime][cap
   REQUIRE(times.count() == runtime::FrameTimes::Capacity);
   REQUIRE(
       times.summary() ==
-      "over the last 100 frames: CPU 2.00 ms a frame, 16.00 ms apart; GPU 2.000 ms: shadow 0.500 ms, forward 1.500 ms");
+      "over the last 100 frames: CPU 2.00 ms a frame, 16.00 ms apart; GPU 2.000 ms: shadow 0.500 ms (100/100 samples), "
+      "forward 1.500 ms (100/100 samples)");
 }
 
 TEST_CASE("unavailable GPU samples are excluded while measured zero remains valid", "[runtime][capture]") {
@@ -233,11 +234,30 @@ TEST_CASE("unavailable GPU samples are excluded while measured zero remains vali
   renderer::GraphStatistics graph;
   graph.passes = {{.name = "zero", .gpuMilliseconds = 0.0f, .gpuAvailable = true}, {.name = "missing"}};
   times.record(1.0f, 16.0f, graph);
-  REQUIRE(times.summary().find("GPU n/a: zero 0.000 ms, missing n/a") != std::string::npos);
+  REQUIRE(times.summary().find("GPU n/a: zero 0.000 ms (1/1 samples), missing n/a (0/1 samples)") != std::string::npos);
   graph.passes[1].gpuMilliseconds = 2.0f;
   graph.passes[1].gpuAvailable = true;
   times.record(1.0f, 16.0f, graph);
-  REQUIRE(times.summary().find("GPU 2.000 ms: zero 0.000 ms, missing 2.000 ms") != std::string::npos);
+  REQUIRE(times.summary().find("GPU 2.000 ms: zero 0.000 ms (2/2 samples), missing 2.000 ms (1/2 samples)") !=
+          std::string::npos);
+}
+
+TEST_CASE("GPU sample counts track pass presence and discard overwritten frames", "[runtime][capture]") {
+  runtime::FrameTimes times;
+  renderer::GraphStatistics graph;
+  graph.passes = {{.name = "forward", .gpuMilliseconds = 100.0f, .gpuAvailable = true}};
+  times.record(1.0f, 16.0f, graph);
+  for (std::size_t i = 0; i < runtime::FrameTimes::Capacity - 2; ++i) {
+    times.record(1.0f, 16.0f, renderer::GraphStatistics{});
+  }
+  graph.passes[0].gpuAvailable = false;
+  times.record(1.0f, 16.0f, graph);
+  graph.passes[0].gpuMilliseconds = 4.0f;
+  graph.passes[0].gpuAvailable = true;
+  // Only the first occurrence of a repeated name contributes to either count or mean.
+  graph.passes.push_back({.name = "forward", .gpuMilliseconds = 50.0f, .gpuAvailable = true});
+  times.record(1.0f, 16.0f, graph);
+  REQUIRE(times.summary().find("GPU 4.000 ms: forward 4.000 ms (1/2 samples)") != std::string::npos);
 }
 
 TEST_CASE("the thermal state ends the frame times as first, last and worst", "[runtime][capture]") {

@@ -54,21 +54,26 @@ std::string FrameTimes::summary() const {
     }
     float sum = 0.0f;
     int ran = 0;
+    int available = 0;
     for (const Frame &frame : m_frames) {
       const auto found = std::ranges::find(frame.passes, pass.name, &Pass::name);
-      if (found != frame.passes.end() && found->gpuAvailable) {
-        sum += found->gpuMilliseconds;
+      if (found != frame.passes.end()) {
         ++ran;
+        if (found->gpuAvailable) {
+          sum += found->gpuMilliseconds;
+          ++available;
+        }
       }
     }
-    if (ran == 0) {
+    if (available == 0) {
       complete = false;
-      passes += std::format("{}{} n/a", passes.empty() ? "" : ", ", pass.name);
+      passes += std::format("{}{} n/a (0/{} samples)", passes.empty() ? "" : ", ", pass.name, ran);
       continue;
     }
-    const float mean = sum / static_cast<float>(ran);
+    const float mean = sum / static_cast<float>(available);
     gpu += mean;
-    passes += std::format("{}{} {:.3f} ms", passes.empty() ? "" : ", ", pass.name, mean);
+    passes +=
+        std::format("{}{} {:.3f} ms ({}/{} samples)", passes.empty() ? "" : ", ", pass.name, mean, available, ran);
   }
   std::string thermal;
   if (m_thermalSeen) {
