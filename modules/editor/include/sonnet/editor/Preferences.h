@@ -3,17 +3,28 @@
 #include <sonnet/core/Error.h>
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace sonnet::editor {
 
+// The scene tabs a project had open when the editor last closed it (docs/editor.md, "Scene tabs").
+struct OpenScenes {
+  std::vector<std::filesystem::path> scenes; // in tab order; untitled scenes are not kept
+  std::size_t active{0};                     // index into `scenes`
+
+  [[nodiscard]] bool operator==(const OpenScenes &) const = default;
+};
+
 // Per-user editor settings, kept as JSON in the platform's preferences directory.
 struct Preferences {
   static constexpr std::size_t MaxRecentProjects = 10;
 
   std::vector<std::filesystem::path> recentProjects; // most recent first
+  // Per project root; only the recent projects keep an entry.
+  std::map<std::filesystem::path, OpenScenes> openScenes;
   // The command that opens a source location from the log panel; {file} and {line} are
   // substituted. The file is repository-relative (docs/conventions.md, "Logging"), so
   // sourceRoot, when set, is put in front of it.

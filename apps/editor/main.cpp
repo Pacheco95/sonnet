@@ -90,6 +90,8 @@ public:
         m_swapchain(m_device->createSwapchain(*m_window)),
         m_editor(std::make_unique<editor::Editor>(platform, *m_window, *m_device, *m_swapchain, Explorer,
                                                   game::linkedModule())) {
+    // A capture run or a headless platform must not read or rewrite the user's open tabs.
+    m_editor->setRememberOpenScenes(!line.capture && !platform.isHeadless());
     if (!line.project.empty()) {
       if (const auto opened = m_editor->openProject(line.project); !opened) {
         SONNET_LOG_ERROR("{}", opened.error().toString());

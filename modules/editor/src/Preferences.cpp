@@ -43,6 +43,24 @@ Preferences Preferences::load(const std::filesystem::path &file) {
       }
     }
   }
+  if (document.contains("openScenes") && document["openScenes"].is_object()) {
+    for (const auto &[project, entry] : document["openScenes"].items()) {
+      if (!entry.is_object() || !entry.contains("scenes") || !entry["scenes"].is_array() ||
+          std::ranges::find(preferences.recentProjects, std::filesystem::path{project}) ==
+              preferences.recentProjects.end()) {
+        continue;
+      }
+      OpenScenes open;
+      for (const json &scene : entry["scenes"]) {
+        if (scene.is_string()) {
+          open.scenes.emplace_back(scene.get<std::string>());
+        }
+      }
+      const json active = entry.value("active", json{});
+      open.active = active.is_number_unsigned() ? active.get<std::size_t>() : 0;
+      preferences.openScenes[project] = std::move(open);
+    }
+  }
   preferences.externalEditor = document.value("externalEditor", preferences.externalEditor);
   preferences.sourceRoot = document.value("sourceRoot", preferences.sourceRoot);
   preferences.reopenLastProject = document.value("reopenLastProject", preferences.reopenLastProject);
@@ -54,8 +72,17 @@ core::Result<void> Preferences::save(const std::filesystem::path &file) const {
   for (const std::filesystem::path &project : recentProjects) {
     recent.push_back(project.generic_string());
   }
+  json open = json::object();
+  for (const auto &[project, scenes] : openScenes) {
+    json list = json::array();
+    for (const std::filesystem::path &scene : scenes.scenes) {
+      list.push_back(scene.generic_string());
+    }
+    open[project.generic_string()] = {{"scenes", list}, {"active", scenes.active}};
+  }
   const json document{
       {"recentProjects", recent},
+      {"openScenes", open},
       {"externalEditor", externalEditor},
       {"sourceRoot", sourceRoot},
       {"reopenLastProject", reopenLastProject},
@@ -73,12 +100,16 @@ void Preferences::addRecentProject(const std::filesystem::path &project) {
   std::erase(recentProjects, project);
   recentProjects.insert(recentProjects.begin(), project);
   if (recentProjects.size() > MaxRecentProjects) {
+    for (auto dropped = recentProjects.begin() + MaxRecentProjects; dropped != recentProjects.end(); ++dropped) {
+      openScenes.erase(*dropped);
+    }
     recentProjects.resize(MaxRecentProjects);
   }
 }
 
 void Preferences::removeRecentProject(const std::filesystem::path &project) {
   std::erase(recentProjects, project);
+  openScenes.erase(project);
 }
 
 std::optional<std::filesystem::path> Preferences::projectToReopen() const {

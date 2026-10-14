@@ -96,6 +96,18 @@ public:
   // the preferences ask for it. A project that cannot be opened is dropped from the recent list
   // (so the next start is quiet), logs a warning and leaves the starter scene.
   void reopenLastProject();
+  // Whether a project reopens the scene tabs it had open when it was last closed (docs/editor.md,
+  // "Scene tabs"), and closing it, by quitting or opening another, records them in the
+  // preferences. Off by default: a capture run and a test must neither read nor rewrite the user's
+  // list; the desktop editor turns it on before opening a project.
+  void setRememberOpenScenes(bool remember) noexcept {
+    m_rememberOpenScenes = remember;
+  }
+  // Reads the preferences from `file` and saves them there from now on, instead of the per-user
+  // file the constructor read; for tests.
+  void setPreferencesFile(const std::filesystem::path &file);
+  // The scene tabs a closing project would record: the saved scenes in tab order and the active one.
+  [[nodiscard]] OpenScenes openScenes() const;
   [[nodiscard]] core::Result<void> createProject(const std::filesystem::path &directory, std::string name);
   // "Save as prefab" (ADR-0028): writes the subtree under `entity` to a new file in the project's
   // `prefabs` folder, named after the entity, loads it and replaces the subtree by an instance of
@@ -438,6 +450,11 @@ private:
   };
   [[nodiscard]] core::Result<void> endPlay(PlayEnd end, const std::filesystem::path &file);
   void restoreTab(std::size_t index);
+  [[nodiscard]] const std::filesystem::path &tabPath(std::size_t index) const;
+  // Records the open project's tabs in the preferences, when remembering is on.
+  void recordOpenScenes();
+  // Opens the tabs the project recorded; false when none of them opened.
+  [[nodiscard]] bool reopenScenes();
   void addTab();
   void handleShortcuts();
   void refreshWindowOrigins();
@@ -517,6 +534,7 @@ private:
   bool m_snapEnabled{false}; // Ctrl held during a drag inverts it
   std::filesystem::path m_preferencesFile;
   Preferences m_preferences;
+  bool m_rememberOpenScenes{false};
   std::optional<assets::Project> m_project;
   std::filesystem::path m_scenePath;
   std::filesystem::path m_recoveryRoot;
