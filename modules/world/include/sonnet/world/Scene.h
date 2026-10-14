@@ -35,17 +35,20 @@ constexpr int SceneVersion = 4;
 [[nodiscard]] core::Result<std::vector<flecs::entity>> loadSceneFile(World &world, const std::filesystem::path &path);
 
 // A prefab file holds one root entity and its descendants in the scene format. Saving writes
-// `root`'s subtree; loading creates them as flecs prefabs and returns the root.
+// `root`'s subtree; loading creates them as flecs prefabs and returns the root, which a file
+// load marks with PrefabFile.
 [[nodiscard]] nlohmann::json savePrefab(const World &world, flecs::entity root);
 [[nodiscard]] core::Result<flecs::entity> loadPrefab(World &world, const nlohmann::json &prefab);
 [[nodiscard]] core::Result<void> savePrefabFile(const World &world, flecs::entity root,
                                                 const std::filesystem::path &path);
 [[nodiscard]] core::Result<flecs::entity> loadPrefabFile(World &world, const std::filesystem::path &path);
 
-// A prefab document to load with others, and where it came from, for messages.
+// A prefab document to load with others, and where it came from, for messages. `file`, when not
+// empty, is the file it was read from and becomes the root's PrefabFile.
 struct PrefabDocument {
   std::string source;
   nlohmann::json document;
+  std::filesystem::path file;
 };
 // Loads prefab documents in dependency order, so a prefab may place instances of the others
 // whatever the order they come in. Prefabs referenced from outside the set, the models', must be

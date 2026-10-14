@@ -63,7 +63,7 @@ struct Prefabs {
   // The outer prefab first, as a file listing may give it.
   void load(world::World &world) const {
     const std::vector<core::Error> errors =
-        world::loadPrefabs(world, {{"cart.prefab.json", cartFile()}, {"wheel.prefab.json", wheelFile()}});
+        world::loadPrefabs(world, {{"cart.prefab.json", cartFile(), {}}, {"wheel.prefab.json", wheelFile(), {}}});
     REQUIRE(errors.empty());
   }
 };
@@ -234,7 +234,7 @@ TEST_CASE("a change inside a prefab of prefabs reaches that prefab's instances",
     REQUIRE(cartFile["entities"].size() == 3); // Cart, Axle, the Hub's change
   }
   world::World world;
-  REQUIRE(world::loadPrefabs(world, {{"cart", cartFile}, {"wheel", files.wheelFile()}}).empty());
+  REQUIRE(world::loadPrefabs(world, {{"cart", cartFile, {}}, {"wheel", files.wheelFile(), {}}}).empty());
   const flecs::entity cart = world.instantiate(world.find(cartUuid), "Cart 1");
   const flecs::entity hub = childNamed(world, childNamed(world, cart, "Axle"), "Hub");
   REQUIRE(hub.get<world::MeshRenderer>().color.r == Approx(1.0f));
@@ -296,7 +296,7 @@ TEST_CASE("a prefab that contains itself is refused with the chain", "[world][pr
   };
   world::World world;
   const std::vector<core::Error> errors = world::loadPrefabs(
-      world, {{"a.prefab.json", file(a, b)}, {"b.prefab.json", file(b, a)}, {"plain", file(plain, {})}});
+      world, {{"a.prefab.json", file(a, b), {}}, {"b.prefab.json", file(b, a), {}}, {"plain", file(plain, {}), {}}});
   REQUIRE(errors.size() == 1);
   INFO(errors[0].message);
   REQUIRE(errors[0].message.find("a.prefab.json -> b.prefab.json -> a.prefab.json") != std::string::npos);
