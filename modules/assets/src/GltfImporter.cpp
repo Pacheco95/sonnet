@@ -24,11 +24,24 @@ namespace sonnet::assets {
 namespace {
 
 // The extensions read, the same for every parse so a file one parse accepts no other refuses.
-constexpr fastgltf::Extensions ReadExtensions = fastgltf::Extensions::KHR_materials_transmission;
+constexpr fastgltf::Extensions ReadExtensions =
+    fastgltf::Extensions::KHR_materials_transmission | fastgltf::Extensions::KHR_texture_transform;
 
 core::Error gltfError(const std::filesystem::path &path, std::string_view what, fastgltf::Error error) {
   return core::Error{std::format("{}: {}: {}", path.string(), what, fastgltf::getErrorMessage(error)),
                      core::ErrorCategory::Io};
+}
+
+// A slot's KHR_texture_transform, or the identity. `info` is one of fastgltf's optional
+// texture-info types. Its texCoord override is not read: meshes carry one UV set (#251).
+template <typename OptionalInfo> renderer::TextureTransform transformOf(const OptionalInfo &info) {
+  if (!info.has_value() || info->transform == nullptr) {
+    return {};
+  }
+  const fastgltf::TextureTransform &transform = *info->transform;
+  return {.offset = {transform.uvOffset[0], transform.uvOffset[1]},
+          .rotation = transform.rotation,
+          .scale = {transform.uvScale[0], transform.uvScale[1]}};
 }
 
 std::string nameOr(std::string_view name, const char *kind, std::size_t index) {
@@ -436,6 +449,11 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       out.source.occlusionStrength = material.occlusionTexture->strength;
     }
     out.emissiveImage = imageOf(asset, material.emissiveTexture);
+    out.source.baseColorTransform = transformOf(pbr.baseColorTexture);
+    out.source.metallicRoughnessTransform = transformOf(pbr.metallicRoughnessTexture);
+    out.source.normalTransform = transformOf(material.normalTexture);
+    out.source.occlusionTransform = transformOf(material.occlusionTexture);
+    out.source.emissiveTransform = transformOf(material.emissiveTexture);
     if (pbr.baseColorTexture.has_value() && pbr.baseColorTexture->textureIndex < asset.textures.size()) {
       const fastgltf::Texture &texture = asset.textures[pbr.baseColorTexture->textureIndex];
       if (texture.samplerIndex.has_value() && *texture.samplerIndex < asset.samplers.size()) {

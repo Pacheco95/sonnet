@@ -54,6 +54,40 @@ std::string_view toString(renderer::TextureWrap wrap) noexcept {
   return "Repeat";
 }
 
+// The texture slots' transforms by their key in a material file's "transforms".
+struct TransformSlot {
+  const char *key;
+  renderer::TextureTransform MaterialSource::*transform;
+};
+constexpr std::array<TransformSlot, 5> TransformSlots{{
+    {"baseColor", &MaterialSource::baseColorTransform},
+    {"metallicRoughness", &MaterialSource::metallicRoughnessTransform},
+    {"normal", &MaterialSource::normalTransform},
+    {"occlusion", &MaterialSource::occlusionTransform},
+    {"emissive", &MaterialSource::emissiveTransform},
+}};
+
+json transformToJson(const renderer::TextureTransform &transform) {
+  return json{{"offset", json::array({transform.offset.x, transform.offset.y})},
+              {"rotation", transform.rotation},
+              {"scale", json::array({transform.scale.x, transform.scale.y})}};
+}
+
+renderer::TextureTransform transformFromJson(const json &value) {
+  renderer::TextureTransform transform;
+  if (!value.is_object()) {
+    return transform;
+  }
+  if (value.contains("offset")) {
+    vecFromJson(value["offset"], transform.offset);
+  }
+  if (value.contains("scale")) {
+    vecFromJson(value["scale"], transform.scale);
+  }
+  transform.rotation = value.value("rotation", transform.rotation);
+  return transform;
+}
+
 core::Uuid uuidFromJson(const json &object, const char *key) {
   if (!object.contains(key) || !object[key].is_string()) {
     return {};
@@ -152,6 +186,12 @@ json saveMaterial(const MaterialSource &material) {
   put("normal", material.normalTexture);
   put("occlusion", material.occlusionTexture);
   put("emissive", material.emissiveTexture);
+  json transforms = json::object();
+  for (const TransformSlot &slot : TransformSlots) {
+    if (material.*slot.transform != renderer::TextureTransform{}) {
+      transforms[slot.key] = transformToJson(material.*slot.transform);
+    }
+  }
   return json{
       {"version", MaterialFileVersion},
       {"baseColor", vec4ToJson(material.baseColor)},
@@ -165,6 +205,7 @@ json saveMaterial(const MaterialSource &material) {
       {"wrap", std::string{toString(material.wrap)}},
       {"doubleSided", material.doubleSided},
       {"textures", std::move(textures)},
+      {"transforms", std::move(transforms)},
   };
 }
 
@@ -206,6 +247,14 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
     material.normalTexture = uuidFromJson(textures, "normal");
     material.occlusionTexture = uuidFromJson(textures, "occlusion");
     material.emissiveTexture = uuidFromJson(textures, "emissive");
+  }
+  if (document.contains("transforms") && document["transforms"].is_object()) {
+    const json &transforms = document["transforms"];
+    for (const TransformSlot &slot : TransformSlots) {
+      if (transforms.contains(slot.key)) {
+        material.*slot.transform = transformFromJson(transforms[slot.key]);
+      }
+    }
   }
   return material;
 }

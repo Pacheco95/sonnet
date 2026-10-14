@@ -192,6 +192,36 @@ TEST_CASE("a transmissive glTF material imports as alpha-blended until refractio
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a glTF material's KHR_texture_transform imports per texture slot", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_texture_transform");
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(directory / "tiled.gltf", "wood.png");
+  const auto bytes = core::readFile(directory / "tiled.gltf");
+  REQUIRE(bytes.has_value());
+  nlohmann::json document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  document["extensionsUsed"] = {"KHR_texture_transform"};
+  nlohmann::json &material = document["materials"][0];
+  material["pbrMetallicRoughness"]["baseColorTexture"]["extensions"]["KHR_texture_transform"] = {
+      {"offset", {0.5, -0.25}}, {"rotation", 1.25}, {"scale", {4.0, 2.0}}};
+  // A slot that names only some of the fields keeps the identity in the others.
+  material["normalTexture"] = {{"index", 0}, {"extensions", {{"KHR_texture_transform", {{"scale", {-1.0, 1.0}}}}}}};
+  REQUIRE(core::writeFile(directory / "tiled.gltf", document.dump(2)).has_value());
+
+  const auto imported = importGltf(directory / "tiled.gltf");
+  REQUIRE(imported.has_value());
+  const MaterialSource &source = imported->materials[0].source;
+  REQUIRE(source.baseColorTransform.offset == glm::vec2{0.5f, -0.25f});
+  REQUIRE(source.baseColorTransform.rotation == Approx(1.25f));
+  REQUIRE(source.baseColorTransform.scale == glm::vec2{4.0f, 2.0f});
+  REQUIRE(source.normalTransform ==
+          renderer::TextureTransform{.offset = {0.0f, 0.0f}, .rotation = 0.0f, .scale = {-1.0f, 1.0f}});
+  REQUIRE(source.metallicRoughnessTransform == renderer::TextureTransform{});
+  REQUIRE(source.occlusionTransform == renderer::TextureTransform{});
+  REQUIRE(source.emissiveTransform == renderer::TextureTransform{});
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("a glTF file imports its skins, joint weights and animation clips by node path", "[assets][gltf]") {
   const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_skin");
   test::writeSkinnedGltf(directory / "rig.gltf");
