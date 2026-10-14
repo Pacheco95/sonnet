@@ -1,11 +1,11 @@
 #include <sonnet/editor/AssetBrowserPanel.h>
 
+#include <sonnet/editor/FileManager.h>
 #include <sonnet/editor/TypeFilter.h>
 
 #include <sonnet/core/Log.h>
 #include <sonnet/world/Components.h>
 
-#include <SDL3/SDL_misc.h>
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
@@ -66,25 +66,6 @@ int compareIgnoringCase(std::string_view a, std::string_view b) {
 }
 
 } // namespace
-
-// A file: URL for a directory, percent-encoded so a space or a non-ASCII byte survives the trip to the
-// platform's opener.
-std::string directoryUrl(const std::filesystem::path &directory) {
-  const std::string path = directory.generic_string();
-  std::string url = "file://";
-  if (path.empty() || path.front() != '/') {
-    url += '/'; // a drive letter: file:///C:/...
-  }
-  for (const char c : path) {
-    const auto byte = static_cast<unsigned char>(c);
-    if (std::isalnum(byte) != 0 || std::string_view{"/:-._~"}.contains(c)) {
-      url += c;
-    } else {
-      url += std::format("%{:02X}", byte);
-    }
-  }
-  return url;
-}
 
 std::string assetLabel(const assets::AssetDatabase &assets, const core::Uuid &uuid) {
   if (uuid.isNil()) {
@@ -258,9 +239,7 @@ void AssetBrowserPanel::drawContextMenu(const AssetRow &row) {
     ImGui::SetClipboardText(row.file.string().c_str());
   }
   if (ImGui::MenuItem("Show in file manager", nullptr, false, hasFile)) {
-    if (!SDL_OpenURL(directoryUrl(row.file.parent_path()).c_str())) {
-      SONNET_LOG_ERROR("cannot open {}: {}", row.file.parent_path().string(), SDL_GetError());
-    }
+    revealInFileManager(row.file);
   }
   const bool script = row.info != nullptr && row.info->type == assets::AssetType::Script;
   if (ImGui::MenuItem("Open", nullptr, false, hasFile && script && m_open)) {
