@@ -6,6 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -29,8 +30,11 @@ namespace sonnet::editor {
 // copy's root gets `copy` as its identity, or a fresh one when nil. Not for part of a prefab
 // instance, whose changes are relative to the instance.
 [[nodiscard]] std::unique_ptr<ICommand> duplicateEntityCommand(core::Uuid entity, core::Uuid copy = {});
-// Moves the entity under `parent` (nil for the root) keeping its world transform.
-[[nodiscard]] std::unique_ptr<ICommand> reparentCommand(core::Uuid entity, core::Uuid parent);
+// Moves the entity under `parent` (nil for the root) keeping its world transform, and to
+// `index` among its new siblings when one is given (World::setSiblingIndex); the parent may be
+// the one it has, to reorder. Undo puts it back where it was among the old siblings.
+[[nodiscard]] std::unique_ptr<ICommand> reparentCommand(core::Uuid entity, core::Uuid parent,
+                                                        std::optional<std::size_t> index = std::nullopt);
 [[nodiscard]] std::unique_ptr<ICommand> renameCommand(core::Uuid entity, std::string before, std::string after);
 // Sets a component to `after`, or removes it when `after` is empty; `before` is the value to
 // restore, empty when the component was absent. A tag's value is null.

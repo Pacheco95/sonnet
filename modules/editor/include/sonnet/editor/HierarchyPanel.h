@@ -8,6 +8,7 @@
 #include <sonnet/world/Components.h>
 #include <sonnet/world/World.h>
 
+#include <cstddef>
 #include <functional>
 #include <optional>
 #include <span>
@@ -22,7 +23,8 @@ namespace sonnet::editor {
 constexpr const char *EntityDragPayload = "sonnet_entity";
 
 // The scene tree (docs/editor.md): roots and their children as tree nodes, click to select
-// (Ctrl toggles, Shift adds), drag onto another entity or the empty area to reparent, and a
+// (Ctrl toggles, Shift adds), drag onto another entity or the empty area to reparent, or between
+// two rows to put the entity there, and a
 // context menu to focus, expand or collapse a subtree, create primitives, cameras, lights and prefab instances,
 // duplicate or delete. Every edit goes through the command stack. A name filter and a multi-select
 // kind filter prune the tree to the matches and their ancestors.
@@ -49,6 +51,12 @@ public:
   // An entity with a MeshRenderer of the given mesh asset, named after it.
   void createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent);
   void instantiatePrefab(flecs::entity prefab, core::Uuid parent);
+  // What a dropped row does: moves the entity under `parent` (nil for the root) to `index` among the
+  // other children there, as one command. Refused (false, nothing pushed) for part of a prefab instance,
+  // a move under the entity itself or a descendant, a place before an instance's own children, which a
+  // load always puts first (ADR-0028), and a move that changes nothing.
+  bool moveEntity(core::Uuid entity, core::Uuid parent, std::size_t index);
+  [[nodiscard]] bool canMove(core::Uuid entity, core::Uuid parent, std::size_t index) const;
   // Deletes the outermost selected entities and hides the selected parts of prefab instances,
   // which a scene cannot delete (ADR-0028).
   void deleteSelection();
@@ -81,7 +89,9 @@ private:
   void drawBackgroundMenu();
   void drawCreateMenu(core::Uuid parent);
   void drawContextMenu(flecs::entity entity);
-  void acceptDrop(core::Uuid newParent);
+  // `row` is the row the drop target belongs to, null for the empty area below the tree; `openParent`
+  // says the row shows its children, so a drop on its lower edge goes first among them.
+  void acceptDrop(flecs::entity row, bool openParent);
   void selectClicked(flecs::entity entity);
   void applyOpenToDescendants(flecs::entity entity, bool open);
 
