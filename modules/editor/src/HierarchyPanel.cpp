@@ -15,9 +15,12 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstddef>
 #include <format>
+#include <limits>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace sonnet::editor {
 
@@ -142,7 +145,7 @@ void HierarchyPanel::draw(bool &open) {
   // The rest of the window: a drop target for the root and the background context menu.
   const ImVec2 remaining = ImGui::GetContentRegionAvail();
   ImGui::InvisibleButton("background", ImVec2{std::max(remaining.x, 1.0f), std::max(remaining.y, 24.0f)});
-  acceptDrop({});
+  acceptDrop({}, false);
   if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
     m_selection.clear();
   }
@@ -241,7 +244,7 @@ void HierarchyPanel::drawNode(flecs::entity entity) {
     ImGui::TextUnformatted(label.c_str());
     ImGui::EndDragDropSource();
   }
-  acceptDrop(uuid);
+  acceptDrop(entity, opened && !children.empty());
   if (ImGui::BeginPopupContextItem("entity menu")) {
     if (!m_selection.contains(uuid)) {
       m_selection.select(uuid);
@@ -266,41 +269,108 @@ void HierarchyPanel::selectClicked(flecs::entity entity) {
                                          : Selection::Mode::Replace);
 }
 
-void HierarchyPanel::acceptDrop(core::Uuid newParent) {
+void HierarchyPanel::acceptDrop(flecs::entity row, bool openParent) {
   if (!ImGui::BeginDragDropTarget()) {
     return;
   }
+  const core::Uuid rowUuid = row ? m_world.uuidOf(row) : core::Uuid{};
   // A model from the asset browser: an instance of its prefab under the drop target.
   if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(AssetDragPayload)) {
     core::Uuid::Bytes bytes{};
     std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
     const core::Uuid dropped{bytes};
     if (const flecs::entity prefab = m_world.find(dropped); prefab && prefab.has(flecs::Prefab)) {
-      instantiatePrefab(prefab, newParent);
+      instantiatePrefab(prefab, rowUuid);
     } else if (const assets::AssetInfo *asset = m_assets != nullptr ? m_assets->find(dropped) : nullptr;
-               asset != nullptr && asset->type == assets::AssetType::Script && !newParent.isNil()) {
+               asset != nullptr && asset->type == assets::AssetType::Script && row) {
       // A script dropped on an entity: one more slot (ADR-0022).
-      if (auto command = appendScriptCommand(m_world, newParent, dropped)) {
+      if (auto command = appendScriptCommand(m_world, rowUuid, dropped)) {
         m_commands.push(std::move(command), m_world);
       }
     }
   }
-  if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EntityDragPayload)) {
+  // An entity: the upper and lower quarters of a row put it before or after the row, the middle under the
+  // row, last; below the tree it becomes the last root. The target is drawn only where the drop is allowed.
+  if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(
+          EntityDragPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
     core::Uuid::Bytes bytes{};
     if (payload->DataSize == static_cast<int>(bytes.size())) {
       std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
       const core::Uuid dragged{bytes};
       const flecs::entity entity = m_world.find(dragged);
-      const flecs::entity parent = m_world.find(newParent);
-      // Part of a prefab instance stays where the prefab puts it.
-      const bool valid = entity && !entity.has<world::PrefabSource>() && dragged != newParent &&
-                         (!parent || !m_world.isDescendant(parent, entity)) && m_world.parentOf(entity) != parent;
-      if (valid) {
-        m_commands.push(reparentCommand(dragged, newParent), m_world);
+      // The position of `sibling` among the children of its parent, the dragged entity left out.
+      const auto positionOf = [&](flecs::entity sibling) {
+        const flecs::entity parent = m_world.parentOf(sibling);
+        std::vector<flecs::entity> siblings = parent ? m_world.children(parent) : m_world.roots();
+        std::erase(siblings, entity);
+        return static_cast<std::size_t>(std::ranges::find(siblings, sibling) - siblings.begin());
+      };
+      const ImVec2 min = ImGui::GetItemRectMin();
+      const ImVec2 max = ImGui::GetItemRectMax();
+      const float edge = (max.y - min.y) * 0.25f;
+      const float mouse = ImGui::GetMousePos().y;
+      enum class Zone {
+        Before,
+        After,
+        Onto
+      };
+      Zone zone = Zone::Onto;
+      if (row && mouse < min.y + edge) {
+        zone = Zone::Before;
+      } else if (row && mouse > max.y - edge) {
+        zone = Zone::After;
+      }
+      core::Uuid parent = rowUuid;
+      std::size_t index = std::numeric_limits<std::size_t>::max(); // last
+      if (zone == Zone::Before || (zone == Zone::After && !openParent)) {
+        parent = m_world.uuidOf(m_world.parentOf(row));
+        index = positionOf(row) + (zone == Zone::After ? 1 : 0);
+      } else if (zone == Zone::After) {
+        index = 0; // first among the children the row shows below it
+      }
+      if (entity && entity != row && canMove(dragged, parent, index)) {
+        ImDrawList *draw = ImGui::GetWindowDrawList();
+        const ImU32 colour = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
+        if (zone == Zone::Onto) {
+          draw->AddRect(min, max, colour, 0.0f, 0, 2.0f);
+        } else {
+          const float y = zone == Zone::Before ? min.y : max.y;
+          draw->AddLine(ImVec2{min.x, y}, ImVec2{max.x, y}, colour, 2.0f);
+        }
+        if (payload->IsDelivery()) {
+          moveEntity(dragged, parent, index);
+        }
       }
     }
   }
   ImGui::EndDragDropTarget();
+}
+
+bool HierarchyPanel::canMove(core::Uuid entityUuid, core::Uuid parentUuid, std::size_t index) const {
+  const flecs::entity entity = m_world.find(entityUuid);
+  const flecs::entity parent = m_world.find(parentUuid);
+  // Part of a prefab instance stays where the prefab puts it.
+  if (!entity || entity.has<world::PrefabSource>() || (!parentUuid.isNil() && !parent) || entityUuid == parentUuid ||
+      (parent && m_world.isDescendant(parent, entity))) {
+    return false;
+  }
+  std::vector<flecs::entity> siblings = parent ? m_world.children(parent) : m_world.roots();
+  std::erase(siblings, entity);
+  index = std::min(index, siblings.size());
+  // An instance's own children come first on every load, so nothing else can go before them.
+  if (index < static_cast<std::size_t>(std::ranges::count_if(
+                  siblings, [](flecs::entity sibling) { return sibling.has<world::PrefabSource>(); }))) {
+    return false;
+  }
+  return m_world.parentOf(entity) != parent || m_world.siblingIndex(entity) != index;
+}
+
+bool HierarchyPanel::moveEntity(core::Uuid entity, core::Uuid parent, std::size_t index) {
+  if (!canMove(entity, parent, index)) {
+    return false;
+  }
+  m_commands.push(reparentCommand(entity, parent, index), m_world);
+  return true;
 }
 
 void HierarchyPanel::drawCreateMenu(core::Uuid parent) {

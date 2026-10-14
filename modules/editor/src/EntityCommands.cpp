@@ -207,7 +207,8 @@ private:
 
 class ReparentCommand final : public ICommand {
 public:
-  ReparentCommand(core::Uuid entity, core::Uuid parent) : m_entity(entity), m_parent(parent) {
+  ReparentCommand(core::Uuid entity, core::Uuid parent, std::optional<std::size_t> index)
+      : m_entity(entity), m_parent(parent), m_index(index) {
   }
 
   void apply(world::World &world) override {
@@ -217,10 +218,18 @@ public:
     }
     if (m_before.is_null()) {
       m_previousParent = world.uuidOf(world.parentOf(entity));
+      m_previousIndex = world.siblingIndex(entity);
       m_before = world.componentToJson(entity, world.findComponent("Transform")->id);
-      m_description = std::format("reparent {}", entity.try_get<world::Name>()->value);
+      m_description = std::format("{} {}", m_previousParent == m_parent ? "reorder" : "reparent",
+                                  entity.try_get<world::Name>()->value);
     }
-    world.setParent(entity, world.find(m_parent));
+    const flecs::entity parent = world.find(m_parent);
+    if (world.parentOf(entity) != parent) {
+      world.setParent(entity, parent);
+    }
+    if (m_index) {
+      world.setSiblingIndex(entity, *m_index);
+    }
   }
   bool reapply(world::World &world) override {
     if (!world.find(m_entity) || !parentExists(world, m_parent)) {
@@ -235,8 +244,12 @@ public:
     if (!entity) {
       return;
     }
-    world.setParent(entity, world.find(m_previousParent));
+    const flecs::entity parent = world.find(m_previousParent);
+    if (world.parentOf(entity) != parent) {
+      world.setParent(entity, parent);
+    }
     world.componentFromJson(entity, world.findComponent("Transform")->id, m_before);
+    world.setSiblingIndex(entity, m_previousIndex);
   }
   std::string_view description() const override {
     return m_description.empty() ? std::string_view{"reparent"} : std::string_view{m_description};
@@ -245,7 +258,9 @@ public:
 private:
   core::Uuid m_entity;
   core::Uuid m_parent;
+  std::optional<std::size_t> m_index;
   core::Uuid m_previousParent;
+  std::size_t m_previousIndex = 0;
   json m_before;
   std::string m_description;
 };
@@ -469,8 +484,8 @@ std::unique_ptr<ICommand> duplicateEntityCommand(core::Uuid entity, core::Uuid c
   return std::make_unique<DuplicateEntityCommand>(entity, copy);
 }
 
-std::unique_ptr<ICommand> reparentCommand(core::Uuid entity, core::Uuid parent) {
-  return std::make_unique<ReparentCommand>(entity, parent);
+std::unique_ptr<ICommand> reparentCommand(core::Uuid entity, core::Uuid parent, std::optional<std::size_t> index) {
+  return std::make_unique<ReparentCommand>(entity, parent, index);
 }
 
 std::unique_ptr<ICommand> renameCommand(core::Uuid entity, std::string before, std::string after) {

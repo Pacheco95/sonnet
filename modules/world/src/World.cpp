@@ -368,6 +368,22 @@ std::vector<flecs::entity> World::children(flecs::entity entity) const {
   return result;
 }
 
+std::size_t World::siblingIndex(flecs::entity entity) const {
+  const flecs::entity parent = entity.parent();
+  const std::vector<flecs::entity> siblings = parent ? children(parent) : roots();
+  return static_cast<std::size_t>(std::ranges::find(siblings, entity) - siblings.begin());
+}
+
+void World::setSiblingIndex(flecs::entity entity, std::size_t index) {
+  const flecs::entity parent = entity.parent();
+  std::vector<flecs::entity> siblings = parent ? children(parent) : roots();
+  std::erase(siblings, entity);
+  siblings.insert(siblings.begin() + static_cast<std::ptrdiff_t>(std::min(index, siblings.size())), entity);
+  for (const flecs::entity sibling : siblings) {
+    assignOrder(sibling);
+  }
+}
+
 glm::mat4 World::worldMatrix(flecs::entity entity) {
   glm::mat4 matrix{1.0f};
   for (flecs::entity current = entity; current; current = current.parent()) {

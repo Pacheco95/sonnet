@@ -14,6 +14,9 @@
 #include <imgui_internal.h>
 
 #include <filesystem>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace sonnet;
 
@@ -228,4 +231,116 @@ TEST_CASE("the context menu's save as prefab runs after the tree is drawn", "[ed
   REQUIRE(world.isInstance(world.find(uuid)));
   REQUIRE(world.children(world.find(uuid)).size() == 2);
   frame(panel);
+}
+
+TEST_CASE("a row moves among its siblings, but not before an instance's own children", "[editor][hierarchy]") {
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const flecs::entity prefab = world.createEntity("Crate");
+  world.createEntity("Lid", prefab);
+  world.makePrefab(prefab);
+  const flecs::entity a = world.createEntity("A");
+  const flecs::entity b = world.createEntity("B");
+  const flecs::entity instance = world.instantiate(prefab, "Crate 1");
+  const flecs::entity part = world.children(instance).front();
+  const flecs::entity x = world.createEntity("X", instance);
+  const flecs::entity y = world.createEntity("Y", instance);
+  const auto uuid = [&](flecs::entity entity) { return world.uuidOf(entity); };
+  const auto names = [&](const std::vector<flecs::entity> &entities) {
+    std::vector<std::string> result;
+    result.reserve(entities.size());
+    for (const flecs::entity entity : entities) {
+      result.push_back(entity.get<world::Name>().value);
+    }
+    return result;
+  };
+  using Names = std::vector<std::string>;
+
+  // No change, the entity under itself or a descendant, and part of an instance are refused.
+  CHECK_FALSE(panel.canMove(uuid(a), {}, 0));
+  CHECK_FALSE(panel.canMove(uuid(a), uuid(a), 0));
+  CHECK_FALSE(panel.canMove(uuid(instance), uuid(x), 0));
+  CHECK_FALSE(panel.canMove(uuid(part), uuid(instance), 2));
+  CHECK_FALSE(panel.canMove(uuid(a), core::Uuid::generate(), 0));
+
+  REQUIRE(panel.moveEntity(uuid(b), {}, 0));
+  REQUIRE(names(world.roots()) == Names{"B", "A", "Crate 1"});
+  REQUIRE(commands.undo(world));
+  REQUIRE(names(world.roots()) == Names{"A", "B", "Crate 1"});
+
+  // An instance's own children load first, so the added ones reorder only after them.
+  CHECK_FALSE(panel.canMove(uuid(y), uuid(instance), 0));
+  CHECK_FALSE(panel.canMove(uuid(a), uuid(instance), 0));
+  REQUIRE(panel.moveEntity(uuid(y), uuid(instance), 1));
+  REQUIRE(names(world.children(instance)) == Names{"Lid", "Y", "X"});
+  REQUIRE(panel.moveEntity(uuid(a), uuid(instance), 2));
+  REQUIRE(names(world.children(instance)) == Names{"Lid", "Y", "A", "X"});
+
+  // The order survives the save and load that play mode and a reopen do.
+  const nlohmann::json scene = world::saveScene(world);
+  world.clearScene();
+  REQUIRE(world::loadScene(world, scene));
+  REQUIRE(names(world.roots()) == Names{"B", "Crate 1"});
+  REQUIRE(names(world.children(world.roots().back())) == Names{"Lid", "Y", "A", "X"});
+}
+
+TEST_CASE("dragging a row onto the upper edge of another puts it before that row", "[editor][hierarchy]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const flecs::entity a = world.createEntity("A");
+  world.createEntity("B");
+  const flecs::entity c = world.createEntity("C");
+  frame(panel);
+
+  ImGuiIO &io = ImGui::GetIO();
+  ImGuiWindow *hierarchy = ImGui::FindWindowByName("Hierarchy");
+  REQUIRE(hierarchy != nullptr);
+  // The rows' vertical extents, found by moving the mouse down the window a pixel at a time.
+  const auto span = [&](flecs::entity entity) {
+    const int pick = static_cast<int>(world::World::pickId(entity));
+    const ImGuiID id = ImHashStr("node", 0, ImHashData(&pick, sizeof(pick), hierarchy->ID));
+    float top = -1.0f;
+    float bottom = -1.0f;
+    for (float y = hierarchy->Pos.y; y < hierarchy->Pos.y + hierarchy->Size.y; y += 1.0f) {
+      io.AddMousePosEvent(hierarchy->Pos.x + 40.0f, y);
+      frame(panel);
+      if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == id) {
+        top = top < 0.0f ? y : top;
+        bottom = y;
+      }
+    }
+    return std::pair{top, bottom};
+  };
+  const auto [aTop, aBottom] = span(a);
+  const auto [cTop, cBottom] = span(c);
+  REQUIRE(aTop >= 0.0f);
+  REQUIRE(cTop > aBottom);
+
+  const float x = hierarchy->Pos.x + 40.0f;
+  io.AddMousePosEvent(x, (cTop + cBottom) * 0.5f);
+  frame(panel);
+  io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+  frame(panel);
+  for (float y = (cTop + cBottom) * 0.5f; y > aTop; y -= 4.0f) {
+    io.AddMousePosEvent(x, y);
+    frame(panel);
+  }
+  io.AddMousePosEvent(x, aTop);
+  frame(panel);
+  frame(panel);
+  io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+  frame(panel);
+  frame(panel);
+
+  std::vector<std::string> names;
+  for (const flecs::entity root : world.roots()) {
+    names.push_back(root.get<world::Name>().value);
+  }
+  REQUIRE(names == std::vector<std::string>{"C", "A", "B"});
+  REQUIRE(commands.undoDescription() == "reorder C");
 }

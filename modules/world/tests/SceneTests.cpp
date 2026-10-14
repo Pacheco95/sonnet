@@ -262,6 +262,44 @@ TEST_CASE("siblings keep their order through repeated save and load", "[world][s
   }
 }
 
+TEST_CASE("a sibling moved by index keeps its place through save and load", "[world][scene]") {
+  world::World world;
+  const flecs::entity a = world.createEntity("A");
+  const flecs::entity b = world.createEntity("B");
+  const flecs::entity c = world.createEntity("C");
+  world.createEntity("A1", a);
+  const flecs::entity a2 = world.createEntity("A2", a);
+  const auto names = [&](const std::vector<flecs::entity> &entities) {
+    std::vector<std::string> result;
+    result.reserve(entities.size());
+    for (const flecs::entity entity : entities) {
+      result.push_back(entity.get<world::Name>().value);
+    }
+    return result;
+  };
+
+  world.setSiblingIndex(c, 0);
+  REQUIRE(names(world.roots()) == std::vector<std::string>{"C", "A", "B"});
+  REQUIRE(world.siblingIndex(c) == 0);
+  REQUIRE(world.siblingIndex(b) == 2);
+  world.setSiblingIndex(c, 1);
+  REQUIRE(names(world.roots()) == std::vector<std::string>{"A", "C", "B"});
+  world.setSiblingIndex(a, 99); // past the end: last
+  REQUIRE(names(world.roots()) == std::vector<std::string>{"C", "B", "A"});
+  world.setSiblingIndex(a2, 0);
+  REQUIRE(names(world.children(a)) == std::vector<std::string>{"A2", "A1"});
+
+  for (int round = 0; round < 2; ++round) {
+    const nlohmann::json scene = world::saveScene(world);
+    for (const flecs::entity root : world.roots()) {
+      world.destroyEntity(root);
+    }
+    REQUIRE(world::loadScene(world, scene));
+    REQUIRE(names(world.roots()) == std::vector<std::string>{"C", "B", "A"});
+    REQUIRE(names(world.children(world.roots().back())) == std::vector<std::string>{"A2", "A1"});
+  }
+}
+
 TEST_CASE("a point light's castsShadows survives a scene round trip and defaults to false", "[world][scene]") {
   world::World source;
   source.createEntity("Shadowed").set<world::PointLight>({.castsShadows = true});

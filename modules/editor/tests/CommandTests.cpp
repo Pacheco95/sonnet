@@ -20,6 +20,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 using namespace sonnet;
@@ -280,6 +281,53 @@ TEST_CASE("reparent and component commands restore exactly what they changed", "
   commands.undo(world);
   REQUIRE(!world.find(instance).is_valid());
   REQUIRE(world.find(uuid).is_valid());
+}
+
+TEST_CASE("a move to a sibling index reorders, crosses parents and undoes to the old place", "[editor][commands]") {
+  world::World world;
+  editor::CommandStack commands;
+  const flecs::entity a = world.createEntity("A");
+  const flecs::entity b = world.createEntity("B");
+  const flecs::entity c = world.createEntity("C");
+  const flecs::entity b1 = world.createEntity("B1", b);
+  world.createEntity("B2", b);
+  const auto names = [&](const std::vector<flecs::entity> &entities) {
+    std::vector<std::string> result;
+    result.reserve(entities.size());
+    for (const flecs::entity entity : entities) {
+      result.push_back(entity.get<world::Name>().value);
+    }
+    return result;
+  };
+  using Names = std::vector<std::string>;
+
+  commands.push(editor::reparentCommand(world.uuidOf(c), {}, 0), world);
+  REQUIRE(commands.undoDescription() == "reorder C");
+  REQUIRE(names(world.roots()) == Names{"C", "A", "B"});
+  REQUIRE(commands.undo(world));
+  REQUIRE(names(world.roots()) == Names{"A", "B", "C"});
+  REQUIRE(commands.redo(world));
+  REQUIRE(names(world.roots()) == Names{"C", "A", "B"});
+
+  // Into another parent, between its children, keeping the world position.
+  a.set<world::Transform>({.position = {3.0f, 0.0f, 0.0f}});
+  b.set<world::Transform>({.position = {1.0f, 0.0f, 0.0f}});
+  commands.push(editor::reparentCommand(world.uuidOf(a), world.uuidOf(b), 1), world);
+  REQUIRE(commands.undoDescription() == "reparent A");
+  REQUIRE(names(world.children(b)) == Names{"B1", "A", "B2"});
+  REQUIRE(a.get<world::Transform>().position.x == Approx(2.0f));
+  REQUIRE(commands.undo(world));
+  REQUIRE(names(world.roots()) == Names{"C", "A", "B"});
+  REQUIRE(names(world.children(b)) == Names{"B1", "B2"});
+  REQUIRE(a.get<world::Transform>().position.x == Approx(3.0f));
+  REQUIRE(commands.redo(world));
+  REQUIRE(names(world.children(b)) == Names{"B1", "A", "B2"});
+
+  // A plain reparent to the root undoes to the same place among the children.
+  commands.push(editor::reparentCommand(world.uuidOf(b1), {}), world);
+  REQUIRE(names(world.children(b)) == Names{"A", "B2"});
+  REQUIRE(commands.undo(world));
+  REQUIRE(names(world.children(b)) == Names{"B1", "A", "B2"});
 }
 
 TEST_CASE("material and texture settings commands act on the database and undo", "[editor][commands][assets]") {
