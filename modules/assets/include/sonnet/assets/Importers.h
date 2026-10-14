@@ -102,4 +102,9 @@ struct GltfStructure {
 
 [[nodiscard]] core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &path);
 
+// The files a glTF file names by relative URI, its external buffers and images, relative to the
+// file's folder and without repeats; data URIs and a .glb file's own chunk are not files. A URI
+// that leaves the folder is an error, since the file would not survive being moved with them.
+[[nodiscard]] core::Result<std::vector<std::filesystem::path>> gltfDependencies(const std::filesystem::path &path);
+
 } // namespace sonnet::assets

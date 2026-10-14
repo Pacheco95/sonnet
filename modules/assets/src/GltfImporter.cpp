@@ -15,6 +15,7 @@
 #include <array>
 #include <format>
 #include <map>
+#include <optional>
 #include <span>
 #include <variant>
 
@@ -552,6 +553,45 @@ core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &pat
   static_cast<void>(walkNodes(asset, structure.model, structure.meshIndices, structure.skinIndices));
   structure.animationCount = asset.animations.size();
   return structure;
+}
+
+core::Result<std::vector<std::filesystem::path>> gltfDependencies(const std::filesystem::path &path) {
+  auto buffer = fastgltf::GltfDataBuffer::FromPath(path);
+  if (buffer.error() != fastgltf::Error::None) {
+    return std::unexpected(gltfError(path, "reading", buffer.error()));
+  }
+  fastgltf::Parser parser;
+  auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), fastgltf::Options::None);
+  if (loaded.error() != fastgltf::Error::None) {
+    return std::unexpected(gltfError(path, "parsing", loaded.error()));
+  }
+  std::vector<std::filesystem::path> files;
+  std::optional<core::Error> outside;
+  const auto add = [&](const fastgltf::DataSource &data) {
+    const auto *uri = std::get_if<fastgltf::sources::URI>(&data);
+    if (uri == nullptr || !uri->uri.isLocalPath()) {
+      return;
+    }
+    const std::filesystem::path file = uri->uri.fspath().lexically_normal();
+    if (file.empty() || file.is_absolute() || file.has_root_name() || *file.begin() == "..") {
+      outside = core::Error{std::format("{}: {} is outside the file's folder", path.string(), file.generic_string()),
+                            core::ErrorCategory::Io};
+      return;
+    }
+    if (std::ranges::find(files, file) == files.end()) {
+      files.push_back(file);
+    }
+  };
+  for (const fastgltf::Buffer &gltfBuffer : loaded->buffers) {
+    add(gltfBuffer.data);
+  }
+  for (const fastgltf::Image &image : loaded->images) {
+    add(image.data);
+  }
+  if (outside) {
+    return std::unexpected(*outside);
+  }
+  return files;
 }
 
 } // namespace sonnet::assets

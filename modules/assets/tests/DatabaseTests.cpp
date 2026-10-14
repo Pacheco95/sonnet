@@ -737,3 +737,77 @@ TEST_CASE("placing the basic sample's models reads hierarchies, not files", "[.]
                    imported, cold));
   std::filesystem::remove_all(root);
 }
+
+TEST_CASE("a glTF file's dependencies are the files its URIs name, inside its folder", "[assets][gltf]") {
+  Fixture fixture;
+  const std::filesystem::path models = fixture.root / "assets" / "models";
+  const auto dependencies = gltfDependencies(models / "crate.gltf");
+  REQUIRE(dependencies.has_value());
+  REQUIRE(*dependencies == std::vector<std::filesystem::path>{"crate.bin", "wood.png"});
+
+  // Percent-encoded and in a subfolder, named twice, and a data URI that is no file.
+  const std::string nested = R"({"asset": {"version": "2.0"},
+    "buffers": [{"uri": "data:application/octet-stream;base64,AAAAAA==", "byteLength": 4}],
+    "images": [{"uri": "textures/wood%20grain.png"}, {"uri": "textures/wood%20grain.png"}]})";
+  REQUIRE(core::writeFile(models / "nested.gltf", nested).has_value());
+  const auto nestedDependencies = gltfDependencies(models / "nested.gltf");
+  REQUIRE(nestedDependencies.has_value());
+  REQUIRE(*nestedDependencies == std::vector<std::filesystem::path>{"textures/wood grain.png"});
+
+  const std::string outside = R"({"asset": {"version": "2.0"}, "images": [{"uri": "../wood.png"}]})";
+  REQUIRE(core::writeFile(models / "outside.gltf", outside).has_value());
+  REQUIRE_FALSE(gltfDependencies(models / "outside.gltf").has_value());
+}
+
+TEST_CASE("a file added under a root is registered, and unregistering forgets what it loaded", "[assets][database]") {
+  Fixture fixture;
+  std::filesystem::create_directories(fixture.root / "other");
+  REQUIRE(
+      core::writeFile(fixture.root / "other" / "stone.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  REQUIRE(AssetDatabase::sourceType("crate.GLTF") == AssetType::Model);
+  REQUIRE(AssetDatabase::sourceType("sky.hdr") == AssetType::Environment);
+  REQUIRE_FALSE(AssetDatabase::sourceType("crate.bin").has_value());
+
+  // Outside every root, the next open would not find it, so it is refused.
+  REQUIRE_FALSE(database.registerFile(fixture.root / "other" / "stone.png").has_value());
+  std::filesystem::copy_file(fixture.root / "other" / "stone.png", fixture.root / "assets" / "stone.png");
+  const auto stone = database.registerFile(fixture.root / "assets" / "stone.png");
+  REQUIRE(stone.has_value());
+  REQUIRE(std::filesystem::exists(fixture.root / "assets" / "stone.png.meta"));
+  REQUIRE(database.registerFile(fixture.root / "assets" / "stone.png").value() == *stone); // already known
+
+  // A material reading the texture falls back once the texture is forgotten.
+  MaterialSource source;
+  source.baseColorTexture = *stone;
+  const auto stony = database.createMaterial(fixture.root / "assets" / "stony.material.json", source);
+  REQUIRE(stony.has_value());
+  const renderer::MaterialHandle material = database.material(*stony);
+  database.waitForLoads();
+  REQUIRE(fixture.renderer.material(material).baseColorTexture == database.texture(*stone));
+  database.unregister(*stone);
+  REQUIRE(database.find(*stone) == nullptr);
+  REQUIRE_FALSE(database.texture(*stone).isValid());
+  REQUIRE_FALSE(fixture.renderer.material(material).baseColorTexture.isValid());
+  REQUIRE(std::filesystem::exists(fixture.root / "assets" / "stone.png")); // the file is left alone
+
+  // A model goes with its sub-assets and their loaded objects, materials included.
+  const AssetInfo *crate = byName(database, "crate", AssetType::Model);
+  REQUIRE(crate != nullptr);
+  const core::Uuid crateUuid = crate->uuid;
+  const core::Uuid meshUuid = core::Uuid::derive(crateUuid, "mesh/0");
+  const core::Uuid materialUuid = core::Uuid::derive(crateUuid, "material/0");
+  REQUIRE(database.mesh(meshUuid).isValid());
+  const renderer::MaterialHandle crateMaterial = database.material(materialUuid);
+  REQUIRE(fixture.renderer.isValid(crateMaterial));
+  database.unregister(crateUuid);
+  REQUIRE(database.find(crateUuid) == nullptr);
+  REQUIRE(database.find(meshUuid) == nullptr);
+  REQUIRE(database.find(materialUuid) == nullptr);
+  REQUIRE_FALSE(database.requestMesh(meshUuid).isValid());
+  REQUIRE_FALSE(fixture.renderer.isValid(crateMaterial));
+  // Registering the file again brings the same identities back from its sidecar.
+  REQUIRE(database.registerFile(fixture.root / "assets" / "models" / "crate.gltf").value() == crateUuid);
+  REQUIRE(database.find(meshUuid) != nullptr);
+}

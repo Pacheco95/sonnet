@@ -117,6 +117,18 @@ public:
   // A new .lua file under the project, registered at once.
   [[nodiscard]] core::Result<core::Uuid> createScript(const std::filesystem::path &file, std::string_view code);
 
+  // The type a source file is imported as, from its extension; nullopt for a file the database
+  // ignores. A glTF file is a Model.
+  [[nodiscard]] static std::optional<AssetType> sourceType(const std::filesystem::path &file);
+  // Registers a source file under one of the project's asset roots as `open` would have found it,
+  // writing its sidecar when it has none, and returns its identity; a file already registered
+  // returns the one it has. What the editor's import adds after copying a file in.
+  [[nodiscard]] core::Result<core::Uuid> registerFile(const std::filesystem::path &file);
+  // Forgets a file asset and its sub-assets: what they loaded is destroyed, materials included,
+  // and the materials that read one of its textures fall back. The files are left alone, and an
+  // entity that refers to the asset draws without it from the next frame. Project mode only.
+  void unregister(const core::Uuid &uuid);
+
   // A material's authored values; editing them updates the renderer's material at once, and
   // saving writes the .material.json of a file material.
   [[nodiscard]] const MaterialSource *materialSource(const core::Uuid &uuid);
