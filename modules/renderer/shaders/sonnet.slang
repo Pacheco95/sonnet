@@ -103,7 +103,24 @@ public struct MaterialData {
   public uint flags; // alpha mode in the low byte, MaterialDoubleSided above it
   public uint sampler;
   public uint padding0;
+  // Each slot's KHR_texture_transform: the 2x2 part by rows, then the offsets (uvTransform).
+  public float4 baseColorUv;
+  public float4 metallicRoughnessUv;
+  public float4 normalUv;
+  public float4 occlusionUv;
+  public float4 emissiveUv;
+  public float2 baseColorUvOffset;
+  public float2 metallicRoughnessUvOffset;
+  public float2 normalUvOffset;
+  public float2 occlusionUvOffset;
+  public float2 emissiveUvOffset;
+  public float2 uvPadding;
 };
+
+// A texture slot's UV: its 2x2 matrix by rows, then its offset (KHR_texture_transform).
+public float2 uvTransform(float4 rows, float2 offset, float2 uv) {
+  return float2(dot(rows.xy, uv), dot(rows.zw, uv)) + offset;
+}
 
 // ---- Shadows ----
 

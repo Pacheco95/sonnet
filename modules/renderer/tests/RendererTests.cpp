@@ -3144,6 +3144,54 @@ TEST_CASE("a texture's green reaches the albedo beside the shadow comparison on 
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// KHR_texture_transform on a texture red on its left half and green on its right. A zero scale
+// samples the offset alone; a quarter turn with scale (0, 0.5) samples u = 0.5 - 0.5 v, which is
+// red at the face's centre (v = 0.5), where a turn the other way would read green.
+TEST_CASE("a texture transform moves where the base colour is sampled on a GPU", "[renderer][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = testSettings();
+    settings.debugView = DebugView::Albedo;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    TextureData halves = solidTexture({255, 0, 0, 255});
+    halves.size = {2, 1};
+    for (const int byte : {0, 255, 0, 255}) {
+      halves.data.push_back(static_cast<std::byte>(byte));
+    }
+    const TextureHandle texture = renderer.createTexture(halves, "halves");
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const auto centreOf = [&](const TextureTransform &transform) {
+      MaterialDesc desc;
+      desc.metallic = 0.0f;
+      desc.baseColorTexture = texture;
+      desc.baseColorTransform = transform;
+      const MaterialHandle material = renderer.createMaterial(desc, "transformed");
+      const std::array draws{DrawItem{.mesh = box, .material = material}};
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(boxScene(draws));
+      const Pixel centre = scene.pixel(32, 32);
+      renderer.destroyMaterial(material);
+      return centre;
+    };
+    const auto isRed = [](const Pixel &pixel) { return pixel.r > 150 && pixel.g < 40; };
+    const auto isGreen = [](const Pixel &pixel) { return pixel.g > 150 && pixel.r < 40; };
+
+    const Pixel left = centreOf({.offset = {0.25f, 0.5f}, .rotation = 0.0f, .scale = {0.0f, 0.0f}});
+    const Pixel right = centreOf({.offset = {0.75f, 0.5f}, .rotation = 0.0f, .scale = {0.0f, 0.0f}});
+    const Pixel turned = centreOf({.offset = {0.5f, 0.5f}, .rotation = glm::half_pi<float>(), .scale = {0.0f, 0.5f}});
+    CAPTURE(left.r, left.g, right.r, right.g, turned.r, turned.g);
+    REQUIRE(isRed(left));
+    REQUIRE(isGreen(right));
+    REQUIRE(isRed(turned));
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMesh(box);
+    renderer.destroyTexture(texture);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 // The split-sum table at n.v near one: the scale near one and the bias near zero, in red and
 // green. MoltenVK read the bias as the scale before ADR-0017, whitening every surface.
 TEST_CASE("the BRDF lookup table reads a large scale and a small bias on a GPU", "[renderer][gpu]") {
