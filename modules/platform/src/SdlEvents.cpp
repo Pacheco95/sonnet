@@ -265,6 +265,10 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
   case SDL_EVENT_FINGER_MOTION:
   case SDL_EVENT_FINGER_CANCELED:
     return translateFinger(event.tfinger);
+  case SDL_EVENT_DROP_FILE:
+    return FileDropped{event.drop.data != nullptr ? event.drop.data : "", event.drop.windowID};
+  case SDL_EVENT_DROP_COMPLETE:
+    return DropCompleted{{event.drop.x, event.drop.y}, event.drop.windowID};
   // SDL's DidEnterBackground and WillEnterForeground have no engine type: on Android each
   // arrives straight after its partner with nothing in between, and on iOS the application has
   // already stopped drawing at WillEnterBackground and starts again at DidEnterForeground.

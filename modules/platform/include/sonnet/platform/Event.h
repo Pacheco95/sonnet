@@ -106,6 +106,17 @@ struct TouchMotion {
   WindowId window{0};
 };
 
+// Files dragged from the operating system and dropped on a window: one FileDropped per file, then
+// one DropCompleted with where the drop landed (docs/platform.md, "Events").
+struct FileDropped {
+  std::string path; // UTF-8
+  WindowId window{0};
+};
+struct DropCompleted {
+  glm::vec2 position;
+  WindowId window{0};
+};
+
 // The mobile lifecycle (docs/platform.md, "Lifecycle"). They arrive inside SDL_AppEvent, between
 // frames, and the application acts on them before returning: going to the background, release
 // what draws to the window and stop the sound; coming back, create them again.
@@ -119,7 +130,7 @@ struct Terminating {};
 using Event =
     std::variant<WindowResized, WindowMoved, WindowMinimized, WindowMaximized, WindowRestored, WindowFocusChanged,
                  MouseLeftWindow, WindowCloseRequested, QuitRequested, KeyPressed, KeyReleased, TextInput, MouseMoved,
-                 MouseButtonPressed, MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion,
-                 WillEnterBackground, DidEnterForeground, LowMemory, Terminating>;
+                 MouseButtonPressed, MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion, FileDropped,
+                 DropCompleted, WillEnterBackground, DidEnterForeground, LowMemory, Terminating>;
 
 } // namespace sonnet::platform
