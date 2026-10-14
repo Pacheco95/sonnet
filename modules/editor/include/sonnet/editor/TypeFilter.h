@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace sonnet::editor {
 
@@ -43,12 +44,15 @@ private:
 bool typeFilterCombo(const char *id, float width, std::span<const char *const> names, TypeFilter &filter);
 
 // The asset types the browser offers, in the order of its combo; a TypeFilter over them is indexed
-// by position in this list.
+// by position in this list. The names add "Prefabs" after the types, at index
+// filterableAssetTypes().size().
 [[nodiscard]] std::span<const assets::AssetType> filterableAssetTypes() noexcept;
 [[nodiscard]] std::span<const char *const> filterableAssetTypeNames() noexcept;
 
 // Whether the asset browser lists an asset: its name contains `text` (ignoring case) AND its type
 // is checked in `types`.
 [[nodiscard]] bool assetPassesFilter(const assets::AssetInfo &info, std::string_view text, const TypeFilter &types);
+// The same for a prefab of that name, whose entry is "Prefabs".
+[[nodiscard]] bool prefabPassesFilter(std::string_view name, std::string_view text, const TypeFilter &types);
 
 } // namespace sonnet::editor

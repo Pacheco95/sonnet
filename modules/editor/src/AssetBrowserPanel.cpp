@@ -3,6 +3,7 @@
 #include <sonnet/editor/TypeFilter.h>
 
 #include <sonnet/core/Log.h>
+#include <sonnet/world/Components.h>
 
 #include <SDL3/SDL_misc.h>
 #include <imgui.h>
@@ -15,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace sonnet::editor {
@@ -103,11 +105,35 @@ std::string assetSourceLabel(const assets::AssetInfo &info, const std::filesyste
          (info.parent.isNil() ? std::string{} : std::format(" / {}", info.name));
 }
 
+AssetRow assetRow(const assets::AssetInfo &info, const std::filesystem::path &projectRoot) {
+  AssetRow row;
+  row.info = &info;
+  row.uuid = info.uuid;
+  row.name = info.name;
+  row.type = assets::toString(info.type);
+  row.source = assetSourceLabel(info, projectRoot);
+  if (info.source != "builtin") {
+    row.file = info.source;
+  }
+  return row;
+}
+
+AssetRow prefabRow(const core::Uuid &uuid, std::string name, const std::filesystem::path &file,
+                   const std::filesystem::path &projectRoot) {
+  AssetRow row;
+  row.uuid = uuid;
+  row.name = std::move(name);
+  row.type = "Prefab";
+  row.source = file.lexically_relative(projectRoot).generic_string();
+  row.file = file;
+  return row;
+}
+
 void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descending) {
   // Ignoring case first, then exactly, so "a" and "A" still have an order.
   const auto byName = [](const AssetRow &a, const AssetRow &b) {
-    const int key = compareIgnoringCase(a.info->name, b.info->name);
-    return key != 0 ? key : a.info->name.compare(b.info->name);
+    const int key = compareIgnoringCase(a.name, b.name);
+    return key != 0 ? key : a.name.compare(b.name);
   };
   std::ranges::sort(rows, [&](const AssetRow &a, const AssetRow &b) {
     int key = 0;
@@ -116,7 +142,7 @@ void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descen
       key = byName(a, b);
       break;
     case AssetSortColumn::Type:
-      key = compareIgnoringCase(assets::toString(a.info->type), assets::toString(b.info->type));
+      key = compareIgnoringCase(a.type, b.type);
       break;
     case AssetSortColumn::Source:
       key = compareIgnoringCase(a.source, b.source);
@@ -128,12 +154,12 @@ void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descen
     if (const int name = byName(a, b); name != 0) {
       return name < 0;
     }
-    return a.info->uuid < b.info->uuid;
+    return a.uuid < b.uuid;
   });
 }
 
-AssetBrowserPanel::AssetBrowserPanel(assets::AssetDatabase &assets, Selection &selection)
-    : m_assets(assets), m_selection(selection) {
+AssetBrowserPanel::AssetBrowserPanel(assets::AssetDatabase &assets, world::World &world, Selection &selection)
+    : m_assets(assets), m_world(world), m_selection(selection) {
 }
 
 void AssetBrowserPanel::draw(bool &open) {
@@ -183,29 +209,37 @@ void AssetBrowserPanel::draw(bool &open) {
     std::vector<AssetRow> rows;
     for (const assets::AssetInfo *info : m_assets.assets()) {
       if (assetPassesFilter(*info, m_filter, m_types)) {
-        rows.push_back({info, assetSourceLabel(*info, m_assets.projectRoot())});
+        rows.push_back(assetRow(*info, m_assets.projectRoot()));
+      }
+    }
+    // Prefab files are not database assets; a model's prefab has no file, and its Model row stands for it.
+    for (const flecs::entity prefab : m_world.prefabs()) {
+      const auto *file = prefab.try_get<world::PrefabFile>();
+      const auto *name = prefab.try_get<world::Name>();
+      if (file != nullptr && name != nullptr && prefabPassesFilter(name->value, m_filter, m_types)) {
+        rows.push_back(prefabRow(m_world.uuidOf(prefab), name->value, file->path, m_assets.projectRoot()));
       }
     }
     sortAssetRows(rows, m_sortColumn, m_sortDescending);
     for (const AssetRow &row : rows) {
-      const assets::AssetInfo *info = row.info;
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
-      ImGui::PushID(info->uuid.toString().c_str());
-      const bool selected = inspected() == info->uuid;
-      if (ImGui::Selectable(info->name.c_str(), selected,
-                            ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
-        inspect(info->uuid);
+      ImGui::PushID(row.uuid.toString().c_str());
+      // A prefab has no asset view in the inspector, so clicking one inspects nothing.
+      const bool selected = row.info != nullptr && inspected() == row.uuid;
+      if (ImGui::Selectable(row.name.c_str(), selected,
+                            ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap) &&
+          row.info != nullptr) {
+        inspect(row.uuid);
       }
       if (ImGui::BeginDragDropSource()) {
-        ImGui::SetDragDropPayload(AssetDragPayload, info->uuid.bytes().data(), info->uuid.bytes().size());
-        ImGui::TextUnformatted(info->name.c_str());
+        ImGui::SetDragDropPayload(AssetDragPayload, row.uuid.bytes().data(), row.uuid.bytes().size());
+        ImGui::TextUnformatted(row.name.c_str());
         ImGui::EndDragDropSource();
       }
-      drawContextMenu(*info);
+      drawContextMenu(row);
       ImGui::TableNextColumn();
-      const std::string_view type = assets::toString(info->type);
-      ImGui::TextUnformatted(type.data(), type.data() + type.size());
+      ImGui::TextUnformatted(row.type.data(), row.type.data() + row.type.size());
       ImGui::TableNextColumn();
       ImGui::TextDisabled("%s", row.source.c_str());
       ImGui::PopID();
@@ -215,21 +249,22 @@ void AssetBrowserPanel::draw(bool &open) {
   ImGui::End();
 }
 
-void AssetBrowserPanel::drawContextMenu(const assets::AssetInfo &info) {
+void AssetBrowserPanel::drawContextMenu(const AssetRow &row) {
   if (!ImGui::BeginPopupContextItem("##asset-menu")) {
     return;
   }
-  const bool hasFile = info.source != "builtin";
+  const bool hasFile = !row.file.empty();
   if (ImGui::MenuItem("Copy path", nullptr, false, hasFile)) {
-    ImGui::SetClipboardText(info.source.string().c_str());
+    ImGui::SetClipboardText(row.file.string().c_str());
   }
   if (ImGui::MenuItem("Show in file manager", nullptr, false, hasFile)) {
-    if (!SDL_OpenURL(directoryUrl(info.source.parent_path()).c_str())) {
-      SONNET_LOG_ERROR("cannot open {}: {}", info.source.parent_path().string(), SDL_GetError());
+    if (!SDL_OpenURL(directoryUrl(row.file.parent_path()).c_str())) {
+      SONNET_LOG_ERROR("cannot open {}: {}", row.file.parent_path().string(), SDL_GetError());
     }
   }
-  if (ImGui::MenuItem("Open", nullptr, false, hasFile && info.type == assets::AssetType::Script && m_open)) {
-    m_open(info.source.string(), 1);
+  const bool script = row.info != nullptr && row.info->type == assets::AssetType::Script;
+  if (ImGui::MenuItem("Open", nullptr, false, hasFile && script && m_open)) {
+    m_open(row.file.string(), 1);
   }
   ImGui::EndPopup();
 }
