@@ -342,3 +342,44 @@ TEST_CASE("make local turns an instance into ordinary entities with the same ide
   REQUIRE(loaded == identities);
   REQUIRE(world.find(identities.back()).get<world::MeshRenderer>().color.r == Approx(1.0f));
 }
+
+TEST_CASE("an instance's children keep the prefab's order on every load and at every depth",
+          "[world][prefab][nested]") {
+  world::World world;
+  // Inner: children created A, B, C, then A moved last, so the order (B, C, A) is not the ids'.
+  const flecs::entity inner = world.createEntity("Inner");
+  const flecs::entity a = world.createEntity("A", inner);
+  world.createEntity("B", inner);
+  world.createEntity("C", inner);
+  world.assignOrder(a);
+  world.makePrefab(inner);
+  // Outer: a plain X and an instance of Inner, X moved last.
+  const flecs::entity outer = world.createEntity("Outer");
+  const flecs::entity x = world.createEntity("X", outer);
+  world.instantiate(inner, "Nested", outer);
+  world.assignOrder(x);
+  world.makePrefab(outer);
+  world.instantiate(outer, "Instance");
+
+  const auto names = [&](flecs::entity parent) {
+    std::vector<std::string> result;
+    for (const flecs::entity child : world.children(parent)) {
+      result.push_back(child.get<world::Name>().value);
+    }
+    return result;
+  };
+  const auto check = [&] {
+    REQUIRE(world.roots().size() == 1);
+    const flecs::entity instance = world.roots().front();
+    REQUIRE(names(instance) == std::vector<std::string>{"Nested", "X"});
+    REQUIRE(names(childNamed(world, instance, "Nested")) == std::vector<std::string>{"B", "C", "A"});
+  };
+  check();
+  // The play snapshot and a tab switch are this round trip.
+  for (int round = 0; round < 3; ++round) {
+    const json scene = world::saveScene(world);
+    world.destroyEntity(world.roots().front());
+    REQUIRE(world::loadScene(world, scene).has_value());
+    check();
+  }
+}

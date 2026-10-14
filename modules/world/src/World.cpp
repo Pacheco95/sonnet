@@ -150,7 +150,8 @@ void World::registerComponents() {
   m_world.component<PrefabSource>("PrefabSource").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<WorldTransform>("WorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
   m_world.component<PreviousWorldTransform>("PreviousWorldTransform").add(flecs::OnInstantiate, flecs::DontInherit);
-  m_world.component<SiblingOrder>("SiblingOrder").add(flecs::OnInstantiate, flecs::DontInherit);
+  // Copied, so an instance's children sort as the prefab's do before instantiate renumbers them.
+  m_world.component<SiblingOrder>("SiblingOrder").add(flecs::OnInstantiate, flecs::Override);
   m_world.component<Name>("Name").add(flecs::OnInstantiate, flecs::Inherit);
 
   // Text members, which flecs reads through a pointer to the char pointer.
@@ -313,7 +314,7 @@ void World::assignOrder(flecs::entity entity) {
 
 namespace {
 
-// Creation order first; the id only breaks ties (prefab children not yet adopted have no order).
+// Creation order, with the id as a last resort for an entity that has none.
 bool siblingBefore(flecs::entity a, flecs::entity b) {
   const SiblingOrder *orderA = a.try_get<SiblingOrder>();
   const SiblingOrder *orderB = b.try_get<SiblingOrder>();
