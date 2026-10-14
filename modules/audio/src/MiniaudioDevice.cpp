@@ -60,8 +60,18 @@ public:
     setFallbackListener(glm::vec3{0.0f}, glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
 
     flecs::world &ecs = world.ecs();
-    m_sources = ecs.query_builder<>("AudioSources").with<AudioSource>().without<world::Disabled>().build();
-    m_listeners = ecs.query_builder<>("AudioListeners").with<AudioListener>().without<world::Disabled>().build();
+    m_sources = ecs.query_builder<>("AudioSources")
+                    .with<AudioSource>()
+                    .without<world::Disabled>()
+                    .self()
+                    .up(flecs::ChildOf)
+                    .build();
+    m_listeners = ecs.query_builder<>("AudioListeners")
+                      .with<AudioListener>()
+                      .without<world::Disabled>()
+                      .self()
+                      .up(flecs::ChildOf)
+                      .build();
     // Not a simulation system: in edit mode it stops what play mode left playing and mixes the
     // preview. Declared after the transform system, so positions are this frame's.
     // Sound runs on real time: the world's time scale pauses the game, not what it is heard saying.

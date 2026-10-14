@@ -340,6 +340,8 @@ public:
                       .or_()
                       .with<MeshCollider>()
                       .without<world::Disabled>()
+                      .self()
+                      .up(flecs::ChildOf)
                       .build();
     m_stepSystem = ecs.system("PhysicsStep").kind(world.phase(world::Phase::FixedUpdate)).run([this](flecs::iter &it) {
       step(it.delta_time());
@@ -356,9 +358,20 @@ public:
     observeChanges<SphereCollider>();
     observeChanges<CapsuleCollider>();
     observeChanges<MeshCollider>();
+    // Disabling an entity removes the bodies in its subtree at once, not at the next step, so a
+    // raycast in between does not hit them; enabling it again lets the step build them anew.
     m_observers.push_back(
         ecs.observer("PhysicsDisabled").with<world::Disabled>().event(flecs::OnAdd).each([this](flecs::entity entity) {
           invalidate(entity);
+          std::vector<flecs::entity_t> below;
+          for (const auto &[id, body] : m_bodies) {
+            if (m_world.ecs().is_alive(id) && m_world.isDescendant(flecs::entity{m_world.ecs(), id}, entity)) {
+              below.push_back(id);
+            }
+          }
+          for (const flecs::entity_t id : below) {
+            destroyBody(id);
+          }
         }));
     m_observers.push_back(ecs.observer("PhysicsTrigger")
                               .with<Trigger>()
@@ -592,7 +605,7 @@ private:
     entity = bodyRootOf(entity);
     auto it = m_bodies.find(entity.id());
     if (it == m_bodies.end()) {
-      if (entity.has<world::Disabled>() || entity.has(flecs::Prefab) || !hasShape(entity)) {
+      if (world::World::isDisabled(entity) || entity.has(flecs::Prefab) || !hasShape(entity)) {
         return nullptr;
       }
       createBody(entity);
@@ -851,12 +864,12 @@ private:
   void step(float dt) {
     SONNET_ZONE();
     flecs::world &ecs = m_world.ecs();
-    // Bodies of entities that are gone, disabled or no longer have a collider.
+    // Bodies of entities that are gone, disabled here or above, or no longer have a collider.
     std::vector<flecs::entity_t> stale;
     for (const auto &[id, body] : m_bodies) {
       // Ids carry a generation: a deleted entity's id is not alive even when its slot is reused.
       const flecs::entity entity{ecs, id};
-      if (!ecs.is_alive(id) || entity.has<world::Disabled>() || bodyRootOf(entity) != entity || !hasShape(entity) ||
+      if (!ecs.is_alive(id) || world::World::isDisabled(entity) || bodyRootOf(entity) != entity || !hasShape(entity) ||
           !compoundIntact(entity, body)) {
         stale.push_back(id);
       }

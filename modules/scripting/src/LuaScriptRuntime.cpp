@@ -235,7 +235,8 @@ public:
       bindCamera();
     }
 
-    m_scripts = ecs.query_builder<const Scripts>("ScriptSlots").without<world::Disabled>().build();
+    m_scripts =
+        ecs.query_builder<const Scripts>("ScriptSlots").without<world::Disabled>().self().up(flecs::ChildOf).build();
     // Immediate, with deferring suspended: a script sees its own changes on its next line, such
     // as a component it just added or the children of a prefab it just instantiated. flecs runs
     // even immediate systems deferred; these iterate no query, so suspending is safe.
@@ -457,7 +458,7 @@ private:
     }
     flecs::world &ecs = m_world.ecs();
     for (const world::AnimationEventRecord &event : m_animation->events()) {
-      if (!ecs.is_alive(event.entity) || flecs::entity{ecs, event.entity}.has<world::Disabled>()) {
+      if (!ecs.is_alive(event.entity) || world::World::isDisabled(flecs::entity{ecs, event.entity})) {
         continue;
       }
       for (auto it = m_instances.lower_bound({event.entity, 0});
@@ -477,7 +478,7 @@ private:
     }
     flecs::world &ecs = m_world.ecs();
     for (const gui::GuiEvent &event : m_gui->events()) {
-      if (!ecs.is_alive(event.entity) || flecs::entity{ecs, event.entity}.has<world::Disabled>()) {
+      if (!ecs.is_alive(event.entity) || world::World::isDisabled(flecs::entity{ecs, event.entity})) {
         continue;
       }
       using Kind = gui::GuiEventKind;
@@ -500,7 +501,7 @@ private:
     flecs::world &ecs = m_world.ecs();
     for (auto it = m_instances.lower_bound({self.id(), 0}); it != m_instances.end() && it->first.entity == self.id();
          ++it) {
-      if (!it->second.started || !ecs.is_alive(self.id()) || flecs::entity{ecs, self.id()}.has<world::Disabled>()) {
+      if (!it->second.started || !ecs.is_alive(self.id()) || world::World::isDisabled(self)) {
         continue;
       }
       if (event.kind == Kind::ContactBegin) {

@@ -284,6 +284,8 @@ void World::registerSystems() {
   m_world.system<Transform, const Spin>("SpinSystem")
       .kind(phase(Phase::Update))
       .without<Disabled>()
+      .self()
+      .up(flecs::ChildOf)
       .each([](flecs::iter &it, std::size_t, Transform &transform, const Spin &spin) {
         const float angle = spin.speed * it.delta_time();
         const glm::vec3 axis = glm::length(spin.axis) > 0.0f ? glm::normalize(spin.axis) : glm::vec3{0.0f, 1.0f, 0.0f};
@@ -374,6 +376,15 @@ glm::mat4 World::worldMatrix(flecs::entity entity) {
     }
   }
   return matrix;
+}
+
+bool World::isDisabled(flecs::entity entity) {
+  for (flecs::entity current = entity; current; current = current.parent()) {
+    if (current.has<Disabled>()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 flecs::entity World::findByPath(flecs::entity root, std::string_view path) const {

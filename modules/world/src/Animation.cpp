@@ -47,8 +47,9 @@ constexpr float EventWeight = 0.05f;
 
 AnimationSystem::AnimationSystem(World &world, assets::AssetDatabase &assets) : m_world(world), m_assets(assets) {
   flecs::world &ecs = world.ecs();
-  m_animators = ecs.query_builder<>("Animators").with<Animator>().without<Disabled>().build();
-  m_skinned = ecs.query_builder<>("SkinnedMeshes").with<SkinnedMesh>().without<Disabled>().build();
+  m_animators = ecs.query_builder<>("Animators").with<Animator>().without<Disabled>().self().up(flecs::ChildOf).build();
+  m_skinned =
+      ecs.query_builder<>("SkinnedMeshes").with<SkinnedMesh>().without<Disabled>().self().up(flecs::ChildOf).build();
   // Immediate with deferring suspended, as the scripts' systems: the poses are written to
   // instances whose Transforms are inherited from their prefab until then.
   m_playback =

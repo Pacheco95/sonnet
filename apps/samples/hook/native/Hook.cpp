@@ -35,6 +35,8 @@ void registerGame(runtime::GameRegistry &registry) {
           .system<world::Transform, const Orbit>("OrbitSystem")
           .kind(world.phase(world::Phase::Update))
           .without<world::Disabled>()
+          .self()
+          .up(flecs::ChildOf)
           .each([](flecs::iter &it, std::size_t, world::Transform &transform, const Orbit &orbit) {
             const float angle = std::atan2(transform.position.z, transform.position.x) + orbit.speed * it.delta_time();
             transform.position.x = orbit.radius * std::cos(angle);

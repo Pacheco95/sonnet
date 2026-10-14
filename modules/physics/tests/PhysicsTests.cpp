@@ -398,6 +398,40 @@ TEST_CASE("debug lines outline every collider, in edit mode too", "[physics]") {
   REQUIRE(lines.size() == 12 + 3 * 24 + 2 * 24 + 4 + 4 * 12);
 }
 
+TEST_CASE("a body under a disabled entity leaves the simulation and comes back where it was", "[physics]") {
+  Fixture fixture;
+  const flecs::entity group = fixture.world.createEntity("Group");
+  const flecs::entity middle = fixture.world.createEntity("Middle", group);
+  const flecs::entity ball = fixture.ball({0.0f, 5.0f, 0.0f});
+  fixture.world.setParent(ball, middle);
+  fixture.world.setPlaying(true);
+  fixture.run(0.25f);
+  REQUIRE(fixture.physics->bodyCount() == 1);
+  const glm::vec3 fallen = positionOf(ball);
+  REQUIRE(fallen.y < 5.0f);
+
+  // Gone at once, before the next step: a ray finds nothing and the entity stays put.
+  group.add<world::Disabled>();
+  REQUIRE(fixture.physics->bodyCount() == 0);
+  REQUIRE_FALSE(fixture.physics->raycast({0.0f, 10.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, 20.0f).has_value());
+  fixture.run(0.5f);
+  REQUIRE(fixture.physics->bodyCount() == 0);
+  REQUIRE(positionOf(ball) == fallen);
+
+  group.remove<world::Disabled>();
+  fixture.world.progress(Step);
+  REQUIRE(fixture.physics->bodyCount() == 1);
+  REQUIRE(glm::length(positionOf(ball) - fallen) < 0.1f);
+  REQUIRE(fixture.physics->raycast({0.0f, 10.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, 20.0f).has_value());
+
+  // Moved under a disabled entity, the body goes at the next step.
+  const flecs::entity hidden = fixture.world.createEntity("Hidden");
+  hidden.add<world::Disabled>();
+  fixture.world.setParent(ball, hidden);
+  fixture.world.progress(Step);
+  REQUIRE(fixture.physics->bodyCount() == 0);
+}
+
 TEST_CASE("stopping play and reloading the snapshot discards the simulated state", "[physics]") {
   Fixture fixture;
   fixture.ground();
