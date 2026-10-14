@@ -157,6 +157,41 @@ TEST_CASE("a glTF file imports its meshes, materials, images and node hierarchy"
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a transmissive glTF material imports as alpha-blended until refraction exists", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_transmission");
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(directory / "glass.gltf", "wood.png");
+  const auto bytes = core::readFile(directory / "glass.gltf");
+  REQUIRE(bytes.has_value());
+  nlohmann::json document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  // Required too, so every parse of the file has to accept it.
+  document["extensionsUsed"] = {"KHR_materials_transmission"};
+  document["extensionsRequired"] = {"KHR_materials_transmission"};
+  document["materials"][0]["pbrMetallicRoughness"]["baseColorFactor"] = {1.0, 1.0, 1.0, 0.8};
+  document["materials"][0]["extensions"]["KHR_materials_transmission"] = {{"transmissionFactor", 0.75}};
+  REQUIRE(core::writeFile(directory / "glass.gltf", document.dump(2)).has_value());
+
+  const auto imported = importGltf(directory / "glass.gltf");
+  REQUIRE(imported.has_value());
+  REQUIRE(imported->materials.size() == 1);
+  const MaterialSource &source = imported->materials[0].source;
+  REQUIRE(source.alphaMode == renderer::AlphaMode::Blend);
+  REQUIRE(source.baseColor.a == Approx(0.2f));
+  REQUIRE(source.baseColor.r == Approx(1.0f));
+  REQUIRE(importGltfStructure(directory / "glass.gltf").has_value());
+  REQUIRE(gltfDependencies(directory / "glass.gltf").has_value());
+
+  // No transmission, or none let through, leaves the material as authored.
+  document["materials"][0]["extensions"]["KHR_materials_transmission"]["transmissionFactor"] = 0.0;
+  REQUIRE(core::writeFile(directory / "glass.gltf", document.dump(2)).has_value());
+  const auto opaque = importGltf(directory / "glass.gltf");
+  REQUIRE(opaque.has_value());
+  REQUIRE(opaque->materials[0].source.alphaMode == renderer::AlphaMode::Opaque);
+  REQUIRE(opaque->materials[0].source.baseColor.a == Approx(0.8f));
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("a glTF file imports its skins, joint weights and animation clips by node path", "[assets][gltf]") {
   const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_skin");
   test::writeSkinnedGltf(directory / "rig.gltf");

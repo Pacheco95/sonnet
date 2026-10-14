@@ -23,6 +23,9 @@ namespace sonnet::assets {
 
 namespace {
 
+// The extensions read, the same for every parse so a file one parse accepts no other refuses.
+constexpr fastgltf::Extensions ReadExtensions = fastgltf::Extensions::KHR_materials_transmission;
+
 core::Error gltfError(const std::filesystem::path &path, std::string_view what, fastgltf::Error error) {
   return core::Error{std::format("{}: {}: {}", path.string(), what, fastgltf::getErrorMessage(error)),
                      core::ErrorCategory::Io};
@@ -256,7 +259,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
   if (buffer.error() != fastgltf::Error::None) {
     return std::unexpected(gltfError(path, "reading", buffer.error()));
   }
-  fastgltf::Parser parser;
+  fastgltf::Parser parser{ReadExtensions};
   std::map<std::size_t, std::vector<AnimationEvent>> animationEvents;
   parser.setExtrasParseCallback(readAnimationEvents);
   parser.setUserPointer(&animationEvents);
@@ -416,6 +419,12 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     out.source.alphaMode = material.alphaMode == fastgltf::AlphaMode::Blend  ? renderer::AlphaMode::Blend
                            : material.alphaMode == fastgltf::AlphaMode::Mask ? renderer::AlphaMode::Mask
                                                                              : renderer::AlphaMode::Opaque;
+    // Transmission until refraction exists (#254): blended, with the light the surface lets
+    // through taken off its alpha, so clear glass shows what is behind it. The texture is ignored.
+    if (material.transmission != nullptr && material.transmission->transmissionFactor > 0.0f) {
+      out.source.alphaMode = renderer::AlphaMode::Blend;
+      out.source.baseColor.a *= 1.0f - material.transmission->transmissionFactor;
+    }
     out.baseColorImage = imageOf(asset, pbr.baseColorTexture);
     out.metallicRoughnessImage = imageOf(asset, pbr.metallicRoughnessTexture);
     out.normalImage = imageOf(asset, material.normalTexture);
@@ -543,7 +552,7 @@ core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &pat
     return std::unexpected(gltfError(path, "reading", buffer.error()));
   }
   // No external buffers and no images: everything a hierarchy needs is in the JSON.
-  fastgltf::Parser parser;
+  fastgltf::Parser parser{ReadExtensions};
   auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), fastgltf::Options::DecomposeNodeMatrices);
   if (loaded.error() != fastgltf::Error::None) {
     return std::unexpected(gltfError(path, "parsing", loaded.error()));
@@ -560,7 +569,7 @@ core::Result<std::vector<std::filesystem::path>> gltfDependencies(const std::fil
   if (buffer.error() != fastgltf::Error::None) {
     return std::unexpected(gltfError(path, "reading", buffer.error()));
   }
-  fastgltf::Parser parser;
+  fastgltf::Parser parser{ReadExtensions};
   auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), fastgltf::Options::None);
   if (loaded.error() != fastgltf::Error::None) {
     return std::unexpected(gltfError(path, "parsing", loaded.error()));

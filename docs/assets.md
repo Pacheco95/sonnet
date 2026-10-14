@@ -86,7 +86,7 @@ A material file (`<name>.material.json`) holds a `MaterialSource`: the renderer'
 }
 ```
 
-`AssetDatabase::materialSource` and `setMaterialSource` are what the editor edits; a change updates the renderer's material at once and `saveMaterial` writes the file. A glTF material is a sub-asset with the same source, editable in memory but not saved back into the glTF. A mesh from a glTF file carries its default material per slot; a `MeshRenderer` may override them all with one material.
+`AssetDatabase::materialSource` and `setMaterialSource` are what the editor edits; a change updates the renderer's material at once and `saveMaterial` writes the file. A glTF material is a sub-asset with the same source, editable in memory but not saved back into the glTF. Until the renderer refracts ([#254](https://github.com/Pacheco95/sonnet/issues/254)), a glTF material with `KHR_materials_transmission` imports as alpha-blended, its base colour's alpha multiplied by `1 - transmissionFactor`: clear glass shows what is behind it, unbent, and keeps its highlights only where its alpha does. The `transmissionTexture` is ignored. A mesh from a glTF file carries its default material per slot; a `MeshRenderer` may override them all with one material.
 
 ## Hot reload
 
