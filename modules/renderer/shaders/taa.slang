@@ -43,8 +43,8 @@ float2 clipToUv(float4 clip) {
   return float2(clip.x / clip.w * 0.5 + 0.5, 0.5 - clip.y / clip.w * 0.5);
 }
 
-// The ray through the pixel from the camera, in the jittered image: the point on the near plane
-// the jittered matrix looks through, less the camera.
+// The ray through the pixel from the camera, as the skybox drew it: the point on the near plane
+// the unjittered matrix looks through, less the camera.
 float3 skyDirection(float2 uv) {
   const float4 point = mul(frame.inverseViewProjection, float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0));
   return point.xyz / point.w - frame.cameraPosition.xyz;
