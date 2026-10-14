@@ -59,13 +59,16 @@ using namespace sonnet;
   desc.module = game::linkedModule();
   // The far cascade's cost on a phone's tile-based GPU follows its map and its triangle count: 512
   // pays on the Adreno 830, 1024 is enough on the A16 (docs/reports/far-cascade-mechanism.md), and
-  // its casters draw their coarser shadow range (ADR-0025).
+  // its casters draw their coarser shadow range (ADR-0025). A phone's sky cube stops at 1024 a face,
+  // 67 MB with its mips rather than 268.
 #if defined(__ANDROID__)
   desc.renderer.farShadowMapSize = 512;
   desc.renderer.shadowLodCascade = 3;
+  desc.renderer.maxEnvironmentSize = 1024;
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
   desc.renderer.farShadowMapSize = 1024;
   desc.renderer.shadowLodCascade = 3;
+  desc.renderer.maxEnvironmentSize = 1024;
 #endif
   return desc;
 }

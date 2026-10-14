@@ -1057,13 +1057,15 @@ EnvironmentHandle Renderer::createEnvironment(const TextureData &equirectangular
   }
   m_device.uploadImage(equirect, uploads);
   const rhi::ImageUsage cubeUsage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage;
-  const rhi::ImageHandle skybox =
-      m_device.createImage({.size = {m_settings.environmentSize, m_settings.environmentSize},
-                            .format = HdrFormat,
-                            .usage = cubeUsage,
-                            .mipLevels = rhi::fullMipCount({m_settings.environmentSize, m_settings.environmentSize}),
-                            .cube = true,
-                            .debugName = std::format("{} skybox", debugName)});
+  const std::uint32_t skyboxSize =
+      std::max(m_settings.environmentSize,
+               std::min(std::bit_ceil(std::max(equirectangular.size.x / 4, 1u)), m_settings.maxEnvironmentSize));
+  const rhi::ImageHandle skybox = m_device.createImage({.size = {skyboxSize, skyboxSize},
+                                                        .format = HdrFormat,
+                                                        .usage = cubeUsage,
+                                                        .mipLevels = rhi::fullMipCount({skyboxSize, skyboxSize}),
+                                                        .cube = true,
+                                                        .debugName = std::format("{} skybox", debugName)});
   const rhi::ImageHandle irradiance =
       m_device.createImage({.size = {m_settings.irradianceSize, m_settings.irradianceSize},
                             .format = HdrFormat,
@@ -1077,10 +1079,10 @@ EnvironmentHandle Renderer::createEnvironment(const TextureData &equirectangular
                             .mipLevels = m_settings.prefilteredLevels,
                             .cube = true,
                             .debugName = std::format("{} prefiltered", debugName)});
-  const EnvironmentHandle handle =
-      m_environments.emplace(Environment{std::move(debugName), equirect, skybox, irradiance, prefiltered, true});
-  SONNET_LOG_DEBUG("environment \"{}\" from a {}x{} map", m_environments.get(handle).debugName, equirectangular.size.x,
-                   equirectangular.size.y);
+  const EnvironmentHandle handle = m_environments.emplace(
+      Environment{std::move(debugName), equirect, skybox, irradiance, prefiltered, skyboxSize, true});
+  SONNET_LOG_DEBUG("environment \"{}\" from a {}x{} map, a {} cube", m_environments.get(handle).debugName,
+                   equirectangular.size.x, equirectangular.size.y, skyboxSize);
   return handle;
 }
 
@@ -1185,7 +1187,7 @@ void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle
   const rhi::ImageHandle irradianceImage = environment.irradiance;
   const rhi::ImageHandle prefilteredImage = environment.prefiltered;
   const rhi::ImageHandle equirectImage = environment.equirectangular;
-  const std::uint32_t skyboxSize = m_settings.environmentSize;
+  const std::uint32_t skyboxSize = environment.skyboxSize;
   const std::uint32_t skyboxLevels = rhi::fullMipCount({skyboxSize, skyboxSize});
 
   const auto dispatchCube = [this, sampler](rhi::ICommandList &commands, rhi::PipelineHandle pipeline,

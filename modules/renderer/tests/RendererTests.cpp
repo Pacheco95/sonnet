@@ -399,6 +399,46 @@ TEST_CASE("textures upload every level and are reached by index, the white defau
   REQUIRE(!renderer.createTexture(wrong, "wrong").isValid());
 }
 
+// A map wider than four times the settings' cube keeps its texels: its cube is a quarter of its
+// width, up to the ceiling, which the number of mip passes shows.
+TEST_CASE("an environment's cube follows its map up to the ceiling", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  const auto levels = [&](std::uint32_t mapWidth, std::uint32_t ceiling) {
+    RendererSettings settings = testSettings();
+    settings.maxEnvironmentSize = ceiling;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    TextureData map = skyTexture({0.2f, 0.4f, 0.8f});
+    map.size = {mapWidth, mapWidth / 2};
+    map.data.resize(static_cast<std::size_t>(map.expectedSize()));
+    const EnvironmentHandle environment = renderer.createEnvironment(map, "sky");
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 8, 4), "sphere");
+    const std::array draws{DrawItem{.mesh = sphere}};
+    SceneView view = boxScene(draws);
+    view.environment = environment;
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({32, 32});
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    graph.execute(commands);
+    device->endFrame();
+    std::uint32_t count = 1;
+    while (hasPass(graph, std::format("cube mip {}", count))) {
+      ++count;
+    }
+    renderer.destroyMesh(sphere);
+    renderer.destroyEnvironment(environment);
+    return count;
+  };
+  CHECK(levels(8, 2048) == 4);   // smaller than the settings' 8: an 8 cube
+  CHECK(levels(64, 2048) == 5);  // 16
+  CHECK(levels(100, 2048) == 6); // 25, rounded up to 32
+  CHECK(levels(256, 16) == 5);   // 64, held to 16
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("an environment is precomputed by the first scene passes after its creation", "[renderer][null]") {
   sonnet::platform::Platform platform{{.headless = true}};
   const auto device = createNullDevice();

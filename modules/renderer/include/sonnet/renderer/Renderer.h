@@ -115,7 +115,11 @@ struct RendererSettings {
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
   // present pipeline out, which is what the editor does: it shows the scene through Dear ImGui.
   rhi::Format presentFormat{rhi::Format::Undefined};
-  std::uint32_t environmentSize{512}; // the skybox cube, with a full mip chain
+  // The skybox cube per face, with a full mip chain, at least `environmentSize`; a wider map gets a
+  // quarter of its width, the texels it has across a face's 90 degrees, rounded up to a power of
+  // two and at most `maxEnvironmentSize`, so a 4K map keeps 1024 and an 8K one 2048.
+  std::uint32_t environmentSize{512};
+  std::uint32_t maxEnvironmentSize{2048};
   std::uint32_t irradianceSize{32};
   std::uint32_t irradianceSamples{256};
   std::uint32_t prefilteredSize{128};
@@ -401,6 +405,7 @@ private:
     rhi::ImageHandle skybox;
     rhi::ImageHandle irradiance;
     rhi::ImageHandle prefiltered;
+    std::uint32_t skyboxSize{0};
     bool pending{true};
   };
   // The per-frame buffers every scene pass shares, allocated by the first pass that records.
