@@ -32,9 +32,10 @@ The output of this skill is designed to automatically update your [GitHub Projec
    - Specific hour estimates for each issue
 
 3. **Target Release** (Single select)
-   - Options at the time of writing: Pre-1.0, Post-1.0, M11+ (the M9 and M10 options were removed once those milestones were done). **These go stale.** Read the live options before proposing anything:
+   - Options at the time of writing: Pre-1.0, Post-1.0 (the M9, M10 and M11+ options were removed once those milestones were done). Read the live options before proposing anything, since options can be added or go stale:
      `gh project field-list 1 --owner Pacheco95 --format json`
-   - Never target a milestone the roadmap marks as done. Use **Pre-1.0** for work that should land before the 1.0.0 release tag (editor and engine polish, fixes, features the release should have), **Post-1.0** for work that can wait until after it, and **M11+** for work tied to a future milestone that has no release yet (for example the shadow chain, which needs the renderer's budget first). Read the roadmap for what 1.0.0 still requires, and say in the report which cards you put before and after the tag and why. A card that waits on an upstream fix (a Deferred blocker) still takes the release it should ship in. Tell the user which options are stale (a milestone option once its milestone is done). Removing an option regenerates every option ID of that field and clears every card's value for it, so record each card's value first (`gh project item-list`) and restore them afterwards with `gh project item-edit`, then compare the counts.
+   - Use **Pre-1.0** for work that should land before the 1.0.0 release tag: anything that changes the project, scene, prefab, material, sidecar or bundle formats (1.0.0 waits for them to stop changing), and the editor and engine polish, fixes and features the release should have. Use **Post-1.0** for work that can wait until after it, including work that waits on a future milestone or an ADR not yet written; name that milestone or ADR in the report, since the field has no option for it. Read the roadmap's 1.0.0 section for what the tag still requires, and say in the report which cards you put before and after it and why. A card that waits on an upstream fix (a Deferred blocker) still takes the release it should ship in.
+   - Never add a milestone option to this field: a milestone is done in weeks and its option goes stale. If an option names a milestone (an old one, or one someone added), tell the user it is stale and propose removing it. Removing an option goes through `updateProjectV2Field` with the options to keep, which regenerates every option ID and clears **every** card's value, not only the removed option's. So first record each card's value with a paginated GraphQL query of the project's items (`gh project item-list` can leave out recently added items), plus any card added in this session that the query does not return yet. Then remove the option, restore each value with `gh project item-edit` and the new option IDs (a card on the removed option takes the release it fits now), and read every card back against the record.
 
 4. **Status** (Built-in)
    - Options: Backlog, Refining, Ready for dev, In Progress, Blocked, Done. Read the live options with `gh project field-list 1 --owner Pacheco95 --format json`.
@@ -170,7 +171,7 @@ These fit the current/next milestone and should be tackled in order.
 ### #15 | [Title]
 - **Impact**: [description]
 - **Effort**: [X hours] – [scope and breakdown]
-- **Milestone**: Pre-1.0 — fits because [reason]
+- **Target Release**: Pre-1.0 — fits because [reason]
 - **Blocker**: [none or what's required first]
 
 ---
@@ -179,10 +180,10 @@ These fit the current/next milestone and should be tackled in order.
 Issues that don't fit now but are worth keeping.
 
 ### #88 | [Title]
-- **Reason**: Blocked by the M11+ renderer budget work
+- **Reason**: Blocked by #NN, the renderer budget work (Post-1.0)
 - **Impact**: [what it enables]
 - **Effort**: [X hours] – (estimated if unblocked)
-- **Suggested Comment**: "Thanks for the issue! This depends on work scheduled for M11+..."
+- **Suggested Comment**: "Thanks for the issue! This depends on #NN, which has to land first..."
 
 ### #22 | [Title]
 - **Reason**: Architectural mismatch — requires ECS redesign
@@ -297,7 +298,7 @@ Your [Sonnet Issue Prioritization project](https://github.com/users/Pacheco95/pr
    - Issue number
    - Priority Tier (Quick Win / Medium Fit / Deferred)
    - Effort Hours (specific range)
-   - Target Release (Pre-1.0 / Post-1.0 / M11+)
+   - Target Release (Pre-1.0 / Post-1.0)
    - Status (Backlog / Refining / Ready for dev)
 3. Asks for approval: "Ready to update the GitHub Project?"
 4. If approved: Uses GitHub API to set all fields in batch
@@ -319,7 +320,7 @@ Your [Sonnet Issue Prioritization project](https://github.com/users/Pacheco95/pr
 After running the skill, you'll have a report with each issue assigned to:
 - **Priority Tier** (Quick Win / Medium Fit / Deferred)
 - **Effort Hours** (specific range)
-- **Milestone** (which release it fits)
+- **Target Release** (Pre-1.0 or Post-1.0)
 - **Reasoning** (why it belongs in that tier)
 
 To update the project:
@@ -328,7 +329,7 @@ To update the project:
 3. For each issue in the skill report:
    - Set **Priority Tier** to the tier from the report
    - Set **Effort (hours)** to the hour estimate
-   - Set **Milestone** if specified
+   - Set **Target Release**
 4. Filter by Priority Tier to see **Quick Wins** at the top
 5. Use the project's kanban view to track where each card stands (Backlog, Refining, Ready for dev, In Progress, Blocked, Done)
 
@@ -338,7 +339,7 @@ To update the project:
 
 ```
 Priority Tier: Medium Fit
-Milestone: Post-1.0 (editor improvements fit any milestone)
+Target Release: Post-1.0 (editor polish that changes no format can wait for the tag)
 Impact: Faster world-building, better UX
 Effort Hours: 12–16 (design handles, test all axes, iterate with feedback)
 Note: Gizmo framework exists from M1; ready to design & implement; pair with similar gizmo work
@@ -348,7 +349,7 @@ Note: Gizmo framework exists from M1; ready to design & implement; pair with sim
 
 ```
 Priority Tier: Deferred
-Milestone: M11+ (a new platform has no milestone yet)
+Target Release: Post-1.0 (a new platform has no milestone yet; say so in the report)
 Impact: Critical for console users (future market)
 Effort Hours: 80–120+ (platform integration, Vulkan driver updates, testing, unknowns)
 Status: Post a comment: "A console port is not planned yet. The current work focuses on 1.0 stability..."
