@@ -389,6 +389,66 @@ TEST_CASE("scenes open in tabs that keep their own edits, undo history and selec
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("a project reopens the scene tabs it had open when it was closed", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("reopen_tabs");
+  const std::filesystem::path preferences = scratch("reopen_tabs_preferences") / "preferences.json";
+  std::filesystem::create_directories(preferences.parent_path());
+  const std::filesystem::path second = directory / "scenes" / "second.scene.json";
+  const std::filesystem::path third = directory / "scenes" / "third.scene.json";
+  std::filesystem::path first;
+  const auto makeEditor = [&](bool remember) {
+    auto editor =
+        std::make_unique<editor::Editor>(fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain);
+    editor->setPreferencesFile(preferences);
+    editor->setRememberOpenScenes(remember);
+    return editor;
+  };
+  {
+    const auto editor = makeEditor(true);
+    REQUIRE(editor->createProject(directory, "Reopen").has_value());
+    first = editor->scenePath();
+    editor->newScene();
+    REQUIRE(editor->saveSceneAs(second).has_value());
+    editor->newScene();
+    REQUIRE(editor->saveSceneAs(third).has_value());
+    editor->newScene(); // untitled: recovery's business, not recorded
+    editor->switchToTab(1);
+    fixture.frame(*editor);
+    REQUIRE(editor->openScenes() == editor::OpenScenes{.scenes = {first, second, third}, .active = 1});
+  }
+  {
+    // Quitting recorded them: the same tabs, in the same order, with the same one active.
+    const auto editor = makeEditor(true);
+    REQUIRE(editor->openProject(directory).has_value());
+    REQUIRE(editor->tabCount() == 3);
+    REQUIRE(editor->activeTab() == 1);
+    REQUIRE(editor->scenePath() == second);
+    REQUIRE(editor->tabTitle(0) == first.filename().string());
+    REQUIRE(editor->tabTitle(2) == "third.scene.json");
+    fixture.frame(*editor);
+  }
+  {
+    // An editor that does not remember opens the start scene and leaves the record alone.
+    const auto editor = makeEditor(false);
+    REQUIRE(editor->openProject(directory).has_value());
+    REQUIRE(editor->tabCount() == 1);
+    REQUIRE(editor->scenePath() == first);
+    fixture.frame(*editor);
+  }
+  std::filesystem::remove(third);
+  {
+    // A scene that is gone is skipped; the rest open.
+    const auto editor = makeEditor(true);
+    REQUIRE(editor->openProject(directory).has_value());
+    REQUIRE(editor->tabCount() == 2);
+    REQUIRE(editor->scenePath() == second);
+    fixture.frame(*editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("each scene tab keeps its own viewport camera", "[editor][gpu]") {
   Fixture fixture;
   editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};

@@ -106,6 +106,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
 
 Editor::~Editor() {
   // Reaching here is a normal exit, whichever way the quit was answered.
+  recordOpenScenes();
   endRecovery();
   m_device.waitIdle();
   if (!m_layoutFile.empty()) {
@@ -1352,6 +1353,7 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   if (isPlaying()) {
     stop();
   }
+  recordOpenScenes();
   // The old project's session ends with its scenes, which are dropped below, unsaved changes with them.
   endRecovery();
   m_project = std::move(*project);
@@ -1367,13 +1369,81 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   m_world.clearPrefabs();
   m_assets.open(m_project->root, m_project->assetRoots);
   loadPrefabs();
-  const std::filesystem::path scene = m_project->resolve(m_project->startScene);
-  const auto opened = openScene(scene);
-  if (!opened) {
-    newScene();
+  core::Result<void> opened;
+  if (!reopenScenes()) {
+    opened = openScene(m_project->resolve(m_project->startScene));
+    if (!opened) {
+      newScene();
+    }
   }
   beginRecovery();
   return opened;
+}
+
+void Editor::setPreferencesFile(const std::filesystem::path &file) {
+  m_preferencesFile = file;
+  m_preferences = Preferences::load(file);
+}
+
+OpenScenes Editor::openScenes() const {
+  OpenScenes open;
+  for (std::size_t index = 0; index < m_tabs.size(); ++index) {
+    const std::filesystem::path &path = tabPath(index);
+    if (path.empty()) {
+      continue; // recovery keeps an untitled scene's unsaved work
+    }
+    if (index == m_activeTab) {
+      open.active = open.scenes.size();
+    }
+    open.scenes.push_back(path);
+  }
+  if (open.active >= open.scenes.size()) {
+    open.active = 0;
+  }
+  return open;
+}
+
+void Editor::recordOpenScenes() {
+  if (!m_rememberOpenScenes || !m_project) {
+    return;
+  }
+  m_preferences.openScenes[m_project->root] = openScenes();
+  if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
+    SONNET_LOG_WARN("{}", saved.error().toString());
+  }
+}
+
+bool Editor::reopenScenes() {
+  if (!m_rememberOpenScenes) {
+    return false;
+  }
+  const auto recorded = m_preferences.openScenes.find(m_project->root);
+  if (recorded == m_preferences.openScenes.end()) {
+    return false;
+  }
+  const OpenScenes &open = recorded->second;
+  std::optional<std::size_t> active;
+  bool any = false;
+  for (std::size_t index = 0; index < open.scenes.size(); ++index) {
+    const std::filesystem::path &scene = open.scenes[index];
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(scene, error)) {
+      SONNET_LOG_WARN("{}: no longer exists, its tab is not reopened", scene.string());
+      continue;
+    }
+    if (const auto opened = openScene(scene); !opened) {
+      SONNET_LOG_WARN("{}", opened.error().toString());
+      continue;
+    }
+    any = true;
+    if (index == open.active) {
+      active = m_activeTab;
+    }
+  }
+  if (active) {
+    switchToTab(*active);
+  }
+  return any;
 }
 
 void Editor::reopenLastProject() {
@@ -1496,8 +1566,12 @@ void Editor::restoreTab(std::size_t index) {
   m_selection.prune(m_world);
 }
 
+const std::filesystem::path &Editor::tabPath(std::size_t index) const {
+  return index == m_activeTab ? m_scenePath : m_tabs.at(index).path;
+}
+
 std::string Editor::tabTitle(std::size_t index) const {
-  const std::filesystem::path &path = index == m_activeTab ? m_scenePath : m_tabs.at(index).path;
+  const std::filesystem::path &path = tabPath(index);
   return path.empty() ? std::string{"untitled"} : path.filename().string();
 }
 
@@ -2008,8 +2082,7 @@ void Editor::updateRecovery() {
 core::Result<void> Editor::openScene(const std::filesystem::path &file) {
   const std::filesystem::path path = std::filesystem::absolute(file).lexically_normal();
   for (std::size_t index = 0; index < m_tabs.size(); ++index) {
-    const std::filesystem::path &open = index == m_activeTab ? m_scenePath : m_tabs[index].path;
-    if (open == path) {
+    if (tabPath(index) == path) {
       switchToTab(index);
       return {};
     }

@@ -78,6 +78,32 @@ TEST_CASE("preferences round-trip and format the external editor command", "[edi
   std::filesystem::remove(file);
 }
 
+TEST_CASE("preferences keep each recent project's open scenes", "[editor][project]") {
+  const std::filesystem::path file = scratch("open_scenes.json");
+  editor::Preferences preferences;
+  preferences.addRecentProject("/projects/a");
+  preferences.addRecentProject("/projects/b");
+  const editor::OpenScenes open{.scenes = {"/projects/a/scenes/one.scene.json", "/projects/a/scenes/two.scene.json",
+                                           "/projects/a/scenes/three.scene.json"},
+                                .active = 1};
+  preferences.openScenes["/projects/a"] = open;
+  preferences.openScenes["/projects/b"] = {.scenes = {"/projects/b/main.scene.json"}};
+  REQUIRE(preferences.save(file).has_value());
+
+  editor::Preferences loaded = editor::Preferences::load(file);
+  REQUIRE(loaded.openScenes.size() == 2);
+  REQUIRE(loaded.openScenes.at("/projects/a") == open);
+
+  // A forgotten project forgets its tabs, and so does one pushed off the recent list.
+  loaded.removeRecentProject("/projects/b");
+  REQUIRE(!loaded.openScenes.contains("/projects/b"));
+  for (std::size_t i = 0; i < editor::Preferences::MaxRecentProjects; ++i) {
+    loaded.addRecentProject("/projects/" + std::to_string(i));
+  }
+  REQUIRE(loaded.openScenes.empty());
+  std::filesystem::remove(file);
+}
+
 TEST_CASE("the project to reopen is the most recent one, unless the setting is off", "[editor][project]") {
   editor::Preferences preferences;
   REQUIRE(!preferences.projectToReopen().has_value());
