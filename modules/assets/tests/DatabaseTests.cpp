@@ -418,6 +418,27 @@ TEST_CASE("material files round-trip and refuse unknown versions", "[assets][mat
   REQUIRE(!loadMaterial(nlohmann::json::array()).has_value());
 }
 
+TEST_CASE("material files round-trip texture transforms and read version 1", "[assets][material]") {
+  MaterialSource source;
+  source.baseColorTransform = {.offset = {0.25f, -0.5f}, .rotation = 1.5f, .scale = {2.0f, 3.0f}};
+  source.emissiveTransform = {.offset = {0.0f, 0.0f}, .rotation = 0.0f, .scale = {-1.0f, 1.0f}};
+  const nlohmann::json document = saveMaterial(source);
+  // Only the slots that move are written.
+  REQUIRE(document["transforms"].size() == 2);
+  REQUIRE(document["transforms"]["baseColor"]["rotation"] == 1.5f);
+  const auto loaded = loadMaterial(document);
+  REQUIRE(loaded.has_value());
+  REQUIRE(*loaded == source);
+
+  // A version 1 file has no transforms and loads with the identity in every slot.
+  nlohmann::json older = saveMaterial(MaterialSource{});
+  older["version"] = 1;
+  older.erase("transforms");
+  const auto fromOlder = loadMaterial(older);
+  REQUIRE(fromOlder.has_value());
+  REQUIRE(*fromOlder == MaterialSource{});
+}
+
 TEST_CASE("the built-in mesh identities never change, since scene files hold them", "[assets][database]") {
   REQUIRE(builtin::box().toString() == "a464f023-844b-8938-9df4-75487155e36d");
   REQUIRE(builtin::sphere().toString() == "fe3d3b79-c4ee-8f48-8944-6b1596b2c621");

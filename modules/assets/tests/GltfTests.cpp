@@ -4,14 +4,17 @@
 #include <sonnet/assets/Cook.h>
 #include <sonnet/assets/Importers.h>
 #include <sonnet/core/File.h>
+#include <sonnet/core/Log.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <spdlog/sinks/ostream_sink.h>
 
 #include <array>
 #include <cstring>
+#include <sstream>
 
 using namespace sonnet;
 using namespace sonnet::assets;
@@ -189,6 +192,85 @@ TEST_CASE("a transmissive glTF material imports as alpha-blended until refractio
   REQUIRE(opaque.has_value());
   REQUIRE(opaque->materials[0].source.alphaMode == renderer::AlphaMode::Opaque);
   REQUIRE(opaque->materials[0].source.baseColor.a == Approx(0.8f));
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a glTF material's KHR_texture_transform imports per texture slot", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_texture_transform");
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(directory / "tiled.gltf", "wood.png");
+  const auto bytes = core::readFile(directory / "tiled.gltf");
+  REQUIRE(bytes.has_value());
+  nlohmann::json document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  document["extensionsUsed"] = {"KHR_texture_transform"};
+  nlohmann::json &material = document["materials"][0];
+  material["pbrMetallicRoughness"]["baseColorTexture"]["extensions"]["KHR_texture_transform"] = {
+      {"offset", {0.5, -0.25}}, {"rotation", 1.25}, {"scale", {4.0, 2.0}}};
+  // A slot that names only some of the fields keeps the identity in the others.
+  material["normalTexture"] = {{"index", 0}, {"extensions", {{"KHR_texture_transform", {{"scale", {-1.0, 1.0}}}}}}};
+  REQUIRE(core::writeFile(directory / "tiled.gltf", document.dump(2)).has_value());
+
+  const auto imported = importGltf(directory / "tiled.gltf");
+  REQUIRE(imported.has_value());
+  const MaterialSource &source = imported->materials[0].source;
+  REQUIRE(source.baseColorTransform.offset == glm::vec2{0.5f, -0.25f});
+  REQUIRE(source.baseColorTransform.rotation == Approx(1.25f));
+  REQUIRE(source.baseColorTransform.scale == glm::vec2{4.0f, 2.0f});
+  REQUIRE(source.normalTransform ==
+          renderer::TextureTransform{.offset = {0.0f, 0.0f}, .rotation = 0.0f, .scale = {-1.0f, 1.0f}});
+  REQUIRE(source.metallicRoughnessTransform == renderer::TextureTransform{});
+  REQUIRE(source.occlusionTransform == renderer::TextureTransform{});
+  REQUIRE(source.emissiveTransform == renderer::TextureTransform{});
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a glTF file names the extensions it uses that the importer does not read", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_extensions");
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(directory / "coated.gltf", "wood.png");
+  const auto bytes = core::readFile(directory / "coated.gltf");
+  REQUIRE(bytes.has_value());
+  nlohmann::json document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  document["extensionsUsed"] = {"KHR_texture_transform", "KHR_materials_clearcoat", "EXT_made_up"};
+  REQUIRE(core::writeFile(directory / "coated.gltf", document.dump(2)).has_value());
+
+  // Used but not read: imported, with one warning naming the file and every unread extension.
+  std::ostringstream log;
+  const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
+  core::Log::addSink(sink);
+  const auto imported = importGltf(directory / "coated.gltf");
+  core::Log::removeSink(sink);
+  REQUIRE(imported.has_value());
+  const std::string warned = log.str();
+  REQUIRE(warned.find("coated.gltf: uses KHR_materials_clearcoat, EXT_made_up, which the importer does not read") !=
+          std::string::npos);
+  REQUIRE(warned.find("KHR_texture_transform") == std::string::npos);
+  REQUIRE(warned.find("uses") == warned.rfind("uses"));
+
+  // Required but not read: refused, by every parse, naming the extension.
+  document["extensionsRequired"] = {"KHR_texture_transform", "KHR_materials_clearcoat"};
+  REQUIRE(core::writeFile(directory / "coated.gltf", document.dump(2)).has_value());
+  const auto refused = importGltf(directory / "coated.gltf");
+  REQUIRE(!refused.has_value());
+  REQUIRE(refused.error().message.find("requires KHR_materials_clearcoat, which the importer does not read") !=
+          std::string::npos);
+  REQUIRE(!importGltfStructure(directory / "coated.gltf").has_value());
+  REQUIRE(!gltfDependencies(directory / "coated.gltf").has_value());
+
+  // The same from a .glb, whose JSON is its first chunk.
+  const std::string json = document.dump();
+  const std::string padded = json + std::string((4 - json.size() % 4) % 4, ' ');
+  std::vector<std::byte> glb(20 + padded.size());
+  const std::array<std::uint32_t, 5> header{0x46546C67u, 2u, static_cast<std::uint32_t>(glb.size()),
+                                            static_cast<std::uint32_t>(padded.size()), 0x4E4F534Au};
+  std::memcpy(glb.data(), header.data(), sizeof(header));
+  std::memcpy(glb.data() + 20, padded.data(), padded.size());
+  REQUIRE(core::writeFile(directory / "coated.glb", glb).has_value());
+  const auto refusedGlb = importGltfStructure(directory / "coated.glb");
+  REQUIRE(!refusedGlb.has_value());
+  REQUIRE(refusedGlb.error().message.find("requires KHR_materials_clearcoat") != std::string::npos);
   std::filesystem::remove_all(directory);
 }
 

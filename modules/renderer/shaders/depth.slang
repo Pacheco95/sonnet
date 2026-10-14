@@ -36,7 +36,9 @@ VertexOutput shadowVertexMain(uint vertexId : SV_VertexID, uint startInstance : 
 
 float surfaceAlpha(MaterialData material, uint objectIndex, float2 uv) {
   return material.baseColor.a * objects[objectIndex].color.a *
-         textures[material.baseColorTexture].Sample(samplers[material.sampler], uv).a;
+         textures[material.baseColorTexture]
+             .Sample(samplers[material.sampler], uvTransform(material.baseColorUv, material.baseColorUvOffset, uv))
+             .a;
 }
 
 // Masked materials cut holes; everything else keeps the rasterised depth.

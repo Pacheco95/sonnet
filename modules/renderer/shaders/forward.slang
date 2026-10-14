@@ -227,21 +227,36 @@ float4 sampleMaterial(uint textureIndex, uint samplerIndex, float2 uv) {
   return textures[textureIndex].SampleBias(samplers[samplerIndex], uv, frame.mipBias);
 }
 
+// A normal map's xy, from the frame of its transformed UVs back to the mesh's tangent frame: the
+// inverse of the transform's 2x2 part, kept at its length so only its direction turns. A rotated
+// or mirrored texture then shades as it looks; the identity leaves it as it was.
+float2 textureToMeshFrame(float4 rows, float2 xy) {
+  const float2 turned = float2(rows.w * xy.x - rows.y * xy.y, rows.x * xy.y - rows.z * xy.x);
+  const float determinant = rows.x * rows.w - rows.y * rows.z;
+  const float turnedLength = length(turned);
+  return turnedLength > 0.0 ? turned * (sign(determinant) * length(xy) / turnedLength) : xy;
+}
+
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
   const MaterialData material = frame.materials[objects[input.objectIndex].material];
   const uint alphaMode = material.flags & 0xFF;
 
-  float4 baseColor = material.baseColor * input.color * sampleMaterial(material.baseColorTexture, material.sampler, input.uv);
+  const float2 baseColorUv = uvTransform(material.baseColorUv, material.baseColorUvOffset, input.uv);
+  float4 baseColor = material.baseColor * input.color * sampleMaterial(material.baseColorTexture, material.sampler, baseColorUv);
   if (alphaMode == AlphaMask && baseColor.a < material.emissive.a) {
     discard;
   }
-  const float4 metallicRoughness = sampleMaterial(material.metallicRoughnessTexture, material.sampler, input.uv);
+  const float4 metallicRoughness =
+      sampleMaterial(material.metallicRoughnessTexture, material.sampler,
+                     uvTransform(material.metallicRoughnessUv, material.metallicRoughnessUvOffset, input.uv));
   const float metallic = saturate(material.metallic * metallicRoughness.b);
   const float roughness = clamp(material.roughness * metallicRoughness.g, 0.04, 1.0);
-  const float occlusion = lerp(1.0, sampleMaterial(material.occlusionTexture, material.sampler, input.uv).r,
-                               material.occlusionStrength);
-  const float3 emissive = material.emissive.rgb * sampleMaterial(material.emissiveTexture, material.sampler, input.uv).rgb;
+  const float2 occlusionUv = uvTransform(material.occlusionUv, material.occlusionUvOffset, input.uv);
+  const float occlusion =
+      lerp(1.0, sampleMaterial(material.occlusionTexture, material.sampler, occlusionUv).r, material.occlusionStrength);
+  const float2 emissiveUv = uvTransform(material.emissiveUv, material.emissiveUvOffset, input.uv);
+  const float3 emissive = material.emissive.rgb * sampleMaterial(material.emissiveTexture, material.sampler, emissiveUv).rgb;
 
   float3 n = normalize(input.normal);
   if (!frontFacing) {
@@ -250,8 +265,9 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   const float3 geometricNormal = n;
   const float3 t = normalize(input.tangent.xyz - n * dot(n, input.tangent.xyz));
   const float3 b = cross(n, t) * input.tangent.w;
-  float3 tangentNormal = sampleMaterial(material.normalTexture, material.sampler, input.uv).xyz * 2.0 - 1.0;
-  tangentNormal.xy *= material.normalScale;
+  const float2 normalUv = uvTransform(material.normalUv, material.normalUvOffset, input.uv);
+  float3 tangentNormal = sampleMaterial(material.normalTexture, material.sampler, normalUv).xyz * 2.0 - 1.0;
+  tangentNormal.xy = textureToMeshFrame(material.normalUv, tangentNormal.xy) * material.normalScale;
   n = normalize(t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z);
 
   const float3 v = normalize(frame.cameraPosition.xyz - input.worldPosition);

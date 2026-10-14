@@ -79,6 +79,11 @@ struct MaterialSource {
   core::Uuid normalTexture{};
   core::Uuid occlusionTexture{};
   core::Uuid emissiveTexture{};
+  renderer::TextureTransform baseColorTransform{};
+  renderer::TextureTransform metallicRoughnessTransform{};
+  renderer::TextureTransform normalTransform{};
+  renderer::TextureTransform occlusionTransform{};
+  renderer::TextureTransform emissiveTransform{};
   renderer::AlphaMode alphaMode{renderer::AlphaMode::Opaque};
   renderer::TextureWrap wrap{renderer::TextureWrap::Repeat};
   bool doubleSided{false};
@@ -87,7 +92,8 @@ struct MaterialSource {
 };
 
 // The .material.json format, versioned like the scene files (docs/assets.md, "Materials").
-constexpr int MaterialFileVersion = 1;
+// Version 2 adds the texture transforms.
+constexpr int MaterialFileVersion = 2;
 [[nodiscard]] nlohmann::json saveMaterial(const MaterialSource &material);
 [[nodiscard]] core::Result<MaterialSource> loadMaterial(const nlohmann::json &document);
 

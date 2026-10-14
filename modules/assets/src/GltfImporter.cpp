@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <format>
 #include <map>
 #include <optional>
@@ -24,11 +25,81 @@ namespace sonnet::assets {
 namespace {
 
 // The extensions read, the same for every parse so a file one parse accepts no other refuses.
-constexpr fastgltf::Extensions ReadExtensions = fastgltf::Extensions::KHR_materials_transmission;
+constexpr fastgltf::Extensions ReadExtensions =
+    fastgltf::Extensions::KHR_materials_transmission | fastgltf::Extensions::KHR_texture_transform;
+
+bool readsExtension(std::string_view name) {
+  static const auto Read = fastgltf::stringifyExtensionBits(ReadExtensions);
+  return std::ranges::find(Read, name) != Read.end();
+}
+
+// The extensions in `names` the importer does not read, comma-separated, or empty.
+template <typename Names> std::string unreadExtensions(const Names &names) {
+  std::string unread;
+  for (const auto &name : names) {
+    if (!readsExtension(name)) {
+      unread += std::format("{}{}", unread.empty() ? "" : ", ", std::string_view{name});
+    }
+  }
+  return unread;
+}
+
+// The file's extensionsRequired that the importer does not read, read again from its JSON, since
+// fastgltf refuses such a file without naming them. Empty when the file cannot be read.
+std::string unreadRequiredExtensions(const std::filesystem::path &path) {
+  const auto bytes = core::readFile(path);
+  if (!bytes) {
+    return {};
+  }
+  std::string_view json{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
+  // A .glb holds its JSON in the first chunk: a 12-byte header, then the chunk's length and type.
+  if (json.starts_with("glTF") && json.size() >= 20) {
+    std::uint32_t length = 0;
+    std::memcpy(&length, bytes->data() + 12, sizeof(length));
+    json = json.substr(20, length);
+  }
+  simdjson::dom::parser parser;
+  simdjson::dom::array required;
+  if (parser.parse(json.data(), json.size())["extensionsRequired"].get_array().get(required) != simdjson::SUCCESS) {
+    return {};
+  }
+  std::vector<std::string_view> names;
+  for (const simdjson::dom::element element : required) {
+    std::string_view name;
+    if (element.get_string().get(name) == simdjson::SUCCESS) {
+      names.push_back(name);
+    }
+  }
+  return unreadExtensions(names);
+}
 
 core::Error gltfError(const std::filesystem::path &path, std::string_view what, fastgltf::Error error) {
   return core::Error{std::format("{}: {}: {}", path.string(), what, fastgltf::getErrorMessage(error)),
                      core::ErrorCategory::Io};
+}
+
+// A parse that failed. The spec has a file refused when it requires an extension the importer does
+// not read; the error names them.
+core::Error parseError(const std::filesystem::path &path, fastgltf::Error error) {
+  if (error == fastgltf::Error::MissingExtensions || error == fastgltf::Error::UnknownRequiredExtension) {
+    if (const std::string unread = unreadRequiredExtensions(path); !unread.empty()) {
+      return core::Error{std::format("{}: requires {}, which the importer does not read", path.string(), unread),
+                         core::ErrorCategory::Io};
+    }
+  }
+  return gltfError(path, "parsing", error);
+}
+
+// A slot's KHR_texture_transform, or the identity. `info` is one of fastgltf's optional
+// texture-info types. Its texCoord override is not read: meshes carry one UV set (#251).
+template <typename OptionalInfo> renderer::TextureTransform transformOf(const OptionalInfo &info) {
+  if (!info.has_value() || info->transform == nullptr) {
+    return {};
+  }
+  const fastgltf::TextureTransform &transform = *info->transform;
+  return {.offset = {transform.uvOffset[0], transform.uvOffset[1]},
+          .rotation = transform.rotation,
+          .scale = {transform.uvScale[0], transform.uvScale[1]}};
 }
 
 std::string nameOr(std::string_view name, const char *kind, std::size_t index) {
@@ -267,10 +338,14 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
                        fastgltf::Options::DecomposeNodeMatrices | fastgltf::Options::GenerateMeshIndices;
   auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), options);
   if (loaded.error() != fastgltf::Error::None) {
-    return std::unexpected(gltfError(path, "parsing", loaded.error()));
+    return std::unexpected(parseError(path, loaded.error()));
   }
   const fastgltf::Asset &asset = loaded.get();
   GltfImport import;
+  if (const std::string unread = unreadExtensions(asset.extensionsUsed); !unread.empty()) {
+    SONNET_LOG_WARN("{}: uses {}, which the importer does not read; the model may not look as authored", path.string(),
+                    unread);
+  }
 
   // Meshes: one submesh per triangle primitive, with flat normals and tangents generated where a
   // primitive has none.
@@ -436,6 +511,11 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       out.source.occlusionStrength = material.occlusionTexture->strength;
     }
     out.emissiveImage = imageOf(asset, material.emissiveTexture);
+    out.source.baseColorTransform = transformOf(pbr.baseColorTexture);
+    out.source.metallicRoughnessTransform = transformOf(pbr.metallicRoughnessTexture);
+    out.source.normalTransform = transformOf(material.normalTexture);
+    out.source.occlusionTransform = transformOf(material.occlusionTexture);
+    out.source.emissiveTransform = transformOf(material.emissiveTexture);
     if (pbr.baseColorTexture.has_value() && pbr.baseColorTexture->textureIndex < asset.textures.size()) {
       const fastgltf::Texture &texture = asset.textures[pbr.baseColorTexture->textureIndex];
       if (texture.samplerIndex.has_value() && *texture.samplerIndex < asset.samplers.size()) {
@@ -555,7 +635,7 @@ core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &pat
   fastgltf::Parser parser{ReadExtensions};
   auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), fastgltf::Options::DecomposeNodeMatrices);
   if (loaded.error() != fastgltf::Error::None) {
-    return std::unexpected(gltfError(path, "parsing", loaded.error()));
+    return std::unexpected(parseError(path, loaded.error()));
   }
   const fastgltf::Asset &asset = loaded.get();
   GltfStructure structure;
@@ -572,7 +652,7 @@ core::Result<std::vector<std::filesystem::path>> gltfDependencies(const std::fil
   fastgltf::Parser parser{ReadExtensions};
   auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), fastgltf::Options::None);
   if (loaded.error() != fastgltf::Error::None) {
-    return std::unexpected(gltfError(path, "parsing", loaded.error()));
+    return std::unexpected(parseError(path, loaded.error()));
   }
   std::vector<std::filesystem::path> files;
   std::optional<core::Error> outside;

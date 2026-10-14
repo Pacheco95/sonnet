@@ -89,8 +89,21 @@ struct GpuMaterial {
   std::uint32_t flags;
   std::uint32_t sampler;
   std::uint32_t padding;
+  // Each slot's KHR_texture_transform, the 2x2 part by rows and then the offsets, so every vec4
+  // stays 16-byte aligned for Metal.
+  glm::vec4 baseColorUv;
+  glm::vec4 metallicRoughnessUv;
+  glm::vec4 normalUv;
+  glm::vec4 occlusionUv;
+  glm::vec4 emissiveUv;
+  glm::vec2 baseColorUvOffset;
+  glm::vec2 metallicRoughnessUvOffset;
+  glm::vec2 normalUvOffset;
+  glm::vec2 occlusionUvOffset;
+  glm::vec2 emissiveUvOffset;
+  glm::vec2 uvPadding;
 };
-static_assert(sizeof(GpuMaterial) == 80);
+static_assert(sizeof(GpuMaterial) == 208);
 
 struct FrameConstants {
   glm::mat4 view;
@@ -381,6 +394,14 @@ float halton(std::uint32_t index, std::uint32_t base) {
     index /= base;
   }
   return result;
+}
+
+// The 2x2 part of a KHR_texture_transform by rows: rotation times scale, as the extension's
+// matrix (translation * rotation * scale) applies them.
+glm::vec4 uvMatrix(const TextureTransform &transform) {
+  const float c = std::cos(transform.rotation);
+  const float s = std::sin(transform.rotation);
+  return {c * transform.scale.x, -s * transform.scale.y, s * transform.scale.x, c * transform.scale.y};
 }
 
 std::uint32_t groups(std::uint32_t size, std::uint32_t threads) {
@@ -2530,7 +2551,18 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                        .emissiveTexture = textureIndex(desc.emissiveTexture),
                        .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u),
                        .sampler = m_device.samplerIndex(m_materialSamplers[static_cast<std::size_t>(desc.wrap)]),
-                       .padding = 0};
+                       .padding = 0,
+                       .baseColorUv = uvMatrix(desc.baseColorTransform),
+                       .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
+                       .normalUv = uvMatrix(desc.normalTransform),
+                       .occlusionUv = uvMatrix(desc.occlusionTransform),
+                       .emissiveUv = uvMatrix(desc.emissiveTransform),
+                       .baseColorUvOffset = desc.baseColorTransform.offset,
+                       .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
+                       .normalUvOffset = desc.normalTransform.offset,
+                       .occlusionUvOffset = desc.occlusionTransform.offset,
+                       .emissiveUvOffset = desc.emissiveTransform.offset,
+                       .uvPadding = {}};
   };
   MaterialDesc defaultMaterial;
   defaultMaterial.metallic = 0.0f;

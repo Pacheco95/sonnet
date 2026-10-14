@@ -40,6 +40,8 @@ Materials request their textures rather than load them, so neither `material` no
 | `.ttf`, `.otf` | assets | Font assets: the file, parsed and rasterised on demand by `gui` ([gui.md](gui.md#text)); the sidecar's `preload` ranges say which codepoints to rasterise at load ([Fonts](#fonts)) |
 | `.scene.json`, `.prefab.json` | world | Scenes and prefabs |
 
+The glTF importer reads two extensions, `KHR_materials_transmission` and `KHR_texture_transform` ([Materials](#materials)); `ReadExtensions` in `GltfImporter.cpp` lists them. A file whose `extensionsUsed` names others still imports, with one warning per import naming the file and every extension it does not read, so a model that looks wrong says why. A file whose `extensionsRequired` names one is refused, as the glTF specification asks, and the error names it.
+
 Import settings live in the sidecar file and are edited in the inspector. A texture's are `TextureSettings`: sRGB or linear, mipmaps, compression; changing them rewrites the sidecar and re-imports at once. The importers are also plain functions in `Importers.h` (`importImage`, `importHdr`, `importGltf`, `readKtx2`, `cookKtx2`, `cookAstcKtx2`, `cookHdrKtx2`) for tools and tests.
 
 ## Fonts
@@ -78,15 +80,18 @@ A material file (`<name>.material.json`) holds a `MaterialSource`: the renderer'
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "baseColor": [1.0, 1.0, 1.0, 1.0], "emissive": [0.0, 0.0, 0.0],
   "metallic": 0.0, "roughness": 0.5, "normalScale": 1.0, "occlusionStrength": 1.0, "alphaCutoff": 0.5,
   "alphaMode": "Opaque", "wrap": "Repeat", "doubleSided": false,
-  "textures": { "baseColor": "6f1c...", "normal": "a3e9..." }
+  "textures": { "baseColor": "6f1c...", "normal": "a3e9..." },
+  "transforms": { "baseColor": { "offset": [0.0, 0.0], "rotation": 0.0, "scale": [4.0, 4.0] } }
 }
 ```
 
-`AssetDatabase::materialSource` and `setMaterialSource` are what the editor edits; a change updates the renderer's material at once and `saveMaterial` writes the file. A glTF material is a sub-asset with the same source, editable in memory but not saved back into the glTF. Until the renderer refracts ([#254](https://github.com/Pacheco95/sonnet/issues/254)), a glTF material with `KHR_materials_transmission` imports as alpha-blended, its base colour's alpha multiplied by `1 - transmissionFactor`: clear glass shows what is behind it, unbent, and keeps its highlights only where its alpha does. The `transmissionTexture` is ignored. A mesh from a glTF file carries its default material per slot; a `MeshRenderer` may override them all with one material.
+`transforms` holds a texture slot's `KHR_texture_transform` under the slot's key in `textures`: the slot samples at `offset + rotate(rotation) * (scale * uv)`, the rotation in radians, counter-clockwise, as the glTF extension defines it. A slot that is not listed, or a field that is not, keeps the identity, and only slots that move are written. Version 2 added `transforms`; a version 1 file loads with the identity everywhere, and an engine that knows only version 1 refuses a version 2 file rather than drop its transforms.
+
+`AssetDatabase::materialSource` and `setMaterialSource` are what the editor edits; a change updates the renderer's material at once and `saveMaterial` writes the file. A glTF material is a sub-asset with the same source, editable in memory but not saved back into the glTF. Until the renderer refracts ([#254](https://github.com/Pacheco95/sonnet/issues/254)), a glTF material with `KHR_materials_transmission` imports as alpha-blended, its base colour's alpha multiplied by `1 - transmissionFactor`: clear glass shows what is behind it, unbent, and keeps its highlights only where its alpha does. The `transmissionTexture` is ignored. A texture's `KHR_texture_transform` imports into the slot's transform; its `texCoord` override is not read, since meshes carry one UV set ([#251](https://github.com/Pacheco95/sonnet/issues/251)). A mesh from a glTF file carries its default material per slot; a `MeshRenderer` may override them all with one material.
 
 ## Hot reload
 
@@ -129,7 +134,7 @@ The three desktop platforms cook the same bytes and differ only in which player 
 
 A bundle is one file, `<name>.sbundle` ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)): a 32-byte header (the magic `SONNETBN`, the format version, and where the index is), the payload blobs back to back, and the index at the end. The index is CBOR, so it is a JSON document at both ends:
 
-The format version is `BundleVersion`, 7 today: 7 carries scenes and prefabs that may hold version 4's `instanced` entries ([world.md](world.md#scenes)), 6 added the game module's name to the manifest (`module`, empty for none), which the player checks before anything loads ([player.md](player.md#game-modules)), 5 the Font type and its `preload` ranges in the index, 4 a mesh's far shadow range, 3 HDR environments as KTX2. `Bundle::open` refuses any other version with `bundle version N is not version 7`, so a bundle is cooked again after an engine upgrade that changes it; a project's scenes and sidecars are not touched by it, and a project made before version 7 keeps its scenes.
+The format version is `BundleVersion`, 8 today: 8 carries version 2 materials, with their texture transforms ([Materials](#materials)), 7 scenes and prefabs that may hold version 4's `instanced` entries ([world.md](world.md#scenes)), 6 added the game module's name to the manifest (`module`, empty for none), which the player checks before anything loads ([player.md](player.md#game-modules)), 5 the Font type and its `preload` ranges in the index, 4 a mesh's far shadow range, 3 HDR environments as KTX2. `Bundle::open` refuses any other version with `bundle version N is not version 8`, so a bundle is cooked again after an engine upgrade that changes it; a project's scenes and sidecars are not touched by it, and a project made before version 7 keeps its scenes.
 
 - `manifest`: the project's `name`, the `engineVersion` that cooked it, the `platform` it was cooked for, and the `startScene` as a path.
 - `assets`: one entry per asset with its `uuid`, `type`, `name`, the `parent` it is a sub-asset of, a mesh's default `materials`, a font's `preload` ranges, and the `offset` and `size` of its payload.
