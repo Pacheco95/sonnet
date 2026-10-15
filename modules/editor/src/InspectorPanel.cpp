@@ -47,6 +47,7 @@ constexpr std::array<const char *, 3> AlphaModeNames{"Opaque", "Mask", "Blend"};
 constexpr std::array<const char *, 3> WrapNames{"Repeat", "ClampToEdge", "MirroredRepeat"};
 constexpr std::array<const char *, 2> UvSetNames{"0", "1"};
 constexpr float UvDragSpeed = 0.01f;
+constexpr float EmissiveStrengthSpeed = 0.05f;
 
 template <typename Enum, std::size_t N>
 bool drawEnumCombo(const char *label, Enum &value, const std::array<const char *, N> &names) {
@@ -381,7 +382,27 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   bool picked = false;
   ImGui::ColorEdit4("Base colour", &edited.baseColor.x);
   track();
-  ImGui::ColorEdit3("Emissive", &edited.emissive.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
+  // Emissive as a colour and a strength. Seen afresh, the strength is the largest channel; the pair is
+  // kept while its product is what is stored, so dimming the colour keeps the strength and a strength
+  // of 0 keeps the colour.
+  if (!m_emissive || m_emissive->material != info.uuid ||
+      m_emissive->colour * m_emissive->strength != current->emissive) {
+    const float strength = std::max({current->emissive.r, current->emissive.g, current->emissive.b, 0.0f});
+    m_emissive = EmissiveView{.material = info.uuid,
+                              .colour = strength > 0.0f ? current->emissive / strength : glm::vec3{0.0f},
+                              .strength = strength};
+  }
+  if (ImGui::ColorEdit3("Emissive", &m_emissive->colour.x, ImGuiColorEditFlags_Float)) {
+    if (m_emissive->strength == 0.0f) {
+      m_emissive->strength = 1.0f; // or the colour picked would not show
+    }
+    edited.emissive = m_emissive->colour * m_emissive->strength;
+  }
+  track();
+  if (ImGui::DragFloat("Strength", &m_emissive->strength, EmissiveStrengthSpeed)) {
+    m_emissive->strength = std::max(m_emissive->strength, 0.0f);
+    edited.emissive = m_emissive->colour * m_emissive->strength;
+  }
   track();
   ImGui::SliderFloat("Metallic", &edited.metallic, 0.0f, 1.0f);
   track();
