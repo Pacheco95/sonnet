@@ -49,6 +49,7 @@ constexpr std::uint32_t AlphaOpaque = 0;
 constexpr std::uint32_t AlphaMask = 1;
 constexpr std::uint32_t AlphaBlend = 2;
 constexpr std::uint32_t MaterialDoubleSided = 1u << 8;
+constexpr std::uint32_t MaterialUnlit = 1u << 9;
 // A material's texture slots, as the bits of GpuMaterial::uvSets. Mirror of shaders/sonnet.slang.
 constexpr std::uint32_t SlotBaseColor = 0;
 constexpr std::uint32_t SlotMetallicRoughness = 1;
@@ -2550,36 +2551,36 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                                : desc.alphaMode == AlphaMode::Mask ? AlphaMask
                                                                    : AlphaOpaque;
     const Texture *normal = m_textures.find(desc.normalTexture);
-    return GpuMaterial{.baseColor = desc.baseColor,
-                       .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
-                       .metallic = desc.metallic,
-                       .roughness = desc.roughness,
-                       .normalScale = desc.normalScale,
-                       .occlusionStrength = desc.occlusionStrength,
-                       .baseColorTexture = textureIndex(desc.baseColorTexture),
-                       .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
-                       .normalTexture = normal != nullptr ? m_device.sampledImageIndex(normal->image)
-                                                          : textureIndex(m_flatNormalTexture),
-                       .occlusionTexture = textureIndex(desc.occlusionTexture),
-                       .emissiveTexture = textureIndex(desc.emissiveTexture),
-                       .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u),
-                       .sampler = m_device.samplerIndex(m_materialSamplers[static_cast<std::size_t>(desc.wrap)]),
-                       .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
-                                 uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
-                                 uvSetBit(desc.normalTransform, SlotNormal) |
-                                 uvSetBit(desc.occlusionTransform, SlotOcclusion) |
-                                 uvSetBit(desc.emissiveTransform, SlotEmissive),
-                       .baseColorUv = uvMatrix(desc.baseColorTransform),
-                       .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
-                       .normalUv = uvMatrix(desc.normalTransform),
-                       .occlusionUv = uvMatrix(desc.occlusionTransform),
-                       .emissiveUv = uvMatrix(desc.emissiveTransform),
-                       .baseColorUvOffset = desc.baseColorTransform.offset,
-                       .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
-                       .normalUvOffset = desc.normalTransform.offset,
-                       .occlusionUvOffset = desc.occlusionTransform.offset,
-                       .emissiveUvOffset = desc.emissiveTransform.offset,
-                       .uvPadding = {}};
+    return GpuMaterial{
+        .baseColor = desc.baseColor,
+        .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
+        .metallic = desc.metallic,
+        .roughness = desc.roughness,
+        .normalScale = desc.normalScale,
+        .occlusionStrength = desc.occlusionStrength,
+        .baseColorTexture = textureIndex(desc.baseColorTexture),
+        .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
+        .normalTexture =
+            normal != nullptr ? m_device.sampledImageIndex(normal->image) : textureIndex(m_flatNormalTexture),
+        .occlusionTexture = textureIndex(desc.occlusionTexture),
+        .emissiveTexture = textureIndex(desc.emissiveTexture),
+        .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) | (desc.unlit ? MaterialUnlit : 0u),
+        .sampler = m_device.samplerIndex(m_materialSamplers[static_cast<std::size_t>(desc.wrap)]),
+        .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
+                  uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
+                  uvSetBit(desc.normalTransform, SlotNormal) | uvSetBit(desc.occlusionTransform, SlotOcclusion) |
+                  uvSetBit(desc.emissiveTransform, SlotEmissive),
+        .baseColorUv = uvMatrix(desc.baseColorTransform),
+        .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
+        .normalUv = uvMatrix(desc.normalTransform),
+        .occlusionUv = uvMatrix(desc.occlusionTransform),
+        .emissiveUv = uvMatrix(desc.emissiveTransform),
+        .baseColorUvOffset = desc.baseColorTransform.offset,
+        .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
+        .normalUvOffset = desc.normalTransform.offset,
+        .occlusionUvOffset = desc.occlusionTransform.offset,
+        .emissiveUvOffset = desc.emissiveTransform.offset,
+        .uvPadding = {}};
   };
   MaterialDesc defaultMaterial;
   defaultMaterial.metallic = 0.0f;

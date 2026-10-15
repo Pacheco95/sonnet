@@ -728,6 +728,7 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   desc.alphaMode = source.alphaMode;
   desc.wrap = source.wrap;
   desc.doubleSided = source.doubleSided;
+  desc.unlit = source.unlit;
   return desc;
 }
 

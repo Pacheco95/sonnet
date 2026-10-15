@@ -1,7 +1,8 @@
 // The forward shading pass (ADR-0008): metallic-roughness PBR with the sun, the clustered
-// punctual lights, cascaded shadows and image-based lighting, into the HDR scene colour. Opaque
-// draws run after the depth pre-pass with an equal depth test; blended draws run afterwards,
-// sorted back to front.
+// punctual lights, cascaded shadows and image-based lighting, into the HDR scene colour. An unlit
+// material (KHR_materials_unlit) is its base colour plus emissive, none of that. Opaque draws run
+// after the depth pre-pass with an equal depth test; blended draws run afterwards, sorted back to
+// front.
 import sonnet;
 
 struct VertexOutput {
@@ -278,56 +279,61 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   float3 color = float3(0.0);
   float3 sunDirect = float3(0.0);
   float shadow = 1.0;
-  if (frame.sunDirection.w > 0.0) {
-    const float3 l = -frame.sunDirection.xyz;
-    shadow = sunShadow(input.worldPosition, viewDepth, geometricNormal);
-    sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0);
-    color += sunDirect * shadow;
-  }
-
-  // The punctual lights of this fragment's cluster (ADR-0008).
-  const Cluster cluster = frame.clusters[clusterIndex(input.position.xy, viewDepth)];
-  for (uint i = 0; i < min(cluster.count, MaxLightsPerCluster); ++i) {
-    const Light light = frame.lights[cluster.lights[i]];
-    const float3 toLight = light.position - input.worldPosition;
-    const float distance2 = max(dot(toLight, toLight), 1.0e-4);
-    const float distance = sqrt(distance2);
-    const float3 l = toLight / distance;
-    // Inverse square falloff windowed to zero at the range.
-    const float window = saturate(1.0 - pow(distance / light.range, 4.0));
-    float attenuation = window * window / distance2;
-    if (light.type == LightSpot) {
-      const float cosAngle = dot(-l, light.direction);
-      attenuation *= saturate((cosAngle - light.outerCos) / max(light.innerCos - light.outerCos, 1.0e-4));
-    }
-    if (attenuation > 0.0) {
-      if (light.type == LightSpot && light.shadow != 0xFFFFFFFF) {
-        attenuation *= spotShadow(light, input.worldPosition, geometricNormal, l);
-      } else if (light.type == LightPoint && light.shadow != 0xFFFFFFFF) {
-        attenuation *= pointShadow(light, input.worldPosition, geometricNormal, l);
-      }
-      color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0);
-    }
-  }
-
-  // Image-based lighting through the split-sum approximation, or a flat ambient term.
-  const float nDotV = max(dot(n, v), 1.0e-4);
   float3 iblDiffuse = float3(0.0);
   float3 iblSpecular = float3(0.0);
   float2 brdf = float2(0.0);
-  if (frame.environment.w > 0.0) {
-    const float3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
-    const float3 kd = (1.0 - f) * (1.0 - metallic);
-    const float3 irradiance = cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], n, 0.0).rgb;
-    const float3 r = reflect(-v, n);
-    const float lod = roughness * (frame.environment.y - 1.0);
-    const float3 prefiltered = cubes[frame.prefilteredCube].SampleLevel(samplers[frame.linearSampler], r, lod).rgb;
-    brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
-    iblDiffuse = kd * irradiance * albedo * frame.environment.x * occlusion;
-    iblSpecular = prefiltered * (f * brdf.x + brdf.y) * frame.environment.x * occlusion;
-    color += iblDiffuse + iblSpecular;
+  // An unlit material takes no light and receives no shadow, but still writes depth and casts one.
+  if ((material.flags & MaterialUnlit) != 0) {
+    color = albedo;
   } else {
-    color += frame.ambient.rgb * albedo * occlusion;
+    if (frame.sunDirection.w > 0.0) {
+      const float3 l = -frame.sunDirection.xyz;
+      shadow = sunShadow(input.worldPosition, viewDepth, geometricNormal);
+      sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0);
+      color += sunDirect * shadow;
+    }
+
+    // The punctual lights of this fragment's cluster (ADR-0008).
+    const Cluster cluster = frame.clusters[clusterIndex(input.position.xy, viewDepth)];
+    for (uint i = 0; i < min(cluster.count, MaxLightsPerCluster); ++i) {
+      const Light light = frame.lights[cluster.lights[i]];
+      const float3 toLight = light.position - input.worldPosition;
+      const float distance2 = max(dot(toLight, toLight), 1.0e-4);
+      const float distance = sqrt(distance2);
+      const float3 l = toLight / distance;
+      // Inverse square falloff windowed to zero at the range.
+      const float window = saturate(1.0 - pow(distance / light.range, 4.0));
+      float attenuation = window * window / distance2;
+      if (light.type == LightSpot) {
+        const float cosAngle = dot(-l, light.direction);
+        attenuation *= saturate((cosAngle - light.outerCos) / max(light.innerCos - light.outerCos, 1.0e-4));
+      }
+      if (attenuation > 0.0) {
+        if (light.type == LightSpot && light.shadow != 0xFFFFFFFF) {
+          attenuation *= spotShadow(light, input.worldPosition, geometricNormal, l);
+        } else if (light.type == LightPoint && light.shadow != 0xFFFFFFFF) {
+          attenuation *= pointShadow(light, input.worldPosition, geometricNormal, l);
+        }
+        color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0);
+      }
+    }
+
+    // Image-based lighting through the split-sum approximation, or a flat ambient term.
+    const float nDotV = max(dot(n, v), 1.0e-4);
+    if (frame.environment.w > 0.0) {
+      const float3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
+      const float3 kd = (1.0 - f) * (1.0 - metallic);
+      const float3 irradiance = cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], n, 0.0).rgb;
+      const float3 r = reflect(-v, n);
+      const float lod = roughness * (frame.environment.y - 1.0);
+      const float3 prefiltered = cubes[frame.prefilteredCube].SampleLevel(samplers[frame.linearSampler], r, lod).rgb;
+      brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
+      iblDiffuse = kd * irradiance * albedo * frame.environment.x * occlusion;
+      iblSpecular = prefiltered * (f * brdf.x + brdf.y) * frame.environment.x * occlusion;
+      color += iblDiffuse + iblSpecular;
+    } else {
+      color += frame.ambient.rgb * albedo * occlusion;
+    }
   }
   color += emissive;
 

@@ -419,6 +419,9 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   if (ImGui::Checkbox("Double sided", &edited.doubleSided)) {
     picked = true;
   }
+  if (ImGui::Checkbox("Unlit", &edited.unlit)) {
+    picked = true;
+  }
   const auto texture = [&](const char *label, core::Uuid &value, renderer::TextureTransform &transform) {
     ImGui::TextUnformatted(label);
     ImGui::SameLine(150.0f);

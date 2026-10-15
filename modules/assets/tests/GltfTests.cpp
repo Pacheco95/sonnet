@@ -240,6 +240,36 @@ TEST_CASE("a glTF material's KHR_materials_emissive_strength scales its emissive
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a glTF material with KHR_materials_unlit imports unlit", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_unlit");
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(directory / "flat.gltf", "wood.png");
+  const auto bytes = core::readFile(directory / "flat.gltf");
+  REQUIRE(bytes.has_value());
+  nlohmann::json document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  // Required too, so every parse of the file has to accept it.
+  document["extensionsUsed"] = {"KHR_materials_unlit"};
+  document["extensionsRequired"] = {"KHR_materials_unlit"};
+  document["materials"][0]["extensions"]["KHR_materials_unlit"] = nlohmann::json::object();
+  REQUIRE(core::writeFile(directory / "flat.gltf", document.dump(2)).has_value());
+
+  const auto imported = importGltf(directory / "flat.gltf");
+  REQUIRE(imported.has_value());
+  REQUIRE(imported->materials.size() == 1);
+  REQUIRE(imported->materials[0].source.unlit);
+  REQUIRE(importGltfStructure(directory / "flat.gltf").has_value());
+  REQUIRE(gltfDependencies(directory / "flat.gltf").has_value());
+
+  // Without the extension on the material, it is lit.
+  document["materials"][0].erase("extensions");
+  REQUIRE(core::writeFile(directory / "flat.gltf", document.dump(2)).has_value());
+  const auto lit = importGltf(directory / "flat.gltf");
+  REQUIRE(lit.has_value());
+  REQUIRE(!lit->materials[0].source.unlit);
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("a glTF material's KHR_texture_transform imports per texture slot", "[assets][gltf]") {
   const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_texture_transform");
   REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());

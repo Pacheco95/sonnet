@@ -88,6 +88,7 @@ public static const uint AlphaOpaque = 0;
 public static const uint AlphaMask = 1;
 public static const uint AlphaBlend = 2;
 public static const uint MaterialDoubleSided = 1u << 8;
+public static const uint MaterialUnlit = 1u << 9; // KHR_materials_unlit: no lighting, IBL or shadows
 // A material's texture slots, as the bits of MaterialData::uvSets.
 public static const uint SlotBaseColor = 0;
 public static const uint SlotMetallicRoughness = 1;
@@ -107,7 +108,7 @@ public struct MaterialData {
   public uint normalTexture;
   public uint occlusionTexture;
   public uint emissiveTexture;
-  public uint flags; // alpha mode in the low byte, MaterialDoubleSided above it
+  public uint flags; // alpha mode in the low byte, MaterialDoubleSided and MaterialUnlit above it
   public uint sampler;
   public uint uvSets; // a slot's bit set: it reads Vertex::uv1 instead of Vertex::uv
   // Each slot's KHR_texture_transform: the 2x2 part by rows, then the offsets (uvTransform).

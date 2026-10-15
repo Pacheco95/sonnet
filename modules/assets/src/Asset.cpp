@@ -206,6 +206,7 @@ json saveMaterial(const MaterialSource &material) {
       {"alphaMode", std::string{toString(material.alphaMode)}},
       {"wrap", std::string{toString(material.wrap)}},
       {"doubleSided", material.doubleSided},
+      {"unlit", material.unlit},
       {"textures", std::move(textures)},
       {"transforms", std::move(transforms)},
   };
@@ -234,6 +235,7 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
   material.occlusionStrength = document.value("occlusionStrength", material.occlusionStrength);
   material.alphaCutoff = document.value("alphaCutoff", material.alphaCutoff);
   material.doubleSided = document.value("doubleSided", material.doubleSided);
+  material.unlit = document.value("unlit", material.unlit);
   const std::string alphaMode = document.value("alphaMode", std::string{"Opaque"});
   material.alphaMode = alphaMode == "Blend"  ? renderer::AlphaMode::Blend
                        : alphaMode == "Mask" ? renderer::AlphaMode::Mask

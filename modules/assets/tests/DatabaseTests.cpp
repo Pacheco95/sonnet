@@ -463,6 +463,24 @@ TEST_CASE("material files round-trip each slot's UV set and read version 2 on se
   REQUIRE(fromOlder->normalTransform.offset == glm::vec2{0.5f, 0.0f});
 }
 
+TEST_CASE("material files round-trip the unlit flag and read version 3 as lit", "[assets][material]") {
+  MaterialSource source;
+  source.unlit = true;
+  const nlohmann::json document = saveMaterial(source);
+  REQUIRE(document["unlit"] == true);
+  const auto loaded = loadMaterial(document);
+  REQUIRE(loaded.has_value());
+  REQUIRE(*loaded == source);
+
+  // A version 3 file has no unlit field: it loads lit.
+  nlohmann::json older = document;
+  older["version"] = 3;
+  older.erase("unlit");
+  const auto fromOlder = loadMaterial(older);
+  REQUIRE(fromOlder.has_value());
+  REQUIRE(*fromOlder == MaterialSource{});
+}
+
 TEST_CASE("the built-in mesh identities never change, since scene files hold them", "[assets][database]") {
   REQUIRE(builtin::box().toString() == "a464f023-844b-8938-9df4-75487155e36d");
   REQUIRE(builtin::sphere().toString() == "fe3d3b79-c4ee-8f48-8944-6b1596b2c621");
