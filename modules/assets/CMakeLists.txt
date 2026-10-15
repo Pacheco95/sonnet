@@ -2,6 +2,7 @@ find_package(fastgltf CONFIG REQUIRED)
 find_package(simdjson CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 find_package(Ktx CONFIG REQUIRED)
+find_package(meshoptimizer CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 sonnet_add_module(assets
@@ -24,6 +25,7 @@ sonnet_add_module(assets
     fastgltf::fastgltf
     simdjson::simdjson
     KTX::ktx
+    meshoptimizer::meshoptimizer
 )
 target_include_directories(sonnet_assets SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 
@@ -41,6 +43,7 @@ sonnet_add_module_test(assets
   DEPENDS
     nlohmann_json::nlohmann_json
     KTX::ktx
+    meshoptimizer::meshoptimizer
 )
 if(TARGET assets_tests)
   sonnet_add_engine_shaders(assets_tests)
