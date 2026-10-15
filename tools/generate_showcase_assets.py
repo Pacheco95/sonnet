@@ -27,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import generate_sample_assets as basic  # noqa: E402
+import scene_json  # noqa: E402
 
 PROJECT = Path(__file__).resolve().parent.parent / "apps" / "samples" / "showcase"
 ASSETS = PROJECT / "assets"
@@ -863,13 +864,13 @@ NIL = "00000000-0000-0000-0000-000000000000"
 def quat_yaw_pitch(yaw, pitch=0.0):
     """Yaw about Y, then pitch about X: the entity's -Z ends up along (-sin y cos p, sin p, -cos y cos p)."""
     cy, sy, cp, sp = math.cos(yaw / 2), math.sin(yaw / 2), math.cos(pitch / 2), math.sin(pitch / 2)
-    return {"x": cy * sp, "y": sy * cp, "z": -sy * sp, "w": cy * cp}
+    return [cy * sp, sy * cp, -sy * sp, cy * cp]
 
 
 def quat_axis(axis, angle):
     a = norm(axis)
     s = math.sin(angle / 2)
-    return {"x": a[0] * s, "y": a[1] * s, "z": a[2] * s, "w": math.cos(angle / 2)}
+    return [a[0] * s, a[1] * s, a[2] * s, math.cos(angle / 2)]
 
 
 def look_along(direction):
@@ -877,8 +878,9 @@ def look_along(direction):
     return quat_yaw_pitch(math.atan2(-f[0], -f[2]), math.asin(f[1]))
 
 
+# Scene version 5 writes vectors and quaternions as arrays, x, y, z, w (ADR-0029).
 def vec(x, y, z):
-    return {"x": x, "y": y, "z": z}
+    return [x, y, z]
 
 
 class Sidecars:
@@ -918,7 +920,7 @@ def write_scene():
             record["parent"] = parent
         if prefab:
             record["prefab"] = prefab
-        body = {"Transform": {"position": vec(*position), "rotation": rotation or {"x": 0, "y": 0, "z": 0, "w": 1}, "scale": vec(*scale)}}
+        body = {"Transform": {"position": vec(*position), "rotation": rotation or [0, 0, 0, 1], "scale": vec(*scale)}}
         body.update(components)
         record["components"] = body
         entities.append(record)
@@ -929,7 +931,7 @@ def write_scene():
 
     def mesh_components(mesh, material=None, color=(1, 1, 1, 1), static=True):
         out = {"MeshRenderer": {"mesh": meta.mesh(kit, mesh), "material": meta.uuid(f"assets/materials/{material}.material.json") if material else NIL,
-                                "color": {"x": color[0], "y": color[1], "z": color[2], "w": color[3]}, "visible": True}}
+                                "color": list(color), "visible": True}}
         if static:
             out["Static"] = None
         return out
@@ -938,14 +940,14 @@ def write_scene():
     reflections = []
 
     def mirror_quat(q):
-        return {"x": -q["x"], "y": q["y"], "z": -q["z"], "w": q["w"]}
+        return [-q[0], q[1], -q[2], q[3]]
 
     def reflect(name, mesh, position, rotation, scale, material=None, color=(1, 1, 1, 1), spin=None):
         """A copy mirrored in the water's plane, seen through the blended surface: the engine has no
         screen-space reflections, so the pool reflects what stands on it by geometry."""
         extra = {}
         if spin:
-            extra["Spin"] = {"axis": vec(-spin["axis"]["x"], spin["axis"]["y"], -spin["axis"]["z"]), "speed": spin["speed"]}
+            extra["Spin"] = {"axis": vec(-spin["axis"][0], spin["axis"][1], -spin["axis"][2]), "speed": spin["speed"]}
         components = mesh_components(mesh, material, color, static=spin is None)
         components.update(extra)
         reflections.append((f"{name} (reflection)", (position[0], 2 * water_y - position[1], position[2]), mirror_quat(rotation),
@@ -1068,7 +1070,7 @@ def write_scene():
     piece("Wing east", "Wing", (6.6 + 4.5, 0, fz), gate)
     piece("Cornice", "Cornice", (0, 9.0, fz), gate)
     entity("Glow", (0, 0.05, fz - 1.4), None, (1, 1, 1), gate, MeshRenderer={
-        "mesh": BUILTIN_BOX, "material": meta.uuid("assets/materials/gate_glow.material.json"), "color": {"x": 1, "y": 1, "z": 1, "w": 1}, "visible": True},
+        "mesh": BUILTIN_BOX, "material": meta.uuid("assets/materials/gate_glow.material.json"), "color": [1, 1, 1, 1], "visible": True},
         Static=None)
     entities[-1]["components"]["Transform"]["position"] = vec(0, 4.2, fz - 1.4)
     entities[-1]["components"]["Transform"]["scale"] = vec(6.4, 8.4, 0.2)
@@ -1119,7 +1121,7 @@ def write_scene():
         entity(name, position, rotation, scale, refl, **components)
 
     # Parents come first in the file: the loader resolves them in order.
-    (PROJECT / "scenes" / "main.scene.json").write_text(json.dumps({"version": 3, "entities": entities}, indent=2) + "\n")
+    (PROJECT / "scenes" / "main.scene.json").write_text(scene_json.dumps({"version": 5, "entities": entities}) + "\n")
     lights = sum(1 for e in entities if "PointLight" in e["components"] or "SpotLight" in e["components"])
     print(f"main.scene.json: {len(entities)} entities, {lights} lights")
 

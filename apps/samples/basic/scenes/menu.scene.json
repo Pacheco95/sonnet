@@ -1,27 +1,14 @@
 {
-  "version": 3,
+  "version": 5,
   "entities": [
     {
       "uuid": "e377f899-1c64-580d-b24e-4b47d29d0d0e",
       "name": "Camera",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 2.2,
-            "z": 6.5
-          },
-          "rotation": {
-            "x": -0.1305,
-            "y": 0,
-            "z": 0,
-            "w": 0.9914
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 2.2, 6.5],
+          "rotation": [-0.1305, 0, 0, 0.9914],
+          "scale": [1, 1, 1]
         },
         "Camera": {
           "fovY": 1.0471976,
@@ -34,22 +21,9 @@
       "name": "Sky",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "Environment": {
           "map": "0238c936-ba15-474c-a8a7-53a87650359e",
@@ -63,29 +37,12 @@
       "name": "Sun",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 5,
-            "z": 0
-          },
-          "rotation": {
-            "x": -0.4285,
-            "y": -0.1626,
-            "z": -0.0797,
-            "w": 0.8851
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 5, 0],
+          "rotation": [-0.4285, -0.1626, -0.0797, 0.8851],
+          "scale": [1, 1, 1]
         },
         "DirectionalLight": {
-          "color": {
-            "x": 1,
-            "y": 0.96,
-            "z": 0.9
-          },
+          "color": [1, 0.96, 0.9],
           "intensity": 3.0
         }
       }
@@ -95,32 +52,14 @@
       "name": "Ground",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 18,
-            "y": 1,
-            "z": 18
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [18, 1, 18]
         },
         "MeshRenderer": {
           "mesh": "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40",
           "material": "60abe124-b44f-4f02-a0c3-6d2d3c94ee6d",
-          "color": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
+          "color": [1, 1, 1, 1],
           "visible": true
         }
       }
@@ -130,28 +69,12 @@
       "name": "Canvas",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiCanvas": {
-          "referenceSize": {
-            "x": 1920,
-            "y": 1080
-          },
+          "referenceSize": [1920, 1080],
           "match": 0.5,
           "safeArea": true,
           "order": 0
@@ -163,52 +86,19 @@
       "name": "Dim",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0,
-            "y": 0
-          },
-          "anchorMax": {
-            "x": 1,
-            "y": 1
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 0,
-            "y": 0
-          }
+          "anchorMin": [0, 0],
+          "anchorMax": [1, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [0, 0]
         },
         "GuiImage": {
-          "tint": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 0.4
-          },
+          "tint": [0, 0, 0, 0.4],
           "blocksInput": true
         }
       },
@@ -219,59 +109,21 @@
       "name": "Menu",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "anchorMax": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": -300,
-            "y": -380
-          },
-          "offsetMax": {
-            "x": 300,
-            "y": 380
-          }
+          "anchorMin": [0.5, 0.5],
+          "anchorMax": [0.5, 0.5],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [-300, -380],
+          "offsetMax": [300, 380]
         },
         "GuiImage": {
           "texture": "dfb644d8-00f0-4e56-9435-3e612b585e93",
-          "tint": {
-            "x": 0.55,
-            "y": 0.6,
-            "z": 0.8,
-            "w": 1
-          },
-          "slice": {
-            "x": 16,
-            "y": 16,
-            "z": 16,
-            "w": 16
-          }
+          "tint": [0.55, 0.6, 0.8, 1],
+          "slice": [16, 16, 16, 16]
         }
       },
       "parent": "184deb3d-f672-590d-b8e6-883df4f80bbc"
@@ -281,54 +133,21 @@
       "name": "Buttons",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0,
-            "y": 0
-          },
-          "anchorMax": {
-            "x": 1,
-            "y": 1
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 0,
-            "y": 0
-          }
+          "anchorMin": [0, 0],
+          "anchorMax": [1, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [0, 0]
         },
         "GuiLayout": {
           "axis": "Column",
           "spacing": 36,
-          "padding": {
-            "x": 60,
-            "y": 80,
-            "z": 60,
-            "w": 60
-          },
+          "padding": [60, 80, 60, 60],
           "alignment": "Center"
         }
       },
@@ -339,73 +158,25 @@
       "name": "Play",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "anchorMax": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 480,
-            "y": 150
-          }
+          "anchorMin": [0.5, 0.5],
+          "anchorMax": [0.5, 0.5],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [480, 150]
         },
         "GuiImage": {
-          "tint": {
-            "x": 0.2,
-            "y": 0.65,
-            "z": 0.35,
-            "w": 1
-          }
+          "tint": [0.2, 0.65, 0.35, 1]
         },
         "GuiButton": {
           "interactable": true,
-          "normal": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
-          "pressed": {
-            "x": 0.6,
-            "y": 0.6,
-            "z": 0.6,
-            "w": 1
-          },
-          "disabled": {
-            "x": 0.45,
-            "y": 0.45,
-            "z": 0.45,
-            "w": 0.7
-          }
+          "normal": [1, 1, 1, 1],
+          "pressed": [0.6, 0.6, 0.6, 1],
+          "disabled": [0.45, 0.45, 0.45, 0.7]
         },
         "Scripts": {
           "slots": [
@@ -425,55 +196,22 @@
       "name": "Label",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0,
-            "y": 0
-          },
-          "anchorMax": {
-            "x": 1,
-            "y": 1
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 0,
-            "y": 0
-          }
+          "anchorMin": [0, 0],
+          "anchorMax": [1, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [0, 0]
         },
         "GuiText": {
           "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
           "text": "Play",
           "size": 64,
-          "color": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
+          "color": [1, 1, 1, 1],
           "horizontal": "Center",
           "vertical": "Center",
           "wrap": false
@@ -486,73 +224,25 @@
       "name": "Options",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "anchorMax": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 480,
-            "y": 150
-          }
+          "anchorMin": [0.5, 0.5],
+          "anchorMax": [0.5, 0.5],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [480, 150]
         },
         "GuiImage": {
-          "tint": {
-            "x": 0.95,
-            "y": 0.75,
-            "z": 0.2,
-            "w": 1
-          }
+          "tint": [0.95, 0.75, 0.2, 1]
         },
         "GuiButton": {
           "interactable": true,
-          "normal": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
-          "pressed": {
-            "x": 0.6,
-            "y": 0.6,
-            "z": 0.6,
-            "w": 1
-          },
-          "disabled": {
-            "x": 0.45,
-            "y": 0.45,
-            "z": 0.45,
-            "w": 0.7
-          }
+          "normal": [1, 1, 1, 1],
+          "pressed": [0.6, 0.6, 0.6, 1],
+          "disabled": [0.45, 0.45, 0.45, 0.7]
         },
         "Scripts": {
           "slots": [
@@ -572,55 +262,22 @@
       "name": "Label",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0,
-            "y": 0
-          },
-          "anchorMax": {
-            "x": 1,
-            "y": 1
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 0,
-            "y": 0
-          }
+          "anchorMin": [0, 0],
+          "anchorMax": [1, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [0, 0]
         },
         "GuiText": {
           "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
           "text": "Options",
           "size": 64,
-          "color": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
+          "color": [1, 1, 1, 1],
           "horizontal": "Center",
           "vertical": "Center",
           "wrap": false
@@ -633,73 +290,25 @@
       "name": "Quit",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "anchorMax": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 480,
-            "y": 150
-          }
+          "anchorMin": [0.5, 0.5],
+          "anchorMax": [0.5, 0.5],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [480, 150]
         },
         "GuiImage": {
-          "tint": {
-            "x": 0.8,
-            "y": 0.25,
-            "z": 0.25,
-            "w": 1
-          }
+          "tint": [0.8, 0.25, 0.25, 1]
         },
         "GuiButton": {
           "interactable": true,
-          "normal": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
-          "pressed": {
-            "x": 0.6,
-            "y": 0.6,
-            "z": 0.6,
-            "w": 1
-          },
-          "disabled": {
-            "x": 0.45,
-            "y": 0.45,
-            "z": 0.45,
-            "w": 0.7
-          }
+          "normal": [1, 1, 1, 1],
+          "pressed": [0.6, 0.6, 0.6, 1],
+          "disabled": [0.45, 0.45, 0.45, 0.7]
         },
         "Scripts": {
           "slots": [
@@ -717,55 +326,22 @@
       "name": "Label",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0,
-            "y": 0
-          },
-          "anchorMax": {
-            "x": 1,
-            "y": 1
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 0,
-            "y": 0
-          }
+          "anchorMin": [0, 0],
+          "anchorMax": [1, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [0, 0]
         },
         "GuiText": {
           "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
           "text": "Quit",
           "size": 64,
-          "color": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
+          "color": [1, 1, 1, 1],
           "horizontal": "Center",
           "vertical": "Center",
           "wrap": false
@@ -778,59 +354,21 @@
       "name": "OptionsPanel",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "anchorMax": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": -340,
-            "y": -420
-          },
-          "offsetMax": {
-            "x": 340,
-            "y": 420
-          }
+          "anchorMin": [0.5, 0.5],
+          "anchorMax": [0.5, 0.5],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [-340, -420],
+          "offsetMax": [340, 420]
         },
         "GuiImage": {
           "texture": "dfb644d8-00f0-4e56-9435-3e612b585e93",
-          "tint": {
-            "x": 0.9,
-            "y": 0.85,
-            "z": 0.6,
-            "w": 1
-          },
-          "slice": {
-            "x": 16,
-            "y": 16,
-            "z": 16,
-            "w": 16
-          },
+          "tint": [0.9, 0.85, 0.6, 1],
+          "slice": [16, 16, 16, 16],
           "blocksInput": true
         },
         "Disabled": null
@@ -842,55 +380,22 @@
       "name": "Title",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0,
-            "y": 0
-          },
-          "anchorMax": {
-            "x": 1,
-            "y": 1
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 30
-          },
-          "offsetMax": {
-            "x": 0,
-            "y": 0
-          }
+          "anchorMin": [0, 0],
+          "anchorMax": [1, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 30],
+          "offsetMax": [0, 0]
         },
         "GuiText": {
           "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
           "text": "Options",
           "size": 56,
-          "color": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
+          "color": [1, 1, 1, 1],
           "horizontal": "Center",
           "vertical": "Start",
           "wrap": false
@@ -903,73 +408,25 @@
       "name": "Close",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0.5,
-            "y": 1
-          },
-          "anchorMax": {
-            "x": 0.5,
-            "y": 1
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": -100,
-            "y": -110
-          },
-          "offsetMax": {
-            "x": 100,
-            "y": -30
-          }
+          "anchorMin": [0.5, 1],
+          "anchorMax": [0.5, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [-100, -110],
+          "offsetMax": [100, -30]
         },
         "GuiImage": {
-          "tint": {
-            "x": 0.8,
-            "y": 0.25,
-            "z": 0.25,
-            "w": 1
-          }
+          "tint": [0.8, 0.25, 0.25, 1]
         },
         "GuiButton": {
           "interactable": true,
-          "normal": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
-          "pressed": {
-            "x": 0.6,
-            "y": 0.6,
-            "z": 0.6,
-            "w": 1
-          },
-          "disabled": {
-            "x": 0.45,
-            "y": 0.45,
-            "z": 0.45,
-            "w": 0.7
-          }
+          "normal": [1, 1, 1, 1],
+          "pressed": [0.6, 0.6, 0.6, 1],
+          "disabled": [0.45, 0.45, 0.45, 0.7]
         },
         "Scripts": {
           "slots": [
@@ -989,55 +446,22 @@
       "name": "Label",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0,
-            "y": 0
-          },
-          "anchorMax": {
-            "x": 1,
-            "y": 1
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 0,
-            "y": 0
-          },
-          "offsetMax": {
-            "x": 0,
-            "y": 0
-          }
+          "anchorMin": [0, 0],
+          "anchorMax": [1, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [0, 0],
+          "offsetMax": [0, 0]
         },
         "GuiText": {
           "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f001",
           "text": "Close",
           "size": 48,
-          "color": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
+          "color": [1, 1, 1, 1],
           "horizontal": "Center",
           "vertical": "Center",
           "wrap": false

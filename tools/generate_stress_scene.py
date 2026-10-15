@@ -13,6 +13,8 @@ import math
 import uuid
 from pathlib import Path
 
+import scene_json
+
 ROOT = Path(__file__).resolve().parent.parent
 SCENES = ROOT / "apps/samples/basic/scenes"
 SKY = "0238c936-ba15-474c-a8a7-53a87650359e"
@@ -20,17 +22,18 @@ STRESS_SCRIPT = "5c0a1b2c-0003-4d4e-9f00-000000000008"
 HUD_STRESS_SCRIPT = "5c0a1b2c-0003-4d4e-9f00-000000000070"
 
 
+# Scene version 5 writes vectors and quaternions as arrays, x, y, z, w (ADR-0029).
 def vec(x, y, z):
-    return {"x": x, "y": y, "z": z}
+    return [x, y, z]
 
 
 def pitch(degrees):
     half = math.radians(degrees) / 2
-    return {"x": round(math.sin(half), 6), "y": 0.0, "z": 0.0, "w": round(math.cos(half), 6)}
+    return [round(math.sin(half), 6), 0.0, 0.0, round(math.cos(half), 6)]
 
 
 def entity(name, position, components, rotation=None, scene="stress"):
-    transform = {"position": vec(*position), "rotation": rotation or {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+    transform = {"position": vec(*position), "rotation": rotation or [0.0, 0.0, 0.0, 1.0],
                  "scale": vec(1, 1, 1)}
     return {"uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"sonnet/{scene}/" + name)), "name": name,
             "components": {"Transform": transform, **components}}
@@ -38,7 +41,7 @@ def entity(name, position, components, rotation=None, scene="stress"):
 
 def write(name, entities):
     out = SCENES / f"{name}.scene.json"
-    out.write_text(json.dumps({"version": 3, "entities": entities}, indent=2) + "\n")
+    out.write_text(scene_json.dumps({"version": 5, "entities": entities}) + "\n")
     print(f"wrote {out.relative_to(ROOT)}: {len(entities)} entities")
 
 
@@ -56,7 +59,7 @@ write("hud_stress", [
     entity("Camera", (0, 2, 6), {"Camera": {"fovY": 1.0, "nearPlane": 0.1}, "AudioListener": None}, scene="hud_stress"),
     entity("Sky", (0, 0, 0), {"Environment": {"map": SKY, "intensity": 1.0, "exposure": 1.0}}, scene="hud_stress"),
     entity("HUD", (0, 0, 0), {
-        "GuiCanvas": {"referenceSize": {"x": 1920, "y": 1080}, "match": 0.0, "safeArea": False, "order": 0},
+        "GuiCanvas": {"referenceSize": [1920, 1080], "match": 0.0, "safeArea": False, "order": 0},
         "Scripts": {"slots": [{"script": HUD_STRESS_SCRIPT, "properties": {}}]},
     }, scene="hud_stress"),
 ])
