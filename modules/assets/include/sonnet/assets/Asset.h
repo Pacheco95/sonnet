@@ -140,6 +140,25 @@ struct ModelCamera {
   bool operator==(const ModelCamera &) const = default;
 };
 
+// A glTF KHR_lights_punctual light, which `world` turns into the light component of its type on the
+// node's entity. It shines along the node's -Z, as the engine's lights do. Intensity is carried
+// over as is (candela for point and spot, lux for directional), and `range` is always set: the
+// importer gives a light without one the distance where it falls to 0.01 (docs/assets.md).
+struct ModelLight {
+  enum class Type : std::uint8_t {
+    Directional,
+    Point,
+    Spot
+  };
+  Type type{Type::Point};
+  glm::vec3 color{1.0f};
+  float intensity{1.0f};
+  float range{0.0f};      // point and spot
+  float innerAngle{0.0f}; // spot, radians from the axis
+  float outerAngle{0.0f}; // spot, radians from the axis
+  bool operator==(const ModelLight &) const = default;
+};
+
 // The node hierarchy of a glTF file, which `world` turns into a prefab.
 struct ModelNode {
   std::string name;
@@ -153,6 +172,7 @@ struct ModelNode {
   // for a mesh without targets.
   std::vector<float> morphWeights{};
   std::optional<ModelCamera> camera{}; // the node's perspective camera, if it has one
+  std::optional<ModelLight> light{};   // the node's punctual light, if it has one
 };
 
 struct Model {

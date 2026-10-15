@@ -605,6 +605,26 @@ flecs::entity loadModelPrefab(World &world, const assets::Model &model, const co
     if (node.camera) {
       entity.set<Camera>({.fovY = node.camera->fovY, .nearPlane = node.camera->nearPlane});
     }
+    if (node.light) {
+      const assets::ModelLight &light = *node.light;
+      switch (light.type) {
+      case assets::ModelLight::Type::Directional:
+        entity.set<DirectionalLight>({.color = light.color, .intensity = light.intensity});
+        break;
+      case assets::ModelLight::Type::Point:
+        entity.set<PointLight>(
+            {.color = light.color, .intensity = light.intensity, .range = light.range, .castsShadows = false});
+        break;
+      case assets::ModelLight::Type::Spot:
+        entity.set<SpotLight>({.color = light.color,
+                               .intensity = light.intensity,
+                               .range = light.range,
+                               .innerAngle = light.innerAngle,
+                               .outerAngle = light.outerAngle,
+                               .castsShadows = false});
+        break;
+      }
+    }
     entities.push_back(entity);
   }
   // A model with clips plays its first on the root, where the clips' paths start.

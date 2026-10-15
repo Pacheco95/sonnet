@@ -276,12 +276,12 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   REQUIRE(core::writeFile(future, *bytes).has_value());
   REQUIRE(!Bundle::open(future).has_value());
 
-  // The version before model nodes could carry a camera: refused, and the message names both versions,
+  // The version before model nodes could carry a light: refused, and the message names both versions,
   // so a player asked to open an old bundle says to cook it again.
-  (*bytes)[8] = std::byte{11};
+  (*bytes)[8] = std::byte{12};
   REQUIRE(core::writeFile(future, *bytes).has_value());
   const auto old = Bundle::open(future);
   REQUIRE(!old.has_value());
-  REQUIRE(old.error().message.find("bundle version 11 is not version 12") != std::string::npos);
+  REQUIRE(old.error().message.find("bundle version 12 is not version 13") != std::string::npos);
   std::filesystem::remove_all(directory);
 }

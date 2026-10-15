@@ -11,6 +11,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <spdlog/sinks/ostream_sink.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -301,6 +302,56 @@ TEST_CASE("a model node's camera becomes a Camera that play mode can look throug
   REQUIRE(camera->position.z == Approx(5.0f));
   REQUIRE(camera->fovY == Approx(0.6f));
   REQUIRE(camera->nearPlane == Approx(0.05f));
+}
+
+TEST_CASE("a model node's light becomes the light component of its type", "[world][scene][prefab]") {
+  const core::Uuid modelUuid = core::Uuid::generate();
+  assets::Model model;
+  model.nodes.push_back({.name = "Set", .parent = -1});
+  model.nodes.push_back({.name = "Sun",
+                         .parent = 0,
+                         .light = assets::ModelLight{.type = assets::ModelLight::Type::Directional,
+                                                     .color = {1.0f, 0.9f, 0.8f},
+                                                     .intensity = 3.0f}});
+  model.nodes.push_back(
+      {.name = "Bulb",
+       .parent = 0,
+       .position = {2.0f, 1.0f, 0.0f},
+       .light = assets::ModelLight{
+           .type = assets::ModelLight::Type::Point, .color = {0.0f, 1.0f, 0.0f}, .intensity = 25.0f, .range = 6.0f}});
+  model.nodes.push_back({.name = "Spot",
+                         .parent = 0,
+                         .light = assets::ModelLight{.type = assets::ModelLight::Type::Spot,
+                                                     .intensity = 16.0f,
+                                                     .range = 40.0f,
+                                                     .innerAngle = 0.2f,
+                                                     .outerAngle = 0.5f}});
+  world::World world;
+  const flecs::entity prefab = world::loadModelPrefab(world, model, modelUuid, "Stage");
+  const std::vector<flecs::entity> lamps = world.children(world.children(prefab)[0]);
+  REQUIRE(lamps[0].get<world::DirectionalLight>().intensity == Approx(3.0f));
+  REQUIRE(lamps[0].get<world::DirectionalLight>().color == glm::vec3{1.0f, 0.9f, 0.8f});
+  REQUIRE(lamps[1].get<world::PointLight>().range == Approx(6.0f));
+  REQUIRE(lamps[1].get<world::PointLight>().color == glm::vec3{0.0f, 1.0f, 0.0f});
+  REQUIRE(!lamps[1].get<world::PointLight>().castsShadows);
+  REQUIRE(lamps[2].get<world::SpotLight>().innerAngle == Approx(0.2f));
+  REQUIRE(lamps[2].get<world::SpotLight>().outerAngle == Approx(0.5f));
+  REQUIRE(!lamps[2].has<world::PointLight>());
+
+  // An instance's lights reach the renderer's light list, placed and aimed by their nodes.
+  static_cast<void>(world.instantiate(prefab, "Stage 1"));
+  world.progress(0.016f);
+  std::vector<renderer::Light> lights;
+  world::buildLightList(world, lights);
+  REQUIRE(lights.size() == 2);
+  const auto point = std::ranges::find(lights, renderer::LightType::Point, &renderer::Light::type);
+  REQUIRE(point != lights.end());
+  REQUIRE(point->position == glm::vec3{2.0f, 1.0f, 0.0f});
+  REQUIRE(point->intensity == Approx(25.0f));
+  const auto spot = std::ranges::find(lights, renderer::LightType::Spot, &renderer::Light::type);
+  REQUIRE(spot != lights.end());
+  REQUIRE(spot->direction.z == Approx(-1.0f));
+  REQUIRE(spot->range == Approx(40.0f));
 }
 
 TEST_CASE("siblings keep their order through repeated save and load", "[world][scene]") {
