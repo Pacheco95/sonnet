@@ -115,6 +115,26 @@ void writeSkinnedGltf(const std::filesystem::path &gltf) {
   REQUIRE(core::writeFile(gltf, document.dump(2)).has_value());
 }
 
+void writeBasisuBoxGltf(const std::filesystem::path &gltf, const std::string &ktx2File,
+                        const std::string &fallbackFile) {
+  writeBoxGltf(gltf, fallbackFile.empty() ? ktx2File : fallbackFile);
+  const auto bytes = core::readFile(gltf);
+  REQUIRE(bytes.has_value());
+  nlohmann::json document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  nlohmann::json &texture = document["textures"][0];
+  document["extensionsUsed"] = {"KHR_texture_basisu"};
+  if (fallbackFile.empty()) {
+    document["extensionsRequired"] = {"KHR_texture_basisu"};
+    texture.erase("source");
+    texture["extensions"]["KHR_texture_basisu"] = {{"source", 0}};
+  } else {
+    document["images"].push_back({{"uri", ktx2File}, {"mimeType", "image/ktx2"}});
+    texture["extensions"]["KHR_texture_basisu"] = {{"source", 1}};
+  }
+  REQUIRE(core::writeFile(gltf, document.dump(2)).has_value());
+}
+
 } // namespace sonnet::assets::test
 
 TEST_CASE("a glTF file imports its meshes, materials, images and node hierarchy", "[assets][gltf]") {
@@ -247,6 +267,65 @@ TEST_CASE("a glTF material's KHR_texture_transform imports per texture slot", "[
   REQUIRE(source.metallicRoughnessTransform == renderer::TextureTransform{});
   REQUIRE(source.occlusionTransform == renderer::TextureTransform{});
   REQUIRE(source.emissiveTransform == renderer::TextureTransform{});
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a glTF texture's KHR_texture_basisu image imports as KTX2 in the slot's colour space", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_basisu");
+  const std::vector<std::byte> ktx2 = test::encodeBasisKtx2(); // linear
+  REQUIRE(core::writeFile(directory / "wood.ktx2", ktx2).has_value());
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  rhi::DeviceInfo device;
+  device.blockCompressionSupported = true;
+
+  SECTION("the KTX2 image alone, which the file requires") {
+    test::writeBasisuBoxGltf(directory / "crate.gltf", "wood.ktx2", "");
+    const auto imported = importGltf(directory / "crate.gltf");
+    REQUIRE(imported.has_value());
+    REQUIRE(imported->materials[0].baseColorImage == 0);
+    REQUIRE(imported->images.size() == 1);
+    const GltfImage &image = imported->images[0];
+    REQUIRE(image.ktx2);
+    REQUIRE(image.srgb); // the base colour reads it, whatever the file says
+    REQUIRE(image.bytes == ktx2);
+
+    // Marked for the slot without touching the data: one byte of the descriptor differs.
+    const auto marked = markKtx2(image.bytes, image.srgb);
+    REQUIRE(marked.has_value());
+    REQUIRE(marked->size() == ktx2.size());
+    std::size_t differing = 0;
+    for (std::size_t i = 0; i < ktx2.size(); ++i) {
+      differing += (*marked)[i] != ktx2[i] ? 1uz : 0uz;
+    }
+    REQUIRE(differing == 1);
+    const auto colour = readKtx2(*marked, device);
+    REQUIRE(colour.has_value());
+    REQUIRE(colour->format == rhi::Format::BC7Srgb);
+    const auto linear = markKtx2(*marked, false);
+    REQUIRE(linear.has_value());
+    REQUIRE(*linear == ktx2);
+    REQUIRE(readKtx2(*linear, device)->format == rhi::Format::BC7Unorm);
+  }
+
+  SECTION("the KTX2 image before the texture's own PNG, its fallback") {
+    test::writeBasisuBoxGltf(directory / "crate.gltf", "wood.ktx2", "wood.png");
+    const auto imported = importGltf(directory / "crate.gltf");
+    REQUIRE(imported.has_value());
+    REQUIRE(imported->materials[0].baseColorImage == 1);
+    REQUIRE(imported->images.size() == 2);
+    REQUIRE(!imported->images[0].ktx2);
+    REQUIRE(!imported->images[0].srgb); // no slot reads the fallback
+    REQUIRE(imported->images[1].ktx2);
+    REQUIRE(imported->images[1].srgb);
+  }
+
+  // Only Basis Universal is marked: an uncompressed KTX2 file names its colour space in its format.
+  const auto texture = importImage(test::encodePng({2, 2}, test::quadPixels()), TextureSettings{});
+  REQUIRE(texture.has_value());
+  const auto uncompressed = cookKtx2(*texture, false);
+  REQUIRE(uncompressed.has_value());
+  REQUIRE(!markKtx2(*uncompressed, false).has_value());
+  REQUIRE(!markKtx2(test::encodePng({2, 2}, test::quadPixels()), true).has_value());
   std::filesystem::remove_all(directory);
 }
 

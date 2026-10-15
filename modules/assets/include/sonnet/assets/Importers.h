@@ -31,6 +31,11 @@ namespace sonnet::assets {
 // which the caller treats as a failed import.
 [[nodiscard]] core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes,
                                                            const rhi::DeviceInfo &device);
+// A Basis Universal KTX2 file, as a glTF file's KHR_texture_basisu image is, copied with its
+// transfer function set to sRGB or linear, so readKtx2 transcodes it to the colour space the
+// material slot reads rather than the one the file names. The data is not touched; any other KTX2
+// file is an error.
+[[nodiscard]] core::Result<std::vector<std::byte>> markKtx2(std::span<const std::byte> bytes, bool srgb);
 // An RGBA8 texture cooked into a KTX2 file: UASTC with zstd supercompression when `compress`
 // is set, uncompressed otherwise (docs/assets.md, "Textures").
 [[nodiscard]] core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &texture, bool compress);
@@ -63,8 +68,9 @@ struct GltfMaterial {
 
 struct GltfImage {
   std::string name;
-  std::vector<std::byte> bytes; // the encoded file, PNG or JPEG
+  std::vector<std::byte> bytes; // the encoded file: PNG or JPEG, or KTX2 when `ktx2`
   bool srgb{true};              // used as colour by some material
+  bool ktx2{false};             // a KHR_texture_basisu image, used as it is (markKtx2)
 };
 
 // Joints and channels name their nodes by path from the model's root (Animation.h).

@@ -18,6 +18,8 @@ namespace sonnet::assets::test {
 // Encoded PNG and Radiance HDR files, written with stb_image_write (in TextureTests.cpp).
 [[nodiscard]] std::vector<std::byte> encodePng(glm::uvec2 size, const std::vector<std::uint8_t> &rgba);
 [[nodiscard]] std::vector<std::byte> encodeHdr(glm::uvec2 size, const std::vector<float> &rgb);
+// quadPixels as a linear UASTC KTX2 file, as a KHR_texture_basisu image is (in TextureTests.cpp).
+[[nodiscard]] std::vector<std::byte> encodeBasisKtx2();
 
 // A 256x128 equirectangular RGBA16F sky with a sun thousands of times brighter than the rest, and
 // the PSNR in dB between two RGBA16F images after the Reinhard curve (in TextureTests.cpp).
@@ -56,6 +58,12 @@ namespace sonnet::assets::test {
 // A glTF box: 24 vertices with normals and uvs, 36 indices, one material with a base colour
 // texture from `imageFile`, under one node named "Crate". Writes the .gltf and its .bin.
 void writeBoxGltf(const std::filesystem::path &gltf, const std::string &imageFile);
+
+// writeBoxGltf with its texture's image under KHR_texture_basisu: `ktx2File` as the only image,
+// the extension required, when `fallbackFile` is empty; otherwise `fallbackFile` is image 0, the
+// texture's own source, and `ktx2File` image 1, the extension's (in GltfTests.cpp).
+void writeBasisuBoxGltf(const std::filesystem::path &gltf, const std::string &ktx2File,
+                        const std::string &fallbackFile);
 
 // A skinned glTF: nodes Rig, Rig/Root, Rig/Root/Tip and Rig/Strip, a quad strip two metres high
 // whose bottom follows Root and top follows Tip, one metre up, through a skin of those two
