@@ -403,12 +403,13 @@ TEST_CASE("Save as writes the edited scene and leaves the open scene unchanged",
     // A path that cannot be written, and the open scene's own file, leave play running.
     REQUIRE_FALSE(editor.savePlayChangesAs(directory).has_value());
     REQUIRE_FALSE(editor.savePlayChangesAs(directory / "scenes" / "main.scene.json").has_value());
+    REQUIRE_FALSE(editor.savePlayChangesAs(directory / "scenes" / "main").has_value()); // gets the suffix
     REQUIRE(editor.isPlaying());
     REQUIRE(editor.stopPromptOpen());
     REQUIRE_FALSE(editor.modalError().empty());
 
     const std::filesystem::path file = directory / "scenes" / "edited.scene.json";
-    REQUIRE(editor.savePlayChangesAs(file).has_value());
+    REQUIRE(editor.savePlayChangesAs(directory / "scenes" / "edited").has_value());
     REQUIRE_FALSE(editor.isPlaying());
     REQUIRE_FALSE(editor.stopPromptOpen());
     REQUIRE(std::filesystem::exists(file));

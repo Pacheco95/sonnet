@@ -1070,6 +1070,23 @@ std::filesystem::path chooserLocation(const std::filesystem::path &typed, FileDi
 constexpr const char *SceneFilterName = "Scene (*.scene.json)";
 constexpr const char *SceneFilterPattern = "scene.json";
 
+// Where a scene saved under a new name goes: the choosers only filter by `*.scene.json` and keep the
+// typed name, so `helmet` and `helmet.json` become `helmet.scene.json`. An existing folder is left
+// alone, so writing to it fails rather than creating a sibling.
+std::filesystem::path sceneFile(const std::filesystem::path &file) {
+  std::filesystem::path target = std::filesystem::absolute(file).lexically_normal();
+  std::u8string name = target.filename().u8string();
+  std::error_code error;
+  if (name.empty() || name.ends_with(u8".scene.json") || std::filesystem::is_directory(target, error)) {
+    return target;
+  }
+  if (name.ends_with(u8".json")) {
+    name.resize(name.size() - std::u8string_view{u8".json"}.size());
+  }
+  target.replace_filename(name + u8".scene.json");
+  return target;
+}
+
 } // namespace
 
 void Editor::setFileDialogBackend(std::unique_ptr<IFileDialogBackend> backend) {
@@ -2182,7 +2199,7 @@ core::Result<void> Editor::saveScene() {
 
 core::Result<void> Editor::saveSceneAs(const std::filesystem::path &file) {
   const std::filesystem::path previous = m_scenePath;
-  m_scenePath = std::filesystem::absolute(file).lexically_normal();
+  m_scenePath = sceneFile(file);
   if (const auto saved = saveScene(); !saved) {
     m_scenePath = previous;
     return saved;
@@ -2392,7 +2409,7 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
   // game running and the edits listed.
   std::ofstream stream;
   if (end == PlayEnd::SaveAs) {
-    const std::filesystem::path target = std::filesystem::absolute(file).lexically_normal();
+    const std::filesystem::path target = sceneFile(file);
     if (target == m_scenePath) {
       return std::unexpected(core::Error{"choose another file: the open scene keeps its own", core::ErrorCategory::Io});
     }
