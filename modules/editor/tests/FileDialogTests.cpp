@@ -241,6 +241,35 @@ TEST_CASE("saving an untitled scene opens the save chooser and saves to the pick
   CHECK(state->shown == 2);
 }
 
+TEST_CASE("a scene saved under a name without .scene.json gets the suffix", "[editor][filedialog][gpu]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_scene_suffix";
+  std::filesystem::remove_all(directory);
+  const std::filesystem::path expected = std::filesystem::absolute(directory / "helmet.scene.json").lexically_normal();
+
+  // The save chooser keeps the typed name: the filter does not append anything.
+  auto state = std::make_shared<FakeBackend::State>();
+  editor.setFileDialogBackend(std::make_unique<FakeBackend>(state));
+  editor.saveSceneOrChoose();
+  REQUIRE(state->shown == 1);
+  state->done({.kind = FileDialogResult::Kind::Picked, .path = directory / "helmet"});
+  fixture.frame(editor);
+  CHECK(editor.scenePath() == expected);
+  CHECK(std::filesystem::exists(expected));
+  CHECK_FALSE(std::filesystem::exists(directory / "helmet"));
+
+  // The path typed in the Save scene as modal goes through the same call.
+  REQUIRE(editor.saveSceneAs(directory / "visor.json"));
+  CHECK(editor.scenePath() == std::filesystem::absolute(directory / "visor.scene.json").lexically_normal());
+  REQUIRE(editor.saveSceneAs(directory / "glass.scene.json"));
+  CHECK(editor.scenePath().filename() == "glass.scene.json");
+  // A folder stays a folder, so the save fails instead of writing beside it.
+  CHECK_FALSE(editor.saveSceneAs(directory));
+  CHECK(editor.scenePath().filename() == "glass.scene.json");
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("Open scene... loads the picked file like the asset browser does", "[editor][filedialog][gpu]") {
   Fixture fixture;
   editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
