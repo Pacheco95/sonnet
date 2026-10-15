@@ -13,6 +13,7 @@
 #include <spdlog/sinks/ostream_sink.h>
 
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <sstream>
 
@@ -277,6 +278,113 @@ TEST_CASE("a glTF primitive's TEXCOORD_1 imports, and each slot reads the set it
   REQUIRE(plain.has_value());
   for (const renderer::Vertex &vertex : plain->meshes[0].data.vertices) {
     REQUIRE(vertex.uv1 == glm::vec2{0.0f, 0.0f});
+  }
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a glTF primitive quantized by KHR_mesh_quantization imports within quantization error", "[assets][gltf]") {
+  using nlohmann::json;
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_quantized");
+  // A tilted quad in floats, quantized the way gltfpack does: positions as int16 in a grid whose
+  // scale and offset go to the node, normals and tangents as normalized int8, UVs as normalized
+  // uint16. Each element is padded to four bytes, as the specification asks of vertex attributes.
+  const std::array<glm::vec3, 4> positions{glm::vec3{-1.5f, 0.25f, -2.0f}, glm::vec3{2.5f, 0.25f, -2.0f},
+                                           glm::vec3{-1.5f, 1.75f, 3.0f}, glm::vec3{2.5f, 1.75f, 3.0f}};
+  const glm::vec3 normal = glm::normalize(glm::vec3{0.0f, 1.0f, -0.3f});
+  const glm::vec4 tangent{1.0f, 0.0f, 0.0f, -1.0f};
+  const std::array<glm::vec2, 4> uvs{glm::vec2{0.1f, 0.9f}, glm::vec2{0.7f, 0.9f}, glm::vec2{0.1f, 0.2f},
+                                     glm::vec2{0.7f, 0.2f}};
+  const glm::vec3 offset = positions[0];
+  const glm::vec3 step = (positions[3] - positions[0]) / 32767.0f;
+  const auto snorm8 = [](float value) { return static_cast<std::int8_t>(std::round(value * 127.0f)); };
+  const auto unorm16 = [](float value) { return static_cast<std::uint16_t>(std::round(value * 65535.0f)); };
+  std::vector<std::int16_t> quantizedPositions; // x, y, z, padding
+  std::vector<std::int8_t> quantizedNormals;    // x, y, z, padding
+  std::vector<std::int8_t> quantizedTangents;
+  std::vector<std::uint16_t> quantizedUvs;
+  for (std::size_t i = 0; i < positions.size(); ++i) {
+    const glm::vec3 grid = glm::round((positions[i] - offset) / step);
+    quantizedPositions.insert(
+        quantizedPositions.end(),
+        {static_cast<std::int16_t>(grid.x), static_cast<std::int16_t>(grid.y), static_cast<std::int16_t>(grid.z), 0});
+    quantizedNormals.insert(quantizedNormals.end(), {snorm8(normal.x), snorm8(normal.y), snorm8(normal.z), 0});
+    quantizedTangents.insert(quantizedTangents.end(),
+                             {snorm8(tangent.x), snorm8(tangent.y), snorm8(tangent.z), snorm8(tangent.w)});
+    quantizedUvs.insert(quantizedUvs.end(), {unorm16(uvs[i].x), unorm16(uvs[i].y)});
+  }
+  const std::vector<std::uint16_t> indices{0, 2, 1, 1, 2, 3};
+
+  std::vector<std::byte> bin;
+  json views = json::array();
+  json accessors = json::array();
+  const auto add = [&](std::span<const std::byte> data, std::size_t stride, int component, const char *type,
+                       bool normalized) {
+    views.push_back(json{{"buffer", 0}, {"byteOffset", bin.size()}, {"byteLength", data.size()}});
+    if (stride != 0) {
+      views.back()["byteStride"] = stride;
+    }
+    bin.insert(bin.end(), data.begin(), data.end());
+    json accessor{{"bufferView", views.size() - 1},
+                  {"componentType", component},
+                  {"count", stride != 0 ? data.size() / stride : indices.size()},
+                  {"type", type}};
+    if (normalized) {
+      accessor["normalized"] = true;
+    }
+    accessors.push_back(std::move(accessor));
+    return accessors.size() - 1;
+  };
+  constexpr int byteType = 5120;
+  constexpr int shortType = 5122;
+  constexpr int unsignedShortType = 5123;
+  const auto position = add(std::as_bytes(std::span{quantizedPositions}), 8, shortType, "VEC3", false);
+  accessors[position]["min"] = {0, 0, 0};
+  accessors[position]["max"] = {32767, 32767, 32767};
+  const auto normalAccessor = add(std::as_bytes(std::span{quantizedNormals}), 4, byteType, "VEC3", true);
+  const auto tangentAccessor = add(std::as_bytes(std::span{quantizedTangents}), 4, byteType, "VEC4", true);
+  const auto uv = add(std::as_bytes(std::span{quantizedUvs}), 4, unsignedShortType, "VEC2", true);
+  const auto index = add(std::as_bytes(std::span{indices}), 0, unsignedShortType, "SCALAR", false);
+  REQUIRE(core::writeFile(directory / "packed.bin", bin).has_value());
+  const json document{
+      {"asset", {{"version", "2.0"}}},
+      {"extensionsUsed", {"KHR_mesh_quantization"}},
+      {"extensionsRequired", {"KHR_mesh_quantization"}},
+      {"scene", 0},
+      {"scenes", json::array({json{{"nodes", json::array({0})}}})},
+      {"nodes", json::array({json{{"name", "Packed"},
+                                  {"mesh", 0},
+                                  {"translation", {offset.x, offset.y, offset.z}},
+                                  {"scale", {step.x, step.y, step.z}}}})},
+      {"meshes", json::array({json{{"name", "PackedMesh"},
+                                   {"primitives", json::array({json{{"attributes",
+                                                                     {{"POSITION", position},
+                                                                      {"NORMAL", normalAccessor},
+                                                                      {"TANGENT", tangentAccessor},
+                                                                      {"TEXCOORD_0", uv}}},
+                                                                    {"indices", index}}})}}})},
+      {"buffers", json::array({json{{"uri", "packed.bin"}, {"byteLength", bin.size()}}})},
+      {"bufferViews", views},
+      {"accessors", accessors},
+  };
+  REQUIRE(core::writeFile(directory / "packed.gltf", document.dump(2)).has_value());
+
+  const auto imported = importGltf(directory / "packed.gltf");
+  REQUIRE(imported.has_value());
+  REQUIRE(importGltfStructure(directory / "packed.gltf").has_value());
+  REQUIRE(gltfDependencies(directory / "packed.gltf").has_value());
+  REQUIRE(imported->model.nodes.size() == 1);
+  const ModelNode &node = imported->model.nodes[0];
+  const std::vector<renderer::Vertex> &vertices = imported->meshes[0].data.vertices;
+  REQUIRE(vertices.size() == positions.size());
+  REQUIRE(imported->meshes[0].data.indices == std::vector<std::uint32_t>{0, 2, 1, 1, 2, 3});
+  // Half a grid step for positions, half a quantum for the rest, and float rounding on top.
+  const glm::vec3 positionError = step * 0.5f + 1e-5f;
+  for (std::size_t i = 0; i < vertices.size(); ++i) {
+    const glm::vec3 restored = node.position + node.scale * vertices[i].position;
+    REQUIRE(glm::all(glm::lessThanEqual(glm::abs(restored - positions[i]), positionError)));
+    REQUIRE(glm::all(glm::lessThanEqual(glm::abs(vertices[i].normal - normal), glm::vec3{0.5f / 127.0f + 1e-6f})));
+    REQUIRE(glm::all(glm::lessThanEqual(glm::abs(vertices[i].tangent - tangent), glm::vec4{0.5f / 127.0f + 1e-6f})));
+    REQUIRE(glm::all(glm::lessThanEqual(glm::abs(vertices[i].uv - uvs[i]), glm::vec2{0.5f / 65535.0f + 1e-6f})));
   }
   std::filesystem::remove_all(directory);
 }
