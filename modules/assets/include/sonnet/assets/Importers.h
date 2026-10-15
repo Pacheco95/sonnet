@@ -95,7 +95,9 @@ struct GltfImport {
   std::vector<std::int32_t> skinIndices; // per model node, -1 for none
 };
 
-[[nodiscard]] core::Result<GltfImport> importGltf(const std::filesystem::path &path);
+// The settings are the file's sidecar's; the defaults are a new sidecar's.
+[[nodiscard]] core::Result<GltfImport> importGltf(const std::filesystem::path &path,
+                                                  const ModelSettings &settings = {});
 
 // A glTF file's node hierarchy without its payloads: what a prefab of the model needs, read from
 // the JSON without loading a buffer or an image. The nodes are importGltf's, index for index.
@@ -106,7 +108,8 @@ struct GltfStructure {
   std::size_t animationCount{0};
 };
 
-[[nodiscard]] core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &path);
+[[nodiscard]] core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &path,
+                                                              const ModelSettings &settings = {});
 
 // The files a glTF file names by relative URI, its external buffers and images, relative to the
 // file's folder and without repeats; data URIs and a .glb file's own chunk are not files. A URI

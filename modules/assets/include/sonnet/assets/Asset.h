@@ -64,6 +64,19 @@ struct TextureSettings {
   bool operator==(const TextureSettings &) const = default;
 };
 
+// The import settings of a glTF file, kept in its sidecar. Every KHR_lights_punctual intensity is
+// multiplied by `lightScale` before anything else (docs/assets.md, "Skins and animations"). The
+// default undoes the 683 lm/W that Blender's exporter always applies, so its lights look as they
+// did in Blender; a file authored in true photometric units sets 1.
+struct ModelSettings {
+  static constexpr float BlenderLightScale = 1.0f / 683.0f;
+  float lightScale{BlenderLightScale};
+
+  [[nodiscard]] static ModelSettings fromJson(const nlohmann::json &json);
+  [[nodiscard]] nlohmann::json toJson() const;
+  bool operator==(const ModelSettings &) const = default;
+};
+
 // A material as authored: the renderer's description with textures named by asset instead of
 // by handle (docs/assets.md, "Identity").
 struct MaterialSource {

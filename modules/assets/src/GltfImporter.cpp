@@ -376,10 +376,10 @@ constexpr float GltfOuterConeAngle = glm::pi<float>() / 4.0f;
 // so one light does not touch every cluster.
 constexpr float MaxChosenLightRange = 100.0f;
 
-ModelLight modelLight(const fastgltf::Light &light) {
+ModelLight modelLight(const fastgltf::Light &light, float lightScale) {
   ModelLight out;
   out.color = {light.color[0], light.color[1], light.color[2]};
-  out.intensity = static_cast<float>(light.intensity);
+  out.intensity = static_cast<float>(light.intensity) * lightScale;
   switch (light.type) {
   case fastgltf::LightType::Directional:
     out.type = ModelLight::Type::Directional;
@@ -393,14 +393,14 @@ ModelLight modelLight(const fastgltf::Light &light) {
     out.outerAngle = static_cast<float>(light.outerConeAngle.value_or(GltfOuterConeAngle));
     break;
   }
-  // Inverse-square falloff reaches 0.01 at 10 * sqrt(intensity).
+  // Inverse-square falloff reaches 0.01 at 10 * sqrt(intensity), the scaled one.
   out.range = light.range.has_value() ? static_cast<float>(*light.range)
                                       : std::min(10.0f * std::sqrt(std::max(out.intensity, 0.0f)), MaxChosenLightRange);
   return out;
 }
 
-NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::int32_t> &meshIndices,
-                   std::vector<std::int32_t> &skinIndices) {
+NodeWalk walkNodes(const fastgltf::Asset &asset, const ModelSettings &settings, Model &model,
+                   std::vector<std::int32_t> &meshIndices, std::vector<std::int32_t> &skinIndices) {
   std::vector<std::size_t> roots;
   if (asset.defaultScene.has_value() && *asset.defaultScene < asset.scenes.size()) {
     roots.assign(asset.scenes[*asset.defaultScene].nodeIndices.begin(),
@@ -467,7 +467,7 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::
     }
     if (node.lightIndex.has_value() && *node.lightIndex < asset.lights.size()) {
       const fastgltf::Light &light = asset.lights[*node.lightIndex];
-      out.light = modelLight(light);
+      out.light = modelLight(light, settings.lightScale);
       if (!light.range.has_value() && light.type != fastgltf::LightType::Directional) {
         walk.chosenRanges.emplace_back(out.name, out.light->range);
       }
@@ -523,7 +523,7 @@ void readAnimationEvents(simdjson::dom::object *extras, std::size_t index, fastg
 
 } // namespace
 
-core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
+core::Result<GltfImport> importGltf(const std::filesystem::path &path, const ModelSettings &settings) {
   SONNET_ZONE();
   auto buffer = fastgltf::GltfDataBuffer::FromPath(path);
   if (buffer.error() != fastgltf::Error::None) {
@@ -767,7 +767,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     import.materials.push_back(std::move(out));
   }
 
-  const NodeWalk walk = walkNodes(asset, import.model, import.meshIndices, import.skinIndices);
+  const NodeWalk walk = walkNodes(asset, settings, import.model, import.meshIndices, import.skinIndices);
   for (const std::string &name : walk.duplicateNames) {
     SONNET_LOG_WARN("{}: two nodes named \"{}\" under one parent; animations and skins bind the first", path.string(),
                     name);
@@ -872,7 +872,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
   return import;
 }
 
-core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &path) {
+core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &path, const ModelSettings &settings) {
   SONNET_ZONE();
   auto buffer = fastgltf::GltfDataBuffer::FromPath(path);
   if (buffer.error() != fastgltf::Error::None) {
@@ -886,7 +886,7 @@ core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &pat
   }
   const fastgltf::Asset &asset = loaded.get();
   GltfStructure structure;
-  static_cast<void>(walkNodes(asset, structure.model, structure.meshIndices, structure.skinIndices));
+  static_cast<void>(walkNodes(asset, settings, structure.model, structure.meshIndices, structure.skinIndices));
   structure.animationCount = asset.animations.size();
   return structure;
 }

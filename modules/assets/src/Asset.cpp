@@ -1,6 +1,7 @@
 #include <sonnet/assets/Asset.h>
 
 #include <array>
+#include <cmath>
 #include <format>
 
 namespace sonnet::assets {
@@ -153,6 +154,23 @@ TextureSettings TextureSettings::fromJson(const json &object) {
 
 json TextureSettings::toJson() const {
   return json{{"srgb", srgb}, {"mipmaps", mipmaps}, {"compress", compress}};
+}
+
+ModelSettings ModelSettings::fromJson(const json &object) {
+  ModelSettings settings;
+  // A scale that is not a finite, non-negative number keeps the default rather than darken or
+  // invert every light.
+  if (object.is_object() && object.contains("lightScale") && object["lightScale"].is_number()) {
+    const auto scale = object["lightScale"].get<float>();
+    if (std::isfinite(scale) && scale >= 0.0f) {
+      settings.lightScale = scale;
+    }
+  }
+  return settings;
+}
+
+json ModelSettings::toJson() const {
+  return json{{"lightScale", lightScale}};
 }
 
 FontSettings FontSettings::fromJson(const json &object) {
