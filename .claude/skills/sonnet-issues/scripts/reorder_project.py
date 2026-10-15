@@ -9,7 +9,9 @@ Order, top to bottom:
   1. Open items by Priority Tier: Quick Win, Medium Fit, Deferred, then items with no tier
   2. Within a tier, smaller Effort (hours) first, then the lower issue number
   3. Blocked items after every other open item, in the same order
-  4. Done items last, in the same order
+
+Done items are never moved: they stay below the open items in the order they reached Done,
+the newest first (sonnet-next-issue's board.py puts a card at the top when it moves it to Done).
 
 The board's own Table view may sort by a field and hide this order; clear its sort to see it.
 
@@ -40,8 +42,8 @@ def gh(*args: str) -> str:
     return result.stdout
 
 
-# Open work first, then cards parked as Blocked, then finished ones.
-STATUS_RANK = {"Blocked": 1, "Done": 2}
+# Open work first, then cards parked as Blocked.
+STATUS_RANK = {"Blocked": 1}
 
 
 def sort_key(item: dict) -> tuple:
@@ -65,7 +67,8 @@ def main() -> None:
     # Items added a moment ago can be missing from the first listing, so add issues to the board
     # before running this, not in the same breath.
     items = json.loads(gh("project", "item-list", number, "--owner", owner, "--limit", "500", "--format", "json"))["items"]
-    items = [i for i in items if i.get("content", {}).get("number")]
+    # Done cards keep their place; moving every open card to the top leaves them below, in order.
+    items = [i for i in items if i.get("content", {}).get("number") and i.get("status") != "Done"]
     ordered = sorted(items, key=sort_key)
 
     previous = None

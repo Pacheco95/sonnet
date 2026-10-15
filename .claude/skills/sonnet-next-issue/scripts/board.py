@@ -3,6 +3,7 @@
 
   board.py next                  print the top-most Ready for dev card as JSON (board order)
   board.py status N "In Progress"   set issue N's Status; the name is looked up live
+                                    (moving to Done also puts the card first in the Done column)
 
 Field and option ids are fetched at run time, so nothing here goes stale when the
 board is edited. Needs `gh auth refresh -s project,read:project` once.
@@ -12,6 +13,15 @@ import subprocess
 import sys
 
 OWNER, NUMBER, REPO = "Pacheco95", "1", "Pacheco95/sonnet"
+
+
+MOVE_TO_TOP = """
+mutation($project: ID!, $item: ID!) {
+  updateProjectV2ItemPosition(input: {projectId: $project, itemId: $item}) {
+    items(first: 1) { nodes { id } }
+  }
+}
+"""
 
 
 def gh(*args):
@@ -53,6 +63,9 @@ def set_status(number, name):
         sys.exit(f"issue #{number} is not on the board")
     subprocess.run(["gh", "project", "item-edit", "--id", item["id"], "--project-id", project,
                     "--field-id", field["id"], "--single-select-option-id", option], check=True)
+    if name == "Done":
+        # No afterId moves the card to the top of the board, which makes it the first Done card.
+        gh("api", "graphql", "-f", f"query={MOVE_TO_TOP}", "-f", f"project={project}", "-f", f"item={item['id']}")
     print(f"#{number} -> {name}")
 
 

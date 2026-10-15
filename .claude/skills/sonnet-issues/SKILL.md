@@ -243,7 +243,7 @@ After generating the prioritized report:
    - Script dynamically fetches project configuration (no hardcoded IDs)
    - Updates each issue's fields via GitHub GraphQL API
    - Report results: "✓ Updated 10/10 issues in 8 seconds"
-   - Then put the priorities at the top of the board: `python3 .claude/skills/sonnet-issues/scripts/reorder_project.py --project-owner USERNAME --project-number 1`. It orders open items Quick Win, Medium Fit, Deferred (smaller Effort first within a tier) and Done items last. `--dry-run` prints the order without moving anything. Run it after the fields are set, and after any new issue was added to the board, so nothing lands at the bottom
+   - Then put the priorities at the top of the board: `python3 .claude/skills/sonnet-issues/scripts/reorder_project.py --project-owner USERNAME --project-number 1`. It orders open items Quick Win, Medium Fit, Deferred (smaller Effort first within a tier) and Blocked items after them. It never moves a Done item: those stay below the open ones, newest first, where `sonnet-next-issue` put them. `--dry-run` prints the order without moving anything. Run it after the fields are set, and after any new issue was added to the board, so nothing lands at the bottom
 
 4. **If declined: Show report only**
    - User can copy values manually from the summary table

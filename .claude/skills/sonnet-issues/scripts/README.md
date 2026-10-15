@@ -123,7 +123,7 @@ Puts the priorities at the top of the board. Run it after `update_project.py`.
 python3 .claude/skills/sonnet-issues/scripts/reorder_project.py --project-owner USERNAME --project-number 1 [--dry-run]
 ```
 
-Order, top to bottom: open items by Priority Tier (Quick Win, Medium Fit, Deferred, no tier), smaller Effort (hours) first within a tier, then the lower issue number; Blocked items after the other open ones; Done items last. `--dry-run` prints the order without moving anything.
+Order, top to bottom: open items by Priority Tier (Quick Win, Medium Fit, Deferred, no tier), smaller Effort (hours) first within a tier, then the lower issue number; Blocked items after the other open ones. Done items are not moved, so they keep the order they reached Done in, newest first, below the open ones. `--dry-run` prints the order without moving anything.
 
 Items added to the board a moment earlier can be missing from the first listing, so add new issues first and run this afterwards. If the board's Table view sorts by a field, clear that sort to see the manual order.
 
