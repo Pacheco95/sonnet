@@ -25,8 +25,11 @@ namespace sonnet::assets {
 namespace {
 
 // The extensions read, the same for every parse so a file one parse accepts no other refuses.
-constexpr fastgltf::Extensions ReadExtensions =
-    fastgltf::Extensions::KHR_materials_transmission | fastgltf::Extensions::KHR_texture_transform;
+// KHR_mesh_quantization only allows 8- and 16-bit vertex attributes, which iterateAccessor converts
+// to float (normalized or not); the dequantizing scale and offset are the node's transform.
+constexpr fastgltf::Extensions ReadExtensions = fastgltf::Extensions::KHR_materials_transmission |
+                                                fastgltf::Extensions::KHR_texture_transform |
+                                                fastgltf::Extensions::KHR_mesh_quantization;
 
 bool readsExtension(std::string_view name) {
   static const auto Read = fastgltf::stringifyExtensionBits(ReadExtensions);
