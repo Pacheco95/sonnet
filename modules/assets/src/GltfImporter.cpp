@@ -265,7 +265,8 @@ std::int32_t imageOfTexture(const fastgltf::Asset &asset, std::size_t textureInd
 
 // Whether the bytes are a KTX2 file, by its 12-byte identifier (the KTX 2.0 specification).
 bool isKtx2(std::span<const std::byte> bytes) {
-  constexpr std::array<unsigned char, 12> Identifier{0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, '\r', '\n', 0x1A, '\n'};
+  static constexpr std::array<unsigned char, 12> Identifier{0xAB, 'K',  'T',  'X',  ' ',  '2',
+                                                            '0',  0xBB, '\r', '\n', 0x1A, '\n'};
   return bytes.size() >= Identifier.size() &&
          std::ranges::equal(bytes.first(Identifier.size()), Identifier,
                             [](std::byte a, unsigned char b) { return a == std::byte{b}; });
