@@ -142,6 +142,9 @@ public:
   // re-imports.
   [[nodiscard]] TextureSettings textureSettings(const core::Uuid &uuid) const;
   [[nodiscard]] core::Result<void> setTextureSettings(const core::Uuid &uuid, const TextureSettings &settings);
+  // A glTF file's, the same way.
+  [[nodiscard]] ModelSettings modelSettings(const core::Uuid &uuid) const;
+  [[nodiscard]] core::Result<void> setModelSettings(const core::Uuid &uuid, const ModelSettings &settings);
 
   // Re-imports one file asset, or the file behind a sub-asset, swapping every loaded object.
   [[nodiscard]] core::Result<void> reimport(const core::Uuid &uuid);
@@ -207,6 +210,7 @@ private:
     std::string name;
     std::filesystem::file_time_type sourceTime;
     rhi::DeviceInfo device; // what the texture is read for
+    ModelSettings settings;
   };
   // The result of that import: everything decoded, nothing created. Images line up with
   // `import.images`; an image that failed to decode has no data.

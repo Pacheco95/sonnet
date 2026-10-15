@@ -593,6 +593,50 @@ TEST_CASE("a model's hierarchy is read without importing its meshes or images", 
   }
 }
 
+TEST_CASE("a model's light scale lives in its sidecar, and changing it re-imports the lights", "[assets][database]") {
+  Fixture fixture;
+  // Blender's 1000 W point light, as its exporter writes it: 1000 * 683 / 4pi candela, no range.
+  const std::filesystem::path file = fixture.root / "assets" / "models" / "lamp.gltf";
+  const nlohmann::json document{
+      {"asset", {{"version", "2.0"}}},
+      {"extensionsUsed", {"KHR_lights_punctual"}},
+      {"extensions",
+       {{"KHR_lights_punctual", {{"lights", nlohmann::json::array({{{"type", "point"}, {"intensity", 54351.4}}})}}}}},
+      {"scene", 0},
+      {"scenes", nlohmann::json::array({{{"nodes", {0}}}})},
+      {"nodes", nlohmann::json::array({{{"name", "Bulb"}, {"extensions", {{"KHR_lights_punctual", {{"light", 0}}}}}}})},
+  };
+  REQUIRE(core::writeFile(file, document.dump()).has_value());
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const core::Uuid lampUuid = byName(database, "lamp", AssetType::Model)->uuid;
+  const auto sidecar = [&] {
+    const auto bytes = core::readFile(file.string() + ".meta");
+    REQUIRE(bytes.has_value());
+    return parseJson(*bytes);
+  };
+
+  // A new sidecar writes the default, and Blender's light comes out at about 80, reaching about 89 m.
+  REQUIRE(sidecar()["settings"]["lightScale"].get<float>() == Approx(1.0f / 683.0f));
+  REQUIRE(database.modelSettings(lampUuid) == ModelSettings{});
+  const Model *lamp = database.model(lampUuid);
+  REQUIRE(lamp != nullptr);
+  REQUIRE(lamp->nodes[0].light->intensity == Approx(54351.4f / 683.0f));
+  REQUIRE(lamp->nodes[0].light->range == Approx(89.2f).epsilon(0.001));
+
+  // Setting the scale rewrites the sidecar and re-imports the hierarchy with the new lights.
+  REQUIRE(database.setModelSettings(lampUuid, ModelSettings{.lightScale = 1.0f}).has_value());
+  REQUIRE(sidecar()["settings"]["lightScale"].get<float>() == 1.0f);
+  REQUIRE(database.modelSettings(lampUuid).lightScale == 1.0f);
+  lamp = database.model(lampUuid);
+  REQUIRE(lamp->nodes[0].light->intensity == Approx(54351.4f));
+  REQUIRE(lamp->nodes[0].light->range == Approx(100.0f));
+
+  // Only a model has these settings.
+  const core::Uuid woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
+  REQUIRE_FALSE(database.setModelSettings(woodUuid, ModelSettings{}).has_value());
+}
+
 TEST_CASE("a requested skin or clip brings its whole file with it", "[assets][database]") {
   Fixture fixture;
   test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");

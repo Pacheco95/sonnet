@@ -679,7 +679,9 @@ TEST_CASE("a glTF node's punctual light imports with its colour, intensity, rang
   std::ostringstream log;
   const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
   core::Log::addSink(sink);
-  const auto imported = importGltf(directory / "lights.gltf");
+  // In true photometric units: the file's intensities as they are.
+  const ModelSettings photometric{.lightScale = 1.0f};
+  const auto imported = importGltf(directory / "lights.gltf", photometric);
   core::Log::removeSink(sink);
   REQUIRE(imported.has_value());
   const std::vector<ModelNode> &nodes = imported->model.nodes;
@@ -687,7 +689,7 @@ TEST_CASE("a glTF node's punctual light imports with its colour, intensity, rang
   // Not an unread extension any more.
   REQUIRE(log.str().find("KHR_lights_punctual") == std::string::npos);
 
-  // Intensity is carried over one to one, lux or candela.
+  // With a scale of 1, intensity is carried over one to one, lux or candela.
   REQUIRE(nodes[0].light.has_value());
   REQUIRE(nodes[0].light->type == ModelLight::Type::Directional);
   REQUIRE(nodes[0].light->color == glm::vec3{1.0f, 0.9f, 0.8f});
@@ -712,7 +714,7 @@ TEST_CASE("a glTF node's punctual light imports with its colour, intensity, rang
   REQUIRE(!nodes[4].light.has_value());
 
   // The structure-only read agrees, and the lights survive the bundle's encoding.
-  const auto structure = importGltfStructure(directory / "lights.gltf");
+  const auto structure = importGltfStructure(directory / "lights.gltf", photometric);
   REQUIRE(structure.has_value());
   const auto decoded = decodeModel(encodeModel(imported->model));
   REQUIRE(decoded.has_value());
@@ -720,7 +722,43 @@ TEST_CASE("a glTF node's punctual light imports with its colour, intensity, rang
     REQUIRE(structure->model.nodes[n].light == nodes[n].light);
     REQUIRE(decoded->nodes[n].light == nodes[n].light);
   }
+
+  // The default scale undoes Blender's 683 lm/W on every type of light, before the range is chosen;
+  // an explicit range stays as it is.
+  constexpr float Scale = 1.0f / 683.0f;
+  const auto blender = importGltf(directory / "lights.gltf");
+  REQUIRE(blender.has_value());
+  const std::vector<ModelNode> &scaled = blender->model.nodes;
+  REQUIRE(scaled[0].light->intensity == Approx(3.0f * Scale));
+  REQUIRE(scaled[1].light->intensity == Approx(25.0f * Scale));
+  REQUIRE(scaled[1].light->range == Approx(6.0f));
+  REQUIRE(scaled[2].light->intensity == Approx(16.0f * Scale));
+  REQUIRE(scaled[2].light->range == Approx(10.0f * std::sqrt(16.0f * Scale)));
+  REQUIRE(scaled[3].light->intensity == Approx(1.0e6f * Scale));
+  REQUIRE(scaled[3].light->range == Approx(100.0f)); // 10 * sqrt(1464) is still past the cap
+  const auto blenderStructure = importGltfStructure(directory / "lights.gltf");
+  REQUIRE(blenderStructure.has_value());
+  for (std::size_t n = 0; n < scaled.size(); ++n) {
+    REQUIRE(blenderStructure->model.nodes[n].light == scaled[n].light);
+  }
+
+  // Any other scale multiplies the same way.
+  const auto doubled = importGltf(directory / "lights.gltf", ModelSettings{.lightScale = 2.0f});
+  REQUIRE(doubled.has_value());
+  REQUIRE(doubled->model.nodes[0].light->intensity == Approx(6.0f));
+  REQUIRE(doubled->model.nodes[2].light->intensity == Approx(32.0f));
+  REQUIRE(doubled->model.nodes[2].light->range == Approx(10.0f * std::sqrt(32.0f)));
   std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a model's light scale defaults to Blender's, read from the sidecar's settings", "[assets][gltf]") {
+  REQUIRE(ModelSettings{}.lightScale == Approx(1.0f / 683.0f));
+  REQUIRE(ModelSettings::fromJson(nlohmann::json::object()) == ModelSettings{});
+  REQUIRE(ModelSettings::fromJson(nlohmann::json{{"lightScale", 1}}).lightScale == 1.0f);
+  REQUIRE(ModelSettings::fromJson(ModelSettings{.lightScale = 0.25f}.toJson()).lightScale == 0.25f);
+  // Nothing that would invert or blow up every light.
+  REQUIRE(ModelSettings::fromJson(nlohmann::json{{"lightScale", -1.0}}) == ModelSettings{});
+  REQUIRE(ModelSettings::fromJson(nlohmann::json{{"lightScale", "bright"}}) == ModelSettings{});
 }
 
 namespace {

@@ -429,6 +429,7 @@ void AssetDatabase::scanFile(const std::filesystem::path &file) {
                     {"uuid", core::Uuid::generate().toString()},
                     {"settings", kind == SourceKind::Image  ? TextureSettings{}.toJson()
                                  : kind == SourceKind::Font ? FontSettings{}.toJson()
+                                 : kind == SourceKind::Gltf ? ModelSettings{}.toJson()
                                                             : json::object()}};
     rewrite = true;
   }
@@ -746,13 +747,14 @@ std::optional<AssetDatabase::GltfRequest> AssetDatabase::gltfRequest(const core:
                      .cache = cacheDirectory(),
                      .name = info->name,
                      .sourceTime = record->second.sourceTime,
-                     .device = m_renderer.deviceInfo()};
+                     .device = m_renderer.deviceInfo(),
+                     .settings = ModelSettings::fromJson(record->second.settings)};
 }
 
 AssetDatabase::GltfLoad AssetDatabase::importGltfFiles(const GltfRequest &request) {
   SONNET_ZONE();
   GltfLoad load;
-  auto import = importGltf(request.source);
+  auto import = importGltf(request.source, request.settings);
   if (!import) {
     SONNET_LOG_ERROR("{}", import.error().toString());
     return load;
@@ -1247,7 +1249,7 @@ const Model *AssetDatabase::model(const core::Uuid &uuid) {
   if (info == nullptr || info->type != AssetType::Model || m_failed.contains(uuid)) {
     return nullptr;
   }
-  auto structure = importGltfStructure(info->source);
+  auto structure = importGltfStructure(info->source, modelSettings(uuid));
   if (!structure) {
     SONNET_LOG_ERROR("{}", structure.error().toString());
     m_failed[uuid] = true;
@@ -1570,6 +1572,23 @@ core::Result<void> AssetDatabase::setTextureSettings(const core::Uuid &uuid, con
   const AssetInfo *info = find(uuid);
   if (info == nullptr || info->type != AssetType::Texture || !m_files.contains(uuid)) {
     return std::unexpected(core::Error{"not a texture file", core::ErrorCategory::Io});
+  }
+  m_files.at(uuid).settings = settings.toJson();
+  if (const auto written = writeSidecar(uuid); !written) {
+    return written;
+  }
+  return reimport(uuid);
+}
+
+ModelSettings AssetDatabase::modelSettings(const core::Uuid &uuid) const {
+  const auto it = m_files.find(uuid);
+  return it != m_files.end() ? ModelSettings::fromJson(it->second.settings) : ModelSettings{};
+}
+
+core::Result<void> AssetDatabase::setModelSettings(const core::Uuid &uuid, const ModelSettings &settings) {
+  const AssetInfo *info = find(uuid);
+  if (info == nullptr || info->type != AssetType::Model || !m_files.contains(uuid)) {
+    return std::unexpected(core::Error{"not a model file", core::ErrorCategory::Io});
   }
   m_files.at(uuid).settings = settings.toJson();
   if (const auto written = writeSidecar(uuid); !written) {
