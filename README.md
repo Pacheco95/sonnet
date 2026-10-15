@@ -202,6 +202,7 @@ ctest --preset linux-debug
 | [0027](docs/decisions/0027-game-modules.md) | A game module is a static library the engine build links into a player and an editor | Accepted |
 | [0028](docs/decisions/0028-nested-scene-instances.md) | Nested scene instances are prefab instances whose children are addressed by derived identities | Accepted |
 | [0029](docs/decisions/0029-compact-scene-files.md) | Scene files write vectors as arrays | Accepted |
+| [0030](docs/decisions/0030-model-node-identities.md) | A model prefab's nodes are identified by their name path | Accepted |
 
 ## License
 
