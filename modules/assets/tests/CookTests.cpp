@@ -213,6 +213,7 @@ struct ProjectFixture {
     MaterialSource painted;
     painted.baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
     painted.roughness = 0.25f;
+    painted.unlit = true;
     REQUIRE(core::writeFile(root / "assets" / "painted.material.json", saveMaterial(painted).dump(2)).has_value());
     REQUIRE(core::writeFile(root / "scripts" / "spin.lua", std::string_view{"return { update = function() end }\n"})
                 .has_value());
@@ -316,6 +317,7 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   REQUIRE(material != nullptr);
   REQUIRE(material->baseColor == glm::vec4{0.2f, 0.4f, 0.6f, 1.0f});
   REQUIRE(material->roughness == Approx(0.25f));
+  REQUIRE(material->unlit);
 
   const Skin *skin = player.skin(skinId);
   REQUIRE(skin != nullptr);
@@ -337,6 +339,10 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   const Model *model = player.model(crate->uuid);
   REQUIRE(model != nullptr);
   REQUIRE(!model->nodes.empty());
+  // The model's own material is lit, and stays so.
+  const MaterialSource *crateMaterial = player.materialSource(core::Uuid::derive(crate->uuid, "material/0"));
+  REQUIRE(crateMaterial != nullptr);
+  REQUIRE(!crateMaterial->unlit);
 
   // The textures cooked with the model are there, and the scene and prefab came along.
   REQUIRE(player.texture(idOf(player, "image 0", AssetType::Texture)));
@@ -393,11 +399,11 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
   REQUIRE(cooked != nullptr);
   REQUIRE(cooked->bytes == file); // byte for byte
   REQUIRE(cooked->preload == std::vector<GlyphRange>{{65, 90}});
-  // The header says version 10.
+  // The header says version 11.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 10);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 10);
+  REQUIRE(BundleVersion == 11);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 11);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {

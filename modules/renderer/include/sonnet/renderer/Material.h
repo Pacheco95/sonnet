@@ -60,6 +60,7 @@ struct MaterialDesc {
   AlphaMode alphaMode{AlphaMode::Opaque};
   TextureWrap wrap{TextureWrap::Repeat};
   bool doubleSided{false};
+  bool unlit{false}; // KHR_materials_unlit: base colour plus emissive, no lighting
 };
 
 } // namespace sonnet::renderer

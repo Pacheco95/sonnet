@@ -30,8 +30,9 @@ namespace {
 // to float (normalized or not); the dequantizing scale and offset are the node's transform.
 constexpr fastgltf::Extensions ReadExtensions =
     fastgltf::Extensions::KHR_materials_emissive_strength | fastgltf::Extensions::KHR_materials_transmission |
-    fastgltf::Extensions::KHR_texture_transform | fastgltf::Extensions::KHR_mesh_quantization |
-    fastgltf::Extensions::EXT_meshopt_compression | fastgltf::Extensions::KHR_texture_basisu;
+    fastgltf::Extensions::KHR_materials_unlit | fastgltf::Extensions::KHR_texture_transform |
+    fastgltf::Extensions::KHR_mesh_quantization | fastgltf::Extensions::EXT_meshopt_compression |
+    fastgltf::Extensions::KHR_texture_basisu;
 
 bool readsExtension(std::string_view name) {
   static const auto Read = fastgltf::stringifyExtensionBits(ReadExtensions);
@@ -673,6 +674,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
         material.emissiveStrength;
     out.source.alphaCutoff = material.alphaCutoff;
     out.source.doubleSided = material.doubleSided;
+    out.source.unlit = material.unlit;
     out.source.alphaMode = material.alphaMode == fastgltf::AlphaMode::Blend  ? renderer::AlphaMode::Blend
                            : material.alphaMode == fastgltf::AlphaMode::Mask ? renderer::AlphaMode::Mask
                                                                              : renderer::AlphaMode::Opaque;
