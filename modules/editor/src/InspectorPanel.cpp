@@ -45,6 +45,8 @@ bool containsIgnoringCase(std::string_view text, std::string_view needle) {
 
 constexpr std::array<const char *, 3> AlphaModeNames{"Opaque", "Mask", "Blend"};
 constexpr std::array<const char *, 3> WrapNames{"Repeat", "ClampToEdge", "MirroredRepeat"};
+constexpr std::array<const char *, 2> UvSetNames{"0", "1"};
+constexpr float UvDragSpeed = 0.01f;
 
 template <typename Enum, std::size_t N>
 bool drawEnumCombo(const char *label, Enum &value, const std::array<const char *, N> &names) {
@@ -396,18 +398,33 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   if (ImGui::Checkbox("Double sided", &edited.doubleSided)) {
     picked = true;
   }
-  const auto texture = [&](const char *label, core::Uuid &value) {
+  const auto texture = [&](const char *label, core::Uuid &value, renderer::TextureTransform &transform) {
     ImGui::TextUnformatted(label);
     ImGui::SameLine(150.0f);
     ImGui::PushID(label);
     picked = drawAssetPicker(value, assets::AssetType::Texture) || picked;
+    // How a slot that samples a texture reads its UVs; the rotation is stored in radians.
+    if (!value.isNil() && ImGui::TreeNodeEx("UV", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+      ImGui::DragFloat2("Offset", &transform.offset.x, UvDragSpeed);
+      track();
+      ImGui::SliderAngle("Rotation", &transform.rotation, -180.0f, 180.0f);
+      track();
+      ImGui::DragFloat2("Scale", &transform.scale.x, UvDragSpeed);
+      track();
+      int set = static_cast<int>(transform.texCoord);
+      if (ImGui::Combo("UV set", &set, UvSetNames.data(), static_cast<int>(UvSetNames.size()))) {
+        transform.texCoord = static_cast<std::uint32_t>(set);
+        picked = true;
+      }
+      ImGui::TreePop();
+    }
     ImGui::PopID();
   };
-  texture("Base colour map", edited.baseColorTexture);
-  texture("Metallic roughness", edited.metallicRoughnessTexture);
-  texture("Normal map", edited.normalTexture);
-  texture("Occlusion map", edited.occlusionTexture);
-  texture("Emissive map", edited.emissiveTexture);
+  texture("Base colour map", edited.baseColorTexture, edited.baseColorTransform);
+  texture("Metallic roughness", edited.metallicRoughnessTexture, edited.metallicRoughnessTransform);
+  texture("Normal map", edited.normalTexture, edited.normalTransform);
+  texture("Occlusion map", edited.occlusionTexture, edited.occlusionTransform);
+  texture("Emissive map", edited.emissiveTexture, edited.emissiveTransform);
 
   if (edited != *current) {
     m_assets.setMaterialSource(info.uuid, edited);

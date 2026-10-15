@@ -94,7 +94,7 @@ The Assets panel lists the open project's assets ([assets.md](assets.md#database
 
 The inspector shows an asset's name, type, source and identity, with a Reimport button, and per type:
 
-- A material: its authored values ([assets.md](assets.md#materials)), edited live through the database like a component, one command per widget release or pick; Save writes the file. A glTF material is edited in memory only.
+- A material: its authored values ([assets.md](assets.md#materials)), edited live through the database like a component, one command per widget release or pick; Save writes the file. A glTF material is edited in memory only. Under each texture slot that names a texture, a collapsed UV row holds how the slot reads its UVs: the offset, rotation (in degrees; the file stores radians) and scale of its `KHR_texture_transform`, and the UV set it samples (0 or 1).
 - A texture file: the import settings of its sidecar (sRGB, mipmaps, compression); a change is a command that re-imports at once. An image inside a glTF file follows its materials.
 - A mesh: its submeshes and default materials. A model: its sub-assets. An environment: whether it is loaded.
 - A script: its length, and an Edit button that opens it in the external editor of the preferences, as the log's links do. Saving it there reloads it into a running game ([scripting.md](scripting.md#errors-and-hot-reload)).
