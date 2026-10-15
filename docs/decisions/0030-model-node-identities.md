@@ -1,6 +1,6 @@
 # ADR-0030: A model prefab's nodes are identified by their name path
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 
 ## Context
