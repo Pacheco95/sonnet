@@ -492,6 +492,15 @@ std::vector<std::byte> encodeModel(const Model &model) {
       writer.f32(node.camera->fovY);
       writer.f32(node.camera->nearPlane);
     }
+    writer.u32(node.light.has_value() ? 1u : 0u);
+    if (node.light) {
+      writer.u32(static_cast<std::uint32_t>(node.light->type));
+      writer.pod(node.light->color);
+      writer.f32(node.light->intensity);
+      writer.f32(node.light->range);
+      writer.f32(node.light->innerAngle);
+      writer.f32(node.light->outerAngle);
+    }
   }
   writer.u32(static_cast<std::uint32_t>(model.animations.size()));
   for (const core::Uuid &animation : model.animations) {
@@ -523,6 +532,20 @@ core::Result<Model> decodeModel(std::span<const std::byte> payload) {
     if (reader.u32() != 0) {
       const float fovY = reader.f32();
       node.camera = ModelCamera{.fovY = fovY, .nearPlane = reader.f32()};
+    }
+    if (reader.u32() != 0) {
+      const std::uint32_t type = reader.u32();
+      if (type > static_cast<std::uint32_t>(ModelLight::Type::Spot)) {
+        return std::unexpected(payloadError("a model light has an unknown type"));
+      }
+      ModelLight light;
+      light.type = static_cast<ModelLight::Type>(type);
+      light.color = reader.pod<glm::vec3>();
+      light.intensity = reader.f32();
+      light.range = reader.f32();
+      light.innerAngle = reader.f32();
+      light.outerAngle = reader.f32();
+      node.light = light;
     }
   }
   const std::uint32_t animations = reader.u32();

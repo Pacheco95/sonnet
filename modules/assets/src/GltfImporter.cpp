@@ -14,11 +14,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <map>
 #include <optional>
 #include <span>
+#include <utility>
 #include <variant>
 
 namespace sonnet::assets {
@@ -32,7 +34,7 @@ constexpr fastgltf::Extensions ReadExtensions =
     fastgltf::Extensions::KHR_materials_emissive_strength | fastgltf::Extensions::KHR_materials_transmission |
     fastgltf::Extensions::KHR_materials_unlit | fastgltf::Extensions::KHR_texture_transform |
     fastgltf::Extensions::KHR_mesh_quantization | fastgltf::Extensions::EXT_meshopt_compression |
-    fastgltf::Extensions::KHR_texture_basisu;
+    fastgltf::Extensions::KHR_texture_basisu | fastgltf::Extensions::KHR_lights_punctual;
 
 bool readsExtension(std::string_view name) {
   static const auto Read = fastgltf::stringifyExtensionBits(ReadExtensions);
@@ -363,7 +365,39 @@ struct NodeWalk {
   std::vector<std::string> duplicateNames;
   // Names of the nodes whose orthographic camera was dropped, since the engine has no such projection.
   std::vector<std::string> orthographicCameras;
+  // Names of the nodes whose light had no range, with the range the importer gave it.
+  std::vector<std::pair<std::string, float>> chosenRanges;
 };
+
+// glTF's spot cone defaults (KHR_lights_punctual): inner 0, outer a quarter turn's half.
+constexpr float GltfInnerConeAngle = 0.0f;
+constexpr float GltfOuterConeAngle = glm::pi<float>() / 4.0f;
+// A light without a range reaches as far as its intensity falls to 0.01, but no further than this,
+// so one light does not touch every cluster.
+constexpr float MaxChosenLightRange = 100.0f;
+
+ModelLight modelLight(const fastgltf::Light &light) {
+  ModelLight out;
+  out.color = {light.color[0], light.color[1], light.color[2]};
+  out.intensity = static_cast<float>(light.intensity);
+  switch (light.type) {
+  case fastgltf::LightType::Directional:
+    out.type = ModelLight::Type::Directional;
+    return out;
+  case fastgltf::LightType::Point:
+    out.type = ModelLight::Type::Point;
+    break;
+  case fastgltf::LightType::Spot:
+    out.type = ModelLight::Type::Spot;
+    out.innerAngle = static_cast<float>(light.innerConeAngle.value_or(GltfInnerConeAngle));
+    out.outerAngle = static_cast<float>(light.outerConeAngle.value_or(GltfOuterConeAngle));
+    break;
+  }
+  // Inverse-square falloff reaches 0.01 at 10 * sqrt(intensity).
+  out.range = light.range.has_value() ? static_cast<float>(*light.range)
+                                      : std::min(10.0f * std::sqrt(std::max(out.intensity, 0.0f)), MaxChosenLightRange);
+  return out;
+}
 
 NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::int32_t> &meshIndices,
                    std::vector<std::int32_t> &skinIndices) {
@@ -389,7 +423,8 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::
   NodeWalk walk{.paths = std::vector<std::string>(asset.nodes.size()),
                 .visited = std::vector<bool>(asset.nodes.size(), false),
                 .duplicateNames = {},
-                .orthographicCameras = {}};
+                .orthographicCameras = {},
+                .chosenRanges = {}};
   const auto visit = [&](auto &self, std::size_t nodeIndex, std::int32_t parent, const std::string &parentPath,
                          std::vector<std::string> &siblings) -> void {
     if (nodeIndex >= asset.nodes.size() || walk.visited[nodeIndex]) {
@@ -428,6 +463,13 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::
         out.camera = ModelCamera{.fovY = perspective->yfov, .nearPlane = perspective->znear};
       } else {
         walk.orthographicCameras.push_back(out.name);
+      }
+    }
+    if (node.lightIndex.has_value() && *node.lightIndex < asset.lights.size()) {
+      const fastgltf::Light &light = asset.lights[*node.lightIndex];
+      out.light = modelLight(light);
+      if (!light.range.has_value() && light.type != fastgltf::LightType::Directional) {
+        walk.chosenRanges.emplace_back(out.name, out.light->range);
       }
     }
     const auto index = static_cast<std::int32_t>(model.nodes.size());
@@ -733,6 +775,9 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
   for (const std::string &name : walk.orthographicCameras) {
     SONNET_LOG_WARN("{}: node \"{}\" has an orthographic camera, which the engine cannot project; skipped",
                     path.string(), name);
+  }
+  for (const auto &[name, range] : walk.chosenRanges) {
+    SONNET_LOG_INFO("{}: node \"{}\" has a light without a range; it reaches {:.1f} m", path.string(), name, range);
   }
   const std::vector<std::string> &paths = walk.paths;
   const std::vector<bool> &visited = walk.visited;

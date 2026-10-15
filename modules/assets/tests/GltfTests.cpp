@@ -653,6 +653,76 @@ TEST_CASE("a glTF node's perspective camera imports with its FOV and near plane"
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a glTF node's punctual light imports with its colour, intensity, range and cone", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_lights");
+  const nlohmann::json document{
+      {"asset", {{"version", "2.0"}}},
+      {"extensionsUsed", {"KHR_lights_punctual"}},
+      {"extensions",
+       {{"KHR_lights_punctual",
+         {{"lights",
+           nlohmann::json::array(
+               {{{"type", "directional"}, {"color", {1.0, 0.9, 0.8}}, {"intensity", 3.0}},
+                {{"type", "point"}, {"color", {0.0, 1.0, 0.0}}, {"intensity", 25.0}, {"range", 6.0}},
+                {{"type", "spot"}, {"intensity", 16.0}, {"spot", {{"innerConeAngle", 0.2}, {"outerConeAngle", 0.5}}}},
+                {{"type", "point"}, {"intensity", 1.0e6}}})}}}}},
+      {"scene", 0},
+      {"scenes", nlohmann::json::array({{{"nodes", {0, 1, 2, 3, 4}}}})},
+      {"nodes", nlohmann::json::array({{{"name", "Sun"}, {"extensions", {{"KHR_lights_punctual", {{"light", 0}}}}}},
+                                       {{"name", "Bulb"}, {"extensions", {{"KHR_lights_punctual", {{"light", 1}}}}}},
+                                       {{"name", "Spot"}, {"extensions", {{"KHR_lights_punctual", {{"light", 2}}}}}},
+                                       {{"name", "Flood"}, {"extensions", {{"KHR_lights_punctual", {{"light", 3}}}}}},
+                                       {{"name", "Empty"}}})},
+  };
+  REQUIRE(core::writeFile(directory / "lights.gltf", document.dump(2)).has_value());
+
+  std::ostringstream log;
+  const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
+  core::Log::addSink(sink);
+  const auto imported = importGltf(directory / "lights.gltf");
+  core::Log::removeSink(sink);
+  REQUIRE(imported.has_value());
+  const std::vector<ModelNode> &nodes = imported->model.nodes;
+  REQUIRE(nodes.size() == 5);
+  // Not an unread extension any more.
+  REQUIRE(log.str().find("KHR_lights_punctual") == std::string::npos);
+
+  // Intensity is carried over one to one, lux or candela.
+  REQUIRE(nodes[0].light.has_value());
+  REQUIRE(nodes[0].light->type == ModelLight::Type::Directional);
+  REQUIRE(nodes[0].light->color == glm::vec3{1.0f, 0.9f, 0.8f});
+  REQUIRE(nodes[0].light->intensity == Approx(3.0f));
+
+  REQUIRE(nodes[1].light->type == ModelLight::Type::Point);
+  REQUIRE(nodes[1].light->color == glm::vec3{0.0f, 1.0f, 0.0f});
+  REQUIRE(nodes[1].light->intensity == Approx(25.0f));
+  REQUIRE(nodes[1].light->range == Approx(6.0f));
+
+  // A spot keeps its cone's half-angles; without a range it reaches where it falls to 0.01, and the
+  // importer says so. Colour defaults to white.
+  REQUIRE(nodes[2].light->type == ModelLight::Type::Spot);
+  REQUIRE(nodes[2].light->color == glm::vec3{1.0f});
+  REQUIRE(nodes[2].light->innerAngle == Approx(0.2f));
+  REQUIRE(nodes[2].light->outerAngle == Approx(0.5f));
+  REQUIRE(nodes[2].light->intensity == Approx(16.0f));
+  REQUIRE(nodes[2].light->range == Approx(40.0f)); // 10 * sqrt(16)
+  REQUIRE(log.str().find("node \"Spot\" has a light without a range; it reaches 40.0 m") != std::string::npos);
+  // A very bright one stops at 100 m.
+  REQUIRE(nodes[3].light->range == Approx(100.0f));
+  REQUIRE(!nodes[4].light.has_value());
+
+  // The structure-only read agrees, and the lights survive the bundle's encoding.
+  const auto structure = importGltfStructure(directory / "lights.gltf");
+  REQUIRE(structure.has_value());
+  const auto decoded = decodeModel(encodeModel(imported->model));
+  REQUIRE(decoded.has_value());
+  for (std::size_t n = 0; n < nodes.size(); ++n) {
+    REQUIRE(structure->model.nodes[n].light == nodes[n].light);
+    REQUIRE(decoded->nodes[n].light == nodes[n].light);
+  }
+  std::filesystem::remove_all(directory);
+}
+
 namespace {
 
 // One triangle on node "Face" whose single morph target pushes every vertex a metre along +Z, a
