@@ -37,8 +37,8 @@ struct Prefabs {
                           {"name", "Hub"},
                           {"parent", wheel.toString()},
                           {"components",
-                           {{"MeshRenderer", {{"color", {{"x", hubGrey}, {"y", hubGrey}, {"z", hubGrey}, {"w", 1.0}}}}},
-                            {"Transform", {{"position", {{"x", 0.0}, {"y", hubHeight}, {"z", 0.0}}}}}}}});
+                           {{"MeshRenderer", {{"color", json::array({hubGrey, hubGrey, hubGrey, 1.0})}}},
+                            {"Transform", {{"position", json::array({0.0, hubHeight, 0.0})}}}}}});
     }
     return {{"version", world::SceneVersion}, {"entities", entities}};
   }

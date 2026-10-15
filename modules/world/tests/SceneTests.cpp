@@ -1,11 +1,19 @@
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
+#include <sonnet/core/Log.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <glm/gtc/epsilon.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <spdlog/sinks/ostream_sink.h>
+
 #include <filesystem>
+#include <memory>
 #include <span>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -18,6 +26,41 @@ std::filesystem::path temporaryDirectory() {
   const std::filesystem::path path = std::filesystem::temp_directory_path() / "sonnet_world_tests";
   std::filesystem::create_directories(path);
   return path;
+}
+
+// One member of each reflected vector type, and a repeated one.
+struct Shape {
+  glm::vec2 size{};
+  glm::vec3 offset{};
+  glm::vec4 tint{};
+  glm::quat turn{1.0f, 0.0f, 0.0f, 0.0f};
+  std::vector<glm::vec3> path{};
+};
+
+void registerShape(world::World &world) {
+  world.registerVector<glm::vec3>();
+  world.registerComponent<Shape>("Shape")
+      .member<glm::vec2>("size")
+      .member<glm::vec3>("offset")
+      .member<glm::vec4>("tint")
+      .member<glm::quat>("turn")
+      .member<std::vector<glm::vec3>>("path");
+}
+
+// Whether `json` is an array of `values`; flecs writes a float to about ten digits.
+bool isArray(const nlohmann::json &json, std::initializer_list<float> values) {
+  if (!json.is_array() || json.size() != values.size()) {
+    return false;
+  }
+  std::size_t i = 0;
+  for (const float value : values) {
+    const nlohmann::json &element = json[i];
+    ++i;
+    if (!element.is_number() || element.get<float>() != Approx(value)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace
@@ -348,4 +391,128 @@ TEST_CASE("a spot light's castsShadows survives a scene round trip and defaults 
   world::World legacy;
   REQUIRE(world::loadScene(legacy, old));
   legacy.ecs().each([&](const world::SpotLight &light) { REQUIRE(!light.castsShadows); });
+}
+
+TEST_CASE("vector and quaternion members save as arrays and load back (ADR-0029)", "[world][scene]") {
+  world::World source;
+  registerShape(source);
+  const glm::quat turn = glm::angleAxis(glm::radians(30.0f), glm::normalize(glm::vec3{1.0f, 2.0f, 3.0f}));
+  const flecs::entity entity = source.createEntity("Shape");
+  entity.set<Shape>({.size = {1.5f, 2.5f},
+                     .offset = {-1.0f, 0.25f, 8.0f},
+                     .tint = {0.1f, 0.2f, 0.3f, 0.4f},
+                     .turn = turn,
+                     .path = {{1.0f, 2.0f, 3.0f}, {4.0f, 5.0f, 6.0f}}});
+  entity.set<world::Transform>({.position = {0.0f, 0.5f, -10.0f}, .rotation = turn, .scale = {20.0f, 1.0f, 20.0f}});
+
+  const nlohmann::json scene = world::saveScene(source);
+  REQUIRE(scene["version"] == 5);
+  const nlohmann::json &components = scene["entities"][0]["components"];
+  REQUIRE(isArray(components["Shape"]["size"], {1.5f, 2.5f}));
+  REQUIRE(isArray(components["Shape"]["offset"], {-1.0f, 0.25f, 8.0f}));
+  REQUIRE(isArray(components["Shape"]["tint"], {0.1f, 0.2f, 0.3f, 0.4f}));
+  REQUIRE(components["Shape"]["path"].size() == 2);
+  REQUIRE(isArray(components["Shape"]["path"][0], {1.0f, 2.0f, 3.0f}));
+  REQUIRE(isArray(components["Shape"]["path"][1], {4.0f, 5.0f, 6.0f}));
+  REQUIRE(isArray(components["Transform"]["position"], {0.0f, 0.5f, -10.0f}));
+  REQUIRE(isArray(components["Transform"]["scale"], {20.0f, 1.0f, 20.0f}));
+  // x, y, z, w as glTF writes it, whatever order glm stores the quaternion in.
+  for (const char *member : {"turn", "rotation"}) {
+    const nlohmann::json &rotation = components[member == std::string_view{"turn"} ? "Shape" : "Transform"][member];
+    REQUIRE(rotation.size() == 4);
+    REQUIRE(rotation[0].get<float>() == Approx(turn.x));
+    REQUIRE(rotation[1].get<float>() == Approx(turn.y));
+    REQUIRE(rotation[2].get<float>() == Approx(turn.z));
+    REQUIRE(rotation[3].get<float>() == Approx(turn.w));
+  }
+
+  world::World target;
+  registerShape(target);
+  REQUIRE(world::loadScene(target, scene).has_value());
+  const flecs::entity loaded = target.find(source.uuidOf(entity));
+  const Shape &shape = loaded.get<Shape>();
+  REQUIRE(shape.size == glm::vec2{1.5f, 2.5f});
+  REQUIRE(shape.offset == glm::vec3{-1.0f, 0.25f, 8.0f});
+  REQUIRE(glm::all(glm::epsilonEqual(shape.tint, glm::vec4{0.1f, 0.2f, 0.3f, 0.4f}, 1e-6f)));
+  REQUIRE(glm::all(glm::epsilonEqual(shape.turn, turn, 1e-6f)));
+  REQUIRE(shape.path == std::vector<glm::vec3>{{1.0f, 2.0f, 3.0f}, {4.0f, 5.0f, 6.0f}});
+  REQUIRE(glm::all(glm::epsilonEqual(loaded.get<world::Transform>().rotation, turn, 1e-6f)));
+  REQUIRE(world::saveScene(target) == scene); // the same text again: a save after a load changes nothing
+}
+
+TEST_CASE("a version 4 scene and prefab load their vector objects unchanged", "[world][scene][migration]") {
+  const nlohmann::json prefab = nlohmann::json::parse(R"({
+    "version": 4,
+    "entities": [
+      {"uuid": "1b6e0c1a-0004-4a5b-8c9d-000000000001", "name": "Crate",
+       "components": {"MeshRenderer": {"color": {"x": 1, "y": 0, "z": 0, "w": 1}}}},
+      {"uuid": "1b6e0c1a-0004-4a5b-8c9d-000000000002", "name": "Lid", "parent": "1b6e0c1a-0004-4a5b-8c9d-000000000001",
+       "components": {"Transform": {"position": {"x": 0, "y": 0.5, "z": 0}}}}
+    ]
+  })");
+  world::World world;
+  const auto crate = world::loadPrefab(world, prefab);
+  REQUIRE(crate.has_value());
+  REQUIRE(crate->get<world::MeshRenderer>().color == glm::vec4{1.0f, 0.0f, 0.0f, 1.0f});
+
+  const nlohmann::json scene = nlohmann::json::parse(R"({
+    "version": 4,
+    "entities": [
+      {"uuid": "1b6e0c1a-0004-4a5b-8c9d-000000000010", "name": "Crate 1", "prefab": "1b6e0c1a-0004-4a5b-8c9d-000000000001",
+       "components": {"Transform": {"position": {"x": 4, "y": 0, "z": 0}, "rotation": {"x": 0, "y": 0.6, "z": 0, "w": 0.8}}}},
+      {"uuid": "1b6e0c1a-0004-4a5b-8c9d-000000000011", "name": "Ball",
+       "components": {"Transform": {"position": {"x": 1, "y": 2, "z": 3}, "scale": {"x": 2, "y": 2, "z": 2}}}}
+    ]
+  })");
+  std::ostringstream log;
+  const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
+  core::Log::addSink(sink);
+  const auto loaded = world::loadScene(world, scene);
+  core::Log::removeSink(sink);
+  REQUIRE(loaded.has_value());
+  REQUIRE(log.str().find("not an array") == std::string::npos);
+  const world::Transform &instance = loaded->at(0).get<world::Transform>();
+  REQUIRE(instance.position == glm::vec3{4.0f, 0.0f, 0.0f});
+  REQUIRE(instance.rotation.y == Approx(0.6f));
+  REQUIRE(instance.rotation.w == Approx(0.8f));
+  REQUIRE(loaded->at(1).get<world::Transform>().position == glm::vec3{1.0f, 2.0f, 3.0f});
+  REQUIRE(loaded->at(1).get<world::Transform>().scale == glm::vec3{2.0f});
+  const flecs::entity lid = world.children(loaded->at(0)).front();
+  REQUIRE(lid.get<world::Transform>().position == glm::vec3{0.0f, 0.5f, 0.0f});
+
+  // Saved again, the scene is version 5 and its vectors are arrays.
+  const nlohmann::json saved = world::saveScene(world);
+  REQUIRE(saved["version"] == 5);
+  REQUIRE(isArray(saved["entities"][0]["components"]["Transform"]["position"], {4.0f, 0.0f, 0.0f}));
+  REQUIRE(isArray(saved["entities"][0]["components"]["Transform"]["rotation"], {0.0f, 0.6f, 0.0f, 0.8f}));
+  REQUIRE(isArray(world::savePrefab(world, *crate)["entities"][0]["components"]["MeshRenderer"]["color"],
+                  {1.0f, 0.0f, 0.0f, 1.0f}));
+}
+
+TEST_CASE("a version 5 file with an object for a vector logs a malformed value", "[world][scene]") {
+  const nlohmann::json scene = nlohmann::json::parse(R"({
+    "version": 5,
+    "entities": [
+      {"uuid": "1b6e0c1a-0005-4a5b-8c9d-000000000001", "name": "Box",
+       "components": {"Transform": {"position": {"x": 1, "y": 2, "z": 3}, "rotation": [0, 0, 1], "scale": [2, 2, 2]}}}
+    ]
+  })");
+  world::World world;
+  std::ostringstream log;
+  const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
+  core::Log::addSink(sink);
+  const auto loaded = world::loadScene(world, scene);
+  core::Log::removeSink(sink);
+  REQUIRE(loaded.has_value());
+  const std::string logged = log.str();
+  REQUIRE(
+      logged.find(R"(component "Transform": member "position" holds {"x":1,"y":2,"z":3}, not an array of 3 numbers)") !=
+      std::string::npos);
+  REQUIRE(logged.find(R"(component "Transform": member "rotation" holds [0,0,1], not an array of 4 numbers)") !=
+          std::string::npos);
+  // The malformed members keep their defaults, and the rest of the component still loads.
+  const world::Transform &transform = loaded->front().get<world::Transform>();
+  REQUIRE(transform.position == glm::vec3{0.0f});
+  REQUIRE(transform.rotation == glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
+  REQUIRE(transform.scale == glm::vec3{2.0f});
 }

@@ -61,16 +61,16 @@ TEST_CASE("components round-trip through flecs JSON by reflection", "[world][com
   REQUIRE(world.findComponent("Name") == nullptr);
 
   const nlohmann::json transformJson = world.componentToJson(entity, transform->id);
-  REQUIRE(transformJson["position"]["y"].get<float>() == Approx(2.0f));
-  REQUIRE(transformJson["rotation"]["w"].get<float>() == Approx(std::cos(glm::radians(45.0f))));
-  REQUIRE(transformJson["rotation"]["y"].get<float>() == Approx(std::sin(glm::radians(45.0f))));
+  REQUIRE(transformJson["position"][1].get<float>() == Approx(2.0f));
+  REQUIRE(transformJson["rotation"][3].get<float>() == Approx(std::cos(glm::radians(45.0f))));
+  REQUIRE(transformJson["rotation"][1].get<float>() == Approx(std::sin(glm::radians(45.0f))));
   const nlohmann::json meshJson = world.componentToJson(entity, mesh->id);
   REQUIRE(meshJson["mesh"] == assets::builtin::sphere().toString()); // identities as strings
   REQUIRE(meshJson["material"] == core::Uuid{}.toString());
   REQUIRE(meshJson["visible"] == false);
   REQUIRE(world.componentToJson(entity, isStatic->id).is_null());
   const world::Transform detached{.position = {9.0f, 8.0f, 7.0f}};
-  REQUIRE(world.valueToJson(transform->id, &detached)["position"]["x"].get<float>() == Approx(9.0f));
+  REQUIRE(world.valueToJson(transform->id, &detached)["position"][0].get<float>() == Approx(9.0f));
   REQUIRE(world.componentToJson(entity, world.findComponent("Spin")->id).is_null()); // absent
 
   const flecs::entity other = world.createEntity("copy");
