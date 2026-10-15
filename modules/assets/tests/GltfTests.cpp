@@ -725,16 +725,16 @@ TEST_CASE("a glTF node's punctual light imports with its colour, intensity, rang
 
   // The default scale undoes Blender's 683 lm/W on every type of light, before the range is chosen;
   // an explicit range stays as it is.
-  constexpr float Scale = 1.0f / 683.0f;
+  constexpr float blenderScale = 1.0f / 683.0f;
   const auto blender = importGltf(directory / "lights.gltf");
   REQUIRE(blender.has_value());
   const std::vector<ModelNode> &scaled = blender->model.nodes;
-  REQUIRE(scaled[0].light->intensity == Approx(3.0f * Scale));
-  REQUIRE(scaled[1].light->intensity == Approx(25.0f * Scale));
+  REQUIRE(scaled[0].light->intensity == Approx(3.0f * blenderScale));
+  REQUIRE(scaled[1].light->intensity == Approx(25.0f * blenderScale));
   REQUIRE(scaled[1].light->range == Approx(6.0f));
-  REQUIRE(scaled[2].light->intensity == Approx(16.0f * Scale));
-  REQUIRE(scaled[2].light->range == Approx(10.0f * std::sqrt(16.0f * Scale)));
-  REQUIRE(scaled[3].light->intensity == Approx(1.0e6f * Scale));
+  REQUIRE(scaled[2].light->intensity == Approx(16.0f * blenderScale));
+  REQUIRE(scaled[2].light->range == Approx(10.0f * std::sqrt(16.0f * blenderScale)));
+  REQUIRE(scaled[3].light->intensity == Approx(1.0e6f * blenderScale));
   REQUIRE(scaled[3].light->range == Approx(100.0f)); // 10 * sqrt(1464) is still past the cap
   const auto blenderStructure = importGltfStructure(directory / "lights.gltf");
   REQUIRE(blenderStructure.has_value());
