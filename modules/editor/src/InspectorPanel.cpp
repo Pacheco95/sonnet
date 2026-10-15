@@ -15,11 +15,13 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <format>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sonnet::editor {
@@ -48,6 +50,7 @@ constexpr std::array<const char *, 3> WrapNames{"Repeat", "ClampToEdge", "Mirror
 constexpr std::array<const char *, 2> UvSetNames{"0", "1"};
 constexpr float UvDragSpeed = 0.01f;
 constexpr float EmissiveStrengthSpeed = 0.05f;
+constexpr float LightScaleWidth = 120.0f;
 
 template <typename Enum, std::size_t N>
 bool drawEnumCombo(const char *label, Enum &value, const std::array<const char *, N> &names) {
@@ -294,6 +297,7 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
     break;
   }
   case assets::AssetType::Model:
+    drawModel(*info);
     for (const assets::AssetInfo *sub : m_assets.assets()) {
       if (sub->parent == uuid) {
         const std::string label = std::format("{} ({})", sub->name, assets::toString(sub->type));
@@ -495,6 +499,33 @@ void InspectorPanel::drawTexture(const assets::AssetInfo &info) {
   if (changed) {
     m_commands.push(textureSettingsCommand(m_assets, info.uuid, before, settings), m_world);
   }
+}
+
+void InspectorPanel::drawModel(const assets::AssetInfo &info) {
+  if (!info.parent.isNil()) {
+    return;
+  }
+  const assets::ModelSettings before = m_assets.modelSettings(info.uuid);
+  assets::ModelSettings settings = before;
+  // Typed, so one command per edit rather than a re-import for every step of a drag. A scale the
+  // sidecar would not accept (negative, not finite) is dropped, as reading it back would.
+  ImGui::SetNextItemWidth(LightScaleWidth);
+  ImGui::InputFloat("Light scale", &settings.lightScale, 0.0f, 0.0f, "%.6g");
+  if (ImGui::IsItemDeactivatedAfterEdit() && settings != before) {
+    if (std::isfinite(settings.lightScale) && settings.lightScale >= 0.0f) {
+      m_commands.push(modelSettingsCommand(m_assets, info.uuid, before, settings), m_world);
+    }
+  }
+  for (const auto &[label, scale] :
+       {std::pair{"Blender", assets::ModelSettings::BlenderLightScale}, std::pair{"Photometric", 1.0f}}) {
+    if (ImGui::SmallButton(label) && scale != before.lightScale) {
+      settings.lightScale = scale;
+      m_commands.push(modelSettingsCommand(m_assets, info.uuid, before, settings), m_world);
+    }
+    ImGui::SameLine();
+  }
+  ImGui::TextDisabled("scales the lights' intensities");
+  ImGui::Separator();
 }
 
 void InspectorPanel::drawEntity(flecs::entity entity) {

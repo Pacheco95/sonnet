@@ -24,6 +24,9 @@ namespace sonnet::editor {
 [[nodiscard]] std::unique_ptr<ICommand> textureSettingsCommand(assets::AssetDatabase &assets, core::Uuid texture,
                                                                assets::TextureSettings before,
                                                                assets::TextureSettings after);
+// Sets a glTF model's import settings, which rewrites the sidecar and re-imports the hierarchy.
+[[nodiscard]] std::unique_ptr<ICommand> modelSettingsCommand(assets::AssetDatabase &assets, core::Uuid model,
+                                                             assets::ModelSettings before, assets::ModelSettings after);
 
 // Copies files into the project and registers them, which is what the Assets panel's Import and a
 // drop of files on it do (docs/editor.md, "Importing assets"). Each file goes into the project's

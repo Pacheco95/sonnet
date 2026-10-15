@@ -111,6 +111,7 @@ private:
   void drawAsset(core::Uuid uuid);
   void drawMaterial(const assets::AssetInfo &info);
   void drawTexture(const assets::AssetInfo &info);
+  void drawModel(const assets::AssetInfo &info);
   void drawScript(const assets::AssetInfo &info);
   void drawFont(const assets::AssetInfo &info);
   void drawSound(const assets::AssetInfo &info);

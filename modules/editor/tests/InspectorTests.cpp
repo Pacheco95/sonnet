@@ -16,6 +16,7 @@
 #include <glm/gtc/constants.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <nlohmann/json.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -79,12 +80,12 @@ struct InspectorDriver {
     panel.draw(open, asset);
     ImGui::Render();
   }
-  // Moves the mouse down `window`, 60 px from its left edge, until the item `id` is hovered.
-  [[nodiscard]] bool hover(const ImGuiWindow *window, ImGuiID id) const {
+  // Moves the mouse down `window`, `x` px from its left edge, until the item `id` is hovered.
+  [[nodiscard]] bool hover(const ImGuiWindow *window, ImGuiID id, float x = 60.0f) const {
     const ImVec2 pos = window->Pos;
     const ImVec2 size = window->Size;
     for (float y = pos.y; y < pos.y + size.y; y += 2.0f) {
-      ImGui::GetIO().AddMousePosEvent(pos.x + 60.0f, y);
+      ImGui::GetIO().AddMousePosEvent(pos.x + x, y);
       frame();
       if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == id) {
         return true;
@@ -306,6 +307,114 @@ TEST_CASE("the material view edits emissive as a colour and a strength, each edi
     REQUIRE(emissive() == glm::vec3{2.0f, 1.0f, 0.0f});
     REQUIRE(commands.redo(world));
     REQUIRE(emissive() == scaled);
+  }
+  std::filesystem::remove_all(root);
+}
+
+TEST_CASE("the model view edits the light scale, rewriting the sidecar and the lights, with undo",
+          "[editor][inspector][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_light_scale";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  // Blender's 1000 W point light as its exporter writes it.
+  const nlohmann::json document{
+      {"asset", {{"version", "2.0"}}},
+      {"extensionsUsed", {"KHR_lights_punctual"}},
+      {"extensions",
+       {{"KHR_lights_punctual", {{"lights", nlohmann::json::array({{{"type", "point"}, {"intensity", 683.0}}})}}}}},
+      {"scene", 0},
+      {"scenes", nlohmann::json::array({{{"nodes", {0}}}})},
+      {"nodes", nlohmann::json::array({{{"name", "Bulb"}, {"extensions", {{"KHR_lights_punctual", {{"light", 0}}}}}}})},
+  };
+  const std::filesystem::path file = root / "assets" / "lamp.gltf";
+  REQUIRE(core::writeFile(file, document.dump()).has_value());
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  const assets::AssetInfo *lamp = assets.findByPath(file);
+  REQUIRE(lamp != nullptr);
+  const core::Uuid uuid = lamp->uuid;
+  const auto intensity = [&] { return assets.model(uuid)->nodes[0].light->intensity; };
+  const auto sidecarScale = [&] {
+    const auto bytes = core::readFile(file.string() + ".meta");
+    REQUIRE(bytes.has_value());
+    return nlohmann::json::parse(*bytes)["settings"]["lightScale"].get<float>();
+  };
+  REQUIRE(intensity() == Catch::Approx(1.0f));
+
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  {
+    const InspectorDriver driver{panel, uuid};
+    driver.frame();
+    const ImGuiWindow *window = InspectorDriver::inspector();
+    ImGuiIO &io = ImGui::GetIO();
+
+    // Typing a number into the field and leaving it is one command.
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Light scale")));
+    driver.click();
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(ImGuiKey_A, true);
+    driver.frame();
+    io.AddKeyEvent(ImGuiKey_A, false);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    driver.frame();
+    for (const char digit : std::string_view{"0.5"}) {
+      io.AddInputCharacter(static_cast<unsigned int>(digit));
+      driver.frame();
+    }
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    driver.frame();
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    driver.frame();
+    REQUIRE(commands.size() == 1);
+    REQUIRE(sidecarScale() == Catch::Approx(0.5f));
+    REQUIRE(intensity() == Catch::Approx(341.5f));
+
+    // A negative number is refused: nothing is pushed and the sidecar keeps the last value.
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Light scale")));
+    driver.click();
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(ImGuiKey_A, true);
+    driver.frame();
+    io.AddKeyEvent(ImGuiKey_A, false);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    driver.frame();
+    for (const char character : std::string_view{"-2"}) {
+      io.AddInputCharacter(static_cast<unsigned int>(character));
+      driver.frame();
+    }
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    driver.frame();
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    driver.frame();
+    REQUIRE(commands.size() == 1);
+    REQUIRE(sidecarScale() == Catch::Approx(0.5f));
+
+    // The quick choices set the two known conventions.
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Photometric"), 120.0f));
+    driver.click();
+    REQUIRE(commands.size() == 2);
+    REQUIRE(sidecarScale() == 1.0f);
+    REQUIRE(intensity() == Catch::Approx(683.0f));
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Blender")));
+    driver.click();
+    REQUIRE(commands.size() == 3);
+    REQUIRE(intensity() == Catch::Approx(1.0f));
+
+    REQUIRE(commands.undo(world));
+    REQUIRE(commands.undo(world));
+    REQUIRE(sidecarScale() == Catch::Approx(0.5f));
+    REQUIRE(intensity() == Catch::Approx(341.5f));
+    REQUIRE(commands.undo(world));
+    REQUIRE(sidecarScale() == Catch::Approx(1.0f / 683.0f));
+    REQUIRE(intensity() == Catch::Approx(1.0f));
   }
   std::filesystem::remove_all(root);
 }
