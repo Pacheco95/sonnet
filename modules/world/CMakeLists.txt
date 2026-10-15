@@ -20,6 +20,7 @@ sonnet_add_module_test(world
     tests/ComponentsTests.cpp
     tests/DrawListTests.cpp
     tests/NestedInstanceTests.cpp
+    tests/RefreshSpike.cpp
     tests/RepeatedMembersTests.cpp
     tests/SceneTests.cpp
     tests/WorldTests.cpp
