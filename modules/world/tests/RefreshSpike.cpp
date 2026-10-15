@@ -389,3 +389,47 @@ TEST_CASE("spike: cost of the reload and the merge at scale", "[spike][.cost]") 
     }
   }
 }
+
+TEST_CASE("spike: a scene saved before a re-export loads onto a rebuilt prefab in a fresh world", "[spike]") {
+  const core::Uuid uuid = core::Uuid::generate();
+  nlohmann::json scene;
+  core::Uuid instanceId;
+  {
+    world::World world;
+    const flecs::entity prefab = buildPrefab(world, modelOf({{"Set", -1, 0.0f}, {"A", 0, 10.0f}, {"B", 0, 10.0f}}), uuid);
+    const flecs::entity instance = world.instantiate(prefab, "I");
+    instanceId = world.uuidOf(instance);
+    world.findByPath(instance, "Set/B").set<world::PointLight>({.color = {1, 1, 1}, .intensity = 99.0f, .range = 5.0f, .castsShadows = false});
+    scene = world::saveScene(world);
+  }
+  // The project reopens after the model was re-exported with a node inserted ahead of B.
+  world::World reopened;
+  static_cast<void>(buildPrefab(reopened, modelOf({{"Set", -1, 0.0f}, {"New", 0, 3.0f}, {"A", 0, 10.0f}, {"B", 0, 10.0f}}), uuid));
+  REQUIRE(world::loadScene(reopened, scene).has_value());
+  const flecs::entity instance = reopened.find(instanceId);
+  REQUIRE(instance);
+  CHECK(reopened.findByPath(instance, "Set/A").get<world::PointLight>().intensity == Approx(10.0f));
+  CHECK(reopened.findByPath(instance, "Set/B").get<world::PointLight>().intensity == Approx(99.0f));
+  CHECK(reopened.findByPath(instance, "Set/New").get<world::PointLight>().intensity == Approx(3.0f));
+}
+
+TEST_CASE("spike: a scene saved under index identities loads onto name-path ones, dropping the old overrides", "[spike]") {
+  const core::Uuid uuid = core::Uuid::generate();
+  const assets::Model model = modelOf({{"Set", -1, 0.0f}, {"A", 0, 10.0f}, {"B", 0, 10.0f}});
+  nlohmann::json scene;
+  core::Uuid instanceId;
+  {
+    world::World world;
+    const flecs::entity prefab = world::loadModelPrefab(world, model, uuid, "Model");
+    const flecs::entity instance = world.instantiate(prefab, "I");
+    instanceId = world.uuidOf(instance);
+    world.findByPath(instance, "Set/B").set<world::PointLight>({.color = {1, 1, 1}, .intensity = 99.0f, .range = 5.0f, .castsShadows = false});
+    scene = world::saveScene(world);
+  }
+  world::World reopened;
+  static_cast<void>(buildPrefab(reopened, model, uuid));
+  REQUIRE(world::loadScene(reopened, scene).has_value()); // a warning, not an error
+  const flecs::entity instance = reopened.find(instanceId);
+  REQUIRE(instance);
+  CHECK(reopened.findByPath(instance, "Set/B").get<world::PointLight>().intensity == Approx(10.0f)); // override dropped, nothing misplaced
+}
