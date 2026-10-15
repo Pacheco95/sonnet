@@ -8,6 +8,7 @@
 #include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/world/World.h>
 
+#include <glm/vec3.hpp>
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
@@ -79,6 +80,12 @@ private:
     core::Uuid material;
     assets::MaterialSource before;
   };
+  // The material's emissive as shown: a colour and a strength whose product is the stored value.
+  struct EmissiveView {
+    core::Uuid material;
+    glm::vec3 colour{0.0f};
+    float strength{0.0f};
+  };
 
   void drawSelection(flecs::entity entity);
   void drawEntity(flecs::entity entity);
@@ -116,6 +123,7 @@ private:
   CommandStack &m_commands;
   std::optional<Edit> m_edit;
   std::optional<MaterialEdit> m_materialEdit;
+  std::optional<EmissiveView> m_emissive;
   core::Uuid m_shownAsset; // the asset of the last frame, to bring its tab forward when it changes
   bool m_activated{false};
   bool m_deactivatedAfterEdit{false};

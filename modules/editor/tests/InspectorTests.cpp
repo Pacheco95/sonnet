@@ -99,6 +99,19 @@ struct InspectorDriver {
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     frame();
   }
+  // Presses where the mouse is, moves it `dx` px to the right over three frames and releases it.
+  void drag(float dx) const {
+    ImGuiIO &io = ImGui::GetIO();
+    const ImVec2 start = io.MousePos;
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    frame();
+    for (int step = 1; step <= 3; ++step) {
+      io.AddMousePosEvent(start.x + dx * static_cast<float>(step) / 3.0f, start.y);
+      frame();
+    }
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    frame();
+  }
   [[nodiscard]] static ImGuiWindow *inspector() {
     ImGuiWindow *window = ImGui::FindWindowByName("Inspector");
     REQUIRE(window != nullptr);
@@ -107,6 +120,13 @@ struct InspectorDriver {
   // The id of a texture slot's UV node in the material view, and of a widget inside it.
   [[nodiscard]] static ImGuiID uvNode(const char *slot) {
     return ImHashStr("UV", 0, ImHashStr(slot, 0, inspector()->ID));
+  }
+  // The id of the material view's top-level widget `label`, and of a component of a colour row.
+  [[nodiscard]] static ImGuiID widget(const char *label) {
+    return ImHashStr(label, 0, inspector()->ID);
+  }
+  [[nodiscard]] static ImGuiID colourComponent(const char *label, const char *component) {
+    return ImHashStr(component, 0, widget(label));
   }
   [[nodiscard]] static ImGuiID uvWidget(const char *slot, const char *label) {
     return ImHashStr(label, 0, uvNode(slot));
@@ -221,6 +241,71 @@ TEST_CASE("the material view edits a texture slot's UV transform and set, with u
     REQUIRE(assets.saveMaterial(*material).has_value());
     assets.open(root, roots);
     REQUIRE(assets.materialSource(*material)->baseColorTransform == edited);
+  }
+  std::filesystem::remove_all(root);
+}
+
+TEST_CASE("the material view edits emissive as a colour and a strength, each edit one command",
+          "[editor][inspector][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_emissive";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  const auto material = assets.createMaterial(root / "assets" / "lamp.material.json", assets::MaterialSource{});
+  REQUIRE(material.has_value());
+  const auto emissive = [&] { return assets.materialSource(*material)->emissive; };
+
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  {
+    const InspectorDriver driver{panel, *material};
+    driver.frame();
+    const ImGuiWindow *window = InspectorDriver::inspector();
+
+    // No emission: black at strength 0. Giving it a colour sets the strength to 1, so it shows.
+    REQUIRE(driver.hover(window, InspectorDriver::colourComponent("Emissive", "##X")));
+    driver.drag(30.0f);
+    REQUIRE(commands.size() == 1);
+    const float red = emissive().r;
+    REQUIRE(red > 0.0f);
+    REQUIRE(red < 1.0f); // the colour times 1
+    REQUIRE(emissive().g == 0.0f);
+    REQUIRE(emissive().b == 0.0f);
+
+    // Seen afresh, [2, 1, 0] is the colour [1, 0.5, 0] at strength 2; the strength scales it.
+    assets::MaterialSource lit = *assets.materialSource(*material);
+    lit.emissive = {2.0f, 1.0f, 0.0f};
+    assets.setMaterialSource(*material, lit);
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Strength")));
+    driver.drag(20.0f);
+    REQUIRE(commands.size() == 2);
+    const glm::vec3 scaled = emissive();
+    REQUIRE(scaled.r > 2.0f);
+    REQUIRE(scaled.g == Catch::Approx(scaled.r / 2.0f));
+    REQUIRE(scaled.b == 0.0f);
+
+    // Dimming the colour keeps the strength: the other channels stay where they were.
+    REQUIRE(driver.hover(window, InspectorDriver::colourComponent("Emissive", "##X")));
+    driver.drag(-30.0f);
+    REQUIRE(commands.size() == 3);
+    REQUIRE(emissive().r < scaled.r);
+    REQUIRE(emissive().r > 0.0f);
+    REQUIRE(emissive().g == Catch::Approx(scaled.g));
+
+    REQUIRE(commands.undo(world));
+    REQUIRE(emissive() == scaled);
+    REQUIRE(commands.undo(world));
+    REQUIRE(emissive() == glm::vec3{2.0f, 1.0f, 0.0f});
+    REQUIRE(commands.redo(world));
+    REQUIRE(emissive() == scaled);
   }
   std::filesystem::remove_all(root);
 }

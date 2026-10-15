@@ -197,6 +197,29 @@ TEST_CASE("a transmissive glTF material imports as alpha-blended until refractio
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a glTF material's KHR_materials_emissive_strength scales its emissive", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_emissive_strength");
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(directory / "lamp.gltf", "wood.png");
+  const auto bytes = core::readFile(directory / "lamp.gltf");
+  REQUIRE(bytes.has_value());
+  nlohmann::json document =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  document["extensionsUsed"] = {"KHR_materials_emissive_strength"};
+  document["materials"][0]["emissiveFactor"] = {1.0, 0.5, 0.0};
+  document["materials"][0]["extensions"]["KHR_materials_emissive_strength"] = {{"emissiveStrength", 4.0}};
+  REQUIRE(core::writeFile(directory / "lamp.gltf", document.dump(2)).has_value());
+
+  const auto imported = importGltf(directory / "lamp.gltf");
+  REQUIRE(imported.has_value());
+  REQUIRE(imported->materials.size() == 1);
+  const glm::vec3 emissive = imported->materials[0].source.emissive;
+  REQUIRE(emissive.r == Approx(4.0f));
+  REQUIRE(emissive.g == Approx(2.0f));
+  REQUIRE(emissive.b == Approx(0.0f));
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("a glTF material's KHR_texture_transform imports per texture slot", "[assets][gltf]") {
   const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_texture_transform");
   REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
