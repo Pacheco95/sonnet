@@ -46,13 +46,15 @@ private:
   std::string m_description;
 };
 
-class TextureSettingsCommand final : public ICommand {
+// Sets a file's import settings, which rewrites its sidecar and re-imports it. `Set` is the
+// database member that does so for the settings type.
+template <typename Settings, core::Result<void> (assets::AssetDatabase::*Set)(const core::Uuid &, const Settings &)>
+class SettingsCommand final : public ICommand {
 public:
-  TextureSettingsCommand(assets::AssetDatabase &assets, core::Uuid texture, assets::TextureSettings before,
-                         assets::TextureSettings after)
-      : m_assets(assets), m_texture(texture), m_before(before), m_after(after) {
-    const assets::AssetInfo *info = m_assets.find(texture);
-    m_description = std::format("import settings of {}", info != nullptr ? info->name : texture.toString());
+  SettingsCommand(assets::AssetDatabase &assets, core::Uuid file, Settings before, Settings after)
+      : m_assets(assets), m_file(file), m_before(before), m_after(after) {
+    const assets::AssetInfo *info = m_assets.find(file);
+    m_description = std::format("import settings of {}", info != nullptr ? info->name : file.toString());
   }
 
   void apply(world::World &) override {
@@ -69,18 +71,21 @@ public:
   }
 
 private:
-  void set(const assets::TextureSettings &settings) {
-    if (const auto result = m_assets.setTextureSettings(m_texture, settings); !result) {
+  void set(const Settings &settings) {
+    if (const auto result = (m_assets.*Set)(m_file, settings); !result) {
       SONNET_LOG_ERROR("{}", result.error().toString());
     }
   }
 
   assets::AssetDatabase &m_assets;
-  core::Uuid m_texture;
-  assets::TextureSettings m_before;
-  assets::TextureSettings m_after;
+  core::Uuid m_file;
+  Settings m_before;
+  Settings m_after;
   std::string m_description;
 };
+
+using TextureSettingsCommand = SettingsCommand<assets::TextureSettings, &assets::AssetDatabase::setTextureSettings>;
+using ModelSettingsCommand = SettingsCommand<assets::ModelSettings, &assets::AssetDatabase::setModelSettings>;
 
 struct ImportCopy {
   std::filesystem::path from;
@@ -289,6 +294,11 @@ std::unique_ptr<ICommand> materialEditCommand(assets::AssetDatabase &assets, cor
 std::unique_ptr<ICommand> textureSettingsCommand(assets::AssetDatabase &assets, core::Uuid texture,
                                                  assets::TextureSettings before, assets::TextureSettings after) {
   return std::make_unique<TextureSettingsCommand>(assets, texture, before, after);
+}
+
+std::unique_ptr<ICommand> modelSettingsCommand(assets::AssetDatabase &assets, core::Uuid model,
+                                               assets::ModelSettings before, assets::ModelSettings after) {
+  return std::make_unique<ModelSettingsCommand>(assets, model, before, after);
 }
 
 } // namespace sonnet::editor
