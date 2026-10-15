@@ -47,7 +47,7 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset linux-debug 
 python3 tools/check_docs.py            # after editing any Markdown: links, anchors, cross-doc consistency
 python3 tools/check_dependencies.py    # the one-way module dependency rule: includes and links only point to earlier modules (--graphviz deps.dot also checks a `cmake --graphviz` target graph)
 python3 tools/check_version.py         # vcpkg.json must mirror project(sonnet VERSION ...)
-git ls-files '*.h' '*.cpp' | xargs clang-format --dry-run --Werror   # CI rejects unformatted code
+git ls-files '*.h' '*.cpp' | xargs clang-format-20 --dry-run --Werror   # CI rejects unformatted code; run it with version 20 before opening a PR
 sh tools/install_hooks.sh              # once per clone: commit-msg (Conventional Commits) and pre-commit (dependency rule) hooks
 ```
 
@@ -98,6 +98,7 @@ Full rules are in `docs/conventions.md`; these are the ones that differ from com
 - Init and resource creation may throw; the per-frame path never throws; recoverable operations return `std::expected<T, Error>`.
 - No compatibility shims, feature flags or future-proofing ahead of need. Third-party code is never edited in place; patches go through vcpkg overlay ports. vcpkg first, `FetchContent` only for libraries without a port, never both for one library.
 - Two naming rules differ from common habit: `m_` applies only to members of classes with behaviour, plain data structs have no prefix; and implementations are named after their technology (`SdlWindow`, `VulkanDevice`) behind an `I`-prefixed interface.
+- Run clang-format 20 (`clang-format-20`, the version CI uses) over the changed sources before opening a PR; other versions can disagree with CI.
 - Every module has `tests/` built through `sonnet_add_module_test`; a bug fix comes with the test that would have caught it.
 
 ## The issue backlog
