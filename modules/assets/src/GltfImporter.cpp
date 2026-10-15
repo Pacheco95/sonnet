@@ -9,6 +9,7 @@
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
 
+#include <meshoptimizer.h>
 #include <simdjson.h>
 
 #include <algorithm>
@@ -27,9 +28,9 @@ namespace {
 // The extensions read, the same for every parse so a file one parse accepts no other refuses.
 // KHR_mesh_quantization only allows 8- and 16-bit vertex attributes, which iterateAccessor converts
 // to float (normalized or not); the dequantizing scale and offset are the node's transform.
-constexpr fastgltf::Extensions ReadExtensions = fastgltf::Extensions::KHR_materials_transmission |
-                                                fastgltf::Extensions::KHR_texture_transform |
-                                                fastgltf::Extensions::KHR_mesh_quantization;
+constexpr fastgltf::Extensions ReadExtensions =
+    fastgltf::Extensions::KHR_materials_transmission | fastgltf::Extensions::KHR_texture_transform |
+    fastgltf::Extensions::KHR_mesh_quantization | fastgltf::Extensions::EXT_meshopt_compression;
 
 bool readsExtension(std::string_view name) {
   static const auto Read = fastgltf::stringifyExtensionBits(ReadExtensions);
@@ -92,6 +93,111 @@ core::Error parseError(const std::filesystem::path &path, fastgltf::Error error)
   }
   return gltfError(path, "parsing", error);
 }
+
+// EXT_meshopt_compression: by buffer view index, the bytes of each compressed view, decoded; empty
+// for a view that is not compressed. The views' own buffer is the extension's fallback, which may
+// hold no data, so every accessor read goes through DecodedViewAdapter instead.
+using DecodedViews = std::vector<std::vector<std::byte>>;
+
+// A loaded buffer's bytes, or none: an external buffer the parse did not load, or a fallback.
+fastgltf::span<const std::byte> loadedBytes(const fastgltf::Buffer &buffer) {
+  return std::visit(
+      [](const auto &source) -> fastgltf::span<const std::byte> {
+        using Source = std::decay_t<decltype(source)>;
+        if constexpr (std::is_same_v<Source, fastgltf::sources::Array> ||
+                      std::is_same_v<Source, fastgltf::sources::Vector>) {
+          return fastgltf::span<const std::byte>{source.bytes.data(), source.bytes.size()};
+        } else if constexpr (std::is_same_v<Source, fastgltf::sources::ByteView>) {
+          return source.bytes;
+        } else {
+          return {};
+        }
+      },
+      buffer.data);
+}
+
+core::Result<DecodedViews> decodeCompressedViews(const fastgltf::Asset &asset, const std::filesystem::path &path) {
+  DecodedViews decoded(asset.bufferViews.size());
+  for (std::size_t v = 0; v < asset.bufferViews.size(); ++v) {
+    const fastgltf::BufferView &view = asset.bufferViews[v];
+    if (view.meshoptCompression == nullptr) {
+      continue;
+    }
+    const fastgltf::CompressedBufferView &compressed = *view.meshoptCompression;
+    const auto fail = [&](std::string_view what) {
+      return std::unexpected(
+          core::Error{std::format("{}: buffer view {}: EXT_meshopt_compression {}", path.string(), v, what),
+                      core::ErrorCategory::Io});
+    };
+    const fastgltf::span<const std::byte> source = compressed.bufferIndex < asset.buffers.size()
+                                                       ? loadedBytes(asset.buffers[compressed.bufferIndex])
+                                                       : fastgltf::span<const std::byte>{};
+    if (compressed.byteOffset > source.size() || compressed.byteLength > source.size() - compressed.byteOffset) {
+      return fail("data is not loaded");
+    }
+    // The extension has the view hold exactly the decoded elements, which also bounds the allocation.
+    if (compressed.byteStride == 0 || compressed.count != view.byteLength / compressed.byteStride ||
+        view.byteLength % compressed.byteStride != 0) {
+      return fail("count and byteStride do not match the view's byteLength");
+    }
+    // The strides each filter allows; meshoptimizer asserts on any other (fastgltf checks the modes').
+    using Filter = fastgltf::MeshoptCompressionFilter;
+    const std::size_t stride = compressed.byteStride;
+    if (compressed.filter != Filter::None && (compressed.mode != fastgltf::MeshoptCompressionMode::Attributes ||
+                                              (compressed.filter == Filter::Octahedral && stride != 4 && stride != 8) ||
+                                              (compressed.filter == Filter::Quaternion && stride != 8))) {
+      return fail("filter does not fit the view's mode or byteStride");
+    }
+    std::vector<std::byte> &out = decoded[v];
+    out.resize(view.byteLength);
+    const auto *bytes = reinterpret_cast<const unsigned char *>(source.data() + compressed.byteOffset);
+    int result = -1;
+    switch (compressed.mode) {
+    case fastgltf::MeshoptCompressionMode::Attributes:
+      result =
+          meshopt_decodeVertexBuffer(out.data(), compressed.count, compressed.byteStride, bytes, compressed.byteLength);
+      break;
+    case fastgltf::MeshoptCompressionMode::Triangles:
+      result =
+          meshopt_decodeIndexBuffer(out.data(), compressed.count, compressed.byteStride, bytes, compressed.byteLength);
+      break;
+    case fastgltf::MeshoptCompressionMode::Indices:
+      result = meshopt_decodeIndexSequence(out.data(), compressed.count, compressed.byteStride, bytes,
+                                           compressed.byteLength);
+      break;
+    }
+    if (result != 0) {
+      return fail("data does not decode");
+    }
+    switch (compressed.filter) {
+    case fastgltf::MeshoptCompressionFilter::None:
+      break;
+    case fastgltf::MeshoptCompressionFilter::Octahedral:
+      meshopt_decodeFilterOct(out.data(), compressed.count, compressed.byteStride);
+      break;
+    case fastgltf::MeshoptCompressionFilter::Quaternion:
+      meshopt_decodeFilterQuat(out.data(), compressed.count, compressed.byteStride);
+      break;
+    case fastgltf::MeshoptCompressionFilter::Exponential:
+      meshopt_decodeFilterExp(out.data(), compressed.count, compressed.byteStride);
+      break;
+    }
+  }
+  return decoded;
+}
+
+// fastgltf's buffer data adapter for iterateAccessor: a compressed view's decoded bytes, or the
+// view's own.
+struct DecodedViewAdapter {
+  const DecodedViews *decoded = nullptr;
+
+  fastgltf::span<const std::byte> operator()(const fastgltf::Asset &asset, std::size_t view) const {
+    if (const std::vector<std::byte> &bytes = (*decoded)[view]; !bytes.empty()) {
+      return fastgltf::span<const std::byte>{bytes.data(), bytes.size()};
+    }
+    return fastgltf::DefaultBufferDataAdapter{}(asset, view);
+  }
+};
 
 // The UV set a slot reads: its texture info's texCoord, or KHR_texture_transform's override of it.
 // `info` is one of fastgltf's optional texture-info types.
@@ -370,6 +476,12 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     SONNET_LOG_WARN("{}: uses {}, which the importer does not read; the model may not look as authored", path.string(),
                     unread);
   }
+  // Compressed views are decoded before any accessor is read; every read below passes `views`.
+  const auto decoded = decodeCompressedViews(asset, path);
+  if (!decoded) {
+    return std::unexpected(decoded.error());
+  }
+  const DecodedViewAdapter views{.decoded = &*decoded};
 
   // Meshes: one submesh per triangle primitive, with flat normals and tangents generated where a
   // primitive has none.
@@ -395,21 +507,24 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       const auto base = static_cast<std::uint32_t>(out.data.vertices.size());
       const fastgltf::Accessor &positions = asset.accessors[position->accessorIndex];
       out.data.vertices.resize(base + positions.count);
-      fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, positions, [&](glm::vec3 value, std::size_t i) {
-        out.data.vertices[base + i].position = value;
-        out.data.vertices[base + i].normal = {0.0f, 1.0f, 0.0f};
-      });
+      fastgltf::iterateAccessorWithIndex<glm::vec3>(
+          asset, positions,
+          [&](glm::vec3 value, std::size_t i) {
+            out.data.vertices[base + i].position = value;
+            out.data.vertices[base + i].normal = {0.0f, 1.0f, 0.0f};
+          },
+          views);
       if (const auto normal = primitive.findAttribute("NORMAL"); normal != primitive.attributes.end()) {
         fastgltf::iterateAccessorWithIndex<glm::vec3>(
             asset, asset.accessors[normal->accessorIndex],
-            [&](glm::vec3 value, std::size_t i) { out.data.vertices[base + i].normal = value; });
+            [&](glm::vec3 value, std::size_t i) { out.data.vertices[base + i].normal = value; }, views);
       } else {
         needFlatNormals = true;
       }
       if (const auto uv = primitive.findAttribute("TEXCOORD_0"); uv != primitive.attributes.end()) {
         fastgltf::iterateAccessorWithIndex<glm::vec2>(
             asset, asset.accessors[uv->accessorIndex],
-            [&](glm::vec2 value, std::size_t i) { out.data.vertices[base + i].uv = value; });
+            [&](glm::vec2 value, std::size_t i) { out.data.vertices[base + i].uv = value; }, views);
       }
       // The second set, which a material's slot may read instead (texCoord 1). A primitive without
       // one keeps zeros, and a slot that asks for it there gets the same texel everywhere.
@@ -420,7 +535,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       if (const auto uv1 = primitive.findAttribute("TEXCOORD_1"); uv1 != primitive.attributes.end()) {
         fastgltf::iterateAccessorWithIndex<glm::vec2>(
             asset, asset.accessors[uv1->accessorIndex],
-            [&](glm::vec2 value, std::size_t i) { out.data.vertices[base + i].uv1 = value; });
+            [&](glm::vec2 value, std::size_t i) { out.data.vertices[base + i].uv1 = value; }, views);
       } else if (material != nullptr && highestTexCoord(*material) >= 1) {
         SONNET_LOG_WARN("{}: mesh \"{}\" has a primitive without TEXCOORD_1 whose material reads it", path.string(),
                         out.name);
@@ -428,7 +543,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       if (const auto tangent = primitive.findAttribute("TANGENT"); tangent != primitive.attributes.end()) {
         fastgltf::iterateAccessorWithIndex<glm::vec4>(
             asset, asset.accessors[tangent->accessorIndex],
-            [&](glm::vec4 value, std::size_t i) { out.data.vertices[base + i].tangent = value; });
+            [&](glm::vec4 value, std::size_t i) { out.data.vertices[base + i].tangent = value; }, views);
       } else {
         needTangents = true;
         if (material != nullptr && texCoordOf(material->normalTexture) == 1) {
@@ -445,10 +560,10 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
         out.data.skin.resize(out.data.vertices.size());
         fastgltf::iterateAccessorWithIndex<glm::uvec4>(
             asset, asset.accessors[joints->accessorIndex],
-            [&](glm::uvec4 value, std::size_t i) { out.data.skin[base + i].joints = value; });
+            [&](glm::uvec4 value, std::size_t i) { out.data.skin[base + i].joints = value; }, views);
         fastgltf::iterateAccessorWithIndex<glm::vec4>(
             asset, asset.accessors[weights->accessorIndex],
-            [&](glm::vec4 value, std::size_t i) { out.data.skin[base + i].weights = value; });
+            [&](glm::vec4 value, std::size_t i) { out.data.skin[base + i].weights = value; }, views);
       }
       // Morph targets: position, normal and tangent deltas, per target kept.
       const std::size_t targets = std::min<std::size_t>(primitive.targets.size(), renderer::MaxMorphTargets);
@@ -470,7 +585,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
             if (attribute.name == name) {
               fastgltf::iterateAccessorWithIndex<glm::vec3>(
                   asset, asset.accessors[attribute.accessorIndex],
-                  [&](glm::vec3 value, std::size_t i) { assign(morphTargets[t][base + i], value); });
+                  [&](glm::vec3 value, std::size_t i) { assign(morphTargets[t][base + i], value); }, views);
             }
           }
         };
@@ -480,8 +595,8 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
       }
       const fastgltf::Accessor &indices = asset.accessors[*primitive.indicesAccessor];
       const auto firstIndex = static_cast<std::uint32_t>(out.data.indices.size());
-      fastgltf::iterateAccessor<std::uint32_t>(asset, indices,
-                                               [&](std::uint32_t index) { out.data.indices.push_back(base + index); });
+      fastgltf::iterateAccessor<std::uint32_t>(
+          asset, indices, [&](std::uint32_t index) { out.data.indices.push_back(base + index); }, views);
       if (needFlatNormals) {
         flattenNormals(out.data, base, firstIndex);
       }
@@ -599,12 +714,14 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     }
     out.skin.inverseBindMatrices.assign(out.skin.joints.size(), glm::mat4{1.0f});
     if (skin.inverseBindMatrices.has_value()) {
-      fastgltf::iterateAccessorWithIndex<glm::mat4>(asset, asset.accessors[*skin.inverseBindMatrices],
-                                                    [&](const glm::mat4 &value, std::size_t i) {
-                                                      if (i < out.skin.inverseBindMatrices.size()) {
-                                                        out.skin.inverseBindMatrices[i] = value;
-                                                      }
-                                                    });
+      fastgltf::iterateAccessorWithIndex<glm::mat4>(
+          asset, asset.accessors[*skin.inverseBindMatrices],
+          [&](const glm::mat4 &value, std::size_t i) {
+            if (i < out.skin.inverseBindMatrices.size()) {
+              out.skin.inverseBindMatrices[i] = value;
+            }
+          },
+          views);
     }
     import.skins.push_back(std::move(out));
   }
@@ -630,23 +747,24 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
                              : sampler.interpolation == fastgltf::AnimationInterpolation::CubicSpline
                                  ? Interpolation::CubicSpline
                                  : Interpolation::Linear;
-      fastgltf::iterateAccessor<float>(asset, asset.accessors[sampler.inputAccessor],
-                                       [&](float time) { result.times.push_back(time); });
+      fastgltf::iterateAccessor<float>(
+          asset, asset.accessors[sampler.inputAccessor], [&](float time) { result.times.push_back(time); }, views);
       const fastgltf::Accessor &output = asset.accessors[sampler.outputAccessor];
       const std::size_t stride = result.interpolation == Interpolation::CubicSpline ? 3 : 1;
       if (result.path == AnimationPath::Rotation) {
-        fastgltf::iterateAccessor<glm::vec4>(asset, output, [&](glm::vec4 value) {
-          result.values.insert(result.values.end(), {value.x, value.y, value.z, value.w});
-        });
+        fastgltf::iterateAccessor<glm::vec4>(
+            asset, output,
+            [&](glm::vec4 value) { result.values.insert(result.values.end(), {value.x, value.y, value.z, value.w}); },
+            views);
       } else if (result.path == AnimationPath::Weights) {
-        fastgltf::iterateAccessor<float>(asset, output, [&](float value) { result.values.push_back(value); });
+        fastgltf::iterateAccessor<float>(asset, output, [&](float value) { result.values.push_back(value); }, views);
         // The output holds one weight per target for each of the keys' values.
         const std::size_t values = result.times.size() * stride;
         result.weightCount = values == 0 ? 0 : static_cast<std::uint32_t>(result.values.size() / values);
       } else {
-        fastgltf::iterateAccessor<glm::vec3>(asset, output, [&](glm::vec3 value) {
-          result.values.insert(result.values.end(), {value.x, value.y, value.z});
-        });
+        fastgltf::iterateAccessor<glm::vec3>(
+            asset, output,
+            [&](glm::vec3 value) { result.values.insert(result.values.end(), {value.x, value.y, value.z}); }, views);
       }
       if (result.times.empty() || result.values.size() != result.times.size() * stride * width(result) ||
           width(result) == 0 || !std::ranges::is_sorted(result.times)) {

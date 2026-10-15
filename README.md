@@ -74,7 +74,7 @@ Vulkan 1.4 is the minimum, or 1.3 with the four 1.4 features the engine uses as 
 | [fastgltf](https://github.com/spnda/fastgltf) | glTF 2.0 import | vcpkg `fastgltf` |
 | [stb](https://github.com/nothings/stb) | Image decoding for import | vcpkg `stb` |
 | [KTX-Software](https://github.com/KhronosGroup/KTX-Software) | KTX2 / Basis Universal GPU-compressed textures | vcpkg `ktx` |
-| [meshoptimizer](https://github.com/zeux/meshoptimizer) | The far shadow cascades' coarser index range ([ADR-0025](docs/decisions/0025-shadow-levels-of-detail.md)) | vcpkg `meshoptimizer` |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer) | The far shadow cascades' coarser index range ([ADR-0025](docs/decisions/0025-shadow-levels-of-detail.md)); decoding glTF `EXT_meshopt_compression` | vcpkg `meshoptimizer` |
 | [Catch2](https://github.com/catchorg/Catch2) | Unit tests | vcpkg `catch2` |
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics), Lua + [sol2](https://github.com/ThePhD/sol2), [miniaudio](https://miniaud.io) | Physics, scripting, audio (M4, M5) | vcpkg `joltphysics`, `lua`, `sol2`, `miniaudio` |
 

@@ -10,6 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <meshoptimizer.h>
 #include <spdlog/sinks/ostream_sink.h>
 
 #include <array>
@@ -518,5 +519,175 @@ TEST_CASE("a glTF file imports morph targets, their default weights and weight c
   REQUIRE(decoded.has_value());
   REQUIRE(decoded->morphTargetCount == 1);
   REQUIRE(decoded->morphDeltas.size() == cooked.morphDeltas.size());
+  std::filesystem::remove_all(directory);
+}
+
+namespace {
+
+// How writeQuadGltf stores its index buffer view.
+enum class IndexCompression : std::uint8_t {
+  None,
+  Triangles,
+  Indices
+};
+
+// A quad folded along its diagonal, positions and normals interleaved in one view and 16-bit
+// indices in another. Compressed, both views are EXT_meshopt_compression data in buffer 0 over a
+// fallback buffer 1 that has no data: the vertices with the exponential filter, the indices in the
+// mode `indexMode` names. Uncompressed (`None`), the same views in a plain buffer.
+void writeQuadGltf(const std::filesystem::path &gltf, IndexCompression indexMode) {
+  using nlohmann::json;
+  constexpr std::size_t vertexCount = 4;
+  constexpr std::size_t stride = 24;
+  const std::vector<float> vertices{-1.0f, 0.0f, -1.0f, 0.0f,   1.0f,  0.0f,    1.0f, 0.0f, -1.0f, 0.0f,   1.0f, 0.0f,
+                                    -1.0f, 0.5f, 1.0f,  -0.25f, 0.75f, -0.375f, 1.0f, 2.5f, 1.0f,  0.125f, 0.5f, 0.0f};
+  const std::vector<std::uint16_t> indices16{0, 2, 1, 1, 2, 3};
+  const std::vector<std::uint32_t> indices32(indices16.begin(), indices16.end()); // what the encoder takes
+  const std::size_t vertexBytes = vertexCount * stride;
+  const std::size_t indexBytes = indices16.size() * 2;
+  const bool compressed = indexMode != IndexCompression::None;
+
+  std::vector<std::byte> bin;
+  json views = json::array();
+  const auto append = [&](std::span<const std::byte> bytes) {
+    const std::size_t offset = bin.size();
+    bin.insert(bin.end(), bytes.begin(), bytes.end());
+    while (bin.size() % 4 != 0) {
+      bin.push_back(std::byte{0});
+    }
+    return offset;
+  };
+  if (!compressed) {
+    const std::size_t vertexOffset = append(std::as_bytes(std::span{vertices}));
+    const std::size_t indexOffset = append(std::as_bytes(std::span{indices16}));
+    views.push_back(
+        json{{"buffer", 0}, {"byteOffset", vertexOffset}, {"byteLength", vertexBytes}, {"byteStride", stride}});
+    views.push_back(json{{"buffer", 0}, {"byteOffset", indexOffset}, {"byteLength", indexBytes}});
+  } else {
+    // The exponential filter's input is the floats, its output what the vertex codec compresses.
+    std::vector<std::uint32_t> filtered(vertices.size());
+    meshopt_encodeFilterExp(filtered.data(), vertexCount, stride, 24, vertices.data(), meshopt_EncodeExpSeparate);
+    std::vector<unsigned char> vertexCodec(meshopt_encodeVertexBufferBound(vertexCount, stride));
+    // Version 0, the one EXT_meshopt_compression allows.
+    vertexCodec.resize(meshopt_encodeVertexBufferLevel(vertexCodec.data(), vertexCodec.size(), filtered.data(),
+                                                       vertexCount, stride, 2, 0));
+    const bool sequence = indexMode == IndexCompression::Indices;
+    std::vector<unsigned char> indexCodec(sequence ? meshopt_encodeIndexSequenceBound(indices32.size(), vertexCount)
+                                                   : meshopt_encodeIndexBufferBound(indices32.size(), vertexCount));
+    indexCodec.resize(
+        sequence ? meshopt_encodeIndexSequence(indexCodec.data(), indexCodec.size(), indices32.data(), indices32.size())
+                 : meshopt_encodeIndexBuffer(indexCodec.data(), indexCodec.size(), indices32.data(), indices32.size()));
+    REQUIRE(!vertexCodec.empty());
+    REQUIRE(!indexCodec.empty());
+    const std::size_t vertexOffset = append(std::as_bytes(std::span{vertexCodec}));
+    const std::size_t indexOffset = append(std::as_bytes(std::span{indexCodec}));
+    views.push_back(json{{"buffer", 1},
+                         {"byteOffset", 0},
+                         {"byteLength", vertexBytes},
+                         {"byteStride", stride},
+                         {"extensions",
+                          {{"EXT_meshopt_compression",
+                            {{"buffer", 0},
+                             {"byteOffset", vertexOffset},
+                             {"byteLength", vertexCodec.size()},
+                             {"byteStride", stride},
+                             {"count", vertexCount},
+                             {"mode", "ATTRIBUTES"},
+                             {"filter", "EXPONENTIAL"}}}}}});
+    views.push_back(json{{"buffer", 1},
+                         {"byteOffset", vertexBytes},
+                         {"byteLength", indexBytes},
+                         {"extensions",
+                          {{"EXT_meshopt_compression",
+                            {{"buffer", 0},
+                             {"byteOffset", indexOffset},
+                             {"byteLength", indexCodec.size()},
+                             {"byteStride", 2},
+                             {"count", indices16.size()},
+                             {"mode", sequence ? "INDICES" : "TRIANGLES"}}}}}});
+  }
+  const std::string binName = gltf.stem().string() + ".bin";
+  REQUIRE(core::writeFile(gltf.parent_path() / binName, bin).has_value());
+  json buffers = json::array({json{{"uri", binName}, {"byteLength", bin.size()}}});
+  if (compressed) {
+    buffers.push_back(json{{"byteLength", vertexBytes + indexBytes},
+                           {"extensions", {{"EXT_meshopt_compression", {{"fallback", true}}}}}});
+  }
+  json document{
+      {"asset", {{"version", "2.0"}}},
+      {"scene", 0},
+      {"scenes", json::array({json{{"nodes", json::array({0})}}})},
+      {"nodes", json::array({json{{"name", "Quad"}, {"mesh", 0}}})},
+      {"meshes", json::array({json{{"name", "QuadMesh"},
+                                   {"primitives", json::array({json{{"attributes", {{"POSITION", 0}, {"NORMAL", 1}}},
+                                                                    {"indices", 2}}})}}})},
+      {"buffers", buffers},
+      {"bufferViews", views},
+      {"accessors",
+       json::array(
+           {json{{"bufferView", 0},
+                 {"componentType", 5126},
+                 {"count", vertexCount},
+                 {"type", "VEC3"},
+                 {"min", json::array({-1.0, 0.0, -1.0})},
+                 {"max", json::array({1.0, 2.5, 1.0})}},
+            json{{"bufferView", 0},
+                 {"byteOffset", 12},
+                 {"componentType", 5126},
+                 {"count", vertexCount},
+                 {"type", "VEC3"}},
+            json{{"bufferView", 1}, {"componentType", 5123}, {"count", indices16.size()}, {"type", "SCALAR"}}})},
+  };
+  if (compressed) {
+    document["extensionsUsed"] = {"EXT_meshopt_compression"};
+    document["extensionsRequired"] = {"EXT_meshopt_compression"};
+  }
+  REQUIRE(core::writeFile(gltf, document.dump(2)).has_value());
+}
+
+} // namespace
+
+TEST_CASE("a glTF file's EXT_meshopt_compression geometry imports as its uncompressed source", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_meshopt");
+  writeQuadGltf(directory / "plain.gltf", IndexCompression::None);
+  const auto plain = importGltf(directory / "plain.gltf");
+  REQUIRE(plain.has_value());
+  REQUIRE(plain->meshes.size() == 1);
+  const renderer::MeshData &expected = plain->meshes[0].data;
+  REQUIRE(expected.vertices.size() == 4);
+  REQUIRE(expected.vertices[3].position == glm::vec3{1.0f, 2.5f, 1.0f});
+
+  // A filtered vertex buffer, with an index buffer in each of the extension's index modes.
+  for (const IndexCompression mode : {IndexCompression::Triangles, IndexCompression::Indices}) {
+    CAPTURE(static_cast<int>(mode));
+    writeQuadGltf(directory / "packed.gltf", mode);
+    const auto packed = importGltf(directory / "packed.gltf");
+    REQUIRE(packed.has_value());
+    REQUIRE(packed->meshes.size() == 1);
+    const renderer::MeshData &mesh = packed->meshes[0].data;
+    REQUIRE(mesh.indices == expected.indices);
+    REQUIRE(mesh.vertices.size() == expected.vertices.size());
+    for (std::size_t v = 0; v < mesh.vertices.size(); ++v) {
+      REQUIRE(mesh.vertices[v].position == expected.vertices[v].position);
+      REQUIRE(mesh.vertices[v].normal == expected.vertices[v].normal);
+    }
+  }
+
+  // The fallback buffer has no file: not a dependency, and the structure-only read takes the file.
+  const auto dependencies = gltfDependencies(directory / "packed.gltf");
+  REQUIRE(dependencies.has_value());
+  REQUIRE(*dependencies == std::vector<std::filesystem::path>{"packed.bin"});
+  const auto structure = importGltfStructure(directory / "packed.gltf");
+  REQUIRE(structure.has_value());
+  REQUIRE(structure->model.nodes.size() == 1);
+
+  // Compressed data that does not decode is an error naming the view.
+  const auto bin = core::readFile(directory / "packed.bin");
+  REQUIRE(bin.has_value());
+  REQUIRE(core::writeFile(directory / "packed.bin", std::vector<std::byte>(bin->size(), std::byte{0xff})).has_value());
+  const auto corrupt = importGltf(directory / "packed.gltf");
+  REQUIRE(!corrupt.has_value());
+  REQUIRE(corrupt.error().message.find("buffer view 0: EXT_meshopt_compression data does not decode") !=
+          std::string::npos);
   std::filesystem::remove_all(directory);
 }
