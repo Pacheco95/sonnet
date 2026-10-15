@@ -29,8 +29,9 @@ namespace {
 // KHR_mesh_quantization only allows 8- and 16-bit vertex attributes, which iterateAccessor converts
 // to float (normalized or not); the dequantizing scale and offset are the node's transform.
 constexpr fastgltf::Extensions ReadExtensions =
-    fastgltf::Extensions::KHR_materials_transmission | fastgltf::Extensions::KHR_texture_transform |
-    fastgltf::Extensions::KHR_mesh_quantization | fastgltf::Extensions::EXT_meshopt_compression;
+    fastgltf::Extensions::KHR_materials_emissive_strength | fastgltf::Extensions::KHR_materials_transmission |
+    fastgltf::Extensions::KHR_texture_transform | fastgltf::Extensions::KHR_mesh_quantization |
+    fastgltf::Extensions::EXT_meshopt_compression;
 
 bool readsExtension(std::string_view name) {
   static const auto Read = fastgltf::stringifyExtensionBits(ReadExtensions);
@@ -650,7 +651,10 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
                             pbr.baseColorFactor[3]};
     out.source.metallic = pbr.metallicFactor;
     out.source.roughness = pbr.roughnessFactor;
-    out.source.emissive = {material.emissiveFactor[0], material.emissiveFactor[1], material.emissiveFactor[2]};
+    // KHR_materials_emissive_strength lifts the clamped factor above 1; emissive is unclamped.
+    out.source.emissive =
+        glm::vec3{material.emissiveFactor[0], material.emissiveFactor[1], material.emissiveFactor[2]} *
+        material.emissiveStrength;
     out.source.alphaCutoff = material.alphaCutoff;
     out.source.doubleSided = material.doubleSided;
     out.source.alphaMode = material.alphaMode == fastgltf::AlphaMode::Blend  ? renderer::AlphaMode::Blend
