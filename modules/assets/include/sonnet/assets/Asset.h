@@ -131,6 +131,15 @@ struct FontSource {
   std::uint64_t revision{0};
 };
 
+// A glTF perspective camera, which `world` turns into a `Camera` on the node's entity. It looks
+// along the node's -Z, as the engine's does; the far plane and aspect ratio are not kept, since
+// the engine's projection is infinite and the viewport decides the aspect.
+struct ModelCamera {
+  float fovY{0.0f}; // radians
+  float nearPlane{0.0f};
+  bool operator==(const ModelCamera &) const = default;
+};
+
 // The node hierarchy of a glTF file, which `world` turns into a prefab.
 struct ModelNode {
   std::string name;
@@ -143,6 +152,7 @@ struct ModelNode {
   // The morph target weights the node's mesh starts with, one per target kept (ADR-0023); empty
   // for a mesh without targets.
   std::vector<float> morphWeights{};
+  std::optional<ModelCamera> camera{}; // the node's perspective camera, if it has one
 };
 
 struct Model {

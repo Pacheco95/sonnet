@@ -602,6 +602,9 @@ flecs::entity loadModelPrefab(World &world, const assets::Model &model, const co
     if (!node.morphWeights.empty()) {
       entity.set<MorphWeights>({node.morphWeights});
     }
+    if (node.camera) {
+      entity.set<Camera>({.fovY = node.camera->fovY, .nearPlane = node.camera->nearPlane});
+    }
     entities.push_back(entity);
   }
   // A model with clips plays its first on the root, where the clips' paths start.

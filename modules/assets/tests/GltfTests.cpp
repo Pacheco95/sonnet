@@ -608,6 +608,51 @@ TEST_CASE("a glTF file imports its skins, joint weights and animation clips by n
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a glTF node's perspective camera imports with its FOV and near plane", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_camera");
+  const nlohmann::json document{
+      {"asset", {{"version", "2.0"}}},
+      {"scene", 0},
+      {"scenes", nlohmann::json::array({{{"nodes", {0, 1, 2}}}})},
+      {"nodes", nlohmann::json::array({{{"name", "Shot"}, {"camera", 0}, {"translation", {0.0, 1.0, 5.0}}},
+                                       {{"name", "Plan"}, {"camera", 1}},
+                                       {{"name", "Empty"}}})},
+      {"cameras", nlohmann::json::array(
+                      {{{"type", "perspective"},
+                        {"perspective", {{"yfov", 0.6}, {"znear", 0.05}, {"zfar", 100.0}, {"aspectRatio", 1.5}}}},
+                       {{"type", "orthographic"},
+                        {"orthographic", {{"xmag", 2.0}, {"ymag", 2.0}, {"znear", 0.1}, {"zfar", 10.0}}}}})},
+  };
+  REQUIRE(core::writeFile(directory / "shot.gltf", document.dump(2)).has_value());
+
+  std::ostringstream log;
+  const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
+  core::Log::addSink(sink);
+  const auto imported = importGltf(directory / "shot.gltf");
+  core::Log::removeSink(sink);
+  REQUIRE(imported.has_value());
+  const std::vector<ModelNode> &nodes = imported->model.nodes;
+  REQUIRE(nodes.size() == 3);
+  REQUIRE(nodes[0].camera.has_value());
+  REQUIRE(nodes[0].camera->fovY == Approx(0.6f));
+  REQUIRE(nodes[0].camera->nearPlane == Approx(0.05f));
+  REQUIRE(nodes[0].position == glm::vec3{0.0f, 1.0f, 5.0f});
+  // No orthographic projection in the engine: the node stays, without a camera, and is warned about.
+  REQUIRE(!nodes[1].camera.has_value());
+  REQUIRE(log.str().find("node \"Plan\" has an orthographic camera") != std::string::npos);
+  REQUIRE(!nodes[2].camera.has_value());
+
+  // The structure-only read agrees, and the camera survives the bundle's encoding.
+  const auto structure = importGltfStructure(directory / "shot.gltf");
+  REQUIRE(structure.has_value());
+  REQUIRE(structure->model.nodes[0].camera == nodes[0].camera);
+  const auto decoded = decodeModel(encodeModel(imported->model));
+  REQUIRE(decoded.has_value());
+  REQUIRE(decoded->nodes[0].camera == nodes[0].camera);
+  REQUIRE(!decoded->nodes[1].camera.has_value());
+  std::filesystem::remove_all(directory);
+}
+
 namespace {
 
 // One triangle on node "Face" whose single morph target pushes every vertex a metre along +Z, a

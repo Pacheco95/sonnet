@@ -487,6 +487,11 @@ std::vector<std::byte> encodeModel(const Model &model) {
     writer.pod(node.mesh.bytes());
     writer.pod(node.skin.bytes());
     writer.array(std::span{node.morphWeights});
+    writer.u32(node.camera.has_value() ? 1u : 0u);
+    if (node.camera) {
+      writer.f32(node.camera->fovY);
+      writer.f32(node.camera->nearPlane);
+    }
   }
   writer.u32(static_cast<std::uint32_t>(model.animations.size()));
   for (const core::Uuid &animation : model.animations) {
@@ -515,6 +520,10 @@ core::Result<Model> decodeModel(std::span<const std::byte> payload) {
     node.mesh = core::Uuid{reader.pod<core::Uuid::Bytes>()};
     node.skin = core::Uuid{reader.pod<core::Uuid::Bytes>()};
     reader.array(node.morphWeights);
+    if (reader.u32() != 0) {
+      const float fovY = reader.f32();
+      node.camera = ModelCamera{.fovY = fovY, .nearPlane = reader.f32()};
+    }
   }
   const std::uint32_t animations = reader.u32();
   if (!reader.ok() || animations > reader.remaining() / sizeof(core::Uuid::Bytes)) {

@@ -1,3 +1,4 @@
+#include <sonnet/world/DrawList.h>
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
@@ -273,6 +274,33 @@ TEST_CASE("a model becomes a prefab with its node hierarchy and meshes", "[world
   const nlohmann::json scene = world::saveScene(world);
   REQUIRE(scene["entities"].size() == 1);
   REQUIRE(scene["entities"][0]["prefab"] == modelUuid.toString());
+}
+
+TEST_CASE("a model node's camera becomes a Camera that play mode can look through", "[world][scene][prefab]") {
+  const core::Uuid modelUuid = core::Uuid::generate();
+  assets::Model model;
+  model.nodes.push_back({.name = "Set", .parent = -1});
+  model.nodes.push_back({.name = "Shot",
+                         .parent = 0,
+                         .position = {0.0f, 1.0f, 5.0f},
+                         .camera = assets::ModelCamera{.fovY = 0.6f, .nearPlane = 0.05f}});
+  world::World world;
+  const flecs::entity prefab = world::loadModelPrefab(world, model, modelUuid, "Stage");
+  const flecs::entity shot = world.children(world.children(prefab)[0])[0];
+  REQUIRE(shot.get<world::Camera>().fovY == Approx(0.6f));
+  REQUIRE(shot.get<world::Camera>().nearPlane == Approx(0.05f));
+  REQUIRE(!world.children(prefab)[0].has<world::Camera>());
+
+  // An instance's camera is the scene camera the player and the editor's play mode render from.
+  REQUIRE(!world::sceneCamera(world).has_value());
+  static_cast<void>(world.instantiate(prefab, "Stage 1"));
+  world.progress(0.016f);
+  const std::optional<renderer::Camera> camera = world::sceneCamera(world);
+  REQUIRE(camera.has_value());
+  REQUIRE(camera->position.y == Approx(1.0f));
+  REQUIRE(camera->position.z == Approx(5.0f));
+  REQUIRE(camera->fovY == Approx(0.6f));
+  REQUIRE(camera->nearPlane == Approx(0.05f));
 }
 
 TEST_CASE("siblings keep their order through repeated save and load", "[world][scene]") {
