@@ -361,6 +361,8 @@ struct NodeWalk {
   std::vector<bool> visited;
   // Names that siblings share, which makes their paths ambiguous.
   std::vector<std::string> duplicateNames;
+  // Names of the nodes whose orthographic camera was dropped, since the engine has no such projection.
+  std::vector<std::string> orthographicCameras;
 };
 
 NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::int32_t> &meshIndices,
@@ -386,7 +388,8 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::
   }
   NodeWalk walk{.paths = std::vector<std::string>(asset.nodes.size()),
                 .visited = std::vector<bool>(asset.nodes.size(), false),
-                .duplicateNames = {}};
+                .duplicateNames = {},
+                .orthographicCameras = {}};
   const auto visit = [&](auto &self, std::size_t nodeIndex, std::int32_t parent, const std::string &parentPath,
                          std::vector<std::string> &siblings) -> void {
     if (nodeIndex >= asset.nodes.size() || walk.visited[nodeIndex]) {
@@ -417,6 +420,14 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, Model &model, std::vector<std::
         for (std::size_t t = 0; t < out.morphWeights.size() && t < given.size(); ++t) {
           out.morphWeights[t] = given[t];
         }
+      }
+    }
+    if (node.cameraIndex.has_value() && *node.cameraIndex < asset.cameras.size()) {
+      if (const auto *perspective =
+              std::get_if<fastgltf::Camera::Perspective>(&asset.cameras[*node.cameraIndex].camera)) {
+        out.camera = ModelCamera{.fovY = perspective->yfov, .nearPlane = perspective->znear};
+      } else {
+        walk.orthographicCameras.push_back(out.name);
       }
     }
     const auto index = static_cast<std::int32_t>(model.nodes.size());
@@ -718,6 +729,10 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
   for (const std::string &name : walk.duplicateNames) {
     SONNET_LOG_WARN("{}: two nodes named \"{}\" under one parent; animations and skins bind the first", path.string(),
                     name);
+  }
+  for (const std::string &name : walk.orthographicCameras) {
+    SONNET_LOG_WARN("{}: node \"{}\" has an orthographic camera, which the engine cannot project; skipped",
+                    path.string(), name);
   }
   const std::vector<std::string> &paths = walk.paths;
   const std::vector<bool> &visited = walk.visited;
