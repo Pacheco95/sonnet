@@ -682,6 +682,15 @@ core::Result<std::vector<std::byte>> AssetDatabase::mobileTexture(const core::Uu
       if (image.bytes.empty() || fresh(imageCache, record->second.sourceTime)) {
         continue;
       }
+      if (image.ktx2) {
+        // Basis Universal transcodes to ASTC on the phone, as a KTX2 file texture does.
+        const auto marked = markKtx2(image.bytes, image.srgb);
+        if (const auto written = marked ? core::writeFile(imageCache, *marked) : std::unexpected(marked.error());
+            !written) {
+          SONNET_LOG_ERROR("{}: image \"{}\": {}", file->source.string(), image.name, written.error().toString());
+        }
+        continue;
+      }
       if (const auto encoded = cookAstcEntry(image.bytes, TextureSettings{.srgb = image.srgb}, imageCache); !encoded) {
         SONNET_LOG_ERROR("{}: image \"{}\": {}", file->source.string(), image.name, encoded.error().toString());
       }
@@ -759,7 +768,15 @@ AssetDatabase::GltfLoad AssetDatabase::importGltfFiles(const GltfRequest &reques
     }
     const std::filesystem::path cooked = request.cache / (imageUuid.toString() + ".ktx2");
     const auto cookedTime = modificationTime(cooked);
-    if (cookedTime == std::filesystem::file_time_type{} || cookedTime < request.sourceTime) {
+    if (image.ktx2 && (cookedTime == std::filesystem::file_time_type{} || cookedTime < request.sourceTime)) {
+      // Already Basis Universal: cached as it is, marked with the slot's colour space.
+      const auto marked = markKtx2(image.bytes, image.srgb);
+      if (!marked || !core::writeFile(cooked, *marked)) {
+        SONNET_LOG_ERROR("{}: image \"{}\": {}", request.source.string(), image.name,
+                         marked ? "writing the cache failed" : marked.error().toString());
+        continue;
+      }
+    } else if (cookedTime == std::filesystem::file_time_type{} || cookedTime < request.sourceTime) {
       const auto imported = importImage(image.bytes, TextureSettings{.srgb = image.srgb});
       if (!imported) {
         SONNET_LOG_ERROR("{}: image \"{}\": {}", request.source.string(), image.name, imported.error().toString());

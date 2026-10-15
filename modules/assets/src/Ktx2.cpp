@@ -202,6 +202,34 @@ core::Result<renderer::TextureData> readKtx2(std::span<const std::byte> bytes, c
   return data;
 }
 
+core::Result<std::vector<std::byte>> markKtx2(std::span<const std::byte> bytes, bool srgb) {
+  SONNET_ZONE();
+  // Read for its header only: loading the levels would inflate zstd data, which the copy keeps.
+  ktxTexture2 *raw = nullptr;
+  const ktx_error_code_e result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t *>(bytes.data()),
+                                                               bytes.size(), KTX_TEXTURE_CREATE_NO_FLAGS, &raw);
+  if (result != KTX_SUCCESS) {
+    return std::unexpected(ktxError("reading the KTX2 file", result));
+  }
+  const KtxTexture texture{raw};
+  if (!ktxTexture2_NeedsTranscoding(texture.get()) ||
+      ktxTexture2_GetColorModel_e(texture.get()) == KHR_DF_MODEL_UASTC_HDR_4x4) {
+    return std::unexpected(core::Error{"KTX2 file is not Basis Universal ETC1S or UASTC", core::ErrorCategory::Io});
+  }
+  // The transfer function is the third byte of the basic descriptor block's third word; the block
+  // follows the descriptor's total size at dfdByteOffset, byte 48 of the header (the KTX 2.0
+  // specification). A Basis file's vkFormat is undefined, so the descriptor is all that says it.
+  std::uint32_t dfdOffset = 0;
+  std::memcpy(&dfdOffset, bytes.data() + 48, sizeof(dfdOffset));
+  const std::size_t transfer = std::size_t{dfdOffset} + 4 + 8 + 2;
+  if (transfer >= bytes.size()) {
+    return std::unexpected(core::Error{"KTX2 file's data format descriptor is truncated", core::ErrorCategory::Io});
+  }
+  std::vector<std::byte> out(bytes.begin(), bytes.end());
+  out[transfer] = static_cast<std::byte>(srgb ? KHR_DF_TRANSFER_SRGB : KHR_DF_TRANSFER_LINEAR);
+  return out;
+}
+
 core::Result<std::vector<std::byte>> cookKtx2(const renderer::TextureData &source, bool compress) {
   SONNET_ZONE();
   auto created = createKtx2(source);

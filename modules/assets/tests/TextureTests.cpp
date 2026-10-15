@@ -55,6 +55,14 @@ std::vector<std::byte> encodeHdr(glm::uvec2 size, const std::vector<float> &rgb)
   return out;
 }
 
+std::vector<std::byte> encodeBasisKtx2() {
+  const auto texture = importImage(encodePng({2, 2}, quadPixels()), TextureSettings{.srgb = false});
+  REQUIRE(texture.has_value());
+  auto ktx2 = cookKtx2(*texture, true);
+  REQUIRE(ktx2.has_value());
+  return std::move(*ktx2);
+}
+
 void writeBoxGltf(const std::filesystem::path &gltf, const std::string &imageFile) {
   const renderer::MeshData box = renderer::primitives::box();
   std::vector<std::byte> bin;

@@ -31,7 +31,7 @@ namespace {
 constexpr fastgltf::Extensions ReadExtensions =
     fastgltf::Extensions::KHR_materials_emissive_strength | fastgltf::Extensions::KHR_materials_transmission |
     fastgltf::Extensions::KHR_texture_transform | fastgltf::Extensions::KHR_mesh_quantization |
-    fastgltf::Extensions::EXT_meshopt_compression;
+    fastgltf::Extensions::EXT_meshopt_compression | fastgltf::Extensions::KHR_texture_basisu;
 
 bool readsExtension(std::string_view name) {
   static const auto Read = fastgltf::stringifyExtensionBits(ReadExtensions);
@@ -249,13 +249,27 @@ renderer::TextureWrap toWrap(fastgltf::Wrap wrap) noexcept {
   return renderer::TextureWrap::Repeat;
 }
 
-// The image a texture refers to, or -1: the KTX2 and other extension images are not read.
+// The image a texture refers to, or -1. A KHR_texture_basisu image comes first: the extension
+// makes the texture's own source the fallback for clients that do not read KTX2. Other extension
+// images (WebP, DDS) are not read.
 std::int32_t imageOfTexture(const fastgltf::Asset &asset, std::size_t textureIndex) {
   if (textureIndex >= asset.textures.size()) {
     return -1;
   }
   const fastgltf::Texture &texture = asset.textures[textureIndex];
+  if (texture.basisuImageIndex.has_value()) {
+    return static_cast<std::int32_t>(*texture.basisuImageIndex);
+  }
   return texture.imageIndex.has_value() ? static_cast<std::int32_t>(*texture.imageIndex) : -1;
+}
+
+// Whether the bytes are a KTX2 file, by its 12-byte identifier (the KTX 2.0 specification).
+bool isKtx2(std::span<const std::byte> bytes) {
+  static constexpr std::array<unsigned char, 12> Identifier{0xAB, 'K',  'T',  'X',  ' ',  '2',
+                                                            '0',  0xBB, '\r', '\n', 0x1A, '\n'};
+  return bytes.size() >= Identifier.size() &&
+         std::ranges::equal(bytes.first(Identifier.size()), Identifier,
+                            [](std::byte a, unsigned char b) { return a == std::byte{b}; });
 }
 
 // `info` is one of fastgltf's optional texture-info types, which share has_value and ->.
@@ -628,15 +642,17 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path) {
     import.meshes.push_back(std::move(out));
   }
 
-  // Images, each marked sRGB when any material reads it as colour.
+  // Images, each marked sRGB when any material reads it as colour, and KTX2 by its contents
+  // rather than its MIME type, which an image in a file may leave out.
   for (std::size_t i = 0; i < asset.images.size(); ++i) {
     auto bytes = imageBytes(asset, asset.images[i], path.parent_path());
     if (!bytes) {
       SONNET_LOG_WARN("{}: image {}: {}", path.string(), i, bytes.error().message);
       bytes = std::vector<std::byte>{};
     }
-    import.images.push_back(
-        GltfImage{.name = nameOr(asset.images[i].name, "image", i), .bytes = std::move(*bytes), .srgb = false});
+    const bool ktx2 = isKtx2(*bytes);
+    import.images.push_back(GltfImage{
+        .name = nameOr(asset.images[i].name, "image", i), .bytes = std::move(*bytes), .srgb = false, .ktx2 = ktx2});
   }
 
   for (std::size_t m = 0; m < asset.materials.size(); ++m) {

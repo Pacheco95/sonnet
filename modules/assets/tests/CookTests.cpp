@@ -2,6 +2,7 @@
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/assets/Cook.h>
+#include <sonnet/assets/Importers.h>
 #include <sonnet/core/JobSystem.h>
 
 #include <sonnet/platform/Platform.h>
@@ -540,4 +541,38 @@ TEST_CASE("a second mobile cook takes its ASTC from the cache", "[assets][cook][
   REQUIRE(cook(database, fixture.project, {.outputDirectory = ios, .platform = CookPlatform::IOS}).has_value());
   const bool reencoded = std::filesystem::last_write_time(pngEntry) != encoded.at(pngEntry);
   REQUIRE(reencoded);
+}
+
+TEST_CASE("a glTF file's KHR_texture_basisu image cooks as its own KTX2 payload", "[assets][cook]") {
+  ProjectFixture fixture;
+  const std::vector<std::byte> ktx2 = test::encodeBasisKtx2();
+  REQUIRE(core::writeFile(fixture.root / "assets" / "models" / "wood.ktx2", ktx2).has_value());
+  test::writeBasisuBoxGltf(fixture.root / "assets" / "models" / "basis.gltf", "wood.ktx2", "");
+  const auto expected = markKtx2(ktx2, true); // the base colour reads it
+  REQUIRE(expected.has_value());
+
+  core::Uuid imageId;
+  {
+    AssetDatabase database{fixture.renderer, fixture.jobs};
+    database.open(fixture.root, fixture.project.assetRoots);
+    imageId = core::Uuid::derive(idOf(database, "basis", AssetType::Model), "image/0");
+    REQUIRE(database.texture(imageId)); // the editor's import
+
+    // Every platform takes the file, marked, rather than an encode of a decode of it.
+    for (const CookPlatform platform : {CookPlatform::Linux, CookPlatform::Android}) {
+      const std::filesystem::path out = fixture.root / "export" / toString(platform);
+      const auto report = cook(database, fixture.project, {.outputDirectory = out, .platform = platform});
+      REQUIRE(report.has_value());
+      REQUIRE(report->warnings.empty());
+      const auto bundle = Bundle::open(report->bundle);
+      REQUIRE(bundle.has_value());
+      const auto payload = bundle->read(imageId);
+      REQUIRE(payload.has_value());
+      REQUIRE(*payload == *expected);
+    }
+  }
+
+  AssetDatabase player{fixture.renderer, fixture.jobs};
+  REQUIRE(player.openBundle(fixture.root / "export" / toString(CookPlatform::Linux) / "game.sbundle").has_value());
+  REQUIRE(player.texture(imageId));
 }
