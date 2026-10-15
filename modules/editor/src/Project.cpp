@@ -32,7 +32,7 @@ core::Result<assets::Project> createStarterProject(const std::filesystem::path &
   if (auto saved = project.save(); !saved) {
     return std::unexpected(saved.error());
   }
-  if (auto scene = core::writeFile(project.resolve(project.startScene), starterScene().dump(2) + "\n"); !scene) {
+  if (auto scene = core::writeFile(project.resolve(project.startScene), world::sceneText(starterScene())); !scene) {
     return std::unexpected(scene.error());
   }
   SONNET_LOG_INFO("created project \"{}\" at {}", project.name, project.root.string());

@@ -516,3 +516,32 @@ TEST_CASE("a version 5 file with an object for a vector logs a malformed value",
   REQUIRE(transform.rotation == glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
   REQUIRE(transform.scale == glm::vec3{2.0f});
 }
+
+TEST_CASE("scene text keeps a vector on one line and is otherwise nlohmann's layout", "[world][scene]") {
+  const nlohmann::json document = nlohmann::json::parse(R"({"version": 5, "entities": [
+    {"name": "A", "components": {"Transform": {"position": [0, 0.5, -10]}, "Static": null, "Gui": {}},
+     "removed": ["Static"], "empty": []}]})");
+  REQUIRE(world::sceneText(document) == R"({
+  "entities": [
+    {
+      "components": {
+        "Gui": {},
+        "Static": null,
+        "Transform": {
+          "position": [0, 0.5, -10]
+        }
+      },
+      "empty": [],
+      "name": "A",
+      "removed": [
+        "Static"
+      ]
+    }
+  ],
+  "version": 5
+}
+)");
+  nlohmann::json withoutVectors = document;
+  withoutVectors["entities"][0]["components"].erase("Transform");
+  REQUIRE(world::sceneText(withoutVectors) == withoutVectors.dump(2) + "\n");
+}

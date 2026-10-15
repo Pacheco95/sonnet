@@ -32,6 +32,10 @@ constexpr int SceneVersion = 5;
 // Adds the file's entities to the world. Referenced prefabs must already be loaded.
 [[nodiscard]] core::Result<std::vector<flecs::entity>> loadScene(World &world, const nlohmann::json &scene);
 
+// A scene or prefab document as its file holds it: nlohmann's two-space layout, except that an
+// array of numbers, a vector, stays on one line (ADR-0029). Ends with a newline.
+[[nodiscard]] std::string sceneText(const nlohmann::json &document);
+
 [[nodiscard]] core::Result<void> saveSceneFile(const World &world, const std::filesystem::path &path);
 [[nodiscard]] core::Result<std::vector<flecs::entity>> loadSceneFile(World &world, const std::filesystem::path &path);
 

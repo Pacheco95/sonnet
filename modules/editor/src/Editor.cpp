@@ -1572,7 +1572,7 @@ core::Result<std::filesystem::path> Editor::saveAsPrefab(core::Uuid entity) {
   const nlohmann::json document = prefabFromSubtree(m_world, entity);
   std::error_code error;
   std::filesystem::create_directories(directory, error);
-  if (const auto written = core::writeFile(path, document.dump(2) + '\n'); !written) {
+  if (const auto written = core::writeFile(path, world::sceneText(document)); !written) {
     return std::unexpected(written.error());
   }
   // Loaded from the file, so the prefab knows it and the asset browser lists it.
@@ -2188,7 +2188,7 @@ core::Result<void> Editor::saveScene() {
     return std::unexpected(
         core::Error{std::format("{}: cannot open for writing", m_scenePath.string()), core::ErrorCategory::Io});
   }
-  stream << scene.dump(2) << '\n';
+  stream << world::sceneText(scene);
   if (!stream) {
     return std::unexpected(core::Error{std::format("{}: write failed", m_scenePath.string()), core::ErrorCategory::Io});
   }
@@ -2454,7 +2454,7 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
   restoreSnapshot();
   if (end == PlayEnd::SaveAs) {
     reapplyEdits([](auto &) {});
-    stream << world::saveScene(m_world).dump(2) << '\n';
+    stream << world::sceneText(world::saveScene(m_world));
     if (!stream) {
       SONNET_LOG_ERROR("writing the scene failed");
     }

@@ -328,7 +328,7 @@ core::Result<void> writeJson(const json &document, const std::filesystem::path &
     return std::unexpected(
         core::Error{std::format("{}: cannot open for writing", path.string()), core::ErrorCategory::Io});
   }
-  file << document.dump(2) << '\n';
+  file << sceneText(document);
   if (!file) {
     return std::unexpected(core::Error{std::format("{}: write failed", path.string()), core::ErrorCategory::Io});
   }
@@ -352,6 +352,49 @@ json saveScene(const World &world) {
 
 core::Result<std::vector<flecs::entity>> loadScene(World &world, const json &scene) {
   return loadEntities(world, scene, "scene");
+}
+
+namespace {
+
+void appendSceneText(std::string &out, const json &node, std::size_t indent) {
+  const bool numbers = node.is_array() && !node.empty() &&
+                       std::ranges::all_of(node, [](const json &element) { return element.is_number(); });
+  if (numbers) {
+    out += '[';
+    for (std::size_t i = 0; i < node.size(); ++i) {
+      out += i == 0 ? "" : ", ";
+      out += node[i].dump();
+    }
+    out += ']';
+  } else if ((node.is_object() || node.is_array()) && !node.empty()) {
+    const std::string inner(indent + 2, ' ');
+    out += node.is_object() ? "{\n" : "[\n";
+    bool first = true;
+    for (const auto &[key, value] : node.items()) {
+      out += first ? "" : ",\n";
+      first = false;
+      out += inner;
+      if (node.is_object()) {
+        out += json(key).dump();
+        out += ": ";
+      }
+      appendSceneText(out, value, indent + 2);
+    }
+    out += '\n';
+    out.append(indent, ' ');
+    out += node.is_object() ? '}' : ']';
+  } else {
+    out += node.dump();
+  }
+}
+
+} // namespace
+
+std::string sceneText(const json &document) {
+  std::string out;
+  appendSceneText(out, document, 0);
+  out += '\n';
+  return out;
 }
 
 core::Result<void> saveSceneFile(const World &world, const std::filesystem::path &path) {
