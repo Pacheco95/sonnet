@@ -182,12 +182,17 @@ public:
   }
   [[nodiscard]] const ComponentInfo *findComponent(std::string_view name) const;
   [[nodiscard]] const ComponentInfo *findComponent(flecs::entity_t id) const;
-  // The value of a reflected component as flecs' JSON; null for a tag or an absent component.
+  // The value of a reflected component as flecs' JSON, except that vector and quaternion members
+  // are arrays in x, y, z, w order (ADR-0029); null for a tag or an absent component.
   [[nodiscard]] nlohmann::json componentToJson(flecs::entity entity, flecs::entity_t component) const;
   // The same for a value held outside the world, such as an undo command's copy.
   [[nodiscard]] nlohmann::json valueToJson(flecs::entity_t component, const void *value) const;
-  // Adds the component when absent and assigns the fields present in `value`.
-  void componentFromJson(flecs::entity entity, flecs::entity_t component, const nlohmann::json &value);
+  // Adds the component when absent and assigns the fields present in `value`, in the form
+  // valueToJson writes. `vectorObjects` also accepts a vector member as an {x, y, z} object, the
+  // form of scene files before version 5; otherwise one is logged as malformed and left at its
+  // current value.
+  void componentFromJson(flecs::entity entity, flecs::entity_t component, const nlohmann::json &value,
+                         bool vectorObjects = false);
 
   // Play mode enables the simulation phases (docs/architecture.md, "Editor and player").
   void setPlaying(bool playing);

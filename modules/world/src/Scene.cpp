@@ -197,11 +197,14 @@ core::Result<json> migrate(const json &input, std::string_view source) {
     SONNET_LOG_INFO("{}: migrated scene version 2 to 3", source);
   }
   // Version 4 adds "instanced" entries, which a version 3 file does not have: nothing to change.
+  // Version 5 writes vectors as arrays. Only reflection knows which members are vectors, so the
+  // component reader accepts the older objects instead (setComponents, ADR-0029).
   document["version"] = SceneVersion;
   return document;
 }
 
-void setComponents(World &world, flecs::entity entity, const json &entry, const core::Uuid &uuid) {
+// `version` is the file's own, before migration: one older than 5 holds vectors as objects.
+void setComponents(World &world, flecs::entity entity, const json &entry, const core::Uuid &uuid, int version) {
   if (!entry.contains("components") || !entry["components"].is_object()) {
     return;
   }
@@ -211,7 +214,7 @@ void setComponents(World &world, flecs::entity entity, const json &entry, const 
       SONNET_LOG_WARN("entity {}: unknown component \"{}\" ignored", uuid.toString(), componentName);
       continue;
     }
-    world.componentFromJson(entity, info->id, value);
+    world.componentFromJson(entity, info->id, value, version < 5);
   }
 }
 
@@ -221,6 +224,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
     return std::unexpected(migrated.error());
   }
   const json &document = *migrated;
+  const int version = input["version"].get<int>();
   if (!document.contains("entities") || !document["entities"].is_array()) {
     return std::unexpected(core::Error{"scene has no entities array", core::ErrorCategory::Io});
   }
@@ -255,7 +259,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
       if (entry.contains("name") && entry["name"].is_string()) {
         target.set<Name>({entry["name"].get<std::string>()});
       }
-      setComponents(world, target, entry, *uuid);
+      setComponents(world, target, entry, *uuid, version);
       if (entry.contains("removed") && entry["removed"].is_array()) {
         for (const json &componentName : entry["removed"]) {
           const ComponentInfo *info =
@@ -284,7 +288,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
       entity = world.createEntity(name, {}, *uuid);
     }
     loaded.push_back(entity);
-    setComponents(world, entity, entry, *uuid);
+    setComponents(world, entity, entry, *uuid, version);
     if (entry.contains("parent") && entry["parent"].is_string()) {
       const auto parentUuid = core::Uuid::parse(entry["parent"].get_ref<const std::string &>());
       if (!parentUuid) {
@@ -324,7 +328,7 @@ core::Result<void> writeJson(const json &document, const std::filesystem::path &
     return std::unexpected(
         core::Error{std::format("{}: cannot open for writing", path.string()), core::ErrorCategory::Io});
   }
-  file << document.dump(2) << '\n';
+  file << sceneText(document);
   if (!file) {
     return std::unexpected(core::Error{std::format("{}: write failed", path.string()), core::ErrorCategory::Io});
   }
@@ -348,6 +352,49 @@ json saveScene(const World &world) {
 
 core::Result<std::vector<flecs::entity>> loadScene(World &world, const json &scene) {
   return loadEntities(world, scene, "scene");
+}
+
+namespace {
+
+void appendSceneText(std::string &out, const json &node, std::size_t indent) {
+  const bool numbers = node.is_array() && !node.empty() &&
+                       std::ranges::all_of(node, [](const json &element) { return element.is_number(); });
+  if (numbers) {
+    out += '[';
+    for (std::size_t i = 0; i < node.size(); ++i) {
+      out += i == 0 ? "" : ", ";
+      out += node[i].dump();
+    }
+    out += ']';
+  } else if ((node.is_object() || node.is_array()) && !node.empty()) {
+    const std::string inner(indent + 2, ' ');
+    out += node.is_object() ? "{\n" : "[\n";
+    bool first = true;
+    for (const auto &[key, value] : node.items()) {
+      out += first ? "" : ",\n";
+      first = false;
+      out += inner;
+      if (node.is_object()) {
+        out += json(key).dump();
+        out += ": ";
+      }
+      appendSceneText(out, value, indent + 2);
+    }
+    out += '\n';
+    out.append(indent, ' ');
+    out += node.is_object() ? '}' : ']';
+  } else {
+    out += node.dump();
+  }
+}
+
+} // namespace
+
+std::string sceneText(const json &document) {
+  std::string out;
+  appendSceneText(out, document, 0);
+  out += '\n';
+  return out;
 }
 
 core::Result<void> saveSceneFile(const World &world, const std::filesystem::path &path) {

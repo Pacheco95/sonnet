@@ -276,12 +276,12 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   REQUIRE(core::writeFile(future, *bytes).has_value());
   REQUIRE(!Bundle::open(future).has_value());
 
-  // The version before vertices held a second UV set: refused, and the message names both
+  // The version before scenes held vectors as arrays: refused, and the message names both
   // versions, so a player asked to open an old bundle says to cook it again.
-  (*bytes)[8] = std::byte{8};
+  (*bytes)[8] = std::byte{9};
   REQUIRE(core::writeFile(future, *bytes).has_value());
   const auto old = Bundle::open(future);
   REQUIRE(!old.has_value());
-  REQUIRE(old.error().message.find("bundle version 8 is not version 9") != std::string::npos);
+  REQUIRE(old.error().message.find("bundle version 9 is not version 10") != std::string::npos);
   std::filesystem::remove_all(directory);
 }

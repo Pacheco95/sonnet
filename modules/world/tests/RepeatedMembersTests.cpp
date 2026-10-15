@@ -58,7 +58,7 @@ TEST_CASE("a repeated member of structs serializes as a JSON array", "[world][re
   const nlohmann::json json = world.componentToJson(entity, world.findComponent("Route")->id);
   REQUIRE(json["points"].is_array());
   REQUIRE(json["points"].size() == 2);
-  REQUIRE(json["points"][0]["position"]["y"] == Approx(2.0));
+  REQUIRE(json["points"][0]["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
   REQUIRE(json["points"][0]["wait"] == Approx(0.5));
   REQUIRE(json["unused"].is_array());
   REQUIRE(json["unused"].empty());
@@ -108,12 +108,15 @@ TEST_CASE("a JSON string member is written as the JSON it holds", "[world][refle
   world::World world;
   registerTypes(world);
   const flecs::entity entity = world.createEntity("thing");
-  entity.set<Slots>({.slots = {{.script = core::Uuid::parse(FirstId).value(), .properties = R"({"speed":3.5})"},
+  entity.set<Slots>({.slots = {{.script = core::Uuid::parse(FirstId).value(),
+                                .properties = R"({"speed":3.5,"offset":{"x":1,"y":2,"z":3}})"},
                                {.script = core::Uuid{}, .properties = ""}}});
   const flecs::entity_t id = world.findComponent("Scripts")->id;
   const nlohmann::json json = world.componentToJson(entity, id);
   REQUIRE(json["slots"][0]["properties"].is_object());
   REQUIRE(json["slots"][0]["properties"]["speed"] == Approx(3.5));
+  // A script's vector property is the script's JSON, not a reflected vector: it stays an object.
+  REQUIRE(json["slots"][0]["properties"]["offset"] == nlohmann::json::parse(R"({"x":1,"y":2,"z":3})"));
   REQUIRE(json["slots"][1]["properties"].is_object());
   REQUIRE(json["slots"][1]["properties"].empty());
 

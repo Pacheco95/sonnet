@@ -1,27 +1,14 @@
 {
-  "version": 3,
+  "version": 5,
   "entities": [
     {
       "uuid": "333bf773-c412-57d2-8f26-2aff984e4eb1",
       "name": "Camera",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 2,
-            "z": 6
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 2, 6],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1, 1, 1]
         },
         "Camera": {
           "fovY": 1.0,
@@ -35,22 +22,9 @@
       "name": "Sky",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1, 1, 1]
         },
         "Environment": {
           "map": "0238c936-ba15-474c-a8a7-53a87650359e",
@@ -64,28 +38,12 @@
       "name": "HUD",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1, 1, 1]
         },
         "GuiCanvas": {
-          "referenceSize": {
-            "x": 1920,
-            "y": 1080
-          },
+          "referenceSize": [1920, 1080],
           "match": 0.0,
           "safeArea": false,
           "order": 0

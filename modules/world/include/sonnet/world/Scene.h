@@ -19,8 +19,9 @@ namespace sonnet::world {
 // JSON for each component. Migrations run on load; the current version is what is written.
 // Version 2 references meshes by asset identity where version 1 named a primitive; version 3
 // replaces the `Script` component by `Scripts`, a list of slots; version 4 stores what an
-// instance's descendants changed as "instanced" entries (ADR-0028).
-constexpr int SceneVersion = 4;
+// instance's descendants changed as "instanced" entries (ADR-0028); version 5 writes vector and
+// quaternion members as arrays (ADR-0029).
+constexpr int SceneVersion = 5;
 
 // Every scene entity, parents before children, prefab instances as their overrides and what
 // their descendants changed.
@@ -30,6 +31,10 @@ constexpr int SceneVersion = 4;
 [[nodiscard]] nlohmann::json saveSubtree(const World &world, flecs::entity root);
 // Adds the file's entities to the world. Referenced prefabs must already be loaded.
 [[nodiscard]] core::Result<std::vector<flecs::entity>> loadScene(World &world, const nlohmann::json &scene);
+
+// A scene or prefab document as its file holds it: nlohmann's two-space layout, except that an
+// array of numbers, a vector, stays on one line (ADR-0029). Ends with a newline.
+[[nodiscard]] std::string sceneText(const nlohmann::json &document);
 
 [[nodiscard]] core::Result<void> saveSceneFile(const World &world, const std::filesystem::path &path);
 [[nodiscard]] core::Result<std::vector<flecs::entity>> loadSceneFile(World &world, const std::filesystem::path &path);

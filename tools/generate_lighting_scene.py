@@ -10,6 +10,8 @@ import math
 import uuid
 from pathlib import Path
 
+import scene_json
+
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "apps/samples/basic/scenes/lighting.scene.json"
 
@@ -23,8 +25,9 @@ SKY = "0238c936-ba15-474c-a8a7-53a87650359e"
 NO_MATERIAL = "00000000-0000-0000-0000-000000000000"
 
 
+# Scene version 5 writes vectors and quaternions as arrays, x, y, z, w (ADR-0029).
 def vec(x, y, z):
-    return {"x": x, "y": y, "z": z}
+    return [x, y, z]
 
 
 def look(forward):
@@ -50,22 +53,21 @@ def look(forward):
     else:
         s = math.sqrt(1 + m[2][2] - m[0][0] - m[1][1]) * 2
         q = ((m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, s / 4, (m[1][0] - m[0][1]) / s)
-    return {"x": round(q[0], 6), "y": round(q[1], 6), "z": round(q[2], 6), "w": round(q[3], 6)}
+    return [round(q[0], 6), round(q[1], 6), round(q[2], 6), round(q[3], 6)]
 
 
 entities = []
 
 
 def add(name, position, components, forward=None, scale=(1, 1, 1)):
-    rotation = look(forward) if forward else {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
+    rotation = look(forward) if forward else [0.0, 0.0, 0.0, 1.0]
     components = {"Transform": {"position": vec(*position), "rotation": rotation, "scale": vec(*scale)}, **components}
     entities.append({"uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, "sonnet/lighting/" + name)), "name": name,
                      "components": components})
 
 
 def mesh(kind, color, material=NO_MATERIAL, static=True):
-    c = {"MeshRenderer": {"mesh": kind, "material": material, "color": {"x": color[0], "y": color[1], "z": color[2],
-                                                                       "w": 1.0}, "visible": True}}
+    c = {"MeshRenderer": {"mesh": kind, "material": material, "color": [*color, 1.0], "visible": True}}
     if static:
         c["Static"] = None
     return c
@@ -112,5 +114,5 @@ add("Cool lamp", (3.0, 2.8, -1.0), light("PointLight", (0.4, 0.7, 1.0), 35.0, ra
 add("Camera", (0, 4.4, 12.5), {"Camera": {"fovY": 1.0, "nearPlane": 0.1}, "AudioListener": None},
     forward=(0, -0.28, -1))
 
-OUT.write_text(json.dumps({"version": 3, "entities": entities}, indent=2) + "\n")
+OUT.write_text(scene_json.dumps({"version": 5, "entities": entities}) + "\n")
 print(f"wrote {OUT.relative_to(ROOT)}: {len(entities)} entities")

@@ -1,37 +1,19 @@
 {
-  "version": 3,
+  "version": 5,
   "entities": [
     {
       "uuid": "1b6e0c1a-0001-4a5b-8c9d-000000000001",
       "name": "Ground",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 12.0,
-            "y": 1.0,
-            "z": 12.0
-          }
+          "position": [0.0, 0.0, 0.0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [12.0, 1.0, 12.0]
         },
         "MeshRenderer": {
           "mesh": "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40",
           "material": "60abe124-b44f-4f02-a0c3-6d2d3c94ee6d",
-          "color": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0,
-            "w": 1.0
-          },
+          "color": [1.0, 1.0, 1.0, 1.0],
           "visible": true
         },
         "Static": null
@@ -42,40 +24,18 @@
       "name": "Spinning box",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0.0,
-            "y": 0.5,
-            "z": 0.0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [0.0, 0.5, 0.0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "MeshRenderer": {
           "mesh": "a464f023-844b-8938-9df4-75487155e36d",
           "material": "00000000-0000-0000-0000-000000000000",
-          "color": {
-            "x": 0.9,
-            "y": 0.35,
-            "z": 0.25,
-            "w": 1.0
-          },
+          "color": [0.9, 0.35, 0.25, 1.0],
           "visible": true
         },
         "Spin": {
-          "axis": {
-            "x": 0.0,
-            "y": 1.0,
-            "z": 0.0
-          },
+          "axis": [0.0, 1.0, 0.0],
           "speed": 0.8
         }
       }
@@ -85,32 +45,14 @@
       "name": "Sphere",
       "components": {
         "Transform": {
-          "position": {
-            "x": 2.0,
-            "y": 0.5,
-            "z": 0.0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [2.0, 0.5, 0.0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "MeshRenderer": {
           "mesh": "fe3d3b79-c4ee-8f48-8944-6b1596b2c621",
           "material": "00000000-0000-0000-0000-000000000000",
-          "color": {
-            "x": 0.25,
-            "y": 0.55,
-            "z": 0.9,
-            "w": 1.0
-          },
+          "color": [0.25, 0.55, 0.9, 1.0],
           "visible": true
         }
       }
@@ -120,32 +62,14 @@
       "name": "Cylinder",
       "components": {
         "Transform": {
-          "position": {
-            "x": -2.0,
-            "y": 0.5,
-            "z": 0.0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [-2.0, 0.5, 0.0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "MeshRenderer": {
           "mesh": "4982c24f-bd36-8c92-a2c1-47e047fbe1b6",
           "material": "00000000-0000-0000-0000-000000000000",
-          "color": {
-            "x": 0.3,
-            "y": 0.8,
-            "z": 0.4,
-            "w": 1.0
-          },
+          "color": [0.3, 0.8, 0.4, 1.0],
           "visible": true
         }
       }
@@ -155,32 +79,14 @@
       "name": "Capsule",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0.0,
-            "y": 0.5,
-            "z": 2.0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [0.0, 0.5, 2.0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "MeshRenderer": {
           "mesh": "663df5e4-bf07-8eb4-9364-2db2a5a3e28d",
           "material": "00000000-0000-0000-0000-000000000000",
-          "color": {
-            "x": 0.9,
-            "y": 0.8,
-            "z": 0.3,
-            "w": 1.0
-          },
+          "color": [0.9, 0.8, 0.3, 1.0],
           "visible": true
         }
       }
@@ -191,22 +97,9 @@
       "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0.0,
-            "y": 1.0,
-            "z": -2.5
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.3826834,
-            "z": 0.0,
-            "w": 0.9238795
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [0.0, 1.0, -2.5],
+          "rotation": [0.0, 0.3826834, 0.0, 0.9238795],
+          "scale": [1.0, 1.0, 1.0]
         }
       }
     },
@@ -216,32 +109,14 @@
       "prefab": "c0a7e4d2-5b1f-4c3e-9a8d-1f2e3d4c5b6a",
       "components": {
         "Transform": {
-          "position": {
-            "x": 3.0,
-            "y": 0.5,
-            "z": -2.5
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [3.0, 0.5, -2.5],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "MeshRenderer": {
           "mesh": "a464f023-844b-8938-9df4-75487155e36d",
           "material": "00000000-0000-0000-0000-000000000000",
-          "color": {
-            "x": 0.35,
-            "y": 0.7,
-            "z": 0.7,
-            "w": 1.0
-          },
+          "color": [0.35, 0.7, 0.7, 1.0],
           "visible": true
         }
       }
@@ -252,22 +127,9 @@
       "prefab": "41a43566-fe88-48a1-ad06-6847f9237406",
       "components": {
         "Transform": {
-          "position": {
-            "x": -3.0,
-            "y": 0.5,
-            "z": 2.5
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": -0.258819,
-            "z": 0.0,
-            "w": 0.9659258
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [-3.0, 0.5, 2.5],
+          "rotation": [0.0, -0.258819, 0.0, 0.9659258],
+          "scale": [1.0, 1.0, 1.0]
         }
       }
     },
@@ -277,22 +139,9 @@
       "prefab": "f870a0b5-a2db-46ad-8570-08d26ed40026",
       "components": {
         "Transform": {
-          "position": {
-            "x": -3.6,
-            "y": 0.0,
-            "z": -2.2
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [-3.6, 0.0, -2.2],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         }
       }
     },
@@ -302,22 +151,9 @@
       "prefab": "b1c7ef7c-afa8-4ab9-9a03-1e6e8719809d",
       "components": {
         "Transform": {
-          "position": {
-            "x": 3.4,
-            "y": 0.0,
-            "z": -2.0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [3.4, 0.0, -2.0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "AudioSource": {
           "sound": "539fe2ed-9536-4663-8928-25d6bcc1c478",
@@ -337,22 +173,9 @@
       "prefab": "89aa8b07-58b3-46fd-a4e8-7c3308de0442",
       "components": {
         "Transform": {
-          "position": {
-            "x": -3.4,
-            "y": 0.0,
-            "z": -1.2
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [-3.4, 0.0, -1.2],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "Scripts": {
           "slots": [
@@ -373,22 +196,9 @@
       "prefab": "788dfb80-feeb-4311-b5ee-15647df6355d",
       "components": {
         "Transform": {
-          "position": {
-            "x": -1.6,
-            "y": 0.0,
-            "z": 2.4
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [-1.6, 0.0, 2.4],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         }
       }
     },
@@ -397,22 +207,9 @@
       "name": "Sparks",
       "components": {
         "Transform": {
-          "position": {
-            "x": 1.2,
-            "y": 0.05,
-            "z": 2.6
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [1.2, 0.05, 2.6],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "ParticleEmitter": {
           "playing": true,
@@ -424,26 +221,12 @@
           "speedMin": 2.0,
           "speedMax": 3.5,
           "coneAngle": 0.35,
-          "gravity": {
-            "x": 0.0,
-            "y": -6.0,
-            "z": 0.0
-          },
+          "gravity": [0.0, -6.0, 0.0],
           "drag": 0.3,
           "sizeStart": 0.12,
           "sizeEnd": 0.03,
-          "colorStart": {
-            "x": 6.0,
-            "y": 3.0,
-            "z": 0.8,
-            "w": 1.0
-          },
-          "colorEnd": {
-            "x": 1.0,
-            "y": 0.1,
-            "z": 0.0,
-            "w": 0.0
-          },
+          "colorStart": [6.0, 3.0, 0.8, 1.0],
+          "colorEnd": [1.0, 0.1, 0.0, 0.0],
           "texture": "00000000-0000-0000-0000-000000000000",
           "blend": "Additive",
           "space": "World",
@@ -456,29 +239,12 @@
       "name": "Lamp",
       "components": {
         "Transform": {
-          "position": {
-            "x": 2.5,
-            "y": 1.8,
-            "z": 2.5
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [2.5, 1.8, 2.5],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "PointLight": {
-          "color": {
-            "x": 1.0,
-            "y": 0.75,
-            "z": 0.45
-          },
+          "color": [1.0, 0.75, 0.45],
           "intensity": 12.0,
           "range": 6.0,
           "castsShadows": true
@@ -490,29 +256,12 @@
       "name": "Spot",
       "components": {
         "Transform": {
-          "position": {
-            "x": -3.0,
-            "y": 4.0,
-            "z": -5.0
-          },
-          "rotation": {
-            "x": -0.7072129,
-            "y": -0.6061825,
-            "z": -0.0,
-            "w": 0.3638581
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [-3.0, 4.0, -5.0],
+          "rotation": [-0.7072129, -0.6061825, -0.0, 0.3638581],
+          "scale": [1.0, 1.0, 1.0]
         },
         "SpotLight": {
-          "color": {
-            "x": 1.0,
-            "y": 0.45,
-            "z": 0.1
-          },
+          "color": [1.0, 0.45, 0.1],
           "intensity": 500.0,
           "range": 14.0,
           "innerAngle": 0.35,
@@ -526,22 +275,9 @@
       "name": "Sky",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [0.0, 0.0, 0.0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1.0, 1.0, 1.0]
         },
         "Environment": {
           "map": "0238c936-ba15-474c-a8a7-53a87650359e",
@@ -555,29 +291,12 @@
       "name": "Sun",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0.0,
-            "y": 5.0,
-            "z": 0.0
-          },
-          "rotation": {
-            "x": -0.4285,
-            "y": -0.1626,
-            "z": -0.0797,
-            "w": 0.8851
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [0.0, 5.0, 0.0],
+          "rotation": [-0.4285, -0.1626, -0.0797, 0.8851],
+          "scale": [1.0, 1.0, 1.0]
         },
         "DirectionalLight": {
-          "color": {
-            "x": 1.0,
-            "y": 0.96,
-            "z": 0.9
-          },
+          "color": [1.0, 0.96, 0.9],
           "intensity": 3.0
         }
       }
@@ -587,22 +306,9 @@
       "name": "Camera",
       "components": {
         "Transform": {
-          "position": {
-            "x": 5.0,
-            "y": 3.5,
-            "z": 7.0
-          },
-          "rotation": {
-            "x": -0.1442,
-            "y": 0.287,
-            "z": 0.0437,
-            "w": 0.9459
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
-          }
+          "position": [5.0, 3.5, 7.0],
+          "rotation": [-0.1442, 0.287, 0.0437, 0.9459],
+          "scale": [1.0, 1.0, 1.0]
         },
         "Camera": {
           "fovY": 1.0471976,

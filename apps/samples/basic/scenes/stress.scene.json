@@ -1,27 +1,14 @@
 {
-  "version": 3,
+  "version": 5,
   "entities": [
     {
       "uuid": "bcf69ae9-ad96-5ada-8a49-a8b164b578bb",
       "name": "Camera",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 12,
-            "z": 40
-          },
-          "rotation": {
-            "x": -0.156434,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 0.987688
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 12, 40],
+          "rotation": [-0.156434, 0.0, 0.0, 0.987688],
+          "scale": [1, 1, 1]
         },
         "Camera": {
           "fovY": 1.0,
@@ -35,29 +22,12 @@
       "name": "Sun",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 8,
-            "z": 0
-          },
-          "rotation": {
-            "x": -0.422618,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 0.906308
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 8, 0],
+          "rotation": [-0.422618, 0.0, 0.0, 0.906308],
+          "scale": [1, 1, 1]
         },
         "DirectionalLight": {
-          "color": {
-            "x": 1.0,
-            "y": 0.96,
-            "z": 0.9
-          },
+          "color": [1.0, 0.96, 0.9],
           "intensity": 3.0
         }
       }
@@ -67,22 +37,9 @@
       "name": "Sky",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1, 1, 1]
         },
         "Environment": {
           "map": "0238c936-ba15-474c-a8a7-53a87650359e",
@@ -96,22 +53,9 @@
       "name": "Stress",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0.0, 0.0, 0.0, 1.0],
+          "scale": [1, 1, 1]
         },
         "Scripts": {
           "slots": [

@@ -67,25 +67,27 @@ Scenes and prefabs share one JSON format ([assets.md](assets.md#scene-file)), an
 
 ```json
 {
-  "version": 1,
+  "version": 5,
   "entities": [
     {
       "uuid": "6f1c...", "name": "Box", "parent": "a3e9...",
       "components": {
-        "Transform": { "position": {"x": 0, "y": 0.5, "z": 0}, "rotation": {"x": 0, "y": 0, "z": 0, "w": 1}, "scale": {"x": 1, "y": 1, "z": 1} },
-        "MeshRenderer": { "primitive": "Box", "color": {"x": 0.9, "y": 0.35, "z": 0.25, "w": 1}, "visible": true },
+        "Transform": { "position": [0, 0.5, 0], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },
+        "MeshRenderer": { "mesh": "a464...", "color": [0.9, 0.35, 0.25, 1], "visible": true },
         "Static": null
       }
     },
-    { "uuid": "b7d2...", "name": "Crate 1", "prefab": "c0ff...", "components": { "Transform": { "position": {"x": 4, "y": 0, "z": 0} } } },
-    { "uuid": "41a8...", "instanced": true, "name": "Lid open", "components": { "Transform": { "rotation": {"x": 0.7, "y": 0, "z": 0, "w": 0.7} } }, "removed": ["Static"] }
+    { "uuid": "b7d2...", "name": "Crate 1", "prefab": "c0ff...", "components": { "Transform": { "position": [4, 0, 0] } } },
+    { "uuid": "41a8...", "instanced": true, "name": "Lid open", "components": { "Transform": { "rotation": [0.7, 0, 0, 0.7] } }, "removed": ["Static"] }
   ]
 }
 ```
 
+A `vec2`, `vec3`, `vec4` or `quat` member is an array of its components in `x, y, z, w` order ([ADR-0029](decisions/0029-compact-scene-files.md)); the quaternion keeps that order, glTF's, whatever order glm stores it in. `World::valueToJson` and `World::componentFromJson` convert at the JSON boundary by walking the component's reflected members, so undo copies and the recovery file use arrays too, while flecs reflection, the inspector and Lua keep the named members. A script's property values inside `Scripts` are the script's own JSON and keep their `{x, y, z}` and `{r, g, b, a}` objects. `world::sceneText` writes a document with two-space indentation and every array of numbers on one line, so moving an entity changes one line; `tools/scene_json.py` does the same for the scene generators.
+
 Entities are written parents first, tags as `null`, and editor-only entities not at all. An `instanced` entry (version 4) holds what a prefab instance's descendant changed, addressed by its derived identity: a `name` if it was renamed, the `components` whose value differs from its source's or that its source lacks, and a `removed` list of its source's components it no longer has. It follows its instance in the file, and one whose entity is no longer in the prefab is skipped with a warning naming its identity and is gone after the next save. Loading creates every entity, then resolves parents, so the order in the file does not matter; a load that fails part way removes what it created and reports why, with the UUID of a missing prefab or parent. A prefab an instance refers to has to be loaded first, which the editor and the player do for every `.prefab.json` in the project ([Prefabs](#prefabs)). Unknown component names are logged and skipped.
 
-`version` is the schema version, independent of the engine version ([conventions.md](conventions.md#versioning)). A newer version than the engine knows is refused; older ones are migrated on load, oldest first, logging the file and both versions, and never written back. Version 2 references meshes by asset identity; version 1 named a primitive (`"primitive": "Box"`), which the migration turns into the built-in mesh of the same shape. Version 3 replaces the `Script` component by `Scripts`, a list of slots ([ADR-0022](decisions/0022-gameplay-events-and-script-properties.md)); the migration turns each `Script` into a one-slot `Scripts` with no changed properties. Version 4 adds the `instanced` entries; a version 3 file has none and loads unchanged.
+`version` is the schema version, independent of the engine version ([conventions.md](conventions.md#versioning)). A newer version than the engine knows is refused; older ones are migrated on load, oldest first, logging the file and both versions, and never written back. Version 2 references meshes by asset identity; version 1 named a primitive (`"primitive": "Box"`), which the migration turns into the built-in mesh of the same shape. Version 3 replaces the `Script` component by `Scripts`, a list of slots ([ADR-0022](decisions/0022-gameplay-events-and-script-properties.md)); the migration turns each `Script` into a one-slot `Scripts` with no changed properties. Version 4 adds the `instanced` entries; a version 3 file has none and loads unchanged. Version 5 writes vectors as arrays. Only reflection knows which members are vectors, so this one is not a step on the raw JSON: `loadEntities` tells the component reader the file's own version, and a file older than 5 may give a vector as an `{x, y, z}` object. In a version 5 file an object, or an array of the wrong length, where a vector belongs is logged as malformed, naming the component and member, and the member keeps its value while the rest of the component loads.
 
 A glTF file is a prefab too: `loadModelPrefab` builds one from the file's `assets::Model`, the root under the model's identity and name, every node a prefab child with its transform and, for a node with geometry, a `MeshRenderer` of its mesh, with identities derived from the model's so an instance saves and loads the same way after a re-import. The editor loads one for every model in the project alongside the `.prefab.json` files. The hierarchy is all a prefab needs, and it is all the database reads to give one ([assets.md](assets.md#database)), so the instances are whole entities from the frame the scene loads and their meshes draw once the file has imported.
 

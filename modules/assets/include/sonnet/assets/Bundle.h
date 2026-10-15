@@ -29,12 +29,13 @@ namespace sonnet::assets {
 // The cooked form of a project (docs/assets.md, "Cooking and export"), one file: a header, the
 // payload blobs back to back, and a CBOR index at the end holding the manifest, the assets by
 // identity and the scene and prefab files by their project-relative path (ADR-0011).
-constexpr std::uint32_t BundleVersion = 9; // 9: vertices carry a second UV set and materials are
-                                           // version 3, a UV set per slot; 8: materials are version 2,
-                                           // with texture transforms; 7: scenes and prefabs may hold version 4's
-                                           // instanced entries; 6: the manifest names the game module; 5: the Font
-                                           // type, whose index entry carries its preload ranges; 4: a mesh carries its
-                                           // far shadow range; 3: an HDR environment is KTX2
+constexpr std::uint32_t BundleVersion = 10; // 10: scenes and prefabs are version 5, vectors as arrays;
+                                            // 9: vertices carry a second UV set and materials are
+                                            // version 3, a UV set per slot; 8: materials are version 2,
+                                            // with texture transforms; 7: scenes and prefabs may hold version 4's
+                                            // instanced entries; 6: the manifest names the game module; 5: the Font
+                                            // type, whose index entry carries its preload ranges; 4: a mesh carries its
+                                            // far shadow range; 3: an HDR environment is KTX2
 constexpr std::string_view BundleExtension = ".sbundle";
 
 // What a bundle is cooked for. The desktop platforms cook the same bytes, with compressed

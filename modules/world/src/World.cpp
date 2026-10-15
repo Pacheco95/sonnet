@@ -5,7 +5,11 @@
 #include <sonnet/core/Profile.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstdint>
+#include <string_view>
+#include <utility>
 
 namespace sonnet::world {
 
@@ -626,6 +630,95 @@ void convertEmbedded(const ComponentInfo &info, nlohmann::json &node, bool parse
   }
 }
 
+// The reflected vector types and how many of x, y, z, w each has. glm::quat is stored w first or
+// last depending on its configuration, but its reflected members, and so its array, are x, y, z, w.
+struct VectorTypes {
+  std::array<std::pair<flecs::entity_t, std::size_t>, 4> types;
+
+  explicit VectorTypes(const flecs::world &world)
+      : types{{{world.id<glm::vec2>(), 2},
+               {world.id<glm::vec3>(), 3},
+               {world.id<glm::vec4>(), 4},
+               {world.id<glm::quat>(), 4}}} {
+  }
+
+  [[nodiscard]] std::size_t size(flecs::entity_t type) const noexcept {
+    const auto it = std::ranges::find(types, type, &std::pair<flecs::entity_t, std::size_t>::first);
+    return it != types.end() ? it->second : 0;
+  }
+};
+
+constexpr std::array<const char *, 4> VectorMembers{"x", "y", "z", "w"};
+
+// How convertVectors rewrites: to arrays for a file, or back to the objects flecs reads.
+struct VectorConversion {
+  const VectorTypes &vectors;
+  bool toArrays;
+  bool acceptObjects;
+  std::string_view component;
+};
+
+// Walks flecs' JSON for a value of the reflected type `type`, member by member as the reflection
+// describes it, and rewrites every vector and quaternion between flecs' {x, y, z} object and the
+// [x, y, z] array scene files hold (ADR-0029). A value that is neither the form expected nor an
+// accepted object is malformed: it is logged and becomes an empty object, which flecs reads as
+// "nothing to assign".
+void convertVectors(const ecs_world_t *world, flecs::entity_t type, nlohmann::json &node, std::string_view member,
+                    const VectorConversion &conversion) {
+  if (const std::size_t size = conversion.vectors.size(type); size > 0) {
+    if (conversion.toArrays) {
+      if (node.is_object()) {
+        nlohmann::json array = nlohmann::json::array();
+        for (std::size_t i = 0; i < size; ++i) {
+          array.push_back(node.value(VectorMembers[i], 0.0));
+        }
+        node = std::move(array);
+      }
+      return;
+    }
+    if (node.is_array() && node.size() == size &&
+        std::ranges::all_of(node, [](const nlohmann::json &element) { return element.is_number(); })) {
+      nlohmann::json object = nlohmann::json::object();
+      for (std::size_t i = 0; i < size; ++i) {
+        object[VectorMembers[i]] = node[i];
+      }
+      node = std::move(object);
+    } else if (!(node.is_object() && conversion.acceptObjects)) {
+      SONNET_LOG_ERROR("component \"{}\": member \"{}\" holds {}, not an array of {} numbers", conversion.component,
+                       member, node.dump(), size);
+      node = nlohmann::json::object();
+    }
+    return;
+  }
+  if (const auto *opaque = ecs_get(world, type, EcsOpaque); opaque != nullptr) {
+    convertVectors(world, opaque->as_type, node, member, conversion);
+  } else if (const auto *vector = ecs_get(world, type, EcsVector); vector != nullptr && node.is_array()) {
+    for (nlohmann::json &element : node) {
+      convertVectors(world, vector->type, element, member, conversion);
+    }
+  } else if (const auto *array = ecs_get(world, type, EcsArray); array != nullptr && node.is_array()) {
+    for (nlohmann::json &element : node) {
+      convertVectors(world, array->type, element, member, conversion);
+    }
+  } else if (const auto *structure = ecs_get(world, type, EcsStruct); structure != nullptr && node.is_object()) {
+    const auto *members = ecs_vec_first_t(&structure->members, ecs_member_t);
+    for (std::int32_t i = 0; i < ecs_vec_count(&structure->members); ++i) {
+      const ecs_member_t &field = members[i];
+      const auto it = node.find(field.name);
+      if (it == node.end()) {
+        continue;
+      }
+      if (field.count > 1 && it->is_array()) { // an inline array member
+        for (nlohmann::json &element : *it) {
+          convertVectors(world, field.type, element, field.name, conversion);
+        }
+      } else {
+        convertVectors(world, field.type, *it, field.name, conversion);
+      }
+    }
+  }
+}
+
 } // namespace
 
 void World::embedJson(std::string_view component, std::string_view member) {
@@ -642,13 +735,21 @@ nlohmann::json World::valueToJson(flecs::entity_t component, const void *value) 
   }
   nlohmann::json json = nlohmann::json::parse(text, nullptr, false);
   ecs_os_free(text);
-  if (const ComponentInfo *info = findComponent(component); info != nullptr && !info->jsonMembers.empty()) {
+  const ComponentInfo *info = findComponent(component);
+  const VectorTypes vectors{m_world};
+  convertVectors(m_world.c_ptr(), component, json, {},
+                 {.vectors = vectors,
+                  .toArrays = true,
+                  .acceptObjects = false,
+                  .component = info != nullptr ? std::string_view{info->name} : std::string_view{}});
+  if (info != nullptr && !info->jsonMembers.empty()) {
     convertEmbedded(*info, json, true);
   }
   return json;
 }
 
-void World::componentFromJson(flecs::entity entity, flecs::entity_t component, const nlohmann::json &value) {
+void World::componentFromJson(flecs::entity entity, flecs::entity_t component, const nlohmann::json &value,
+                              bool vectorObjects) {
   const auto it = std::ranges::find(m_components, component, &ComponentInfo::id);
   SONNET_ASSERT(it != m_components.end(), "component {} is not registered", component);
   const ComponentInfo &info = *it;
@@ -659,6 +760,9 @@ void World::componentFromJson(flecs::entity entity, flecs::entity_t component, c
   void *target = entity.ensure(component);
   if (!value.is_null()) {
     nlohmann::json flat = value;
+    const VectorTypes vectors{m_world};
+    convertVectors(m_world.c_ptr(), component, flat, {},
+                   {.vectors = vectors, .toArrays = false, .acceptObjects = vectorObjects, .component = info.name});
     if (!info.jsonMembers.empty()) {
       convertEmbedded(info, flat, false);
     }

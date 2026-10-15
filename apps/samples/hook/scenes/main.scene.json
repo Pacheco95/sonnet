@@ -1,27 +1,14 @@
 {
-  "version": 3,
+  "version": 5,
   "entities": [
     {
       "uuid": "9e1d0c00-0000-4000-8000-000000000001",
       "name": "Camera",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 4,
-            "z": 9
-          },
-          "rotation": {
-            "x": -0.2164,
-            "y": 0,
-            "z": 0,
-            "w": 0.9763
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 4, 9],
+          "rotation": [-0.2164, 0, 0, 0.9763],
+          "scale": [1, 1, 1]
         },
         "Camera": {
           "fovY": 1.0471976,
@@ -34,29 +21,12 @@
       "name": "Sun",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 5,
-            "z": 0
-          },
-          "rotation": {
-            "x": -0.4285,
-            "y": -0.1626,
-            "z": -0.0797,
-            "w": 0.8851
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 5, 0],
+          "rotation": [-0.4285, -0.1626, -0.0797, 0.8851],
+          "scale": [1, 1, 1]
         },
         "DirectionalLight": {
-          "color": {
-            "x": 1,
-            "y": 0.96,
-            "z": 0.9
-          },
+          "color": [1, 0.96, 0.9],
           "intensity": 3.0
         }
       }
@@ -66,32 +36,14 @@
       "name": "Ground",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": -0.5,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 12,
-            "y": 1,
-            "z": 12
-          }
+          "position": [0, -0.5, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [12, 1, 12]
         },
         "MeshRenderer": {
           "mesh": "a464f023-844b-8938-9df4-75487155e36d",
           "material": "00000000-0000-0000-0000-000000000000",
-          "color": {
-            "x": 0.5,
-            "y": 0.55,
-            "z": 0.6,
-            "w": 1
-          },
+          "color": [0.5, 0.55, 0.6, 1],
           "visible": true
         }
       }
@@ -101,32 +53,14 @@
       "name": "Centre",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0.5,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0.5, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "MeshRenderer": {
           "mesh": "a464f023-844b-8938-9df4-75487155e36d",
           "material": "00000000-0000-0000-0000-000000000000",
-          "color": {
-            "x": 0.85,
-            "y": 0.3,
-            "z": 0.25,
-            "w": 1
-          },
+          "color": [0.85, 0.3, 0.25, 1],
           "visible": true
         }
       }
@@ -136,32 +70,14 @@
       "name": "Orbiter",
       "components": {
         "Transform": {
-          "position": {
-            "x": 3,
-            "y": 0.5,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 0.6,
-            "y": 0.6,
-            "z": 0.6
-          }
+          "position": [3, 0.5, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [0.6, 0.6, 0.6]
         },
         "MeshRenderer": {
           "mesh": "fe3d3b79-c4ee-8f48-8944-6b1596b2c621",
           "material": "00000000-0000-0000-0000-000000000000",
-          "color": {
-            "x": 0.95,
-            "y": 0.8,
-            "z": 0.2,
-            "w": 1
-          },
+          "color": [0.95, 0.8, 0.2, 1],
           "visible": true
         },
         "Orbit": {
@@ -175,28 +91,12 @@
       "name": "Canvas",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiCanvas": {
-          "referenceSize": {
-            "x": 1920,
-            "y": 1080
-          },
+          "referenceSize": [1920, 1080],
           "match": 0.5,
           "safeArea": true,
           "order": 0
@@ -209,55 +109,22 @@
       "parent": "9e1d0c00-0000-4000-8000-000000000006",
       "components": {
         "Transform": {
-          "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          },
-          "scale": {
-            "x": 1,
-            "y": 1,
-            "z": 1
-          }
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
         "GuiRect": {
-          "anchorMin": {
-            "x": 0,
-            "y": 0
-          },
-          "anchorMax": {
-            "x": 0,
-            "y": 0
-          },
-          "pivot": {
-            "x": 0.5,
-            "y": 0.5
-          },
-          "offsetMin": {
-            "x": 48,
-            "y": 32
-          },
-          "offsetMax": {
-            "x": 1248,
-            "y": 112
-          }
+          "anchorMin": [0, 0],
+          "anchorMax": [0, 0],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [48, 32],
+          "offsetMax": [1248, 112]
         },
         "GuiText": {
           "font": "6f1c2a40-5b0e-4c1d-9a3e-2b7d9d51f101",
           "text": "Orbit",
           "size": 56,
-          "color": {
-            "x": 1,
-            "y": 1,
-            "z": 1,
-            "w": 1
-          },
+          "color": [1, 1, 1, 1],
           "horizontal": "Start",
           "vertical": "Center",
           "wrap": false
