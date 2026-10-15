@@ -541,8 +541,8 @@ void writeQuadGltf(const std::filesystem::path &gltf, IndexCompression indexMode
   constexpr std::size_t stride = 24;
   const std::vector<float> vertices{-1.0f, 0.0f, -1.0f, 0.0f,   1.0f,  0.0f,    1.0f, 0.0f, -1.0f, 0.0f,   1.0f, 0.0f,
                                     -1.0f, 0.5f, 1.0f,  -0.25f, 0.75f, -0.375f, 1.0f, 2.5f, 1.0f,  0.125f, 0.5f, 0.0f};
-  const std::vector<std::uint32_t> indices32{0, 2, 1, 1, 2, 3};
-  const std::vector<std::uint16_t> indices16(indices32.begin(), indices32.end());
+  const std::vector<std::uint16_t> indices16{0, 2, 1, 1, 2, 3};
+  const std::vector<std::uint32_t> indices32(indices16.begin(), indices16.end()); // what the encoder takes
   const std::size_t vertexBytes = vertexCount * stride;
   const std::size_t indexBytes = indices16.size() * 2;
   const bool compressed = indexMode != IndexCompression::None;
