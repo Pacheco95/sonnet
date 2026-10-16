@@ -129,6 +129,7 @@ struct GpuScene {
   RenderGraph graph;
   RenderTarget target;
   BufferHandle readback;
+  bool grid{false};
   std::span<const OverlayQuad> overlay; // drawn over the scene, when there are any
   // Wall-clock time of each frame's endFrame, where the frame is submitted. MoltenVK encodes the
   // recorded commands into Metal there, one Metal draw per indirect command (ADR-0016), which no
@@ -157,6 +158,9 @@ struct GpuScene {
       const GraphImage color = graph.importImage(target.color());
       const GraphImage depth = graph.importImage(target.depth());
       renderer.addScenePasses(graph, view, color, depth, {0.0f, 0.0f, 0.0f, 1.0f});
+      if (grid) {
+        renderer.addGridPass(graph, view, color, depth);
+      }
       renderer.addDebugLinePass(graph, view, color, depth);
       renderer.addOverlayPass(graph, color, overlay);
       if (frame == frames - 1) {
@@ -3652,6 +3656,76 @@ TEST_CASE("a far shadow cascade draws the coarse range of a small caster", "[ren
     REQUIRE(device->validationMessageCount() == 0);
     fineRenderer.destroyMesh(fineMesh);
     lodRenderer.destroyMesh(lodMesh);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("floor grid is stable under TAA and hidden by ground", "[renderer][gpu][grid]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.antialiasing = AntiAliasing::Taa;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    GpuScene scene{*device, renderer, {128, 128}};
+    SceneView view = topDownScene({});
+    scene.grid = true;
+    scene.render(view, 10);
+    const auto bytes = device->mappedRange(scene.readback);
+    const std::vector<std::byte> first{bytes.begin(), bytes.end()};
+    const Pixel red = scene.pixel(90, 63);
+    const Pixel blue = scene.pixel(63, 90);
+    REQUIRE(red.r > red.b * 2);
+    REQUIRE(blue.b > blue.r * 2);
+    for (int frame = 0; frame < 8; ++frame) {
+      scene.render(view);
+      REQUIRE(std::ranges::equal(first, device->mappedRange(scene.readback)));
+    }
+    const MeshHandle ground = renderer.createMesh(primitives::plane(), "grid occluder");
+    const std::array draws{DrawItem{.mesh = ground, .transform = glm::scale(glm::mat4{1}, glm::vec3{100})}};
+    view.draws = draws;
+    // Tilted ground exercises the jittered depth buffer rather than constant top-down depth.
+    view.camera.position = {0, 4, 6};
+    view.camera.rotation = glm::angleAxis(glm::radians(-35.0f), glm::vec3{1, 0, 0});
+    std::array<std::vector<std::byte>, 8> without;
+    scene.grid = false;
+    for (std::size_t frame = 0; frame < without.size(); ++frame) {
+      view.resetHistory = frame == 0;
+      scene.render(view);
+      const auto plain = device->mappedRange(scene.readback);
+      without[frame].assign(plain.begin(), plain.end());
+    }
+    scene.grid = true;
+    for (std::size_t frame = 0; frame < without.size(); ++frame) {
+      view.resetHistory = frame == 0;
+      scene.render(view);
+      REQUIRE(std::ranges::equal(without[frame], device->mappedRange(scene.readback)));
+    }
+    renderer.destroyMesh(ground);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("orbiting the grid under TAA matches unjittered rendering", "[renderer][gpu][grid]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    Renderer reference{*device, shaderDir(platform), settings};
+    settings.antialiasing = AntiAliasing::Taa;
+    Renderer temporal{*device, shaderDir(platform), settings};
+    GpuScene plain{*device, reference, {128, 128}};
+    GpuScene taa{*device, temporal, {128, 128}};
+    plain.grid = taa.grid = true;
+    SceneView view;
+    for (int frame = 0; frame < 16; ++frame) {
+      const float angle = static_cast<float>(frame) * 0.15f;
+      view.camera.position = {std::sin(angle) * 6.0f, 4.0f, std::cos(angle) * 6.0f};
+      view.camera.rotation = glm::angleAxis(angle, glm::vec3{0, 1, 0}) * glm::angleAxis(-0.55f, glm::vec3{1, 0, 0});
+      plain.render(view);
+      taa.render(view);
+      REQUIRE(std::ranges::equal(device->mappedRange(plain.readback), device->mappedRange(taa.readback)));
+    }
   }
   REQUIRE(device->validationMessageCount() == 0);
 }

@@ -64,6 +64,7 @@ Preferences Preferences::load(const std::filesystem::path &file) {
   preferences.externalEditor = document.value("externalEditor", preferences.externalEditor);
   preferences.sourceRoot = document.value("sourceRoot", preferences.sourceRoot);
   preferences.reopenLastProject = document.value("reopenLastProject", preferences.reopenLastProject);
+  preferences.floorGrid = document.value("floorGrid", preferences.floorGrid);
   return preferences;
 }
 
@@ -86,6 +87,7 @@ core::Result<void> Preferences::save(const std::filesystem::path &file) const {
       {"externalEditor", externalEditor},
       {"sourceRoot", sourceRoot},
       {"reopenLastProject", reopenLastProject},
+      {"floorGrid", floorGrid},
   };
   std::ofstream stream{file};
   if (!stream) {

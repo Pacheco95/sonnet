@@ -201,3 +201,24 @@ TEST_CASE("snapping rounds a drag to the grid and only while it is asked for", "
   REQUIRE(scaled == Approx(1.5f).margin(1e-4f));
   gizmo.update(viewAt(scaleTarget, false, false), world, entity, nullptr);
 }
+
+TEST_CASE("default translation snapping places an off-grid cube on metre lines", "[editor][gizmo][grid]") {
+  world::World world;
+  const auto entity = world.createEntity("Box");
+  entity.set<world::Transform>({.position = {0.2f, 0.0f, 0.0f}});
+  world.progress(0.016f);
+  editor::Gizmo gizmo;
+  REQUIRE(gizmo.snap().translate == 1.0f);
+  const auto base = viewAt({0, 0});
+  const auto handle = editor::Gizmo::project(base, {0.5f, 0, 0});
+  const auto target = editor::Gizmo::project(base, {1.4f, 0, 0});
+  REQUIRE(handle.has_value());
+  REQUIRE(target.has_value());
+  auto press = viewAt(*handle, true, true);
+  press.snap = true;
+  REQUIRE(gizmo.update(press, world, entity, nullptr).active);
+  auto move = viewAt(*target, true, false);
+  move.snap = true;
+  REQUIRE(gizmo.update(move, world, entity, nullptr).active);
+  REQUIRE(entity.get<world::Transform>().position.x == Approx(1.0f));
+}

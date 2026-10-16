@@ -103,6 +103,16 @@ public:
   void setRememberOpenScenes(bool remember) noexcept {
     m_rememberOpenScenes = remember;
   }
+  // View > Floor grid, persisted independently of panel layouts.
+  [[nodiscard]] bool floorGrid() const {
+    return m_preferences.floorGrid;
+  }
+  void setFloorGrid(bool show);
+  // Capture opt-in is transient and never changes the user's saved preference.
+  void setCaptureGrid(bool show) {
+    m_captureGrid = show;
+  }
+
   // Reads the preferences from `file` and saves them there from now on, instead of the per-user
   // file the constructor read; for tests.
   void setPreferencesFile(const std::filesystem::path &file);
@@ -541,6 +551,7 @@ private:
   bool m_snapEnabled{false}; // Ctrl held during a drag inverts it
   std::filesystem::path m_preferencesFile;
   Preferences m_preferences;
+  bool m_captureGrid{false};
   bool m_rememberOpenScenes{false};
   std::optional<assets::Project> m_project;
   std::filesystem::path m_scenePath;

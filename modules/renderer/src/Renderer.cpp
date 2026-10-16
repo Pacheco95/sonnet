@@ -285,6 +285,16 @@ struct OutlineConstants {
 };
 static_assert(sizeof(OutlineConstants) == 16);
 
+// Mirror of grid.slang; fits the guaranteed push-constant budget.
+struct GridConstants {
+  glm::mat4 inverseViewProjection;
+  glm::vec4 cameraNear;
+  glm::vec4 plane;
+  glm::vec4 axisU;
+  glm::vec4 viewport;
+};
+static_assert(sizeof(GridConstants) <= rhi::PushConstantSize);
+
 // Matches debug.slang.
 struct DebugVertex {
   glm::vec4 position;
@@ -523,6 +533,13 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   }
   defineGraphics(m_outlinePipeline, "outline",
                  {.colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "outline"});
+  defineGraphics(m_gridPipeline, "grid",
+                 {.colorFormats = {ColorFormat},
+                  .depthFormat = DepthFormat,
+                  .depth = {.test = true, .write = false},
+                  .cullMode = rhi::CullMode::None,
+                  .blend = rhi::BlendMode::Alpha,
+                  .debugName = "floor grid"});
   defineGraphics(m_debugLinePipeline, "debug",
                  {.colorFormats = {ColorFormat},
                   .depthFormat = DepthFormat,
@@ -647,6 +664,7 @@ Renderer::~Renderer() {
                                              m_clearCommandsPipeline,
                                              m_cullPipeline,
                                              m_clusterPipeline,
+                                             m_gridPipeline,
                                              m_debugLinePipeline,
                                              m_overlayPipeline,
                                              m_outlinePipeline,
@@ -682,9 +700,9 @@ const char *antiAliasingName(AntiAliasing mode) noexcept {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 15> Names{"cluster",   "cull", "debug", "depth",   "forward",
-                                                          "hiz",       "ibl",  "id",    "outline", "overlay",
-                                                          "particles", "post", "skin",  "skybox",  "taa"};
+  static constexpr std::array<std::string_view, 16> Names{
+      "cluster", "cull",    "debug",   "depth",     "forward", "grid", "hiz",    "ibl",
+      "id",      "outline", "overlay", "particles", "post",    "skin", "skybox", "taa"};
   return Names;
 }
 
@@ -3217,6 +3235,30 @@ void Renderer::recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask)
   commands.bindImages({&binding, 1});
   commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
   commands.draw(3);
+}
+
+void Renderer::addGridPass(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth,
+                           glm::vec4 plane, glm::vec3 axisU) {
+  const glm::uvec2 size = graph.imageDesc(color).size;
+  const float aspect = static_cast<float>(size.x) / static_cast<float>(std::max(size.y, 1u));
+  const GridConstants constants{.inverseViewProjection =
+                                    glm::inverse(view.camera.projection(aspect) * view.camera.view()),
+                                .cameraNear = glm::vec4{view.camera.position, view.camera.nearPlane},
+                                .plane = plane,
+                                .axisU = glm::vec4{axisU, 0.0f},
+                                .viewport = glm::vec4{size.x, size.y, 0.0f, 0.0f}};
+  graph.addPass(
+      "floor grid",
+      [&](PassBuilder &builder) {
+        builder.color(color, rhi::LoadOp::Load);
+        builder.depth(depth, rhi::LoadOp::Load);
+      },
+      [this, constants](rhi::ICommandList &commands, const PassResources &) {
+        SONNET_ZONE();
+        commands.bindPipeline(m_gridPipeline);
+        commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+        commands.draw(3);
+      });
 }
 
 void Renderer::addDebugLinePass(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth) {
