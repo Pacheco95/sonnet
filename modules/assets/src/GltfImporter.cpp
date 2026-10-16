@@ -364,8 +364,6 @@ struct NodeWalk {
   std::vector<bool> visited;
   // Names that siblings share, which makes their paths ambiguous.
   std::vector<std::string> duplicateNames;
-  // Names of the nodes whose orthographic camera was dropped, since the engine has no such projection.
-  std::vector<std::string> orthographicCameras;
   // Names of the nodes whose light had no range, with the range the importer gave it.
   std::vector<std::pair<std::string, float>> chosenRanges;
 };
@@ -424,7 +422,6 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, const ModelSettings &settings, 
   NodeWalk walk{.paths = std::vector<std::string>(asset.nodes.size()),
                 .visited = std::vector<bool>(asset.nodes.size(), false),
                 .duplicateNames = {},
-                .orthographicCameras = {},
                 .chosenRanges = {}};
   const auto visit = [&](auto &self, std::size_t nodeIndex, std::int32_t parent, const std::string &parentPath,
                          std::vector<std::string> &siblings) -> void {
@@ -463,7 +460,11 @@ NodeWalk walkNodes(const fastgltf::Asset &asset, const ModelSettings &settings, 
               std::get_if<fastgltf::Camera::Perspective>(&asset.cameras[*node.cameraIndex].camera)) {
         out.camera = ModelCamera{.fovY = perspective->yfov, .nearPlane = perspective->znear};
       } else {
-        walk.orthographicCameras.push_back(out.name);
+        const auto &ortho = std::get<fastgltf::Camera::Orthographic>(asset.cameras[*node.cameraIndex].camera);
+        out.camera = ModelCamera{.nearPlane = ortho.znear,
+                                 .projectionKind = renderer::ProjectionKind::Orthographic,
+                                 .orthoHeight = 2.0f * ortho.ymag,
+                                 .farPlane = ortho.zfar};
       }
     }
     if (node.lightIndex.has_value() && *node.lightIndex < asset.lights.size()) {
@@ -796,10 +797,6 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path, const Mod
   for (const std::string &name : walk.duplicateNames) {
     SONNET_LOG_WARN("{}: two nodes named \"{}\" under one parent; animations and skins bind the first", path.string(),
                     name);
-  }
-  for (const std::string &name : walk.orthographicCameras) {
-    SONNET_LOG_WARN("{}: node \"{}\" has an orthographic camera, which the engine cannot project; skipped",
-                    path.string(), name);
   }
   for (const auto &[name, range] : walk.chosenRanges) {
     SONNET_LOG_INFO("{}: node \"{}\" has a light without a range; it reaches {:.1f} m", path.string(), name, range);

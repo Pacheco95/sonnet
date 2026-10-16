@@ -20,6 +20,7 @@
 #include <spdlog/sinks/base_sink.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <format>
 #include <memory>
@@ -445,7 +446,7 @@ TEST_CASE("the camera turns a point of the view into a ray", "[scripting]") {
   REQUIRE(fixture.scripts
               ->run(R"lua(
     local centre = camera.ray({ x = 100, y = 50 })
-    assert(centre.origin == vec3(1, 2, 3), tostring(centre.origin))
+    assert((centre.origin - vec3(1, 2, 2.9)):length() < 1e-5, tostring(centre.origin))
     assert((centre.direction - vec3(0, 0, -1)):length() < 1e-6, tostring(centre.direction))
     local corner = camera.ray({ x = 0, y = 0 }).direction
     assert((corner - vec3(-2, 1, -1):normalized()):length() < 1e-6, tostring(corner))
@@ -1088,4 +1089,35 @@ TEST_CASE("a time scale of 0 stops the game's time while its buttons still answe
   REQUIRE_FALSE(fixture.scripts->run("game.setTimeScale(-1)", "negative").has_value());
   REQUIRE_FALSE(fixture.scripts->run("game.setTimeScale(0/0)", "nan").has_value());
   REQUIRE(fixture.world.timeScale() == 1.0f);
+}
+
+TEST_CASE("orthographic camera rays start at the pixel and pick the matching object", "[scripting][camera]") {
+  Fixture fixture;
+  fixture.view.camera.projectionKind = renderer::ProjectionKind::Orthographic;
+  fixture.view.camera.orthoHeight = 10.0f;
+  fixture.view.size = {200.0f, 100.0f};
+  for (const auto &[name, x] : std::array{std::pair{"Left", -5.0f}, std::pair{"Right", 5.0f}}) {
+    const auto target = fixture.world.createEntity(name);
+    target.set<world::Transform>({.position = {x, 0.0f, -5.0f}});
+    target.set<physics::BoxCollider>({});
+  }
+  fixture.world.createEntity("Eye").set<world::Camera>({});
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  REQUIRE(fixture.scripts
+              ->run(R"lua(
+    local a = camera.ray({x=50, y=50})
+    local b = camera.ray({x=150, y=50})
+    assert((a.direction - b.direction):length() < 1e-5)
+    assert((a.origin - vec3(-5, 0, -0.1)):length() < 1e-5)
+    assert((b.origin - vec3(5, 0, -0.1)):length() < 1e-5)
+    assert(physics.raycast(a.origin, a.direction, 20).entity:name() == "Left")
+    assert(physics.raycast(b.origin, b.direction, 20).entity:name() == "Right")
+    local eye = world.findByName("Eye")
+    eye:set("Camera", {projectionKind="Orthographic", orthoHeight=12, farPlane=80})
+    local c = eye:get("Camera")
+    assert(c.projectionKind == "Orthographic" and c.orthoHeight == 12 and c.farPlane == 80)
+  )lua",
+                    "=ortho")
+              .has_value());
 }

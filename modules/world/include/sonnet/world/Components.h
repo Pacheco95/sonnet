@@ -87,6 +87,9 @@ struct MeshRenderer {
 struct Camera {
   float fovY{glm::radians(60.0f)}; // radians; the inspector shows degrees
   float nearPlane{0.1f};
+  renderer::ProjectionKind projectionKind{renderer::ProjectionKind::Perspective};
+  float orthoHeight{10.0f};
+  float farPlane{500.0f};
   float exposure{1.0f};
   float bloomStrength{0.04f}; // fraction of the blurred HDR image, 0 to 1
 };

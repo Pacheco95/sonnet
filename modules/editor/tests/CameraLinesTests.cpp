@@ -59,3 +59,18 @@ TEST_CASE("every camera gets a frustum", "[editor][camera]") {
   editor::appendCameraFrustumLines(cameras, 1.0f, lines);
   REQUIRE(lines.size() == 24);
 }
+
+TEST_CASE("an orthographic camera gizmo has parallel sides", "[editor][camera]") {
+  const renderer::Camera camera{
+      .nearPlane = 0.5f, .projectionKind = renderer::ProjectionKind::Orthographic, .orthoHeight = 4.0f};
+  std::vector<renderer::DebugLine> lines;
+  editor::appendCameraFrustumLines(std::span{&camera, 1}, 2.0f, lines);
+  REQUIRE(lines.size() == 12);
+  for (std::size_t i = 8; i < 12; ++i) {
+    REQUIRE(lines[i].from.x == Approx(lines[i].to.x));
+    REQUIRE(lines[i].from.y == Approx(lines[i].to.y));
+    REQUIRE(glm::length(lines[i].to - lines[i].from) == Approx(editor::CameraGizmoLength));
+    REQUIRE(std::abs(lines[i].from.x) == Approx(4.0f));
+    REQUIRE(std::abs(lines[i].from.y) == Approx(2.0f));
+  }
+}

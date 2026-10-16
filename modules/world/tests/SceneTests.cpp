@@ -2,6 +2,7 @@
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
+#include <sonnet/assets/Bundle.h>
 #include <sonnet/core/Log.h>
 
 #include <catch2/catch_approx.hpp>
@@ -285,6 +286,13 @@ TEST_CASE("a model node's camera becomes a Camera that play mode can look throug
                          .parent = 0,
                          .position = {0.0f, 1.0f, 5.0f},
                          .camera = assets::ModelCamera{.fovY = 0.6f, .nearPlane = 0.05f}});
+  SECTION("orthographic camera") {
+    model.nodes[1].camera->projectionKind = renderer::ProjectionKind::Orthographic;
+    model.nodes[1].camera->orthoHeight = 12.0f;
+    model.nodes[1].camera->farPlane = 75.0f;
+  }
+  SECTION("perspective camera") {
+  }
   world::World world;
   const flecs::entity prefab = world::loadModelPrefab(world, model, modelUuid, "Stage");
   const flecs::entity shot = world.children(world.children(prefab)[0])[0];
@@ -302,6 +310,9 @@ TEST_CASE("a model node's camera becomes a Camera that play mode can look throug
   REQUIRE(camera->position.z == Approx(5.0f));
   REQUIRE(camera->fovY == Approx(0.6f));
   REQUIRE(camera->nearPlane == Approx(0.05f));
+  REQUIRE(camera->projectionKind == model.nodes[1].camera->projectionKind);
+  REQUIRE(camera->orthoHeight == Approx(model.nodes[1].camera->orthoHeight));
+  REQUIRE(camera->farPlane == Approx(model.nodes[1].camera->farPlane));
 }
 
 TEST_CASE("a model node's light becomes the light component of its type", "[world][scene][prefab]") {
@@ -778,4 +789,36 @@ TEST_CASE("version 5 moves the first environment exposure to cameras", "[world][
     REQUIRE(prefab->get<world::Camera>().exposure == Approx(1.0f));
     REQUIRE(prefab->get<world::Camera>().bloomStrength == Approx(0.04f));
   }
+}
+
+TEST_CASE("orthographic scene cameras retain projection and old cameras default to perspective",
+          "[world][scene][camera]") {
+  world::World world;
+  const auto camera = world.createEntity("Plan");
+  camera.set<world::Camera>({.nearPlane = 0.25f,
+                             .projectionKind = renderer::ProjectionKind::Orthographic,
+                             .orthoHeight = 8.0f,
+                             .farPlane = 42.0f});
+  const auto uuid = world.uuidOf(camera);
+  auto saved = world::saveScene(world);
+  REQUIRE(saved["version"] == 7);
+  const auto payload = assets::decodeJson(assets::encodeJson(saved));
+  REQUIRE(payload);
+  world.clearScene();
+  REQUIRE(world::loadScene(world, *payload));
+  world.progress(0.0f);
+  const auto view = world::sceneCamera(world);
+  REQUIRE(view);
+  REQUIRE(view->projectionKind == renderer::ProjectionKind::Orthographic);
+  REQUIRE(view->orthoHeight == Approx(8.0f));
+  REQUIRE(view->farPlane == Approx(42.0f));
+  REQUIRE(view->nearPlane == Approx(0.25f));
+  saved["version"] = 6;
+  auto &fields = saved["entities"][0]["components"]["Camera"];
+  fields.erase("projectionKind");
+  fields.erase("orthoHeight");
+  fields.erase("farPlane");
+  world.clearScene();
+  REQUIRE(world::loadScene(world, saved));
+  REQUIRE(world.find(uuid).get<world::Camera>().projectionKind == renderer::ProjectionKind::Perspective);
 }

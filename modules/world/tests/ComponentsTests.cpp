@@ -102,7 +102,7 @@ TEST_CASE("angle members carry the radians unit for the inspector", "[world][com
   const flecs::Struct &layout = camera.get<flecs::Struct>();
   const auto *members = ecs_vec_first_t(&layout.members, ecs_member_t);
   const std::size_t count = static_cast<std::size_t>(ecs_vec_count(&layout.members));
-  REQUIRE(count == 4);
+  REQUIRE(count == 7);
   REQUIRE(std::string_view{members[0].name} == "fovY");
   REQUIRE(members[0].unit == world.ecs().id<flecs::units::angle::Radians>());
   REQUIRE(members[0].type == world.ecs().id<float>());

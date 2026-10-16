@@ -188,10 +188,14 @@ void World::registerComponents() {
       .member<core::Uuid>("material")
       .member<glm::vec4>("color")
       .member<bool>("visible");
+  m_world.component<renderer::ProjectionKind>("ProjectionKind");
   registerComponent<Camera>("Camera");
   m_world.component<Camera>()
       .member<float, Radians>("fovY")
       .member<float>("nearPlane")
+      .member<renderer::ProjectionKind>("projectionKind")
+      .member<float>("orthoHeight")
+      .member<float>("farPlane")
       .member<float>("exposure")
       .member<float>("bloomStrength");
   registerComponent<DirectionalLight>("DirectionalLight");

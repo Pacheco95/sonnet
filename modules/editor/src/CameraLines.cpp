@@ -16,7 +16,9 @@ constexpr float MinFovY = 0.01f;
 
 // The corners of the view's cross-section `distance` in front of the camera, in order around it.
 std::array<glm::vec3, 4> section(const renderer::Camera &camera, float aspect, float distance) {
-  const float halfHeight = distance * std::tan(glm::clamp(camera.fovY, MinFovY, MaxFovY) * 0.5f);
+  const float halfHeight = camera.projectionKind == renderer::ProjectionKind::Orthographic
+                               ? camera.orthoHeight * 0.5f
+                               : distance * std::tan(glm::clamp(camera.fovY, MinFovY, MaxFovY) * 0.5f);
   const glm::vec3 centre = camera.position + camera.forward() * distance;
   const glm::vec3 up = camera.up() * halfHeight;
   const glm::vec3 right = camera.right() * (halfHeight * aspect);
@@ -35,10 +37,13 @@ void appendCameraFrustumLines(std::span<const renderer::Camera> cameras, float a
                               std::vector<renderer::DebugLine> &lines) {
   for (const renderer::Camera &camera : cameras) {
     const std::array<glm::vec3, 4> farCorners = section(camera, aspect, camera.nearPlane + CameraGizmoLength);
-    rectangle(section(camera, aspect, camera.nearPlane), lines);
+    const auto nearCorners = section(camera, aspect, camera.nearPlane);
+    rectangle(nearCorners, lines);
     rectangle(farCorners, lines);
-    for (const glm::vec3 &corner : farCorners) {
-      lines.push_back({.from = camera.position, .to = corner, .color = Color});
+    for (std::size_t i = 0; i < farCorners.size(); ++i) {
+      const auto origin =
+          camera.projectionKind == renderer::ProjectionKind::Orthographic ? nearCorners[i] : camera.position;
+      lines.push_back({.from = origin, .to = farCorners[i], .color = Color});
     }
   }
 }
