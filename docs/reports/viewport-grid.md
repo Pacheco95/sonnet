@@ -29,3 +29,19 @@ The lighting sample with the grid requested. Its ground and objects hide the gri
 ## Automated coverage
 
 The renderer's `[grid]` GPU tests compare images across the eight TAA jitter phases, compare an orbiting grid with unjittered rendering, and compare a tilted ground with and without the grid. Editor tests cover preference persistence, capture opt-in without changing the saved setting, and snapping an off-grid cube to the default metre spacing. The shader also passes the desktop SPIR-V rewrite check for Adreno; this is not a phone render test.
+
+## Orthographic axis views
+
+The six axis views of the showcase, captured on Linux with Lavapipe by
+`editor_tests "[.orthographic-showcase]"`. Each uses its view plane through the
+origin, with X red, Y green and Z blue. The courtyard floor hides the Top grid;
+from Bottom the origin plane is in front of the floor. Front/Back use XY and
+Right/Left use YZ. Scene geometry in front of the plane occludes it.
+
+![Six orthographic grids](viewport-grid/orthographic.png)
+
+The renderer GPU tests check both directions of all three planes, the two expected
+axis colours, identical pixels at different camera distances, changed spacing at
+different orthographic heights, and a coplanar surface hiding the grid. The editor
+orthographic drag test holds Ctrl and drags 1.2 m, checking the cube snaps to 1 m.
+Move step stays fixed when zooming, as described in [Floor grid](../editor.md#floor-grid).

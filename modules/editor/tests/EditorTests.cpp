@@ -1243,7 +1243,7 @@ TEST_CASE("orthographic picking and translate drag select and move the box", "[e
     REQUIRE(editor.selection().primary() == world.uuidOf(box));
     const float length = editor.viewport().camera().camera().orthoHeight * 0.18f;
     const auto handle = editor::Gizmo::project(viewOf({}), boxPosition + glm::vec3{length * 0.6f, 0.0f, 0.0f});
-    const auto target = editor::Gizmo::project(viewOf({}), boxPosition + glm::vec3{length * 0.6f + 1.0f, 0.0f, 0.0f});
+    const auto target = editor::Gizmo::project(viewOf({}), boxPosition + glm::vec3{length * 0.6f + 1.2f, 0.0f, 0.0f});
     REQUIRE(handle.has_value());
     REQUIRE(target.has_value());
 
@@ -1251,6 +1251,8 @@ TEST_CASE("orthographic picking and translate drag select and move the box", "[e
     io.AddMousePosEvent(handle->x, handle->y);
     fixture.frame(editor);
     REQUIRE(editor.gizmo().hoveredAxis() == editor::GizmoAxis::X);
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    fixture.frame(editor);
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     fixture.frame(editor);
     REQUIRE(editor.gizmo().isDragging());
@@ -1773,6 +1775,16 @@ TEST_CASE("capture the orthographic showcase for visual review", "[.orthographic
       fixture.frame(editor);
     }
     capture("front-final-taa");
+    editor.setCaptureGrid(true);
+    for (const auto axis : {editor::AxisView::Top, editor::AxisView::Bottom, editor::AxisView::Front,
+                            editor::AxisView::Back, editor::AxisView::Right, editor::AxisView::Left}) {
+      editor.viewport().snapView(axis);
+      editor.requestScreenshots(output / (std::string{editor.viewport().camera().viewName()} + "-grid.png"), {});
+      fixture.frame(editor);
+      const auto result = editor.takeScreenshotResult();
+      REQUIRE(result.has_value());
+      REQUIRE(result->has_value());
+    }
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

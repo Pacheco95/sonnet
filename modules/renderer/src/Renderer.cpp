@@ -3291,12 +3291,13 @@ void Renderer::addGridPass(RenderGraph &graph, const SceneView &view, GraphImage
                            glm::vec4 plane, glm::vec3 axisU) {
   const glm::uvec2 size = graph.imageDesc(color).size;
   const float aspect = static_cast<float>(size.x) / static_cast<float>(std::max(size.y, 1u));
-  const GridConstants constants{.inverseViewProjection =
-                                    glm::inverse(view.camera.projection(aspect) * view.camera.view()),
-                                .cameraNear = glm::vec4{view.camera.position, view.camera.nearPlane},
-                                .plane = plane,
-                                .axisU = glm::vec4{axisU, 0.0f},
-                                .viewport = glm::vec4{size.x, size.y, 0.0f, 0.0f}};
+  const GridConstants constants{
+      .inverseViewProjection = glm::inverse(view.camera.projection(aspect) * view.camera.view()),
+      .cameraNear = glm::vec4{view.camera.position, view.camera.nearPlane},
+      .plane = plane,
+      .axisU = glm::vec4{axisU, 0.0f},
+      .viewport = glm::vec4{size.x, size.y, view.camera.farPlane,
+                            view.camera.projectionKind == ProjectionKind::Orthographic ? 1.0f : 0.0f}};
   graph.addPass(
       "floor grid",
       [&](PassBuilder &builder) {

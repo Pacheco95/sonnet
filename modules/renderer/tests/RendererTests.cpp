@@ -130,6 +130,8 @@ struct GpuScene {
   RenderTarget target;
   BufferHandle readback;
   bool grid{false};
+  glm::vec4 gridPlane{0, 1, 0, 0};
+  glm::vec3 gridAxisU{1, 0, 0};
   std::span<const OverlayQuad> overlay; // drawn over the scene, when there are any
   // Wall-clock time of each frame's endFrame, where the frame is submitted. MoltenVK encodes the
   // recorded commands into Metal there, one Metal draw per indirect command (ADR-0016), which no
@@ -159,7 +161,7 @@ struct GpuScene {
       const GraphImage depth = graph.importImage(target.depth());
       renderer.addScenePasses(graph, view, color, depth, {0.0f, 0.0f, 0.0f, 1.0f});
       if (grid) {
-        renderer.addGridPass(graph, view, color, depth);
+        renderer.addGridPass(graph, view, color, depth, gridPlane, gridAxisU);
       }
       renderer.addDebugLinePass(graph, view, color, depth);
       renderer.addOverlayPass(graph, color, overlay);
@@ -3715,6 +3717,69 @@ TEST_CASE("floor grid is stable under TAA and hidden by ground", "[renderer][gpu
       scene.render(view);
       REQUIRE(std::ranges::equal(without[frame], device->mappedRange(scene.readback)));
     }
+    renderer.destroyMesh(ground);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("orthographic grids use parallel rays and all three axis colours", "[renderer][gpu][grid]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    GpuScene scene{*device, renderer, {128, 128}};
+    scene.grid = true;
+    SceneView view;
+    view.camera.projectionKind = ProjectionKind::Orthographic;
+    view.camera.orthoHeight = 8.0f;
+    for (const glm::vec3 normal : {glm::vec3{0, 1, 0}, glm::vec3{0, 0, 1}, glm::vec3{1, 0, 0}}) {
+      scene.gridPlane = glm::vec4{normal, 0};
+      scene.gridAxisU = normal.x == 1 ? glm::vec3{0, 0, 1} : glm::vec3{1, 0, 0};
+      for (const float sign : {1.0f, -1.0f}) {
+        CAPTURE(normal.x, normal.y, normal.z, sign);
+        view.camera.position = normal * sign * 10.0f;
+        const auto up = normal.y == 1 ? glm::vec3{0, 0, -sign} : glm::vec3{0, 1, 0};
+        view.camera.rotation = glm::quatLookAt(-normal * sign, up);
+        scene.render(view);
+        int red = 0, green = 0, blue = 0;
+        for (std::uint32_t y = 0; y < 128; ++y) {
+          for (std::uint32_t x = 0; x < 128; ++x) {
+            const auto p = scene.pixel(x, y);
+            red += p.r > p.g * 2 && p.r > p.b * 2;
+            green += p.g > p.r * 2 && p.g > p.b * 2;
+            blue += p.b > p.r * 2 && p.b > p.g * 2;
+          }
+        }
+        REQUIRE((red > 100) == (normal.x == 0));
+        REQUIRE((green > 100) == (normal.y == 0));
+        REQUIRE((blue > 100) == (normal.z == 0));
+        const auto bytes = device->mappedRange(scene.readback);
+        const std::vector<std::byte> first{bytes.begin(), bytes.end()};
+        // Orthographic spacing and opacity depend on height, never camera distance.
+        view.camera.position *= 20.0f;
+        scene.render(view);
+        REQUIRE(std::ranges::equal(first, device->mappedRange(scene.readback)));
+        view.camera.orthoHeight = 80.0f;
+        scene.render(view);
+        REQUIRE_FALSE(std::ranges::equal(first, device->mappedRange(scene.readback)));
+        view.camera.orthoHeight = 8.0f;
+      }
+    }
+    // A coplanar surface must own its depth for orthographic projection too.
+    const auto ground = renderer.createMesh(primitives::plane(), "orthographic grid occluder");
+    const std::array draws{DrawItem{.mesh = ground, .transform = glm::scale(glm::mat4{1}, glm::vec3{100})}};
+    view.draws = draws;
+    view.camera.position = {0, 10, 0};
+    view.camera.rotation = glm::quatLookAt(glm::vec3{0, -1, 0}, glm::vec3{0, 0, -1});
+    scene.gridPlane = {0, 1, 0, 0};
+    scene.gridAxisU = {1, 0, 0};
+    scene.grid = false;
+    scene.render(view);
+    const auto bytes = device->mappedRange(scene.readback);
+    const std::vector<std::byte> without{bytes.begin(), bytes.end()};
+    scene.grid = true;
+    scene.render(view);
+    REQUIRE(std::ranges::equal(without, device->mappedRange(scene.readback)));
     renderer.destroyMesh(ground);
   }
   REQUIRE(device->validationMessageCount() == 0);
