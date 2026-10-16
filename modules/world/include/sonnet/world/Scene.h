@@ -21,7 +21,8 @@ namespace sonnet::world {
 // replaces the `Script` component by `Scripts`, a list of slots; version 4 stores what an
 // instance's descendants changed as "instanced" entries (ADR-0028); version 5 writes vector and
 // quaternion members as arrays (ADR-0029).
-constexpr int SceneVersion = 5;
+// Version 6 moves exposure from Environment to Camera and adds Camera bloom strength.
+constexpr int SceneVersion = 6;
 
 // Every scene entity, parents before children, prefab instances as their overrides and what
 // their descendants changed.

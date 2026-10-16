@@ -3729,3 +3729,33 @@ TEST_CASE("orbiting the grid under TAA matches unjittered rendering", "[renderer
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
+
+TEST_CASE("zero camera bloom strength matches disabled bloom pixels", "[renderer][bloom][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  auto settings = testSettings();
+  settings.bloom = true;
+  Renderer renderer{*device, shaderDir(platform), settings};
+  const auto box = renderer.createMesh(primitives::box(), "box");
+  const std::array draws{DrawItem{.mesh = box}};
+  auto view = boxScene(draws);
+  view.exposure = 0.7f;
+  view.bloomStrength = 0.0f;
+  GpuScene scene{*device, renderer, {64, 64}};
+  scene.render(view);
+  REQUIRE_FALSE(hasPass(scene.graph, "bloom down 0"));
+  const auto pixels = device->mappedRange(scene.readback);
+  const std::vector<std::byte> zeroStrength(pixels.begin(), pixels.end());
+  settings.bloom = false;
+  renderer.setSettings(settings);
+  view.bloomStrength = 0.8f;
+  scene.render(view);
+  const auto disabled = device->mappedRange(scene.readback);
+  REQUIRE(std::ranges::equal(zeroStrength, disabled));
+  settings.bloom = true;
+  renderer.setSettings(settings);
+  scene.render(view);
+  REQUIRE(hasPass(scene.graph, "bloom down 0"));
+  REQUIRE_FALSE(std::ranges::equal(zeroStrength, device->mappedRange(scene.readback)));
+  renderer.destroyMesh(box);
+}

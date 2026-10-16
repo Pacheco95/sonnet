@@ -878,7 +878,7 @@ def look_along(direction):
     return quat_yaw_pitch(math.atan2(-f[0], -f[2]), math.asin(f[1]))
 
 
-# Scene version 5 writes vectors and quaternions as arrays, x, y, z, w (ADR-0029).
+# Scene version 5 introduced vectors and quaternions as arrays, x, y, z, w (ADR-0029).
 def vec(x, y, z):
     return [x, y, z]
 
@@ -969,7 +969,7 @@ def write_scene():
                       SpotLight={"color": vec(*color), "intensity": intensity, "range": radius, "innerAngle": inner, "outerAngle": outer})
 
     # Sky, sun and camera ---------------------------------------------------------------------
-    entity("Sky", Environment={"map": meta.uuid("assets/sky.hdr"), "intensity": 1.0, "exposure": 1.0})
+    entity("Sky", Environment={"map": meta.uuid("assets/sky.hdr"), "intensity": 1.0})
     entity("Sun", (0, 20, 0), look_along([-c for c in SUN]), DirectionalLight={"color": vec(1.0, 0.60, 0.34), "intensity": 4.6})
     entity("Camera", (0, 1.75, 12.5), quat_yaw_pitch(0.0, 0.045), Camera={"fovY": math.radians(62), "nearPlane": 0.1}, AudioListener=None,
            Scripts={"slots": [{"script": meta.uuid("scripts/camera_drift.lua"), "properties": {}}]})
@@ -1121,7 +1121,7 @@ def write_scene():
         entity(name, position, rotation, scale, refl, **components)
 
     # Parents come first in the file: the loader resolves them in order.
-    (PROJECT / "scenes" / "main.scene.json").write_text(scene_json.dumps({"version": 5, "entities": entities}) + "\n")
+    (PROJECT / "scenes" / "main.scene.json").write_text(scene_json.dumps({"version": 6, "entities": entities}) + "\n")
     lights = sum(1 for e in entities if "PointLight" in e["components"] or "SpotLight" in e["components"])
     print(f"main.scene.json: {len(entities)} entities, {lights} lights")
 

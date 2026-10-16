@@ -14,7 +14,12 @@ template <typename... Components> flecs::query<Components...> shown(const World 
 
 renderer::Camera placedCamera(const WorldTransform &transform, const Camera &camera) {
   const Transform placed = Transform::fromMatrix(transform.matrix);
-  return {.position = placed.position, .rotation = placed.rotation, .fovY = camera.fovY, .nearPlane = camera.nearPlane};
+  return {.position = placed.position,
+          .rotation = placed.rotation,
+          .fovY = camera.fovY,
+          .nearPlane = camera.nearPlane,
+          .exposure = camera.exposure,
+          .bloomStrength = glm::clamp(camera.bloomStrength, 0.0f, 1.0f)};
 }
 
 } // namespace
@@ -184,7 +189,7 @@ std::optional<SceneEnvironment> sceneEnvironment(const World &world, assets::Ass
       return;
     }
     if (const renderer::EnvironmentHandle handle = assets.environment(environment.map)) {
-      result = SceneEnvironment{handle, environment.intensity, environment.exposure};
+      result = SceneEnvironment{handle, environment.intensity};
     }
   });
   return result;

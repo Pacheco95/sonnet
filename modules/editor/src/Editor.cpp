@@ -464,13 +464,16 @@ void Editor::update(float dt) {
   const std::optional<world::SceneEnvironment> environment = world::sceneEnvironment(m_world, m_assets);
   m_view.environment = environment ? environment->environment : renderer::EnvironmentHandle{};
   m_view.environmentIntensity = environment ? environment->intensity : 1.0f;
-  m_view.exposure = environment ? environment->exposure : 1.0f;
+  m_view.exposure = m_view.camera.exposure;
+  m_view.bloomStrength = m_view.camera.bloomStrength;
   // The Game view draws the same lists through the scene's camera, with no debug lines; it is a
   // distinct SceneView because the renderer finds a view's state by its address (ADR-0021).
   // A scene swap, or play starting or ending, is a cut: the last frame is no guide to this one.
   m_view.resetHistory = std::exchange(m_cutHistory, false);
   m_gameView = m_view;
   m_gameView.camera = gameCamera;
+  m_gameView.exposure = gameCamera.exposure;
+  m_gameView.bloomStrength = gameCamera.bloomStrength;
   m_gameView.debugLines = {};
   m_debugLines.clear();
   if (m_viewState.colliders) {

@@ -282,6 +282,6 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   REQUIRE(core::writeFile(future, *bytes).has_value());
   const auto old = Bundle::open(future);
   REQUIRE(!old.has_value());
-  REQUIRE(old.error().message.find("bundle version 12 is not version 13") != std::string::npos);
+  REQUIRE(old.error().message.find("bundle version 12 is not version 14") != std::string::npos);
   std::filesystem::remove_all(directory);
 }

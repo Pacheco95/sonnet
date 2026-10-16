@@ -189,7 +189,11 @@ void World::registerComponents() {
       .member<glm::vec4>("color")
       .member<bool>("visible");
   registerComponent<Camera>("Camera");
-  m_world.component<Camera>().member<float, Radians>("fovY").member<float>("nearPlane");
+  m_world.component<Camera>()
+      .member<float, Radians>("fovY")
+      .member<float>("nearPlane")
+      .member<float>("exposure")
+      .member<float>("bloomStrength");
   registerComponent<DirectionalLight>("DirectionalLight");
   m_world.component<DirectionalLight>().member<glm::vec3>("color").member<float>("intensity");
   registerComponent<PointLight>("PointLight");
@@ -207,7 +211,7 @@ void World::registerComponents() {
       .member<float, Radians>("outerAngle")
       .member<bool>("castsShadows");
   registerComponent<Environment>("Environment");
-  m_world.component<Environment>().member<core::Uuid>("map").member<float>("intensity").member<float>("exposure");
+  m_world.component<Environment>().member<core::Uuid>("map").member<float>("intensity");
   registerComponent<SkinnedMesh>("SkinnedMesh").member<core::Uuid>("skin");
   m_world.component<AnimationLayer>("AnimationLayer")
       .member<core::Uuid>("clip")

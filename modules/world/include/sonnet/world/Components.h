@@ -87,6 +87,8 @@ struct MeshRenderer {
 struct Camera {
   float fovY{glm::radians(60.0f)}; // radians; the inspector shows degrees
   float nearPlane{0.1f};
+  float exposure{1.0f};
+  float bloomStrength{0.04f}; // fraction of the blurred HDR image, 0 to 1
 };
 
 // Shines along the entity's -Z.
@@ -118,7 +120,6 @@ struct SpotLight {
 struct Environment {
   core::Uuid map{};
   float intensity{1.0f};
-  float exposure{1.0f};
 };
 
 // Deforms the entity's MeshRenderer mesh by a skin asset's joints (ADR-0010): the joints are the

@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "entities": [
     {
       "uuid": "05555b35-0f8b-56c2-8ade-a9ed63c6719f",
@@ -245,8 +245,7 @@
         },
         "Environment": {
           "map": "0238c936-ba15-474c-a8a7-53a87650359e",
-          "intensity": 0.25,
-          "exposure": 1.0
+          "intensity": 0.25
         }
       }
     },
@@ -352,7 +351,9 @@
         },
         "Camera": {
           "fovY": 1.0,
-          "nearPlane": 0.1
+          "nearPlane": 0.1,
+          "exposure": 1.0,
+          "bloomStrength": 0.04
         },
         "AudioListener": null
       }

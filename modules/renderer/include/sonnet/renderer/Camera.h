@@ -18,6 +18,8 @@ struct Camera {
   glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
   float fovY{glm::radians(60.0f)};
   float nearPlane{0.1f};
+  float exposure{1.0f};
+  float bloomStrength{0.04f}; // fraction of the blurred HDR image, 0 to 1
 
   [[nodiscard]] glm::vec3 forward() const;
   [[nodiscard]] glm::vec3 right() const;
