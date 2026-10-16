@@ -125,9 +125,13 @@ public:
   // returns the one it has. What the editor's import adds after copying a file in.
   [[nodiscard]] core::Result<core::Uuid> registerFile(const std::filesystem::path &file);
   // Forgets a file asset and its sub-assets: what they loaded is destroyed, materials included,
-  // and the materials that read one of its textures fall back. The files are left alone, and an
+  // and the materials that read one of its textures fall back. Their cache entries are removed.
+  // The source files and sidecars are left alone, and an
   // entity that refers to the asset draws without it from the next frame. Project mode only.
   void unregister(const core::Uuid &uuid);
+  // Moves a source or folder with its sidecars, preserving identities and loaded handles.
+  // Scene and prefab files may also move within the project; other destinations need an asset root.
+  [[nodiscard]] core::Result<void> move(const std::filesystem::path &from, const std::filesystem::path &to);
 
   // A material's authored values; editing them updates the renderer's material at once, and
   // saving writes the .material.json of a file material.

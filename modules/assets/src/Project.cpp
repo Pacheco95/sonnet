@@ -77,7 +77,16 @@ std::string Project::relative(const std::filesystem::path &path) const {
 std::vector<std::filesystem::path> Project::files(std::string_view suffix) const {
   std::vector<std::filesystem::path> result;
   std::error_code error;
-  for (const auto &entry : std::filesystem::recursive_directory_iterator{root, error}) {
+  for (auto it = std::filesystem::recursive_directory_iterator{root, error};
+       it != std::filesystem::recursive_directory_iterator{}; it.increment(error)) {
+    if (error) {
+      break;
+    }
+    const auto &entry = *it;
+    if (entry.is_directory() && entry.path().filename() == ".sonnet") {
+      it.disable_recursion_pending();
+      continue;
+    }
     if (entry.is_regular_file() && entry.path().filename().string().ends_with(suffix)) {
       result.push_back(entry.path());
     }

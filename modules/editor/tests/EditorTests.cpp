@@ -1654,3 +1654,52 @@ TEST_CASE("capture the orthographic showcase for visual review", "[.orthographic
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("delete reference counts include inherited assets in every open scene", "[editor][assets][gpu]") {
+  Fixture fixture;
+  const auto directory = scratch("asset_references");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "References"));
+    auto &world = editor.world();
+    world.clearScene();
+    const auto material = editor.assets().createMaterial(directory / "assets/paint.material.json", {});
+    REQUIRE(material);
+    auto root = world.createEntity("Source");
+    root.set<world::MeshRenderer>({.mesh = {}, .material = *material});
+    const auto file = directory / "prefabs/Source.prefab.json";
+    std::filesystem::create_directories(file.parent_path());
+    REQUIRE(world::savePrefabFile(world, root, file));
+    world.destroyEntity(root);
+    const auto prefab = world::loadPrefabFile(world, file);
+    REQUIRE(prefab);
+    const auto prefabId = world.uuidOf(*prefab);
+    world.instantiate(*prefab, "First");
+    CHECK(editor.assetReferences(*material).entities == 1);
+    CHECK(editor.assetReferences(prefabId).instances == 1);
+    REQUIRE(editor.saveSceneAs(directory / "scenes/first.scene.json"));
+    editor.newScene();
+    world.instantiate(*prefab, "Second");
+    CHECK(editor.assetReferences(*material).entities == 2);
+    CHECK(editor.assetReferences(prefabId).instances == 2);
+    // A name containing the UUID is text, not a reflected Uuid reference.
+    world.createEntity(material->toString());
+    CHECK(editor.assetReferences(*material).entities == 2);
+    const auto texture = core::Uuid::generate();
+    assets::MaterialSource textured;
+    textured.baseColorTexture = texture;
+    textured.normalTexture = texture;
+    const auto texturedId = editor.assets().createMaterial(directory / "assets/textured.material.json", textured);
+    REQUIRE(texturedId);
+    CHECK(editor.assetReferences(texture).materials == 1);
+    CHECK(editor.assetReferences(texture).entities == 0);
+    // Crash leftovers cannot appear in prefab discovery on reopening.
+    std::filesystem::create_directories(directory / ".sonnet/trash/leftover");
+    REQUIRE(core::writeFile(directory / ".sonnet/trash/leftover/old.prefab.json", "{}"));
+    REQUIRE(editor.openProject(directory));
+    CHECK_FALSE(std::filesystem::exists(directory / ".sonnet/trash"));
+  }
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}

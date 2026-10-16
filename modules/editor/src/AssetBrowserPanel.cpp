@@ -7,6 +7,7 @@
 #include <sonnet/world/Components.h>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <imgui_stdlib.h>
 
 #include <algorithm>
@@ -103,7 +104,8 @@ AssetRow prefabRow(const core::Uuid &uuid, std::string name, const std::filesyst
                    const std::filesystem::path &projectRoot) {
   AssetRow row;
   row.uuid = uuid;
-  row.name = std::move(name);
+  const auto filename = file.filename().string();
+  row.name = filename.ends_with(".prefab.json") ? filename.substr(0, filename.size() - 12) : std::move(name);
   row.type = "Prefab";
   row.source = file.lexically_relative(projectRoot).generic_string();
   row.file = file;
@@ -141,6 +143,12 @@ void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descen
 
 AssetBrowserPanel::AssetBrowserPanel(assets::AssetDatabase &assets, world::World &world, Selection &selection)
     : m_assets(assets), m_world(world), m_selection(selection) {
+}
+
+bool AssetBrowserPanel::focused() const noexcept {
+  const auto *context = ImGui::GetCurrentContext();
+  const auto *window = context != nullptr ? ImGui::FindWindowByName("Assets") : nullptr;
+  return window != nullptr && context->NavWindow != nullptr && context->NavWindow->RootWindow == window->RootWindow;
 }
 
 void AssetBrowserPanel::draw(bool &open) {
@@ -207,21 +215,57 @@ void AssetBrowserPanel::draw(bool &open) {
     for (const flecs::entity prefab : m_world.prefabs()) {
       const auto *file = prefab.try_get<world::PrefabFile>();
       const auto *name = prefab.try_get<world::Name>();
-      if (file != nullptr && name != nullptr && prefabPassesFilter(name->value, m_filter, m_types)) {
-        rows.push_back(prefabRow(m_world.uuidOf(prefab), name->value, file->path, m_assets.projectRoot()));
+      if (file != nullptr && name != nullptr) {
+        auto row = prefabRow(m_world.uuidOf(prefab), name->value, file->path, m_assets.projectRoot());
+        if (prefabPassesFilter(row.name, m_filter, m_types)) {
+          rows.push_back(std::move(row));
+        }
       }
     }
     sortAssetRows(rows, m_sortColumn, m_sortDescending);
+    const bool keyboard =
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput;
     for (const AssetRow &row : rows) {
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
       ImGui::PushID(row.uuid.toString().c_str());
-      // A prefab has no asset view in the inspector, so clicking one inspects nothing.
-      const bool selected = row.info != nullptr && inspected() == row.uuid;
-      if (ImGui::Selectable(row.name.c_str(), selected,
-                            ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap) &&
-          row.info != nullptr) {
-        inspect(row.uuid);
+      const bool editable = !row.file.empty() && (row.info == nullptr || row.info->parent.isNil());
+      if (keyboard && m_focused == row.uuid && editable) {
+        if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_move) {
+          beginRename(row);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_remove) {
+          confirmDelete(row);
+        }
+      }
+      if (m_renaming == row.uuid) {
+        if (m_renameFocus) {
+          ImGui::SetKeyboardFocusHere();
+          m_renameFocus = false;
+        }
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::InputText("##rename", &m_rename, ImGuiInputTextFlags_EnterReturnsTrue)) {
+          const auto filename = row.file.filename().string();
+          const auto extension = filename.ends_with(".material.json") ? std::string{".material.json"}
+                                 : filename.ends_with(".prefab.json") ? std::string{".prefab.json"}
+                                                                      : row.file.extension().string();
+          const std::filesystem::path name{m_rename + extension};
+          if (m_rename.empty() || name.has_parent_path() || m_rename == "." || m_rename == "..") {
+            m_fileError = "Enter a file name without a folder.";
+          } else {
+            m_pendingRename = std::pair{row.file, row.file.parent_path() / name};
+          }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+          m_renaming = {};
+          m_fileError.clear();
+        }
+      } else {
+        if (ImGui::Selectable(row.name.c_str(), m_focused == row.uuid,
+                              ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
+          m_focused = row.uuid;
+          inspect(row.info != nullptr ? row.uuid : core::Uuid{});
+        }
       }
       if (ImGui::BeginDragDropSource()) {
         ImGui::SetDragDropPayload(AssetDragPayload, row.uuid.bytes().data(), row.uuid.bytes().size());
@@ -237,6 +281,21 @@ void AssetBrowserPanel::draw(bool &open) {
     }
     ImGui::EndTable();
   }
+  // Imports finished by a move or by reference counting may replace sub-assets. Do this
+  // after drawing every row, when none of their database pointers will be used again.
+  if (m_pendingRename) {
+    if (const auto result = m_move(m_pendingRename->first, m_pendingRename->second); !result) {
+      m_fileError = result.error().message;
+    } else {
+      m_renaming = {};
+      m_fileError.clear();
+    }
+    m_pendingRename.reset();
+  }
+  if (!m_fileError.empty()) {
+    ImGui::TextWrapped("%s", m_fileError.c_str());
+  }
+  drawDeleteModal();
   ImGui::End();
 }
 
@@ -259,6 +318,67 @@ void AssetBrowserPanel::drawContextMenu(const AssetRow &row) {
   const bool script = row.info != nullptr && row.info->type == assets::AssetType::Script;
   if (ImGui::MenuItem("Open", nullptr, false, hasFile && script && m_open)) {
     m_open(row.file.string(), 1);
+  }
+  const bool editable = hasFile && (row.info == nullptr || row.info->parent.isNil());
+  if (ImGui::MenuItem("Rename", "F2", false, editable && static_cast<bool>(m_move))) {
+    beginRename(row);
+  }
+  if (ImGui::MenuItem("Delete", "Delete", false, editable && static_cast<bool>(m_remove))) {
+    confirmDelete(row);
+  }
+  ImGui::EndPopup();
+}
+
+void AssetBrowserPanel::beginRename(const AssetRow &row) {
+  m_focused = row.uuid;
+  m_renaming = row.uuid;
+  const auto filename = row.file.filename().string();
+  // File prefabs can have a display name different from their file stem.
+  m_rename = filename.ends_with(".prefab.json")     ? filename.substr(0, filename.size() - 12)
+             : filename.ends_with(".material.json") ? filename.substr(0, filename.size() - 14)
+                                                    : row.file.stem().string();
+  m_renameFocus = true;
+  m_fileError.clear();
+}
+
+void AssetBrowserPanel::confirmDelete(const AssetRow &row) {
+  m_focused = row.uuid;
+  m_delete = row.file;
+  m_deleteUuid = row.uuid;
+  m_deleteRequested = true;
+  m_fileError.clear();
+}
+
+void AssetBrowserPanel::drawDeleteModal() {
+  if (m_deleteRequested) {
+    m_deleteReferences = m_references ? m_references(m_deleteUuid) : AssetReferences{};
+    ImGui::OpenPopup("Delete asset?");
+    m_deleteRequested = false;
+  }
+  if (!ImGui::BeginPopupModal("Delete asset?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    return;
+  }
+  ImGui::Text("Delete %s?", m_delete.filename().string().c_str());
+  ImGui::Text("References in open scenes: %zu entities, %zu prefab instances.", m_deleteReferences.entities,
+              m_deleteReferences.instances);
+  ImGui::Text("Materials using these textures: %zu.", m_deleteReferences.materials);
+  ImGui::TextUnformatted("This can be undone. Scenes that are not open are not counted.");
+  if (!m_fileError.empty()) {
+    ImGui::TextWrapped("%s", m_fileError.c_str());
+  }
+  if (ImGui::Button("Delete")) {
+    if (const auto result = m_remove(m_delete); !result) {
+      m_fileError = result.error().message;
+    } else {
+      inspect({});
+      m_fileError.clear();
+      ImGui::CloseCurrentPopup();
+    }
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    m_fileError.clear();
+    ImGui::CloseCurrentPopup();
   }
   ImGui::EndPopup();
 }

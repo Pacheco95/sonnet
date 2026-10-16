@@ -1554,6 +1554,16 @@ void AssetDatabase::unregister(const core::Uuid &requested) {
     if (m_assets.at(id).type == AssetType::Texture) {
       textures.push_back(id);
     }
+    std::error_code error;
+    for (const auto &entry : std::filesystem::directory_iterator{cacheDirectory(), error}) {
+      const auto name = entry.path().filename().string();
+      if (name.starts_with(id.toString()) && name.ends_with(".ktx2")) {
+        std::filesystem::remove(entry.path(), error);
+        if (error) {
+          SONNET_LOG_ERROR("removing {}: {}", entry.path().string(), error.message());
+        }
+      }
+    }
     m_failed.erase(id);
     m_assets.erase(id);
   }
@@ -1563,6 +1573,144 @@ void AssetDatabase::unregister(const core::Uuid &requested) {
   for (const core::Uuid &texture : textures) {
     refreshMaterials(texture);
   }
+}
+
+core::Result<void> AssetDatabase::move(const std::filesystem::path &from, const std::filesystem::path &to) try {
+  if (!isOpen() || m_bundle) {
+    return std::unexpected(core::Error{"moving files needs an open project", core::ErrorCategory::Io});
+  }
+  std::error_code error;
+  const auto source = std::filesystem::absolute(from, error).lexically_normal();
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  const auto destination = std::filesystem::absolute(to, error).lexically_normal();
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  // Validate resolved paths, but retain the project's spelling in metadata (e.g. macOS /var).
+  const auto canonicalSource = std::filesystem::weakly_canonical(source, error);
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  const auto canonicalDestination =
+      std::filesystem::weakly_canonical(destination.parent_path(), error) / destination.filename();
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  const auto beneath = [](const std::filesystem::path &path, const std::filesystem::path &root) {
+    const auto relative = path.lexically_relative(root);
+    return !relative.empty() && relative != "." && *relative.begin() != "..";
+  };
+  const auto project = std::filesystem::weakly_canonical(m_projectRoot, error);
+  const bool scene = from.string().ends_with(".scene.json") || from.string().ends_with(".prefab.json");
+  const auto allowed = [&](const std::filesystem::path &path) {
+    if (!beneath(path, project) || beneath(path, project / ".sonnet") || path == project / ".sonnet") {
+      return false;
+    }
+    return scene || std::ranges::any_of(m_roots, [&](const std::string &root) {
+             std::error_code rootError;
+             const auto canonicalRoot = std::filesystem::weakly_canonical(m_projectRoot / root, rootError);
+             return !rootError && beneath(path, canonicalRoot);
+           });
+  };
+  if (error || !allowed(canonicalSource) || !allowed(canonicalDestination) ||
+      beneath(canonicalDestination, canonicalSource)) {
+    return std::unexpected(core::Error{"move must stay within the project's asset roots", core::ErrorCategory::Io});
+  }
+  const bool directory = std::filesystem::is_directory(source, error);
+  if (error || !std::filesystem::exists(source, error)) {
+    return std::unexpected(core::Error{"move source does not exist", core::ErrorCategory::Io});
+  }
+  if (source == destination) {
+    return {};
+  }
+  if (!directory && (source.extension() != destination.extension() || kindOf(source) != kindOf(destination) ||
+                     (scene && (source.stem().extension() != destination.stem().extension())))) {
+    return std::unexpected(core::Error{"a move cannot change the file extension", core::ErrorCategory::Io});
+  }
+  const bool exists = std::filesystem::exists(destination, error);
+  std::string oldName = source.filename().string(), newName = destination.filename().string();
+  const auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+  std::ranges::transform(oldName, oldName.begin(), lower);
+  std::ranges::transform(newName, newName.begin(), lower);
+  const bool same = exists && source.parent_path() == destination.parent_path() && oldName == newName &&
+                    std::filesystem::equivalent(source, destination, error);
+  const bool destinationSidecar = !directory && std::filesystem::exists(to.string() + ".meta", error);
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  if ((exists && !same) || (destinationSidecar && !same)) {
+    return std::unexpected(core::Error{"move destination already exists", core::ErrorCategory::Io});
+  }
+  std::vector<core::Uuid> files;
+  for (const auto &[id, record] : m_files) {
+    const auto &path = m_assets.at(id).source;
+    if (path == source || (directory && beneath(path, source))) {
+      files.push_back(id);
+      const auto target = directory ? destination / path.lexically_relative(source) : destination;
+      if (kindOf(path) == SourceKind::Gltf && path.parent_path() != target.parent_path()) {
+        const auto dependencies = gltfDependencies(path);
+        if (!dependencies || (!dependencies->empty() && !directory)) {
+          return std::unexpected(
+              core::Error{"a model with external files must move with its folder", core::ErrorCategory::Io});
+        }
+      }
+    }
+  }
+  for (const auto &id : files) {
+    finishRequest(id);
+  }
+  const bool sourceSidecar = !directory && std::filesystem::exists(source.string() + ".meta", error);
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  // A temporary hop also handles case-only renames on case-insensitive file systems.
+  const auto temporary = source.parent_path() / (".sonnet-move-" + core::Uuid::generate().toString());
+  std::filesystem::rename(source, temporary, error);
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  std::filesystem::rename(temporary, destination, error);
+  if (error) {
+    const auto message = error.message();
+    std::filesystem::rename(temporary, source, error);
+    return std::unexpected(core::Error{message, core::ErrorCategory::Io});
+  }
+  if (sourceSidecar) {
+    const auto oldSidecar = source.string() + ".meta";
+    const auto temporarySidecar = temporary.string() + ".meta";
+    std::filesystem::rename(oldSidecar, temporarySidecar, error);
+    if (!error) {
+      std::filesystem::rename(temporarySidecar, destination.string() + ".meta", error);
+    }
+    if (error) {
+      const auto message = error.message();
+      if (std::filesystem::exists(temporarySidecar, error)) {
+        std::filesystem::rename(temporarySidecar, oldSidecar, error);
+      }
+      std::filesystem::rename(destination, source, error);
+      return std::unexpected(core::Error{message, core::ErrorCategory::Io});
+    }
+  }
+  for (const auto &id : files) {
+    auto &info = m_assets.at(id);
+    const auto target = directory ? destination / info.source.lexically_relative(source) : destination;
+    info.source = target;
+    info.name = stemOf(target);
+    m_files.at(id).sidecar = target.string() + ".meta";
+    for (auto &[subId, sub] : m_assets) {
+      if (sub.parent == id) {
+        sub.source = target;
+      }
+    }
+    if (auto script = m_scripts.find(id); script != m_scripts.end()) {
+      script->second.revision = ++m_revision;
+    }
+  }
+  return {};
+} catch (const std::filesystem::filesystem_error &error) {
+  return std::unexpected(core::Error{error.what(), core::ErrorCategory::Io});
 }
 
 // ---- Settings and reload ----
