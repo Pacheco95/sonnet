@@ -37,6 +37,7 @@ void ViewportPanel::resizeTarget(glm::uvec2 size) {
 bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPanel *statistics,
                          const std::function<void(const ViewportInput &)> &overlay,
                          const std::function<void()> &header) {
+  m_view.camera.advanceTransition(dt);
   m_input = {};
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0.0f, 0.0f});
   // The image fills the window, so the wheel must not scroll it: it dollies the camera.
@@ -83,6 +84,23 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     m_input.leftClicked = false;
     m_input.leftDoubleClicked = false;
     m_input.leftDown = false;
+  }
+
+  if ((hovered || m_input.focused) && !ImGui::GetIO().WantTextInput) {
+    bool keyPressed = false;
+    for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; ++key) {
+      // View commands retarget the animation themselves. F is handled by Editor before draw.
+      const bool viewCommand = key == ImGuiKey_F || key == ImGuiKey_Keypad1 || key == ImGuiKey_Keypad3 ||
+                               key == ImGuiKey_Keypad5 || key == ImGuiKey_Keypad7 || key == ImGuiKey_Keypad9;
+      if (!viewCommand && (key < ImGuiKey_MouseLeft || key > ImGuiKey_MouseWheelY)) {
+        keyPressed = keyPressed || ImGui::IsKeyPressed(static_cast<ImGuiKey>(key), false);
+      }
+    }
+    if (keyPressed ||
+        (hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
+                     ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || ImGui::GetIO().MouseWheel != 0.0f))) {
+      cancelTransition();
+    }
   }
 
   // Right mouse over the viewport takes the camera to fly, middle mouse to orbit; releasing that
@@ -241,6 +259,7 @@ bool ViewportPanel::drawAxisWidget(ImVec2 origin, ImVec2 size) {
     }
   }
   if (ImGui::IsItemActivated()) {
+    cancelTransition();
     m_widgetAxis = hit;
     m_widgetDragging = false;
     m_view.pivot = viewPivot();
@@ -302,17 +321,47 @@ glm::vec3 ViewportPanel::viewPivot() const {
   return m_view.camera.camera().position + m_view.camera.camera().forward() * m_view.focusDistance;
 }
 
+void ViewportPanel::cancelTransition() {
+  if (!m_view.camera.transitioning()) {
+    return;
+  }
+  m_view.pivot = m_view.camera.transitionPivot();
+  m_view.hasPivot = true;
+  if (m_view.hasFocusTarget) {
+    m_view.focusTarget = m_view.pivot;
+  }
+  m_view.focusDistance = glm::distance(m_view.camera.camera().position, m_view.pivot);
+  m_view.camera.cancelTransition();
+}
+
+void ViewportPanel::animateFrom(const FlyCamera &from, glm::vec3 pivot) {
+  m_view.camera.transitionFrom(from, pivot, viewPivot(), m_immediateViews ? 0.0f : m_transitionDuration);
+}
+
 void ViewportPanel::snapView(AxisView view) {
+  cancelTransition();
+  const FlyCamera from = m_view.camera;
+  const glm::vec3 pivot = viewPivot();
   m_view.pivot = viewPivot();
   m_view.hasPivot = true;
   m_view.camera.snap(view, m_view.pivot);
+  animateFrom(from, pivot);
 }
 
 void ViewportPanel::oppositeView() {
-  m_view.camera.opposite(viewPivot());
+  const FlyCamera from = m_view.camera;
+  const glm::vec3 pivot = m_view.camera.transitioning() ? m_view.camera.transitionPivot() : viewPivot();
+  m_view.pivot = pivot;
+  m_view.hasPivot = true;
+  m_view.camera.opposite(pivot);
+  animateFrom(from, pivot);
 }
 void ViewportPanel::toggleProjection() {
-  m_view.camera.toggleProjection(viewPivot());
+  cancelTransition();
+  const FlyCamera from = m_view.camera;
+  const glm::vec3 pivot = viewPivot();
+  m_view.camera.toggleProjection(pivot);
+  animateFrom(from, pivot);
 }
 
 void ViewportPanel::drawViewMenu() {
@@ -338,6 +387,9 @@ void ViewportPanel::drawViewMenu() {
 }
 
 void ViewportPanel::focus(glm::vec3 target, float radius) {
+  cancelTransition();
+  const FlyCamera from = m_view.camera;
+  const glm::vec3 pivot = viewPivot();
   const float distance = std::max(radius, 0.5f) * 2.5f;
   // Keep the heading but look down at least a little, so a camera turned to the sky ends above
   // the object rather than beneath it.
@@ -354,6 +406,7 @@ void ViewportPanel::focus(glm::vec3 target, float radius) {
   m_view.pivot = target;
   m_view.hasPivot = true;
   m_view.focusDistance = distance;
+  animateFrom(from, pivot);
 }
 
 glm::uvec2 ViewportPanel::targetPixel(glm::vec2 screen) const {

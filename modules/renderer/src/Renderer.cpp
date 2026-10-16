@@ -1338,13 +1338,14 @@ void Renderer::computeCascades(ViewState &v, float aspect) {
   const glm::vec3 lightDirection = glm::normalize(view.sun.direction);
   const glm::vec3 up = std::abs(lightDirection.y) > 0.99f ? glm::vec3{0.0f, 0.0f, 1.0f} : glm::vec3{0.0f, 1.0f, 0.0f};
   constexpr float lambda = 0.75f; // between logarithmic and uniform splits
-  float previousSplit = nearPlane;
-  float sliceNear = nearPlane;
+  const float depthOffset = std::max(view.dollyDepthOffset, 0.0f);
+  float previousSplit = nearPlane + depthOffset;
+  float sliceNear = nearPlane + depthOffset;
   for (std::uint32_t c = 0; c < CascadeCount; ++c) {
     const float p = static_cast<float>(c + 1) / static_cast<float>(CascadeCount);
     const float logarithmic = nearPlane * std::pow(farPlane / nearPlane, p);
     const float uniform = nearPlane + (farPlane - nearPlane) * p;
-    const float split = lambda * logarithmic + (1.0f - lambda) * uniform;
+    const float split = lambda * logarithmic + (1.0f - lambda) * uniform + depthOffset;
 
     // The slice's eight corners in world space, from a finite projection over the slice.
     const glm::mat4 sliceProjection = view.camera.projectionKind == ProjectionKind::Orthographic
@@ -2693,10 +2694,11 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   const glm::mat4 projection = view.camera.projection(aspect);
   const float nearPlane = view.camera.nearPlane;
   const float sliceScale =
-      static_cast<float>(ClusterGridZ) /
-      std::log(std::max(view.camera.projectionKind == ProjectionKind::Orthographic ? view.camera.farPlane : ClusterFar,
-                        nearPlane * 2.0f) /
-               nearPlane);
+      static_cast<float>(ClusterGridZ) / std::log(std::max(view.camera.projectionKind == ProjectionKind::Orthographic
+                                                               ? view.camera.farPlane
+                                                               : ClusterFar + std::max(view.dollyDepthOffset, 0.0f),
+                                                           nearPlane * 2.0f) /
+                                                  nearPlane);
   const Environment *environment = m_environments.find(view.environment);
   const bool environmentReady = environment != nullptr && !environment->pending;
   FrameConstants frame{

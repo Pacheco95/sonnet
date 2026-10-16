@@ -25,6 +25,7 @@
 #include <cfloat>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <initializer_list>
 #include <memory>
@@ -1965,6 +1966,115 @@ TEST_CASE("capture the viewport axis widget", "[.axis-widget-captures][editor][g
         REQUIRE(result->has_value());
       }
     }
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("viewport smooth views are immediate headless and cancellable with input", "[editor][gpu][smooth-view]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    auto &viewport = editor.viewport();
+    viewport.snapView(editor::AxisView::Front);
+    REQUIRE_FALSE(viewport.camera().transitioning());
+    viewport.setImmediateViews(false); // Explicit opt-in to exercise the interactive path.
+    viewport.setTransitionDuration(0.2f);
+    viewport.snapView(editor::AxisView::Right);
+    REQUIRE(viewport.camera().transitioning());
+    for (int frame = 0; frame < 15; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE_FALSE(viewport.camera().transitioning());
+    REQUIRE(viewport.camera().axisView() == editor::AxisView::Right);
+    viewport.snapView(editor::AxisView::Top);
+    fixture.frame(editor);
+    auto &io = ImGui::GetIO();
+    const auto &input = viewport.input();
+    io.AddMousePosEvent(input.origin.x + input.size.x * 0.5f, input.origin.y + input.size.y * 0.5f);
+    fixture.frame(editor);
+    io.AddMouseWheelEvent(0, 1);
+    fixture.frame(editor);
+    REQUIRE_FALSE(viewport.camera().transitioning());
+    const auto stopped = viewport.camera().camera().position;
+    fixture.frame(editor);
+    REQUIRE(glm::distance(viewport.camera().camera().position, stopped) < 1e-4f);
+    viewport.setTransitionDuration(0.0f);
+    viewport.snapView(editor::AxisView::Bottom);
+    REQUIRE_FALSE(viewport.camera().transitioning());
+    REQUIRE(viewport.camera().axisView() == editor::AxisView::Bottom);
+    viewport.focus({0, 0, 0}, 1.0f);
+    viewport.setTransitionDuration(0.2f);
+    viewport.focus({4, 2, -1}, 0.6f);
+    for (int frame = 0; frame < 4; ++frame) {
+      fixture.frame(editor);
+    }
+    auto expected = viewport.camera();
+    expected.advanceTransition(1.0f / 60.0f);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Middle, true);
+    fixture.frame(editor);
+    REQUIRE_FALSE(viewport.camera().transitioning());
+    REQUIRE(glm::distance(viewport.view().pivot, expected.transitionPivot()) < 1e-4f);
+    REQUIRE(glm::distance(viewport.camera().camera().position, expected.camera().position) < 1e-4f);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Middle, false);
+    fixture.frame(editor);
+    const auto selected = editor.world().createEntity("Frame me");
+    selected.set(world::Transform{.position = {5, 0, 0}});
+    editor.selection().select(editor.world().uuidOf(selected));
+    io.AddMousePosEvent(input.origin.x + input.size.x * 0.5f, input.origin.y + input.size.y * 0.5f);
+    fixture.frame(editor);
+    REQUIRE(viewport.input().hovered);
+    REQUIRE_FALSE(viewport.cameraActive());
+    io.AddKeyEvent(ImGuiKey_F, true);
+    fixture.frame(editor);
+    REQUIRE(viewport.camera().transitioning()); // F must not cancel the transition it just started.
+    io.AddKeyEvent(ImGuiKey_F, false);
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("record smooth viewport transitions", "[editor][gpu][.smooth-view-captures]") {
+  Fixture fixture;
+  const auto directory = scratch("smooth-view-project");
+  const auto output = std::filesystem::temp_directory_path() / "sonnet-smooth-view-captures";
+  std::filesystem::create_directories(output);
+  REQUIRE(editor::createStarterProject(directory, "Smooth views"));
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory));
+    editor.setAntiAliasing(renderer::AntiAliasing::None);
+    for (int frame = 0; frame < 15; ++frame) {
+      fixture.frame(editor);
+    }
+    auto &viewport = editor.viewport();
+    viewport.focus({0, 0.5f, 0}, 1.5f);
+    viewport.setImmediateViews(false);
+    viewport.setTransitionDuration(0.2f);
+    int index = 0;
+    const auto record = [&](int frames) {
+      for (int frame = 0; frame < frames; ++frame) {
+        const auto name = std::format("frame-{:03}.png", index++);
+        editor.requestScreenshots(output / name, {});
+        fixture.frame(editor);
+        const auto result = editor.takeScreenshotResult();
+        REQUIRE(result.has_value());
+        REQUIRE(result->has_value());
+      }
+    };
+    record(12);
+    viewport.snapView(editor::AxisView::Right);
+    record(24);
+    viewport.snapView(editor::AxisView::Top);
+    record(24);
+    viewport.toggleProjection();
+    record(24);
+    viewport.toggleProjection();
+    record(24);
+    viewport.focus({0, 0.5f, 0}, 0.6f);
+    record(24);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

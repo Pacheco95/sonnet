@@ -633,11 +633,15 @@ struct WallShadow {
   float lit{0.0f};
 };
 
-WallShadow wallShadow(IDevice &device, Renderer &renderer, MeshHandle plane, MeshHandle wall, MaterialHandle material) {
+WallShadow wallShadow(IDevice &device, Renderer &renderer, MeshHandle plane, MeshHandle wall, MaterialHandle material,
+                      float dollyOffset = 0.0f, bool shiftRange = true) {
   const glm::mat4 upright = glm::translate(glm::mat4{1.0f}, {-1.0f, 1.0f, 0.0f}) *
                             glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{0.0f, 0.0f, 1.0f});
   const std::array draws{DrawItem{.mesh = plane}, DrawItem{.mesh = wall, .material = material, .transform = upright}};
   SceneView view = topDownScene(draws);
+  view.camera.position.y += dollyOffset;
+  view.camera.fovY = 2.0f * std::atan(std::tan(view.camera.fovY * 0.5f) * 6.0f / (6.0f + dollyOffset));
+  view.dollyDepthOffset = shiftRange ? dollyOffset : 0.0f;
   view.sun.direction = glm::normalize(glm::vec3{1.0f, -1.0f, 0.0f});
   view.sun.intensity = 3.0f;
   view.ambient = {0.02f, 0.02f, 0.02f};
@@ -3064,6 +3068,11 @@ TEST_CASE("a clustered point light reaches only the ground within its range on a
     SceneView view = topDownScene(draws);
     view.camera.projectionKind = GENERATE(ProjectionKind::Perspective, ProjectionKind::Orthographic);
     view.camera.orthoHeight = 12.0f * std::tan(view.camera.fovY * 0.5f);
+    if (view.camera.projectionKind == ProjectionKind::Perspective) {
+      view.dollyDepthOffset = GENERATE(0.0f, 2000.0f);
+      view.camera.position.y += view.dollyDepthOffset;
+      view.camera.fovY = 2.0f * std::atan(std::tan(view.camera.fovY * 0.5f) * 6.0f / (6.0f + view.dollyDepthOffset));
+    }
     view.hasSun = false;
     view.ambient = {0.0f, 0.0f, 0.0f};
     view.lights = lights;
@@ -3976,4 +3985,23 @@ TEST_CASE("nearest material sampling preserves hard edges of an eight texel chec
   renderer.destroyMaterial(material);
   renderer.destroyMesh(mesh);
   renderer.destroyTexture(image);
+}
+
+TEST_CASE("dolly zoom keeps the sun shadow range at the scene", "[renderer][gpu][shadow][smooth-view]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const auto plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
+    const auto wall = renderer.createMesh(primitives::plane({2.0f, 4.0f}), "wall");
+    const auto missing = wallShadow(*device, renderer, plane, wall, {}, 200.0f, false);
+    const auto shifted = wallShadow(*device, renderer, plane, wall, {}, 200.0f, true);
+    REQUIRE(missing.shadowed > shifted.shadowed + 30.0f);
+    REQUIRE(shifted.lit > shifted.shadowed + 30.0f);
+    REQUIRE(std::abs(shifted.lit - missing.lit) < 5.0f);
+    renderer.destroyMesh(plane);
+    renderer.destroyMesh(wall);
+  }
+  device->waitIdle();
+  REQUIRE(device->validationMessageCount() == 0);
 }

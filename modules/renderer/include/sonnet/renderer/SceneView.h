@@ -113,6 +113,9 @@ struct ParticleEmitterItem {
 
 struct SceneView {
   Camera camera;
+  // Dolly displacement during a projection transition: shift the sun's range and extend
+  // light-cluster depth so both keep covering the scene as the eye retreats. Zero ordinarily.
+  float dollyDepthOffset{0.0f};
   DirectionalLight sun;
   bool hasSun{true};
   std::span<const Light> lights;

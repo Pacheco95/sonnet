@@ -156,3 +156,22 @@ TEST_CASE("floor grid preference defaults on and survives both toggle states", "
   }
   std::filesystem::remove(file);
 }
+
+TEST_CASE("smooth view duration preferences default, validate and round-trip", "[editor][project][smooth-view]") {
+  const auto file = scratch("smooth-view.json");
+  REQUIRE(editor::Preferences::load(file).smoothViewDuration == 0.2f);
+  for (const float duration : {0.0f, 0.35f, 2.0f}) {
+    editor::Preferences preferences;
+    preferences.smoothViewDuration = duration;
+    REQUIRE(preferences.save(file));
+    REQUIRE(editor::Preferences::load(file).smoothViewDuration == duration);
+  }
+  for (const char *value : {"-1", "3", "null", "\"invalid\""}) {
+    {
+      std::ofstream out{file};
+      out << "{\"smoothViewDuration\":" << value << "}";
+    }
+    REQUIRE(editor::Preferences::load(file).smoothViewDuration == 0.2f);
+  }
+  std::filesystem::remove(file);
+}
