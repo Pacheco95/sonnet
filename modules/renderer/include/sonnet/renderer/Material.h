@@ -24,6 +24,25 @@ enum class TextureWrap : std::uint8_t {
   MirroredRepeat,
 };
 
+enum class TextureFilter : std::uint8_t {
+  Nearest,
+  Linear,
+};
+enum class TextureMipFilter : std::uint8_t {
+  Nearest,
+  Linear,
+  None,
+};
+
+struct TextureSampler {
+  TextureWrap wrapS{TextureWrap::Repeat};
+  TextureWrap wrapT{TextureWrap::Repeat};
+  TextureFilter magFilter{TextureFilter::Linear};
+  TextureFilter minFilter{TextureFilter::Linear};
+  TextureMipFilter mipFilter{TextureMipFilter::Linear};
+  bool operator==(const TextureSampler &) const = default;
+};
+
 // How a texture slot reads its UVs: the vertex UV set it takes (glTF's texCoord, 0 for `Vertex::uv`
 // and 1 for `Vertex::uv1`), then KHR_texture_transform, sampling at
 // offset + rotate(rotation) * (scale * uv) with the rotation in radians, counter-clockwise. The
@@ -58,7 +77,11 @@ struct MaterialDesc {
   TextureTransform occlusionTransform{};
   TextureTransform emissiveTransform{};
   AlphaMode alphaMode{AlphaMode::Opaque};
-  TextureWrap wrap{TextureWrap::Repeat};
+  TextureSampler baseColorSampler{};
+  TextureSampler metallicRoughnessSampler{};
+  TextureSampler normalSampler{};
+  TextureSampler occlusionSampler{};
+  TextureSampler emissiveSampler{};
   bool doubleSided{false};
   bool unlit{false}; // KHR_materials_unlit: base colour plus emissive, no lighting
 };

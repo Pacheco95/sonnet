@@ -112,7 +112,8 @@ struct Target {
 TEST_CASE("samplers and sampled images take slots in the bindless arrays", "[rhi][bindless]") {
   test::TestDevice device;
   const SamplerHandle linear = device->createSampler({.debugName = "linear"});
-  const SamplerHandle nearest = device->createSampler({.filter = Filter::Nearest, .debugName = "nearest"});
+  const SamplerHandle nearest =
+      device->createSampler({.magFilter = Filter::Nearest, .minFilter = Filter::Nearest, .debugName = "nearest"});
   const SamplerHandle shadow = device->createSampler({.compare = true, .debugName = "shadow"});
   REQUIRE(device->isValid(linear));
   REQUIRE(device->samplerIndex(linear) != device->samplerIndex(nearest));
@@ -194,9 +195,11 @@ TEST_CASE("a texture uploaded with its mip chain is sampled through the bindless
   const PipelineHandle pipeline = device->createGraphicsPipeline(
       {.shader = shader, .colorFormats = {Format::R8G8B8A8Unorm}, .cullMode = CullMode::None, .debugName = "texture"});
   device->destroyShader(shader);
-  const SamplerHandle nearest = device->createSampler({.filter = Filter::Nearest,
+  const SamplerHandle nearest = device->createSampler({.magFilter = Filter::Nearest,
+                                                       .minFilter = Filter::Nearest,
                                                        .mipFilter = Filter::Nearest,
-                                                       .addressMode = AddressMode::ClampToEdge,
+                                                       .addressModeU = AddressMode::ClampToEdge,
+                                                       .addressModeV = AddressMode::ClampToEdge,
                                                        .debugName = "nearest"});
 
   // Level 0: red, green / blue, white. Level 1: one grey texel.
@@ -230,6 +233,16 @@ TEST_CASE("a texture uploaded with its mip chain is sampled through the bindless
   REQUIRE(target.pixel(1, 1).r == 128);
   REQUIRE(target.pixel(2, 2).g == 128);
 
+  const SamplerHandle noMips = device->createSampler(
+      {.magFilter = Filter::Nearest, .minFilter = Filter::Nearest, .mipmaps = false, .debugName = "no mipmaps"});
+  const TexturePush clampedLod{.texture = push.texture, .sampler = device->samplerIndex(noMips), .lod = 1.0f};
+  target.draw(device->beginFrame(), pipeline, clampedLod);
+  device->endFrame();
+  REQUIRE(target.pixel(0, 0).r == 255);
+  REQUIRE(target.pixel(0, 0).g == 0);
+  REQUIRE(target.pixel(3, 3).r == 255);
+  device->destroySampler(noMips);
+
   device->destroyImage(texture);
   device->destroySampler(nearest);
   device->destroyPipeline(pipeline);
@@ -244,8 +257,10 @@ TEST_CASE("a cube map is sampled by direction", "[rhi][bindless][gpu]") {
                                                                   .cullMode = CullMode::None,
                                                                   .debugName = "cube"});
   device->destroyShader(shader);
-  const SamplerHandle nearest =
-      device->createSampler({.filter = Filter::Nearest, .mipFilter = Filter::Nearest, .debugName = "nearest"});
+  const SamplerHandle nearest = device->createSampler({.magFilter = Filter::Nearest,
+                                                       .minFilter = Filter::Nearest,
+                                                       .mipFilter = Filter::Nearest,
+                                                       .debugName = "nearest"});
   const ImageHandle cube = device->createImage({.size = {1, 1},
                                                 .format = Format::R8G8B8A8Unorm,
                                                 .usage = ImageUsage::Sampled | ImageUsage::TransferDst,
@@ -371,8 +386,10 @@ TEST_CASE("an upload larger than the staging ring reaches the image", "[rhi][bin
   const PipelineHandle pipeline = device->createGraphicsPipeline(
       {.shader = shader, .colorFormats = {Format::R8G8B8A8Unorm}, .cullMode = CullMode::None, .debugName = "texture"});
   device->destroyShader(shader);
-  const SamplerHandle nearest =
-      device->createSampler({.filter = Filter::Nearest, .mipFilter = Filter::Nearest, .debugName = "nearest"});
+  const SamplerHandle nearest = device->createSampler({.magFilter = Filter::Nearest,
+                                                       .minFilter = Filter::Nearest,
+                                                       .mipFilter = Filter::Nearest,
+                                                       .debugName = "nearest"});
   // 40 MB of RGBA8 in one level, more than the 32 MB ring, plus a second level that goes through
   // the ring after it.
   constexpr glm::uvec2 size{4096, 2560};
@@ -467,8 +484,10 @@ TEST_CASE("a compressed image of any size uploads every level and samples its co
   const PipelineHandle pipeline = device->createGraphicsPipeline(
       {.shader = shader, .colorFormats = {Format::R8G8B8A8Unorm}, .cullMode = CullMode::None, .debugName = "texture"});
   device->destroyShader(shader);
-  const SamplerHandle nearest =
-      device->createSampler({.filter = Filter::Nearest, .mipFilter = Filter::Nearest, .debugName = "nearest"});
+  const SamplerHandle nearest = device->createSampler({.magFilter = Filter::Nearest,
+                                                       .minFilter = Filter::Nearest,
+                                                       .mipFilter = Filter::Nearest,
+                                                       .debugName = "nearest"});
   constexpr glm::uvec2 size{13, 7};
   const std::uint32_t levels = fullMipCount(size);
   const ImageHandle texture = device->createImage({.size = size,
@@ -565,8 +584,10 @@ TEST_CASE("an HDR compressed image of any size uploads every level and samples i
   const PipelineHandle pipeline = device->createGraphicsPipeline(
       {.shader = shader, .colorFormats = {Format::R8G8B8A8Unorm}, .cullMode = CullMode::None, .debugName = "texture"});
   device->destroyShader(shader);
-  const SamplerHandle nearest =
-      device->createSampler({.filter = Filter::Nearest, .mipFilter = Filter::Nearest, .debugName = "nearest"});
+  const SamplerHandle nearest = device->createSampler({.magFilter = Filter::Nearest,
+                                                       .minFilter = Filter::Nearest,
+                                                       .mipFilter = Filter::Nearest,
+                                                       .debugName = "nearest"});
   constexpr glm::uvec2 size{13, 7};
   const std::uint32_t levels = fullMipCount(size);
   const ImageHandle texture = device->createImage({.size = size,

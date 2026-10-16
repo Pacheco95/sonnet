@@ -419,14 +419,14 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   ImGui::SliderFloat("Alpha cutoff", &edited.alphaCutoff, 0.0f, 1.0f);
   track();
   picked = drawEnumCombo("Alpha mode", edited.alphaMode, AlphaModeNames) || picked;
-  picked = drawEnumCombo("Wrap", edited.wrap, WrapNames) || picked;
   if (ImGui::Checkbox("Double sided", &edited.doubleSided)) {
     picked = true;
   }
   if (ImGui::Checkbox("Unlit", &edited.unlit)) {
     picked = true;
   }
-  const auto texture = [&](const char *label, core::Uuid &value, renderer::TextureTransform &transform) {
+  const auto texture = [&](const char *label, core::Uuid &value, renderer::TextureTransform &transform,
+                           renderer::TextureSampler &sampler) {
     ImGui::TextUnformatted(label);
     ImGui::SameLine(150.0f);
     ImGui::PushID(label);
@@ -444,15 +444,40 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
         transform.texCoord = static_cast<std::uint32_t>(set);
         picked = true;
       }
+      picked = drawEnumCombo("Wrap S", sampler.wrapS, WrapNames) || picked;
+      picked = drawEnumCombo("Wrap T", sampler.wrapT, WrapNames) || picked;
+      const char *filters[] = {"Linear", "Nearest", "Nearest without mips"};
+      int selected = sampler.magFilter == renderer::TextureFilter::Linear &&
+                             sampler.minFilter == renderer::TextureFilter::Linear &&
+                             sampler.mipFilter == renderer::TextureMipFilter::Linear
+                         ? 0
+                     : sampler.magFilter == renderer::TextureFilter::Nearest &&
+                             sampler.minFilter == renderer::TextureFilter::Nearest &&
+                             sampler.mipFilter == renderer::TextureMipFilter::Nearest
+                         ? 1
+                     : sampler.magFilter == renderer::TextureFilter::Nearest &&
+                             sampler.minFilter == renderer::TextureFilter::Nearest &&
+                             sampler.mipFilter == renderer::TextureMipFilter::None
+                         ? 2
+                         : -1;
+      if (ImGui::Combo("Filter", &selected, filters, 3)) {
+        sampler.magFilter = sampler.minFilter =
+            selected == 0 ? renderer::TextureFilter::Linear : renderer::TextureFilter::Nearest;
+        sampler.mipFilter = selected == 0   ? renderer::TextureMipFilter::Linear
+                            : selected == 1 ? renderer::TextureMipFilter::Nearest
+                                            : renderer::TextureMipFilter::None;
+        picked = true;
+      }
       ImGui::TreePop();
     }
     ImGui::PopID();
   };
-  texture("Base colour map", edited.baseColorTexture, edited.baseColorTransform);
-  texture("Metallic roughness", edited.metallicRoughnessTexture, edited.metallicRoughnessTransform);
-  texture("Normal map", edited.normalTexture, edited.normalTransform);
-  texture("Occlusion map", edited.occlusionTexture, edited.occlusionTransform);
-  texture("Emissive map", edited.emissiveTexture, edited.emissiveTransform);
+  texture("Base colour map", edited.baseColorTexture, edited.baseColorTransform, edited.baseColorSampler);
+  texture("Metallic roughness", edited.metallicRoughnessTexture, edited.metallicRoughnessTransform,
+          edited.metallicRoughnessSampler);
+  texture("Normal map", edited.normalTexture, edited.normalTransform, edited.normalSampler);
+  texture("Occlusion map", edited.occlusionTexture, edited.occlusionTransform, edited.occlusionSampler);
+  texture("Emissive map", edited.emissiveTexture, edited.emissiveTransform, edited.emissiveSampler);
 
   if (edited != *current) {
     m_assets.setMaterialSource(info.uuid, edited);

@@ -404,7 +404,7 @@ TEST_CASE("material files round-trip and refuse unknown versions", "[assets][mat
   source.baseColor = {0.1f, 0.2f, 0.3f, 0.4f};
   source.emissive = {1.0f, 0.5f, 0.0f};
   source.alphaMode = renderer::AlphaMode::Mask;
-  source.wrap = renderer::TextureWrap::MirroredRepeat;
+  source.baseColorSampler.wrapS = renderer::TextureWrap::MirroredRepeat;
   source.normalTexture = core::Uuid::generate();
   const nlohmann::json document = saveMaterial(source);
   REQUIRE(document["version"] == MaterialFileVersion);
@@ -918,4 +918,33 @@ TEST_CASE("a file added under a root is registered, and unregistering forgets wh
   // Registering the file again brings the same identities back from its sidecar.
   REQUIRE(database.registerFile(fixture.root / "assets" / "models" / "crate.gltf").value() == crateUuid);
   REQUIRE(database.find(meshUuid) != nullptr);
+}
+
+TEST_CASE("material samplers round-trip per slot and migrate legacy wraps", "[assets][material][sampler]") {
+  using namespace renderer;
+  MaterialSource source;
+  source.baseColorSampler = {.wrapS = TextureWrap::ClampToEdge,
+                             .wrapT = TextureWrap::MirroredRepeat,
+                             .magFilter = TextureFilter::Nearest,
+                             .minFilter = TextureFilter::Linear,
+                             .mipFilter = TextureMipFilter::None};
+  source.normalSampler = {.wrapT = TextureWrap::ClampToEdge, .mipFilter = TextureMipFilter::Nearest};
+  source.emissiveSampler.magFilter = TextureFilter::Nearest;
+  const auto json = saveMaterial(source);
+  REQUIRE(json["version"] == 5);
+  REQUIRE_FALSE(json.contains("wrap"));
+  REQUIRE_FALSE(json["samplers"].contains("occlusion"));
+  REQUIRE(loadMaterial(json).value() == source);
+  REQUIRE(saveMaterial(MaterialSource{})["samplers"].empty());
+  for (int version = 1; version <= 4; ++version) {
+    const auto migrated = loadMaterial(nlohmann::json{{"version", version}, {"wrap", "MirroredRepeat"}});
+    REQUIRE(migrated.has_value());
+    for (auto sampler : {migrated->baseColorSampler, migrated->metallicRoughnessSampler, migrated->normalSampler,
+                         migrated->occlusionSampler, migrated->emissiveSampler}) {
+      REQUIRE(sampler.wrapS == TextureWrap::MirroredRepeat);
+      REQUIRE(sampler.wrapT == TextureWrap::MirroredRepeat);
+      REQUIRE(sampler.magFilter == TextureFilter::Linear);
+      REQUIRE(sampler.mipFilter == TextureMipFilter::Linear);
+    }
+  }
 }

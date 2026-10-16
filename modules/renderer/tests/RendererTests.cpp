@@ -3759,3 +3759,142 @@ TEST_CASE("zero camera bloom strength matches disabled bloom pixels", "[renderer
   REQUIRE_FALSE(std::ranges::equal(zeroStrength, device->mappedRange(scene.readback)));
   renderer.destroyMesh(box);
 }
+
+TEST_CASE("material sampler cache shares descriptions and falls back at capacity", "[renderer][null][sampler]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  MaterialDesc desc;
+  desc.baseColorSampler.magFilter = TextureFilter::Nearest;
+  const auto first = renderer.createMaterial(desc, "first");
+  const auto probe = device->createSampler({});
+  const auto before = device->samplerIndex(probe);
+  device->destroySampler(probe);
+  desc.normalSampler = desc.baseColorSampler;
+  const auto second = renderer.createMaterial(desc, "second");
+  renderer.updateMaterial(first, desc);
+  auto next = device->createSampler({});
+  REQUIRE(device->samplerIndex(next) == before + 1);
+  device->destroySampler(next);
+  for (int s = 0; s < 3; ++s)
+    for (int t = 0; t < 3; ++t)
+      for (int mag = 0; mag < 2; ++mag)
+        for (int min = 0; min < 2; ++min)
+          for (int mip = 0; mip < 3; ++mip) {
+            desc.baseColorSampler = {static_cast<TextureWrap>(s), static_cast<TextureWrap>(t),
+                                     static_cast<TextureFilter>(mag), static_cast<TextureFilter>(min),
+                                     static_cast<TextureMipFilter>(mip)};
+            renderer.updateMaterial(first, desc);
+          }
+  next = device->createSampler({});
+  // 63 cached material samplers, one linear clamp, and two probes consumed indices.
+  REQUIRE(device->samplerIndex(next) == MaxBindlessSamplers + 2);
+  device->destroySampler(next);
+  renderer.destroyMaterial(second);
+  renderer.destroyMaterial(first);
+}
+
+TEST_CASE("nearest material sampling preserves hard edges of an eight texel checker", "[renderer][gpu][sampler]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = gpuDevice(platform);
+  auto settings = testSettings();
+  settings.shadows = false;
+  settings.debugView = DebugView::Albedo;
+  Renderer renderer{*device, shaderDir(platform), settings};
+  TextureData texture{.size = {8, 8}, .format = Format::R8G8B8A8Unorm, .data = {}};
+  texture.data.resize(8 * 8 * 4);
+  for (unsigned y = 0; y < 8; ++y)
+    for (unsigned x = 0; x < 8; ++x) {
+      const auto offset = (y * 8 + x) * 4;
+      const std::byte value{static_cast<unsigned char>((x + y) % 2 ? 255 : 0)};
+      texture.data[offset] = texture.data[offset + 1] = texture.data[offset + 2] = value;
+      texture.data[offset + 3] = std::byte{255};
+    }
+  const auto image = renderer.createTexture(texture, "checker");
+  // A generated, front-facing quad, independent of third-party model files.
+  MeshData quad;
+  quad.vertices = {{{-1, -1, 0}, {0, 0, 1}, {1, 0, 0, 1}, {0, 0}},
+                   {{1, -1, 0}, {0, 0, 1}, {1, 0, 0, 1}, {1, 0}},
+                   {{-1, 1, 0}, {0, 0, 1}, {1, 0, 0, 1}, {0, 1}},
+                   {{1, 1, 0}, {0, 0, 1}, {1, 0, 0, 1}, {1, 1}}};
+  quad.indices = {0, 1, 2, 2, 1, 3};
+  const auto mesh = renderer.createMesh(quad, "checker quad");
+  MaterialDesc desc;
+  desc.baseColorTexture = image;
+  desc.baseColorSampler = {
+      .magFilter = TextureFilter::Nearest, .minFilter = TextureFilter::Nearest, .mipFilter = TextureMipFilter::None};
+  const auto material = renderer.createMaterial(desc, "nearest checker");
+  const std::array draws{DrawItem{.mesh = mesh, .material = material}};
+  GpuScene scene{*device, renderer, {128, 128}};
+  scene.render(boxScene(draws), 3);
+  int black = 0, white = 0;
+  for (unsigned y = 40; y < 88; ++y)
+    for (unsigned x = 40; x < 88; ++x) {
+      const auto pixel = scene.pixel(x, y);
+      // ACES followed by display encoding maps unit white to about 231.
+      REQUIRE((pixel.r <= 2 || (pixel.r >= 229 && pixel.r <= 232)));
+      if (pixel.r <= 2)
+        ++black;
+      else
+        ++white;
+    }
+  REQUIRE(black > 500);
+  REQUIRE(white > 500);
+  desc.baseColorSampler = {};
+  renderer.updateMaterial(material, desc);
+  scene.render(boxScene(draws));
+  int interpolated = 0;
+  for (unsigned y = 40; y < 88; ++y)
+    for (unsigned x = 40; x < 88; ++x) {
+      const auto p = scene.pixel(x, y);
+      if (p.r > 2 && p.r < 229)
+        ++interpolated;
+    }
+  REQUIRE(interpolated > 500);
+  settings.debugView = DebugView::Final;
+  renderer.setSettings(settings);
+  desc.baseColor = glm::vec4{0.0f};
+  desc.baseColorTexture = {};
+  desc.unlit = true;
+  desc.emissive = glm::vec3{1.0f};
+  desc.emissiveTexture = image;
+  desc.emissiveSampler = {
+      .magFilter = TextureFilter::Nearest, .minFilter = TextureFilter::Nearest, .mipFilter = TextureMipFilter::None};
+  renderer.updateMaterial(material, desc);
+  scene.render(boxScene(draws));
+  for (unsigned y = 40; y < 88; ++y)
+    for (unsigned x = 40; x < 88; ++x) {
+      const auto p = scene.pixel(x, y);
+      REQUIRE((p.r <= 2 || (p.r >= 229 && p.r <= 232)));
+    }
+  // Fill the cache, then ask for a description beyond its capacity. It must sample
+  // with the default linear sampler, including on the real fixed-size bindless array.
+  for (int s = 0; s < 3; ++s)
+    for (int t = 0; t < 3; ++t)
+      for (int mag = 0; mag < 2; ++mag)
+        for (int min = 0; min < 2; ++min)
+          for (int mip = 0; mip < 3; ++mip) {
+            desc.emissiveSampler = {static_cast<TextureWrap>(s), static_cast<TextureWrap>(t),
+                                    static_cast<TextureFilter>(mag), static_cast<TextureFilter>(min),
+                                    static_cast<TextureMipFilter>(mip)};
+            renderer.updateMaterial(material, desc);
+          }
+  desc.emissiveSampler = {.wrapS = TextureWrap::MirroredRepeat,
+                          .wrapT = TextureWrap::MirroredRepeat,
+                          .magFilter = TextureFilter::Nearest,
+                          .minFilter = TextureFilter::Nearest,
+                          .mipFilter = TextureMipFilter::None};
+  renderer.updateMaterial(material, desc);
+  scene.render(boxScene(draws));
+  interpolated = 0;
+  for (unsigned y = 40; y < 88; ++y)
+    for (unsigned x = 40; x < 88; ++x) {
+      const auto p = scene.pixel(x, y);
+      if (p.r > 2 && p.r < 229)
+        ++interpolated;
+    }
+  REQUIRE(interpolated > 500);
+  renderer.destroyMaterial(material);
+  renderer.destroyMesh(mesh);
+  renderer.destroyTexture(image);
+}

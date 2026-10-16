@@ -754,12 +754,36 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path, const Mod
     out.source.normalTransform = transformOf(material.normalTexture);
     out.source.occlusionTransform = transformOf(material.occlusionTexture);
     out.source.emissiveTransform = transformOf(material.emissiveTexture);
-    if (pbr.baseColorTexture.has_value() && pbr.baseColorTexture->textureIndex < asset.textures.size()) {
-      const fastgltf::Texture &texture = asset.textures[pbr.baseColorTexture->textureIndex];
-      if (texture.samplerIndex.has_value() && *texture.samplerIndex < asset.samplers.size()) {
-        out.source.wrap = toWrap(asset.samplers[*texture.samplerIndex].wrapS);
+    const auto samplerOf = [&](const auto &info) {
+      renderer::TextureSampler result;
+      if (!info.has_value() || info->textureIndex >= asset.textures.size())
+        return result;
+      const auto &texture = asset.textures[info->textureIndex];
+      if (!texture.samplerIndex.has_value() || *texture.samplerIndex >= asset.samplers.size())
+        return result;
+      const auto &sampler = asset.samplers[*texture.samplerIndex];
+      result.wrapS = toWrap(sampler.wrapS);
+      result.wrapT = toWrap(sampler.wrapT);
+      if (sampler.magFilter.has_value() && *sampler.magFilter == fastgltf::Filter::Nearest)
+        result.magFilter = renderer::TextureFilter::Nearest;
+      if (sampler.minFilter.has_value()) {
+        using F = fastgltf::Filter;
+        const auto f = *sampler.minFilter;
+        result.minFilter = f == F::Nearest || f == F::NearestMipMapNearest || f == F::NearestMipMapLinear
+                               ? renderer::TextureFilter::Nearest
+                               : renderer::TextureFilter::Linear;
+        result.mipFilter = f == F::Nearest || f == F::Linear ? renderer::TextureMipFilter::None
+                           : f == F::NearestMipMapNearest || f == F::LinearMipMapNearest
+                               ? renderer::TextureMipFilter::Nearest
+                               : renderer::TextureMipFilter::Linear;
       }
-    }
+      return result;
+    };
+    out.source.baseColorSampler = samplerOf(pbr.baseColorTexture);
+    out.source.metallicRoughnessSampler = samplerOf(pbr.metallicRoughnessTexture);
+    out.source.normalSampler = samplerOf(material.normalTexture);
+    out.source.occlusionSampler = samplerOf(material.occlusionTexture);
+    out.source.emissiveSampler = samplerOf(material.emissiveTexture);
     for (const std::int32_t colour : {out.baseColorImage, out.emissiveImage}) {
       if (colour >= 0 && static_cast<std::size_t>(colour) < import.images.size()) {
         import.images[static_cast<std::size_t>(colour)].srgb = true;

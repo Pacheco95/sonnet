@@ -354,9 +354,12 @@ enum class AddressMode : std::uint8_t {
 // Samplers live in the bindless set: plain ones in the sampler array, ones with `compare` in the
 // comparison-sampler array, each with its own index space (IDevice::samplerIndex).
 struct SamplerDesc {
-  Filter filter{Filter::Linear};
+  Filter magFilter{Filter::Linear};
+  Filter minFilter{Filter::Linear};
   Filter mipFilter{Filter::Linear};
-  AddressMode addressMode{AddressMode::Repeat};
+  AddressMode addressModeU{AddressMode::Repeat};
+  AddressMode addressModeV{AddressMode::Repeat};
+  bool mipmaps{true};
   float anisotropy{1.0f}; // 1 disables anisotropic filtering
   bool compare{false};    // depth comparison with CompareOp::GreaterOrEqual, for reversed-Z shadows
   std::string debugName;

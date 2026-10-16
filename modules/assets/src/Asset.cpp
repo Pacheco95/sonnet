@@ -55,17 +55,18 @@ std::string_view toString(renderer::TextureWrap wrap) noexcept {
   return "Repeat";
 }
 
-// The texture slots' UV sets and transforms by their key in a material file's "transforms".
-struct TransformSlot {
+// Texture slots by their key in a material file's "transforms" and "samplers".
+struct TextureSlot {
   const char *key;
   renderer::TextureTransform MaterialSource::*transform;
+  renderer::TextureSampler MaterialSource::*sampler;
 };
-constexpr std::array<TransformSlot, 5> TransformSlots{{
-    {"baseColor", &MaterialSource::baseColorTransform},
-    {"metallicRoughness", &MaterialSource::metallicRoughnessTransform},
-    {"normal", &MaterialSource::normalTransform},
-    {"occlusion", &MaterialSource::occlusionTransform},
-    {"emissive", &MaterialSource::emissiveTransform},
+constexpr std::array<TextureSlot, 5> TextureSlots{{
+    {"baseColor", &MaterialSource::baseColorTransform, &MaterialSource::baseColorSampler},
+    {"metallicRoughness", &MaterialSource::metallicRoughnessTransform, &MaterialSource::metallicRoughnessSampler},
+    {"normal", &MaterialSource::normalTransform, &MaterialSource::normalSampler},
+    {"occlusion", &MaterialSource::occlusionTransform, &MaterialSource::occlusionSampler},
+    {"emissive", &MaterialSource::emissiveTransform, &MaterialSource::emissiveSampler},
 }};
 
 json transformToJson(const renderer::TextureTransform &transform) {
@@ -207,9 +208,22 @@ json saveMaterial(const MaterialSource &material) {
   put("occlusion", material.occlusionTexture);
   put("emissive", material.emissiveTexture);
   json transforms = json::object();
-  for (const TransformSlot &slot : TransformSlots) {
+  for (const TextureSlot &slot : TextureSlots) {
     if (material.*slot.transform != renderer::TextureTransform{}) {
       transforms[slot.key] = transformToJson(material.*slot.transform);
+    }
+  }
+  json samplers = json::object();
+  for (const auto &slot : TextureSlots) {
+    const auto &v = material.*slot.sampler;
+    if (v != renderer::TextureSampler{}) {
+      samplers[slot.key] = {{"wrapS", toString(v.wrapS)},
+                            {"wrapT", toString(v.wrapT)},
+                            {"magFilter", v.magFilter == renderer::TextureFilter::Nearest ? "Nearest" : "Linear"},
+                            {"minFilter", v.minFilter == renderer::TextureFilter::Nearest ? "Nearest" : "Linear"},
+                            {"mipFilter", v.mipFilter == renderer::TextureMipFilter::None      ? "None"
+                                          : v.mipFilter == renderer::TextureMipFilter::Nearest ? "Nearest"
+                                                                                               : "Linear"}};
     }
   }
   return json{
@@ -222,7 +236,7 @@ json saveMaterial(const MaterialSource &material) {
       {"occlusionStrength", material.occlusionStrength},
       {"alphaCutoff", material.alphaCutoff},
       {"alphaMode", std::string{toString(material.alphaMode)}},
-      {"wrap", std::string{toString(material.wrap)}},
+      {"samplers", std::move(samplers)},
       {"doubleSided", material.doubleSided},
       {"unlit", material.unlit},
       {"textures", std::move(textures)},
@@ -258,10 +272,32 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
   material.alphaMode = alphaMode == "Blend"  ? renderer::AlphaMode::Blend
                        : alphaMode == "Mask" ? renderer::AlphaMode::Mask
                                              : renderer::AlphaMode::Opaque;
-  const std::string wrap = document.value("wrap", std::string{"Repeat"});
-  material.wrap = wrap == "ClampToEdge"      ? renderer::TextureWrap::ClampToEdge
-                  : wrap == "MirroredRepeat" ? renderer::TextureWrap::MirroredRepeat
-                                             : renderer::TextureWrap::Repeat;
+  const auto wrap = [](const std::string &v) {
+    return v == "ClampToEdge"      ? renderer::TextureWrap::ClampToEdge
+           : v == "MirroredRepeat" ? renderer::TextureWrap::MirroredRepeat
+                                   : renderer::TextureWrap::Repeat;
+  };
+  for (const auto &slot : TextureSlots) {
+    auto &v = material.*slot.sampler;
+    if (version < 5) {
+      v.wrapS = v.wrapT = wrap(document.value("wrap", std::string{"Repeat"}));
+    } else if (document.contains("samplers") && document["samplers"].is_object() &&
+               document["samplers"].contains(slot.key)) {
+      const auto &j = document["samplers"][slot.key];
+      if (!j.is_object())
+        continue;
+      v.wrapS = wrap(j.value("wrapS", std::string{"Repeat"}));
+      v.wrapT = wrap(j.value("wrapT", std::string{"Repeat"}));
+      v.magFilter = j.value("magFilter", std::string{"Linear"}) == "Nearest" ? renderer::TextureFilter::Nearest
+                                                                             : renderer::TextureFilter::Linear;
+      v.minFilter = j.value("minFilter", std::string{"Linear"}) == "Nearest" ? renderer::TextureFilter::Nearest
+                                                                             : renderer::TextureFilter::Linear;
+      const auto mip = j.value("mipFilter", std::string{"Linear"});
+      v.mipFilter = mip == "None"      ? renderer::TextureMipFilter::None
+                    : mip == "Nearest" ? renderer::TextureMipFilter::Nearest
+                                       : renderer::TextureMipFilter::Linear;
+    }
+  }
   if (document.contains("textures") && document["textures"].is_object()) {
     const json &textures = document["textures"];
     material.baseColorTexture = uuidFromJson(textures, "baseColor");
@@ -272,7 +308,7 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
   }
   if (document.contains("transforms") && document["transforms"].is_object()) {
     const json &transforms = document["transforms"];
-    for (const TransformSlot &slot : TransformSlots) {
+    for (const TextureSlot &slot : TextureSlots) {
       if (transforms.contains(slot.key)) {
         material.*slot.transform = transformFromJson(transforms[slot.key]);
       }

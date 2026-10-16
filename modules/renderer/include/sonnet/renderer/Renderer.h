@@ -403,6 +403,7 @@ private:
   struct Material {
     std::string debugName;
     MaterialDesc desc;
+    std::uint32_t samplers;
   };
   struct Environment {
     std::string debugName;
@@ -575,6 +576,8 @@ private:
   [[nodiscard]] rhi::PipelineHandle createPipeline(const PipelineSlot &slot, rhi::ShaderHandle shader);
   void createPipelines(const std::filesystem::path &shaderDir);
   void createDefaults();
+  std::uint32_t materialSampler(const TextureSampler &desc);
+  std::uint32_t packSamplers(const MaterialDesc &desc);
   [[nodiscard]] std::uint32_t materialIndex(MaterialHandle handle) const;
   [[nodiscard]] std::uint32_t sampledIndex(rhi::ImageHandle image) const;
 
@@ -712,7 +715,8 @@ private:
   std::array<rhi::PipelineHandle, 2> m_particleDrawPipelines; // by ParticleBlend
   rhi::BufferHandle m_particleQuad;                           // the six indices of a quad's two triangles
 
-  std::array<rhi::SamplerHandle, 3> m_materialSamplers; // by TextureWrap
+  std::vector<std::pair<TextureSampler, rhi::SamplerHandle>> m_materialSamplers;
+  bool m_samplerWarning{false};
   rhi::SamplerHandle m_linearClampSampler;
   rhi::SamplerHandle m_shadowSampler;
   TextureHandle m_whiteTexture;

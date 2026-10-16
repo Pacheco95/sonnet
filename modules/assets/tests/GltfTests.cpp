@@ -166,7 +166,7 @@ TEST_CASE("a glTF file imports its meshes, materials, images and node hierarchy"
   REQUIRE(material.source.metallic == Approx(0.0f));
   REQUIRE(material.source.roughness == Approx(0.7f));
   REQUIRE(material.source.doubleSided);
-  REQUIRE(material.source.wrap == renderer::TextureWrap::ClampToEdge);
+  REQUIRE(material.source.baseColorSampler.wrapS == renderer::TextureWrap::ClampToEdge);
 
   REQUIRE(imported->images.size() == 1);
   REQUIRE(imported->images[0].srgb); // read as base colour
@@ -975,4 +975,54 @@ TEST_CASE("a glTF file's EXT_meshopt_compression geometry imports as its uncompr
   REQUIRE(corrupt.error().message.find("buffer view 0: EXT_meshopt_compression data does not decode") !=
           std::string::npos);
   std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("glTF imports each texture slot's wraps and all filter enums", "[assets][gltf][sampler]") {
+  const auto directory = test::freshDirectory("sonnet_gltf_samplers");
+  const auto path = directory / "samplers.gltf";
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(path, "wood.png");
+  const auto bytes = core::readFile(path).value();
+  auto document = nlohmann::json::parse(reinterpret_cast<const char *>(bytes.data()),
+                                        reinterpret_cast<const char *>(bytes.data() + bytes.size()));
+  using namespace renderer;
+  const std::array filters{9728, 9729, 9984, 9985, 9986, 9987, 0};
+  const std::array mins{TextureFilter::Nearest, TextureFilter::Linear, TextureFilter::Nearest, TextureFilter::Linear,
+                        TextureFilter::Nearest, TextureFilter::Linear, TextureFilter::Linear};
+  const std::array mips{TextureMipFilter::None,    TextureMipFilter::None,   TextureMipFilter::Nearest,
+                        TextureMipFilter::Nearest, TextureMipFilter::Linear, TextureMipFilter::Linear,
+                        TextureMipFilter::Linear};
+  for (std::size_t i = 0; i < filters.size(); ++i) {
+    for (int mag : {9728, 9729, 0}) {
+      CAPTURE(filters[i], mag);
+      nlohmann::json sampler{{"wrapS", 33071}, {"wrapT", 33648}};
+      if (filters[i])
+        sampler["minFilter"] = filters[i];
+      if (mag)
+        sampler["magFilter"] = mag;
+      document["samplers"] = nlohmann::json::array({sampler, nlohmann::json::object()});
+      document["textures"] =
+          nlohmann::json::array({{{"source", 0}, {"sampler", 0}}, {{"source", 0}, {"sampler", 1}}, {{"source", 0}}});
+      auto &material = document["materials"][0];
+      material["pbrMetallicRoughness"]["baseColorTexture"] = {{"index", 0}};
+      material["pbrMetallicRoughness"]["metallicRoughnessTexture"] = {{"index", 1}};
+      material["normalTexture"] = {{"index", 0}};
+      material["occlusionTexture"] = {{"index", 2}};
+      material["emissiveTexture"] = {{"index", 0}};
+      REQUIRE(core::writeFile(path, document.dump()).has_value());
+      const auto imported = importGltf(path);
+      REQUIRE(imported.has_value());
+      const auto &source = imported->materials[0].source;
+      const TextureSampler expected{.wrapS = TextureWrap::ClampToEdge,
+                                    .wrapT = TextureWrap::MirroredRepeat,
+                                    .magFilter = mag == 9728 ? TextureFilter::Nearest : TextureFilter::Linear,
+                                    .minFilter = mins[i],
+                                    .mipFilter = mips[i]};
+      REQUIRE(source.baseColorSampler == expected);
+      REQUIRE(source.normalSampler == expected);
+      REQUIRE(source.emissiveSampler == expected);
+      REQUIRE(source.metallicRoughnessSampler == TextureSampler{});
+      REQUIRE(source.occlusionSampler == TextureSampler{});
+    }
+  }
 }
