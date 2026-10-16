@@ -655,6 +655,26 @@ TEST_CASE("file commands preserve identities through rename and trash undo", "[e
   REQUIRE(commands.redo(world));
   commands.clear();
   CHECK(std::filesystem::is_empty(root / ".sonnet/trash"));
+  const auto alias = std::filesystem::path{root.string() + "-alias"};
+  std::error_code error;
+  std::filesystem::remove(alias, error);
+  std::filesystem::create_directory_symlink(root, alias, error);
+  if (!error) {
+    database.open(alias, roots);
+    const auto source = alias / "assets/linked.lua";
+    const auto linkedId = database.createScript(source, "return {}");
+    REQUIRE(linkedId);
+    const std::vector<std::filesystem::path> linkedFiles{source};
+    auto linkedDelete = editor::deleteFilesCommand(database, world, linkedFiles);
+    REQUIRE(linkedDelete);
+    CHECK(database.find(*linkedId) == nullptr);
+    (*linkedDelete)->revert(world);
+    REQUIRE(database.find(*linkedId));
+    CHECK(database.find(*linkedId)->source == source);
+    linkedDelete->reset();
+    database.close();
+    std::filesystem::remove(alias);
+  }
   std::filesystem::remove_all(root);
 }
 

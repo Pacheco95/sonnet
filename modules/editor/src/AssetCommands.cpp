@@ -581,9 +581,13 @@ core::Result<std::unique_ptr<ICommand>> deleteFilesCommand(assets::AssetDatabase
   const auto trash = root / ".sonnet" / "trash" / core::Uuid::generate().toString();
   std::vector<DeletedPath> paths;
   for (const auto &file : files) {
-    const auto source = std::filesystem::weakly_canonical(file, error);
-    if (error || source == root || !underPath(source, root) || underPath(source, root / ".sonnet") ||
-        !std::filesystem::exists(source, error) || source == root / "project.json") {
+    const auto source = std::filesystem::absolute(file, error).lexically_normal();
+    if (error) {
+      return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+    }
+    const auto resolved = std::filesystem::weakly_canonical(source, error);
+    if (error || resolved == root || !underPath(resolved, root) || underPath(resolved, root / ".sonnet") ||
+        !std::filesystem::exists(source, error) || resolved == root / "project.json") {
       return std::unexpected(core::Error{"invalid path for deletion", core::ErrorCategory::Io});
     }
     if (std::ranges::any_of(paths, [&](const auto &path) { return underPath(source, path.source); })) {

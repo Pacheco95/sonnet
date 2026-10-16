@@ -1054,3 +1054,25 @@ TEST_CASE("moved scripts reload under a new revision and unregister removes all 
   }
   CHECK(std::filesystem::exists(unrelated));
 }
+
+TEST_CASE("moving through a symlinked project path updates database metadata", "[assets][database][move]") {
+  Fixture fixture;
+  const auto alias = std::filesystem::path{fixture.root.string() + "-alias"};
+  std::error_code error;
+  std::filesystem::remove(alias, error);
+  std::filesystem::create_directory_symlink(fixture.root, alias, error);
+  if (error) {
+    SKIP("directory symlinks unavailable: " << error.message());
+  }
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(alias, fixture.roots);
+  const auto from = alias / "assets/wood.png";
+  const auto to = alias / "assets/renamed.png";
+  const auto id = database.findByPath(from)->uuid;
+  REQUIRE(database.move(from, to));
+  CHECK(database.find(id)->source == to);
+  REQUIRE(database.findByPath(to));
+  CHECK(database.findByPath(to)->uuid == id);
+  database.close();
+  std::filesystem::remove(alias);
+}

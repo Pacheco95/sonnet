@@ -1580,11 +1580,24 @@ core::Result<void> AssetDatabase::move(const std::filesystem::path &from, const 
     return std::unexpected(core::Error{"moving files needs an open project", core::ErrorCategory::Io});
   }
   std::error_code error;
-  const auto source = std::filesystem::weakly_canonical(from, error);
+  const auto source = std::filesystem::absolute(from, error).lexically_normal();
   if (error) {
     return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
   }
-  const auto destination = std::filesystem::weakly_canonical(to.parent_path(), error) / to.filename();
+  const auto destination = std::filesystem::absolute(to, error).lexically_normal();
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  // Validate resolved paths, but retain the project's spelling in metadata (e.g. macOS /var).
+  const auto canonicalSource = std::filesystem::weakly_canonical(source, error);
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  const auto canonicalDestination =
+      std::filesystem::weakly_canonical(destination.parent_path(), error) / destination.filename();
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
   const auto beneath = [](const std::filesystem::path &path, const std::filesystem::path &root) {
     const auto relative = path.lexically_relative(root);
     return !relative.empty() && relative != "." && *relative.begin() != "..";
@@ -1601,7 +1614,8 @@ core::Result<void> AssetDatabase::move(const std::filesystem::path &from, const 
              return !rootError && beneath(path, canonicalRoot);
            });
   };
-  if (error || !allowed(source) || !allowed(destination) || beneath(destination, source)) {
+  if (error || !allowed(canonicalSource) || !allowed(canonicalDestination) ||
+      beneath(canonicalDestination, canonicalSource)) {
     return std::unexpected(core::Error{"move must stay within the project's asset roots", core::ErrorCategory::Io});
   }
   const bool directory = std::filesystem::is_directory(source, error);
