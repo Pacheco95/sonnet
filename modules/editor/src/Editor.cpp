@@ -80,6 +80,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands),
       m_assetBrowserPanel(m_assets, m_world, m_selection) {
+  m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
+  m_viewportPanel.setImmediateViews(platform.isHeadless());
   if (!platform.isHeadless()) {
     setFileDialogBackend(makeSdlFileDialogBackend(window.nativeHandle()));
     setLayoutFile(platform.prefPath("sonnet", "editor") / "layout.ini");
@@ -474,6 +476,7 @@ void Editor::update(float dt) {
     });
   }
   m_view.camera = m_viewportPanel.camera().camera();
+  m_view.dollyDepthOffset = m_viewportPanel.camera().dollyDepthOffset();
   m_view.draws = m_draws;
   m_view.joints = m_joints;
   m_view.morphWeights = m_morphWeights;
@@ -771,6 +774,14 @@ void Editor::drawMenuBar() {
   }
   if (ImGui::BeginMenu("View")) {
     m_viewportPanel.drawViewMenu();
+    ImGui::SetNextItemWidth(120.0f);
+    if (ImGui::DragFloat("Smooth view duration", &m_preferences.smoothViewDuration, 0.01f, 0.0f, 2.0f, "%.2f s",
+                         ImGuiSliderFlags_AlwaysClamp)) {
+      m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
+      if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
+        SONNET_LOG_ERROR("{}", saved.error().toString());
+      }
+    }
     ImGui::Separator();
     ImGui::MenuItem("Viewport", nullptr, &m_viewState.viewport);
     ImGui::MenuItem("Game", nullptr, &m_viewState.game);
@@ -1506,6 +1517,7 @@ void Editor::setFloorGrid(bool show) {
 void Editor::setPreferencesFile(const std::filesystem::path &file) {
   m_preferencesFile = file;
   m_preferences = Preferences::load(file);
+  m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
 }
 
 OpenScenes Editor::openScenes() const {

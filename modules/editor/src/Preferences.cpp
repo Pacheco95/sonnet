@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <fstream>
 
@@ -65,6 +66,12 @@ Preferences Preferences::load(const std::filesystem::path &file) {
   preferences.sourceRoot = document.value("sourceRoot", preferences.sourceRoot);
   preferences.reopenLastProject = document.value("reopenLastProject", preferences.reopenLastProject);
   preferences.floorGrid = document.value("floorGrid", preferences.floorGrid);
+  if (document.contains("smoothViewDuration") && document["smoothViewDuration"].is_number()) {
+    const float duration = document["smoothViewDuration"].get<float>();
+    if (std::isfinite(duration) && duration >= 0.0f && duration <= 2.0f) {
+      preferences.smoothViewDuration = duration;
+    }
+  }
   return preferences;
 }
 
@@ -88,6 +95,7 @@ core::Result<void> Preferences::save(const std::filesystem::path &file) const {
       {"sourceRoot", sourceRoot},
       {"reopenLastProject", reopenLastProject},
       {"floorGrid", floorGrid},
+      {"smoothViewDuration", smoothViewDuration},
   };
   std::ofstream stream{file};
   if (!stream) {

@@ -65,6 +65,19 @@ public:
 
   // Turns the camera towards `target` from a distance that fits `radius`.
   void focus(glm::vec3 target, float radius);
+  void setTransitionDuration(float seconds) noexcept {
+    m_transitionDuration = seconds > 0.0f ? seconds : 0.0f;
+    if (m_transitionDuration == 0.0f) {
+      m_view.camera.finishTransition();
+    }
+  }
+  void setImmediateViews(bool immediate) {
+    m_immediateViews = immediate;
+    if (immediate) {
+      m_view.camera.finishTransition();
+    }
+  }
+
   void snapView(AxisView view);
   void oppositeView();
   void toggleProjection();
@@ -99,6 +112,8 @@ public:
 
 private:
   void resizeTarget(glm::uvec2 size);
+  void animateFrom(const FlyCamera &from, glm::vec3 pivot);
+  void cancelTransition();
   bool drawAxisWidget(ImVec2 origin, ImVec2 size);
   [[nodiscard]] glm::vec3 viewPivot() const;
 
@@ -109,6 +124,8 @@ private:
   ViewportInput m_input;
   AxisView m_widgetAxis{AxisView::User};
   bool m_widgetDragging{false};
+  float m_transitionDuration{0.2f};
+  bool m_immediateViews{false};
   bool m_cameraActive{false};
   bool m_wheelForGame{false};
   bool m_orbiting{false}; // the active camera drag is the middle button's orbit

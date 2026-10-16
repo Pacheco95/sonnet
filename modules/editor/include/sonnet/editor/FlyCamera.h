@@ -32,6 +32,19 @@ public:
   };
 
   FlyCamera();
+  // Call after a view command, passing its previous pose and pivot. Zero is immediate.
+  void transitionFrom(const FlyCamera &from, glm::vec3 fromPivot, glm::vec3 toPivot, float seconds);
+  void advanceTransition(float dt);
+  [[nodiscard]] glm::vec3 transitionPivot() const;
+  void cancelTransition();
+  void finishTransition();
+  [[nodiscard]] float dollyDepthOffset() const noexcept {
+    return m_dollyDepthOffset;
+  }
+  [[nodiscard]] bool transitioning() const noexcept {
+    return m_transitionDuration > 0.0f;
+  }
+
   void snap(AxisView view, glm::vec3 pivot);
   void frame(glm::vec3 target, float distance);
   void opposite(glm::vec3 pivot);
@@ -72,9 +85,22 @@ public:
 
 private:
   void turn(glm::vec2 lookDelta);
+  void rebaseDolly(glm::vec3 pivot);
   void applyOrientation();
 
   renderer::Camera m_camera;
+  struct Transition {
+    renderer::Camera from;
+    renderer::Camera to;
+    float fromDollyOffset{0.0f};
+    float toDollyOffset{0.0f};
+    glm::vec3 fromPivot{0.0f};
+    glm::vec3 toPivot{0.0f};
+  } m_transition;
+  float m_dollyDepthOffset{0.0f};
+  float m_transitionDuration{0.0f};
+  float m_transitionElapsed{0.0f};
+  glm::quat m_orientationOffset{1.0f, 0.0f, 0.0f, 0.0f};
   AxisView m_axisView{AxisView::User};
   bool m_autoPerspective{false};
   float m_projectionDistance{10.0f};

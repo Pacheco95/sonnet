@@ -33,6 +33,7 @@ struct Preferences {
   // Whether an editor started without a project folder opens the most recent project.
   bool reopenLastProject{true};
   bool floorGrid{true};
+  float smoothViewDuration{0.2f}; // seconds; zero disables view transitions
 
   [[nodiscard]] static Preferences load(const std::filesystem::path &file);
   [[nodiscard]] core::Result<void> save(const std::filesystem::path &file) const;

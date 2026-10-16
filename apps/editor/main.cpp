@@ -92,6 +92,7 @@ public:
                                                   game::linkedModule())) {
     // A capture run or a headless platform must not read or rewrite the user's open tabs.
     m_editor->setRememberOpenScenes(!line.capture && !platform.isHeadless());
+    m_editor->viewport().setImmediateViews(line.capture.has_value() || platform.isHeadless());
     if (!line.project.empty()) {
       if (const auto opened = m_editor->openProject(line.project); !opened) {
         SONNET_LOG_ERROR("{}", opened.error().toString());

@@ -188,3 +188,124 @@ TEST_CASE("framing an orthographic selection keeps the axis view and fits its si
   requireClose(camera.camera().position + camera.camera().forward() * 4.0f, target);
   REQUIRE(camera.camera().orthoHeight == Approx(8.0f * std::tan(camera.camera().fovY * 0.5f)));
 }
+
+TEST_CASE("smooth axis snaps keep the pivot centred and reach the exact target", "[editor][camera][smooth-view]") {
+  const glm::vec3 pivot{2, 1, -3};
+  for (const AxisView axis :
+       {AxisView::Front, AxisView::Back, AxisView::Right, AxisView::Left, AxisView::Top, AxisView::Bottom}) {
+    FlyCamera camera;
+    camera.lookAt(pivot + glm::vec3{5, 3, 7}, pivot);
+    const FlyCamera from = camera;
+    camera.snap(axis, pivot);
+    const auto target = camera.camera();
+    camera.transitionFrom(from, pivot, pivot, 0.2f);
+    requireClose(camera.camera().position, from.camera().position);
+    for (int step = 0; step < 4; ++step) {
+      camera.advanceTransition(0.04f);
+      REQUIRE(camera.transitioning());
+      const auto &pose = camera.camera();
+      const glm::vec4 clip = pose.projection(1.5f) * pose.view() * glm::vec4{pivot, 1};
+      REQUIRE(clip.x / clip.w == Approx(0.0f).margin(1e-4f));
+      REQUIRE(clip.y / clip.w == Approx(0.0f).margin(1e-4f));
+    }
+    camera.advanceTransition(0.05f);
+    REQUIRE(!camera.transitioning());
+    requireClose(camera.camera().position, target.position);
+    requireClose(camera.camera().forward(), target.forward());
+    REQUIRE(camera.camera().projectionKind == target.projectionKind);
+    REQUIRE(camera.axisView() == axis);
+  }
+}
+
+TEST_CASE("smooth projection switches preserve scale on the pivot plane", "[editor][camera][smooth-view]") {
+  FlyCamera camera;
+  const glm::vec3 pivot{0};
+  camera.lookAt({0, 0, 10}, pivot);
+  for (int toggle = 0; toggle < 2; ++toggle) {
+    const FlyCamera from = camera;
+    const auto projectedHeight = [](const sonnet::renderer::Camera &pose) {
+      const glm::vec4 clip = pose.projection(1.0f) * pose.view() * glm::vec4{0, 1, 0, 1};
+      return clip.y / clip.w;
+    };
+    const float size = projectedHeight(camera.camera());
+    camera.toggleProjection(pivot);
+    const auto target = camera.camera();
+    camera.transitionFrom(from, pivot, pivot, 0.2f);
+    for (int step = 0; step < 21; ++step) {
+      camera.advanceTransition(0.01f);
+      REQUIRE(projectedHeight(camera.camera()) == Approx(size).margin(1e-5f));
+    }
+    REQUIRE(camera.camera().projectionKind == target.projectionKind);
+    requireClose(camera.camera().position, target.position);
+  }
+}
+
+TEST_CASE("smooth framing moves the pivot and zero duration is immediate", "[editor][camera][smooth-view]") {
+  FlyCamera camera;
+  camera.lookAt({0, 0, 10}, {0, 0, 0});
+  const FlyCamera from = camera;
+  const glm::vec3 targetPivot{4, 2, -1};
+  camera.frame(targetPivot, 3.0f);
+  const auto target = camera.camera();
+  camera.transitionFrom(from, {0, 0, 0}, targetPivot, 0.2f);
+  camera.advanceTransition(0.1f);
+  requireClose(camera.camera().position, glm::mix(from.camera().position, target.position, 0.5f));
+  camera.advanceTransition(1.0f);
+  requireClose(camera.camera().position, target.position);
+  camera.snap(AxisView::Top, targetPivot);
+  const auto snapped = camera.camera();
+  camera.transitionFrom(from, {0, 0, 0}, targetPivot, 0.0f);
+  REQUIRE(!camera.transitioning());
+  requireClose(camera.camera().position, snapped.position);
+}
+
+TEST_CASE("navigation cancels a smooth view at its current pose", "[editor][camera][smooth-view]") {
+  FlyCamera camera;
+  const glm::vec3 pivot{0};
+  camera.lookAt({4, 3, 8}, pivot);
+  const FlyCamera from = camera;
+  camera.snap(AxisView::Top, pivot);
+  camera.transitionFrom(from, pivot, pivot, 0.2f);
+  camera.advanceTransition(0.1f);
+  const auto current = camera.camera();
+  SECTION("cancel alone") {
+    camera.cancelTransition();
+    camera.advanceTransition(1.0f);
+    requireClose(camera.camera().position, current.position);
+    requireClose(camera.camera().forward(), current.forward());
+  }
+  SECTION("movement") {
+    camera.update(0.1f, {.right = true});
+    requireClose(camera.camera().position, current.position + current.right() * camera.speed() * 0.1f);
+    requireClose(camera.camera().forward(), current.forward());
+  }
+  SECTION("mouse look starts without levelling the slerped rotation") {
+    camera.update(0.1f, {.lookDelta = {0.001f, 0.001f}});
+    requireClose(camera.camera().forward(), current.forward(), 1e-4f);
+    requireClose(camera.camera().up(), current.up(), 1e-4f);
+  }
+  SECTION("wheel") {
+    camera.dolly(1.0f, 1.0f, false);
+    requireClose(camera.camera().position, current.position + current.forward() * 0.1f);
+  }
+  REQUIRE(!camera.transitioning());
+}
+
+TEST_CASE("a snap after interrupted dolly zoom restores a usable orthographic depth range",
+          "[editor][camera][smooth-view]") {
+  FlyCamera camera;
+  const glm::vec3 pivot{0};
+  camera.lookAt({0, 0, 10}, pivot);
+  const FlyCamera from = camera;
+  camera.toggleProjection(pivot);
+  camera.transitionFrom(from, pivot, pivot, 0.2f);
+  camera.advanceTransition(0.19f);
+  REQUIRE(camera.dollyDepthOffset() > 100.0f);
+  camera.cancelTransition();
+  const auto interrupted = camera.camera();
+  camera.snap(AxisView::Right, pivot);
+  REQUIRE(camera.dollyDepthOffset() == 0.0f);
+  REQUIRE(glm::distance(camera.camera().position, pivot) < camera.camera().farPlane);
+  REQUIRE(camera.camera().orthoHeight ==
+          Approx(2.0f * glm::distance(interrupted.position, pivot) * std::tan(interrupted.fovY * 0.5f)).epsilon(1e-4f));
+}
