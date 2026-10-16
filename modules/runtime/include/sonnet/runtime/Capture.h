@@ -37,6 +37,7 @@ struct CaptureOptions {
   // --render-size: what the scene is drawn at, scaled to the window; the player's only. The window's
   // own size when empty.
   std::optional<glm::uvec2> renderSize;
+  bool grid{false}; // editor capture only; does not change preferences
 };
 
 // An application's arguments: the content (the editor's project folder, the player's project

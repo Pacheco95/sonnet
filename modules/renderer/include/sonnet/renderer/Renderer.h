@@ -255,6 +255,11 @@ public:
   void addOutlinePass(RenderGraph &graph, GraphImage color, GraphImage mask,
                       glm::vec4 outlineColor = {1.0f, 0.6f, 0.1f, 1.0f});
 
+  // Unjittered editor grid after the scene, before passes that discard depth. The unit normal
+  // and unit in-plane U axis define the plane; plane.w is its signed offset.
+  void addGridPass(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth,
+                   glm::vec4 plane = {0, 1, 0, 0}, glm::vec3 axisU = {1, 0, 0});
+
   // Declares the debug line pass: the view's debug lines over `color`, depth-tested against
   // `depth` without writing it, so it has to come before a pass that discards the depth. Adds
   // nothing when there are no lines. Same lifetime rule as addScenePasses.
@@ -686,6 +691,7 @@ private:
   rhi::PipelineHandle m_presentPipeline; // only when the settings named a present format
   rhi::PipelineHandle m_outlinePipeline;
   rhi::PipelineHandle m_debugLinePipeline;
+  rhi::PipelineHandle m_gridPipeline;
   rhi::PipelineHandle m_overlayPipeline;
   rhi::PipelineHandle m_clusterPipeline;
   rhi::PipelineHandle m_cullPipeline;

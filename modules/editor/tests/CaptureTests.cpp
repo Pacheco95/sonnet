@@ -329,3 +329,51 @@ TEST_CASE("the editor refuses --render-size, which is the player's", "[editor][c
   }
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("capture grid is opt-in and accepts only on or off", "[editor][capture][grid]") {
+  const auto normal = parse({"project", "--screenshot", "view.png"});
+  REQUIRE(normal.has_value());
+  REQUIRE_FALSE(normal->capture->grid);
+  const auto enabled = parse({"project", "--screenshot", "view.png", "--grid", "on"});
+  REQUIRE(enabled.has_value());
+  REQUIRE(enabled->capture->grid);
+  const auto disabled = parse({"project", "--screenshot", "view.png", "--grid", "off"});
+  REQUIRE(disabled.has_value());
+  REQUIRE_FALSE(disabled->capture->grid);
+  REQUIRE_FALSE(parse({"project", "--screenshot", "view.png", "--grid", "yes"}).has_value());
+}
+
+TEST_CASE("captures omit the saved grid unless explicitly requested", "[editor][capture][gpu][grid]") {
+  Fixture fixture;
+  const auto directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "grid-capture";
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setPreferencesFile(directory / "preferences.json");
+    REQUIRE(editor.createProject(directory / "project", "Grid capture").has_value());
+    editor.world().clearScene(); // nothing hides the floor
+    editor.setFloorGrid(true);
+    editor::CaptureOptions options;
+    options.viewport = directory / "without.png";
+    options.settleFrames = 2;
+    editor::CaptureRun without{options};
+    REQUIRE(fixture.run(editor, without) == editor::CaptureRun::Status::Done);
+    const Image noGrid = readPng(options.viewport);
+    editor.setFloorGrid(false);
+    options.grid = true;
+    options.viewport = directory / "with.png";
+    editor::CaptureRun with{options};
+    REQUIRE(fixture.run(editor, with) == editor::CaptureRun::Status::Done);
+    REQUIRE(readPng(options.viewport).rgba != noGrid.rgba);
+    REQUIRE_FALSE(editor.floorGrid());
+    REQUIRE_FALSE(editor::Preferences::load(directory / "preferences.json").floorGrid);
+    options.grid = false;
+    options.viewport = directory / "again.png";
+    editor::CaptureRun again{options};
+    REQUIRE(fixture.run(editor, again) == editor::CaptureRun::Status::Done);
+    REQUIRE(readPng(options.viewport).rgba == noGrid.rgba);
+  }
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}

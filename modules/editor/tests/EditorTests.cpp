@@ -1491,3 +1491,22 @@ TEST_CASE("save as prefab writes a prefab file the reopened project places again
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("the editor saves and restores its floor grid toggle", "[editor][gpu][grid]") {
+  Fixture fixture;
+  const auto file = scratch("grid-preferences.json");
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setPreferencesFile(file);
+    REQUIRE(editor.floorGrid());
+    editor.setFloorGrid(false);
+  }
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setPreferencesFile(file);
+    REQUIRE_FALSE(editor.floorGrid());
+    editor.setFloorGrid(true);
+  }
+  REQUIRE(editor::Preferences::load(file).floorGrid);
+  std::filesystem::remove(file);
+}

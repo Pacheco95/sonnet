@@ -754,6 +754,10 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Statistics", nullptr, &m_viewState.statistics);
     ImGui::MenuItem("Statistics overlay", nullptr, &m_viewState.overlay);
     ImGui::MenuItem("Physics colliders", nullptr, &m_viewState.colliders);
+    bool grid = floorGrid();
+    if (ImGui::MenuItem("Floor grid", nullptr, &grid)) {
+      setFloorGrid(grid);
+    }
     ImGui::MenuItem("Light gizmos", nullptr, &m_viewState.lightGizmos);
     ImGui::MenuItem("Camera gizmos", nullptr, &m_viewState.cameraGizmos);
     ImGui::Separator();
@@ -1301,6 +1305,9 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     maskDesc.debugName = "selection mask";
     const renderer::GraphImage mask = m_graph.createImage(maskDesc);
     m_renderer.addScenePasses(m_graph, m_view, sceneColor, depth);
+    if (m_screenshotRequest ? m_captureGrid : floorGrid()) {
+      m_renderer.addGridPass(m_graph, m_view, sceneColor, depth);
+    }
     // Before the id pass, which leaves the depth undefined.
     m_renderer.addDebugLinePass(m_graph, m_view, sceneColor, depth);
     m_renderer.addIdPass(m_graph, m_view, ids, depth);
@@ -1441,6 +1448,13 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   }
   beginRecovery();
   return opened;
+}
+
+void Editor::setFloorGrid(bool show) {
+  m_preferences.floorGrid = show;
+  if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
+    SONNET_LOG_WARN("{}", saved.error().toString());
+  }
 }
 
 void Editor::setPreferencesFile(const std::filesystem::path &file) {

@@ -144,3 +144,15 @@ TEST_CASE("a repository-relative source path is found upwards from the binary's 
   REQUIRE(!editor::locateSource("modules/core/src/Log.cpp", root / "build", basePath).has_value());
   std::filesystem::remove_all(root);
 }
+
+TEST_CASE("floor grid preference defaults on and survives both toggle states", "[editor][project][grid]") {
+  const auto file = scratch("grid-preferences.json");
+  editor::Preferences preferences;
+  REQUIRE(preferences.floorGrid);
+  for (const bool enabled : {false, true}) {
+    preferences.floorGrid = enabled;
+    REQUIRE(preferences.save(file).has_value());
+    REQUIRE(editor::Preferences::load(file).floorGrid == enabled);
+  }
+  std::filesystem::remove(file);
+}

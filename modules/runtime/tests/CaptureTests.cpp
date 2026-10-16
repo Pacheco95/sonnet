@@ -67,7 +67,7 @@ TEST_CASE("the player takes the capture flags it has a use for", "[runtime][capt
     REQUIRE(!parse(runtime::CaptureApplication::Editor, {"p", "--scene", "scenes/playground.scene.json"}).has_value());
   }
   SECTION("the editor's own flags are unknown to it, and say where the list is") {
-    for (const std::string_view flag : {"--screenshot-window", "--select"}) {
+    for (const std::string_view flag : {"--screenshot-window", "--select", "--grid"}) {
       const auto line = player({flag, "x", "--screenshot", "a.png"});
       REQUIRE(!line.has_value());
       REQUIRE(line.error().message.contains("--help"));

@@ -31,7 +31,7 @@ enum class GizmoAxis : std::uint8_t {
 // The grid a drag snaps to while `GizmoView::snap` is set: world units for translation, radians
 // for rotation, a scale factor for scale.
 struct GizmoSnap {
-  float translate{0.5f};
+  float translate{1.0f};
   float rotate{glm::radians(15.0f)};
   float scale{0.1f};
 };

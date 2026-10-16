@@ -50,7 +50,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 8> Options{{
+constexpr std::array<CommandLineOption, 9> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -59,6 +59,7 @@ constexpr std::array<CommandLineOption, 8> Options{{
      "scenes/playground.scene.json", true, ""},
     {"--play", "SECONDS", "play for this many seconds first (60 fixed steps a second) and capture while playing", "2.5",
      true, ""},
+    {"--grid", "on|off", "include the editor floor grid in captures (off)", "on", false, ""},
     {"--select", "PATH", "select the entity at this path of names, Parent/Child, so it is outlined", "Ball", false, ""},
     {"--shading-term", "TERM", "show one term of the forward shading instead of the final image", "sun-direct", true,
      ""},
@@ -263,6 +264,11 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
       capture.window = std::filesystem::path{value};
     } else if (arg == "--scene") {
       capture.scene = std::filesystem::path{value};
+    } else if (arg == "--grid") {
+      if (value != "on" && value != "off") {
+        return std::unexpected(captureError("--grid takes on or off"));
+      }
+      capture.grid = value == "on";
     } else if (arg == "--select") {
       capture.select = std::string{value};
     } else if (arg == "--play") {
