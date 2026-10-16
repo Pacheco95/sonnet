@@ -183,11 +183,11 @@ public struct FrameConstants {
   public float nearPlane;
   public float shadowBias;
   public float mipBias; // added to the level of material samples: -0.5 under TAA
-  public float padding;
+  public uint skyboxSampler;
   public uint cascadeImages[CascadeCount];
   public uint irradianceCube;
   public uint prefilteredCube;
-  public uint skyboxCube;
+  public uint skyboxMap;
   public uint brdfLut;
   public uint linearSampler;
   public uint shadowSampler;

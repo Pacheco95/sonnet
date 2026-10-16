@@ -385,10 +385,10 @@ TEST_CASE("an environment cooks to UASTC HDR and transcodes to the format the de
     REQUIRE(loaded.has_value());
     REQUIRE(loaded->format == c.format);
     REQUIRE(loaded->size == sky.size);
-    REQUIRE(loaded->mipLevels == 1);
+    REQUIRE(loaded->mipLevels == rhi::fullMipCount(sky.size));
     REQUIRE(loaded->data.size() == loaded->expectedSize());
     if (c.format != rhi::Format::R16G16B16A16Sfloat) {
-      REQUIRE(loaded->data.size() == sky.data.size() / 8); // 16 bytes a 4x4 block, 128 bits for 16 texels
+      REQUIRE(loaded->level(0).size() == sky.data.size() / 8); // 16 bytes a 4x4 block, 128 bits for 16 texels
     }
   }
 
@@ -396,7 +396,7 @@ TEST_CASE("an environment cooks to UASTC HDR and transcodes to the format the de
   // dB, which the GPU test on the renderer's cubes bounds.
   const auto half = readKtx2(*cooked, neither);
   REQUIRE(half.has_value());
-  const double measured = test::hdrPsnr(sky.data, half->data);
+  const double measured = test::hdrPsnr(sky.data, half->level(0));
   INFO("UASTC HDR, tone-mapped PSNR " << measured << " dB");
   CHECK(measured >= 50.0); // 53.5 dB measured
 }

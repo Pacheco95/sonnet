@@ -34,7 +34,7 @@ struct TextureData {
 
 // A one-colour RGBA8 texture, for defaults and tests.
 [[nodiscard]] TextureData solidTexture(glm::u8vec4 color, rhi::Format format = rhi::Format::R8G8B8A8Unorm);
-// Box-filtered mip chain for an RGBA8 image with one level; sRGB formats are averaged in
+// Box-filtered mip chain for an RGBA8 or RGBA16F image with one level; sRGB formats are averaged in
 // linear space.
 void generateMipChain(TextureData &texture);
 

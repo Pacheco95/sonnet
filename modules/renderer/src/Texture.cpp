@@ -2,8 +2,11 @@
 
 #include <sonnet/core/Assert.h>
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace sonnet::renderer {
 
@@ -52,9 +55,12 @@ TextureData solidTexture(glm::u8vec4 color, rhi::Format format) {
 }
 
 void generateMipChain(TextureData &texture) {
-  SONNET_ASSERT(texture.format == rhi::Format::R8G8B8A8Unorm || texture.format == rhi::Format::R8G8B8A8Srgb,
-                "mip generation takes RGBA8 data");
+  SONNET_ASSERT(texture.format == rhi::Format::R8G8B8A8Unorm || texture.format == rhi::Format::R8G8B8A8Srgb ||
+                    texture.format == rhi::Format::R16G16B16A16Sfloat,
+                "mip generation takes RGBA8 or RGBA16F data");
   SONNET_ASSERT(texture.mipLevels == 1 && !texture.cube, "mip generation takes a single-level 2D image");
+  const bool hdr = texture.format == rhi::Format::R16G16B16A16Sfloat;
+  const std::size_t channelBytes = hdr ? 2 : 1;
   const bool srgb = texture.format == rhi::Format::R8G8B8A8Srgb;
   const std::uint32_t levels = rhi::fullMipCount(texture.size);
   std::vector<std::byte> chain;
@@ -74,16 +80,29 @@ void generateMipChain(TextureData &texture) {
           for (std::uint32_t dx = 0; dx < 2; ++dx) {
             const std::uint32_t sx = std::min(x * 2 + dx, previousSize.x - 1);
             const std::uint32_t sy = std::min(y * 2 + dy, previousSize.y - 1);
-            const std::size_t source = previousOffset + (static_cast<std::size_t>(sy) * previousSize.x + sx) * 4;
+            const std::size_t source =
+                previousOffset + (static_cast<std::size_t>(sy) * previousSize.x + sx) * 4 * channelBytes;
             for (std::size_t c = 0; c < 4; ++c) {
+              if (hdr) {
+                std::uint16_t half;
+                std::memcpy(&half, chain.data() + source + c * 2, 2);
+                sum[c] += glm::unpackHalf1x16(half);
+                continue;
+              }
               const auto value = std::to_integer<std::uint8_t>(chain[source + c]);
               sum[c] += srgb && c < 3 ? srgbToLinear(value) : static_cast<float>(value) / 255.0f;
             }
           }
         }
-        const std::size_t destination = levelOffset + (static_cast<std::size_t>(y) * levelSize.x + x) * 4;
+        const std::size_t destination =
+            levelOffset + (static_cast<std::size_t>(y) * levelSize.x + x) * 4 * channelBytes;
         for (std::size_t c = 0; c < 4; ++c) {
           const float average = sum[c] * 0.25f;
+          if (hdr) {
+            const auto half = glm::packHalf1x16(average);
+            std::memcpy(chain.data() + destination + c * 2, &half, 2);
+            continue;
+          }
           chain[destination + c] = std::byte{srgb && c < 3 ? linearToSrgb(average)
                                                            : static_cast<std::uint8_t>(std::lround(average * 255.0f))};
         }
