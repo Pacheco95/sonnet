@@ -1,6 +1,7 @@
 #include <sonnet/editor/ViewportPanel.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
 
@@ -63,7 +64,7 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
   } else {
     ImGui::Dummy(available);
   }
-  const bool hovered = ImGui::IsItemHovered();
+  bool hovered = ImGui::IsItemHovered();
   const ImVec2 mouse = ImGui::GetMousePos();
   m_input = ViewportInput{.visible = true,
                           .hovered = hovered,
@@ -75,6 +76,14 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
                           .leftDoubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left),
                           .leftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left),
                           .drawList = ImGui::GetWindowDrawList()};
+
+  if (drawAxisWidget(origin, available)) {
+    hovered = false;
+    m_input.hovered = false;
+    m_input.leftClicked = false;
+    m_input.leftDoubleClicked = false;
+    m_input.leftDown = false;
+  }
 
   // Right mouse over the viewport takes the camera to fly, middle mouse to orbit; releasing that
   // button anywhere gives it back.
@@ -179,6 +188,108 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
   }
   ImGui::End();
   return m_cameraActive;
+}
+
+bool ViewportPanel::drawAxisWidget(ImVec2 origin, ImVec2 size) {
+  const float unit = ImGui::GetFontSize();
+  const float radius = unit * 0.65f;
+  const float arm = unit * 2.1f;
+  const float extent = arm + radius + unit * 0.5f;
+  // Keep the controls inside the image, including at larger UI scales.
+  if (size.x < extent * 2.0f + unit * 2.0f || size.y < extent * 2.0f) {
+    return false;
+  }
+  const ImVec2 center{origin.x + size.x - extent, origin.y + extent};
+  struct End {
+    ImVec2 position;
+    float depth;
+    AxisView view;
+    ImU32 color;
+    const char *label;
+    bool positive;
+  };
+  std::array<End, 6> ends;
+  const std::array<glm::vec3, 3> axes{glm::vec3{1, 0, 0}, glm::vec3{0, 1, 0}, glm::vec3{0, 0, 1}};
+  const std::array<AxisView, 6> views{AxisView::Right,  AxisView::Left,  AxisView::Top,
+                                      AxisView::Bottom, AxisView::Front, AxisView::Back};
+  const std::array<ImU32, 3> colors{IM_COL32(235, 80, 80, 255), IM_COL32(100, 210, 100, 255),
+                                    IM_COL32(90, 145, 245, 255)};
+  const std::array<const char *, 3> labels{"X", "Y", "Z"};
+  const auto &camera = m_view.camera.camera();
+  for (std::size_t i = 0; i < ends.size(); ++i) {
+    const glm::vec3 direction = axes[i / 2] * (i % 2 == 0 ? 1.0f : -1.0f);
+    ends[i] = {
+        {center.x + arm * glm::dot(direction, camera.right()), center.y - arm * glm::dot(direction, camera.up())},
+        -glm::dot(direction, camera.forward()),
+        views[i],
+        colors[i / 2],
+        labels[i / 2],
+        i % 2 == 0};
+  }
+  std::ranges::sort(ends, {}, &End::depth);
+  ImGui::SetCursorScreenPos({center.x - extent, center.y - extent});
+  ImGui::InvisibleButton("##axis-navigation", {extent * 2.0f, extent * 2.0f});
+  const bool hovered = ImGui::IsItemHovered();
+  const bool active = ImGui::IsItemActive();
+  const ImVec2 mouse = ImGui::GetMousePos();
+  AxisView hit = AxisView::User;
+  for (const auto &end : ends) {
+    const float x = mouse.x - end.position.x;
+    const float y = mouse.y - end.position.y;
+    if (x * x + y * y <= radius * radius) {
+      hit = end.view;
+    }
+  }
+  if (ImGui::IsItemActivated()) {
+    m_widgetAxis = hit;
+    m_widgetDragging = false;
+    m_view.pivot = viewPivot();
+    m_view.hasPivot = true;
+  }
+  if (active && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+    m_widgetDragging = true;
+    const ImVec2 delta = ImGui::GetIO().MouseDelta;
+    m_view.camera.orbit({delta.x, delta.y}, m_view.pivot);
+  }
+  const bool released = ImGui::IsItemDeactivated();
+  if (released && !m_widgetDragging && hovered && hit == m_widgetAxis && hit != AxisView::User) {
+    if (m_view.camera.axisView() == hit) {
+      oppositeView();
+    } else {
+      snapView(hit);
+    }
+  }
+  ImDrawList *draw = ImGui::GetWindowDrawList();
+  draw->PushClipRect(origin, {origin.x + size.x, origin.y + size.y}, true);
+  draw->AddCircleFilled(center, extent - unit * 0.25f, IM_COL32(25, 28, 35, hovered || active ? 190 : 130));
+  for (const auto &end : ends) {
+    if (end.positive) {
+      draw->AddLine(center, end.position, end.color, unit * 0.15f);
+    }
+    const bool highlighted = hovered && hit == end.view;
+    draw->AddCircleFilled(end.position, radius, end.positive ? end.color : IM_COL32(35, 38, 45, 255));
+    draw->AddCircle(end.position, radius, highlighted ? IM_COL32_WHITE : end.color, 0, highlighted ? 2.5f : 1.5f);
+    if (end.positive) {
+      const ImVec2 text = ImGui::CalcTextSize(end.label);
+      draw->AddText({end.position.x - text.x * 0.5f, end.position.y - text.y * 0.5f}, IM_COL32(15, 18, 25, 255),
+                    end.label);
+    }
+  }
+  draw->PopClipRect();
+  if (hovered && hit != AxisView::User && !active) {
+    ImGui::SetTooltip("Click to align; drag to orbit");
+  }
+  ImGui::SetCursorScreenPos({center.x - extent - unit * 1.8f, center.y - unit * 0.75f});
+  const bool orthographic = camera.projectionKind == renderer::ProjectionKind::Orthographic;
+  if (ImGui::Button(orthographic ? "O##projection" : "P##projection", {unit * 1.6f, unit * 1.6f})) {
+    toggleProjection();
+  }
+  const bool projectionHovered = ImGui::IsItemHovered();
+  const bool projectionActive = ImGui::IsItemActive() || ImGui::IsItemDeactivated();
+  if (projectionHovered) {
+    ImGui::SetTooltip("Toggle perspective / orthographic (Numpad 5)");
+  }
+  return hovered || active || released || projectionHovered || projectionActive;
 }
 
 glm::vec3 ViewportPanel::viewPivot() const {

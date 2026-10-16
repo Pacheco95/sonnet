@@ -1839,3 +1839,134 @@ TEST_CASE("delete reference counts include inherited assets in every open scene"
   CHECK(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("viewport axis widget snaps, toggles projection and consumes drags", "[editor][gpu][axis-widget]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    for (int frame = 0; frame < 4; ++frame) {
+      fixture.frame(editor);
+    }
+    auto &viewport = editor.viewport();
+    ImGuiIO &io = ImGui::GetIO();
+    const auto center = [&] {
+      const auto &input = viewport.input();
+      const float extent = ImGui::GetFontSize() * 3.25f;
+      return glm::vec2{input.origin.x + input.size.x - extent, input.origin.y + extent};
+    };
+    const auto click = [&](glm::vec2 point) {
+      io.AddMousePosEvent(point.x, point.y);
+      fixture.frame(editor);
+      io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+      fixture.frame(editor);
+      REQUIRE_FALSE(viewport.input().leftClicked);
+      REQUIRE_FALSE(viewport.input().leftDown);
+      io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+      fixture.frame(editor);
+      for (int frame = 0; frame < 3; ++frame) {
+        fixture.frame(editor);
+      }
+    };
+    const auto box = editor.world().roots().front();
+    editor.selection().select(editor.world().uuidOf(box));
+    const auto selected = editor.selection().primary();
+    for (const auto axis : {editor::AxisView::Right, editor::AxisView::Left, editor::AxisView::Top,
+                            editor::AxisView::Bottom, editor::AxisView::Front, editor::AxisView::Back}) {
+      CAPTURE(static_cast<int>(axis));
+      viewport.camera().lookAt({5, 3.5f, 7}, {0, 0.5f, 0});
+      fixture.frame(editor);
+      const glm::vec3 direction = axis == editor::AxisView::Right    ? glm::vec3{1, 0, 0}
+                                  : axis == editor::AxisView::Left   ? glm::vec3{-1, 0, 0}
+                                  : axis == editor::AxisView::Top    ? glm::vec3{0, 1, 0}
+                                  : axis == editor::AxisView::Bottom ? glm::vec3{0, -1, 0}
+                                  : axis == editor::AxisView::Front  ? glm::vec3{0, 0, 1}
+                                                                     : glm::vec3{0, 0, -1};
+      const auto &camera = viewport.camera().camera();
+      const glm::vec2 offset{glm::dot(direction, camera.right()), -glm::dot(direction, camera.up())};
+      click(center() + offset * ImGui::GetFontSize() * 2.1f);
+      REQUIRE(viewport.camera().axisView() == axis);
+      REQUIRE(camera.projectionKind == renderer::ProjectionKind::Orthographic);
+      REQUIRE(editor.selection().primary() == selected);
+      // The near end projects onto the centre in an axis view and wins over the far end.
+      click(center());
+      const auto opposite = viewport.camera().axisView();
+      REQUIRE(opposite != axis);
+      REQUIRE(opposite != editor::AxisView::User);
+      click(center());
+      REQUIRE(viewport.camera().axisView() == axis);
+    }
+    click(center() - glm::vec2{ImGui::GetFontSize() * 4.25f, 0});
+    REQUIRE(viewport.camera().camera().projectionKind == renderer::ProjectionKind::Perspective);
+    click(center() - glm::vec2{ImGui::GetFontSize() * 4.25f, 0});
+    REQUIRE(viewport.camera().camera().projectionKind == renderer::ProjectionKind::Orthographic);
+
+    viewport.focus({0, 0, 0}, 1.0f);
+    const glm::vec3 before = viewport.camera().camera().position;
+    const float distance = glm::length(before);
+    const glm::vec2 start = center();
+    io.AddMousePosEvent(start.x, start.y);
+    fixture.frame(editor);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    fixture.frame(editor);
+    io.AddMousePosEvent(start.x - 40, start.y + 20);
+    fixture.frame(editor);
+    REQUIRE(glm::distance(before, viewport.camera().camera().position) > 0.1f);
+    REQUIRE(glm::length(viewport.camera().camera().position) == Approx(distance).margin(0.01));
+    REQUIRE_FALSE(viewport.input().leftDown);
+    io.AddMousePosEvent(start.x - 200, start.y + 100);
+    fixture.frame(editor);
+    REQUIRE_FALSE(viewport.input().leftDown);
+    REQUIRE(glm::length(viewport.camera().camera().position) == Approx(distance).margin(0.01));
+    REQUIRE_FALSE(viewport.cameraActive()); // absolute pointer orbit needs no SDL relative mode
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    fixture.frame(editor);
+    REQUIRE(viewport.camera().axisView() == editor::AxisView::User);
+    REQUIRE(editor.selection().primary() == selected);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("capture the viewport axis widget", "[.axis-widget-captures][editor][gpu]") {
+  Fixture fixture;
+  const auto manifest = editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
+  REQUIRE(manifest.has_value());
+  const auto directory = scratch("axis-widget-basic");
+  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    for (int frame = 0; frame < 240; ++frame) {
+      fixture.frame(editor);
+      if (frame > 3 && !editor.assets().loading()) {
+        break;
+      }
+    }
+    REQUIRE_FALSE(editor.assets().loading());
+    ImGui::LoadIniSettingsFromMemory("[SonnetView][View]\nOverlay=0\n");
+    const auto output = std::filesystem::temp_directory_path() / "sonnet-axis-widget-captures";
+    std::filesystem::create_directories(output);
+    for (const float scale : {1.0f, 2.0f}) {
+      ImGui::GetStyle().FontScaleMain = scale;
+      for (const bool axis : {false, true}) {
+        if (axis) {
+          editor.viewport().snapView(editor::AxisView::Front);
+        } else {
+          editor.viewport().camera() = editor::FlyCamera{};
+        }
+        for (int frame = 0; frame < 10; ++frame) {
+          fixture.frame(editor);
+        }
+        const std::string name = std::string{axis ? "front" : "perspective"} + (scale == 1.0f ? "-100" : "-200");
+        editor.requestScreenshots({}, output / (name + ".png"));
+        fixture.frame(editor);
+        const auto result = editor.takeScreenshotResult();
+        REQUIRE(result.has_value());
+        REQUIRE(result->has_value());
+      }
+    }
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}

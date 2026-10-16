@@ -99,6 +99,7 @@ public:
 
 private:
   void resizeTarget(glm::uvec2 size);
+  bool drawAxisWidget(ImVec2 origin, ImVec2 size);
   [[nodiscard]] glm::vec3 viewPivot() const;
 
   ui::ImGuiLayer &m_imgui;
@@ -106,6 +107,8 @@ private:
   ImTextureID m_texture{0};
   View m_view;
   ViewportInput m_input;
+  AxisView m_widgetAxis{AxisView::User};
+  bool m_widgetDragging{false};
   bool m_cameraActive{false};
   bool m_wheelForGame{false};
   bool m_orbiting{false}; // the active camera drag is the middle button's orbit
