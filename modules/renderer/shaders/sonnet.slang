@@ -173,6 +173,7 @@ public struct FrameConstants {
   public float4 cascadeBlendStarts;
   public float4 cascadeTexelSizes; // world-space metres per shadow texel
   public float4 cameraPosition;
+  public float4 cameraForward; // w: 1 for orthographic
   public float4 sunDirection; // xyz: direction the light travels, normalised; w: 1 when there is a sun
   public float4 sunColor;     // rgb: colour times intensity
   public float4 ambient;      // rgb: ambient radiance without an environment

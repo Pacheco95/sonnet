@@ -16,7 +16,12 @@ glm::mat4 perspectiveReversedZ(float fovY, float aspect, float nearPlane) {
   return projection;
 }
 
-glm::vec3 rayDirection(const glm::mat4 &viewProjection, glm::vec2 fraction) {
+glm::mat4 orthographicReversedZ(float height, float aspect, float nearPlane, float farPlane) {
+  return glm::orthoRH_ZO(-height * aspect * 0.5f, height * aspect * 0.5f, -height * 0.5f, height * 0.5f, farPlane,
+                         nearPlane);
+}
+
+Ray cameraRay(const glm::mat4 &viewProjection, glm::vec2 fraction) {
   // Clip-space Y points up on screen (the negative-height viewport undoes Vulkan's flip).
   const glm::vec2 ndc{fraction.x * 2.0f - 1.0f, 1.0f - fraction.y * 2.0f};
   const glm::mat4 inverse = glm::inverse(viewProjection);
@@ -26,7 +31,11 @@ glm::vec3 rayDirection(const glm::mat4 &viewProjection, glm::vec2 fraction) {
   const glm::vec4 farPoint = inverse * glm::vec4{ndc, 0.5f, 1.0f};
   const glm::vec3 a = glm::vec3{nearPoint} / nearPoint.w;
   const glm::vec3 b = glm::vec3{farPoint} / farPoint.w;
-  return glm::normalize(b - a);
+  return {a, glm::normalize(b - a)};
+}
+
+glm::vec3 rayDirection(const glm::mat4 &viewProjection, glm::vec2 fraction) {
+  return cameraRay(viewProjection, fraction).direction;
 }
 
 glm::vec3 Camera::forward() const {
@@ -46,7 +55,13 @@ glm::mat4 Camera::view() const {
 }
 
 glm::mat4 Camera::projection(float aspect) const {
-  return perspectiveReversedZ(fovY, aspect, nearPlane);
+  return projectionKind == ProjectionKind::Orthographic
+             ? orthographicReversedZ(orthoHeight, aspect, nearPlane, farPlane)
+             : perspectiveReversedZ(fovY, aspect, nearPlane);
+}
+
+Ray Camera::ray(glm::vec2 fraction, float aspect) const {
+  return cameraRay(projection(aspect) * view(), fraction);
 }
 
 glm::vec3 Camera::rayDirection(glm::vec2 fraction, float aspect) const {

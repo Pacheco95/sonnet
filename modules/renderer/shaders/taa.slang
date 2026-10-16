@@ -119,7 +119,9 @@ float4 resolve(VertexOutput input) : SV_Target {
   }
 
   float2 motion;
-  if (closest <= 0.0) {
+  if (closest <= 0.0 && frame.cameraForward.w != 0.0) {
+    motion = float2(0.0);
+  } else if (closest <= 0.0) {
     const float3 direction = skyDirection(uv);
     motion = clipToUv(mul(frame.unjitteredViewProjection, float4(direction, 0.0))) -
              clipToUv(mul(frame.previousViewProjection, float4(direction, 0.0)));

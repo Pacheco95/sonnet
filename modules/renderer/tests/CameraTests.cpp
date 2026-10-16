@@ -85,3 +85,21 @@ TEST_CASE("a point of the view unprojects to the ray through it", "[renderer][ca
   REQUIRE(ground.x == Approx(0.0f).margin(1e-4f));
   REQUIRE(ground.z == Approx(16.0f - 9.0f * std::sqrt(3.0f)).margin(1e-3f));
 }
+
+TEST_CASE("orthographic reversed Z has finite depth and parallel offset rays", "[renderer][camera][orthographic]") {
+  Camera camera;
+  camera.position = {2.0f, 3.0f, 10.0f};
+  camera.projectionKind = ProjectionKind::Orthographic;
+  camera.orthoHeight = 8.0f;
+  camera.farPlane = 100.0f;
+  const auto projection = camera.projection(2.0f);
+  REQUIRE(depthOf(projection, -camera.nearPlane) == Approx(1.0f));
+  REQUIRE(depthOf(projection, -camera.farPlane) == Approx(0.0f).margin(1e-6f));
+  const auto a = camera.ray({0.25f, 0.25f}, 2.0f);
+  const auto b = camera.ray({0.75f, 0.75f}, 2.0f);
+  REQUIRE(glm::distance(a.direction, camera.forward()) < 1e-5f);
+  REQUIRE(glm::distance(a.direction, b.direction) < 1e-5f);
+  REQUIRE(b.origin.x - a.origin.x == Approx(8.0f));
+  REQUIRE(b.origin.y - a.origin.y == Approx(-4.0f));
+  REQUIRE(a.origin.z == Approx(10.0f - camera.nearPlane).margin(1e-5f));
+}

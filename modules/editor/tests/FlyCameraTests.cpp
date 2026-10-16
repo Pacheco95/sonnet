@@ -120,3 +120,71 @@ TEST_CASE("orbit keeps a minimum distance when the camera sits on the pivot", "[
   camera.orbit({10.0f, 0.0f}, {0.0f, 0.0f, 0.0f});
   REQUIRE(glm::length(camera.camera().position) == Approx(0.05f));
 }
+
+TEST_CASE("six axis snaps preserve the pivot scale and give exact bases", "[editor][camera][orthographic]") {
+  const AxisView views[] = {AxisView::Front, AxisView::Back, AxisView::Right,
+                            AxisView::Left,  AxisView::Top,  AxisView::Bottom};
+  const glm::vec3 forwards[] = {{0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}, {0, -1, 0}, {0, 1, 0}};
+  const glm::vec3 ups[] = {{0, 1, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
+  for (int i = 0; i < 6; ++i) {
+    FlyCamera camera;
+    const glm::vec3 pivot{1, 2, 3};
+    camera.lookAt(pivot + glm::vec3{0, 0, 10}, pivot);
+    camera.snap(views[i], pivot);
+    REQUIRE(camera.camera().projectionKind == sonnet::renderer::ProjectionKind::Orthographic);
+    REQUIRE(camera.camera().orthoHeight == Approx(20.0f * std::tan(camera.camera().fovY * 0.5f)));
+    requireClose(camera.camera().forward(), forwards[i]);
+    requireClose(camera.camera().up(), ups[i]);
+    requireClose(camera.camera().position + camera.camera().forward() * 10.0f, pivot);
+    camera.opposite(pivot);
+    requireClose(camera.camera().forward(), -forwards[i]);
+  }
+}
+
+TEST_CASE("auto perspective leaves a snap only when turning and explicit orthographic survives",
+          "[editor][camera][orthographic]") {
+  FlyCamera camera;
+  const glm::vec3 pivot{0};
+  camera.lookAt({0, 0, 10}, pivot);
+  camera.snap(AxisView::Front, pivot);
+  camera.update(0.1f, {});
+  REQUIRE(camera.axisView() == AxisView::Front);
+  camera.zoom(2.0f, {0.5f, 0.5f}, 1.0f);
+  const float height = camera.camera().orthoHeight;
+  camera.orbit({10, 5}, pivot);
+  REQUIRE(camera.camera().projectionKind == sonnet::renderer::ProjectionKind::Perspective);
+  REQUIRE(2.0f * glm::distance(camera.camera().position, pivot) * std::tan(camera.camera().fovY * 0.5f) ==
+          Approx(height));
+  REQUIRE(camera.axisView() == AxisView::User);
+  camera.toggleProjection(pivot);
+  camera.orbit({10, 5}, pivot);
+  REQUIRE(camera.camera().projectionKind == sonnet::renderer::ProjectionKind::Orthographic);
+  camera.snap(AxisView::Top, pivot);
+  camera.update(0.1f, {.lookDelta = {10, 5}});
+  REQUIRE(camera.camera().projectionKind == sonnet::renderer::ProjectionKind::Orthographic);
+}
+
+TEST_CASE("orthographic zoom anchors the cursor and keys pan in the view plane", "[editor][camera][orthographic]") {
+  FlyCamera camera;
+  camera.snap(AxisView::Top, {0, 0, 0});
+  const auto before = camera.camera().ray({0.2f, 0.3f}, 2.0f);
+  const float height = camera.camera().orthoHeight;
+  camera.zoom(1.0f, {0.2f, 0.3f}, 2.0f);
+  requireClose(before.origin, camera.camera().ray({0.2f, 0.3f}, 2.0f).origin, 1e-3f);
+  REQUIRE(camera.camera().orthoHeight < height);
+  const auto position = camera.camera().position;
+  camera.update(1.0f, {.forward = true, .right = true});
+  const auto movement = camera.camera().position - position;
+  REQUIRE(glm::dot(movement, camera.camera().forward()) == Approx(0.0f).margin(1e-5f));
+  REQUIRE(glm::length(movement) == Approx(camera.speed()));
+}
+
+TEST_CASE("framing an orthographic selection keeps the axis view and fits its size", "[editor][camera][orthographic]") {
+  FlyCamera camera;
+  camera.snap(AxisView::Top, {0, 0, 0});
+  const glm::vec3 target{3, 2, 1};
+  camera.frame(target, 4.0f);
+  REQUIRE(camera.axisView() == AxisView::Top);
+  requireClose(camera.camera().position + camera.camera().forward() * 4.0f, target);
+  REQUIRE(camera.camera().orthoHeight == Approx(8.0f * std::tan(camera.camera().fovY * 0.5f)));
+}
