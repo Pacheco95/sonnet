@@ -3802,7 +3802,7 @@ TEST_CASE("nearest material sampling preserves hard edges of an eight texel chec
   settings.debugView = DebugView::Albedo;
   Renderer renderer{*device, shaderDir(platform), settings};
   TextureData texture{.size = {8, 8}, .format = Format::R8G8B8A8Unorm, .data = {}};
-  texture.data.resize(8 * 8 * 4);
+  texture.data.resize(static_cast<std::size_t>(texture.expectedSize()));
   for (unsigned y = 0; y < 8; ++y)
     for (unsigned x = 0; x < 8; ++x) {
       const auto offset = (y * 8 + x) * 4;
