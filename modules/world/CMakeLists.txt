@@ -21,6 +21,7 @@ sonnet_add_module_test(world
     tests/DrawListTests.cpp
     tests/NestedInstanceTests.cpp
     tests/RefreshSpike.cpp
+    tests/NestedRefreshSpike.cpp
     tests/RepeatedMembersTests.cpp
     tests/SceneTests.cpp
     tests/WorldTests.cpp
