@@ -19,9 +19,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
 float4 fragmentMain(VertexOutput input) : SV_Target {
   const float2 ndc = float2(input.position.x / frame.targetSize.x * 2.0 - 1.0,
                             1.0 - input.position.y / frame.targetSize.y * 2.0);
-  const float4 nearPoint = mul(frame.inverseViewProjection, float4(ndc, 1.0, 1.0));
-  const float4 farPoint = mul(frame.inverseViewProjection, float4(ndc, 0.5, 1.0));
-  const float3 direction = normalize(farPoint.xyz / farPoint.w - nearPoint.xyz / nearPoint.w);
+  const float3 direction = skyRay(ndc);
   const float2 uv = float2(atan2(direction.z, direction.x) / (2.0 * Pi) + 0.5,
                            acos(clamp(direction.y, -1.0, 1.0)) / Pi);
   // Derivatives of the direction stay continuous across atan2's wrap. Compare the pixel's

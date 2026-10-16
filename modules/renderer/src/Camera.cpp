@@ -51,7 +51,9 @@ glm::vec3 Camera::up() const {
 }
 
 glm::mat4 Camera::view() const {
-  return glm::lookAt(position, position + forward(), up());
+  // Building a look-at target as position + forward() rounds away the orientation at
+  // large coordinates. Invert the rigid pose directly so translation cannot change it.
+  return glm::translate(glm::mat4_cast(glm::conjugate(rotation)), -position);
 }
 
 glm::mat4 Camera::projection(float aspect) const {

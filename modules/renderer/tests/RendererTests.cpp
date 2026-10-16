@@ -102,6 +102,22 @@ TextureData skyTexture(glm::vec3 color) {
   return texture;
 }
 
+TextureData detailedSky() {
+  TextureData map{.size = {512, 256}, .format = Format::R16G16B16A16Sfloat, .data = {}};
+  map.data.resize(static_cast<std::size_t>(map.expectedSize()));
+  for (unsigned y = 0; y < map.size.y; ++y) {
+    for (unsigned x = 0; x < map.size.x; ++x) {
+      // Continuous at the longitude wrap and constant at either pole.
+      const float latitude = std::sin((float(y) + 0.5f) * glm::pi<float>() / float(map.size.y));
+      const float value = 0.5f + 0.4f * latitude * std::cos((float(x) + 0.5f) * glm::two_pi<float>() / 8.0f);
+      const std::array<std::uint16_t, 4> texel{glm::packHalf1x16(value), glm::packHalf1x16(value),
+                                               glm::packHalf1x16(value), glm::packHalf1x16(1.0f)};
+      std::memcpy(map.data.data() + (std::size_t(y) * map.size.x + x) * sizeof(texel), texel.data(), sizeof(texel));
+    }
+  }
+  return map;
+}
+
 struct Pixel {
   int r, g, b, a;
 };
@@ -3107,18 +3123,7 @@ TEST_CASE("HDR mip levels average radiance without clamping it", "[renderer][tex
 TEST_CASE("sky detail is independent of the lighting cube resolution", "[renderer][gpu][skybox]") {
   sonnet::platform::Platform platform{{.headless = true}};
   auto device = gpuDevice(platform);
-  TextureData map{.size = {512, 256}, .format = Format::R16G16B16A16Sfloat, .data = {}};
-  map.data.resize(static_cast<std::size_t>(map.expectedSize()));
-  for (unsigned y = 0; y < map.size.y; ++y) {
-    for (unsigned x = 0; x < map.size.x; ++x) {
-      // Continuous at the longitude wrap and constant at either pole.
-      const float latitude = std::sin((float(y) + 0.5f) * glm::pi<float>() / float(map.size.y));
-      const float value = 0.5f + 0.4f * latitude * std::cos((float(x) + 0.5f) * glm::two_pi<float>() / 8.0f);
-      const std::array<std::uint16_t, 4> texel{glm::packHalf1x16(value), glm::packHalf1x16(value),
-                                               glm::packHalf1x16(value), glm::packHalf1x16(1.0f)};
-      std::memcpy(map.data.data() + (std::size_t(y) * map.size.x + x) * sizeof(texel), texel.data(), sizeof(texel));
-    }
-  }
+  const auto map = detailedSky();
   std::vector<std::byte> reference;
   for (const auto cubeSize : {8u, 128u}) {
     auto settings = testSettings();
@@ -3146,6 +3151,36 @@ TEST_CASE("sky detail is independent of the lighting cube resolution", "[rendere
       CHECK(std::abs(scene.pixel(63, 64).r - scene.pixel(64, 64).r) < 10);
     } else {
       CHECK(std::equal(reference.begin(), reference.end(), pixels.begin(), pixels.end()));
+    }
+    renderer.destroyEnvironment(sky);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("sky rays and mip selection ignore camera distance", "[renderer][gpu][skybox]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  for (const auto antialiasing : {AntiAliasing::None, AntiAliasing::Taa}) {
+    auto settings = testSettings();
+    settings.antialiasing = antialiasing;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const auto sky = renderer.createEnvironment(detailedSky(), "distant sky");
+    GpuScene scene{*device, renderer, {64, 64}};
+    SceneView view = boxScene({});
+    view.environment = sky;
+    view.camera.rotation = glm::angleAxis(0.37f, glm::normalize(glm::vec3{1, 2, 3}));
+    for (const auto projection : {ProjectionKind::Perspective, ProjectionKind::Orthographic}) {
+      view.camera.projectionKind = projection;
+      view.camera.position = glm::vec3{0};
+      scene.render(view, 8);
+      const auto bytes = device->mappedRange(scene.readback);
+      const std::vector<std::byte> reference{bytes.begin(), bytes.end()};
+      for (const float distance : {10000.0f, -10000.0f, 1000000.0f, -1000000.0f}) {
+        CAPTURE(antialiasing, projection, distance);
+        view.camera.position = glm::vec3{distance, distance * 0.5f, -distance};
+        scene.render(view, 8);
+        CHECK(std::ranges::equal(reference, device->mappedRange(scene.readback)));
+      }
     }
     renderer.destroyEnvironment(sky);
   }

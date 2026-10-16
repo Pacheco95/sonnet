@@ -119,7 +119,7 @@ struct FrameConstants {
   glm::mat4 unjitteredViewProjection;
   glm::mat4 previousViewProjection; // the last frame's, unjittered
   glm::mat4 inverseProjection;
-  glm::mat4 inverseViewProjection; // of the unjittered matrix: the sky's rays, which TAA does not jitter
+  glm::mat4 inverseSkyProjection; // inverse unjittered projection rotated to world space, without translation
   glm::mat4 cascadeMatrices[Renderer::CascadeCount];
   glm::vec4 cascadeSplits;
   glm::vec4 cascadeBlendStarts;
@@ -2706,7 +2706,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .unjitteredViewProjection = v.viewProjection,
       .previousViewProjection = v.previousViewProjection,
       .inverseProjection = glm::inverse(projection),
-      .inverseViewProjection = glm::inverse(v.viewProjection),
+      .inverseSkyProjection = glm::mat4_cast(view.camera.rotation) * glm::inverse(projection),
       .cascadeMatrices = {},
       .cascadeSplits = {},
       .cascadeBlendStarts = {},
