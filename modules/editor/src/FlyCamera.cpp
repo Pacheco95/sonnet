@@ -86,9 +86,9 @@ void FlyCamera::advanceTransition(float dt) {
   if (from.projectionKind != to.projectionKind) {
     // Dolly zoom towards a nearly parallel perspective. At the endpoint the pivot plane
     // has exactly the orthographic size; the remaining perspective tends to zero.
-    constexpr float ParallelFov = glm::radians(0.1f);
-    const float startFov = from.projectionKind == renderer::ProjectionKind::Perspective ? from.fovY : ParallelFov;
-    const float endFov = to.projectionKind == renderer::ProjectionKind::Perspective ? to.fovY : ParallelFov;
+    constexpr float parallelFov = glm::radians(0.1f);
+    const float startFov = from.projectionKind == renderer::ProjectionKind::Perspective ? from.fovY : parallelFov;
+    const float endFov = to.projectionKind == renderer::ProjectionKind::Perspective ? to.fovY : parallelFov;
     m_camera.fovY = glm::mix(startFov, endFov, ease);
     m_camera.projectionKind = renderer::ProjectionKind::Perspective;
     distance = m_camera.orthoHeight / (2.0f * std::tan(m_camera.fovY * 0.5f));
