@@ -588,10 +588,19 @@ flecs::entity loadModelPrefab(World &world, const assets::Model &model, const co
   flecs::entity root = world.createEntity(name, {}, uuid);
   std::vector<flecs::entity> entities;
   entities.reserve(model.nodes.size());
+  // A node's identity comes from its name path (ADR-0030), so it survives a re-export that adds or
+  // removes other nodes. Of siblings sharing a name the first keeps it and later ones take #1, #2.
+  std::vector<std::string> paths;
+  paths.reserve(model.nodes.size());
+  std::unordered_map<std::string, int> seen;
   for (std::size_t n = 0; n < model.nodes.size(); ++n) {
     const assets::ModelNode &node = model.nodes[n];
     const flecs::entity parent = node.parent >= 0 ? entities[static_cast<std::size_t>(node.parent)] : root;
-    flecs::entity entity = world.createEntity(node.name, parent, core::Uuid::derive(uuid, std::format("node/{}", n)));
+    const std::string parentPath = node.parent >= 0 ? paths[static_cast<std::size_t>(node.parent)] : std::string{};
+    const std::string base = parentPath.empty() ? node.name : parentPath + "/" + node.name;
+    const int occurrence = seen[base]++;
+    paths.push_back(occurrence == 0 ? base : std::format("{}#{}", base, occurrence));
+    flecs::entity entity = world.createEntity(node.name, parent, core::Uuid::derive(uuid, "path/" + paths.back()));
     entity.set<Transform>({.position = node.position, .rotation = node.rotation, .scale = node.scale});
     if (!node.mesh.isNil()) {
       entity.set<MeshRenderer>({.mesh = node.mesh, .material = {}, .color = {1.0f, 1.0f, 1.0f, 1.0f}, .visible = true});
