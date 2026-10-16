@@ -725,19 +725,19 @@ SamplerHandle VulkanDevice::createSampler(const SamplerDesc &desc) {
   assertOwnerThread("createSampler");
   const bool anisotropic = desc.anisotropy > 1.0f;
   const vk::SamplerCreateInfo info{{},
-                                   toVk(desc.filter),
-                                   toVk(desc.filter),
+                                   toVk(desc.magFilter),
+                                   toVk(desc.minFilter),
                                    toVkMipmapMode(desc.mipFilter),
-                                   toVk(desc.addressMode),
-                                   toVk(desc.addressMode),
-                                   toVk(desc.addressMode),
+                                   toVk(desc.addressModeU),
+                                   toVk(desc.addressModeV),
+                                   toVk(desc.addressModeU),
                                    0.0f,
                                    anisotropic ? VK_TRUE : VK_FALSE,
                                    std::min(desc.anisotropy, m_maxAnisotropy),
                                    desc.compare ? VK_TRUE : VK_FALSE,
                                    vk::CompareOp::eGreaterOrEqual,
                                    0.0f,
-                                   vk::LodClampNone,
+                                   desc.mipmaps ? vk::LodClampNone : 0.0f,
                                    vk::BorderColor::eFloatOpaqueWhite,
                                    VK_FALSE};
   vk::raii::Sampler sampler{m_device, info};

@@ -727,7 +727,11 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   desc.occlusionTransform = source.occlusionTransform;
   desc.emissiveTransform = source.emissiveTransform;
   desc.alphaMode = source.alphaMode;
-  desc.wrap = source.wrap;
+  desc.baseColorSampler = source.baseColorSampler;
+  desc.metallicRoughnessSampler = source.metallicRoughnessSampler;
+  desc.normalSampler = source.normalSampler;
+  desc.occlusionSampler = source.occlusionSampler;
+  desc.emissiveSampler = source.emissiveSampler;
   desc.doubleSided = source.doubleSided;
   desc.unlit = source.unlit;
   return desc;

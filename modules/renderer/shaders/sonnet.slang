@@ -109,7 +109,7 @@ public struct MaterialData {
   public uint occlusionTexture;
   public uint emissiveTexture;
   public uint flags; // alpha mode in the low byte, MaterialDoubleSided and MaterialUnlit above it
-  public uint sampler;
+  public uint sampler; // five six-bit indices in Slot order
   public uint uvSets; // a slot's bit set: it reads Vertex::uv1 instead of Vertex::uv
   // Each slot's KHR_texture_transform: the 2x2 part by rows, then the offsets (uvTransform).
   public float4 baseColorUv;
@@ -128,6 +128,10 @@ public struct MaterialData {
 // A texture slot's UV: its 2x2 matrix by rows, then its offset (KHR_texture_transform).
 public float2 uvTransform(float4 rows, float2 offset, float2 uv) {
   return float2(dot(rows.xy, uv), dot(rows.zw, uv)) + offset;
+}
+
+public uint materialSampler(MaterialData material, uint slot) {
+  return (material.sampler >> (6u * slot)) & 63u;
 }
 
 // The vertex UV set a material's slot reads, out of both sets interpolated together: Vertex::uv in

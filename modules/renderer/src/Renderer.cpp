@@ -94,8 +94,8 @@ struct GpuMaterial {
   std::uint32_t occlusionTexture;
   std::uint32_t emissiveTexture;
   std::uint32_t flags;
-  std::uint32_t sampler;
-  std::uint32_t uvSets; // a slot's bit set: it reads Vertex::uv1 instead of Vertex::uv
+  std::uint32_t sampler; // five six-bit bindless sampler indices, in texture slot order
+  std::uint32_t uvSets;  // a slot's bit set: it reads Vertex::uv1 instead of Vertex::uv
   // Each slot's KHR_texture_transform, the 2x2 part by rows and then the offsets, so every vec4
   // stays 16-byte aligned for Metal.
   glm::vec4 baseColorUv;
@@ -643,7 +643,7 @@ Renderer::~Renderer() {
   m_device.destroyImage(m_brdfLut);
   m_device.destroySampler(m_shadowSampler);
   m_device.destroySampler(m_linearClampSampler);
-  for (const rhi::SamplerHandle sampler : m_materialSamplers) {
+  for (const auto &[description, sampler] : m_materialSamplers) {
     m_device.destroySampler(sampler);
   }
   for (const rhi::PipelineHandle pipeline : {m_skinPipeline,
@@ -785,17 +785,14 @@ core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const
 }
 
 void Renderer::createDefaults() {
-  const std::array<rhi::AddressMode, 3> modes{rhi::AddressMode::Repeat, rhi::AddressMode::ClampToEdge,
-                                              rhi::AddressMode::MirroredRepeat};
-  const std::array<const char *, 3> names{"material repeat", "material clamp", "material mirror"};
-  for (std::size_t i = 0; i < 3; ++i) {
-    m_materialSamplers[i] =
-        m_device.createSampler({.addressMode = modes[i], .anisotropy = 8.0f, .debugName = names[i]});
-  }
-  m_linearClampSampler =
-      m_device.createSampler({.addressMode = rhi::AddressMode::ClampToEdge, .debugName = "linear clamp"});
-  m_shadowSampler =
-      m_device.createSampler({.addressMode = rhi::AddressMode::ClampToEdge, .compare = true, .debugName = "shadow"});
+  materialSampler({});
+  m_linearClampSampler = m_device.createSampler({.addressModeU = rhi::AddressMode::ClampToEdge,
+                                                 .addressModeV = rhi::AddressMode::ClampToEdge,
+                                                 .debugName = "linear clamp"});
+  m_shadowSampler = m_device.createSampler({.addressModeU = rhi::AddressMode::ClampToEdge,
+                                            .addressModeV = rhi::AddressMode::ClampToEdge,
+                                            .compare = true,
+                                            .debugName = "shadow"});
   m_whiteTexture = createTexture(solidTexture({255, 255, 255, 255}), "white");
   m_flatNormalTexture = createTexture(solidTexture({128, 128, 255, 255}), "flat normal");
   m_brdfLut = m_device.createImage({.size = {m_settings.brdfLutSize, m_settings.brdfLutSize},
@@ -1021,8 +1018,46 @@ std::uint32_t Renderer::sampledIndex(rhi::ImageHandle image) const {
 
 // ---- Materials ----
 
+std::uint32_t Renderer::materialSampler(const TextureSampler &desc) {
+  static_assert(rhi::MaxBindlessSamplers <= 64);
+  for (const auto &[description, handle] : m_materialSamplers) {
+    if (description == desc)
+      return m_device.samplerIndex(handle);
+  }
+  // Reserve the non-material linear sampler's slot, including during createDefaults.
+  if (m_materialSamplers.size() >= rhi::MaxBindlessSamplers - 1) {
+    if (!m_samplerWarning) {
+      SONNET_LOG_WARN("material sampler array full; using the default sampler");
+      m_samplerWarning = true;
+    }
+    return m_device.samplerIndex(m_materialSamplers.front().second);
+  }
+  const auto filter = [](TextureFilter value) {
+    return value == TextureFilter::Nearest ? rhi::Filter::Nearest : rhi::Filter::Linear;
+  };
+  const auto wrap = [](TextureWrap value) { return static_cast<rhi::AddressMode>(value); };
+  const auto handle = m_device.createSampler(
+      {.magFilter = filter(desc.magFilter),
+       .minFilter = filter(desc.minFilter),
+       .mipFilter = desc.mipFilter == TextureMipFilter::Nearest ? rhi::Filter::Nearest : rhi::Filter::Linear,
+       .addressModeU = wrap(desc.wrapS),
+       .addressModeV = wrap(desc.wrapT),
+       .mipmaps = desc.mipFilter != TextureMipFilter::None,
+       .anisotropy = desc.magFilter == TextureFilter::Linear && desc.minFilter == TextureFilter::Linear ? 8.0f : 1.0f,
+       .debugName = "material sampler"});
+  m_materialSamplers.emplace_back(desc, handle);
+  return m_device.samplerIndex(handle);
+}
+
+std::uint32_t Renderer::packSamplers(const MaterialDesc &desc) {
+  return (materialSampler(desc.baseColorSampler) << 0u) | (materialSampler(desc.metallicRoughnessSampler) << 6u) |
+         (materialSampler(desc.normalSampler) << 12u) | (materialSampler(desc.occlusionSampler) << 18u) |
+         (materialSampler(desc.emissiveSampler) << 24u);
+}
+
 MaterialHandle Renderer::createMaterial(const MaterialDesc &desc, std::string debugName) {
-  const MaterialHandle handle = m_materials.emplace(Material{std::move(debugName), desc});
+  const auto samplers = packSamplers(desc);
+  const MaterialHandle handle = m_materials.emplace(Material{std::move(debugName), desc, samplers});
   m_materialSlots = std::max(m_materialSlots, handle.index + 1);
   return handle;
 }
@@ -1033,6 +1068,7 @@ void Renderer::updateMaterial(MaterialHandle handle, const MaterialDesc &desc) {
     SONNET_LOG_WARN("updateMaterial: stale handle {}:{}", handle.index, handle.generation);
     return;
   }
+  material->samplers = packSamplers(desc);
   material->desc = desc;
 }
 
@@ -2564,7 +2600,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
 
   // Materials: slot 0 the default, then every live material by pool index.
   auto *gpuMaterials = reinterpret_cast<GpuMaterial *>(materials.data.data());
-  const auto encode = [this](const MaterialDesc &desc) {
+  const auto encode = [this](const MaterialDesc &desc, std::uint32_t samplers) {
     const std::uint32_t mode = desc.alphaMode == AlphaMode::Blend  ? AlphaBlend
                                : desc.alphaMode == AlphaMode::Mask ? AlphaMask
                                                                    : AlphaOpaque;
@@ -2583,7 +2619,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
         .occlusionTexture = textureIndex(desc.occlusionTexture),
         .emissiveTexture = textureIndex(desc.emissiveTexture),
         .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) | (desc.unlit ? MaterialUnlit : 0u),
-        .sampler = m_device.samplerIndex(m_materialSamplers[static_cast<std::size_t>(desc.wrap)]),
+        .sampler = samplers,
         .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
                   uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
                   uvSetBit(desc.normalTransform, SlotNormal) | uvSetBit(desc.occlusionTransform, SlotOcclusion) |
@@ -2603,11 +2639,15 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   MaterialDesc defaultMaterial;
   defaultMaterial.metallic = 0.0f;
   defaultMaterial.roughness = 0.5f;
+  const auto defaultIndex = m_device.samplerIndex(m_materialSamplers.front().second);
+  const auto defaultSamplers =
+      defaultIndex | (defaultIndex << 6u) | (defaultIndex << 12u) | (defaultIndex << 18u) | (defaultIndex << 24u);
   for (std::uint32_t i = 0; i < materialCount; ++i) {
-    gpuMaterials[i] = encode(defaultMaterial);
+    gpuMaterials[i] = encode(defaultMaterial, defaultSamplers);
   }
-  m_materials.forEach(
-      [&](MaterialHandle handle, const Material &material) { gpuMaterials[handle.index + 1] = encode(material.desc); });
+  m_materials.forEach([&](MaterialHandle handle, const Material &material) {
+    gpuMaterials[handle.index + 1] = encode(material.desc, material.samplers);
+  });
 
   // The budgeted lights' maps, matrices and depth slots, and which light each belongs to.
   rhi::TransientAllocation localShadows;

@@ -37,7 +37,7 @@ VertexOutput shadowVertexMain(uint vertexId : SV_VertexID, uint startInstance : 
 float surfaceAlpha(MaterialData material, uint objectIndex, float4 uvs) {
   return material.baseColor.a * objects[objectIndex].color.a *
          textures[material.baseColorTexture]
-             .Sample(samplers[material.sampler], uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, uvs)))
+             .Sample(samplers[materialSampler(material, SlotBaseColor)], uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, uvs)))
              .a;
 }
 
