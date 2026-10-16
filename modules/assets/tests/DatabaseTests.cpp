@@ -966,7 +966,7 @@ TEST_CASE("moving sources preserves identities and loaded objects", "[assets][da
   CHECK(database.findByPath(to)->uuid == id);
   CHECK(std::filesystem::exists(to.string() + ".meta"));
   CHECK_FALSE(std::filesystem::exists(wood));
-  CHECK(std::filesystem::last_write_time(to) == before);
+  CHECK((std::filesystem::last_write_time(to) == before));
   CHECK(database.pollChanges().empty());
   const auto texture = database.texture(id);
   REQUIRE(texture);
