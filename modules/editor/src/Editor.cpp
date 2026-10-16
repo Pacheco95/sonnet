@@ -1332,9 +1332,22 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     maskDesc.debugName = "selection mask";
     const renderer::GraphImage mask = m_graph.createImage(maskDesc);
     m_renderer.addScenePasses(m_graph, m_view, sceneColor, depth);
-    if ((m_screenshotRequest ? m_captureGrid : floorGrid()) &&
-        m_view.camera.projectionKind == renderer::ProjectionKind::Perspective) {
-      m_renderer.addGridPass(m_graph, m_view, sceneColor, depth);
+    if (m_screenshotRequest ? m_captureGrid : floorGrid()) {
+      const bool perspective = m_view.camera.projectionKind == renderer::ProjectionKind::Perspective;
+      const AxisView axis = m_viewportPanel.camera().axisView();
+      if (perspective || axis != AxisView::User) {
+        glm::vec4 plane{0, 1, 0, 0};
+        glm::vec3 axisU{1, 0, 0};
+        if (!perspective) {
+          if (axis == AxisView::Front || axis == AxisView::Back) {
+            plane = {0, 0, 1, 0};
+          } else if (axis == AxisView::Right || axis == AxisView::Left) {
+            plane = {1, 0, 0, 0};
+            axisU = {0, 0, 1};
+          }
+        }
+        m_renderer.addGridPass(m_graph, m_view, sceneColor, depth, plane, axisU);
+      }
     }
     // Before the id pass, which leaves the depth undefined.
     m_renderer.addDebugLinePass(m_graph, m_view, sceneColor, depth);

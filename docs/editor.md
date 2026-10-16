@@ -272,11 +272,13 @@ File, Project scenes, `scenes/playground.scene.json` is the physics and scriptin
 
 ## Floor grid
 
-View > Floor grid toggles the perspective viewport's XZ floor at y = 0, with a red X axis and a blue Z axis. It defaults on and is saved in user preferences. The Game view and player never draw it. Captures omit it unless `--grid on` is supplied; this does not change the saved preference.
+View > Floor grid toggles the viewport grid: the XZ floor at y = 0 in perspective, and the plane through the origin facing each orthographic axis view (XZ for Top/Bottom, XY for Front/Back, YZ for Right/Left). X is red, Y green and Z blue. User orthographic views omit the grid. It defaults on and is saved in user preferences. The Game view and player never draw it. Captures omit it unless `--grid on` is supplied; this does not change the saved preference.
+
+Orthographic grids use parallel view rays and linear reversed-Z depth. Their level visibility depends on projected spacing (`orthoHeight`), with no distance or grazing-angle fade. Switching back to perspective restores the floor in that same frame.
 
 The grid has 1 m lines, 10 m major lines and a 100 m coarse level. Each level fades out as its projected spacing becomes too small, and the whole grid fades with distance and at grazing angles. It is drawn after temporal anti-aliasing with unjittered rays and pixel-width filtering, depth-tested without writing depth; scene surfaces, including a coplanar floor, hide it. [Verification images and tests](reports/viewport-grid.md) show both the visible grid and a lit ground.
 
-Snap to grid uses the Edit menu's Move step, 1 m by default. It remains fixed while zooming: changing a camera must not change where a drag snaps, and one perspective image shows several grid levels at once. A custom Move step can therefore subdivide or skip visible lines. Translation snaps the moved axes to multiples of Move step in world space, so a cube snaps onto the 1 m lines even if its drag starts between them.
+Snap to grid uses the Edit menu's Move step, 1 m by default. It remains fixed while zooming: changing a camera must not change where a drag snaps, and both perspective and orthographic images can show several grid levels at once. Orthographic zoom fades dense levels but keeps the 1 m world lattice; it does not change Move step. A custom Move step can therefore subdivide or skip visible lines. Translation snaps the moved axes to multiples of Move step in world space, so a cube snaps onto the 1 m lines even if its drag starts between them.
 
 ## Screenshots
 
