@@ -41,7 +41,6 @@ void buildCameraList(const World &world, std::vector<renderer::Camera> &cameras)
 struct SceneEnvironment {
   renderer::EnvironmentHandle environment;
   float intensity{1.0f};
-  float exposure{1.0f};
 };
 // The first Environment component, its map loaded through the database; none without one or
 // when the map failed to load.

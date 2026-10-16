@@ -29,7 +29,8 @@ namespace sonnet::assets {
 // The cooked form of a project (docs/assets.md, "Cooking and export"), one file: a header, the
 // payload blobs back to back, and a CBOR index at the end holding the manifest, the assets by
 // identity and the scene and prefab files by their project-relative path (ADR-0011).
-constexpr std::uint32_t BundleVersion = 13; // 13: model nodes may carry a light;
+constexpr std::uint32_t BundleVersion = 14; // 14: version 6 scenes, camera exposure and bloom;
+                                            // 13: model nodes may carry a light;
                                             // 12: model nodes may carry a camera;
                                             // 11: materials are version 4, which may be unlit;
                                             // 10: scenes and prefabs are version 5, vectors as arrays;

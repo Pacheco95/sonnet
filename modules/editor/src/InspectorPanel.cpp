@@ -1046,7 +1046,8 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
       ImGui::Checkbox("##value", &at<bool>(field, 0));
       break;
     case ScalarWidget::Float:
-      ImGui::DragFloat("##value", &at<float>(field, 0), DragSpeed);
+      ImGui::DragFloat("##value", &at<float>(field, 0), DragSpeed, 0.0f, name == "bloomStrength" ? 1.0f : 0.0f, "%.3f",
+                       name == "bloomStrength" ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
       break;
     case ScalarWidget::Degrees: {
       float degrees = glm::degrees(at<float>(field, 0));

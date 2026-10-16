@@ -25,7 +25,7 @@ SKY = "0238c936-ba15-474c-a8a7-53a87650359e"
 NO_MATERIAL = "00000000-0000-0000-0000-000000000000"
 
 
-# Scene version 5 writes vectors and quaternions as arrays, x, y, z, w (ADR-0029).
+# Scene version 5 introduced vectors and quaternions as arrays, x, y, z, w (ADR-0029).
 def vec(x, y, z):
     return [x, y, z]
 
@@ -96,7 +96,7 @@ add("Step", (-4, 0.15, 3.5), mesh(BOX, (0.7, 0.7, 0.75)), scale=(2, 0.3, 2))
 
 # The sun: low and warm, from the right and behind the camera, so the cascades cast long shadows.
 add("Sun", (0, 8, 0), light("DirectionalLight", (1.0, 0.82, 0.62), 2.2), forward=(-0.55, -0.45, -0.7))
-add("Sky", (0, 0, 0), {"Environment": {"map": SKY, "intensity": 0.25, "exposure": 1.0}})
+add("Sky", (0, 0, 0), {"Environment": {"map": SKY, "intensity": 0.25}})
 
 # Three coloured spot lights from above, each aimed at the plinth's side, overlapping on the
 # objects and casting three shadows apart from each other.
@@ -114,5 +114,5 @@ add("Cool lamp", (3.0, 2.8, -1.0), light("PointLight", (0.4, 0.7, 1.0), 35.0, ra
 add("Camera", (0, 4.4, 12.5), {"Camera": {"fovY": 1.0, "nearPlane": 0.1}, "AudioListener": None},
     forward=(0, -0.28, -1))
 
-OUT.write_text(scene_json.dumps({"version": 5, "entities": entities}) + "\n")
+OUT.write_text(scene_json.dumps({"version": 6, "entities": entities}) + "\n")
 print(f"wrote {OUT.relative_to(ROOT)}: {len(entities)} entities")

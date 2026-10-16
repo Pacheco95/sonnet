@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "entities": [
     {
       "uuid": "9e1d0c00-0000-4000-8000-000000000001",
@@ -12,7 +12,9 @@
         },
         "Camera": {
           "fovY": 1.0471976,
-          "nearPlane": 0.1
+          "nearPlane": 0.1,
+          "exposure": 1.0,
+          "bloomStrength": 0.04
         }
       }
     },

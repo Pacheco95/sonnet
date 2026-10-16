@@ -172,6 +172,42 @@ void migrateVersion2(json &document) {
   }
 }
 
+// Exposure belongs to the image a camera produces, even in a scene without a sky.
+void migrateVersion5(json &document) {
+  if (!document.contains("entities") || !document["entities"].is_array()) {
+    return;
+  }
+  json exposure = 1.0f;
+  bool found = false;
+  for (json &entry : document["entities"]) {
+    if (!entry.is_object() || !entry.contains("components") || !entry["components"].is_object()) {
+      continue;
+    }
+    json &components = entry["components"];
+    if (components.contains("Environment") && components["Environment"].is_object()) {
+      json &environment = components["Environment"];
+      if (!found) {
+        exposure = environment.value("exposure", json(1.0f));
+        found = true;
+      }
+      environment.erase("exposure");
+    }
+  }
+  if (!exposure.is_number() || exposure == 1.0f) {
+    return;
+  }
+  for (json &entry : document["entities"]) {
+    if (!entry.is_object() || !entry.contains("components") || !entry["components"].is_object()) {
+      continue;
+    }
+    json &components = entry["components"];
+    if (components.contains("Camera") && components["Camera"].is_object() &&
+        !components["Camera"].contains("exposure")) {
+      components["Camera"]["exposure"] = exposure;
+    }
+  }
+}
+
 // Checks the version and brings an older document up to date, oldest step first, logging the
 // source and both versions (docs/conventions.md, "Logging").
 core::Result<json> migrate(const json &input, std::string_view source) {
@@ -199,6 +235,10 @@ core::Result<json> migrate(const json &input, std::string_view source) {
   // Version 4 adds "instanced" entries, which a version 3 file does not have: nothing to change.
   // Version 5 writes vectors as arrays. Only reflection knows which members are vectors, so the
   // component reader accepts the older objects instead (setComponents, ADR-0029).
+  if (version < 6) {
+    migrateVersion5(document);
+    SONNET_LOG_INFO("{}: migrated scene version {} to 6", source, version);
+  }
   document["version"] = SceneVersion;
   return document;
 }

@@ -227,7 +227,7 @@ TEST_CASE("the scene environment needs a loadable map", "[world][drawlist]") {
   world::World &world = fixture.world;
   REQUIRE(!world::sceneEnvironment(world, fixture.assets).has_value());
   const flecs::entity sky = world.createEntity("Sky");
-  sky.set<world::Environment>({.map = core::Uuid::generate(), .intensity = 2.0f, .exposure = 0.5f});
+  sky.set<world::Environment>({.map = core::Uuid::generate(), .intensity = 2.0f});
   // An unknown map is no environment: the renderer falls back to its ambient term.
   REQUIRE(!world::sceneEnvironment(world, fixture.assets).has_value());
 }

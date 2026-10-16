@@ -3094,7 +3094,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
     v.resolvedScene = scene;
   }
   GraphImage bloom;
-  if (m_settings.bloom && size.x >= 2 && size.y >= 2) {
+  if (m_settings.bloom && view.bloomStrength > 0.0f && size.x >= 2 && size.y >= 2) {
     addBloomPasses(graph, view, scene, size, bloom);
   }
   const bool fxaa = m_settings.antialiasing == AntiAliasing::Fxaa;

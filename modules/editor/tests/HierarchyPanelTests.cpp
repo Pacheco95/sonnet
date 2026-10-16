@@ -362,7 +362,7 @@ TEST_CASE("an environment dropped on the hierarchy becomes the scene's sky", "[e
   REQUIRE(selection.contains(world.uuidOf(entity)));
 
   // One already: its map changes and its other settings stay, as one undoable command.
-  entity.set<world::Environment>({.map = sky, .intensity = 0.25f, .exposure = 1.0f});
+  entity.set<world::Environment>({.map = sky, .intensity = 0.25f});
   panel.useEnvironment(dusk, "dusk");
   REQUIRE(world.roots().size() == 1);
   CHECK(entity.get<world::Environment>().map == dusk);

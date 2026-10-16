@@ -485,7 +485,7 @@ TEST_CASE("vector and quaternion members save as arrays and load back (ADR-0029)
   entity.set<world::Transform>({.position = {0.0f, 0.5f, -10.0f}, .rotation = turn, .scale = {20.0f, 1.0f, 20.0f}});
 
   const nlohmann::json scene = world::saveScene(source);
-  REQUIRE(scene["version"] == 5);
+  REQUIRE(scene["version"] == world::SceneVersion);
   const nlohmann::json &components = scene["entities"][0]["components"];
   REQUIRE(isArray(components["Shape"]["size"], {1.5f, 2.5f}));
   REQUIRE(isArray(components["Shape"]["offset"], {-1.0f, 0.25f, 8.0f}));
@@ -559,9 +559,9 @@ TEST_CASE("a version 4 scene and prefab load their vector objects unchanged", "[
   const flecs::entity lid = world.children(loaded->at(0)).front();
   REQUIRE(lid.get<world::Transform>().position == glm::vec3{0.0f, 0.5f, 0.0f});
 
-  // Saved again, the scene is version 5 and its vectors are arrays.
+  // Saved again, the scene is at the current version and its vectors are arrays.
   const nlohmann::json saved = world::saveScene(world);
-  REQUIRE(saved["version"] == 5);
+  REQUIRE(saved["version"] == world::SceneVersion);
   REQUIRE(isArray(saved["entities"][0]["components"]["Transform"]["position"], {4.0f, 0.0f, 0.0f}));
   REQUIRE(isArray(saved["entities"][0]["components"]["Transform"]["rotation"], {0.0f, 0.6f, 0.0f, 0.8f}));
   REQUIRE(isArray(world::savePrefab(world, *crate)["entities"][0]["components"]["MeshRenderer"]["color"],
@@ -713,4 +713,69 @@ TEST_CASE("an override saved under the old index identities is skipped with no n
   const flecs::entity loaded = reopened.find(world.uuidOf(instance));
   REQUIRE(child(reopened, loaded, "A").get<world::Transform>().position.x == Approx(0.0f));
   REQUIRE(child(reopened, loaded, "B").get<world::Transform>().position.x == Approx(0.0f));
+}
+
+TEST_CASE("camera post processing round trips and defaults when absent", "[world][scene][camera]") {
+  world::World world;
+  const auto camera = world.createEntity("Camera");
+  camera.set<world::Camera>({.exposure = 2.5f, .bloomStrength = 0.3f});
+  const auto cameraUuid = world.uuidOf(camera);
+  const auto saved = world::saveScene(world);
+  world.clearScene();
+  REQUIRE(world::loadScene(world, saved));
+  const auto loaded = world.find(cameraUuid).get<world::Camera>();
+  REQUIRE(loaded.exposure == Approx(2.5f));
+  REQUIRE(loaded.bloomStrength == Approx(0.3f));
+  world.progress(0.0f);
+  REQUIRE(world::sceneCamera(world)->exposure == Approx(2.5f));
+  REQUIRE(world::sceneCamera(world)->bloomStrength == Approx(0.3f));
+
+  auto old = saved;
+  old["entities"][0]["components"]["Camera"].erase("exposure");
+  old["entities"][0]["components"]["Camera"].erase("bloomStrength");
+  world.clearScene();
+  REQUIRE(world::loadScene(world, old));
+  REQUIRE(world.find(cameraUuid).get<world::Camera>().exposure == Approx(1.0f));
+  REQUIRE(world.find(cameraUuid).get<world::Camera>().bloomStrength == Approx(0.04f));
+}
+
+TEST_CASE("version 5 moves the first environment exposure to cameras", "[world][scene][camera]") {
+  world::World world;
+  const auto first = world.createEntity("First");
+  first.set<world::Camera>({});
+  const auto second = world.createEntity("Second");
+  second.set<world::Camera>({.exposure = 3.0f});
+  const auto sky = world.createEntity("Sky");
+  sky.set<world::Environment>({});
+  const auto other = world.createEntity("Other sky");
+  other.set<world::Environment>({});
+  const auto firstUuid = world.uuidOf(first);
+  const auto secondUuid = world.uuidOf(second);
+  auto old = world::saveScene(world);
+  old["version"] = 5;
+  old["entities"][0]["components"]["Camera"].erase("exposure");
+  old["entities"][2]["components"]["Environment"]["exposure"] = 0.5f;
+  old["entities"][3]["components"]["Environment"]["exposure"] = 4.0f;
+  world.clearScene();
+  REQUIRE(world::loadScene(world, old));
+  REQUIRE(world.find(firstUuid).get<world::Camera>().exposure == Approx(0.5f));
+  REQUIRE(world.find(secondUuid).get<world::Camera>().exposure == Approx(3.0f));
+  const auto saved = world::saveScene(world);
+  REQUIRE_FALSE(saved["entities"][2]["components"]["Environment"].contains("exposure"));
+  REQUIRE_FALSE(saved["entities"][3]["components"]["Environment"].contains("exposure"));
+
+  SECTION("a default first environment wins over later environments") {
+    old["entities"][2]["components"]["Environment"].erase("exposure");
+    world.clearScene();
+    REQUIRE(world::loadScene(world, old));
+    REQUIRE(world.find(firstUuid).get<world::Camera>().exposure == Approx(1.0f));
+  }
+  SECTION("a camera prefab without an environment keeps the defaults") {
+    old["entities"].erase(old["entities"].begin() + 1, old["entities"].end());
+    world.clearScene();
+    const auto prefab = world::loadPrefab(world, old);
+    REQUIRE(prefab);
+    REQUIRE(prefab->get<world::Camera>().exposure == Approx(1.0f));
+    REQUIRE(prefab->get<world::Camera>().bloomStrength == Approx(0.04f));
+  }
 }
