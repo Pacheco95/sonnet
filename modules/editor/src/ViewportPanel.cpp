@@ -159,8 +159,17 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
       std::string{m_view.camera.viewName()} +
       (m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic ? " Orthographic"
                                                                                        : " Perspective");
-  ImGui::GetWindowDrawList()->AddText(ImVec2{origin.x + 8.0f, origin.y + available.y - 24.0f},
-                                      IM_COL32(240, 240, 240, 255), label.c_str());
+  const float fontSize = ImGui::GetFontSize();
+  const ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
+  const float margin = fontSize * 0.5f;
+  const ImVec2 padding{fontSize * 0.4f, fontSize * 0.2f};
+  const ImVec2 min{origin.x + margin, origin.y + available.y - margin - textSize.y - 2.0f * padding.y};
+  const ImVec2 max{min.x + textSize.x + 2.0f * padding.x, origin.y + available.y - margin};
+  ImDrawList *drawList = ImGui::GetWindowDrawList();
+  drawList->PushClipRect(origin, ImVec2{origin.x + available.x, origin.y + available.y}, true);
+  drawList->AddRectFilled(min, max, IM_COL32(0, 0, 0, 200), fontSize * 0.2f);
+  drawList->AddText(ImVec2{min.x + padding.x, min.y + padding.y}, IM_COL32(240, 240, 240, 255), label.c_str());
+  drawList->PopClipRect();
   if (overlay) {
     overlay(m_input);
   }

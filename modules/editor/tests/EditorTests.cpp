@@ -22,6 +22,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -1056,6 +1057,129 @@ TEST_CASE("a mouse drag on the gizmo's X handle moves the selected entity", "[ed
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("viewport view labels keep a contrasting backing at each font scale", "[editor][gpu][view-label]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    for (const float scale : {1.0f, 1.5f, 2.0f}) {
+      ImGui::GetStyle().FontScaleMain = scale;
+      for (const editor::AxisView axis :
+           {editor::AxisView::User, editor::AxisView::Front, editor::AxisView::Back, editor::AxisView::Left,
+            editor::AxisView::Right, editor::AxisView::Top, editor::AxisView::Bottom}) {
+        editor.viewport().setView({});
+        editor.viewport().snapView(axis);
+        for (const renderer::ProjectionKind projection :
+             {renderer::ProjectionKind::Perspective, renderer::ProjectionKind::Orthographic}) {
+          if (editor.viewport().camera().camera().projectionKind != projection) {
+            editor.viewport().toggleProjection();
+          }
+          CAPTURE(scale, axis, projection);
+          fixture.frame(editor);
+          fixture.frame(editor);
+          const auto &input = editor.viewport().input();
+          const glm::uvec2 size = editor.viewport().target().size();
+          REQUIRE(size == glm::uvec2{input.size});
+          const ImDrawList *drawList = ImGui::FindWindowByName("Viewport")->DrawList;
+          ImVec2 min{FLT_MAX, FLT_MAX};
+          ImVec2 max{-FLT_MAX, -FLT_MAX};
+          int backingVertices = 0;
+          int textVertices = 0;
+          for (const ImDrawVert &vertex : drawList->VtxBuffer) {
+            if (vertex.col == IM_COL32(0, 0, 0, 200)) {
+              min.x = std::min(min.x, vertex.pos.x);
+              min.y = std::min(min.y, vertex.pos.y);
+              max.x = std::max(max.x, vertex.pos.x);
+              max.y = std::max(max.y, vertex.pos.y);
+              ++backingVertices;
+            }
+          }
+          REQUIRE(backingVertices > 0);
+          REQUIRE(min.x >= input.origin.x);
+          REQUIRE(min.y >= input.origin.y);
+          REQUIRE(max.x <= input.origin.x + input.size.x);
+          REQUIRE(max.y <= input.origin.y + input.size.y);
+          for (const ImDrawVert &vertex : drawList->VtxBuffer) {
+            if (vertex.col == IM_COL32(240, 240, 240, 255)) {
+              REQUIRE(vertex.pos.x > min.x);
+              REQUIRE(vertex.pos.y > min.y);
+              REQUIRE(vertex.pos.x < max.x);
+              REQUIRE(vertex.pos.y < max.y);
+              ++textVertices;
+            }
+          }
+          REQUIRE(textVertices > 0);
+
+          // Clicking the label still belongs to the viewport, with the same image rectangle.
+          ImGuiIO &io = ImGui::GetIO();
+          io.AddMousePosEvent((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
+          fixture.frame(editor);
+          io.AddMouseButtonEvent(ImGuiMouseButton_Right, true);
+          fixture.frame(editor);
+          REQUIRE(editor.viewport().input().hovered);
+          REQUIRE(editor.viewport().cameraActive());
+          REQUIRE(editor.viewport().target().size() == size);
+          io.AddMouseButtonEvent(ImGuiMouseButton_Right, false);
+          fixture.frame(editor);
+          REQUIRE_FALSE(editor.viewport().cameraActive());
+        }
+      }
+    }
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("capture viewport label contrast over the Basic sample", "[.view-label-captures][editor][gpu]") {
+  Fixture fixture;
+  const auto manifest = editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
+  REQUIRE(manifest.has_value());
+  const auto directory = scratch("view-label-basic");
+  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    for (int frame = 0; frame < 240; ++frame) {
+      fixture.frame(editor);
+      if (frame > 3 && !editor.assets().loading()) {
+        break;
+      }
+    }
+    REQUIRE_FALSE(editor.assets().loading());
+    ImGui::LoadIniSettingsFromMemory("[SonnetView][View]\nOverlay=0\n");
+    REQUIRE_FALSE(editor.viewState().overlay);
+    const auto output = std::filesystem::temp_directory_path() / "sonnet-view-label-captures";
+    std::filesystem::create_directories(output);
+    for (const float scale : {1.0f, 2.0f}) {
+      ImGui::GetStyle().FontScaleMain = scale;
+      for (const editor::AxisView axis : {editor::AxisView::Front, editor::AxisView::Top, editor::AxisView::Bottom}) {
+        for (const flecs::entity root : editor.world().roots()) {
+          if (root.has<world::Environment>()) {
+            auto environment = root.get<world::Environment>();
+            environment.intensity = axis == editor::AxisView::Bottom ? 0.0f : 1.0f;
+            root.set<world::Environment>(environment);
+          }
+        }
+        editor.viewport().snapView(axis);
+        for (int frame = 0; frame < 10; ++frame) {
+          fixture.frame(editor);
+        }
+        const std::string name = std::string{editor.viewport().camera().viewName()} + (scale == 1.0f ? "-100" : "-200");
+        editor.requestScreenshots({}, output / (name + ".png"));
+        fixture.frame(editor);
+        const auto result = editor.takeScreenshotResult();
+        REQUIRE(result.has_value());
+        REQUIRE(result->has_value());
+      }
+    }
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
 }
 
 TEST_CASE("orthographic picking and translate drag select and move the box", "[editor][gpu][orthographic]") {
