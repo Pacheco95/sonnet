@@ -637,9 +637,12 @@ TEST_CASE("a glTF node's perspective camera imports with its FOV and near plane"
   REQUIRE(nodes[0].camera->fovY == Approx(0.6f));
   REQUIRE(nodes[0].camera->nearPlane == Approx(0.05f));
   REQUIRE(nodes[0].position == glm::vec3{0.0f, 1.0f, 5.0f});
-  // No orthographic projection in the engine: the node stays, without a camera, and is warned about.
-  REQUIRE(!nodes[1].camera.has_value());
-  REQUIRE(log.str().find("node \"Plan\" has an orthographic camera") != std::string::npos);
+  REQUIRE(nodes[1].camera.has_value());
+  REQUIRE(nodes[1].camera->projectionKind == renderer::ProjectionKind::Orthographic);
+  REQUIRE(nodes[1].camera->orthoHeight == Approx(4.0f));
+  REQUIRE(nodes[1].camera->nearPlane == Approx(0.1f));
+  REQUIRE(nodes[1].camera->farPlane == Approx(10.0f));
+  REQUIRE(log.str().find("orthographic camera") == std::string::npos);
   REQUIRE(!nodes[2].camera.has_value());
 
   // The structure-only read agrees, and the camera survives the bundle's encoding.
@@ -649,7 +652,8 @@ TEST_CASE("a glTF node's perspective camera imports with its FOV and near plane"
   const auto decoded = decodeModel(encodeModel(imported->model));
   REQUIRE(decoded.has_value());
   REQUIRE(decoded->nodes[0].camera == nodes[0].camera);
-  REQUIRE(!decoded->nodes[1].camera.has_value());
+  REQUIRE(decoded->nodes[1].camera == nodes[1].camera);
+  REQUIRE(structure->model.nodes[1].camera == nodes[1].camera);
   std::filesystem::remove_all(directory);
 }
 

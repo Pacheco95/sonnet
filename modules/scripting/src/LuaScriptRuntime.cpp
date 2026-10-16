@@ -1315,8 +1315,8 @@ private:
       const glm::vec2 size = glm::max(m_view->size, glm::vec2{1.0f});
       const glm::vec2 fraction = glm::vec2{xy.get_or("x", 0.0f), xy.get_or("y", 0.0f)} / size;
       const renderer::Camera &camera = m_view->camera;
-      return m_lua.create_table_with("origin", makeVec3(camera.position), "direction",
-                                     makeVec3(camera.rayDirection(fraction, size.x / size.y)));
+      const renderer::Ray ray = camera.ray(fraction, size.x / size.y);
+      return m_lua.create_table_with("origin", makeVec3(ray.origin), "direction", makeVec3(ray.direction));
     });
   }
 

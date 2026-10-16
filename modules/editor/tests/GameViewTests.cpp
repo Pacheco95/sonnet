@@ -1,4 +1,5 @@
 #include <sonnet/editor/Editor.h>
+#include <sonnet/editor/Preferences.h>
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Log.h>
@@ -333,5 +334,41 @@ TEST_CASE("an emitter previews while it is selected and always plays in play mod
     }
     REQUIRE(emitters() == 0);
   }
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("the orthographic sample plays through the Game camera", "[editor][gpu][game-view][orthographic]") {
+  Fixture fixture;
+  const auto manifest = editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
+  REQUIRE(manifest);
+  const auto directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "orthographic";
+  std::filesystem::remove_all(directory);
+  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory));
+    REQUIRE(editor.openScene(directory / "scenes/orthographic.scene.json"));
+    ImGui::LoadIniSettingsFromMemory("[SonnetView][View]\nOverlay=0\n");
+    fixture.showGame(editor);
+    editor.play();
+    for (int frame = 0; frame < 120; ++frame) {
+      fixture.frame(editor);
+      if (frame > 3 && !editor.assets().loading()) {
+        break;
+      }
+    }
+    REQUIRE(editor.scriptView().camera.projectionKind == renderer::ProjectionKind::Orthographic);
+    REQUIRE(editor.scriptView().camera.orthoHeight == Approx(6.0f));
+    REQUIRE(editor.renderer().statistics(1).drawCount == 2);
+    const auto output = std::filesystem::temp_directory_path() / "sonnet-orthographic-editor.png";
+    editor.requestScreenshots({}, output);
+    fixture.frame(editor);
+    const auto result = editor.takeScreenshotResult();
+    REQUIRE(result);
+    REQUIRE(*result);
+    editor.stop();
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
 }

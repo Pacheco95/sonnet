@@ -977,6 +977,14 @@ void InspectorPanel::drawStruct(flecs::entity type, void *data) {
   const auto *members = ecs_vec_first_t(&layout->members, ecs_member_t);
   const auto count = static_cast<std::size_t>(ecs_vec_count(&layout->members));
   for (std::size_t i = 0; i < count; ++i) {
+    if (type == m_world.ecs().entity<world::Camera>()) {
+      const auto &camera = *static_cast<const world::Camera *>(data);
+      const bool ortho = camera.projectionKind == renderer::ProjectionKind::Orthographic;
+      const std::string_view name = members[i].name;
+      if ((ortho && name == "fovY") || (!ortho && (name == "orthoHeight" || name == "farPlane"))) {
+        continue;
+      }
+    }
     ImGui::PushID(static_cast<int>(i));
     drawMember(members[i], data);
     ImGui::PopID();

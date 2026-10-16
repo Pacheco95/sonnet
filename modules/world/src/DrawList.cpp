@@ -18,6 +18,9 @@ renderer::Camera placedCamera(const WorldTransform &transform, const Camera &cam
           .rotation = placed.rotation,
           .fovY = camera.fovY,
           .nearPlane = camera.nearPlane,
+          .projectionKind = camera.projectionKind,
+          .orthoHeight = camera.orthoHeight,
+          .farPlane = camera.farPlane,
           .exposure = camera.exposure,
           .bloomStrength = glm::clamp(camera.bloomStrength, 0.0f, 1.0f)};
 }

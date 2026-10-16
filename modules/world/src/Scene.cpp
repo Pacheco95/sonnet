@@ -239,6 +239,10 @@ core::Result<json> migrate(const json &input, std::string_view source) {
     migrateVersion5(document);
     SONNET_LOG_INFO("{}: migrated scene version {} to 6", source, version);
   }
+  if (version < 7) {
+    // Missing camera fields take their perspective defaults during reflected loading.
+    SONNET_LOG_INFO("{}: migrated scene version {} to 7", source, version < 6 ? 6 : version);
+  }
   document["version"] = SceneVersion;
   return document;
 }
@@ -652,7 +656,11 @@ flecs::entity loadModelPrefab(World &world, const assets::Model &model, const co
       entity.set<MorphWeights>({node.morphWeights});
     }
     if (node.camera) {
-      entity.set<Camera>({.fovY = node.camera->fovY, .nearPlane = node.camera->nearPlane});
+      entity.set<Camera>({.fovY = node.camera->fovY,
+                          .nearPlane = node.camera->nearPlane,
+                          .projectionKind = node.camera->projectionKind,
+                          .orthoHeight = node.camera->orthoHeight,
+                          .farPlane = node.camera->farPlane});
     }
     if (node.light) {
       const assets::ModelLight &light = *node.light;

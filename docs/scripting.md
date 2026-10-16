@@ -181,7 +181,7 @@ The view the game is drawn into, when the runtime was given one: the player's sc
 
 | Function | |
 |---|---|
-| `camera.ray(point)` | `{origin, direction}`, `vec3`s: the ray from the camera through a point of the view, a table `{x, y}` in the coordinates of `input.mousePosition()` and a touch's `position`. `direction` is unit length |
+| `camera.ray(point)` | `{origin, direction}`, `vec3`s: the ray from the camera through a point of the view, a table `{x, y}` in the coordinates of `input.mousePosition()` and a touch's `position`. `direction` is unit length. The origin is on the near plane for either projection; orthographic rays have pixel-dependent origins and parallel directions |
 
 With `physics.raycast` it finds what is under a pointer or a finger; the basic sample's `player.lua` rolls its ball towards the point on the ground under a held finger that way:
 

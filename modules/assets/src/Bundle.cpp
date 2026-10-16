@@ -491,6 +491,9 @@ std::vector<std::byte> encodeModel(const Model &model) {
     if (node.camera) {
       writer.f32(node.camera->fovY);
       writer.f32(node.camera->nearPlane);
+      writer.u32(static_cast<std::uint32_t>(node.camera->projectionKind));
+      writer.f32(node.camera->orthoHeight);
+      writer.f32(node.camera->farPlane);
     }
     writer.u32(node.light.has_value() ? 1u : 0u);
     if (node.light) {
@@ -531,7 +534,16 @@ core::Result<Model> decodeModel(std::span<const std::byte> payload) {
     reader.array(node.morphWeights);
     if (reader.u32() != 0) {
       const float fovY = reader.f32();
-      node.camera = ModelCamera{.fovY = fovY, .nearPlane = reader.f32()};
+      const float nearPlane = reader.f32();
+      const auto kind = reader.u32();
+      if (kind > static_cast<std::uint32_t>(renderer::ProjectionKind::Orthographic)) {
+        return std::unexpected(payloadError("a model camera has an unknown projection"));
+      }
+      node.camera = ModelCamera{.fovY = fovY,
+                                .nearPlane = nearPlane,
+                                .projectionKind = static_cast<renderer::ProjectionKind>(kind),
+                                .orthoHeight = reader.f32(),
+                                .farPlane = reader.f32()};
     }
     if (reader.u32() != 0) {
       const std::uint32_t type = reader.u32();

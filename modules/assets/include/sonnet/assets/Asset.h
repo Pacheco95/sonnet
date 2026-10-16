@@ -3,6 +3,7 @@
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Math.h>
 #include <sonnet/core/Uuid.h>
+#include <sonnet/renderer/Camera.h>
 #include <sonnet/renderer/Material.h>
 
 #include <nlohmann/json.hpp>
@@ -149,12 +150,14 @@ struct FontSource {
   std::uint64_t revision{0};
 };
 
-// A glTF perspective camera, which `world` turns into a `Camera` on the node's entity. It looks
-// along the node's -Z, as the engine's does; the far plane and aspect ratio are not kept, since
-// the engine's projection is infinite and the viewport decides the aspect.
+// A glTF camera looking along the node's -Z. The viewport decides the aspect; only
+// orthographic projection uses the finite far plane.
 struct ModelCamera {
   float fovY{0.0f}; // radians
   float nearPlane{0.0f};
+  renderer::ProjectionKind projectionKind{renderer::ProjectionKind::Perspective};
+  float orthoHeight{10.0f};
+  float farPlane{500.0f};
   bool operator==(const ModelCamera &) const = default;
 };
 
@@ -189,7 +192,7 @@ struct ModelNode {
   // The morph target weights the node's mesh starts with, one per target kept (ADR-0023); empty
   // for a mesh without targets.
   std::vector<float> morphWeights{};
-  std::optional<ModelCamera> camera{}; // the node's perspective camera, if it has one
+  std::optional<ModelCamera> camera{}; // the node's camera, if it has one
   std::optional<ModelLight> light{};   // the node's punctual light, if it has one
 };
 
