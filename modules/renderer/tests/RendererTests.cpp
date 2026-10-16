@@ -1602,6 +1602,13 @@ TEST_CASE("the history starts over on a first frame, a cut, a resize, a debug vi
   REQUIRE(frame({&first}, target) == "1");
   REQUIRE(frame({&first}, target) == "1");
 
+  first.camera.projectionKind = ProjectionKind::Orthographic;
+  REQUIRE(frame({&first}, target) == "0");
+  REQUIRE(frame({&first}, target) == "1");
+  first.camera.projectionKind = ProjectionKind::Perspective;
+  REQUIRE(frame({&first}, target) == "0");
+  REQUIRE(frame({&first}, target) == "1");
+
   // A cut: the owner says the last frame is no guide.
   first.resetHistory = true;
   REQUIRE(frame({&first}, target) == "0");
@@ -1678,8 +1685,11 @@ TEST_CASE("a still scene resolves to an anti-aliased image and stops changing", 
     const glm::mat4 turned = glm::rotate(glm::mat4{1.0f}, glm::radians(30.0f), glm::vec3{0.0f, 0.0f, 1.0f});
     const std::array draws{DrawItem{.mesh = box, .transform = turned}};
     const std::array referenceDraws{DrawItem{.mesh = referenceBox, .transform = turned}};
-    const SceneView view = boxScene(draws);
-    const SceneView referenceView = boxScene(referenceDraws);
+    SceneView view = boxScene(draws);
+    SceneView referenceView = boxScene(referenceDraws);
+    view.camera.projectionKind = GENERATE(ProjectionKind::Perspective, ProjectionKind::Orthographic);
+    view.camera.orthoHeight = 5.0f * std::tan(view.camera.fovY * 0.5f);
+    referenceView.camera = view.camera;
     GpuScene scene{*device, renderer, {64, 64}};
     GpuScene unresolved{*device, reference, {64, 64}};
     unresolved.render(referenceView);
@@ -2467,6 +2477,8 @@ TEST_CASE("the sun's shadow darkens the ground beside a box on a GPU", "[rendere
     const std::array draws{DrawItem{.mesh = plane},
                            DrawItem{.mesh = box, .transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.5f, 0.0f})}};
     SceneView view = topDownScene(draws);
+    view.camera.projectionKind = GENERATE(ProjectionKind::Perspective, ProjectionKind::Orthographic);
+    view.camera.orthoHeight = 12.0f * std::tan(view.camera.fovY * 0.5f);
     // Light travelling down and along +X: the box shadows the ground on its +X side.
     view.sun.direction = glm::normalize(glm::vec3{1.0f, -1.0f, 0.0f});
     view.sun.intensity = 3.0f;
@@ -3048,6 +3060,8 @@ TEST_CASE("a clustered point light reaches only the ground within its range on a
                                   .intensity = 4.0f,
                                   .range = 1.5f}};
     SceneView view = topDownScene(draws);
+    view.camera.projectionKind = GENERATE(ProjectionKind::Perspective, ProjectionKind::Orthographic);
+    view.camera.orthoHeight = 12.0f * std::tan(view.camera.fovY * 0.5f);
     view.hasSun = false;
     view.ambient = {0.0f, 0.0f, 0.0f};
     view.lights = lights;

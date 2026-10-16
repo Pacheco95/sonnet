@@ -65,6 +65,10 @@ public:
 
   // Turns the camera towards `target` from a distance that fits `radius`.
   void focus(glm::vec3 target, float radius);
+  void snapView(AxisView view);
+  void oppositeView();
+  void toggleProjection();
+  void drawViewMenu();
   // The pixel of the render target under a screen position.
   [[nodiscard]] glm::uvec2 targetPixel(glm::vec2 screen) const;
 
@@ -95,6 +99,7 @@ public:
 
 private:
   void resizeTarget(glm::uvec2 size);
+  [[nodiscard]] glm::vec3 viewPivot() const;
 
   ui::ImGuiLayer &m_imgui;
   renderer::RenderTarget m_target;

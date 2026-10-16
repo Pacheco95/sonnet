@@ -125,6 +125,7 @@ struct FrameConstants {
   glm::vec4 cascadeBlendStarts;
   glm::vec4 cascadeTexelSizes;
   glm::vec4 cameraPosition;
+  glm::vec4 cameraForward; // w: 1 for orthographic
   glm::vec4 sunDirection;
   glm::vec4 sunColor;
   glm::vec4 ambient;
@@ -151,7 +152,7 @@ struct FrameConstants {
   std::uint64_t localShadows;    // GpuLocalShadow per local shadow map, 0 without any
   std::uint64_t previousObjects; // PreviousObject per draw, 0 without TAA
 };
-static_assert(sizeof(FrameConstants) == 968);
+static_assert(sizeof(FrameConstants) == 984);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -1346,7 +1347,9 @@ void Renderer::computeCascades(ViewState &v, float aspect) {
     const float split = lambda * logarithmic + (1.0f - lambda) * uniform;
 
     // The slice's eight corners in world space, from a finite projection over the slice.
-    const glm::mat4 sliceProjection = glm::perspectiveRH_ZO(view.camera.fovY, aspect, sliceNear, split);
+    const glm::mat4 sliceProjection = view.camera.projectionKind == ProjectionKind::Orthographic
+                                          ? orthographicReversedZ(view.camera.orthoHeight, aspect, sliceNear, split)
+                                          : glm::perspectiveRH_ZO(view.camera.fovY, aspect, sliceNear, split);
     const glm::mat4 inverse = glm::inverse(sliceProjection * cameraView);
     std::array<glm::vec3, 8> corners;
     std::size_t index = 0;
@@ -1727,11 +1730,12 @@ void Renderer::beginTemporal(ViewState &v) {
   const bool continuous = history.lastFrame + 1 == m_frameNumber;
   // Whatever breaks the chain starts the jitter sequence over too, so the frames from there on
   // resolve the same way however many came before (the capture runs rely on it).
-  if (!continuous || v.view->resetHistory) {
+  if (!continuous || v.view->resetHistory || history.projectionKind != v.view->camera.projectionKind) {
     history.valid = false;
     history.hasPrevious = false;
     history.sequence = 0;
   }
+  history.projectionKind = v.view->camera.projectionKind;
   history.lastFrame = m_frameNumber;
   v.taa = true;
   v.jitter =
@@ -2688,7 +2692,11 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   const glm::mat4 cameraView = view.camera.view();
   const glm::mat4 projection = view.camera.projection(aspect);
   const float nearPlane = view.camera.nearPlane;
-  const float sliceScale = static_cast<float>(ClusterGridZ) / std::log(ClusterFar / nearPlane);
+  const float sliceScale =
+      static_cast<float>(ClusterGridZ) /
+      std::log(std::max(view.camera.projectionKind == ProjectionKind::Orthographic ? view.camera.farPlane : ClusterFar,
+                        nearPlane * 2.0f) /
+               nearPlane);
   const Environment *environment = m_environments.find(view.environment);
   const bool environmentReady = environment != nullptr && !environment->pending;
   FrameConstants frame{
@@ -2704,6 +2712,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .cascadeBlendStarts = {},
       .cascadeTexelSizes = {},
       .cameraPosition = glm::vec4{view.camera.position, 1.0f},
+      .cameraForward =
+          glm::vec4{view.camera.forward(), view.camera.projectionKind == ProjectionKind::Orthographic ? 1.0f : 0.0f},
       .sunDirection = glm::vec4{glm::normalize(view.sun.direction), view.hasSun ? 1.0f : 0.0f},
       .sunColor = glm::vec4{view.sun.color * view.sun.intensity, 0.0f},
       .ambient = glm::vec4{view.ambient, 0.0f},

@@ -10,7 +10,7 @@ float3 viewPoint(float2 pixel, float viewDepth) {
   float4 view = mul(frame.inverseProjection, clip);
   view /= view.w;
   // The ray from the eye through the near-plane point, extended to the requested depth.
-  return view.xyz * (viewDepth / -view.z);
+  return frame.cameraForward.w != 0.0 ? float3(view.xy, -viewDepth) : view.xyz * (viewDepth / -view.z);
 }
 
 float sliceDepth(uint slice) {

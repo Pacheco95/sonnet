@@ -1058,6 +1058,94 @@ TEST_CASE("a mouse drag on the gizmo's X handle moves the selected entity", "[ed
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("orthographic picking and translate drag select and move the box", "[editor][gpu][orthographic]") {
+  Fixture fixture;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    world::World &world = editor.world();
+    flecs::entity box;
+    for (const flecs::entity root : world.roots()) {
+      if (root.get<world::Name>().value == "Box") {
+        box = root;
+      }
+    }
+    REQUIRE(box.is_valid());
+
+    // Three frames so the dock layout and the scene tab bar settle and the viewport reports its
+    // rectangle.
+    fixture.frame(editor);
+    fixture.frame(editor);
+    fixture.frame(editor);
+    const editor::ViewportInput &input = editor.viewport().input();
+    REQUIRE(input.visible);
+    REQUIRE(input.size.x > 100.0f);
+    ImGuiIO &keys = ImGui::GetIO();
+    keys.AddMousePosEvent(input.origin.x + input.size.x * 0.5f, input.origin.y + input.size.y * 0.5f);
+    fixture.frame(editor);
+    keys.AddKeyEvent(ImGuiKey_Keypad7, true);
+    fixture.frame(editor);
+    REQUIRE(editor.viewport().camera().axisView() == editor::AxisView::Top);
+    REQUIRE(editor.viewport().camera().camera().projectionKind == renderer::ProjectionKind::Orthographic);
+    keys.AddKeyEvent(ImGuiKey_Keypad7, false);
+    keys.AddKeyEvent(ImGuiKey_Keypad1, true);
+    fixture.frame(editor);
+    keys.AddKeyEvent(ImGuiKey_Keypad1, false);
+    fixture.frame(editor);
+    REQUIRE(editor.viewport().camera().axisView() == editor::AxisView::Front);
+
+    const auto viewOf = [&](glm::vec2 mouse) {
+      const renderer::Camera &camera = editor.viewport().camera().camera();
+      const glm::uvec2 targetSize = editor.viewport().target().size();
+      return editor::GizmoView{
+          .view = camera.view(),
+          .projection = camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(targetSize.y)),
+          .cameraPosition = camera.position,
+          .origin = input.origin,
+          .size = input.size,
+          .mouse = mouse};
+    };
+    const glm::vec3 boxPosition{box.get<world::WorldTransform>().matrix[3]};
+    const auto centre = editor::Gizmo::project(viewOf({}), boxPosition);
+    REQUIRE(centre.has_value());
+    ImGuiIO &pickIo = ImGui::GetIO();
+    pickIo.AddMousePosEvent(centre->x, centre->y);
+    fixture.frame(editor);
+    pickIo.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    fixture.frame(editor);
+    pickIo.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    for (int i = 0; i < 5; ++i) {
+      fixture.frame(editor);
+    }
+    REQUIRE(editor.selection().primary() == world.uuidOf(box));
+    const float length = editor.viewport().camera().camera().orthoHeight * 0.18f;
+    const auto handle = editor::Gizmo::project(viewOf({}), boxPosition + glm::vec3{length * 0.6f, 0.0f, 0.0f});
+    const auto target = editor::Gizmo::project(viewOf({}), boxPosition + glm::vec3{length * 0.6f + 1.0f, 0.0f, 0.0f});
+    REQUIRE(handle.has_value());
+    REQUIRE(target.has_value());
+
+    ImGuiIO &io = ImGui::GetIO();
+    io.AddMousePosEvent(handle->x, handle->y);
+    fixture.frame(editor);
+    REQUIRE(editor.gizmo().hoveredAxis() == editor::GizmoAxis::X);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    fixture.frame(editor);
+    REQUIRE(editor.gizmo().isDragging());
+    io.AddMousePosEvent(target->x, target->y);
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE(box.get<world::Transform>().position.x == Approx(1.0f).margin(0.05f));
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    fixture.frame(editor);
+    REQUIRE(!editor.gizmo().isDragging());
+    REQUIRE(editor.commands().canUndo());
+    REQUIRE(editor.commands().undoDescription() == "move Box");
+    REQUIRE(box.get<world::Transform>().position.x == Approx(1.0f).margin(0.05f));
+    REQUIRE(box.get<world::WorldTransform>().matrix[3].x == Approx(1.0f).margin(0.05f));
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("the asset browser lists a project's assets and the inspector edits a material", "[editor][gpu]") {
   Fixture fixture;
   const std::filesystem::path directory = scratch("assets");
@@ -1509,4 +1597,60 @@ TEST_CASE("the editor saves and restores its floor grid toggle", "[editor][gpu][
   }
   REQUIRE(editor::Preferences::load(file).floorGrid);
   std::filesystem::remove(file);
+}
+
+TEST_CASE("capture the orthographic showcase for visual review", "[.orthographic-showcase][editor][gpu]") {
+  Fixture fixture;
+  const auto manifest = editor::locateSource("apps/samples/showcase/project.json", {}, fixture.platform.basePath());
+  REQUIRE(manifest.has_value());
+  const auto directory = scratch("orthographic-showcase");
+  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory).has_value());
+    for (int frame = 0; frame < 240; ++frame) {
+      fixture.frame(editor);
+      if (frame > 3 && !editor.assets().loading()) {
+        break;
+      }
+    }
+    REQUIRE_FALSE(editor.assets().loading());
+    editor.viewport().camera().lookAt({20.0f, 18.0f, 24.0f}, {0.0f, 2.0f, -3.0f});
+    auto view = editor.viewport().view();
+    view.pivot = {0.0f, 2.0f, -3.0f};
+    view.hasPivot = true;
+    editor.viewport().setView(view);
+    editor.viewport().toggleProjection();
+    const std::filesystem::path output = std::filesystem::temp_directory_path() / "sonnet-orthographic-captures";
+    std::filesystem::create_directories(output);
+    const auto capture = [&](const char *name) {
+      editor.requestScreenshots(output / (std::string{name} + ".png"), {});
+      fixture.frame(editor);
+      const auto result = editor.takeScreenshotResult();
+      REQUIRE(result.has_value());
+      REQUIRE(result->has_value());
+    };
+    for (int frame = 0; frame < 20; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(editor.renderer().statistics().temporalHistoryUsed);
+    capture("user-final-taa");
+    editor.setShadingTerm(renderer::DebugView::ShadowFactor);
+    fixture.frame(editor);
+    capture("user-shadow-factor");
+    editor.setShadingTerm(renderer::DebugView::Final);
+    editor.viewport().snapView(editor::AxisView::Top);
+    for (int frame = 0; frame < 20; ++frame) {
+      fixture.frame(editor);
+    }
+    capture("top-final-taa");
+    editor.viewport().snapView(editor::AxisView::Front);
+    for (int frame = 0; frame < 20; ++frame) {
+      fixture.frame(editor);
+    }
+    capture("front-final-taa");
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
 }

@@ -271,7 +271,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   tangentNormal.xy = textureToMeshFrame(material.normalUv, tangentNormal.xy) * material.normalScale;
   n = normalize(t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z);
 
-  const float3 v = normalize(frame.cameraPosition.xyz - input.worldPosition);
+  const float3 v = frame.cameraForward.w != 0.0 ? -frame.cameraForward.xyz : normalize(frame.cameraPosition.xyz - input.worldPosition);
   const float3 albedo = baseColor.rgb;
   const float3 f0 = lerp(float3(0.04), albedo, metallic);
   const float viewDepth = -mul(frame.view, float4(input.worldPosition, 1.0)).z;

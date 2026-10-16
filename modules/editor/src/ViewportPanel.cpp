@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace sonnet::editor {
 
@@ -94,11 +95,39 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     m_cameraActive = false;
     m_orbiting = false;
   }
+  if ((hovered || m_input.focused) && !ImGui::GetIO().WantTextInput && !m_wheelForGame) {
+    const bool ctrl = ImGui::GetIO().KeyCtrl;
+    if (ImGui::IsKeyPressed(ImGuiKey_Keypad1, false)) {
+      snapView(ctrl ? AxisView::Back : AxisView::Front);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Keypad3, false)) {
+      snapView(ctrl ? AxisView::Left : AxisView::Right);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Keypad7, false)) {
+      snapView(ctrl ? AxisView::Bottom : AxisView::Top);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Keypad9, false)) {
+      oppositeView();
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Keypad5, false)) {
+      toggleProjection();
+    }
+  }
   const float wheel = ImGui::GetIO().MouseWheel;
   if (!m_cameraActive && hovered && !m_wheelForGame && wheel != 0.0f) {
     const float distance =
         m_view.hasFocusTarget ? glm::length(m_view.focusTarget - m_view.camera.camera().position) : 0.0f;
-    m_view.camera.dolly(wheel, distance, ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift));
+    if (m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic) {
+      const glm::vec3 before = m_view.camera.camera().position;
+      m_view.camera.zoom(wheel, (m_input.mouse - m_input.origin) / glm::max(m_input.size, glm::vec2{1.0f}),
+                         m_input.size.x / std::max(m_input.size.y, 1.0f));
+      const glm::vec3 pan = m_view.camera.camera().position - before;
+      m_view.pivot += pan;
+      m_view.focusTarget += pan;
+    } else {
+      m_view.camera.dolly(wheel, distance,
+                          ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift));
+    }
   }
   if (m_cameraActive && m_orbiting) {
     m_view.camera.orbit(lookDelta, m_view.pivot);
@@ -117,9 +146,21 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     if (flight.forward || flight.back || flight.left || flight.right || flight.up || flight.down) {
       m_view.hasPivot = false; // flown away: the next orbit picks a new pivot in front of the camera
     }
+    const glm::vec3 before = m_view.camera.camera().position;
     m_view.camera.update(dt, flight);
+    if (m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic) {
+      const glm::vec3 pan = m_view.camera.camera().position - before;
+      m_view.pivot += pan;
+      m_view.focusTarget += pan;
+    }
   }
 
+  const std::string label =
+      std::string{m_view.camera.viewName()} +
+      (m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic ? " Orthographic"
+                                                                                       : " Perspective");
+  ImGui::GetWindowDrawList()->AddText(ImVec2{origin.x + 8.0f, origin.y + available.y - 24.0f},
+                                      IM_COL32(240, 240, 240, 255), label.c_str());
   if (overlay) {
     overlay(m_input);
   }
@@ -131,6 +172,51 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
   return m_cameraActive;
 }
 
+glm::vec3 ViewportPanel::viewPivot() const {
+  if (m_view.hasPivot) {
+    return m_view.pivot;
+  }
+  if (m_view.hasFocusTarget) {
+    return m_view.focusTarget;
+  }
+  return m_view.camera.camera().position + m_view.camera.camera().forward() * m_view.focusDistance;
+}
+
+void ViewportPanel::snapView(AxisView view) {
+  m_view.pivot = viewPivot();
+  m_view.hasPivot = true;
+  m_view.camera.snap(view, m_view.pivot);
+}
+
+void ViewportPanel::oppositeView() {
+  m_view.camera.opposite(viewPivot());
+}
+void ViewportPanel::toggleProjection() {
+  m_view.camera.toggleProjection(viewPivot());
+}
+
+void ViewportPanel::drawViewMenu() {
+  if (ImGui::BeginMenu("Axis view")) {
+    const AxisView views[] = {AxisView::Front, AxisView::Back, AxisView::Right,
+                              AxisView::Left,  AxisView::Top,  AxisView::Bottom};
+    const char *names[] = {"Front", "Back", "Right", "Left", "Top", "Bottom"};
+    const char *keys[] = {"Numpad 1", "Ctrl+Numpad 1", "Numpad 3", "Ctrl+Numpad 3", "Numpad 7", "Ctrl+Numpad 7"};
+    for (int i = 0; i < 6; ++i) {
+      if (ImGui::MenuItem(names[i], keys[i], m_view.camera.axisView() == views[i])) {
+        snapView(views[i]);
+      }
+    }
+    if (ImGui::MenuItem("Opposite", "Numpad 9", false, m_view.camera.axisView() != AxisView::User)) {
+      oppositeView();
+    }
+    ImGui::EndMenu();
+  }
+  if (ImGui::MenuItem("Orthographic", "Numpad 5",
+                      m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic)) {
+    toggleProjection();
+  }
+}
+
 void ViewportPanel::focus(glm::vec3 target, float radius) {
   const float distance = std::max(radius, 0.5f) * 2.5f;
   // Keep the heading but look down at least a little, so a camera turned to the sky ends above
@@ -138,7 +224,11 @@ void ViewportPanel::focus(glm::vec3 target, float radius) {
   const float yaw = m_view.camera.yaw();
   const float pitch = std::min(m_view.camera.pitch(), MinFocusPitch);
   const glm::vec3 forward{-std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch)};
-  m_view.camera.lookAt(target - forward * distance, target);
+  if (m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic) {
+    m_view.camera.frame(target, distance);
+  } else {
+    m_view.camera.lookAt(target - forward * distance, target);
+  }
   m_view.focusTarget = target;
   m_view.hasFocusTarget = true;
   m_view.pivot = target;

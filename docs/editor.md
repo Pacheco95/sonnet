@@ -52,6 +52,16 @@ The frame, as `apps/editor/main.cpp` orders it:
 
 The Debug build of the application turns on the flecs explorer through `World`.
 
+## Axis views and orthographic navigation
+
+Numpad 1 snaps to Front (looking down -Z), Numpad 3 to Right (-X), and Numpad 7 to Top (-Y). Ctrl selects Back (+Z), Left (+X), and Bottom (+Y). Top has -Z up; Bottom has +Z up. Numpad 9 switches to the opposite axis view. View > Axis view offers the same commands without a numpad. The viewport labels its view in the lower-left corner. Each scene tab keeps its own projection, axis view and auto-perspective state alongside its fly camera.
+
+An axis snap turns around the current pivot: the focus target, or a point `focusDistance` ahead when there is none. It switches to orthographic, preserving the size at that pivot with `orthoHeight = 2 * distance * tan(fovY / 2)`. Turning with middle-drag or right-drag returns an automatically snapped view to perspective, preserving the zoomed size. Numpad 5 or View > Orthographic explicitly toggles projection; explicitly chosen orthographic views remain orthographic when turned.
+
+The orthographic wheel scales the view height around the cursor. While flying, W/S and Q/E pan up/down in the view plane and A/D pan left/right; Shift keeps its speed multiplier. F frames the selection without leaving its orthographic orientation. Picking uses the rendered id image; gizmo rays start on the near plane and their handles scale with view height. Orthographic views omit the perspective floor grid.
+
+Showcase verification on Linux/Lavapipe: [user view with TAA](reports/orthographic-viewport/user-final-taa.png), [shadow factor](reports/orthographic-viewport/user-shadow-factor.png), [top](reports/orthographic-viewport/top-final-taa.png), [front](reports/orthographic-viewport/front-final-taa.png). Reproduce with `editor_tests "[.orthographic-showcase]"`; the hidden test copies the showcase to a temporary project and writes captures under the temporary directory in `sonnet-orthographic-captures`.
+
 ## Shader hot reload
 
 The engine's shader sources are found in the checkout the way the log's source links are, `modules/renderer/shaders` under `sourceRoot` or above the executable. Every half second the editor compares their modification times; a changed entry-point file is recompiled with `editor::ShaderCompiler` and its pipelines rebuilt through `Renderer::reloadShader`, and a changed module, `sonnet.slang`, recompiles every entry point ([rendering.md](rendering.md#shaders)). Compile errors go to the log with the `file:line:column` the compiler reports and leave the previous pipelines running. Tools, Reload shaders does the same for every shader at once. Without a checkout around the binary the poll turns itself off.

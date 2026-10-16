@@ -213,13 +213,18 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
   // The handles are drawn and hit-tested where the object is; the drag maths below anchors at
   // the drag's start position instead, so a handle never chases what it moves.
   glm::vec3 origin{worldMatrix[3]};
-  const float length = m_drag ? m_drag->length : glm::distance(view.cameraPosition, origin) * HandleSizeFraction;
+  const float length = m_drag ? m_drag->length
+                              : (view.projection[3][3] == 1.0f ? 2.0f / view.projection[1][1]
+                                                               : glm::distance(view.cameraPosition, origin)) *
+                                    HandleSizeFraction;
   glm::vec3 axes[3];
   for (int i = 0; i < 3; ++i) {
     axes[i] = m_mode == GizmoMode::Scale ? glm::normalize(glm::vec3{worldMatrix[i]}) : glm::vec3{glm::mat4{1.0f}[i]};
   }
 
-  const glm::vec3 ray = rayDirection(view, view.mouse);
+  const auto mouseRay = renderer::cameraRay(view.projection * view.view,
+                                            (view.mouse - view.origin) / glm::max(view.size, glm::vec2{1.0f}));
+  const glm::vec3 ray = mouseRay.direction;
   if (!m_drag) {
     m_hover = hitTest(view, origin, axes, length);
     if (view.mouseClicked && m_hover != GizmoAxis::None) {
@@ -236,12 +241,12 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
                 .startAngle = 0.0f,
                 .length = length};
       if (m_mode == GizmoMode::Rotate) {
-        const auto hit = planeRayHit(origin, drag.axisDirection, view.cameraPosition, ray);
+        const auto hit = planeRayHit(origin, drag.axisDirection, mouseRay.origin, ray);
         drag.startAngle = hit ? angleInPlane(*hit, origin, drag.axisDirection) : 0.0f;
       } else if (isPlane(m_hover)) {
-        drag.startPoint = planeRayHit(origin, drag.axisDirection, view.cameraPosition, ray).value_or(origin);
+        drag.startPoint = planeRayHit(origin, drag.axisDirection, mouseRay.origin, ray).value_or(origin);
       } else {
-        drag.startParam = axisRayParam(origin, drag.axisDirection, view.cameraPosition, ray);
+        drag.startParam = axisRayParam(origin, drag.axisDirection, mouseRay.origin, ray);
       }
       m_drag = drag;
     }
@@ -259,7 +264,7 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
         glm::vec3 worldPosition = drag.startPosition;
         if (isPlane(drag.axis)) {
           const PlaneAxes &plane = Planes[static_cast<int>(drag.axis) - static_cast<int>(GizmoAxis::PlaneXY)];
-          if (const auto hit = planeRayHit(drag.startPosition, drag.axisDirection, view.cameraPosition, ray)) {
+          if (const auto hit = planeRayHit(drag.startPosition, drag.axisDirection, mouseRay.origin, ray)) {
             worldPosition += *hit - drag.startPoint;
             if (view.snap) {
               worldPosition[plane.a] = snapTo(worldPosition[plane.a], m_snap.translate);
@@ -267,7 +272,7 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
             }
           }
         } else {
-          const float param = axisRayParam(drag.startPosition, drag.axisDirection, view.cameraPosition, ray);
+          const float param = axisRayParam(drag.startPosition, drag.axisDirection, mouseRay.origin, ray);
           worldPosition += drag.axisDirection * (param - drag.startParam);
           if (view.snap) {
             worldPosition[index] = snapTo(worldPosition[index], m_snap.translate);
@@ -277,7 +282,7 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
         break;
       }
       case GizmoMode::Rotate: {
-        if (const auto hit = planeRayHit(drag.startPosition, drag.axisDirection, view.cameraPosition, ray)) {
+        if (const auto hit = planeRayHit(drag.startPosition, drag.axisDirection, mouseRay.origin, ray)) {
           float delta = angleInPlane(*hit, drag.startPosition, drag.axisDirection) - drag.startAngle;
           if (view.snap) {
             delta = snapTo(delta, m_snap.rotate);
@@ -289,7 +294,7 @@ GizmoResult Gizmo::update(const GizmoView &view, world::World &world, flecs::ent
         break;
       }
       case GizmoMode::Scale: {
-        const float param = axisRayParam(drag.startPosition, drag.axisDirection, view.cameraPosition, ray);
+        const float param = axisRayParam(drag.startPosition, drag.axisDirection, mouseRay.origin, ray);
         const float factor = 1.0f + (param - drag.startParam) / drag.length;
         float scale = drag.startLocal.scale[index] * factor;
         if (view.snap) {

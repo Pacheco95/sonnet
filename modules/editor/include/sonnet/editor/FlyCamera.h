@@ -8,6 +8,16 @@ namespace sonnet::editor {
 
 // The viewport camera: mouse look plus WASD for the horizontal plane and Q/E for down and up
 // (docs/roadmap.md, M1). Angles are radians (docs/conventions.md).
+enum class AxisView {
+  User,
+  Front,
+  Back,
+  Right,
+  Left,
+  Top,
+  Bottom
+};
+
 class FlyCamera {
 public:
   struct Input {
@@ -22,6 +32,15 @@ public:
   };
 
   FlyCamera();
+  void snap(AxisView view, glm::vec3 pivot);
+  void frame(glm::vec3 target, float distance);
+  void opposite(glm::vec3 pivot);
+  void toggleProjection(glm::vec3 pivot);
+  void zoom(float notches, glm::vec2 fraction, float aspect);
+  [[nodiscard]] AxisView axisView() const noexcept {
+    return m_axisView;
+  }
+  [[nodiscard]] const char *viewName() const noexcept;
 
   void update(float dt, const Input &input);
   // Places the camera so that it looks at `target` from `position`.
@@ -56,6 +75,9 @@ private:
   void applyOrientation();
 
   renderer::Camera m_camera;
+  AxisView m_axisView{AxisView::User};
+  bool m_autoPerspective{false};
+  float m_projectionDistance{10.0f};
   float m_yaw{0.0f};            // around +Y, 0 looks down -Z
   float m_pitch{0.0f};          // around the camera's X, positive looks up
   float m_speed{5.0f};          // metres per second

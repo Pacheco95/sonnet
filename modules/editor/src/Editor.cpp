@@ -748,6 +748,8 @@ void Editor::drawMenuBar() {
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("View")) {
+    m_viewportPanel.drawViewMenu();
+    ImGui::Separator();
     ImGui::MenuItem("Viewport", nullptr, &m_viewState.viewport);
     ImGui::MenuItem("Game", nullptr, &m_viewState.game);
     ImGui::MenuItem("Hierarchy", nullptr, &m_viewState.hierarchy);
@@ -1308,7 +1310,8 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     maskDesc.debugName = "selection mask";
     const renderer::GraphImage mask = m_graph.createImage(maskDesc);
     m_renderer.addScenePasses(m_graph, m_view, sceneColor, depth);
-    if (m_screenshotRequest ? m_captureGrid : floorGrid()) {
+    if ((m_screenshotRequest ? m_captureGrid : floorGrid()) &&
+        m_view.camera.projectionKind == renderer::ProjectionKind::Perspective) {
       m_renderer.addGridPass(m_graph, m_view, sceneColor, depth);
     }
     // Before the id pass, which leaves the depth undefined.

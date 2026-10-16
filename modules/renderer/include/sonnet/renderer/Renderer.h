@@ -562,6 +562,7 @@ private:
     std::uint64_t lastFrame{0};
     bool hasPrevious{false};
     glm::mat4 previousViewProjection{1.0f};
+    ProjectionKind projectionKind{ProjectionKind::Perspective};
   };
 
   // Every pipeline is recorded with the module it comes from, so a reload rebuilds it.
