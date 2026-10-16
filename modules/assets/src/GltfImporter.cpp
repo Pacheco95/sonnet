@@ -354,7 +354,8 @@ void flattenNormals(renderer::MeshData &data, std::uint32_t firstVertex, std::ui
 
 // The node hierarchy of the default scene, or of every root node without one, walked parents
 // before children. The full import and the structure-only read both go through here, so they
-// agree on every node's index, which is what a model prefab derives its entities' identities from.
+// agree on every node's index. A model prefab derives its entities' identities from the name path
+// instead (ADR-0030), the same path as below.
 struct NodeWalk {
   // By glTF node index, the path from the model's root: what joints and channels name their nodes
   // by (ADR-0010).

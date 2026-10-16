@@ -259,7 +259,7 @@ TEST_CASE("a model becomes a prefab with its node hierarchy and meshes", "[world
   REQUIRE(roots[0].get<world::Name>().value == "Body");
   REQUIRE(roots[0].get<world::MeshRenderer>().mesh == meshUuid);
   REQUIRE(roots[0].get<world::Transform>().position.x == Approx(1.0f));
-  REQUIRE(world.uuidOf(roots[0]) == core::Uuid::derive(modelUuid, "node/0"));
+  REQUIRE(world.uuidOf(roots[0]) == core::Uuid::derive(modelUuid, "path/Body"));
   REQUIRE(world.children(roots[0]).size() == 1);
   REQUIRE(world.children(roots[0])[0].get<world::Name>().value == "Wheel");
   REQUIRE(!roots[1].has<world::MeshRenderer>());
@@ -623,4 +623,94 @@ TEST_CASE("scene text keeps a vector on one line and is otherwise nlohmann's lay
   nlohmann::json withoutVectors = document;
   withoutVectors["entities"][0]["components"].erase("Transform");
   REQUIRE(world::sceneText(withoutVectors) == withoutVectors.dump(2) + "\n");
+}
+
+namespace {
+
+assets::Model stageModel(bool withNewFirst) {
+  assets::Model model;
+  model.nodes.push_back({.name = "Set", .parent = -1});
+  if (withNewFirst) {
+    model.nodes.push_back({.name = "New", .parent = 0});
+  }
+  model.nodes.push_back({.name = "A", .parent = 0});
+  model.nodes.push_back({.name = "B", .parent = 0});
+  return model;
+}
+
+flecs::entity child(world::World &world, const flecs::entity &instance, std::string_view name) {
+  for (const flecs::entity &node : world.children(world.children(instance)[0])) {
+    if (node.get<world::Name>().value == name) {
+      return node;
+    }
+  }
+  return {};
+}
+
+} // namespace
+
+TEST_CASE("a model node keeps its override when a node is inserted ahead of it (ADR-0030)", "[world][scene][prefab]") {
+  const core::Uuid modelUuid = core::Uuid::generate();
+  nlohmann::json scene;
+  core::Uuid instanceUuid;
+  {
+    world::World world;
+    const flecs::entity prefab = world::loadModelPrefab(world, stageModel(false), modelUuid, "Stage");
+    const flecs::entity instance = world.instantiate(prefab, "Stage 1");
+    instanceUuid = world.uuidOf(instance);
+    child(world, instance, "B").ensure<world::Transform>().position.x = 9.0f;
+    scene = world::saveScene(world);
+  }
+  // The re-exported file has a node ahead of A and B; a fresh world loads the saved scene onto it.
+  world::World reopened;
+  static_cast<void>(world::loadModelPrefab(reopened, stageModel(true), modelUuid, "Stage"));
+  REQUIRE(world::loadScene(reopened, scene).has_value());
+  const flecs::entity instance = reopened.find(instanceUuid);
+  REQUIRE(instance.is_valid());
+  REQUIRE(child(reopened, instance, "B").get<world::Transform>().position.x == Approx(9.0f));
+  REQUIRE(child(reopened, instance, "A").get<world::Transform>().position.x == Approx(0.0f));
+  REQUIRE(child(reopened, instance, "New").get<world::Transform>().position.x == Approx(0.0f));
+}
+
+TEST_CASE("equal sibling names take #n in sibling order and equal names under other parents do not clash",
+          "[world][scene][prefab]") {
+  const core::Uuid modelUuid = core::Uuid::generate();
+  assets::Model model;
+  model.nodes.push_back({.name = "Set", .parent = -1});
+  model.nodes.push_back({.name = "Lamp", .parent = 0});
+  model.nodes.push_back({.name = "Lamp", .parent = 0});
+  model.nodes.push_back({.name = "Arm", .parent = 0});
+  model.nodes.push_back({.name = "Lamp", .parent = 3});
+  world::World world;
+  const flecs::entity prefab = world::loadModelPrefab(world, model, modelUuid, "Stage");
+  const std::vector<flecs::entity> nodes = world.children(world.children(prefab)[0]);
+  REQUIRE(world.uuidOf(nodes[0]) == core::Uuid::derive(modelUuid, "path/Set/Lamp"));
+  REQUIRE(world.uuidOf(nodes[1]) == core::Uuid::derive(modelUuid, "path/Set/Lamp#1"));
+  REQUIRE(world.uuidOf(world.children(nodes[2])[0]) == core::Uuid::derive(modelUuid, "path/Set/Arm/Lamp"));
+}
+
+TEST_CASE("an override saved under the old index identities is skipped with no node changed",
+          "[world][scene][prefab]") {
+  const core::Uuid modelUuid = core::Uuid::generate();
+  world::World world;
+  const flecs::entity prefab = world::loadModelPrefab(world, stageModel(false), modelUuid, "Stage");
+  const flecs::entity instance = world.instantiate(prefab, "Stage 1");
+  child(world, instance, "B").ensure<world::Transform>().position.x = 9.0f;
+  nlohmann::json scene = world::saveScene(world);
+  // An entry saved under the index scheme names an identity no node has now.
+  bool rewritten = false;
+  for (nlohmann::json &entry : scene["entities"]) {
+    if (entry.value("instanced", false)) {
+      entry["uuid"] = core::Uuid::generate().toString();
+      rewritten = true;
+    }
+  }
+  REQUIRE(rewritten);
+
+  world::World reopened;
+  static_cast<void>(world::loadModelPrefab(reopened, stageModel(false), modelUuid, "Stage"));
+  REQUIRE(world::loadScene(reopened, scene).has_value());
+  const flecs::entity loaded = reopened.find(world.uuidOf(instance));
+  REQUIRE(child(reopened, loaded, "A").get<world::Transform>().position.x == Approx(0.0f));
+  REQUIRE(child(reopened, loaded, "B").get<world::Transform>().position.x == Approx(0.0f));
 }
