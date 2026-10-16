@@ -167,7 +167,7 @@ public struct FrameConstants {
   public float4x4 unjitteredViewProjection;
   public float4x4 previousViewProjection; // the last frame's, unjittered
   public float4x4 inverseProjection;
-  public float4x4 inverseViewProjection; // of the unjittered matrix: the sky's rays, which TAA does not jitter
+  public float4x4 inverseSkyProjection; // inverse unjittered projection rotated to world space, without translation
   public float4x4 cascadeMatrices[CascadeCount];
   public float4 cascadeSplits; // view depth where each cascade ends
   public float4 cascadeBlendStarts;
@@ -183,11 +183,11 @@ public struct FrameConstants {
   public float nearPlane;
   public float shadowBias;
   public float mipBias; // added to the level of material samples: -0.5 under TAA
-  public float padding;
+  public uint skyboxSampler;
   public uint cascadeImages[CascadeCount];
   public uint irradianceCube;
   public uint prefilteredCube;
-  public uint skyboxCube;
+  public uint skyboxMap;
   public uint brdfLut;
   public uint linearSampler;
   public uint shadowSampler;
@@ -307,6 +307,15 @@ public uint drawObject(uint startInstance, uint instance) {
 }
 
 public static const float Pi = 3.14159265359;
+
+// A sky ray has no camera translation. Subtracting nearby world-space points loses its
+// precision when the camera is far from the origin, corrupting both the ray and its derivatives.
+public float3 skyRay(float2 ndc) {
+  if (frame.cameraForward.w != 0.0) {
+    return frame.cameraForward.xyz;
+  }
+  return normalize(mul(frame.inverseSkyProjection, float4(ndc, 1.0, 1.0)).xyz);
+}
 
 // One triangle covering clip space; the parts outside are clipped.
 public float4 fullscreenTriangle(uint vertexId) {

@@ -103,3 +103,14 @@ TEST_CASE("orthographic reversed Z has finite depth and parallel offset rays", "
   REQUIRE(b.origin.y - a.origin.y == Approx(-4.0f));
   REQUIRE(a.origin.z == Approx(10.0f - camera.nearPlane).margin(1e-5f));
 }
+
+TEST_CASE("camera view orientation is independent of its world position", "[renderer][camera]") {
+  Camera camera;
+  camera.rotation = glm::angleAxis(0.37f, glm::normalize(glm::vec3{1, 2, 3}));
+  const glm::mat4 atOrigin = camera.view();
+  camera.position = {100000000.0f, -100000000.0f, 100000000.0f};
+  const glm::mat4 distant = camera.view();
+  for (int column = 0; column < 3; ++column) {
+    REQUIRE(distant[column] == atOrigin[column]);
+  }
+}

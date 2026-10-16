@@ -119,7 +119,7 @@ struct FrameConstants {
   glm::mat4 unjitteredViewProjection;
   glm::mat4 previousViewProjection; // the last frame's, unjittered
   glm::mat4 inverseProjection;
-  glm::mat4 inverseViewProjection; // of the unjittered matrix: the sky's rays, which TAA does not jitter
+  glm::mat4 inverseSkyProjection; // inverse unjittered projection rotated to world space, without translation
   glm::mat4 cascadeMatrices[Renderer::CascadeCount];
   glm::vec4 cascadeSplits;
   glm::vec4 cascadeBlendStarts;
@@ -135,11 +135,11 @@ struct FrameConstants {
   float nearPlane;
   float shadowBias;
   float mipBias; // added to the level of material samples: -0.5 under TAA, which softens the image
-  float padding;
+  std::uint32_t skyboxSampler;
   std::uint32_t cascadeImages[Renderer::CascadeCount];
   std::uint32_t irradianceCube;
   std::uint32_t prefilteredCube;
-  std::uint32_t skyboxCube;
+  std::uint32_t skyboxMap;
   std::uint32_t brdfLut;
   std::uint32_t linearSampler;
   std::uint32_t shadowSampler;
@@ -787,6 +787,7 @@ core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const
 
 void Renderer::createDefaults() {
   materialSampler({});
+  materialSampler({.wrapT = TextureWrap::ClampToEdge});
   m_linearClampSampler = m_device.createSampler({.addressModeU = rhi::AddressMode::ClampToEdge,
                                                  .addressModeV = rhi::AddressMode::ClampToEdge,
                                                  .debugName = "linear clamp"});
@@ -1100,16 +1101,22 @@ EnvironmentHandle Renderer::createEnvironment(const TextureData &equirectangular
                      equirectangular.expectedSize());
     return {};
   }
+  std::optional<TextureData> mipmapped;
+  if (equirectangular.mipLevels == 1 && equirectangular.format == HdrFormat) {
+    mipmapped = equirectangular;
+    generateMipChain(*mipmapped);
+  }
+  const TextureData &map = mipmapped ? *mipmapped : equirectangular;
   const rhi::ImageHandle equirect =
-      m_device.createImage({.size = equirectangular.size,
-                            .format = equirectangular.format,
+      m_device.createImage({.size = map.size,
+                            .format = map.format,
                             .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::TransferDst,
-                            .mipLevels = equirectangular.mipLevels,
+                            .mipLevels = map.mipLevels,
                             .debugName = std::format("{} equirectangular", debugName)});
   std::vector<rhi::ImageUpload> uploads;
-  uploads.reserve(equirectangular.mipLevels);
-  for (std::uint32_t level = 0; level < equirectangular.mipLevels; ++level) {
-    uploads.push_back({.mipLevel = level, .layer = 0, .data = equirectangular.level(level)});
+  uploads.reserve(map.mipLevels);
+  for (std::uint32_t level = 0; level < map.mipLevels; ++level) {
+    uploads.push_back({.mipLevel = level, .layer = 0, .data = map.level(level)});
   }
   m_device.uploadImage(equirect, uploads);
   const rhi::ImageUsage cubeUsage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage;
@@ -1182,7 +1189,7 @@ void Renderer::addPrecomputePasses(RenderGraph &graph, const SceneView &view) {
   m_frameImages.lut = m_lutImport;
   if (const Environment *environment = m_environments.find(view.environment)) {
     const EnvironmentImport imports = importEnvironment(graph, view.environment, *environment);
-    m_frameImages.skybox = imports.skybox;
+    m_frameImages.skybox = imports.equirectangular;
     m_frameImages.irradiance = imports.irradiance;
     m_frameImages.prefiltered = imports.prefiltered;
   }
@@ -1223,6 +1230,8 @@ Renderer::EnvironmentImport Renderer::importEnvironment(RenderGraph &graph, Envi
   const rhi::ImageLayout initial = environment.pending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General;
   const EnvironmentImport imports{
       .handle = handle,
+      .equirectangular = graph.importImage(environment.equirectangular, rhi::ImageLayout::ShaderReadOnly,
+                                           rhi::ImageLayout::ShaderReadOnly),
       .skybox = graph.importImage(environment.skybox, rhi::ImageLayout::General, initial),
       .irradiance = graph.importImage(environment.irradiance, rhi::ImageLayout::General, initial),
       .prefiltered = graph.importImage(environment.prefiltered, rhi::ImageLayout::General, initial)};
@@ -1234,8 +1243,7 @@ void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle
   const EnvironmentImport imports = importEnvironment(graph, handle, environment);
   environment.pending = false;
   const std::uint32_t sampler = m_device.samplerIndex(m_linearClampSampler);
-  const GraphImage equirect = graph.importImage(environment.equirectangular, rhi::ImageLayout::ShaderReadOnly,
-                                                rhi::ImageLayout::ShaderReadOnly);
+  const GraphImage equirect = imports.equirectangular;
   const GraphImage skybox = imports.skybox;
   const GraphImage irradiance = imports.irradiance;
   const GraphImage prefiltered = imports.prefiltered;
@@ -1310,16 +1318,6 @@ void Renderer::addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle
                        m_settings.prefilterSamples, roughness, 0.0f);
         });
   }
-  // The map is no longer needed once the frame that reads it has been recorded; destruction
-  // is deferred past that frame by the device.
-  graph.addPass(
-      "release equirect", [](PassBuilder &) {},
-      [this, handle, equirectImage](rhi::ICommandList &, const PassResources &) {
-        m_device.destroyImage(equirectImage);
-        if (Environment *current = m_environments.find(handle)) {
-          current->equirectangular = {};
-        }
-      });
 }
 
 // ---- Frame preparation ----
@@ -2708,7 +2706,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .unjitteredViewProjection = v.viewProjection,
       .previousViewProjection = v.previousViewProjection,
       .inverseProjection = glm::inverse(projection),
-      .inverseViewProjection = glm::inverse(v.viewProjection),
+      .inverseSkyProjection = glm::mat4_cast(view.camera.rotation) * glm::inverse(projection),
       .cascadeMatrices = {},
       .cascadeSplits = {},
       .cascadeBlendStarts = {},
@@ -2728,11 +2726,11 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .nearPlane = nearPlane,
       .shadowBias = m_settings.shadowBias,
       .mipBias = v.taa ? TaaMipBias : 0.0f,
-      .padding = 0.0f,
+      .skyboxSampler = materialSampler({.wrapT = TextureWrap::ClampToEdge}),
       .cascadeImages = {},
       .irradianceCube = environmentReady ? sampledIndex(environment->irradiance) : rhi::InvalidBindlessIndex,
       .prefilteredCube = environmentReady ? sampledIndex(environment->prefiltered) : rhi::InvalidBindlessIndex,
-      .skyboxCube = environmentReady ? sampledIndex(environment->skybox) : rhi::InvalidBindlessIndex,
+      .skyboxMap = environmentReady ? sampledIndex(environment->equirectangular) : rhi::InvalidBindlessIndex,
       .brdfLut = sampledIndex(m_brdfLut),
       .linearSampler = m_device.samplerIndex(m_linearClampSampler),
       .shadowSampler = m_device.samplerIndex(m_shadowSampler),

@@ -102,6 +102,22 @@ TextureData skyTexture(glm::vec3 color) {
   return texture;
 }
 
+TextureData detailedSky() {
+  TextureData map{.size = {512, 256}, .format = Format::R16G16B16A16Sfloat, .data = {}};
+  map.data.resize(static_cast<std::size_t>(map.expectedSize()));
+  for (unsigned y = 0; y < map.size.y; ++y) {
+    for (unsigned x = 0; x < map.size.x; ++x) {
+      // Continuous at the longitude wrap and constant at either pole.
+      const float latitude = std::sin((float(y) + 0.5f) * glm::pi<float>() / float(map.size.y));
+      const float value = 0.5f + 0.4f * latitude * std::cos((float(x) + 0.5f) * glm::two_pi<float>() / 8.0f);
+      const std::array<std::uint16_t, 4> texel{glm::packHalf1x16(value), glm::packHalf1x16(value),
+                                               glm::packHalf1x16(value), glm::packHalf1x16(1.0f)};
+      std::memcpy(map.data.data() + (std::size_t(y) * map.size.x + x) * sizeof(texel), texel.data(), sizeof(texel));
+    }
+  }
+  return map;
+}
+
 struct Pixel {
   int r, g, b, a;
 };
@@ -469,12 +485,12 @@ TEST_CASE("an environment is precomputed by the first scene passes after its cre
     device->endFrame();
     if (frame == 0) {
       // An 8x8 cube has four levels: the conversion, three mips, the irradiance, two prefiltered
-      // levels, and the release of the map.
+      // levels. The map stays alive for the background.
       REQUIRE(hasPass(graph, "equirect to cube"));
       REQUIRE(hasPass(graph, "cube mip 3"));
       REQUIRE(hasPass(graph, "irradiance"));
       REQUIRE(hasPass(graph, "prefilter 1"));
-      REQUIRE(hasPass(graph, "release equirect"));
+      REQUIRE(!hasPass(graph, "release equirect"));
       REQUIRE(countLines(*device, "dispatch 1 1 6") == 1 + 3 + 1 + 2);
       REQUIRE(countLines(*device, "barrier \"sky skybox\" Undefined->General") == 1);
       REQUIRE(countLines(*device, "barrier \"sky skybox\" General->General") >= 3);
@@ -3087,6 +3103,124 @@ TEST_CASE("a clustered point light reaches only the ground within its range on a
     REQUIRE(device->validationMessageCount() == 0);
     renderer.destroyMesh(plane);
   }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("HDR mip levels average radiance without clamping it", "[renderer][texture]") {
+  auto map = skyTexture({4.0f, 8.0f, 16.0f});
+  const std::uint16_t bright = glm::packHalf1x16(12.0f);
+  std::memcpy(map.data.data(), &bright, sizeof(bright));
+  generateMipChain(map);
+  REQUIRE(map.mipLevels == 4);
+  REQUIRE(map.data.size() == map.expectedSize());
+  std::uint16_t half;
+  std::memcpy(&half, map.level(1).data(), sizeof(half));
+  CHECK(glm::unpackHalf1x16(half) == 6.0f);
+  std::memcpy(&half, map.level(3).data(), sizeof(half));
+  CHECK(glm::unpackHalf1x16(half) == 4.25f);
+}
+
+TEST_CASE("sky detail is independent of the lighting cube resolution", "[renderer][gpu][skybox]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  const auto map = detailedSky();
+  std::vector<std::byte> reference;
+  for (const auto cubeSize : {8u, 128u}) {
+    auto settings = testSettings();
+    settings.environmentSize = cubeSize;
+    settings.maxEnvironmentSize = cubeSize;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const auto sky = renderer.createEnvironment(map, "detailed sky");
+    SceneView view = boxScene({});
+    view.environment = sky;
+    // Looking through the longitude seam; the map must survive the first frame as well.
+    view.camera.rotation = glm::angleAxis(glm::half_pi<float>(), glm::vec3{0, 1, 0});
+    GpuScene scene{*device, renderer, {128, 128}};
+    scene.render(view, 2);
+    auto pixels = device->mappedRange(scene.readback);
+    if (reference.empty()) {
+      reference.assign(pixels.begin(), pixels.end());
+      int darkest = 255, brightest = 0;
+      for (unsigned x = 0; x < 128; ++x) {
+        const auto pixel = scene.pixel(x, 64);
+        darkest = std::min(darkest, pixel.r);
+        brightest = std::max(brightest, pixel.r);
+      }
+      CHECK(brightest - darkest > 50);
+      // The wrap must preserve the same detail and brightness as its neighbours.
+      CHECK(std::abs(scene.pixel(63, 64).r - scene.pixel(64, 64).r) < 10);
+    } else {
+      CHECK(std::equal(reference.begin(), reference.end(), pixels.begin(), pixels.end()));
+    }
+    renderer.destroyEnvironment(sky);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("sky rays and mip selection ignore camera distance", "[renderer][gpu][skybox]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  for (const auto antialiasing : {AntiAliasing::None, AntiAliasing::Taa}) {
+    auto settings = testSettings();
+    settings.antialiasing = antialiasing;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const auto sky = renderer.createEnvironment(detailedSky(), "distant sky");
+    GpuScene scene{*device, renderer, {64, 64}};
+    SceneView view = boxScene({});
+    view.environment = sky;
+    view.camera.rotation = glm::angleAxis(0.37f, glm::normalize(glm::vec3{1, 2, 3}));
+    for (const auto projection : {ProjectionKind::Perspective, ProjectionKind::Orthographic}) {
+      view.camera.projectionKind = projection;
+      view.camera.position = glm::vec3{0};
+      scene.render(view, 8);
+      const auto bytes = device->mappedRange(scene.readback);
+      const std::vector<std::byte> reference{bytes.begin(), bytes.end()};
+      for (const float distance : {10000.0f, -10000.0f, 1000000.0f, -1000000.0f}) {
+        CAPTURE(antialiasing, projection, distance);
+        view.camera.position = glm::vec3{distance, distance * 0.5f, -distance};
+        scene.render(view, 8);
+        CHECK(std::ranges::equal(reference, device->mappedRange(scene.readback)));
+      }
+    }
+    renderer.destroyEnvironment(sky);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a minified sky filters across the longitude seam and both poles", "[renderer][gpu][skybox]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  TextureData map{.size = {512, 256}, .format = Format::R16G16B16A16Sfloat, .data = {}};
+  map.data.resize(static_cast<std::size_t>(map.expectedSize()));
+  for (unsigned y = 0; y < map.size.y; ++y) {
+    for (unsigned x = 0; x < map.size.x; ++x) {
+      const auto value = glm::packHalf1x16((x + y) % 2 ? 1.0f : 0.0f);
+      const std::array<std::uint16_t, 4> texel{value, value, value, glm::packHalf1x16(1.0f)};
+      std::memcpy(map.data.data() + (std::size_t(y) * map.size.x + x) * sizeof(texel), texel.data(), sizeof(texel));
+    }
+  }
+  const auto checker = renderer.createEnvironment(map, "checker sky");
+  const auto flat = renderer.createEnvironment(skyTexture({0.5f, 0.5f, 0.5f}), "flat sky");
+  GpuScene scene{*device, renderer, {16, 16}};
+  SceneView view = boxScene({});
+  view.camera.fovY = glm::radians(120.0f);
+  for (const auto direction : {glm::vec3{-1, 0, 0}, glm::vec3{0, 1, 0}, glm::vec3{0, -1, 0}}) {
+    CAPTURE(direction.x, direction.y, direction.z);
+    view.camera.rotation = glm::quatLookAt(direction, direction.y == 0 ? glm::vec3{0, 1, 0} : glm::vec3{0, 0, 1});
+    view.environment = flat;
+    scene.render(view);
+    const Pixel expected = scene.pixel(8, 8);
+    view.environment = checker;
+    scene.render(view, 2);
+    for (unsigned y = 0; y < 16; ++y) {
+      for (unsigned x = 0; x < 16; ++x) {
+        CHECK(std::abs(scene.pixel(x, y).r - expected.r) <= 1);
+      }
+    }
+  }
+  renderer.destroyEnvironment(checker);
+  renderer.destroyEnvironment(flat);
   REQUIRE(device->validationMessageCount() == 0);
 }
 

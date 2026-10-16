@@ -43,13 +43,6 @@ float2 clipToUv(float4 clip) {
   return float2(clip.x / clip.w * 0.5 + 0.5, 0.5 - clip.y / clip.w * 0.5);
 }
 
-// The ray through the pixel from the camera, as the skybox drew it: the point on the near plane
-// the unjittered matrix looks through, less the camera.
-float3 skyDirection(float2 uv) {
-  const float4 point = mul(frame.inverseViewProjection, float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0));
-  return point.xyz / point.w - frame.cameraPosition.xyz;
-}
-
 // The history at `uv` through a Catmull-Rom filter in nine bilinear taps, whose negative lobes are
 // clamped away afterwards.
 float3 historyAt(float2 uv) {
@@ -122,7 +115,7 @@ float4 resolve(VertexOutput input) : SV_Target {
   if (closest <= 0.0 && frame.cameraForward.w != 0.0) {
     motion = float2(0.0);
   } else if (closest <= 0.0) {
-    const float3 direction = skyDirection(uv);
+    const float3 direction = skyRay(float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0));
     motion = clipToUv(mul(frame.unjitteredViewProjection, float4(direction, 0.0))) -
              clipToUv(mul(frame.previousViewProjection, float4(direction, 0.0)));
   } else {

@@ -263,7 +263,9 @@ core::Result<std::vector<std::byte>> cookHdrKtx2(const renderer::TextureData &so
   if (source.format != rhi::Format::R16G16B16A16Sfloat || source.cube || source.mipLevels != 1) {
     return std::unexpected(core::Error{"only a single RGBA16F image is cooked as UASTC HDR", core::ErrorCategory::Io});
   }
-  auto created = createKtx2(source);
+  auto mipmapped = source;
+  renderer::generateMipChain(mipmapped);
+  auto created = createKtx2(mipmapped);
   if (!created) {
     return std::unexpected(created.error());
   }

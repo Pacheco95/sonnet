@@ -115,7 +115,7 @@ struct RendererSettings {
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
   // present pipeline out, which is what the editor does: it shows the scene through Dear ImGui.
   rhi::Format presentFormat{rhi::Format::Undefined};
-  // The skybox cube per face, with a full mip chain, at least `environmentSize`; a wider map gets a
+  // The lighting source cube per face, with a full mip chain, at least `environmentSize`; a wider map gets a
   // quarter of its width, the texels it has across a face's 90 degrees, rounded up to a power of
   // two and at most `maxEnvironmentSize`, so a 4K map keeps 1024 and an 8K one 2048.
   std::uint32_t environmentSize{512};
@@ -216,7 +216,7 @@ public:
   [[nodiscard]] bool isValid(MaterialHandle handle) const;
   [[nodiscard]] const MaterialDesc &material(MaterialHandle handle) const;
 
-  // An environment from an equirectangular map, typically RGBA16F: the skybox cube, the
+  // An environment retains its equirectangular map for the background; the source cube, the
   // irradiance cube and the prefiltered specular cube are computed by passes the next
   // addScenePasses declares (docs/rendering.md, "Image-based lighting").
   [[nodiscard]] EnvironmentHandle createEnvironment(const TextureData &equirectangular, std::string debugName);
@@ -407,7 +407,7 @@ private:
   };
   struct Environment {
     std::string debugName;
-    rhi::ImageHandle equirectangular; // released once the cubes are computed
+    rhi::ImageHandle equirectangular; // retained for the sky background
     rhi::ImageHandle skybox;
     rhi::ImageHandle irradiance;
     rhi::ImageHandle prefiltered;
@@ -659,10 +659,11 @@ private:
   void recordPost(rhi::ICommandList &commands, const SceneView *view, rhi::PipelineHandle pipeline,
                   rhi::ImageHandle source, rhi::ImageHandle secondary, glm::uvec2 targetSize);
   void addPrecomputePasses(RenderGraph &graph, const SceneView &view);
-  // The graph's imports of an environment's cubes, made once per graph frame however many views
+  // The graph's imports of an environment's map and cubes, made once per graph frame however many views
   // sample them, so the passes that compute them and every view's reads share one image each.
   struct EnvironmentImport {
     EnvironmentHandle handle;
+    GraphImage equirectangular;
     GraphImage skybox;
     GraphImage irradiance;
     GraphImage prefiltered;
