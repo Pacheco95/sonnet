@@ -349,6 +349,8 @@ public:
   [[nodiscard]] assets::AssetDatabase &assets() noexcept {
     return m_assets;
   }
+  // References considered by the Assets panel's delete confirmation, across all open tabs.
+  [[nodiscard]] AssetReferences assetReferences(core::Uuid uuid);
   [[nodiscard]] AssetBrowserPanel &assetBrowser() noexcept {
     return m_assetBrowserPanel;
   }
@@ -487,6 +489,7 @@ private:
   void markSaved();
   void updateTitle();
   void loadPrefabs();
+  void filesMoved(const std::filesystem::path &from, const std::filesystem::path &to);
   void openLocation(const std::string &path, int line);
   [[nodiscard]] core::Result<void> loadSceneFile(const std::filesystem::path &file);
   [[nodiscard]] std::optional<std::filesystem::path> shaderSourceDirectory();

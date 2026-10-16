@@ -9,12 +9,15 @@
 #include <sonnet/core/Uuid.h>
 #include <sonnet/world/World.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace sonnet::editor {
 
@@ -56,6 +59,12 @@ enum class AssetSortColumn {
 // reversing that key; ties go by name ascending, then identity, so the order is total.
 void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descending);
 
+struct AssetReferences {
+  std::size_t entities{0};
+  std::size_t materials{0};
+  std::size_t instances{0};
+};
+
 // The project's assets and prefab files by type and name (docs/editor.md, "Asset browser"): a filter, a multi-select
 // type filter, one row per asset or prefab, sorted by the column header clicked last (Name by default). Clicking an
 // asset inspects it without touching the selection; rows are drag sources; the buttons create a material file in the
@@ -67,6 +76,15 @@ public:
   AssetBrowserPanel(assets::AssetDatabase &assets, world::World &world, Selection &selection);
 
   void draw(bool &open);
+  [[nodiscard]] bool focused() const noexcept;
+  void
+  setFileHandlers(std::function<core::Result<void>(const std::filesystem::path &, const std::filesystem::path &)> move,
+                  std::function<core::Result<void>(const std::filesystem::path &)> remove,
+                  std::function<AssetReferences(core::Uuid)> references) {
+    m_move = std::move(move);
+    m_remove = std::move(remove);
+    m_references = std::move(references);
+  }
   // Opens a file at a line in the external editor; the row menu's Open entry for scripts uses it.
   void setOpenHandler(std::function<void(const std::string &, int)> handler) {
     m_open = std::move(handler);
@@ -91,6 +109,9 @@ public:
 
 private:
   void drawContextMenu(const AssetRow &row);
+  void beginRename(const AssetRow &row);
+  void confirmDelete(const AssetRow &row);
+  void drawDeleteModal();
   void createMaterial();
   void createScript();
 
@@ -105,6 +126,19 @@ private:
   bool m_sortDescending = false;
   std::function<void(const std::string &, int)> m_open;
   std::function<void()> m_import;
+  std::function<core::Result<void>(const std::filesystem::path &, const std::filesystem::path &)> m_move;
+  std::function<core::Result<void>(const std::filesystem::path &)> m_remove;
+  std::function<AssetReferences(core::Uuid)> m_references;
+  core::Uuid m_focused;
+  core::Uuid m_renaming;
+  std::string m_rename;
+  bool m_renameFocus{false};
+  std::optional<std::pair<std::filesystem::path, std::filesystem::path>> m_pendingRename;
+  core::Uuid m_deleteUuid;
+  std::filesystem::path m_delete;
+  AssetReferences m_deleteReferences;
+  bool m_deleteRequested{false};
+  std::string m_fileError;
   int m_drawnFrame = -1; // ImGui's frame count when the panel last showed a project
   glm::vec2 m_min{0.0f};
   glm::vec2 m_max{0.0f};

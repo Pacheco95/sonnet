@@ -7,6 +7,7 @@
 #include <sonnet/editor/Selection.h>
 
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/assets/Project.h>
 #include <sonnet/core/File.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/renderer/Renderer.h>
@@ -614,4 +615,138 @@ TEST_CASE("save as prefab replaces a subtree by an instance of it, and undo brin
   REQUIRE(world.children(world.find(uuid)).size() == 1);
   REQUIRE(commands.redo(world));
   REQUIRE(world.isInstance(world.find(uuid)));
+}
+
+TEST_CASE("file commands preserve identities through rename and trash undo", "[editor][commands][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase database{renderer, jobs};
+  world::World world;
+  editor::CommandStack commands;
+  const auto root = std::filesystem::temp_directory_path() / "sonnet_file_commands";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  const std::vector<std::string> roots{"assets"};
+  database.open(root, roots);
+  const auto from = root / "assets/a.lua";
+  const auto to = root / "assets/b.lua";
+  const auto id = database.createScript(from, "return {}");
+  REQUIRE(id);
+  auto moved = editor::moveFilesCommand(database, world, from, to);
+  REQUIRE(moved);
+  commands.record(std::move(*moved));
+  CHECK(database.find(*id)->source == to);
+  REQUIRE(commands.undo(world));
+  CHECK(database.find(*id)->source == from);
+  REQUIRE(commands.redo(world));
+  const std::vector<std::filesystem::path> files{to};
+  auto deleted = editor::deleteFilesCommand(database, world, files);
+  REQUIRE(deleted);
+  commands.record(std::move(*deleted));
+  CHECK(database.find(*id) == nullptr);
+  CHECK_FALSE(std::filesystem::exists(to));
+  CHECK_FALSE(std::filesystem::exists(to.string() + ".meta"));
+  CHECK_FALSE(std::filesystem::is_empty(root / ".sonnet/trash"));
+  REQUIRE(commands.undo(world));
+  REQUIRE(database.find(*id) != nullptr);
+  CHECK(std::filesystem::exists(to));
+  REQUIRE(commands.redo(world));
+  commands.clear();
+  CHECK(std::filesystem::is_empty(root / ".sonnet/trash"));
+  std::filesystem::remove_all(root);
+}
+
+TEST_CASE("moving prefab and scene files follows project paths", "[editor][commands][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  assets::AssetDatabase database{renderer, jobs};
+  world::World world;
+  const auto root = std::filesystem::temp_directory_path() / "sonnet_move_prefab";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "prefabs");
+  std::filesystem::create_directories(root / "scenes");
+  assets::Project project;
+  project.root = root;
+  REQUIRE(project.save());
+  database.open(root, project.assetRoots);
+  auto entity = world.createEntity("Crate");
+  world.createEntity("Child", entity);
+  const auto original = root / "prefabs/Crate.prefab.json";
+  REQUIRE(world::savePrefabFile(world, entity, original));
+  world.destroyEntity(entity);
+  auto prefab = world::loadPrefabFile(world, original);
+  REQUIRE(prefab);
+  auto instance = world.instantiate(*prefab, "Instance");
+  const auto prefabId = world.uuidOf(*prefab);
+  const auto instanceId = world.uuidOf(instance);
+  REQUIRE(world.children(instance).size() == 1);
+  const auto childId = world.uuidOf(world.children(instance).front());
+  const auto renamed = root / "prefabs/Box.prefab.json";
+  auto move = editor::moveFilesCommand(database, world, original, renamed);
+  REQUIRE(move);
+  CHECK(prefab->get<world::PrefabFile>().path == renamed);
+  (*move)->revert(world);
+  CHECK(prefab->get<world::PrefabFile>().path == original);
+  const std::vector<std::filesystem::path> files{original};
+  auto deleted = editor::deleteFilesCommand(database, world, files);
+  REQUIRE(deleted);
+  CHECK_FALSE(world.find(prefabId));
+  REQUIRE(world.find(instanceId));
+  (*deleted)->revert(world);
+  REQUIRE(world.find(prefabId));
+  CHECK(world.prefabOf(world.find(instanceId)) == world.find(prefabId));
+  CHECK(world.children(world.find(instanceId)).size() == 1);
+  CHECK(world.find(childId));
+  deleted->reset();
+  const auto scene = root / project.startScene;
+  REQUIRE(core::writeFile(scene, "{}"));
+  std::filesystem::path tab = scene;
+  const auto destination = root / "scenes/start.scene.json";
+  auto movedScene =
+      editor::moveFilesCommand(database, world, scene, destination, [&](const auto &, const auto &to) { tab = to; });
+  REQUIRE(movedScene);
+  CHECK(tab == destination);
+  REQUIRE(assets::Project::open(root));
+  CHECK(assets::Project::open(root)->startScene == "scenes/start.scene.json");
+  (*movedScene)->revert(world);
+  CHECK(tab == scene);
+  CHECK(assets::Project::open(root)->startScene == project.startScene);
+  std::filesystem::remove_all(root);
+}
+
+TEST_CASE("a failed delete undo never overwrites a replacement or the trashed source", "[editor][commands][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  assets::AssetDatabase database{renderer, jobs};
+  world::World world;
+  const auto root = std::filesystem::temp_directory_path() / "sonnet_delete_conflict";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  const std::vector<std::string> roots{"assets"};
+  database.open(root, roots);
+  const auto source = root / "assets/a.lua";
+  const auto id = database.createScript(source, "return {original = true}");
+  REQUIRE(id);
+  const std::vector<std::filesystem::path> files{source};
+  auto deleted = editor::deleteFilesCommand(database, world, files);
+  REQUIRE(deleted);
+  REQUIRE(core::writeFile(source, "replacement"));
+  (*deleted)->revert(world);
+  CHECK(database.find(*id) == nullptr);
+  (*deleted)->apply(world);
+  const auto bytes = core::readFile(source);
+  REQUIRE(bytes);
+  CHECK(std::string(reinterpret_cast<const char *>(bytes->data()), bytes->size()) == "replacement");
+  std::filesystem::remove(source);
+  (*deleted)->revert(world);
+  REQUIRE(database.find(*id));
+  CHECK(database.script(*id)->code == "return {original = true}");
+  deleted->reset();
+  std::filesystem::remove_all(root);
 }

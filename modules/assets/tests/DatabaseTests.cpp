@@ -948,3 +948,109 @@ TEST_CASE("material samplers round-trip per slot and migrate legacy wraps", "[as
     }
   }
 }
+
+TEST_CASE("moving sources preserves identities and loaded objects", "[assets][database][move]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const auto wood = fixture.root / "assets/wood.png";
+  const auto id = database.findByPath(wood)->uuid;
+  const auto handle = database.requestTexture(id);
+  static_cast<void>(handle);
+  const auto before = std::filesystem::last_write_time(wood);
+  const auto to = fixture.root / "assets/renamed.png";
+  REQUIRE(database.move(wood, to));
+  REQUIRE_FALSE(database.loading());
+  CHECK(database.find(id)->source == to);
+  CHECK(database.find(id)->name == "renamed");
+  CHECK(database.findByPath(to)->uuid == id);
+  CHECK(std::filesystem::exists(to.string() + ".meta"));
+  CHECK_FALSE(std::filesystem::exists(wood));
+  CHECK(std::filesystem::last_write_time(to) == before);
+  CHECK(database.pollChanges().empty());
+  const auto texture = database.texture(id);
+  REQUIRE(texture);
+  REQUIRE(database.move(to, fixture.root / "assets/Renamed.png"));
+  CHECK(database.texture(id) == texture);
+  database.close();
+  database.open(fixture.root, fixture.roots);
+  CHECK(database.findByPath(fixture.root / "assets/Renamed.png")->uuid == id);
+}
+
+TEST_CASE("moving models and folders preserves every sub-asset", "[assets][database][move]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const auto folder = fixture.root / "assets/models";
+  const auto model = folder / "crate.gltf";
+  const auto id = database.findByPath(model)->uuid;
+  std::vector<core::Uuid> subs;
+  for (const auto *info : database.assets()) {
+    if (info->parent == id) {
+      subs.push_back(info->uuid);
+    }
+  }
+  REQUIRE_FALSE(subs.empty());
+  CHECK_FALSE(database.move(model, fixture.root / "assets/crate.gltf"));
+  REQUIRE(database.move(model, folder / "box.gltf"));
+  for (const auto &sub : subs) {
+    CHECK(database.find(sub)->source == folder / "box.gltf");
+  }
+  const auto to = fixture.root / "assets/objects";
+  REQUIRE(database.move(folder, to));
+  CHECK(database.find(id)->source == to / "box.gltf");
+  for (const auto &sub : subs) {
+    CHECK(database.find(sub)->source == to / "box.gltf");
+  }
+  CHECK(database.findByPath(to / "wood.png") != nullptr);
+  CHECK(database.pollChanges().empty());
+}
+
+TEST_CASE("moves refuse invalid destinations without touching files", "[assets][database][move]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const auto from = fixture.root / "assets/wood.png";
+  const auto id = database.findByPath(from)->uuid;
+  CHECK_FALSE(database.move(from, fixture.root / "wood.png"));
+  CHECK_FALSE(database.move(from, fixture.root / "assets/models/wood.png"));
+  CHECK_FALSE(database.move(from, fixture.root / "assets/wood.jpg"));
+  CHECK_FALSE(database.move(from, fixture.root / "assets/missing/wood.png"));
+  CHECK(std::filesystem::exists(from));
+  CHECK(database.find(id)->source == from);
+}
+
+TEST_CASE("moved scripts reload under a new revision and unregister removes all cache variants",
+          "[assets][database][move]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const auto script = database.createScript(fixture.root / "assets/a.lua", "return {}");
+  REQUIRE(script);
+  const auto revision = database.script(*script)->revision;
+  REQUIRE(database.move(fixture.root / "assets/a.lua", fixture.root / "assets/b.lua"));
+  CHECK(database.script(*script)->revision > revision);
+  const auto model = database.findByPath(fixture.root / "assets/models/crate.gltf")->uuid;
+  std::vector<core::Uuid> ids{model};
+  for (const auto *info : database.assets()) {
+    if (info->parent == model) {
+      ids.push_back(info->uuid);
+    }
+  }
+  std::filesystem::create_directories(database.cacheDirectory());
+  for (const auto &id : ids) {
+    for (const auto *suffix : {".ktx2", ".astc.ktx2", ".hdr.ktx2"}) {
+      REQUIRE(core::writeFile(database.cacheDirectory() / (id.toString() + suffix), "cache"));
+    }
+  }
+  const auto unrelated = database.cacheDirectory() / "unrelated.ktx2";
+  REQUIRE(core::writeFile(unrelated, "keep"));
+  database.unregister(model);
+  for (const auto &id : ids) {
+    CHECK(database.find(id) == nullptr);
+    for (const auto *suffix : {".ktx2", ".astc.ktx2", ".hdr.ktx2"}) {
+      CHECK_FALSE(std::filesystem::exists(database.cacheDirectory() / (id.toString() + suffix)));
+    }
+  }
+  CHECK(std::filesystem::exists(unrelated));
+}

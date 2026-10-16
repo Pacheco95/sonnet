@@ -88,3 +88,15 @@ TEST_CASE("a project file carries a schema version, a missing one is 1 and a new
   }
   std::filesystem::remove_all(root);
 }
+
+TEST_CASE("project file discovery skips internal trash and cache", "[assets][project]") {
+  const auto root = test::freshDirectory("sonnet_project_trash");
+  std::filesystem::create_directories(root / ".sonnet/trash/1");
+  std::filesystem::create_directories(root / "prefabs");
+  REQUIRE(core::writeFile(root / ".sonnet/trash/1/hidden.prefab.json", "{}"));
+  REQUIRE(core::writeFile(root / "prefabs/visible.prefab.json", "{}"));
+  Project project;
+  project.root = root;
+  CHECK(project.files(".prefab.json") == std::vector<std::filesystem::path>{root / "prefabs/visible.prefab.json"});
+  std::filesystem::remove_all(root);
+}

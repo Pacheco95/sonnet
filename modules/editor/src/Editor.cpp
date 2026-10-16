@@ -26,6 +26,7 @@
 #include <format>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -96,6 +97,27 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_assetBrowserPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_assetBrowserPanel.setImportHandler([this] { chooseAssetsToImport(); });
+  m_assetBrowserPanel.setFileHandlers(
+      [this](const std::filesystem::path &from, const std::filesystem::path &to) -> core::Result<void> {
+        auto command = moveFilesCommand(m_assets, m_world, from, to, [this](const auto &oldPath, const auto &newPath) {
+          filesMoved(oldPath, newPath);
+        });
+        if (!command) {
+          return std::unexpected(command.error());
+        }
+        m_commands.record(std::move(*command));
+        return {};
+      },
+      [this](const std::filesystem::path &file) -> core::Result<void> {
+        const std::array files{file};
+        auto command = deleteFilesCommand(m_assets, m_world, files);
+        if (!command) {
+          return std::unexpected(command.error());
+        }
+        m_commands.record(std::move(*command));
+        return {};
+      },
+      [this](core::Uuid uuid) { return assetReferences(uuid); });
   // The module's components and systems go in after the engine's and before any scene loads, as
   // the player registers them.
   if (m_module != nullptr) {
@@ -577,7 +599,7 @@ void Editor::applyPick(std::uint32_t id) {
 
 void Editor::handleShortcuts() {
   const ImGuiIO &io = ImGui::GetIO();
-  if (io.WantTextInput || m_modal != Modal::None) {
+  if (io.WantTextInput || m_modal != Modal::None || ImGui::GetTopMostPopupModal() != nullptr) {
     return;
   }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z)) {
@@ -602,7 +624,7 @@ void Editor::handleShortcuts() {
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D)) {
     m_hierarchyPanel.duplicateSelection();
   }
-  if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+  if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && !m_assetBrowserPanel.focused()) {
     m_hierarchyPanel.deleteSelection();
   }
   if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
@@ -1443,6 +1465,11 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   m_world.clearScene();
   m_cutHistory = true;
   m_world.clearPrefabs();
+  std::error_code trashError;
+  std::filesystem::remove_all(m_project->root / ".sonnet" / "trash", trashError);
+  if (trashError) {
+    SONNET_LOG_WARN("clearing project trash: {}", trashError.message());
+  }
   m_assets.open(m_project->root, m_project->assetRoots);
   loadPrefabs();
   core::Result<void> opened;
@@ -1549,6 +1576,172 @@ core::Result<void> Editor::createProject(const std::filesystem::path &directory,
     return std::unexpected(project.error());
   }
   return openProject(project->root);
+}
+
+void Editor::filesMoved(const std::filesystem::path &from, const std::filesystem::path &to) {
+  const auto update = [&](std::filesystem::path &path) {
+    const auto relative = path.lexically_relative(from);
+    if (!relative.empty() && *relative.begin() != "..") {
+      path = relative == "." ? to : to / relative;
+    }
+  };
+  update(m_scenePath);
+  for (auto &tab : m_tabs) {
+    update(tab.path);
+  }
+  if (m_project) {
+    auto start = m_project->resolve(m_project->startScene);
+    update(start);
+    m_project->startScene = m_project->relative(start);
+  }
+}
+
+AssetReferences Editor::assetReferences(core::Uuid uuid) {
+  std::vector<std::string> ids{uuid.toString()};
+  for (const auto *info : m_assets.assets()) {
+    if (info->parent == uuid) {
+      ids.push_back(info->uuid.toString());
+    }
+  }
+  const auto contains = [&](const auto &self, const nlohmann::json &value) -> bool {
+    if (value.is_string()) {
+      return std::ranges::contains(ids, value.template get<std::string>());
+    }
+    return (value.is_array() || value.is_object()) &&
+           std::ranges::any_of(value, [&](const auto &child) { return self(self, child); });
+  };
+  // Follow reflected types so a text field containing a UUID is not counted as a reference.
+  const auto typed = [&](const auto &self, flecs::entity_t type, const nlohmann::json &value) -> bool {
+    if (type == m_world.ecs().id<core::Uuid>()) {
+      return contains(contains, value);
+    }
+    if (const auto *opaque = ecs_get(m_world.ecs(), type, EcsOpaque)) {
+      return self(self, opaque->as_type, value);
+    }
+    if (const auto *vector = ecs_get(m_world.ecs(), type, EcsVector); vector && value.is_array()) {
+      return std::ranges::any_of(value, [&](const auto &item) { return self(self, vector->type, item); });
+    }
+    if (const auto *array = ecs_get(m_world.ecs(), type, EcsArray); array && value.is_array()) {
+      return std::ranges::any_of(value, [&](const auto &item) { return self(self, array->type, item); });
+    }
+    if (const auto *structure = ecs_get(m_world.ecs(), type, EcsStruct); structure && value.is_object()) {
+      const auto *members = ecs_vec_first_t(&structure->members, ecs_member_t);
+      for (std::int32_t i = 0; i < ecs_vec_count(&structure->members); ++i) {
+        const auto &field = members[i];
+        const auto it = value.find(field.name);
+        if (it == value.end()) {
+          continue;
+        }
+        if (field.count > 1 && it->is_array()) {
+          if (std::ranges::any_of(*it, [&](const auto &item) { return self(self, field.type, item); })) {
+            return true;
+          }
+        } else if (self(self, field.type, *it)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  AssetReferences result;
+  const auto visit = [&](const nlohmann::json &scene) {
+    if (!scene.contains("entities")) {
+      return;
+    }
+    std::map<std::string, nlohmann::json> expanded;
+    // Inactive tabs store only overrides. Expand their prefab defaults without changing the live world.
+    const auto defaults = [&](const auto &self, flecs::entity source, const core::Uuid &instance,
+                              const core::Uuid &entityId, bool root) -> void {
+      auto &entry = expanded[entityId.toString()];
+      for (const auto &component : m_world.components()) {
+        if (!component.tag && source.has(component.id)) {
+          entry["components"][component.name] = m_world.componentToJson(source, component.id);
+        }
+      }
+      if (root) {
+        entry["prefab"] = m_world.uuidOf(source).toString();
+      } else if (const auto base = m_world.prefabOf(source)) {
+        entry["prefab"] = m_world.uuidOf(base).toString();
+      }
+      for (auto child : m_world.children(source)) {
+        self(self, child, instance, world::World::instancedIdentity(instance, m_world.uuidOf(child)), false);
+      }
+    };
+    for (const auto &entry : scene["entities"]) {
+      if (entry.contains("prefab")) {
+        const auto prefab = core::Uuid::parse(entry["prefab"].get<std::string>());
+        const auto id = core::Uuid::parse(entry["uuid"].get<std::string>());
+        if (prefab && id) {
+          if (const auto source = m_world.find(*prefab)) {
+            defaults(defaults, source, *id, *id, true);
+          }
+        }
+      }
+      auto &target = expanded[entry["uuid"].get<std::string>()];
+      if (entry.contains("prefab")) {
+        target["prefab"] = entry["prefab"];
+      }
+      if (entry.contains("components")) {
+        for (const auto &[name, value] : entry["components"].items()) {
+          target["components"][name] = value;
+        }
+      }
+      if (entry.contains("removed")) {
+        for (const auto &name : entry["removed"]) {
+          target["components"].erase(name.get<std::string>());
+        }
+      }
+    }
+    for (const auto &[id, entity] : expanded) {
+      bool referenced = false;
+      if (entity.contains("components")) {
+        for (const auto &[name, value] : entity["components"].items()) {
+          if (const auto *component = m_world.findComponent(name); component && typed(typed, component->id, value)) {
+            referenced = true;
+          }
+        }
+      }
+      if (referenced) {
+        ++result.entities;
+      }
+      if (entity.contains("prefab") && contains(contains, entity["prefab"])) {
+        ++result.instances;
+      }
+    }
+  };
+  // Live values include inherited components, which saveScene omits on prefab instances.
+  const auto live = [&](const auto &self, flecs::entity entity) -> void {
+    bool referenced = false;
+    for (const auto &component : m_world.components()) {
+      if (!component.tag && typed(typed, component.id, m_world.componentToJson(entity, component.id))) {
+        referenced = true;
+      }
+    }
+    if (referenced) {
+      ++result.entities;
+    }
+    if (const auto source = m_world.prefabOf(entity); source && m_world.uuidOf(source) == uuid) {
+      ++result.instances;
+    }
+    for (auto child : m_world.children(entity)) {
+      self(self, child);
+    }
+  };
+  for (auto root : m_world.roots()) {
+    live(live, root);
+  }
+  for (std::size_t i = 0; i < m_tabs.size(); ++i) {
+    if (i != m_activeTab) {
+      visit(m_tabs[i].content);
+    }
+  }
+  for (const auto *info : m_assets.assets(assets::AssetType::Material)) {
+    if (const auto *material = m_assets.materialSource(info->uuid);
+        material != nullptr && contains(contains, assets::saveMaterial(*material)["textures"])) {
+      ++result.materials;
+    }
+  }
+  return result;
 }
 
 void Editor::loadPrefabs() {

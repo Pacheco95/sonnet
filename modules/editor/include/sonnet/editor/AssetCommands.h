@@ -8,6 +8,7 @@
 #include <sonnet/core/Uuid.h>
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <span>
 
@@ -27,6 +28,15 @@ namespace sonnet::editor {
 // Sets a glTF model's import settings, which rewrites the sidecar and re-imports the hierarchy.
 [[nodiscard]] std::unique_ptr<ICommand> modelSettingsCommand(assets::AssetDatabase &assets, core::Uuid model,
                                                              assets::ModelSettings before, assets::ModelSettings after);
+
+// Already applied commands, for CommandStack::record. The path callback follows moves in
+// editor-owned scene tabs; it runs for undo and redo too.
+using FilesMoved = std::function<void(const std::filesystem::path &, const std::filesystem::path &)>;
+[[nodiscard]] core::Result<std::unique_ptr<ICommand>>
+moveFilesCommand(assets::AssetDatabase &assets, world::World &world, const std::filesystem::path &from,
+                 const std::filesystem::path &to, FilesMoved moved = {});
+[[nodiscard]] core::Result<std::unique_ptr<ICommand>>
+deleteFilesCommand(assets::AssetDatabase &assets, world::World &world, std::span<const std::filesystem::path> files);
 
 // Copies files into the project and registers them, which is what the Assets panel's Import and a
 // drop of files on it do (docs/editor.md, "Importing assets"). Each file goes into the project's

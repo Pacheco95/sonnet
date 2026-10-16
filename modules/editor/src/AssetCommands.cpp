@@ -1,5 +1,6 @@
 #include <sonnet/editor/AssetCommands.h>
 
+#include <sonnet/assets/Project.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/world/Scene.h>
@@ -86,6 +87,280 @@ private:
 
 using TextureSettingsCommand = SettingsCommand<assets::TextureSettings, &assets::AssetDatabase::setTextureSettings>;
 using ModelSettingsCommand = SettingsCommand<assets::ModelSettings, &assets::AssetDatabase::setModelSettings>;
+
+bool underPath(const std::filesystem::path &path, const std::filesystem::path &root) {
+  const auto relative = path.lexically_relative(root);
+  return !relative.empty() && *relative.begin() != "..";
+}
+
+void warnRequires(assets::AssetDatabase &assets, const std::filesystem::path &from) {
+  for (const auto *info : assets.assets(assets::AssetType::Script)) {
+    const auto *source = assets.script(info->uuid);
+    if (source != nullptr && source->code.find("require") != std::string::npos &&
+        (source->code.find(from.stem().string()) != std::string::npos ||
+         source->code.find(from.filename().string()) != std::string::npos)) {
+      SONNET_LOG_WARN("{}: require may refer to moved or deleted {}; update it manually", info->source.string(),
+                      from.string());
+    }
+  }
+}
+
+class MoveFilesCommand final : public ICommand {
+public:
+  MoveFilesCommand(assets::AssetDatabase &assets, std::filesystem::path from, std::filesystem::path to,
+                   FilesMoved moved)
+      : m_assets(assets), m_from(std::move(from)), m_to(std::move(to)), m_moved(std::move(moved)),
+        m_description(std::format("rename {}", m_from.filename().string())) {
+  }
+
+  core::Result<void> move(world::World &world, const std::filesystem::path &from, const std::filesystem::path &to) {
+    if (const auto result = m_assets.move(from, to); !result) {
+      return result;
+    }
+    if (auto project = assets::Project::open(m_assets.projectRoot())) {
+      const auto start = project->resolve(project->startScene);
+      if (underPath(start, from)) {
+        project->startScene = project->relative(start == from ? to : to / start.lexically_relative(from));
+        if (const auto saved = project->save(); !saved) {
+          if (const auto rollback = m_assets.move(to, from); !rollback) {
+            SONNET_LOG_ERROR("{}", rollback.error().toString());
+          }
+          return saved;
+        }
+      }
+    }
+    for (auto prefab : world.prefabs()) {
+      if (const auto *file = prefab.try_get<world::PrefabFile>(); file != nullptr && underPath(file->path, from)) {
+        prefab.set<world::PrefabFile>({file->path == from ? to : to / file->path.lexically_relative(from)});
+      }
+    }
+    if (m_moved) {
+      m_moved(from, to);
+    }
+    warnRequires(m_assets, from);
+    return {};
+  }
+  void apply(world::World &world) override {
+    if (const auto result = move(world, m_from, m_to); !result) {
+      SONNET_LOG_ERROR("{}", result.error().toString());
+    }
+  }
+  void revert(world::World &world) override {
+    if (const auto result = move(world, m_to, m_from); !result) {
+      SONNET_LOG_ERROR("{}", result.error().toString());
+    }
+  }
+  std::string_view description() const override {
+    return m_description;
+  }
+  bool isSceneEdit() const override {
+    return false;
+  }
+
+private:
+  assets::AssetDatabase &m_assets;
+  std::filesystem::path m_from;
+  std::filesystem::path m_to;
+  FilesMoved m_moved;
+  std::string m_description;
+};
+
+struct DeletedPath {
+  std::filesystem::path source;
+  std::filesystem::path trash;
+};
+
+class DeleteFilesCommand final : public ICommand {
+public:
+  DeleteFilesCommand(assets::AssetDatabase &assets, std::vector<DeletedPath> paths, std::filesystem::path trash)
+      : m_assets(assets), m_paths(std::move(paths)), m_trash(std::move(trash)) {
+  }
+  ~DeleteFilesCommand() override {
+    std::error_code error;
+    if (m_committed) {
+      std::filesystem::remove_all(m_trash, error);
+    } else {
+      std::filesystem::remove(m_trash, error);
+    } // Keep any files a failed rollback could not restore.
+    if (error) {
+      SONNET_LOG_ERROR("removing trash {}: {}", m_trash.string(), error.message());
+    }
+  }
+  core::Result<void> remove(world::World &world) try {
+    std::error_code error;
+    for (const auto &path : m_paths) {
+      if (!std::filesystem::exists(path.source, error) || std::filesystem::exists(path.trash, error)) {
+        return std::unexpected(
+            core::Error{"delete source is missing or its trash is still occupied", core::ErrorCategory::Io});
+      }
+    }
+    m_assets.waitForLoads();
+    std::filesystem::create_directories(m_trash, error);
+    if (error) {
+      return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+    }
+    // Move everything before unregistering, so a failed rename can roll back without losing metadata.
+    for (const auto &path : m_paths) {
+      warnRequires(m_assets, path.source);
+    }
+    std::size_t count = 0;
+    for (const auto &path : m_paths) {
+      std::filesystem::rename(path.source, path.trash, error);
+      if (error) {
+        const auto message = error.message();
+        while (count > 0) {
+          --count;
+          std::filesystem::rename(m_paths[count].trash, m_paths[count].source, error);
+        }
+        return std::unexpected(core::Error{message, core::ErrorCategory::Io});
+      }
+      ++count;
+    }
+    m_links.clear();
+    const auto capture = [&](const auto &self, flecs::entity entity) -> void {
+      if (const auto base = world.prefabOf(entity)) {
+        bool deleted = false;
+        for (auto root : world.prefabs()) {
+          const auto *file = root.try_get<world::PrefabFile>();
+          const auto *info = m_assets.find(world.uuidOf(root));
+          const auto source = file != nullptr ? file->path : info != nullptr ? info->source : std::filesystem::path{};
+          if (!source.empty() &&
+              std::ranges::any_of(m_paths, [&](const auto &p) { return underPath(source, p.source); }) &&
+              (base == root || world.isDescendant(base, root))) {
+            deleted = true;
+          }
+        }
+        if (deleted) {
+          m_links.emplace_back(world.uuidOf(entity), world.uuidOf(base));
+        }
+      }
+      for (auto child : world.children(entity)) {
+        self(self, child);
+      }
+    };
+    for (auto root : world.roots()) {
+      capture(capture, root);
+    }
+    for (auto root : world.prefabs()) {
+      capture(capture, root);
+    }
+    for (const auto &path : m_paths) {
+      std::vector<core::Uuid> ids;
+      for (const auto *info : m_assets.assets()) {
+        if (info->parent.isNil() && info->source != "builtin" && underPath(info->source, path.source)) {
+          ids.push_back(info->uuid);
+        }
+      }
+      for (const auto &id : ids) {
+        m_assets.unregister(id);
+        if (const auto prefab = world.find(id); prefab && prefab.has(flecs::Prefab)) {
+          world.destroyEntity(prefab);
+        }
+      }
+      for (auto prefab : world.prefabs()) {
+        const auto *file = prefab.try_get<world::PrefabFile>();
+        if (file != nullptr && underPath(file->path, path.source)) {
+          world.destroyEntity(prefab);
+        }
+      }
+    }
+    m_committed = true;
+    return {};
+  } catch (const std::filesystem::filesystem_error &error) {
+    return std::unexpected(core::Error{error.what(), core::ErrorCategory::Io});
+  }
+  void apply(world::World &world) override {
+    if (const auto result = remove(world); !result) {
+      SONNET_LOG_ERROR("{}", result.error().toString());
+    }
+  }
+  void revert(world::World &world) override try {
+    std::error_code error;
+    for (const auto &path : m_paths) {
+      if (std::filesystem::exists(path.source, error)) {
+        SONNET_LOG_ERROR("{}: cannot restore over an existing file", path.source.string());
+        return;
+      }
+    }
+    std::size_t count = 0;
+    for (const auto &path : m_paths) {
+      std::filesystem::rename(path.trash, path.source, error);
+      if (error) {
+        SONNET_LOG_ERROR("restoring {}: {}", path.source.string(), error.message());
+        while (count > 0) {
+          --count;
+          std::filesystem::rename(m_paths[count].source, m_paths[count].trash, error);
+        }
+        return;
+      }
+      ++count;
+    }
+    std::vector<std::filesystem::path> files;
+    for (const auto &path : m_paths) {
+      if (std::filesystem::is_directory(path.source, error)) {
+        for (const auto &entry : std::filesystem::recursive_directory_iterator{path.source, error}) {
+          if (entry.is_regular_file()) {
+            files.push_back(entry.path());
+          }
+        }
+      } else {
+        files.push_back(path.source);
+      }
+    }
+    std::vector<std::filesystem::path> prefabs;
+    for (const auto &file : files) {
+      if (file.string().ends_with(".prefab.json")) {
+        prefabs.push_back(file);
+      }
+      if (!assets::AssetDatabase::sourceType(file)) {
+        continue;
+      }
+      if (auto id = m_assets.registerFile(file)) {
+        const auto *info = m_assets.find(*id);
+        if (info->type == assets::AssetType::Model && !world.find(*id)) {
+          if (const auto *model = m_assets.model(*id)) {
+            static_cast<void>(world::loadModelPrefab(world, *model, *id, info->name));
+          }
+        }
+      } else {
+        SONNET_LOG_ERROR("{}", id.error().toString());
+      }
+    }
+    for (const auto &failure : world::loadPrefabFiles(world, prefabs)) {
+      SONNET_LOG_ERROR("{}", failure.toString());
+    }
+    for (const auto &[entityId, baseId] : m_links) {
+      const auto entity = world.find(entityId);
+      const auto base = world.find(baseId);
+      if (entity && base) {
+        const auto children = world.children(entity);
+        entity.add(flecs::IsA, base);
+        // IsA instantiates children again. These instances already have their original
+        // descendants and identities, so discard only the newly generated copies.
+        for (auto child : world.children(entity)) {
+          if (!std::ranges::contains(children, child)) {
+            world.destroyEntity(child);
+          }
+        }
+      }
+    }
+  } catch (const std::filesystem::filesystem_error &error) {
+    SONNET_LOG_ERROR("restoring deleted files: {}", error.what());
+  }
+  std::string_view description() const override {
+    return "delete files";
+  }
+  bool isSceneEdit() const override {
+    return false;
+  }
+
+private:
+  assets::AssetDatabase &m_assets;
+  std::vector<DeletedPath> m_paths;
+  std::vector<std::pair<core::Uuid, core::Uuid>> m_links;
+  std::filesystem::path m_trash;
+  bool m_committed{false};
+};
 
 struct ImportCopy {
   std::filesystem::path from;
@@ -284,6 +559,56 @@ core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &asse
     return std::unexpected(copied.error());
   }
   return command;
+}
+
+core::Result<std::unique_ptr<ICommand>> moveFilesCommand(assets::AssetDatabase &assets, world::World &world,
+                                                         const std::filesystem::path &from,
+                                                         const std::filesystem::path &to, FilesMoved moved) {
+  auto command = std::make_unique<MoveFilesCommand>(assets, from, to, std::move(moved));
+  if (const auto result = command->move(world, from, to); !result) {
+    return std::unexpected(result.error());
+  }
+  return command;
+}
+
+core::Result<std::unique_ptr<ICommand>> deleteFilesCommand(assets::AssetDatabase &assets, world::World &world,
+                                                           std::span<const std::filesystem::path> files) try {
+  if (!assets.isOpen() || assets.bundle() != nullptr || files.empty()) {
+    return std::unexpected(core::Error{"deleting files needs an open project", core::ErrorCategory::Io});
+  }
+  std::error_code error;
+  const auto root = std::filesystem::weakly_canonical(assets.projectRoot(), error);
+  const auto trash = root / ".sonnet" / "trash" / core::Uuid::generate().toString();
+  std::vector<DeletedPath> paths;
+  for (const auto &file : files) {
+    const auto source = std::filesystem::weakly_canonical(file, error);
+    if (error || source == root || !underPath(source, root) || underPath(source, root / ".sonnet") ||
+        !std::filesystem::exists(source, error) || source == root / "project.json") {
+      return std::unexpected(core::Error{"invalid path for deletion", core::ErrorCategory::Io});
+    }
+    if (std::ranges::any_of(paths, [&](const auto &path) { return underPath(source, path.source); })) {
+      continue;
+    }
+    std::erase_if(paths, [&](const auto &path) { return underPath(path.source, source); });
+    paths.push_back({source, {}});
+  }
+  const auto originals = paths;
+  for (const auto &path : originals) {
+    if (!std::filesystem::is_directory(path.source) && std::filesystem::exists(sidecarOf(path.source)) &&
+        !std::ranges::any_of(paths, [&](const auto &p) { return p.source == sidecarOf(path.source); })) {
+      paths.push_back({sidecarOf(path.source), {}});
+    }
+  }
+  for (std::size_t i = 0; i < paths.size(); ++i) {
+    paths[i].trash = trash / std::to_string(i);
+  }
+  auto command = std::make_unique<DeleteFilesCommand>(assets, std::move(paths), trash);
+  if (const auto result = command->remove(world); !result) {
+    return std::unexpected(result.error());
+  }
+  return command;
+} catch (const std::filesystem::filesystem_error &error) {
+  return std::unexpected(core::Error{error.what(), core::ErrorCategory::Io});
 }
 
 std::unique_ptr<ICommand> materialEditCommand(assets::AssetDatabase &assets, core::Uuid material,
