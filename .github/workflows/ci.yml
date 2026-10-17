@@ -478,4 +478,5 @@ jobs:
           test -f "$app/shaders/forward.spv"
           test -f "$app/game.sbundle"
           test -f "$app/Info.plist"
+          python3 -c 'import plistlib, sys; family = plistlib.load(open(sys.argv[1], "rb")).get("UIDeviceFamily"); assert family == [1, 2], f"Expected iPhone and iPad support, got {family}"' "$app/Info.plist"
           test -f "$app/sonnet_player"
