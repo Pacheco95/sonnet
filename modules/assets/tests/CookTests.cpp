@@ -111,6 +111,17 @@ TEST_CASE("cooking a mesh keeps vertices that differ only in their second UV set
   REQUIRE(std::ranges::count(cooked.vertices, glm::vec2{0.5f, 0.5f}, &Vertex::uv1) == 3);
 }
 
+TEST_CASE("cooking a mesh keeps vertices that differ only in their colour", "[assets][cook]") {
+  MeshData source = unweldedGrid(1, 1);
+  for (std::size_t i = 3; i < source.vertices.size(); ++i) {
+    source.vertices[i].color = 0xFF0000FFu;
+  }
+  const MeshData cooked = cookMesh(source);
+  REQUIRE(cooked.vertices.size() == 6);
+  REQUIRE(std::ranges::count(cooked.vertices, 0xFF0000FFu, &Vertex::color) == 3);
+  REQUIRE(std::ranges::count(cooked.vertices, 0xFFFFFFFFu, &Vertex::color) == 3);
+}
+
 TEST_CASE("cooking a mesh reorders it for the vertex cache", "[assets][cook]") {
   const MeshData source = unweldedGrid(24, 24);
   MeshCookStatistics statistics;
@@ -399,11 +410,11 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
   REQUIRE(cooked != nullptr);
   REQUIRE(cooked->bytes == file); // byte for byte
   REQUIRE(cooked->preload == std::vector<GlyphRange>{{65, 90}});
-  // The header says version 16.
+  // The header says version 17.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 16);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 16);
+  REQUIRE(BundleVersion == 17);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 17);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {

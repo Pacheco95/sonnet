@@ -27,10 +27,13 @@ namespace {
 
 [[nodiscard]] renderer::MeshData triangleMesh() {
   renderer::MeshData mesh;
-  mesh.vertices = {
-      {.position = {0.0f, 0.0f, 0.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}},
-      {.position = {1.0f, 0.0f, 0.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}, .uv1 = {0.25f, 0.75f}},
-      {.position = {0.0f, 0.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 1.0f}}};
+  mesh.vertices = {{.position = {0.0f, 0.0f, 0.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}},
+                   {.position = {1.0f, 0.0f, 0.0f},
+                    .normal = {0.0f, 1.0f, 0.0f},
+                    .uv = {1.0f, 0.0f},
+                    .uv1 = {0.25f, 0.75f},
+                    .color = 0x80FF4020u},
+                   {.position = {0.0f, 0.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 1.0f}}};
   mesh.indices = {0, 1, 2};
   mesh.submeshes = {{.firstIndex = 0, .indexCount = 3, .materialSlot = 1}};
   mesh.skin = {{.joints = {1u, 0u, 0u, 0u}, .weights = {1.0f, 0.0f, 0.0f, 0.0f}},
@@ -50,6 +53,8 @@ TEST_CASE("a mesh payload round-trips through the cooked form", "[assets][bundle
   REQUIRE(decoded->vertices[2].position == source.vertices[2].position);
   REQUIRE(decoded->vertices[1].uv == source.vertices[1].uv);
   REQUIRE(decoded->vertices[1].uv1 == glm::vec2{0.25f, 0.75f});
+  REQUIRE(decoded->vertices[1].color == 0x80FF4020u);
+  REQUIRE(decoded->vertices[0].color == 0xFFFFFFFFu);
   REQUIRE(decoded->submeshes.size() == 1);
   REQUIRE(decoded->submeshes[0].materialSlot == 1);
   REQUIRE(decoded->skin.size() == 3);
@@ -282,6 +287,6 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   REQUIRE(core::writeFile(future, *bytes).has_value());
   const auto old = Bundle::open(future);
   REQUIRE(!old.has_value());
-  REQUIRE(old.error().message.find("bundle version 12 is not version 16") != std::string::npos);
+  REQUIRE(old.error().message.find("bundle version 12 is not version 17") != std::string::npos);
   std::filesystem::remove_all(directory);
 }
