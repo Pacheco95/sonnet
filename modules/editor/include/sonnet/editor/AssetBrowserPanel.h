@@ -28,6 +28,10 @@ namespace sonnet::editor {
 // The drag-and-drop payload of an asset: its 16 identity bytes. The inspector's pickers and the
 // hierarchy accept it.
 constexpr const char *AssetDragPayload = "SONNET_ASSET";
+// The payload of a row that has a file but no identity (a folder, a scene, a plain file). Only the browser
+// accepts it, on a folder row or a breadcrumb, where the dragged rows (the whole selection when the grabbed row is
+// in it) are moved; the browser keeps the paths itself and an asset row's AssetDragPayload moves them the same way.
+constexpr const char *AssetMovePayload = "SONNET_ASSET_PATHS";
 
 // "name (Type)" for the inspector's pickers and the browser; "(none)" for nil, "(missing)" for
 // an identity the database does not know.
@@ -84,10 +88,21 @@ public:
   void up();
   [[nodiscard]] std::filesystem::path importFolder();
   [[nodiscard]] std::vector<AssetRow> rows();
-  void setRenameHandler(
+  // What renaming several rows at once, dragging rows onto a folder and pasting cut rows do: every (from, to)
+  // pair as one undo step.
+  void setMoveHandler(
       std::function<core::Result<void>(std::span<const std::pair<std::filesystem::path, std::filesystem::path>>)>
           handler) {
     m_moveMany = std::move(handler);
+  }
+  // What Duplicate does: copies the files beside themselves as one undo step.
+  void setDuplicateHandler(std::function<core::Result<void>(std::span<const std::filesystem::path>)> handler) {
+    m_duplicate = std::move(handler);
+  }
+  // Whether the panel was shown this frame after not being shown the frame before: when the editor looks for
+  // files changed outside it. Reading it resets it.
+  [[nodiscard]] bool takeOpened() noexcept {
+    return std::exchange(m_opened, false);
   }
   void setSceneHandler(std::function<void(const std::filesystem::path &)> handler) {
     m_scene = std::move(handler);
@@ -138,6 +153,15 @@ private:
   void drawRenameModal();
   void createMaterial();
   void createScript();
+  // The files a row stands for in a file operation: the selected rows' when `row` is one of them (or null), the
+  // row's alone otherwise. Only what the browser can move, without a file under a selected folder of it.
+  [[nodiscard]] std::vector<std::filesystem::path> filesOf(const AssetRow *row) const;
+  // Moves `files` into `folder` when they are not there already, queued for the end of the frame.
+  void queueMoves(std::span<const std::filesystem::path> files, const std::filesystem::path &folder);
+  // A target for dragged rows on the item just drawn.
+  void acceptDrop(const std::filesystem::path &folder);
+  void queueDuplicate(std::vector<std::filesystem::path> files);
+  void runQueued();
 
   assets::AssetDatabase &m_assets;
   world::World &m_world;
@@ -150,6 +174,7 @@ private:
   bool m_sortDescending = false;
   std::function<void(const std::string &, int)> m_open;
   std::function<void()> m_import;
+  std::function<core::Result<void>(std::span<const std::filesystem::path>)> m_duplicate;
   std::function<core::Result<void>(const std::filesystem::path &, const std::filesystem::path &)> m_move;
   std::function<core::Result<void>(std::span<const std::filesystem::path>)> m_remove;
   std::function<AssetReferences(std::span<const core::Uuid>)> m_references;
@@ -161,6 +186,11 @@ private:
   bool m_settingsInstalled{false};
   ImGuiSelectionBasicStorage m_selected;
   std::vector<AssetRow> m_rows;
+  std::vector<std::filesystem::path> m_dragged; // what the drag in progress would move
+  std::vector<std::filesystem::path> m_cut;     // what Ctrl+X marked, for Ctrl+V
+  std::vector<std::pair<std::filesystem::path, std::filesystem::path>> m_queuedMoves;
+  std::vector<std::filesystem::path> m_queuedDuplicates;
+  bool m_opened{false};
   std::function<void(const std::filesystem::path &)> m_scene;
   std::function<core::Result<void>(const std::filesystem::path &)> m_createFolder;
   std::function<core::Result<void>(std::span<const std::pair<std::filesystem::path, std::filesystem::path>>)>

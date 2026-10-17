@@ -1,5 +1,7 @@
 #include <sonnet/editor/AssetCommands.h>
 
+#include <sonnet/editor/EntityCommands.h>
+
 #include <sonnet/assets/Project.h>
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
@@ -606,6 +608,44 @@ core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &asse
     return std::unexpected(copied.error());
   }
   return command;
+}
+
+core::Result<std::unique_ptr<ICommand>> duplicateAssets(assets::AssetDatabase &assets, world::World &world,
+                                                        std::span<const std::filesystem::path> files) {
+  std::vector<std::unique_ptr<ICommand>> commands;
+  const auto fail = [&](core::Error error) {
+    for (auto it = commands.rbegin(); it != commands.rend(); ++it) {
+      (*it)->revert(world);
+    }
+    return std::unexpected(std::move(error));
+  };
+  for (const std::filesystem::path &file : files) {
+    if (!assets::AssetDatabase::sourceType(file)) {
+      SONNET_LOG_ERROR("{}: not a file an importer reads, skipped", file.string());
+      continue;
+    }
+    // A model sitting in the folder of its own name (the way an import leaves it) is copied with that folder,
+    // so the copy lands beside it rather than inside it.
+    std::filesystem::path destination = file.parent_path();
+    if (assets::AssetDatabase::sourceType(file) == assets::AssetType::Model && destination.filename() == file.stem() &&
+        std::ranges::none_of(assets.roots(), [&](const std::string &root) {
+          return destination == (assets.projectRoot() / root).lexically_normal();
+        })) {
+      destination = destination.parent_path();
+    }
+    const std::filesystem::path single[] = {file};
+    auto copy = importAssets(assets, world, single, destination);
+    if (!copy) {
+      return fail(copy.error());
+    }
+    commands.push_back(std::move(*copy));
+  }
+  if (commands.empty()) {
+    return std::unexpected(core::Error{"nothing to duplicate", core::ErrorCategory::Io});
+  }
+  std::string description = files.size() == 1 ? std::format("duplicate {}", files.front().filename().string())
+                                              : std::format("duplicate {} files", files.size());
+  return compositeCommand(std::move(description), std::move(commands));
 }
 
 core::Result<std::unique_ptr<ICommand>> createFolderCommand(const std::filesystem::path &projectRoot,

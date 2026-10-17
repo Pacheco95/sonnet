@@ -394,6 +394,78 @@ std::vector<AssetRow> AssetBrowserPanel::rows() {
   return result;
 }
 
+std::vector<std::filesystem::path> AssetBrowserPanel::filesOf(const AssetRow *row) const {
+  const bool selection = row == nullptr || m_selected.Contains(rowId(*row));
+  std::vector<std::filesystem::path> files;
+  for (const AssetRow &candidate : m_rows) {
+    const bool wanted = selection ? m_selected.Contains(rowId(candidate)) : rowId(candidate) == rowId(*row);
+    const bool movable = !candidate.file.empty() && (candidate.info == nullptr || candidate.info->parent.isNil());
+    // A model's sub-asset rows share its file, which is listed once.
+    if (wanted && movable && !std::ranges::contains(files, candidate.file)) {
+      files.push_back(candidate.file);
+    }
+  }
+  // Moving a folder moves what is in it.
+  std::erase_if(files, [&](const std::filesystem::path &file) {
+    return std::ranges::any_of(files, [&](const auto &other) { return other != file && within(file, other); });
+  });
+  return files;
+}
+
+void AssetBrowserPanel::queueMoves(std::span<const std::filesystem::path> files, const std::filesystem::path &folder) {
+  for (const std::filesystem::path &file : files) {
+    std::error_code error;
+    // Not into the folder it is in, itself or what it holds.
+    if (file == folder || within(folder, file) || std::filesystem::equivalent(file.parent_path(), folder, error)) {
+      continue;
+    }
+    m_queuedMoves.emplace_back(file, folder / file.filename());
+  }
+}
+
+void AssetBrowserPanel::acceptDrop(const std::filesystem::path &folder) {
+  if (m_dragged.empty() || !m_moveMany || !ImGui::BeginDragDropTarget()) {
+    return;
+  }
+  const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(AssetDragPayload);
+  if (payload == nullptr) {
+    payload = ImGui::AcceptDragDropPayload(AssetMovePayload);
+  }
+  if (payload != nullptr && payload->IsDelivery()) {
+    queueMoves(m_dragged, folder);
+  }
+  ImGui::EndDragDropTarget();
+}
+
+void AssetBrowserPanel::queueDuplicate(std::vector<std::filesystem::path> files) {
+  std::erase_if(files, [](const std::filesystem::path &file) { return !assets::AssetDatabase::sourceType(file); });
+  m_queuedDuplicates = std::move(files);
+}
+
+// Runs what the frame queued, after every row is drawn, because a move or a copy changes the database the rows point
+// into.
+void AssetBrowserPanel::runQueued() {
+  if (!m_queuedMoves.empty() && m_moveMany) {
+    if (const auto result = m_moveMany(m_queuedMoves); !result) {
+      m_fileError = result.error().message;
+    } else {
+      m_fileError.clear();
+      m_selected.Clear();
+      m_focused = 0;
+      m_cut.clear();
+    }
+  }
+  m_queuedMoves.clear();
+  if (!m_queuedDuplicates.empty() && m_duplicate) {
+    if (const auto result = m_duplicate(m_queuedDuplicates); !result) {
+      m_fileError = result.error().message;
+    } else {
+      m_fileError.clear();
+    }
+  }
+  m_queuedDuplicates.clear();
+}
+
 void AssetBrowserPanel::drawNavigation() {
   (void)currentFolder();
   ImGui::BeginDisabled(m_historyIndex == 0);
@@ -417,6 +489,7 @@ void AssetBrowserPanel::drawNavigation() {
   if (ImGui::SmallButton(m_project.filename().string().c_str())) {
     navigate(m_project);
   }
+  acceptDrop(m_project);
   auto path = m_project;
   const auto relative = m_folder.lexically_relative(m_project);
   for (const auto &part : relative) {
@@ -431,6 +504,7 @@ void AssetBrowserPanel::drawNavigation() {
     if (ImGui::SmallButton(part.string().c_str())) {
       navigate(path);
     }
+    acceptDrop(path);
     ImGui::PopID();
   }
   if (focused() && !ImGui::GetIO().WantTextInput) {
@@ -477,6 +551,10 @@ void AssetBrowserPanel::draw(bool &open) {
     ImGui::End();
     return;
   }
+  if (ImGui::GetDragDropPayload() == nullptr) {
+    m_dragged.clear();
+  }
+  m_opened = m_opened || m_drawnFrame < ImGui::GetFrameCount() - 1;
   drawNavigation();
   m_drawnFrame = ImGui::GetFrameCount();
   m_min = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y};
@@ -607,10 +685,22 @@ void AssetBrowserPanel::draw(bool &open) {
           m_scene(row.file);
         }
       }
-      if (!row.uuid.isNil() && ImGui::BeginDragDropSource()) {
-        ImGui::SetDragDropPayload(AssetDragPayload, row.uuid.bytes().data(), row.uuid.bytes().size());
-        ImGui::TextUnformatted(row.name.c_str());
+      if ((!row.uuid.isNil() || (editable && m_moveMany)) && ImGui::BeginDragDropSource()) {
+        m_dragged = editable ? filesOf(&row) : std::vector<std::filesystem::path>{};
+        if (!row.uuid.isNil()) {
+          ImGui::SetDragDropPayload(AssetDragPayload, row.uuid.bytes().data(), row.uuid.bytes().size());
+        } else {
+          ImGui::SetDragDropPayload(AssetMovePayload, row.name.data(), row.name.size());
+        }
+        if (m_dragged.size() > 1) {
+          ImGui::Text("%zu items", m_dragged.size());
+        } else {
+          ImGui::TextUnformatted(row.name.c_str());
+        }
         ImGui::EndDragDropSource();
+      }
+      if (row.directory) {
+        acceptDrop(row.file);
       }
       drawContextMenu(row);
       ImGui::TableNextColumn();
@@ -618,6 +708,17 @@ void AssetBrowserPanel::draw(bool &open) {
       ImGui::TableNextColumn();
       ImGui::TextDisabled("%s", row.source.c_str());
       ImGui::PopID();
+    }
+    if (keyboard && m_renaming == 0) {
+      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_X)) {
+        m_cut = filesOf(nullptr);
+      }
+      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
+        queueMoves(m_cut, currentFolder());
+      }
+      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D)) {
+        queueDuplicate(filesOf(nullptr));
+      }
     }
     m_selected.ApplyRequests(ImGui::EndMultiSelect());
     ImGui::EndTable();
@@ -632,6 +733,7 @@ void AssetBrowserPanel::draw(bool &open) {
     }
     ImGui::EndPopup();
   }
+  runQueued();
   // Imports finished by a move or by reference counting may replace sub-assets. Do this
   // after drawing every row, when none of their database pointers will be used again.
   if (m_pendingRename) {
@@ -678,6 +780,16 @@ void AssetBrowserPanel::drawContextMenu(const AssetRow &row) {
     m_open(row.file.string(), 1);
   }
   const bool editable = hasFile && (row.info == nullptr || row.info->parent.isNil());
+  if (ImGui::MenuItem("Cut", "Ctrl+X", false, editable && static_cast<bool>(m_moveMany))) {
+    m_cut = filesOf(&row);
+  }
+  if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_cut.empty() && m_moveMany)) {
+    queueMoves(m_cut, currentFolder());
+  }
+  if (ImGui::MenuItem("Duplicate", "Ctrl+D", false,
+                      editable && assets::AssetDatabase::sourceType(row.file) && m_duplicate)) {
+    queueDuplicate(filesOf(&row));
+  }
   if (ImGui::MenuItem("Rename", "F2", false, editable && static_cast<bool>(m_move))) {
     beginRename(row);
   }

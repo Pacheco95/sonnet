@@ -390,7 +390,7 @@ TEST_CASE("folder creation rename deletion and import keep one undo step", "[edi
   CHECK_FALSE(createFolderCommand(root, root / "../outside"));
   AssetBrowserPanel panel{database, world, selection};
   panel.navigate(root / "assets");
-  panel.setRenameHandler(
+  panel.setMoveHandler(
       [&](std::span<const std::pair<std::filesystem::path, std::filesystem::path>> moves) -> core::Result<void> {
         std::vector<std::unique_ptr<ICommand>> parts;
         for (const auto &[from, to] : moves) {
@@ -645,4 +645,246 @@ TEST_CASE("F2 renames a project-level folder and keeps undo", "[editor][assets][
   commands.clear();
   database.close();
   std::filesystem::remove_all(root);
+}
+
+namespace {
+using namespace sonnet;
+
+// A browser on a project with the folder `aaa folder` and the scripts `bbb` and `ccc` in its asset root, the handlers
+// the editor installs, and what it takes to point and click at a row or a breadcrumb.
+struct MoveFixture {
+  explicit MoveFixture(const char *name, bool mac)
+      : root(std::filesystem::temp_directory_path() / name), database(renderer, jobs),
+        panel(database, world, selection) {
+    ImGui::GetIO().ConfigMacOSXBehaviors = mac;
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "assets/aaa folder");
+    database.open(root, std::vector<std::string>{"assets"});
+    REQUIRE(database.createScript(root / "assets/bbb.lua", "return {}"));
+    REQUIRE(database.createScript(root / "assets/ccc.lua", "return {}"));
+    panel.navigate(root / "assets");
+    panel.setMoveHandler(
+        [this](std::span<const std::pair<std::filesystem::path, std::filesystem::path>> moves) -> core::Result<void> {
+          std::vector<std::unique_ptr<ICommand>> batch;
+          for (const auto &[from, to] : moves) {
+            auto command = moveFilesCommand(database, world, from, to);
+            if (!command) {
+              return std::unexpected(command.error());
+            }
+            batch.push_back(std::move(*command));
+          }
+          commands.record(compositeCommand("move files", std::move(batch)));
+          return {};
+        });
+    panel.setDuplicateHandler([this](std::span<const std::filesystem::path> files) -> core::Result<void> {
+      auto command = duplicateAssets(database, world, files);
+      if (!command) {
+        return std::unexpected(command.error());
+      }
+      commands.record(std::move(*command));
+      return {};
+    });
+    frame();
+    frame();
+    ImGui::FocusWindow(ImGui::FindWindowByName("Assets"));
+  }
+  ~MoveFixture() {
+    commands.clear();
+    database.close();
+    std::filesystem::remove_all(root);
+  }
+
+  void frame() {
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize({900, 500});
+    bool open = true;
+    panel.draw(open);
+    ImGui::Render();
+  }
+  void frames(int count) {
+    for (int i = 0; i < count; ++i) {
+      frame();
+    }
+  }
+  // The middle of the nth row of the table as the last frame drew it.
+  ImVec2 row(int index) const {
+    const auto *table = ImGui::TableFindByID(ImGui::FindWindowByName("Assets")->GetID("assets"));
+    REQUIRE(table != nullptr);
+    const float stride = ImGui::GetTextLineHeight() + 2.0f * ImGui::GetStyle().CellPadding.y;
+    return {table->Columns[0].MinX + 20.0f, table->OuterRect.Min.y + table->InstanceDataFirst.LastTopHeadersRowHeight +
+                                                ImGui::GetStyle().CellPadding.y + ImGui::GetTextLineHeight() * 0.5f +
+                                                stride * static_cast<float>(index)};
+  }
+  // The middle of the breadcrumb `index` levels below the project folder (0 for the project's own button).
+  ImVec2 crumb(int index) const {
+    const auto &style = ImGui::GetStyle();
+    const ImVec2 start = ImGui::FindWindowByName("Assets")->DC.CursorStartPos;
+    const auto button = [&](const std::string &label) {
+      return ImGui::CalcTextSize(label.c_str()).x + 2.0f * style.FramePadding.x;
+    };
+    float x = start.x;
+    for (const char *label : {"Back", "Forward", "Up"}) {
+      x += button(label) + style.ItemSpacing.x;
+    }
+    auto folder = root;
+    float width = button(root.filename().string());
+    for (int level = 0; level < index; ++level) {
+      x += width + style.ItemSpacing.x + ImGui::CalcTextSize(">").x + style.ItemSpacing.x;
+      folder = (level == 0 ? root / "assets" : folder);
+      width = button(level == 0 ? "assets" : "aaa folder");
+    }
+    return {x + width * 0.5f, start.y + ImGui::GetTextLineHeight() * 0.5f};
+  }
+  void click(ImVec2 at, ImGuiKey modifier = ImGuiKey_None) {
+    auto &io = ImGui::GetIO();
+    io.AddMousePosEvent(at.x, at.y);
+    frame();
+    if (modifier != ImGuiKey_None) {
+      io.AddKeyEvent(modifier, true);
+    }
+    io.AddMouseButtonEvent(0, true);
+    frame();
+    io.AddMouseButtonEvent(0, false);
+    frames(2);
+    if (modifier != ImGuiKey_None) {
+      io.AddKeyEvent(modifier, false);
+      frame();
+    }
+  }
+  void drag(ImVec2 from, ImVec2 to) {
+    auto &io = ImGui::GetIO();
+    io.AddMousePosEvent(from.x, from.y);
+    frame();
+    io.AddMouseButtonEvent(0, true);
+    frame();
+    io.AddMousePosEvent((from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f);
+    frame();
+    io.AddMousePosEvent(to.x, to.y);
+    frames(2);
+    io.AddMouseButtonEvent(0, false);
+    frames(3);
+  }
+  void chord(ImGuiKey key) {
+    auto &io = ImGui::GetIO();
+    const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+    io.AddKeyEvent(modifier, true);
+    io.AddKeyEvent(key, true);
+    frame();
+    io.AddKeyEvent(key, false);
+    io.AddKeyEvent(modifier, false);
+    frames(3);
+  }
+
+  std::filesystem::path root;
+  platform::Platform platform{{.headless = true}};
+  std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  assets::AssetDatabase database;
+  world::World world;
+  Selection selection;
+  CommandStack commands;
+  AssetBrowserPanel panel;
+};
+} // namespace
+
+TEST_CASE("dragging rows onto a folder row moves the selection as one undo step", "[editor][assets][imgui][move]") {
+  BrowserContext context;
+  MoveFixture fixture{"sonnet_browser_drag_folder", GENERATE(false, true)};
+  const auto assets = fixture.root / "assets";
+  REQUIRE(fixture.panel.rows().front().file == assets / "aaa folder");
+  fixture.click(fixture.row(0));
+  fixture.click(fixture.row(2), ImGuiMod_Shift);
+  // Everything is selected, the folder too: it is not moved into itself.
+  fixture.drag(fixture.row(1), fixture.row(0));
+  CHECK(std::filesystem::exists(assets / "aaa folder/bbb.lua"));
+  CHECK(std::filesystem::exists(assets / "aaa folder/ccc.lua"));
+  CHECK(std::filesystem::exists(assets / "aaa folder/bbb.lua.meta"));
+  CHECK_FALSE(std::filesystem::exists(assets / "bbb.lua"));
+  CHECK(fixture.commands.size() == 1);
+  REQUIRE(fixture.commands.undo(fixture.world));
+  CHECK(std::filesystem::exists(assets / "bbb.lua"));
+  CHECK(std::filesystem::exists(assets / "ccc.lua"));
+  CHECK_FALSE(std::filesystem::exists(assets / "aaa folder/ccc.lua"));
+  REQUIRE(fixture.commands.redo(fixture.world));
+  CHECK(std::filesystem::exists(assets / "aaa folder/ccc.lua"));
+}
+
+TEST_CASE("dragging a row onto a breadcrumb moves it up", "[editor][assets][imgui][move]") {
+  BrowserContext context;
+  MoveFixture fixture{"sonnet_browser_drag_crumb", GENERATE(false, true)};
+  const auto assets = fixture.root / "assets";
+  const auto inner = assets / "aaa folder";
+  REQUIRE(fixture.database.createScript(inner / "inner.lua", "return {}"));
+  fixture.panel.navigate(inner);
+  fixture.frames(2);
+  SECTION("onto the asset root") {
+    fixture.drag(fixture.row(0), fixture.crumb(1));
+    CHECK(std::filesystem::exists(assets / "inner.lua"));
+    CHECK_FALSE(std::filesystem::exists(inner / "inner.lua"));
+  }
+  SECTION("onto the project, which holds no assets, is refused") {
+    fixture.drag(fixture.row(0), fixture.crumb(0));
+    CHECK(std::filesystem::exists(inner / "inner.lua"));
+    CHECK_FALSE(std::filesystem::exists(fixture.root / "inner.lua"));
+    CHECK(fixture.commands.size() == 0);
+    return;
+  }
+  SECTION("onto the folder it is in changes nothing") {
+    fixture.drag(fixture.row(0), fixture.crumb(2));
+    CHECK(std::filesystem::exists(inner / "inner.lua"));
+    CHECK(fixture.commands.size() == 0);
+    return;
+  }
+  CHECK(fixture.commands.size() == 1);
+  REQUIRE(fixture.commands.undo(fixture.world));
+  CHECK(std::filesystem::exists(inner / "inner.lua"));
+}
+
+TEST_CASE("cut and paste move rows into the current folder", "[editor][assets][imgui][move]") {
+  BrowserContext context;
+  MoveFixture fixture{"sonnet_browser_cut_paste", GENERATE(false, true)};
+  const auto assets = fixture.root / "assets";
+  fixture.click(fixture.row(1));
+  fixture.chord(ImGuiKey_X);
+  CHECK(std::filesystem::exists(assets / "bbb.lua"));
+  fixture.panel.navigate(assets / "aaa folder");
+  fixture.frames(2);
+  ImGui::FocusWindow(ImGui::FindWindowByName("Assets"));
+  fixture.chord(ImGuiKey_V);
+  CHECK(std::filesystem::exists(assets / "aaa folder/bbb.lua"));
+  CHECK_FALSE(std::filesystem::exists(assets / "bbb.lua"));
+  CHECK(std::filesystem::exists(assets / "ccc.lua"));
+  CHECK(fixture.commands.size() == 1);
+  // What was cut is pasted once.
+  fixture.panel.navigate(assets);
+  fixture.frames(2);
+  fixture.chord(ImGuiKey_V);
+  CHECK(fixture.commands.size() == 1);
+  fixture.commands.undo(fixture.world);
+  CHECK(std::filesystem::exists(assets / "bbb.lua"));
+}
+
+TEST_CASE("duplicate copies a row beside itself with a new identity", "[editor][assets][imgui][move]") {
+  BrowserContext context;
+  MoveFixture fixture{"sonnet_browser_duplicate", GENERATE(false, true)};
+  const auto assets = fixture.root / "assets";
+  const auto original = fixture.database.findByPath(assets / "bbb.lua")->uuid;
+  fixture.click(fixture.row(1));
+  fixture.chord(ImGuiKey_D);
+  const auto *copy = fixture.database.findByPath(assets / "bbb 2.lua");
+  REQUIRE(copy != nullptr);
+  CHECK(copy->uuid != original);
+  CHECK(fixture.database.find(original) != nullptr);
+  CHECK(fixture.commands.size() == 1);
+  fixture.chord(ImGuiKey_D);
+  CHECK(fixture.database.findByPath(assets / "bbb 3.lua") != nullptr);
+  REQUIRE(fixture.commands.undo(fixture.world));
+  REQUIRE(fixture.commands.undo(fixture.world));
+  CHECK(fixture.database.findByPath(assets / "bbb 2.lua") == nullptr);
+  CHECK_FALSE(std::filesystem::exists(assets / "bbb 2.lua"));
+  CHECK(fixture.database.find(original) != nullptr);
+  REQUIRE(fixture.commands.redo(fixture.world));
+  CHECK(fixture.database.findByPath(assets / "bbb 2.lua") != nullptr);
 }

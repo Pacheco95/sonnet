@@ -334,6 +334,51 @@ TEST_CASE("a preset saved at twice the size keeps its split fractions", "[editor
   CHECK(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("regaining the focus picks up assets and prefab files changed outside the editor",
+          "[editor][gpu][prefab][rescan]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("rescan-on-focus");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  world::World &world = editor.world();
+  core::Uuid box;
+  for (const flecs::entity root : world.roots()) {
+    if (root.get<world::Name>().value == "Box") {
+      box = world.uuidOf(root);
+    }
+  }
+  REQUIRE(!box.isNil());
+  const auto prefab = editor.saveAsPrefab(box);
+  REQUIRE(prefab.has_value());
+  fixture.frame(editor);
+  const std::size_t undoable = editor.commands().size();
+
+  // What a file manager does: a new image, and a prefab file moved to another name.
+  const std::filesystem::path image = directory / "assets" / "outside.png";
+  const std::filesystem::path renamed = directory / "prefabs" / "Renamed.prefab.json";
+  REQUIRE(core::writeFile(image, std::string_view{"png"}).has_value());
+  std::filesystem::rename(*prefab, renamed);
+  fixture.frame(editor);
+  CHECK(editor.assets().findByPath(image) == nullptr); // nothing looks until the window is focused
+
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  fixture.frame(editor);
+  CHECK(editor.assets().findByPath(image) != nullptr);
+  REQUIRE(world.isInstance(world.find(box)));
+  CHECK(world.prefabOf(world.find(box)).get<world::PrefabFile>().path == renamed);
+  // The rebuild of the prefabs cuts the history, as after a re-import; a plain addition does not.
+  CHECK(editor.commands().size() <= undoable);
+
+  const std::filesystem::path second = directory / "assets" / "again.png";
+  REQUIRE(core::writeFile(second, std::string_view{"png"}).has_value());
+  const std::size_t before = editor.commands().size();
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  CHECK(editor.assets().findByPath(second) != nullptr);
+  CHECK(editor.commands().size() == before);
+}
+
 TEST_CASE("scenes open in tabs that keep their own edits, undo history and selection", "[editor][gpu]") {
   Fixture fixture;
   const std::filesystem::path directory = scratch("tabs");

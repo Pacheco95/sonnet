@@ -147,6 +147,36 @@ for correction and shows its error above the table.
 Renames keep identities and references and update loaded prefab paths, open scene tabs and
 the saved start scene. A possible `require` reference to an old name is logged for manual updating.
 
+Moving rows needs no rename. Dragging rows onto a folder row or a breadcrumb segment moves
+them there, the whole selection when the grabbed row is in it, and Ctrl+X then Ctrl+V in
+another folder (Command on macOS; also Cut and Paste in the row menu) moves what was cut
+into the current folder. Both are `moveFilesCommand`s, one composite undo step for the
+selection; a row dropped on the folder it is in, on itself or into its own subfolder is
+skipped, and a move the database refuses (the project folder is no asset root, a name is
+taken) shows its error above the table and changes nothing. An asset row keeps the
+`SONNET_ASSET` payload the inspector's pickers and the hierarchy accept, and the browser
+adds the paths of the rows to move from its own state; a folder, scene or plain file row
+carries the `SONNET_ASSET_PATHS` payload, which only the browser accepts. Duplicate
+(Ctrl+D while the panel has focus, so the hierarchy's Ctrl+D is not also triggered) copies
+the selected sources beside themselves under a numbered name (`wood 2.png`) through
+`editor::duplicateAssets`, which reuses `importAssets`' copy step: the copy has no sidecar
+of the source's, so it registers with a fresh identity and default import settings, and a
+glTF file is copied into a folder numbered the same way (`crate 2`) with the files its URIs
+name. Duplicating is one undo step, and undo and redo keep the copy's identity. Folders,
+scenes and files no importer reads cannot be duplicated.
+
+The browser also notices changes made outside the editor. When the window gains the focus,
+and when the Assets panel is shown after being hidden, the editor calls
+`AssetDatabase::rescan` ([assets.md](assets.md#rescan)): files that appeared are registered, assets
+whose source is gone are unregistered (logged), and a file moved in the system's file manager
+together with its `.meta` keeps its identity, with its open scene tab and the project's start
+scene following it. A file moved without its sidecar is a new asset with a new identity, as
+when the project is opened. Prefab files are compared with the prefabs loaded: one that came,
+went or moved, like a model that came, went or moved, rebuilds the prefabs the way a model
+re-import does ([Model re-import](#model-re-import)), which keeps the history cut that rebuild
+makes and waits for stop during play. A prefab file that failed to load is not counted as new
+again on every focus. Nothing runs on a timer, so an editor that keeps the focus costs nothing.
+
 Delete's confirmation lists the selected files and folders and counts references in open
 scenes, materials and prefab instances, including assets inside selected folders. Scenes
 that are not open are not counted. Deletion unregisters assets and drops loaded prefabs,
