@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sonnet Editor
+Comment=Scene editor of the Sonnet game engine
+Exec=sonnet_editor
+Icon=sonnet
+Terminal=false
+Categories=Development;
+StartupWMClass=sonnet-editor
