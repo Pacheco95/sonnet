@@ -885,6 +885,7 @@ TEST_CASE("measure the frames while a folder of models fills in", "[.thumbnail-b
     REQUIRE(editor->openProject(directory).has_value());
     showGrid(*editor, models);
     std::vector<double> idle;
+    idle.reserve(30);
     for (int i = 0; i < 30; ++i) {
       idle.push_back(milliseconds(*editor));
     }
