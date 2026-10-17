@@ -1076,3 +1076,26 @@ TEST_CASE("moving through a symlinked project path updates database metadata", "
   database.close();
   std::filesystem::remove(alias);
 }
+
+TEST_CASE("project folders can be renamed without changing asset roots", "[assets][database][move]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const auto folder = fixture.root / "New folder";
+  const auto renamed = fixture.root / "Renamed folder";
+  std::filesystem::create_directory(folder);
+  REQUIRE(core::writeFile(folder / "README", "plain project file"));
+  REQUIRE(database.move(folder, renamed));
+  CHECK(std::filesystem::exists(renamed / "README"));
+  CHECK_FALSE(std::filesystem::exists(folder));
+  REQUIRE(database.move(renamed, folder));
+  CHECK(std::filesystem::exists(folder / "README"));
+  CHECK_FALSE(database.move(fixture.root / "assets", fixture.root / "art"));
+  CHECK_FALSE(database.move(fixture.root, fixture.root.parent_path() / "renamed-project"));
+  CHECK_FALSE(database.move(folder, fixture.root / ".sonnet" / "folder"));
+  CHECK(database.findByPath(fixture.root / "assets/wood.png") != nullptr);
+  std::filesystem::create_directories(fixture.root / "content/imported");
+  database.open(fixture.root, std::vector<std::string>{"content/imported"});
+  CHECK_FALSE(database.move(fixture.root / "content", fixture.root / "renamed-content"));
+  CHECK(std::filesystem::is_directory(fixture.root / "content/imported"));
+}

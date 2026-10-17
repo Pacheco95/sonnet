@@ -350,7 +350,7 @@ public:
     return m_assets;
   }
   // References considered by the Assets panel's delete confirmation, across all open tabs.
-  [[nodiscard]] AssetReferences assetReferences(core::Uuid uuid);
+  [[nodiscard]] AssetReferences assetReferences(std::span<const core::Uuid> uuids);
   [[nodiscard]] AssetBrowserPanel &assetBrowser() noexcept {
     return m_assetBrowserPanel;
   }

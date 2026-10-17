@@ -38,18 +38,23 @@ moveFilesCommand(assets::AssetDatabase &assets, world::World &world, const std::
 [[nodiscard]] core::Result<std::unique_ptr<ICommand>>
 deleteFilesCommand(assets::AssetDatabase &assets, world::World &world, std::span<const std::filesystem::path> files);
 
+// Creates a single empty folder, already applied, for CommandStack::record. Undo only removes
+// it while empty, preserving files created outside the command history.
+[[nodiscard]] core::Result<std::unique_ptr<ICommand>> createFolderCommand(const std::filesystem::path &projectRoot,
+                                                                          const std::filesystem::path &folder);
+
 // Copies files into the project and registers them, which is what the Assets panel's Import and a
 // drop of files on it do (docs/editor.md, "Importing assets"). Each file goes into the project's
-// first asset root, and a glTF file into a folder of its own named after it, with the buffers and
-// images its URIs name at the same relative paths. A name already taken gets a number, as Save as
-// prefab does: `wood 2.png`, the folder `crate 2`. A file no importer reads is logged and skipped.
-// A model is also placed in `world` as a prefab, as opening the project does, so it can be
-// instanced; undo leaves the prefab loaded.
+// first asset root (or the supplied destination inside a root), and a glTF file into a folder of its own named after
+// it, with the buffers and images its URIs name at the same relative paths. A name already taken gets a number, as Save
+// as prefab does: `wood 2.png`, the folder `crate 2`. A file no importer reads is logged and skipped. A model is also
+// placed in `world` as a prefab, as opening the project does, so it can be instanced; undo leaves the prefab loaded.
 // The result is the whole import as one command, already applied, for CommandStack::record: undo
 // unregisters what it added and deletes the copies, their sidecars and the folders it made; redo
 // copies the same files again and puts the sidecars back, so the identities stay. Fails, leaving
 // nothing behind, when no file could be imported or a copy failed.
 [[nodiscard]] core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &assets, world::World &world,
-                                                                   std::span<const std::filesystem::path> files);
+                                                                   std::span<const std::filesystem::path> files,
+                                                                   const std::filesystem::path &destination = {});
 
 } // namespace sonnet::editor

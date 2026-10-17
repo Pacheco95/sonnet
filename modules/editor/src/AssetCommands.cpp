@@ -362,6 +362,41 @@ private:
   bool m_committed{false};
 };
 
+class CreateFolderCommand final : public ICommand {
+public:
+  explicit CreateFolderCommand(std::filesystem::path folder) : m_folder(std::move(folder)) {
+  }
+  core::Result<void> create() {
+    std::error_code error;
+    if (!std::filesystem::create_directory(m_folder, error)) {
+      return std::unexpected(
+          core::Error{error ? error.message() : "The folder already exists", core::ErrorCategory::Io});
+    }
+    return {};
+  }
+  void apply(world::World &) override {
+    if (auto result = create(); !result) {
+      SONNET_LOG_ERROR("{}", result.error().toString());
+    }
+  }
+  void revert(world::World &) override {
+    std::error_code error;
+    std::filesystem::remove(m_folder, error);
+    if (error) {
+      SONNET_LOG_ERROR("removing {}: {}", m_folder.string(), error.message());
+    }
+  }
+  std::string_view description() const override {
+    return "create folder";
+  }
+  bool isSceneEdit() const override {
+    return false;
+  }
+
+private:
+  std::filesystem::path m_folder;
+};
+
 struct ImportCopy {
   std::filesystem::path from;
   std::filesystem::path to;
@@ -496,11 +531,23 @@ std::filesystem::path freeName(const std::filesystem::path &directory, const std
 } // namespace
 
 core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &assets, world::World &world,
-                                                     std::span<const std::filesystem::path> files) {
+                                                     std::span<const std::filesystem::path> files,
+                                                     const std::filesystem::path &destination) {
   if (!assets.isOpen() || assets.bundle() != nullptr || assets.roots().empty()) {
     return std::unexpected(core::Error{"importing needs an open project with an asset root", core::ErrorCategory::Io});
   }
-  const std::filesystem::path root = assets.projectRoot() / assets.roots().front();
+  std::filesystem::path root = assets.projectRoot() / assets.roots().front();
+  if (!destination.empty()) {
+    std::error_code error;
+    const auto resolved = std::filesystem::weakly_canonical(destination, error);
+    if (error || !std::ranges::any_of(assets.roots(), [&](const auto &assetRoot) {
+          const auto canonicalRoot = std::filesystem::weakly_canonical(assets.projectRoot() / assetRoot, error);
+          return !error && underPath(resolved, canonicalRoot);
+        })) {
+      return std::unexpected(core::Error{"import destination must be inside an asset root", core::ErrorCategory::Io});
+    }
+    root = destination;
+  }
   std::vector<ImportCopy> copies;
   std::vector<std::filesystem::path> claimed; // every destination, files and folders
   std::vector<std::filesystem::path> directories;
@@ -557,6 +604,25 @@ core::Result<std::unique_ptr<ICommand>> importAssets(assets::AssetDatabase &asse
       std::make_unique<ImportAssetsCommand>(assets, std::move(copies), std::move(directories), std::move(description));
   if (auto copied = command->copy(world); !copied) {
     return std::unexpected(copied.error());
+  }
+  return command;
+}
+
+core::Result<std::unique_ptr<ICommand>> createFolderCommand(const std::filesystem::path &projectRoot,
+                                                            const std::filesystem::path &folder) {
+  std::error_code error;
+  const auto root = std::filesystem::weakly_canonical(projectRoot, error);
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  const auto target = std::filesystem::weakly_canonical(folder.parent_path(), error) / folder.filename();
+  if (error || !underPath(target, root) || target == root || underPath(target, root / ".sonnet") ||
+      folder.filename() == "." || folder.filename() == "..") {
+    return std::unexpected(core::Error{"invalid folder path", core::ErrorCategory::Io});
+  }
+  auto command = std::make_unique<CreateFolderCommand>(folder);
+  if (auto result = command->create(); !result) {
+    return std::unexpected(result.error());
   }
   return command;
 }

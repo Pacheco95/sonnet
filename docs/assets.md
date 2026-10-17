@@ -23,7 +23,10 @@ The sidecar is JSON: a `version`, the `uuid`, the asset `type`, the import `sett
 sub-asset names, loaded handles and modification times. It waits for affected imports before
 moving and updates their source paths; a moved script gets a new revision so its chunk name
 and log links follow the file. Destinations must be inside the project's asset roots, with
-scene and prefab files also allowed elsewhere inside the project. Existing destinations,
+scene and prefab files also allowed elsewhere inside the project. A folder can also be renamed
+in place elsewhere in the project, provided it neither is nor contains a configured asset root;
+the project root and `.sonnet` remain protected. This allows the browser's project-level folders
+to be renamed without moving imported assets outside their roots. Existing destinations,
 extension changes, and moving a glTF with external dependencies without its folder are refused.
 Case-only renames use a temporary path. `unregister` also removes every `<uuid>*.ktx2` cache
 entry for the file and its sub-assets, including mobile variants; source files and sidecars stay.

@@ -92,8 +92,10 @@ TEST_CASE("the asset browser combines the checked types with the name filter", "
 TEST_CASE("prefabs have their own entry after the asset types", "[editor][filter]") {
   const auto names = filterableAssetTypeNames();
   const std::size_t prefabs = filterableAssetTypes().size();
-  REQUIRE(names.size() == prefabs + 1);
+  REQUIRE(names.size() == prefabs + 3);
   REQUIRE(std::string_view{names[prefabs]} == "Prefabs");
+  CHECK(std::string_view{names[prefabs + 1]} == "Scenes");
+  CHECK(std::string_view{names[prefabs + 2]} == "Files");
 
   const assets::AssetInfo texture = asset("Crate", assets::AssetType::Texture);
   TypeFilter types;

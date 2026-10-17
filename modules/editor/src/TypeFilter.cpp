@@ -18,9 +18,9 @@ constexpr std::array<assets::AssetType, 10> AssetTypes{
 };
 
 // The asset types' names, then prefabs, which are not database assets but list with them.
-constexpr std::array<const char *, AssetTypes.size() + 1> AssetTypeNames{
-    "Textures", "Meshes", "Materials",  "Models", "Environments", "Scripts",
-    "Sounds",   "Skins",  "Animations", "Fonts",  "Prefabs",
+constexpr std::array<const char *, AssetTypes.size() + 3> AssetTypeNames{
+    "Textures", "Meshes",     "Materials", "Models",  "Environments", "Scripts", "Sounds",
+    "Skins",    "Animations", "Fonts",     "Prefabs", "Scenes",       "Files",
 };
 
 bool containsIgnoringCase(std::string_view text, std::string_view needle) {

@@ -1603,12 +1603,28 @@ core::Result<void> AssetDatabase::move(const std::filesystem::path &from, const 
     return !relative.empty() && relative != "." && *relative.begin() != "..";
   };
   const auto project = std::filesystem::weakly_canonical(m_projectRoot, error);
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  const bool directory = std::filesystem::is_directory(source, error);
+  if (error) {
+    return std::unexpected(core::Error{error.message(), core::ErrorCategory::Io});
+  }
+  // The browser also creates project-level folders. A sibling rename leaves their contents
+  // outside the import roots, but must never rename a configured root or a folder containing one.
+  const bool folderRename = directory && canonicalSource.parent_path() == canonicalDestination.parent_path() &&
+                            std::ranges::none_of(m_roots, [&](const std::string &root) {
+                              std::error_code rootError;
+                              const auto assetRoot = std::filesystem::weakly_canonical(m_projectRoot / root, rootError);
+                              return rootError || assetRoot == canonicalSource || beneath(assetRoot, canonicalSource) ||
+                                     assetRoot == canonicalDestination || beneath(assetRoot, canonicalDestination);
+                            });
   const bool scene = from.string().ends_with(".scene.json") || from.string().ends_with(".prefab.json");
   const auto allowed = [&](const std::filesystem::path &path) {
     if (!beneath(path, project) || beneath(path, project / ".sonnet") || path == project / ".sonnet") {
       return false;
     }
-    return scene || std::ranges::any_of(m_roots, [&](const std::string &root) {
+    return scene || folderRename || std::ranges::any_of(m_roots, [&](const std::string &root) {
              std::error_code rootError;
              const auto canonicalRoot = std::filesystem::weakly_canonical(m_projectRoot / root, rootError);
              return !rootError && beneath(path, canonicalRoot);
@@ -1618,7 +1634,6 @@ core::Result<void> AssetDatabase::move(const std::filesystem::path &from, const 
       beneath(canonicalDestination, canonicalSource)) {
     return std::unexpected(core::Error{"move must stay within the project's asset roots", core::ErrorCategory::Io});
   }
-  const bool directory = std::filesystem::is_directory(source, error);
   if (error || !std::filesystem::exists(source, error)) {
     return std::unexpected(core::Error{"move source does not exist", core::ErrorCategory::Io});
   }
