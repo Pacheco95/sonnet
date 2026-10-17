@@ -563,7 +563,9 @@ TEST_CASE("duplicate copies a glTF file with its dependencies into a numbered fo
   REQUIRE(std::filesystem::is_regular_file(root / "assets" / "wood 2.png"));
   const assets::AssetInfo *model = assets.findByPath(copy / "crate.gltf");
   REQUIRE(model != nullptr);
-  CHECK(model->uuid != modelUuid);
+  // A copy, since undo unregisters the asset the pointer is into.
+  const core::Uuid copyUuid = model->uuid;
+  CHECK(copyUuid != modelUuid);
   CHECK(assets.findByPath(root / "assets" / "wood 2.png")->uuid != woodUuid);
   CHECK(assets.find(modelUuid) != nullptr);
 
@@ -573,7 +575,9 @@ TEST_CASE("duplicate copies a glTF file with its dependencies into a numbered fo
   CHECK(assets.findByPath(copy / "crate.gltf") == nullptr);
   CHECK(std::filesystem::is_regular_file(crate / "crate.gltf"));
   REQUIRE(commands.redo(world));
-  CHECK(assets.findByPath(copy / "crate.gltf")->uuid == model->uuid);
+  const assets::AssetInfo *redone = assets.findByPath(copy / "crate.gltf");
+  REQUIRE(redone != nullptr);
+  CHECK(redone->uuid == copyUuid);
 
   const std::vector<std::filesystem::path> nothing{root / "assets"};
   CHECK_FALSE(editor::duplicateAssets(assets, world, nothing).has_value());
