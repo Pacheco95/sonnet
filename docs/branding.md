@@ -23,7 +23,7 @@ Sizes up to 48 px are cut from `icon-small.png`, larger ones from `icon-desktop.
 
 | Output | Platform |
 |---|---|
-| `packaging/linux/icons/hicolor/<n>x<n>/apps/sonnet.png` | Linux icon theme, 16 to 512 px |
+| `packaging/linux/icons/hicolor/<n>x<n>/apps/sonnet_editor.png`, `sonnet_player.png` | Linux icon theme, 16 to 512 px |
 | `apps/icon.ico` | Windows, 16 to 256 px |
 | `apps/player/android/res/mipmap-<density>/ic_launcher_<layer>.png` | Android, 108 dp per density |
 | `apps/player/ios/Assets.xcassets/AppIcon.appiconset` | iOS, the single 1024 px icon (Xcode derives the other sizes) |
@@ -43,6 +43,8 @@ Sizes up to 48 px are cut from `icon-small.png`, larger ones from `icon-desktop.
   done
   gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
   ```
+
+  The icons are named after the executables because System Monitor looks for a theme icon with the process's name; the desktop entries use the same names, which is also what Alt+Tab and the dock show.
 
   The shell matches the window by its class, `sonnet-editor` or `sonnet-player` (the entry's `StartupWMClass`); without a matching entry Alt+Tab shows a generic gear, whatever icon the window itself carries.
 - **Windows.** `apps/icon.rc` has the icon as resource 1 and `sonnet_add_executable` adds it to every executable; SDL takes the window and taskbar icon from it and Explorer shows it for the `.exe`.

@@ -2,7 +2,8 @@
 """Cuts the Sonnet icon for every platform from the artwork in assets/branding (docs/branding.md).
 
 Writes, relative to the repository root:
-  packaging/linux/icons/hicolor/<n>/apps/sonnet.png   16, 24, 32, 48, 64, 128, 256 and 512 px
+  packaging/linux/icons/hicolor/<n>/apps/sonnet_<app>.png   16, 24, 32, 48, 64, 128, 256 and 512 px, for the
+                                                     editor and the player (named after the executables)
   apps/icon.ico                                      16, 24, 32, 48, 64, 128 and 256 px, for apps/icon.rc
   apps/player/android/res/mipmap-<density>/          the adaptive icon's three layers, 108 dp
   apps/player/ios/Assets.xcassets/                   the AppIcon set, the 1024 px icon without alpha
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ART = ROOT / "assets" / "branding"
 
 HICOLOR_SIZES = [16, 24, 32, 48, 64, 128, 256, 512]
+HICOLOR_APPS = ["editor", "player"]
 ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 SMALL_LIMIT = 48
 # mdpi to xxxhdpi: 108 dp at 1, 1.5, 2, 3 and 4 pixels per dp.
@@ -90,8 +92,11 @@ def main() -> None:
     small = load("icon-small.png")
     desktop = load("icon-desktop.png")
 
+    # System Monitor looks for a theme icon named after the process, so each executable has its own.
     for size in HICOLOR_SIZES:
-        write(ROOT / f"packaging/linux/icons/hicolor/{size}x{size}/apps/sonnet.png", png_bytes(cut(size, small, desktop)))
+        data = png_bytes(cut(size, small, desktop))
+        for app in HICOLOR_APPS:
+            write(ROOT / f"packaging/linux/icons/hicolor/{size}x{size}/apps/sonnet_{app}.png", data)
 
     write(ROOT / "apps/icon.ico", ico([cut(size, small, desktop) for size in ICO_SIZES]))
 
