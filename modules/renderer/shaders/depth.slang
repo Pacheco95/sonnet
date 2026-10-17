@@ -7,6 +7,7 @@ import sonnet;
 struct VertexOutput {
   float4 position : SV_Position;
   float4 uvs : TEXCOORD0; // Vertex::uv, then Vertex::uv1
+  float alpha : COLOR0; // Vertex::color's alpha
   nointerpolation uint objectIndex : OBJECT0;
 };
 
@@ -16,6 +17,7 @@ VertexOutput transform(uint vertexId, uint objectIndex, float4x4 viewProjection)
   VertexOutput output;
   output.position = mul(viewProjection, mul(model, float4(vertex.position, 1.0)));
   output.uvs = float4(vertex.uv, vertex.uv1);
+  output.alpha = vertexColor(vertex).a;
   output.objectIndex = objectIndex;
   return output;
 }
@@ -34,17 +36,17 @@ VertexOutput shadowVertexMain(uint vertexId : SV_VertexID, uint startInstance : 
   return transform(vertexId, drawObject(startInstance, instance), viewProjection);
 }
 
-float surfaceAlpha(MaterialData material, uint objectIndex, float4 uvs) {
-  return material.baseColor.a * objects[objectIndex].color.a *
+float surfaceAlpha(MaterialData material, uint objectIndex, float4 uvs, float vertexAlpha) {
+  return material.baseColor.a * objects[objectIndex].color.a * vertexAlpha *
          textures[material.baseColorTexture]
              .Sample(samplers[materialSampler(material, SlotBaseColor)], uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, uvs)))
              .a;
 }
 
 // Masked materials cut holes; everything else keeps the rasterised depth.
-void alphaTest(uint objectIndex, float4 uvs) {
+void alphaTest(uint objectIndex, float4 uvs, float vertexAlpha) {
   const MaterialData material = frame.materials[objects[objectIndex].material];
-  if ((material.flags & 0xFF) == AlphaMask && surfaceAlpha(material, objectIndex, uvs) < material.emissive.a) {
+  if ((material.flags & 0xFF) == AlphaMask && surfaceAlpha(material, objectIndex, uvs, vertexAlpha) < material.emissive.a) {
     discard;
   }
 }
@@ -65,16 +67,16 @@ void shadowFragmentMain(VertexOutput input) {
   const MaterialData material = frame.materials[objects[input.objectIndex].material];
   const uint alphaMode = material.flags & 0xFF;
   if (alphaMode == AlphaMask) {
-    alphaTest(input.objectIndex, input.uvs);
+    alphaTest(input.objectIndex, input.uvs, input.alpha);
   } else if (alphaMode == AlphaBlend &&
-             surfaceAlpha(material, input.objectIndex, input.uvs) <= orderedThreshold(input.position.xy)) {
+             surfaceAlpha(material, input.objectIndex, input.uvs, input.alpha) <= orderedThreshold(input.position.xy)) {
     discard;
   }
 }
 
 [shader("fragment")]
 void fragmentMain(VertexOutput input) {
-  alphaTest(input.objectIndex, input.uvs);
+  alphaTest(input.objectIndex, input.uvs, input.alpha);
 }
 
 // The pre-pass under temporal anti-aliasing (ADR-0024): the same depth, and the screen-space motion
@@ -83,6 +85,7 @@ void fragmentMain(VertexOutput input) {
 struct MotionVertexOutput {
   float4 position : SV_Position;
   float4 uvs : TEXCOORD0; // Vertex::uv, then Vertex::uv1
+  float alpha : COLOR0; // Vertex::color's alpha
   nointerpolation uint objectIndex : OBJECT0;
   float4 currentClip : CLIP0;
   float4 previousClip : CLIP1;
@@ -102,6 +105,7 @@ MotionVertexOutput motionVertexMain(uint vertexId : SV_VertexID, uint startInsta
   MotionVertexOutput output;
   output.position = base.position;
   output.uvs = base.uvs;
+  output.alpha = base.alpha;
   output.objectIndex = objectIndex;
   output.currentClip = mul(frame.unjitteredViewProjection, mul(model, float4(vertex.position, 1.0)));
   output.previousClip = mul(frame.previousViewProjection, float4(previousWorld, 1.0));
@@ -116,7 +120,7 @@ float2 clipToUv(float4 clip) {
 // A point that was behind the camera has no previous position and reads as still.
 [shader("fragment")]
 float2 motionFragmentMain(MotionVertexOutput input) : SV_Target {
-  alphaTest(input.objectIndex, input.uvs);
+  alphaTest(input.objectIndex, input.uvs, input.alpha);
   if (input.previousClip.w <= 1.0e-4 || input.currentClip.w <= 1.0e-4) {
     return float2(0.0, 0.0);
   }

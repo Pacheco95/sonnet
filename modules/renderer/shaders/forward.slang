@@ -30,7 +30,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_Sta
   output.normal = transformNormal(basis, vertex.normal);
   output.tangent = float4(transformDirection(basis, vertex.tangent.xyz), vertex.tangent.w * mirrorSign(basis));
   output.uvs = float4(vertex.uv, vertex.uv1);
-  output.color = objects[objectIndex].color;
+  output.color = objects[objectIndex].color * vertexColor(vertex);
   return output;
 }
 
