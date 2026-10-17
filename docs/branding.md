@@ -32,7 +32,19 @@ Sizes up to 48 px are cut from `icon-small.png`, larger ones from `icon-desktop.
 ## Where each platform takes it from
 
 - **Window (Linux, macOS).** `SdlWindow` decodes the embedded 256 px PNG with SDL's `SDL_LoadPNG_IO` and calls `SDL_SetWindowIcon`, so the editor and the player show it with no data file next to the binary. macOS uses the `icon-macos.png` cut, and the Dock shows it, since the executables are not app bundles there. On Linux the entry point also sets `SDL_HINT_APP_ID` to the executable's name with dashes (`sonnet_editor` is `sonnet-editor`), which Wayland and X11 match against the desktop entry.
-- **Linux desktop entries.** `packaging/linux/sonnet-editor.desktop` and `sonnet-player.desktop`. The build has no install rules, so the files only ship: copy the icons and entries into `~/.local/share` (`icons/hicolor` and `applications`) and the launcher shows them.
+- **Linux desktop entries.** `packaging/linux/sonnet-editor.desktop` and `sonnet-player.desktop`. The build has no install rules, so the files only ship. GNOME Shell shows the icon in Alt+Tab and the dock only for a window it can match to a desktop entry, and GLib ignores an entry whose `Exec` it cannot resolve, so `Exec` must be the binary's full path (or a name on `PATH`). From the repository root, after a build:
+
+  ```sh
+  mkdir -p ~/.local/share/applications ~/.local/share/icons
+  cp -r packaging/linux/icons/hicolor ~/.local/share/icons/
+  for app in editor player; do
+    sed "s|^Exec=.*|Exec=$PWD/build/linux-debug/apps/$app/sonnet_$app|" \
+      packaging/linux/sonnet-$app.desktop > ~/.local/share/applications/sonnet-$app.desktop
+  done
+  gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
+  ```
+
+  The shell matches the window by its class, `sonnet-editor` or `sonnet-player` (the entry's `StartupWMClass`); without a matching entry Alt+Tab shows a generic gear, whatever icon the window itself carries.
 - **Windows.** `apps/icon.rc` has the icon as resource 1 and `sonnet_add_executable` adds it to every executable; SDL takes the window and taskbar icon from it and Explorer shows it for the `.exe`.
 - **Android.** `res/mipmap-anydpi/ic_launcher.xml` is an adaptive icon with background, foreground and monochrome layers, referenced by `android:icon="@mipmap/ic_launcher"`. `minSdkVersion` is 36, so no legacy per-density icon is needed.
 - **iOS.** `sonnet_add_ios_bundle` adds `Assets.xcassets` as a bundle resource and sets `ASSETCATALOG_COMPILER_APPICON_NAME` to `AppIcon`.
