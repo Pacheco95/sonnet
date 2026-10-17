@@ -410,11 +410,11 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
   REQUIRE(cooked != nullptr);
   REQUIRE(cooked->bytes == file); // byte for byte
   REQUIRE(cooked->preload == std::vector<GlyphRange>{{65, 90}});
-  // The header says version 17.
+  // The header says version 18.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 17);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 17);
+  REQUIRE(BundleVersion == 18);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 18);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {

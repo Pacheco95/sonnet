@@ -147,7 +147,7 @@ Components are read and written through reflection, generically ([world.md](worl
 | `get(component)`, `set(component, table)` | A component's value, or `nil` when absent; assigns fields, adding the component when absent |
 | `has(component)`, `add(component)`, `remove(component)` | Presence, adding with default values, removal |
 | `parent()`, `children()` | The parent or `nil`; an array of the children |
-| `child(path)` | The descendant at a `/`-separated path of names (`cart:child("Axle/Hub")`), the first child of each name in sibling order, or `nil`; an instance's parts keep their prefab names unless renamed, so a path written against a prefab works on every instance of it ([ADR-0028](decisions/0028-nested-scene-instances.md)) |
+| `child(path)` | The descendant at a `/`-separated path of names (`cart:child("Axle/Hub")`), the first child of each name in sibling order, or `nil`; an instance's parts keep their prefab names unless renamed, so a path written against a prefab works on every instance of it ([ADR-0028](decisions/0028-nested-scene-instances.md)); reordering two children of the same name on an instance changes which one a path finds ([ADR-0032](decisions/0032-instance-child-order.md)) |
 | `worldPosition()` | A `vec3` from the hierarchy, current even before the transform system has run |
 | `destroy()` | Destroys it and its children |
 

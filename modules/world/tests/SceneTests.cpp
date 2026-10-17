@@ -801,7 +801,7 @@ TEST_CASE("orthographic scene cameras retain projection and old cameras default 
                              .farPlane = 42.0f});
   const auto uuid = world.uuidOf(camera);
   auto saved = world::saveScene(world);
-  REQUIRE(saved["version"] == 7);
+  REQUIRE(saved["version"] == world::SceneVersion);
   const auto payload = assets::decodeJson(assets::encodeJson(saved));
   REQUIRE(payload);
   world.clearScene();

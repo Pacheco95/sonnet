@@ -233,7 +233,7 @@ TEST_CASE("the context menu's save as prefab runs after the tree is drawn", "[ed
   frame(panel);
 }
 
-TEST_CASE("a row moves among its siblings, but not before an instance's own children", "[editor][hierarchy]") {
+TEST_CASE("a row moves among its siblings, an instance's own children included", "[editor][hierarchy]") {
   world::World world;
   editor::Selection selection;
   editor::CommandStack commands;
@@ -262,7 +262,8 @@ TEST_CASE("a row moves among its siblings, but not before an instance's own chil
   CHECK_FALSE(panel.canMove(uuid(a), {}, 0));
   CHECK_FALSE(panel.canMove(uuid(a), uuid(a), 0));
   CHECK_FALSE(panel.canMove(uuid(instance), uuid(x), 0));
-  CHECK_FALSE(panel.canMove(uuid(part), uuid(instance), 2));
+  CHECK_FALSE(panel.canMove(uuid(part), uuid(instance), 0));
+  CHECK_FALSE(panel.canMove(uuid(part), {}, 0)); // a copy keeps its parent
   CHECK_FALSE(panel.canMove(uuid(a), core::Uuid::generate(), 0));
 
   REQUIRE(panel.moveEntity(uuid(b), {}, 0));
@@ -270,20 +271,23 @@ TEST_CASE("a row moves among its siblings, but not before an instance's own chil
   REQUIRE(commands.undo(world));
   REQUIRE(names(world.roots()) == Names{"A", "B", "Crate 1"});
 
-  // An instance's own children load first, so the added ones reorder only after them.
-  CHECK_FALSE(panel.canMove(uuid(y), uuid(instance), 0));
-  CHECK_FALSE(panel.canMove(uuid(a), uuid(instance), 0));
-  REQUIRE(panel.moveEntity(uuid(y), uuid(instance), 1));
-  REQUIRE(names(world.children(instance)) == Names{"Lid", "Y", "X"});
-  REQUIRE(panel.moveEntity(uuid(a), uuid(instance), 2));
-  REQUIRE(names(world.children(instance)) == Names{"Lid", "Y", "A", "X"});
+  // Added children go before the instance's own, and those move among the others.
+  REQUIRE(panel.moveEntity(uuid(y), uuid(instance), 0));
+  REQUIRE(names(world.children(instance)) == Names{"Y", "Lid", "X"});
+  REQUIRE(panel.moveEntity(uuid(a), uuid(instance), 1));
+  REQUIRE(names(world.children(instance)) == Names{"Y", "A", "Lid", "X"});
+  REQUIRE(panel.moveEntity(uuid(part), uuid(instance), 3));
+  REQUIRE(names(world.children(instance)) == Names{"Y", "A", "X", "Lid"});
+  REQUIRE(commands.undo(world));
+  REQUIRE(names(world.children(instance)) == Names{"Y", "A", "Lid", "X"});
+  REQUIRE(commands.redo(world));
 
   // The order survives the save and load that play mode and a reopen do.
   const nlohmann::json scene = world::saveScene(world);
   world.clearScene();
   REQUIRE(world::loadScene(world, scene));
   REQUIRE(names(world.roots()) == Names{"B", "Crate 1"});
-  REQUIRE(names(world.children(world.roots().back())) == Names{"Lid", "Y", "A", "X"});
+  REQUIRE(names(world.children(world.roots().back())) == Names{"Y", "A", "X", "Lid"});
 }
 
 TEST_CASE("dragging a row onto the upper edge of another puts it before that row", "[editor][hierarchy]") {

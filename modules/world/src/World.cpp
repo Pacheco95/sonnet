@@ -380,6 +380,21 @@ std::vector<flecs::entity> World::children(flecs::entity entity) const {
   return result;
 }
 
+std::vector<flecs::entity> World::defaultChildren(flecs::entity node) const {
+  std::vector<flecs::entity> copies;
+  std::vector<flecs::entity> added;
+  for (const flecs::entity child : children(node)) {
+    (child.has<PrefabSource>() ? copies : added).push_back(child);
+  }
+  std::ranges::stable_sort(copies, [this](flecs::entity a, flecs::entity b) {
+    const flecs::entity sourceA = sourceOf(a);
+    const flecs::entity sourceB = sourceOf(b);
+    return sourceA && sourceB && siblingBefore(sourceA, sourceB);
+  });
+  copies.insert(copies.end(), added.begin(), added.end());
+  return copies;
+}
+
 std::size_t World::siblingIndex(flecs::entity entity) const {
   const flecs::entity parent = entity.parent();
   const std::vector<flecs::entity> siblings = parent ? children(parent) : roots();

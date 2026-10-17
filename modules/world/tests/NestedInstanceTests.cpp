@@ -383,3 +383,125 @@ TEST_CASE("an instance's children keep the prefab's order on every load and at e
     check();
   }
 }
+
+namespace {
+
+using Names = std::vector<std::string>;
+
+// A prefab "Crate" with the children Lid, Latch and Hinge, the Latch holding a Bolt and a Nut.
+// The identities are fixed, so a scene saved against one build loads against another.
+struct Crate {
+  world::World world;
+  core::Uuid root = core::Uuid::derive(core::Uuid{}, "crate");
+
+  static core::Uuid uuidOf(std::string_view name) {
+    return core::Uuid::derive(core::Uuid{}, std::string{"crate/"} + std::string{name});
+  }
+
+  // `skip` leaves a child out, and `gained` adds one, before the Lid or right after it, as a file
+  // edit would.
+  explicit Crate(std::string_view skip = {}, const char *gained = nullptr, bool gainedFirst = false) {
+    const flecs::entity crate = world.createEntity("Crate", {}, root);
+    const auto add = [&](std::string_view name, flecs::entity parent) {
+      return name == skip ? flecs::entity{} : world.createEntity(name, parent, uuidOf(name));
+    };
+    if (gained != nullptr && gainedFirst) {
+      world.createEntity(gained, crate, uuidOf(gained));
+    }
+    add("Lid", crate);
+    if (gained != nullptr && !gainedFirst) {
+      world.createEntity(gained, crate, uuidOf(gained));
+    }
+    const flecs::entity latch = add("Latch", crate);
+    add("Hinge", crate);
+    add("Bolt", latch);
+    add("Nut", latch);
+    world.makePrefab(crate);
+  }
+
+  flecs::entity instance() {
+    return world.instantiate(world.find(root), "Crate 1");
+  }
+
+  Names names(flecs::entity parent) const {
+    Names result;
+    for (const flecs::entity child : world.children(parent)) {
+      result.push_back(child.get<world::Name>().value);
+    }
+    return result;
+  }
+};
+
+const json *entryOf(const json &scene, const core::Uuid &uuid) {
+  for (const json &entry : scene["entities"]) {
+    if (entry["uuid"] == uuid.toString()) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
+} // namespace
+
+TEST_CASE("an instance in its default order saves no order", "[world][prefab][order]") {
+  Crate crate;
+  const flecs::entity instance = crate.instance();
+  crate.world.createEntity("Added", instance);
+  const json scene = world::saveScene(crate.world);
+  REQUIRE(scene["entities"].size() == 2); // the instance and its added child, nothing for the copies
+  REQUIRE(!scene["entities"][0].contains("order"));
+}
+
+TEST_CASE("an instance's children keep a reordering through save and load", "[world][prefab][order]") {
+  Crate crate;
+  const flecs::entity instance = crate.instance();
+  const flecs::entity added = crate.world.createEntity("Added", instance);
+  const flecs::entity latch = childNamed(crate.world, instance, "Latch");
+  // Added first, then Hinge, Lid, Latch; the Latch itself is unchanged but swaps its children.
+  crate.world.setSiblingIndex(added, 0);
+  crate.world.setSiblingIndex(childNamed(crate.world, instance, "Hinge"), 1);
+  crate.world.setSiblingIndex(childNamed(crate.world, latch, "Nut"), 0);
+  REQUIRE(crate.names(instance) == Names{"Added", "Hinge", "Lid", "Latch"});
+
+  const json scene = world::saveScene(crate.world);
+  const json *root = entryOf(scene, crate.world.uuidOf(instance));
+  REQUIRE(root != nullptr);
+  REQUIRE((*root)["order"].size() == 4);
+  REQUIRE((*root)["order"][0] == crate.world.uuidOf(added).toString());
+  const json *latchEntry = entryOf(scene, crate.world.uuidOf(latch));
+  REQUIRE(latchEntry != nullptr);
+  REQUIRE((*latchEntry)["instanced"] == true);
+  REQUIRE((*latchEntry)["components"].empty());
+  REQUIRE((*latchEntry)["order"].size() == 2);
+
+  crate.world.destroyEntity(instance);
+  REQUIRE(world::loadScene(crate.world, scene).has_value());
+  const flecs::entity loaded = crate.world.roots().back();
+  REQUIRE(crate.names(loaded) == Names{"Added", "Hinge", "Lid", "Latch"});
+  REQUIRE(crate.names(childNamed(crate.world, loaded, "Latch")) == Names{"Nut", "Bolt"});
+  REQUIRE(world::saveScene(crate.world) == scene); // and it saves the same again
+}
+
+TEST_CASE("a stored order meets a prefab that changed", "[world][prefab][order]") {
+  json scene;
+  {
+    Crate crate;
+    const flecs::entity instance = crate.instance();
+    crate.world.setSiblingIndex(childNamed(crate.world, instance, "Hinge"), 0);
+    crate.world.setSiblingIndex(childNamed(crate.world, instance, "Lid"), 2);
+    REQUIRE(crate.names(instance) == Names{"Hinge", "Latch", "Lid"});
+    scene = world::saveScene(crate.world);
+  }
+  const auto loaded = [&](std::string_view skip, const char *gained, bool gainedFirst = false) {
+    Crate crate{skip, gained, gainedFirst};
+    REQUIRE(world::loadScene(crate.world, scene).has_value());
+    return crate.names(crate.world.roots().back());
+  };
+  REQUIRE(loaded({}, nullptr) == Names{"Hinge", "Latch", "Lid"});
+  // A child the prefab dropped is skipped; the rest keep the stored order.
+  REQUIRE(loaded("Latch", nullptr) == Names{"Hinge", "Lid"});
+  // A child the prefab gained follows the sibling it follows in the prefab, wherever that went.
+  REQUIRE(loaded({}, "Gained") == Names{"Hinge", "Latch", "Lid", "Gained"});
+  // One with nothing before it comes first.
+  REQUIRE(loaded({}, "Gained", true) == Names{"Gained", "Hinge", "Latch", "Lid"});
+}
