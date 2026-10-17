@@ -1187,6 +1187,12 @@ TEST_CASE("orthographic picking and translate drag select and move the box", "[e
   Fixture fixture;
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    SECTION("Ctrl shortcuts") {
+      ImGui::GetIO().ConfigMacOSXBehaviors = false;
+    }
+    SECTION("Cmd shortcuts") {
+      ImGui::GetIO().ConfigMacOSXBehaviors = true;
+    }
     world::World &world = editor.world();
     flecs::entity box;
     for (const flecs::entity root : world.roots()) {
@@ -1252,10 +1258,14 @@ TEST_CASE("orthographic picking and translate drag select and move the box", "[e
     io.AddMousePosEvent(handle->x, handle->y);
     fixture.frame(editor);
     REQUIRE(editor.gizmo().hoveredAxis() == editor::GizmoAxis::X);
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    // ImGui swaps Ctrl and Super on macOS; physical Ctrl-left-click becomes a right-click.
+    const ImGuiKey snapModifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+    io.AddKeyEvent(snapModifier, true);
     fixture.frame(editor);
+    REQUIRE(io.KeyCtrl);
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     fixture.frame(editor);
+    REQUIRE(io.MouseDown[ImGuiMouseButton_Left]);
     REQUIRE(editor.gizmo().isDragging());
     io.AddMousePosEvent(target->x, target->y);
     fixture.frame(editor);
@@ -1268,6 +1278,8 @@ TEST_CASE("orthographic picking and translate drag select and move the box", "[e
     REQUIRE(editor.commands().undoDescription() == "move Box");
     REQUIRE(box.get<world::Transform>().position.x == Approx(1.0f).margin(0.05f));
     REQUIRE(box.get<world::WorldTransform>().matrix[3].x == Approx(1.0f).margin(0.05f));
+    io.AddKeyEvent(snapModifier, false);
+    fixture.frame(editor);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
