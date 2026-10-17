@@ -192,14 +192,19 @@ public:
   // KTX2 source is itself. Project mode only.
   [[nodiscard]] core::Result<std::vector<std::byte>> mobileTexture(const core::Uuid &uuid);
 
-  // What makeThumbnail needs for an asset (docs/assets.md, "Thumbnails"): a texture or an environment
-  // that is a file of its own, other than a KTX2 one, or a material file, which is loaded to find the
-  // textures it reads. Nothing for the rest, which the editor shows as an icon. Project mode only.
+  // What a thumbnail needs for an asset (docs/assets.md, "Thumbnails"): a texture or an environment
+  // that is a file of its own, other than a KTX2 one, a material file, which is loaded to find the
+  // textures it reads, a model, or a mesh, which for a glTF sub-asset is as old as its file. Nothing for
+  // the rest, which the editor shows as an icon. Project mode only.
   [[nodiscard]] std::optional<ThumbnailRequest> thumbnailRequest(const core::Uuid &uuid);
   // The material files whose look changed since the last call: edited or saved through
   // `setMaterialSource` or `saveMaterial`, or reading a texture that was published or re-imported.
   // Their thumbnails are stale.
   [[nodiscard]] std::vector<core::Uuid> takeChangedMaterials();
+  // Whether a material has edits that are not saved, so a picture made with it would outlive the file.
+  [[nodiscard]] bool hasUnsavedEdits(const core::Uuid &material) const {
+    return m_unsavedMaterials.contains(material);
+  }
 
   [[nodiscard]] std::filesystem::path cacheDirectory() const {
     return m_projectRoot / ".sonnet" / "cache";

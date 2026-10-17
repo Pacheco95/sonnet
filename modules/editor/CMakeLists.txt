@@ -23,7 +23,7 @@ sonnet_add_module(editor
     src/LightLines.cpp
     src/LogPanel.cpp
     src/LucideFontData.cpp
-    src/MaterialThumbnailer.cpp
+    src/ThumbnailRenderer.cpp
     src/Preferences.cpp
     src/Project.cpp
     src/Recovery.cpp

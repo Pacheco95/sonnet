@@ -95,6 +95,46 @@ TEST_CASE("a disabled entity hides its subtree from the draw and light lists", "
   REQUIRE(lights.size() == 1);
 }
 
+TEST_CASE("the items of a prefab are read from its tree, with its root at the origin", "[world][drawlist]") {
+  Fixture fixture;
+  world::World &world = fixture.world;
+  std::vector<renderer::DrawItem> draws;
+  std::vector<glm::mat4> joints;
+  std::vector<float> morphWeights;
+
+  const flecs::entity crate = world.createEntity("Crate");
+  crate.set<world::Transform>({.position = {5.0f, 0.0f, 0.0f}});
+  crate.set<world::MeshRenderer>({.mesh = assets::builtin::box()});
+  const flecs::entity lid = world.createEntity("Lid", crate);
+  lid.set<world::Transform>({.position = {0.0f, 1.0f, 0.0f}});
+  lid.set<world::MeshRenderer>({.mesh = assets::builtin::sphere()});
+  const flecs::entity hidden = world.createEntity("Hidden", crate);
+  hidden.set<world::MeshRenderer>({.mesh = assets::builtin::box()});
+  hidden.add<world::Disabled>();
+  world.makePrefab(crate);
+  world.progress(0.016f);
+
+  world::buildDrawList(world, fixture.assets, crate, draws, joints, morphWeights);
+  REQUIRE(draws.size() == 2); // the disabled part is left out
+  CHECK(draws[0].transform[3].x == Approx(0.0f));
+  CHECK(draws[0].id == world::World::pickId(crate));
+  CHECK(draws[1].transform[3].x == Approx(0.0f));
+  CHECK(draws[1].transform[3].y == Approx(1.0f));
+  CHECK(draws[0].jointCount == 0);
+
+  // A prefab is not in the scene, so the scene's list has nothing of it.
+  world::buildDrawList(world, fixture.assets, draws, joints, morphWeights);
+  CHECK(draws.empty());
+
+  // One mesh with its own materials, white.
+  world::buildDrawList(fixture.assets, assets::builtin::box(), draws);
+  REQUIRE(draws.size() == 1);
+  CHECK(draws[0].color == glm::vec4{1.0f});
+  CHECK(draws[0].id == 0);
+  world::buildDrawList(fixture.assets, core::Uuid::generate(), draws);
+  CHECK(draws.empty());
+}
+
 TEST_CASE("a draw item carries the world matrix of the frame before", "[world][drawlist]") {
   Fixture fixture;
   world::World &world = fixture.world;

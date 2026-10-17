@@ -1,12 +1,14 @@
-#include <sonnet/editor/MaterialThumbnailer.h>
+#include <sonnet/editor/ThumbnailRenderer.h>
 
 #include <sonnet/assets/Thumbnail.h>
 #include <sonnet/core/Profile.h>
 #include <sonnet/renderer/Primitives.h>
+#include <sonnet/world/DrawList.h>
 
 #include <glm/gtc/packing.hpp>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -18,7 +20,7 @@ namespace {
 constexpr glm::uvec2 PictureSize{assets::ThumbnailSize, assets::ThumbnailSize};
 constexpr std::uint64_t PictureBytes = std::uint64_t{PictureSize.x} * PictureSize.y * 4;
 
-// The sky every material is lit by: a grey gradient from a dim floor to a brighter zenith, a large soft box
+// The sky every thumbnail is lit by: a grey gradient from a dim floor to a brighter zenith, a large soft box
 // above and in front of the sphere on its left, and a cooler, dimmer fill on its right. Equirectangular, in the
 // mapping of `equirectUv` (shaders/ibl.slang), so the camera at +Z looking down -Z sees its horizon behind the
 // sphere.
@@ -57,25 +59,22 @@ renderer::TextureData studioSky() {
 
 } // namespace
 
-MaterialThumbnailer::Slot::Slot(rhi::IDevice &device, std::size_t index)
-    : target(device, std::format("material thumbnail {}", index)) {
+ThumbnailRenderer::Slot::Slot(rhi::IDevice &device, std::size_t index)
+    : target(device, std::format("thumbnail {}", index)) {
   target.resize(PictureSize);
-  // The sphere fills the picture: its radius over the distance is the sine of half the field of view.
-  view.camera.position = {0.0f, 0.0f, 2.2f};
   view.camera.fovY = glm::radians(30.0f);
   view.camera.bloomStrength = 0.0f;
   view.hasSun = false; // the sun's cascades are 64 MiB of shadow maps a thumbnail does not need
   view.bloomStrength = 0.0f;
-  view.resetHistory = true; // every picture is a cut: nothing of the last material is a guide to this one
-  view.draws = {&draw, 1};
+  view.resetHistory = true; // every picture is a cut: nothing of the last subject is a guide to this one
 }
 
-MaterialThumbnailer::MaterialThumbnailer(rhi::IDevice &device, renderer::Renderer &renderer,
-                                         assets::AssetDatabase &assets)
-    : m_device(device), m_renderer(renderer), m_assets(assets) {
+ThumbnailRenderer::ThumbnailRenderer(rhi::IDevice &device, renderer::Renderer &renderer, assets::AssetDatabase &assets,
+                                     const world::World &world)
+    : m_device(device), m_renderer(renderer), m_assets(assets), m_world(world) {
 }
 
-MaterialThumbnailer::~MaterialThumbnailer() {
+ThumbnailRenderer::~ThumbnailRenderer() {
   for (Frame &frame : m_frames) {
     for (const rhi::BufferHandle buffer : frame.buffers) {
       if (buffer) {
@@ -91,7 +90,7 @@ MaterialThumbnailer::~MaterialThumbnailer() {
   }
 }
 
-void MaterialThumbnailer::request(const core::Uuid &uuid, std::uint64_t ticket) {
+void ThumbnailRenderer::request(const core::Uuid &uuid, std::uint64_t ticket, Subject subject) {
   // Here and not when the views are declared: a mesh made in the middle of a graph frame can move the meshes
   // the scene views have already batched.
   if (m_slots.empty()) {
@@ -102,19 +101,23 @@ void MaterialThumbnailer::request(const core::Uuid &uuid, std::uint64_t ticket) 
     queued->ticket = ticket;
     return;
   }
-  m_queue.push_back({uuid, ticket});
+  m_queue.push_back({uuid, ticket, subject});
+  // What it draws is asked for now, so it is on its way when the frame comes; the list itself is made then.
+  std::vector<renderer::DrawItem> draws;
+  std::vector<glm::mat4> joints;
+  std::vector<float> morphWeights;
+  static_cast<void>(gather(m_queue.back(), draws, joints, morphWeights));
 }
 
-void MaterialThumbnailer::cancel(const core::Uuid &uuid) {
+void ThumbnailRenderer::cancel(const core::Uuid &uuid) {
   std::erase_if(m_queue, [&](const Queued &queued) { return queued.uuid == uuid; });
 }
 
-void MaterialThumbnailer::createResources() {
-  m_sphere = m_renderer.createMesh(renderer::primitives::sphere(0.5f, 48, 24), "material thumbnail sphere");
-  m_sky = m_renderer.createEnvironment(studioSky(), "material thumbnail sky");
+void ThumbnailRenderer::createResources() {
+  m_sphere = m_renderer.createMesh(renderer::primitives::sphere(0.5f, 48, 24), "thumbnail sphere");
+  m_sky = m_renderer.createEnvironment(studioSky(), "thumbnail sky");
   for (std::size_t i = 0; i < PerFrame; ++i) {
     auto slot = std::make_unique<Slot>(m_device, i);
-    slot->draw.mesh = m_sphere;
     slot->view.environment = m_sky;
     m_slots.push_back(std::move(slot));
   }
@@ -123,12 +126,74 @@ void MaterialThumbnailer::createResources() {
       buffer = m_device.createBuffer({.size = PictureBytes,
                                       .usage = rhi::BufferUsage::TransferDst,
                                       .memory = rhi::MemoryUsage::GpuToCpu,
-                                      .debugName = "material thumbnail readback"});
+                                      .debugName = "thumbnail readback"});
     }
   }
 }
 
-std::vector<MaterialThumbnailer::Result> MaterialThumbnailer::render(renderer::RenderGraph &graph) {
+bool ThumbnailRenderer::gather(const Queued &queued, std::vector<renderer::DrawItem> &draws,
+                               std::vector<glm::mat4> &joints, std::vector<float> &morphWeights) {
+  draws.clear();
+  joints.clear();
+  morphWeights.clear();
+  switch (queued.subject) {
+  case Subject::Material:
+    if (const renderer::MaterialHandle material = m_assets.material(queued.uuid)) {
+      draws.push_back({.mesh = m_sphere, .material = material});
+    }
+    break;
+  case Subject::Mesh:
+    world::buildDrawList(m_assets, queued.uuid, draws);
+    break;
+  case Subject::Prefab:
+    if (const flecs::entity root = m_world.find(queued.uuid)) {
+      world::buildDrawList(m_world, m_assets, root, draws, joints, morphWeights);
+    }
+    break;
+  }
+  return !draws.empty();
+}
+
+bool ThumbnailRenderer::compose(Slot &slot, const Queued &queued) {
+  if (!gather(queued, slot.draws, slot.joints, slot.morphWeights)) {
+    return false;
+  }
+  slot.view.draws = slot.draws;
+  slot.view.joints = slot.joints;
+  slot.view.morphWeights = slot.morphWeights;
+  renderer::Camera &camera = slot.view.camera;
+  if (queued.subject == Subject::Material) {
+    // The sphere fills the picture: its radius over the distance is the sine of half the field of view.
+    camera.position = {0.0f, 0.0f, 2.2f};
+    camera.rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
+    camera.nearPlane = 0.1f;
+    return true;
+  }
+  // Framed on the bounding sphere of what is drawn, from the front, a little above and to the right.
+  glm::vec3 low{FLT_MAX};
+  glm::vec3 high{-FLT_MAX};
+  for (const renderer::DrawItem &draw : slot.draws) {
+    const renderer::Bounds bounds = m_renderer.meshBounds(draw.mesh);
+    for (int corner = 0; corner < 8; ++corner) {
+      const glm::vec3 point{(corner & 1) != 0 ? bounds.max.x : bounds.min.x,
+                            (corner & 2) != 0 ? bounds.max.y : bounds.min.y,
+                            (corner & 4) != 0 ? bounds.max.z : bounds.min.z};
+      const glm::vec3 placed{draw.transform * glm::vec4{point, 1.0f}};
+      low = glm::min(low, placed);
+      high = glm::max(high, placed);
+    }
+  }
+  const glm::vec3 centre = (low + high) * 0.5f;
+  const float radius = std::max(0.5f * glm::length(high - low), 1e-3f);
+  const float distance = radius / std::sin(camera.fovY * 0.5f) * 1.1f;
+  const glm::vec3 toCamera = glm::normalize(glm::vec3{0.45f, 0.35f, 1.0f});
+  camera.position = centre + toCamera * distance;
+  camera.rotation = glm::quatLookAt(-toCamera, glm::vec3{0.0f, 1.0f, 0.0f});
+  camera.nearPlane = std::max(0.5f * (distance - radius), 1e-3f);
+  return true;
+}
+
+std::vector<ThumbnailRenderer::Result> ThumbnailRenderer::render(renderer::RenderGraph &graph) {
   SONNET_ZONE();
   // The frame slot beginFrame just waited for: its copies, made FramesInFlight frames ago, are in the buffers.
   Frame &frame = m_frames[m_frame % rhi::FramesInFlight];
@@ -137,7 +202,7 @@ std::vector<MaterialThumbnailer::Result> MaterialThumbnailer::render(renderer::R
   for (std::size_t i = 0; i < frame.count; ++i) {
     const Job &job = frame.jobs[i];
     Result result{.uuid = job.uuid, .ticket = job.ticket, .picture = std::nullopt};
-    if (job.material) {
+    if (job.drawn) {
       const std::span<const std::byte> pixels = m_device.mappedRange(frame.buffers[i]);
       renderer::TextureData picture{.size = PictureSize,
                                     .format = rhi::Format::R8G8B8A8Unorm,
@@ -160,24 +225,22 @@ std::vector<MaterialThumbnailer::Result> MaterialThumbnailer::render(renderer::R
     const Queued queued = m_queue.front();
     m_queue.pop_front();
     Job &job = frame.jobs[frame.count];
-    job = {.uuid = queued.uuid, .ticket = queued.ticket, .material = false};
-    const renderer::MaterialHandle material = m_assets.material(queued.uuid);
-    if (!material) {
+    job = {.uuid = queued.uuid, .ticket = queued.ticket, .drawn = false};
+    Slot &slot = *m_slots[frame.count];
+    if (!compose(slot, queued)) {
       ++frame.count; // reported next time round, without a picture
       continue;
     }
-    Slot &slot = *m_slots[frame.count];
-    slot.draw.material = material;
     const renderer::GraphImage color = graph.importImage(slot.target.color());
     const renderer::GraphImage depth = graph.importImage(slot.target.depth());
     m_renderer.addScenePasses(graph, slot.view, color, depth);
     const rhi::BufferHandle buffer = frame.buffers[frame.count];
     graph.addPass(
-        "material thumbnail readback", [&](renderer::PassBuilder &builder) { builder.transferSrc(color); },
+        "thumbnail readback", [&](renderer::PassBuilder &builder) { builder.transferSrc(color); },
         [color, buffer](rhi::ICommandList &commands, const renderer::PassResources &resources) {
           commands.copyImageToBuffer(resources.image(color), buffer);
         });
-    job.material = true;
+    job.drawn = true;
     ++frame.count;
   }
   return done;

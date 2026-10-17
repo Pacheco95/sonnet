@@ -20,6 +20,14 @@ namespace sonnet::world {
 // with MorphWeights does the same with `morphWeights` for SceneView::morphWeights (ADR-0023).
 void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vector<renderer::DrawItem> &draws,
                    std::vector<glm::mat4> &joints, std::vector<float> &morphWeights);
+// The items of `root` and everything shown under it, for a thumbnail: read from the entities as they are, which may
+// be a prefab's, with `root` at the origin and no pose, so a skinned mesh is drawn in its bind pose. Nothing of the
+// scene is touched. Meshes are requested as above, so the list is complete once none is importing.
+void buildDrawList(const World &world, assets::AssetDatabase &assets, flecs::entity root,
+                   std::vector<renderer::DrawItem> &draws, std::vector<glm::mat4> &joints,
+                   std::vector<float> &morphWeights);
+// The items of one mesh by asset identity, with its own materials, white and at the origin.
+void buildDrawList(assets::AssetDatabase &assets, const core::Uuid &mesh, std::vector<renderer::DrawItem> &draws);
 // One item per enabled ParticleEmitter with a world transform, keyed by its entity's id, with its
 // texture resolved through the database. `simulate` follows the emitter's `playing` in play mode
 // and is false in edit mode, where a tool that previews an emitter turns it on (ADR-0023).

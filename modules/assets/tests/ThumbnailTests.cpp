@@ -124,20 +124,45 @@ TEST_CASE("an environment's thumbnail is its map downscaled and tone mapped", "[
   CHECK(std::to_integer<int>(thumbnail->data[3]) == 255);
 }
 
-TEST_CASE("only textures and environments that are files of their own have a thumbnail", "[assets][thumbnail]") {
+TEST_CASE("textures, environments, materials, models and meshes have a thumbnail request", "[assets][thumbnail]") {
   Fixture fixture;
   const AssetInfo *crate = fixture.database.findByPath(fixture.root / "assets" / "crate.gltf");
   REQUIRE(crate != nullptr);
-  CHECK_FALSE(fixture.database.thumbnailRequest(crate->uuid).has_value());
+  // A model is rendered: it is as old as its file and its sidecar, and cannot be made from them.
+  const auto model = fixture.database.thumbnailRequest(crate->uuid);
+  REQUIRE(model.has_value());
+  CHECK(model->type == AssetType::Model);
+  CHECK(model->source == crate->source);
+  CHECK(model->sidecar.filename() == "crate.gltf.meta");
+  CHECK(isRendered(*model));
+  CHECK_FALSE(makeThumbnail(*model).has_value());
   bool subAssets = false;
   for (const AssetInfo *info : fixture.database.assets()) {
-    if (info->parent == crate->uuid) {
-      subAssets = true;
-      CHECK_FALSE(fixture.database.thumbnailRequest(info->uuid).has_value());
+    if (info->parent != crate->uuid) {
+      continue;
+    }
+    subAssets = true;
+    const auto request = fixture.database.thumbnailRequest(info->uuid);
+    if (info->type == AssetType::Mesh) {
+      // A glTF mesh is as old as the file it is in.
+      REQUIRE(request.has_value());
+      CHECK(request->source == crate->source);
+      CHECK(request->sidecar == model->sidecar);
+      CHECK(request->store);
+      CHECK(isRendered(*request));
+    } else {
+      CHECK_FALSE(request.has_value());
     }
   }
   CHECK(subAssets);
   CHECK_FALSE(fixture.database.thumbnailRequest(core::Uuid{}).has_value());
+  // A built-in mesh has no file, so nothing it could be as old as and nowhere to keep its picture.
+  const auto box = fixture.database.thumbnailRequest(builtin::box());
+  REQUIRE(box.has_value());
+  CHECK(box->type == AssetType::Mesh);
+  CHECK_FALSE(box->store);
+  CHECK_FALSE(cachedThumbnail(*box).has_value());
+  CHECK_FALSE(isRendered(*fixture.database.thumbnailRequest(fixture.uuidOf("wide.png"))));
 }
 
 TEST_CASE("unregistering an asset drops its thumbnail", "[assets][thumbnail]") {
