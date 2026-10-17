@@ -58,7 +58,7 @@ public:
 
   bool loaded() override {
     // The viewport has a target only once its panel has been laid out.
-    return m_editor.viewport().target().isValid() && !m_editor.assets().loading();
+    return m_editor.viewport().target().isValid() && !m_editor.assets().loading() && !m_editor.thumbnails().busy();
   }
 
   void cutHistory() override {

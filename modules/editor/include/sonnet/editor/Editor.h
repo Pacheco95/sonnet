@@ -355,6 +355,9 @@ public:
   [[nodiscard]] AssetBrowserPanel &assetBrowser() noexcept {
     return m_assetBrowserPanel;
   }
+  [[nodiscard]] ThumbnailCache &thumbnails() noexcept {
+    return m_thumbnails;
+  }
   // Turns the viewport's camera towards the primary selected entity, from a distance that fits the
   // bounds of the meshes under it (F, a double-click in the hierarchy or the viewport).
   void focusSelection();
@@ -475,6 +478,8 @@ private:
   void recordOpenScenes();
   // Opens the tabs the project recorded; false when none of them opened.
   [[nodiscard]] bool reopenScenes();
+  // The Assets panel's list or grid, and its tile size, as the preferences kept them for the open project.
+  void showAssetsView();
   void addTab();
   void handleShortcuts();
   void refreshWindowOrigins();
@@ -595,6 +600,7 @@ private:
   HierarchyPanel m_hierarchyPanel;
   InspectorPanel m_inspectorPanel;
   AssetBrowserPanel m_assetBrowserPanel;
+  ThumbnailCache m_thumbnails;
 
   glm::vec2 m_lookDelta{0.0f, 0.0f};
   std::vector<std::filesystem::path> m_droppedFiles; // the files of a drop until it completes

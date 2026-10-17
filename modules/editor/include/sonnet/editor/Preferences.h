@@ -18,6 +18,18 @@ struct OpenScenes {
   [[nodiscard]] bool operator==(const OpenScenes &) const = default;
 };
 
+// How the Assets panel shows a project's folder: the list, or a grid of tiles (docs/editor.md, "Grid view").
+struct AssetsView {
+  static constexpr float MinTileSize = 48.0f;
+  static constexpr float MaxTileSize = 128.0f; // the thumbnails' size, so a tile never magnifies one
+  static constexpr float DefaultTileSize = 96.0f;
+
+  bool grid{false};
+  float tileSize{DefaultTileSize};
+
+  [[nodiscard]] bool operator==(const AssetsView &) const = default;
+};
+
 // Per-user editor settings, kept as JSON in the platform's preferences directory.
 struct Preferences {
   static constexpr std::size_t MaxRecentProjects = 10;
@@ -25,6 +37,8 @@ struct Preferences {
   std::vector<std::filesystem::path> recentProjects; // most recent first
   // Per project root; only the recent projects keep an entry.
   std::map<std::filesystem::path, OpenScenes> openScenes;
+  // Per project root, kept the same way.
+  std::map<std::filesystem::path, AssetsView> assetsView;
   // The command that opens a source location from the log panel; {file} and {line} are
   // substituted. The file is repository-relative (docs/conventions.md, "Logging"), so
   // sourceRoot, when set, is put in front of it.

@@ -104,6 +104,43 @@ TEST_CASE("preferences keep each recent project's open scenes", "[editor][projec
   std::filesystem::remove(file);
 }
 
+TEST_CASE("preferences keep each recent project's assets view and clamp the tile size", "[editor][project][assets]") {
+  const std::filesystem::path file = scratch("assets_view.json");
+  editor::Preferences preferences;
+  preferences.addRecentProject("/projects/a");
+  preferences.addRecentProject("/projects/b");
+  preferences.assetsView["/projects/a"] = {.grid = true, .tileSize = 64.0f};
+  preferences.assetsView["/projects/b"] = {.grid = false, .tileSize = 120.0f};
+  preferences.assetsView["/projects/forgotten"] = {.grid = true, .tileSize = 80.0f};
+  REQUIRE(preferences.save(file).has_value());
+
+  editor::Preferences loaded = editor::Preferences::load(file);
+  // Only the recent projects keep an entry, as the open scenes do.
+  REQUIRE(loaded.assetsView.size() == 2);
+  REQUIRE(loaded.assetsView.at("/projects/a") == editor::AssetsView{.grid = true, .tileSize = 64.0f});
+  REQUIRE(loaded.assetsView.at("/projects/b") == editor::AssetsView{.grid = false, .tileSize = 120.0f});
+
+  loaded.removeRecentProject("/projects/b");
+  REQUIRE(!loaded.assetsView.contains("/projects/b"));
+  for (std::size_t i = 0; i < editor::Preferences::MaxRecentProjects; ++i) {
+    loaded.addRecentProject("/projects/" + std::to_string(i));
+  }
+  REQUIRE(loaded.assetsView.empty());
+
+  // A hand-edited file cannot make a tile that is not drawable, and a view without a size gets the default.
+  {
+    std::ofstream stream{file};
+    stream << R"({"recentProjects": ["/projects/a", "/projects/b", "/projects/c"], "assetsView": {
+      "/projects/a": {"grid": true, "tileSize": 4000}, "/projects/b": {"grid": true, "tileSize": -3},
+      "/projects/c": {"grid": true}}})";
+  }
+  loaded = editor::Preferences::load(file);
+  REQUIRE(loaded.assetsView.at("/projects/a").tileSize == editor::AssetsView::MaxTileSize);
+  REQUIRE(loaded.assetsView.at("/projects/b").tileSize == editor::AssetsView::MinTileSize);
+  REQUIRE(loaded.assetsView.at("/projects/c").tileSize == editor::AssetsView::DefaultTileSize);
+  std::filesystem::remove(file);
+}
+
 TEST_CASE("the project to reopen is the most recent one, unless the setting is off", "[editor][project]") {
   editor::Preferences preferences;
   REQUIRE(!preferences.projectToReopen().has_value());

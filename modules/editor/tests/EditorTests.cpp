@@ -2,6 +2,7 @@
 #include <sonnet/editor/Editor.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Export.h>
+#include <sonnet/editor/Preferences.h>
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
@@ -491,6 +492,87 @@ TEST_CASE("a project reopens the scene tabs it had open when it was closed", "[e
     REQUIRE(editor->tabCount() == 2);
     REQUIRE(editor->scenePath() == second);
     fixture.frame(*editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the Assets panel's grid shows thumbnails and the choice survives a restart", "[editor][gpu][grid]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("assets_grid");
+  const std::filesystem::path preferences = scratch("assets_grid_preferences") / "preferences.json";
+  std::filesystem::create_directories(preferences.parent_path());
+  const auto makeEditor = [&] {
+    auto editor =
+        std::make_unique<editor::Editor>(fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain);
+    editor->setPreferencesFile(preferences);
+    return editor;
+  };
+  std::filesystem::path root;
+  {
+    const auto editor = makeEditor();
+    REQUIRE(editor->createProject(directory, "Grid").has_value());
+    root = editor->project()->root;
+    // Three uncompressed 4 x 4 TGA files: a header and the pixels.
+    for (const char *name : {"a.tga", "b.tga", "c.tga"}) {
+      std::vector<std::byte> tga(18, std::byte{0});
+      tga[2] = std::byte{2};
+      tga[12] = std::byte{4};
+      tga[14] = std::byte{4};
+      tga[16] = std::byte{32};
+      tga[17] = std::byte{8};
+      tga.resize(18 + 4 * 4 * 4, std::byte{200});
+      REQUIRE(core::writeFile(root / "assets" / name, tga).has_value());
+    }
+    static_cast<void>(editor->assets().rescan());
+    editor->assetBrowser().navigate(root / "assets");
+    for (int i = 0; i < 3; ++i) {
+      fixture.frame(*editor);
+    }
+    REQUIRE_FALSE(editor->assetBrowser().view().grid);
+
+    // The grid button of the panel, clicked the way a user does.
+    auto &io = ImGui::GetIO();
+    const editor::ScreenRect button = editor->assetBrowser().gridButton();
+    io.AddMousePosEvent((button.min.x + button.max.x) * 0.5f, (button.min.y + button.max.y) * 0.5f);
+    fixture.frame(*editor);
+    io.AddMouseButtonEvent(0, true);
+    fixture.frame(*editor);
+    io.AddMouseButtonEvent(0, false);
+    fixture.frame(*editor);
+    REQUIRE(editor->assetBrowser().view().grid);
+    REQUIRE(editor::Preferences::load(preferences).assetsView.at(root).grid);
+
+    // The tiles ask for their pictures; once the workers have made them they are uploaded and drawn.
+    fixture.frame(*editor);
+    REQUIRE(editor->assetBrowser().tiles().size() >= 3);
+    editor->thumbnails().settle();
+    REQUIRE(editor->thumbnails().resident() == 3);
+    REQUIRE_FALSE(editor->thumbnails().busy());
+    for (int i = 0; i < 3; ++i) {
+      fixture.frame(*editor);
+    }
+    for (const char *name : {"a", "b", "c"}) {
+      const assets::AssetInfo *info = editor->assets().findByPath(root / "assets" / (std::string{name} + ".tga"));
+      REQUIRE(info != nullptr);
+      const editor::ThumbnailImage picture = editor->thumbnails().get(info->uuid);
+      CHECK(picture.texture != 0);
+      CHECK(picture.size == glm::uvec2{4, 4});
+      CHECK(std::filesystem::exists(editor->assets().cacheDirectory() / (info->uuid.toString() + ".thumb.ktx2")));
+    }
+  }
+  {
+    // The next run of the editor opens the project in the grid.
+    const auto editor = makeEditor();
+    REQUIRE(editor->openProject(directory).has_value());
+    REQUIRE(editor->assetBrowser().view().grid);
+    editor->assetBrowser().navigate(root / "assets");
+    for (int i = 0; i < 4; ++i) {
+      fixture.frame(*editor);
+    }
+    // The pictures come back from the cache.
+    editor->thumbnails().settle();
+    REQUIRE(editor->thumbnails().resident() == 3);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

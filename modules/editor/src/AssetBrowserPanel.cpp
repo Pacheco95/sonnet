@@ -1,6 +1,7 @@
 #include <sonnet/editor/AssetBrowserPanel.h>
 
 #include <sonnet/editor/FileManager.h>
+#include <sonnet/editor/Icons.h>
 #include <sonnet/editor/TypeFilter.h>
 
 #include <sonnet/assets/Json.h>
@@ -592,146 +593,22 @@ void AssetBrowserPanel::draw(bool &open) {
   }
   ImGui::EndDisabled();
   ImGui::SetItemTooltip("Copy images, glTF models and .hdr skies into the project; dropping files here does the same");
+  ImGui::SameLine();
+  drawViewButtons();
 
   if (!m_fileError.empty()) {
     ImGui::TextWrapped("%s", m_fileError.c_str());
   }
-  const ImGuiTableFlags flags =
-      ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Sortable;
-  if (ImGui::BeginTable("assets", 3, flags)) {
-    ImGui::TableSetupScrollFreeze(0, 1);
-    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 2.0f);
-    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-    ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthStretch, 3.0f);
-    ImGui::TableHeadersRow();
-    if (ImGuiTableSortSpecs *specs = ImGui::TableGetSortSpecs(); specs != nullptr && specs->SpecsDirty) {
-      if (specs->SpecsCount > 0) {
-        m_sortColumn = static_cast<AssetSortColumn>(specs->Specs[0].ColumnIndex);
-        m_sortDescending = specs->Specs[0].SortDirection == ImGuiSortDirection_Descending;
-      }
-      specs->SpecsDirty = false;
-    }
-    m_rows = rows();
-    m_selected.UserData = &m_rows;
-    m_selected.AdapterIndexToStorageId = [](ImGuiSelectionBasicStorage *self, int index) {
-      return rowId((*static_cast<std::vector<AssetRow> *>(self->UserData))[static_cast<std::size_t>(index)]);
-    };
-    m_selected.ApplyRequests(
-        ImGui::BeginMultiSelect(ImGuiMultiSelectFlags_ClearOnEscape | ImGuiMultiSelectFlags_ClearOnClickVoid,
-                                m_selected.Size, static_cast<int>(m_rows.size())));
-    std::optional<std::filesystem::path> destination;
-    const bool keyboard =
-        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput;
-    for (int index = 0; index < static_cast<int>(m_rows.size()); ++index) {
-      const AssetRow &row = m_rows[static_cast<std::size_t>(index)];
-      const auto id = rowId(row);
-      ImGui::TableNextRow();
-      ImGui::TableNextColumn();
-      ImGui::PushID(static_cast<int>(id));
-      const bool editable = !row.file.empty() && (row.info == nullptr || row.info->parent.isNil());
-      if (keyboard && m_focused == id && editable) {
-        if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_move) {
-          beginRename(row);
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_remove) {
-          confirmDelete(row);
-        }
-      }
-      if (m_renaming == id) {
-        if (m_renameFocus) {
-          ImGui::SetKeyboardFocusHere();
-          m_renameFocus = false;
-        }
-        ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::InputText("##rename", &m_rename, ImGuiInputTextFlags_EnterReturnsTrue)) {
-          const auto filename = row.file.filename().string();
-          const auto extension = row.directory                          ? std::string{}
-                                 : filename.ends_with(".scene.json")    ? std::string{".scene.json"}
-                                 : filename.ends_with(".material.json") ? std::string{".material.json"}
-                                 : filename.ends_with(".prefab.json")   ? std::string{".prefab.json"}
-                                                                        : row.file.extension().string();
-          const std::filesystem::path name{m_rename + extension};
-          if (m_rename.empty() || name.has_parent_path() || m_rename == "." || m_rename == ".." ||
-              m_rename.find_first_of("/\\") != std::string::npos) {
-            m_fileError = "Enter a file name without a folder.";
-          } else {
-            m_pendingRename = std::pair{row.file, row.file.parent_path() / name};
-          }
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-          m_renaming = {};
-          m_fileError.clear();
-        }
-      } else {
-        ImGui::SetNextItemSelectionUserData(index);
-        if (ImGui::Selectable(row.name.c_str(), m_selected.Contains(id),
-                              ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
-          m_focused = rowId(row);
-          inspect(row.info != nullptr ? row.uuid : core::Uuid{});
-          if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyCtrl &&
-              !ImGui::GetIO().KeySuper && !ImGui::GetIO().KeyShift) {
-            if (row.directory) {
-              destination = row.file;
-            } else if (row.type == "Scene" && m_scene) {
-              m_scene(row.file);
-            }
-          }
-        }
-      }
-      if (keyboard && m_focused == id && ImGui::IsKeyPressed(ImGuiKey_Enter) && m_renaming == 0) {
-        if (row.directory) {
-          destination = row.file;
-        } else if (row.type == "Scene" && m_scene) {
-          m_scene(row.file);
-        }
-      }
-      if ((!row.uuid.isNil() || (editable && m_moveMany)) && ImGui::BeginDragDropSource()) {
-        m_dragged = editable ? filesOf(&row) : std::vector<std::filesystem::path>{};
-        if (!row.uuid.isNil()) {
-          ImGui::SetDragDropPayload(AssetDragPayload, row.uuid.bytes().data(), row.uuid.bytes().size());
-        } else {
-          ImGui::SetDragDropPayload(AssetMovePayload, row.name.data(), row.name.size());
-        }
-        if (m_dragged.size() > 1) {
-          ImGui::Text("%zu items", m_dragged.size());
-        } else {
-          ImGui::TextUnformatted(row.name.c_str());
-        }
-        ImGui::EndDragDropSource();
-      }
-      if (row.directory) {
-        acceptDrop(row.file);
-      }
-      drawContextMenu(row);
-      ImGui::TableNextColumn();
-      ImGui::TextUnformatted(row.type.data(), row.type.data() + row.type.size());
-      ImGui::TableNextColumn();
-      ImGui::TextDisabled("%s", row.source.c_str());
-      ImGui::PopID();
-    }
-    if (keyboard && m_renaming == 0) {
-      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_X)) {
-        m_cut = filesOf(nullptr);
-      }
-      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
-        queueMoves(m_cut, currentFolder());
-      }
-      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D)) {
-        queueDuplicate(filesOf(nullptr));
-      }
-    }
-    m_selected.ApplyRequests(ImGui::EndMultiSelect());
-    ImGui::EndTable();
-    if (destination) {
-      navigate(*destination);
-    }
+  std::optional<std::filesystem::path> destination;
+  const bool keyboard = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput;
+  if (m_view.grid) {
+    drawGrid(destination, keyboard);
+  } else {
+    drawTable(destination, keyboard);
+    drawBackgroundMenu();
   }
-  if (ImGui::BeginPopupContextWindow("##background",
-                                     ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-    if (ImGui::MenuItem("New folder", nullptr, false, static_cast<bool>(m_createFolder))) {
-      createFolder();
-    }
-    ImGui::EndPopup();
+  if (destination) {
+    navigate(*destination);
   }
   runQueued();
   // Imports finished by a move or by reference counting may replace sub-assets. Do this
@@ -762,6 +639,300 @@ void AssetBrowserPanel::draw(bool &open) {
 bool AssetBrowserPanel::dropTarget(glm::vec2 screen) const {
   return m_drawnFrame == ImGui::GetFrameCount() && screen.x >= m_min.x && screen.y >= m_min.y && screen.x < m_max.x &&
          screen.y < m_max.y;
+}
+
+void AssetBrowserPanel::setView(AssetsView view) {
+  view.tileSize = std::clamp(view.tileSize, AssetsView::MinTileSize, AssetsView::MaxTileSize);
+  m_view = view;
+}
+
+namespace {
+ScreenRect lastItemRect() {
+  const ImVec2 min = ImGui::GetItemRectMin();
+  const ImVec2 max = ImGui::GetItemRectMax();
+  return {{min.x, min.y}, {max.x, max.y}};
+}
+} // namespace
+
+void AssetBrowserPanel::drawViewButtons() {
+  bool changed = false;
+  for (const bool grid : {false, true}) {
+    const bool active = m_view.grid == grid;
+    ImGui::PushID(grid ? "grid" : "list");
+    if (active) {
+      ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+    }
+    if (ImGui::Button(grid ? IconGrid : IconList) && !active) {
+      m_view.grid = grid;
+      changed = true;
+    }
+    if (active) {
+      ImGui::PopStyleColor();
+    }
+    (grid ? m_gridButton : m_listButton) = lastItemRect();
+    ImGui::SetItemTooltip(grid ? "Grid view" : "List view");
+    ImGui::PopID();
+    if (!grid) {
+      ImGui::SameLine(0.0f, 2.0f);
+    }
+  }
+  if (m_view.grid) {
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80.0f);
+    ImGui::SliderFloat("##tile", &m_view.tileSize, AssetsView::MinTileSize, AssetsView::MaxTileSize, "%.0f");
+    ImGui::SetItemTooltip("Tile size");
+    // The slider changes the view while it is dragged; the handler hears of it when it is let go.
+    changed = changed || ImGui::IsItemDeactivatedAfterEdit();
+  }
+  if (changed && m_viewChanged) {
+    m_viewChanged(m_view);
+  }
+}
+
+void AssetBrowserPanel::drawBackgroundMenu() {
+  if (ImGui::BeginPopupContextWindow("##background",
+                                     ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+    if (ImGui::MenuItem("New folder", nullptr, false, static_cast<bool>(m_createFolder))) {
+      createFolder();
+    }
+    ImGui::EndPopup();
+  }
+}
+
+void AssetBrowserPanel::beginSelection() {
+  m_selected.UserData = &m_rows;
+  m_selected.AdapterIndexToStorageId = [](ImGuiSelectionBasicStorage *self, int index) {
+    return rowId((*static_cast<std::vector<AssetRow> *>(self->UserData))[static_cast<std::size_t>(index)]);
+  };
+  m_selected.ApplyRequests(
+      ImGui::BeginMultiSelect(ImGuiMultiSelectFlags_ClearOnEscape | ImGuiMultiSelectFlags_ClearOnClickVoid,
+                              m_selected.Size, static_cast<int>(m_rows.size())));
+}
+
+void AssetBrowserPanel::endSelection(bool keyboard) {
+  if (keyboard && m_renaming == 0) {
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_X)) {
+      m_cut = filesOf(nullptr);
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
+      queueMoves(m_cut, currentFolder());
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D)) {
+      queueDuplicate(filesOf(nullptr));
+    }
+  }
+  m_selected.ApplyRequests(ImGui::EndMultiSelect());
+}
+
+void AssetBrowserPanel::handleRowKeys(const AssetRow &row, ImGuiID id, bool editable, bool keyboard) {
+  if (keyboard && m_focused == id && editable) {
+    if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_move) {
+      beginRename(row);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_remove) {
+      confirmDelete(row);
+    }
+  }
+}
+
+void AssetBrowserPanel::drawRenameField(const AssetRow &row, float width) {
+  if (m_renameFocus) {
+    ImGui::SetKeyboardFocusHere();
+    m_renameFocus = false;
+  }
+  ImGui::SetNextItemWidth(width);
+  if (ImGui::InputText("##rename", &m_rename, ImGuiInputTextFlags_EnterReturnsTrue)) {
+    const auto filename = row.file.filename().string();
+    const auto extension = row.directory                          ? std::string{}
+                           : filename.ends_with(".scene.json")    ? std::string{".scene.json"}
+                           : filename.ends_with(".material.json") ? std::string{".material.json"}
+                           : filename.ends_with(".prefab.json")   ? std::string{".prefab.json"}
+                                                                  : row.file.extension().string();
+    const std::filesystem::path name{m_rename + extension};
+    if (m_rename.empty() || name.has_parent_path() || m_rename == "." || m_rename == ".." ||
+        m_rename.find_first_of("/\\") != std::string::npos) {
+      m_fileError = "Enter a file name without a folder.";
+    } else {
+      m_pendingRename = std::pair{row.file, row.file.parent_path() / name};
+    }
+  }
+  if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    m_renaming = {};
+    m_fileError.clear();
+  }
+}
+
+void AssetBrowserPanel::rowClicked(const AssetRow &row, std::optional<std::filesystem::path> &destination) {
+  m_focused = rowId(row);
+  inspect(row.info != nullptr ? row.uuid : core::Uuid{});
+  if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeySuper &&
+      !ImGui::GetIO().KeyShift) {
+    if (row.directory) {
+      destination = row.file;
+    } else if (row.type == "Scene" && m_scene) {
+      m_scene(row.file);
+    }
+  }
+}
+
+void AssetBrowserPanel::finishRow(const AssetRow &row, ImGuiID id, bool editable, bool keyboard,
+                                  std::optional<std::filesystem::path> &destination) {
+  if (keyboard && m_focused == id && ImGui::IsKeyPressed(ImGuiKey_Enter) && m_renaming == 0) {
+    if (row.directory) {
+      destination = row.file;
+    } else if (row.type == "Scene" && m_scene) {
+      m_scene(row.file);
+    }
+  }
+  if ((!row.uuid.isNil() || (editable && m_moveMany)) && ImGui::BeginDragDropSource()) {
+    m_dragged = editable ? filesOf(&row) : std::vector<std::filesystem::path>{};
+    if (!row.uuid.isNil()) {
+      ImGui::SetDragDropPayload(AssetDragPayload, row.uuid.bytes().data(), row.uuid.bytes().size());
+    } else {
+      ImGui::SetDragDropPayload(AssetMovePayload, row.name.data(), row.name.size());
+    }
+    if (m_dragged.size() > 1) {
+      ImGui::Text("%zu items", m_dragged.size());
+    } else {
+      ImGui::TextUnformatted(row.name.c_str());
+    }
+    ImGui::EndDragDropSource();
+  }
+  if (row.directory) {
+    acceptDrop(row.file);
+  }
+  drawContextMenu(row);
+}
+
+void AssetBrowserPanel::drawTable(std::optional<std::filesystem::path> &destination, bool keyboard) {
+  m_tiles.clear();
+  const ImGuiTableFlags flags =
+      ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Sortable;
+  if (!ImGui::BeginTable("assets", 3, flags)) {
+    return;
+  }
+  ImGui::TableSetupScrollFreeze(0, 1);
+  ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 2.0f);
+  ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+  ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+  ImGui::TableHeadersRow();
+  if (ImGuiTableSortSpecs *specs = ImGui::TableGetSortSpecs(); specs != nullptr && specs->SpecsDirty) {
+    if (specs->SpecsCount > 0) {
+      m_sortColumn = static_cast<AssetSortColumn>(specs->Specs[0].ColumnIndex);
+      m_sortDescending = specs->Specs[0].SortDirection == ImGuiSortDirection_Descending;
+    }
+    specs->SpecsDirty = false;
+  }
+  m_rows = rows();
+  beginSelection();
+  for (int index = 0; index < static_cast<int>(m_rows.size()); ++index) {
+    const AssetRow &row = m_rows[static_cast<std::size_t>(index)];
+    const auto id = rowId(row);
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::PushID(static_cast<int>(id));
+    const bool editable = !row.file.empty() && (row.info == nullptr || row.info->parent.isNil());
+    handleRowKeys(row, id, editable, keyboard);
+    if (m_renaming == id) {
+      drawRenameField(row, -1.0f);
+    } else {
+      ImGui::SetNextItemSelectionUserData(index);
+      if (ImGui::Selectable(row.name.c_str(), m_selected.Contains(id),
+                            ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
+        rowClicked(row, destination);
+      }
+    }
+    finishRow(row, id, editable, keyboard, destination);
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(row.type.data(), row.type.data() + row.type.size());
+    ImGui::TableNextColumn();
+    ImGui::TextDisabled("%s", row.source.c_str());
+    ImGui::PopID();
+  }
+  endSelection(keyboard);
+  ImGui::EndTable();
+}
+
+void AssetBrowserPanel::drawGrid(std::optional<std::filesystem::path> &destination, bool keyboard) {
+  m_tiles.clear();
+  if (!ImGui::BeginChild("##grid", ImVec2{0.0f, 0.0f}, ImGuiChildFlags_None)) {
+    ImGui::EndChild();
+    return;
+  }
+  m_rows = rows();
+  beginSelection();
+  const ImGuiStyle &style = ImGui::GetStyle();
+  const float tile = m_view.tileSize;
+  const float labelHeight = ImGui::GetTextLineHeight();
+  const ImVec2 itemSize{tile, tile + labelHeight + 4.0f};
+  const ImVec2 cell{itemSize.x + style.ItemSpacing.x, itemSize.y + style.ItemSpacing.y};
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const int columns = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cell.x));
+  ImDrawList *list = ImGui::GetWindowDrawList();
+  for (int index = 0; index < static_cast<int>(m_rows.size()); ++index) {
+    const AssetRow &row = m_rows[static_cast<std::size_t>(index)];
+    const auto id = rowId(row);
+    const ImVec2 min{origin.x + static_cast<float>(index % columns) * cell.x,
+                     origin.y + static_cast<float>(index / columns) * cell.y};
+    const ImVec2 max{min.x + itemSize.x, min.y + itemSize.y};
+    ImGui::SetCursorScreenPos(min);
+    ImGui::PushID(static_cast<int>(id));
+    const bool editable = !row.file.empty() && (row.info == nullptr || row.info->parent.isNil());
+    handleRowKeys(row, id, editable, keyboard);
+    if (m_renaming == id) {
+      ImGui::Dummy(itemSize);
+      ImGui::SetCursorScreenPos({min.x, min.y + tile});
+      drawRenameField(row, tile);
+    } else {
+      ImGui::SetNextItemSelectionUserData(index);
+      if (ImGui::Selectable("##tile", m_selected.Contains(id), ImGuiSelectableFlags_AllowDoubleClick, itemSize)) {
+        rowClicked(row, destination);
+      }
+      ImGui::SetItemTooltip("%s\n%s", row.name.c_str(), std::string{row.type}.c_str());
+    }
+    finishRow(row, id, editable, keyboard, destination);
+    ImGui::PopID();
+    m_tiles.push_back({{min.x, min.y}, {max.x, max.y}});
+
+    if (!ImGui::IsRectVisible(min, max)) {
+      continue;
+    }
+    // The picture is asked for only here, so a folder of hundreds of textures makes the ones in view.
+    ThumbnailImage picture;
+    if (m_thumbnail && row.info != nullptr && row.info->parent.isNil() &&
+        (row.info->type == assets::AssetType::Texture || row.info->type == assets::AssetType::Environment)) {
+      picture = m_thumbnail(row.uuid);
+    }
+    const ImVec2 square{min.x + tile, min.y + tile};
+    list->AddRectFilled(min, square, ImGui::GetColorU32(ImGuiCol_FrameBg), style.FrameRounding + 2.0f);
+    if (picture.texture != 0 && picture.size.x > 0 && picture.size.y > 0) {
+      const float fit = (tile - 8.0f) / static_cast<float>(std::max(picture.size.x, picture.size.y));
+      const ImVec2 extent{static_cast<float>(picture.size.x) * fit, static_cast<float>(picture.size.y) * fit};
+      const ImVec2 corner{min.x + (tile - extent.x) * 0.5f, min.y + (tile - extent.y) * 0.5f};
+      list->AddImage(picture.texture, corner, {corner.x + extent.x, corner.y + extent.y});
+    } else {
+      ImFont *font = ImGui::GetFont();
+      const char *icon = iconForType(row.type);
+      const float size = tile * 0.5f;
+      const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, icon);
+      list->AddText(font, size, {min.x + (tile - extent.x) * 0.5f, min.y + (tile - extent.y) * 0.5f},
+                    ImGui::GetColorU32(ImGuiCol_TextDisabled), icon);
+    }
+    if (m_renaming != id) {
+      // The name is centred when it fits and starts at the tile's edge when it does not, clipped there.
+      const ImVec2 extent = ImGui::CalcTextSize(row.name.c_str());
+      list->PushClipRect({min.x, square.y}, max, true);
+      list->AddText({extent.x < tile ? min.x + (tile - extent.x) * 0.5f : min.x, square.y + 2.0f},
+                    ImGui::GetColorU32(ImGuiCol_Text), row.name.c_str());
+      list->PopClipRect();
+    }
+  }
+  const int lines = (static_cast<int>(m_rows.size()) + columns - 1) / columns;
+  ImGui::SetCursorScreenPos({origin.x, origin.y + static_cast<float>(lines) * cell.y});
+  ImGui::Dummy({1.0f, 1.0f}); // the extent of the tiles placed by position
+  endSelection(keyboard);
+  drawBackgroundMenu();
+  ImGui::EndChild();
 }
 
 void AssetBrowserPanel::drawContextMenu(const AssetRow &row) {

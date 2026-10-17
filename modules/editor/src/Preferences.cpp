@@ -62,6 +62,23 @@ Preferences Preferences::load(const std::filesystem::path &file) {
       preferences.openScenes[project] = std::move(open);
     }
   }
+  if (document.contains("assetsView") && document["assetsView"].is_object()) {
+    for (const auto &[project, entry] : document["assetsView"].items()) {
+      if (!entry.is_object() || std::ranges::find(preferences.recentProjects, std::filesystem::path{project}) ==
+                                    preferences.recentProjects.end()) {
+        continue;
+      }
+      AssetsView view;
+      view.grid = entry.value("grid", false);
+      if (entry.contains("tileSize") && entry["tileSize"].is_number()) {
+        const float size = entry["tileSize"].get<float>();
+        if (std::isfinite(size)) {
+          view.tileSize = std::clamp(size, AssetsView::MinTileSize, AssetsView::MaxTileSize);
+        }
+      }
+      preferences.assetsView[project] = view;
+    }
+  }
   preferences.externalEditor = document.value("externalEditor", preferences.externalEditor);
   preferences.sourceRoot = document.value("sourceRoot", preferences.sourceRoot);
   preferences.reopenLastProject = document.value("reopenLastProject", preferences.reopenLastProject);
@@ -88,14 +105,15 @@ core::Result<void> Preferences::save(const std::filesystem::path &file) const {
     }
     open[project.generic_string()] = {{"scenes", list}, {"active", scenes.active}};
   }
+  json views = json::object();
+  for (const auto &[project, view] : assetsView) {
+    views[project.generic_string()] = {{"grid", view.grid}, {"tileSize", view.tileSize}};
+  }
   const json document{
-      {"recentProjects", recent},
-      {"openScenes", open},
-      {"externalEditor", externalEditor},
-      {"sourceRoot", sourceRoot},
-      {"reopenLastProject", reopenLastProject},
-      {"floorGrid", floorGrid},
-      {"smoothViewDuration", smoothViewDuration},
+      {"recentProjects", recent}, {"openScenes", open},
+      {"assetsView", views},      {"externalEditor", externalEditor},
+      {"sourceRoot", sourceRoot}, {"reopenLastProject", reopenLastProject},
+      {"floorGrid", floorGrid},   {"smoothViewDuration", smoothViewDuration},
   };
   std::ofstream stream{file};
   if (!stream) {
@@ -112,6 +130,7 @@ void Preferences::addRecentProject(const std::filesystem::path &project) {
   if (recentProjects.size() > MaxRecentProjects) {
     for (auto dropped = recentProjects.begin() + MaxRecentProjects; dropped != recentProjects.end(); ++dropped) {
       openScenes.erase(*dropped);
+      assetsView.erase(*dropped);
     }
     recentProjects.resize(MaxRecentProjects);
   }
@@ -120,6 +139,7 @@ void Preferences::addRecentProject(const std::filesystem::path &project) {
 void Preferences::removeRecentProject(const std::filesystem::path &project) {
   std::erase(recentProjects, project);
   openScenes.erase(project);
+  assetsView.erase(project);
 }
 
 std::optional<std::filesystem::path> Preferences::projectToReopen() const {
