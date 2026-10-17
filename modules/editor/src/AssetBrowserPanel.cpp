@@ -515,6 +515,9 @@ void AssetBrowserPanel::draw(bool &open) {
   ImGui::EndDisabled();
   ImGui::SetItemTooltip("Copy images, glTF models and .hdr skies into the project; dropping files here does the same");
 
+  if (!m_fileError.empty()) {
+    ImGui::TextWrapped("%s", m_fileError.c_str());
+  }
   const ImGuiTableFlags flags =
       ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Sortable;
   if (ImGui::BeginTable("assets", 3, flags)) {
@@ -648,9 +651,6 @@ void AssetBrowserPanel::draw(bool &open) {
       m_fileError.clear();
     }
     m_pendingRename.reset();
-  }
-  if (!m_fileError.empty()) {
-    ImGui::TextWrapped("%s", m_fileError.c_str());
   }
   drawRenameModal();
   drawDeleteModal();

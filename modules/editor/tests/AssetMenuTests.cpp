@@ -566,3 +566,83 @@ TEST_CASE("folder creation rename deletion and import keep one undo step", "[edi
   database.close();
   std::filesystem::remove_all(root);
 }
+
+TEST_CASE("F2 renames a project-level folder and keeps undo", "[editor][assets][imgui][folder-rename]") {
+  using namespace sonnet;
+  BrowserContext context;
+  ImGui::GetIO().ConfigMacOSXBehaviors = GENERATE(false, true);
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  assets::AssetDatabase database{renderer, jobs};
+  world::World world;
+  Selection selection;
+  const auto root = std::filesystem::temp_directory_path() / "sonnet_browser_project_folder";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  database.open(root, std::vector<std::string>{"assets"});
+  CommandStack commands;
+  auto created = createFolderCommand(root, root / "aaa folder");
+  REQUIRE(created);
+  commands.record(std::move(*created));
+  AssetBrowserPanel panel{database, world, selection};
+  panel.setFileHandlers(
+      [&](const auto &from, const auto &to) -> core::Result<void> {
+        auto command = moveFilesCommand(database, world, from, to);
+        if (!command) {
+          return std::unexpected(command.error());
+        }
+        commands.record(std::move(*command));
+        return {};
+      },
+      {}, {});
+  const auto frame = [&] {
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize({900, 500});
+    bool open = true;
+    panel.draw(open);
+    ImGui::Render();
+  };
+  auto &io = ImGui::GetIO();
+  const auto key = [&](ImGuiKey pressed) {
+    io.AddKeyEvent(pressed, true);
+    frame();
+    io.AddKeyEvent(pressed, false);
+    frame();
+  };
+  frame();
+  frame();
+  REQUIRE(panel.rows().front().file == root / "aaa folder");
+  const auto *table = ImGui::TableFindByID(ImGui::FindWindowByName("Assets")->GetID("assets"));
+  REQUIRE(table);
+  io.AddMousePosEvent(table->Columns[0].MinX + 20,
+                      table->OuterRect.Min.y + table->InstanceDataFirst.LastTopHeadersRowHeight +
+                          ImGui::GetStyle().CellPadding.y + ImGui::GetTextLineHeight() * 0.5f);
+  frame();
+  io.AddMouseButtonEvent(0, true);
+  frame();
+  io.AddMouseButtonEvent(0, false);
+  frame();
+  key(ImGuiKey_F2);
+  frame();
+  const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+  io.AddKeyEvent(modifier, true);
+  key(ImGuiKey_A);
+  io.AddKeyEvent(modifier, false);
+  io.AddInputCharactersUTF8("Renamed folder");
+  frame();
+  key(ImGuiKey_Enter);
+  frame();
+  REQUIRE(std::filesystem::is_directory(root / "Renamed folder"));
+  CHECK_FALSE(std::filesystem::exists(root / "aaa folder"));
+  CHECK(commands.size() == 2);
+  REQUIRE(commands.undo(world));
+  CHECK(std::filesystem::is_directory(root / "aaa folder"));
+  REQUIRE(commands.redo(world));
+  CHECK(std::filesystem::is_directory(root / "Renamed folder"));
+  commands.clear();
+  database.close();
+  std::filesystem::remove_all(root);
+}

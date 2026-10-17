@@ -138,7 +138,10 @@ renamed or deleted independently. A single rename edits the Name column in place
 commits and Escape cancels. A selection rename opens a dialog with a name for each source,
 applied as one undo step. Extensions, including `.scene.json`, `.material.json` and
 `.prefab.json`, stay; folder names have no preserved extension. Folder renames use the same
-file commands as asset renames, so assets stay within the database's permitted roots.
+file commands as asset renames. Folders created directly under the project can be renamed
+in place too; configured asset roots and folders containing them cannot be renamed. Imported
+assets stay within the database's permitted roots. A failed rename keeps the field available
+for correction and shows its error above the table.
 Renames keep identities and references and update loaded prefab paths, open scene tabs and
 the saved start scene. A possible `require` reference to an old name is logged for manual updating.
 
