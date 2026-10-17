@@ -459,7 +459,10 @@ void Editor::update(float dt) {
   // Changed source files are re-imported before the draw list resolves them, and changed
   // shader sources rebuild their pipelines.
   static_cast<void>(m_assets.pollChanges());
-  if (std::exchange(m_rescanRequested, false) | m_assetBrowserPanel.takeOpened()) {
+  // Both are read, so neither request is left over for the next frame.
+  const bool focusGained = std::exchange(m_rescanRequested, false);
+  const bool panelOpened = m_assetBrowserPanel.takeOpened();
+  if (focusGained || panelOpened) {
     rescanProject();
   }
   refreshModelPrefabs();
