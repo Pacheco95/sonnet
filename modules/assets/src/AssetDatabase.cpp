@@ -262,6 +262,8 @@ void AssetDatabase::close() {
     m_renderer.destroyMaterial(material.handle);
   }
   m_materials.clear();
+  m_unsavedMaterials.clear();
+  m_changedMaterials.clear();
   std::erase_if(m_assets, [](const auto &entry) { return entry.second.source != "builtin"; });
   m_files.clear();
   m_bundle.reset();
@@ -634,21 +636,38 @@ bool fresh(const std::filesystem::path &cached, std::filesystem::file_time_type 
 
 } // namespace
 
-std::optional<ThumbnailRequest> AssetDatabase::thumbnailRequest(const core::Uuid &uuid) const {
+std::optional<ThumbnailRequest> AssetDatabase::thumbnailRequest(const core::Uuid &uuid) {
   const AssetInfo *info = find(uuid);
   const auto record = m_files.find(uuid);
   if (info == nullptr || m_bundle || !info->parent.isNil() || record == m_files.end() ||
-      (info->type != AssetType::Texture && info->type != AssetType::Environment) ||
+      (info->type != AssetType::Texture && info->type != AssetType::Environment && info->type != AssetType::Material) ||
       kindOf(info->source) == SourceKind::Ktx2) {
     return std::nullopt;
   }
-  return ThumbnailRequest{.uuid = uuid,
-                          .type = info->type,
-                          .source = info->source,
-                          .sidecar = record->second.sidecar,
-                          .cache = cacheDirectory(),
-                          .sourceTime = record->second.sourceTime,
-                          .settings = TextureSettings::fromJson(record->second.settings)};
+  ThumbnailRequest request{.uuid = uuid,
+                           .type = info->type,
+                           .source = info->source,
+                           .sidecar = record->second.sidecar,
+                           .cache = cacheDirectory(),
+                           .sourceTime = record->second.sourceTime,
+                           .settings = TextureSettings::fromJson(record->second.settings),
+                           .dependencies = {}};
+  if (info->type == AssetType::Material) {
+    const MaterialSource *source = materialSource(uuid);
+    if (source == nullptr) {
+      return std::nullopt;
+    }
+    request.store = !m_unsavedMaterials.contains(uuid);
+    for (const core::Uuid &texture : {source->baseColorTexture, source->metallicRoughnessTexture, source->normalTexture,
+                                      source->occlusionTexture, source->emissiveTexture}) {
+      const auto file = m_files.find(texture);
+      if (!texture.isNil() && file != m_files.end()) {
+        request.dependencies.push_back(find(texture)->source);
+        request.dependencies.push_back(file->second.sidecar);
+      }
+    }
+  }
+  return request;
 }
 
 core::Result<std::vector<std::byte>> AssetDatabase::mobileTexture(const core::Uuid &uuid) {
@@ -1465,6 +1484,8 @@ void AssetDatabase::setMaterialSource(const core::Uuid &uuid, const MaterialSour
   LoadedMaterial &loaded = m_materials.at(uuid);
   loaded.source = source;
   m_renderer.updateMaterial(loaded.handle, resolve(source));
+  m_unsavedMaterials.insert(uuid);
+  m_changedMaterials.insert(uuid);
 }
 
 core::Result<void> AssetDatabase::saveMaterial(const core::Uuid &uuid) {
@@ -1480,6 +1501,8 @@ core::Result<void> AssetDatabase::saveMaterial(const core::Uuid &uuid) {
   const auto written = core::writeFile(info->source, assets::saveMaterial(*source).dump(2) + "\n");
   if (written) {
     m_files.at(uuid).sourceTime = modificationTime(info->source); // not a change to reload
+    m_unsavedMaterials.erase(uuid);
+    m_changedMaterials.insert(uuid); // the picture can be kept now that it matches the file
   }
   return written;
 }
@@ -1572,6 +1595,8 @@ void AssetDatabase::unregister(const core::Uuid &requested) {
       m_renderer.destroyMaterial(it->second.handle);
       m_materials.erase(it);
     }
+    m_unsavedMaterials.erase(id);
+    m_changedMaterials.erase(id);
     if (m_assets.at(id).type == AssetType::Texture) {
       textures.push_back(id);
     }
@@ -1913,8 +1938,15 @@ void AssetDatabase::refreshMaterials(const core::Uuid &textureUuid) {
     if (s.baseColorTexture == textureUuid || s.metallicRoughnessTexture == textureUuid ||
         s.normalTexture == textureUuid || s.occlusionTexture == textureUuid || s.emissiveTexture == textureUuid) {
       m_renderer.updateMaterial(loaded.handle, resolve(s));
+      m_changedMaterials.insert(uuid);
     }
   }
+}
+
+std::vector<core::Uuid> AssetDatabase::takeChangedMaterials() {
+  std::vector<core::Uuid> changed{m_changedMaterials.begin(), m_changedMaterials.end()};
+  m_changedMaterials.clear();
+  return changed;
 }
 
 core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
@@ -1978,6 +2010,7 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
       return std::unexpected(source.error());
     }
     setMaterialSource(uuid, *source);
+    m_unsavedMaterials.erase(uuid); // it is the file's now
     break;
   }
   case AssetType::Model:

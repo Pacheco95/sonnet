@@ -25,7 +25,8 @@ std::filesystem::file_time_type modified(const std::filesystem::path &file) {
 bool fresh(const ThumbnailRequest &request, const std::filesystem::path &cached) {
   const auto cachedTime = modified(cached);
   return cachedTime != std::filesystem::file_time_type{} && cachedTime >= request.sourceTime &&
-         cachedTime >= modified(request.sidecar);
+         cachedTime >= modified(request.sidecar) &&
+         std::ranges::all_of(request.dependencies, [&](const auto &file) { return cachedTime >= modified(file); });
 }
 
 // The largest level of a texture with a side no longer than the thumbnail's, or the smallest level
@@ -94,16 +95,39 @@ std::filesystem::path thumbnailFile(const std::filesystem::path &cache, const co
   return cache / (uuid.toString() + ".thumb.ktx2");
 }
 
+std::optional<renderer::TextureData> cachedThumbnail(const ThumbnailRequest &request) {
+  const std::filesystem::path cached = thumbnailFile(request.cache, request.uuid);
+  if (!fresh(request, cached)) {
+    return std::nullopt;
+  }
+  const auto bytes = core::readFile(cached);
+  if (!bytes) {
+    return std::nullopt;
+  }
+  // RGBA8 needs nothing of the device.
+  auto data = readKtx2(*bytes, {});
+  return data ? std::optional{std::move(*data)} : std::nullopt;
+}
+
+core::Result<void> storeThumbnail(const ThumbnailRequest &request, const renderer::TextureData &picture) {
+  if (!request.store) {
+    return {};
+  }
+  const auto ktx = cookKtx2(picture, false);
+  if (!ktx) {
+    return std::unexpected(ktx.error());
+  }
+  return core::writeFile(thumbnailFile(request.cache, request.uuid), *ktx);
+}
+
 core::Result<renderer::TextureData> makeThumbnail(const ThumbnailRequest &request) {
   SONNET_ZONE();
-  const std::filesystem::path cached = thumbnailFile(request.cache, request.uuid);
-  if (fresh(request, cached)) {
-    if (const auto bytes = core::readFile(cached)) {
-      // RGBA8 needs nothing of the device.
-      if (auto data = readKtx2(*bytes, {})) {
-        return std::move(*data);
-      }
-    }
+  if (request.type == AssetType::Material) {
+    return std::unexpected(
+        core::Error{"a material's thumbnail is rendered, not made from its file", core::ErrorCategory::Io});
+  }
+  if (auto cached = cachedThumbnail(request)) {
+    return std::move(*cached);
   }
   const auto bytes = core::readFile(request.source);
   if (!bytes) {
@@ -123,12 +147,8 @@ core::Result<renderer::TextureData> makeThumbnail(const ThumbnailRequest &reques
     }
     thumbnail = fromTexture(*image);
   }
-  const auto ktx = cookKtx2(thumbnail, false);
-  if (!ktx) {
-    return std::unexpected(ktx.error());
-  }
-  if (const auto written = core::writeFile(cached, *ktx); !written) {
-    return std::unexpected(written.error());
+  if (const auto stored = storeThumbnail(request, thumbnail); !stored) {
+    return std::unexpected(stored.error());
   }
   return thumbnail;
 }
