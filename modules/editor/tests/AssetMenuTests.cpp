@@ -9,6 +9,7 @@
 #include <sonnet/rhi/NullDevice.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
 #include <array>
@@ -126,6 +127,7 @@ struct BrowserContext {
 TEST_CASE("the asset browser renames with F2 and confirms Delete", "[editor][assets][imgui]") {
   using namespace sonnet;
   BrowserContext context;
+  ImGui::GetIO().ConfigMacOSXBehaviors = GENERATE(false, true);
   platform::Platform platform{{.headless = true}};
   const auto device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
@@ -189,11 +191,11 @@ TEST_CASE("the asset browser renames with F2 and confirms Delete", "[editor][ass
   io.AddKeyEvent(ImGuiKey_F2, false);
   frame();
   frame();
-  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true);
   io.AddKeyEvent(ImGuiKey_A, true);
   frame();
   io.AddKeyEvent(ImGuiKey_A, false);
-  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+  io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false);
   io.AddInputCharactersUTF8("renamed");
   frame();
   io.AddKeyEvent(ImGuiKey_Enter, true);
@@ -231,6 +233,7 @@ TEST_CASE("the asset browser renames with F2 and confirms Delete", "[editor][ass
 TEST_CASE("the folder browser lists disk files and navigates with history and breadcrumbs", "[editor][assets][imgui]") {
   using namespace sonnet;
   BrowserContext context;
+  ImGui::GetIO().ConfigMacOSXBehaviors = GENERATE(false, true);
   platform::Platform platform{{.headless = true}};
   const auto device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
@@ -322,9 +325,9 @@ TEST_CASE("the folder browser lists disk files and navigates with history and br
     rows = panel.rows();
     REQUIRE(rows.size() == 1);
     CHECK(rows[0].file == root / "assets/models/data.bin");
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true);
     key(ImGuiKey_A);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false);
     key(ImGuiKey_Backspace);
     key(ImGuiKey_Enter);
     panel.navigate(root / "scenes");
@@ -364,6 +367,7 @@ TEST_CASE("the folder browser lists disk files and navigates with history and br
 TEST_CASE("folder creation rename deletion and import keep one undo step", "[editor][assets][imgui]") {
   using namespace sonnet;
   BrowserContext context;
+  ImGui::GetIO().ConfigMacOSXBehaviors = GENERATE(false, true);
   platform::Platform platform{{.headless = true}};
   const auto device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
@@ -451,9 +455,9 @@ TEST_CASE("folder creation rename deletion and import keep one undo step", "[edi
                                          ImGui::GetStyle().CellPadding.y + ImGui::GetTextLineHeight() * 0.5f);
   key(ImGuiKey_F2);
   frame();
-  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true);
   key(ImGuiKey_A);
-  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+  io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false);
   io.AddInputCharactersUTF8("Renamed");
   frame();
   key(ImGuiKey_Enter);
@@ -500,10 +504,10 @@ TEST_CASE("folder creation rename deletion and import keep one undo step", "[edi
   io.AddKeyEvent(ImGuiMod_Shift, false);
   frame();
   // Ctrl toggles one row without clearing the range, then restores it.
-  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true);
   click(table->Columns[0].MinX + 20, secondY);
   click(table->Columns[0].MinX + 20, secondY);
-  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+  io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false);
   frame();
   const auto beforeRename = commands.size();
   key(ImGuiKey_F2);
@@ -515,9 +519,9 @@ TEST_CASE("folder creation rename deletion and import keep one undo step", "[edi
                        ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeight() * 0.5f;
   const auto renameInput = [&](float y, const char *text) {
     click(inputX, y);
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true);
     key(ImGuiKey_A);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false);
     io.AddInputCharactersUTF8(text);
     frame();
   };

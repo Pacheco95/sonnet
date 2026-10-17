@@ -126,7 +126,7 @@ Clicking an imported asset inspects it without touching the entity selection or 
 Asset and prefab rows remain drag sources for inspector pickers and the hierarchy;
 a model or prefab dropped there becomes an instance, and an environment sets the scene's sky.
 
-Ctrl-click toggles rows and Shift-click selects a range using ImGui multi-select.
+Ctrl-click (Command-click on macOS) toggles rows and Shift-click selects a range using ImGui multi-select.
 The New asset menu's New folder entry and the background menu create an empty folder in
 the current folder as one undo step. Material creates a fresh `.material.json` in `assets`;
 Script creates an empty script with every hook in `scripts`, or the first asset root.

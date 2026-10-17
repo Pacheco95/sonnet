@@ -588,7 +588,7 @@ void AssetBrowserPanel::draw(bool &open) {
           m_focused = rowId(row);
           inspect(row.info != nullptr ? row.uuid : core::Uuid{});
           if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyCtrl &&
-              !ImGui::GetIO().KeyShift) {
+              !ImGui::GetIO().KeySuper && !ImGui::GetIO().KeyShift) {
             if (row.directory) {
               destination = row.file;
             } else if (row.type == "Scene" && m_scene) {
