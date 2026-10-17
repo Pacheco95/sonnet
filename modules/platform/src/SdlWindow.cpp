@@ -32,11 +32,11 @@ void setWindowIcon(SDL_Window *window) {
   (void)window;
 #else
 #if defined(__APPLE__)
-  const unsigned char *data = kMacWindowIcon;
-  const std::size_t size = kMacWindowIconSize;
+  const unsigned char *data = MacWindowIcon;
+  const std::size_t size = MacWindowIconSize;
 #else
-  const unsigned char *data = kDesktopWindowIcon;
-  const std::size_t size = kDesktopWindowIconSize;
+  const unsigned char *data = DesktopWindowIcon;
+  const std::size_t size = DesktopWindowIconSize;
 #endif
   SDL_Surface *icon = SDL_LoadPNG_IO(SDL_IOFromConstMem(data, size), true);
   if (icon == nullptr || !SDL_SetWindowIcon(window, icon)) {

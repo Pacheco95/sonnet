@@ -130,8 +130,8 @@ TEST_CASE("the embedded window icons are 256 px PNG files", "[platform][window]"
   const auto decode = [](const unsigned char *data, std::size_t size) {
     return SDL_LoadPNG_IO(SDL_IOFromConstMem(data, size), true);
   };
-  for (SDL_Surface *icon : {decode(sonnet::platform::kDesktopWindowIcon, sonnet::platform::kDesktopWindowIconSize),
-                            decode(sonnet::platform::kMacWindowIcon, sonnet::platform::kMacWindowIconSize)}) {
+  for (SDL_Surface *icon : {decode(sonnet::platform::DesktopWindowIcon, sonnet::platform::DesktopWindowIconSize),
+                            decode(sonnet::platform::MacWindowIcon, sonnet::platform::MacWindowIconSize)}) {
     REQUIRE(icon != nullptr);
     CHECK(icon->w == 256);
     CHECK(icon->h == 256);
