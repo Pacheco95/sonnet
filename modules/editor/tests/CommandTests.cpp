@@ -527,6 +527,65 @@ TEST_CASE("an import copies files and a glTF file's dependencies in, numbers cla
   std::filesystem::remove_all(source);
 }
 
+TEST_CASE("duplicate copies a glTF file with its dependencies into a numbered folder and undoes as one step",
+          "[editor][commands][assets][duplicate]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_duplicate";
+  std::filesystem::remove_all(root);
+  const std::filesystem::path crate = root / "assets" / "crate";
+  std::filesystem::create_directories(crate);
+  REQUIRE(core::writeFile(crate / "crate.gltf", std::string_view{R"({"asset": {"version": "2.0"},
+                          "buffers": [{"uri": "crate.bin", "byteLength": 4}]})"})
+              .has_value());
+  REQUIRE(core::writeFile(crate / "crate.bin", std::string_view{"abcd"}).has_value());
+  REQUIRE(core::writeFile(root / "assets" / "wood.png", std::string_view{"png"}).has_value());
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  world::World world;
+  editor::CommandStack commands;
+  const core::Uuid modelUuid = assets.findByPath(crate / "crate.gltf")->uuid;
+  const core::Uuid woodUuid = assets.findByPath(root / "assets" / "wood.png")->uuid;
+
+  const std::vector<std::filesystem::path> files{crate / "crate.gltf", root / "assets" / "wood.png"};
+  auto duplicated = editor::duplicateAssets(assets, world, files);
+  REQUIRE(duplicated.has_value());
+  REQUIRE((*duplicated)->description() == "duplicate 2 files");
+  commands.record(std::move(*duplicated));
+  // The model's folder is copied beside it, not into it; the copy has identities of its own.
+  const std::filesystem::path copy = root / "assets" / "crate 2";
+  REQUIRE(std::filesystem::is_regular_file(copy / "crate.gltf"));
+  REQUIRE(std::filesystem::is_regular_file(copy / "crate.bin"));
+  REQUIRE_FALSE(std::filesystem::exists(crate / "crate"));
+  REQUIRE(std::filesystem::is_regular_file(root / "assets" / "wood 2.png"));
+  const assets::AssetInfo *model = assets.findByPath(copy / "crate.gltf");
+  REQUIRE(model != nullptr);
+  // A copy, since undo unregisters the asset the pointer is into.
+  const core::Uuid copyUuid = model->uuid;
+  CHECK(copyUuid != modelUuid);
+  CHECK(assets.findByPath(root / "assets" / "wood 2.png")->uuid != woodUuid);
+  CHECK(assets.find(modelUuid) != nullptr);
+
+  REQUIRE(commands.undo(world));
+  CHECK_FALSE(std::filesystem::exists(copy));
+  CHECK_FALSE(std::filesystem::exists(root / "assets" / "wood 2.png"));
+  CHECK(assets.findByPath(copy / "crate.gltf") == nullptr);
+  CHECK(std::filesystem::is_regular_file(crate / "crate.gltf"));
+  REQUIRE(commands.redo(world));
+  const assets::AssetInfo *redone = assets.findByPath(copy / "crate.gltf");
+  REQUIRE(redone != nullptr);
+  CHECK(redone->uuid == copyUuid);
+
+  const std::vector<std::filesystem::path> nothing{root / "assets"};
+  CHECK_FALSE(editor::duplicateAssets(assets, world, nothing).has_value());
+  commands.clear();
+  assets.close();
+  std::filesystem::remove_all(root);
+}
+
 TEST_CASE("reapply reads what undo restores from the restored scene and reports missing entities",
           "[editor][commands][reapply]") {
   world::World world;

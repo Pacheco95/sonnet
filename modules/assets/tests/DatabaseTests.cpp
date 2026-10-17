@@ -1118,3 +1118,93 @@ TEST_CASE("project folders can be renamed without changing asset roots", "[asset
   CHECK_FALSE(database.move(fixture.root / "content", fixture.root / "renamed-content"));
   CHECK(std::filesystem::is_directory(fixture.root / "content/imported"));
 }
+
+TEST_CASE("rescan registers added files, unregisters removed ones and follows moves", "[assets][database][rescan]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const auto assets = fixture.root / "assets";
+  const auto wood = assets / "wood.png";
+  const auto sky = assets / "sky.hdr";
+  const auto crate = assets / "models/crate.gltf";
+  const auto woodId = database.findByPath(wood)->uuid;
+  const auto skyId = database.findByPath(sky)->uuid;
+  const auto crateId = database.findByPath(crate)->uuid;
+  const auto texture = database.texture(woodId);
+  REQUIRE(texture);
+  CHECK(database.rescan().empty());
+
+  SECTION("a file that appeared is registered") {
+    REQUIRE(core::writeFile(assets / "added.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+    const auto result = database.rescan();
+    REQUIRE(result.added.size() == 1);
+    CHECK(result.removed.empty());
+    CHECK(result.moved.empty());
+    const AssetInfo *info = database.findByPath(assets / "added.png");
+    REQUIRE(info != nullptr);
+    CHECK(result.added[0].uuid == info->uuid);
+    CHECK(result.added[0].type == AssetType::Texture);
+    CHECK(std::filesystem::exists(assets / "added.png.meta"));
+    CHECK(database.rescan().empty());
+  }
+
+  SECTION("a file that is gone is unregistered, with what hangs on it") {
+    std::filesystem::remove(sky);
+    std::filesystem::remove(crate);
+    const auto result = database.rescan();
+    REQUIRE(result.removed.size() == 2);
+    CHECK(result.added.empty());
+    CHECK(database.find(skyId) == nullptr);
+    CHECK(database.find(crateId) == nullptr);
+    CHECK(database.find(woodId) != nullptr);
+    CHECK(database.texture(woodId) == texture);
+  }
+
+  SECTION("a file moved with its sidecar keeps its identity and its loaded object") {
+    const auto to = assets / "models/moved wood.png";
+    std::filesystem::rename(wood, to);
+    std::filesystem::rename(wood.string() + ".meta", to.string() + ".meta");
+    const auto result = database.rescan();
+    REQUIRE(result.moved.size() == 1);
+    CHECK(result.added.empty());
+    CHECK(result.removed.empty());
+    CHECK(result.moved[0].uuid == woodId);
+    CHECK(result.moved[0].from == wood);
+    CHECK(result.moved[0].to == to);
+    CHECK(database.find(woodId)->source == to);
+    CHECK(database.find(woodId)->name == "moved wood");
+    CHECK(database.findByPath(to)->uuid == woodId);
+    CHECK(database.texture(woodId) == texture);
+    CHECK(database.pollChanges().empty());
+  }
+
+  SECTION("a model moved with its sidecar keeps its sub-assets") {
+    const auto to = assets / "crate.gltf";
+    const auto subAssets = database.assets().size();
+    std::filesystem::rename(crate, to);
+    std::filesystem::rename(crate.string() + ".meta", to.string() + ".meta");
+    const auto result = database.rescan();
+    REQUIRE(result.moved.size() == 1);
+    CHECK(result.moved[0].type == AssetType::Model);
+    CHECK(database.assets().size() == subAssets);
+    for (const AssetInfo *info : database.assets()) {
+      if (info->uuid == crateId || info->parent == crateId) {
+        CHECK(info->source == to);
+      }
+    }
+  }
+
+  SECTION("a file moved without its sidecar is a new asset") {
+    const auto to = assets / "models/moved wood.png";
+    std::filesystem::rename(wood, to);
+    std::filesystem::remove(wood.string() + ".meta");
+    const auto result = database.rescan();
+    CHECK(result.moved.empty());
+    REQUIRE(result.removed.size() == 1);
+    REQUIRE(result.added.size() == 1);
+    CHECK(result.removed[0].uuid == woodId);
+    CHECK(result.added[0].uuid != woodId);
+    CHECK(database.find(woodId) == nullptr);
+    CHECK(database.findByPath(to)->uuid == result.added[0].uuid);
+  }
+}

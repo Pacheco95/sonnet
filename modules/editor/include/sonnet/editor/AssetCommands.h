@@ -57,4 +57,13 @@ deleteFilesCommand(assets::AssetDatabase &assets, world::World &world, std::span
                                                                    std::span<const std::filesystem::path> files,
                                                                    const std::filesystem::path &destination = {});
 
+// Copies each file beside itself under a free numbered name, which is how an import numbers a name that is
+// taken: `wood 2.png`. The copy has no sidecar of the source's, so it is registered with a fresh identity
+// and default import settings. A glTF file is copied with the files its URIs name into a folder numbered
+// the same way (`crate 2`), the folder it was in when that is named after it. A file no importer reads
+// is logged and skipped. The result is every copy as one command, already applied, for CommandStack::record;
+// fails, leaving nothing behind, when no file could be copied.
+[[nodiscard]] core::Result<std::unique_ptr<ICommand>>
+duplicateAssets(assets::AssetDatabase &assets, world::World &world, std::span<const std::filesystem::path> files);
+
 } // namespace sonnet::editor

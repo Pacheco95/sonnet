@@ -25,8 +25,10 @@
 #include <cstdlib>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <map>
+#include <set>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -98,7 +100,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_assetBrowserPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
-  m_assetBrowserPanel.setRenameHandler(
+  m_assetBrowserPanel.setMoveHandler(
       [this](std::span<const std::pair<std::filesystem::path, std::filesystem::path>> moves) -> core::Result<void> {
         std::vector<std::unique_ptr<ICommand>> commands;
         for (const auto &[from, to] : moves) {
@@ -114,10 +116,20 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
           commands.push_back(std::move(*command));
         }
         if (!commands.empty()) {
-          m_commands.record(compositeCommand("rename files", std::move(commands)));
+          const bool renamed = std::ranges::all_of(
+              moves, [](const auto &move) { return move.first.parent_path() == move.second.parent_path(); });
+          m_commands.record(compositeCommand(renamed ? "rename files" : "move files", std::move(commands)));
         }
         return {};
       });
+  m_assetBrowserPanel.setDuplicateHandler([this](std::span<const std::filesystem::path> files) -> core::Result<void> {
+    auto command = duplicateAssets(m_assets, m_world, files);
+    if (!command) {
+      return std::unexpected(command.error());
+    }
+    m_commands.record(std::move(*command));
+    return {};
+  });
   m_assetBrowserPanel.setSceneHandler([this](const auto &file) {
     if (auto result = openScene(file); !result) {
       SONNET_LOG_ERROR("{}", result.error().toString());
@@ -263,8 +275,12 @@ void Editor::nativeEvent(const SDL_Event &event) {
 }
 
 void Editor::event(const platform::Event &event) {
-  if (const auto *focus = std::get_if<platform::WindowFocusChanged>(&event); focus != nullptr && !focus->focused) {
-    autosaveNow();
+  if (const auto *focus = std::get_if<platform::WindowFocusChanged>(&event); focus != nullptr) {
+    if (focus->focused) {
+      m_rescanRequested = true;
+    } else {
+      autosaveNow();
+    }
   }
   if (const auto *moved = std::get_if<platform::MouseMoved>(&event)) {
     m_lookDelta += moved->delta;
@@ -443,6 +459,12 @@ void Editor::update(float dt) {
   // Changed source files are re-imported before the draw list resolves them, and changed
   // shader sources rebuild their pipelines.
   static_cast<void>(m_assets.pollChanges());
+  // Both are read, so neither request is left over for the next frame.
+  const bool focusGained = std::exchange(m_rescanRequested, false);
+  const bool panelOpened = m_assetBrowserPanel.takeOpened();
+  if (focusGained || panelOpened) {
+    rescanProject();
+  }
   refreshModelPrefabs();
   pollShaders();
   // Keys held when the viewport loses the focus, or the camera takes it, are let go.
@@ -657,7 +679,7 @@ void Editor::handleShortcuts() {
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P)) {
     isPaused() ? resume() : pause();
   }
-  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D)) {
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D) && !m_assetBrowserPanel.focused()) {
     m_hierarchyPanel.duplicateSelection();
   }
   if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && !m_assetBrowserPanel.focused()) {
@@ -1808,6 +1830,19 @@ AssetReferences Editor::assetReferences(std::span<const core::Uuid> uuids) {
   return result;
 }
 
+namespace {
+// The files of the prefabs loaded from one.
+std::set<std::filesystem::path> loadedPrefabFiles(const world::World &world) {
+  std::set<std::filesystem::path> files;
+  for (const auto prefab : world.prefabs()) {
+    if (const auto *file = prefab.try_get<world::PrefabFile>()) {
+      files.insert(file->path);
+    }
+  }
+  return files;
+}
+} // namespace
+
 void Editor::loadPrefabs() {
   if (!m_project) {
     return;
@@ -1819,9 +1854,36 @@ void Editor::loadPrefabs() {
       static_cast<void>(world::loadModelPrefab(m_world, *model, info->uuid, info->name));
     }
   }
-  for (const core::Error &error : world::loadPrefabFiles(m_world, m_project->files(".prefab.json"))) {
+  const std::vector<std::filesystem::path> files = m_project->files(".prefab.json");
+  for (const core::Error &error : world::loadPrefabFiles(m_world, files)) {
     SONNET_LOG_ERROR("{}", error.toString());
   }
+  const std::set<std::filesystem::path> loaded = loadedPrefabFiles(m_world);
+  m_brokenPrefabs.clear();
+  std::ranges::set_difference(files, loaded, std::inserter(m_brokenPrefabs, m_brokenPrefabs.end()));
+}
+
+void Editor::rescanProject() {
+  if (!m_project || m_assets.bundle() != nullptr) {
+    return;
+  }
+  const assets::RescanResult changes = m_assets.rescan();
+  for (const assets::RescanChange &moved : changes.moved) {
+    filesMoved(moved.from, moved.to);
+  }
+  const auto isModel = [](const assets::RescanChange &change) { return change.type == assets::AssetType::Model; };
+  bool stale = std::ranges::any_of(changes.added, isModel) || std::ranges::any_of(changes.removed, isModel) ||
+               std::ranges::any_of(changes.moved, isModel);
+  // A prefab file is not an asset of the database; the files on disk are compared with the prefabs loaded.
+  // Moving a file keeps the identity in it, so it counts as one that went and one that came.
+  const auto disk = m_project->files(".prefab.json");
+  const std::set<std::filesystem::path> loaded = loadedPrefabFiles(m_world);
+  std::erase_if(m_brokenPrefabs, [&](const auto &file) { return !std::ranges::contains(disk, file); });
+  stale = stale ||
+          std::ranges::any_of(
+              disk, [&](const auto &file) { return !loaded.contains(file) && !m_brokenPrefabs.contains(file); }) ||
+          std::ranges::any_of(loaded, [&](const auto &file) { return !std::ranges::contains(disk, file); });
+  m_prefabsStale = m_prefabsStale || stale;
 }
 
 void Editor::refreshModelPrefabs() {

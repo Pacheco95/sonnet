@@ -51,6 +51,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -489,6 +490,10 @@ private:
   void markSaved();
   void updateTitle();
   void loadPrefabs();
+  // Looks for assets and prefab files changed outside the editor (AssetDatabase::rescan): when the window gains
+  // the focus, and when the Assets panel is shown. What it finds is applied at once, and the prefabs are rebuilt
+  // as after a re-import when a model or a prefab file came, went or moved.
+  void rescanProject();
   // Once per frame: after a glTF re-import, rebuilds the prefabs and the scene's instances of them.
   void refreshModelPrefabs();
   void filesMoved(const std::filesystem::path &from, const std::filesystem::path &to);
@@ -572,6 +577,9 @@ private:
   std::size_t m_skippedChanges{0};
   bool m_stopAnswered{false};    // the dialog stays to report skipped edits after the answer
   bool m_prefabsStale{false};    // a model was re-imported; the prefabs are rebuilt when not playing
+  bool m_rescanRequested{false}; // the window gained the focus; the project is rescanned at the end of the frame
+  std::set<std::filesystem::path>
+      m_brokenPrefabs;           // prefab files the last load refused; a rescan does not count them as new
   bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
   bool m_playLeftScene{false};   // a script loaded another scene: the play's edits are not the snapshot's
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;
