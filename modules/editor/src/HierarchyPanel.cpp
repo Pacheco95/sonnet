@@ -352,19 +352,16 @@ void HierarchyPanel::acceptDrop(flecs::entity row, bool openParent) {
 bool HierarchyPanel::canMove(core::Uuid entityUuid, core::Uuid parentUuid, std::size_t index) const {
   const flecs::entity entity = m_world.find(entityUuid);
   const flecs::entity parent = m_world.find(parentUuid);
-  // Part of a prefab instance stays where the prefab puts it.
-  if (!entity || entity.has<world::PrefabSource>() || (!parentUuid.isNil() && !parent) || entityUuid == parentUuid ||
+  // Part of a prefab instance stays under the parent the prefab gives it, but may change place
+  // among its siblings (ADR-0032).
+  if (!entity || (!parentUuid.isNil() && !parent) || entityUuid == parentUuid ||
+      (entity.has<world::PrefabSource>() && m_world.parentOf(entity) != parent) ||
       (parent && m_world.isDescendant(parent, entity))) {
     return false;
   }
   std::vector<flecs::entity> siblings = parent ? m_world.children(parent) : m_world.roots();
   std::erase(siblings, entity);
   index = std::min(index, siblings.size());
-  // An instance's own children come first on every load, so nothing else can go before them.
-  if (index < static_cast<std::size_t>(std::ranges::count_if(
-                  siblings, [](flecs::entity sibling) { return sibling.has<world::PrefabSource>(); }))) {
-    return false;
-  }
   return m_world.parentOf(entity) != parent || m_world.siblingIndex(entity) != index;
 }
 

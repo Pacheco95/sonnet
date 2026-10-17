@@ -23,7 +23,8 @@ namespace sonnet::world {
 // quaternion members as arrays (ADR-0029).
 // Version 6 moves exposure from Environment to Camera and adds Camera bloom strength.
 // Version 7 adds camera projection kind, orthographic height and far plane.
-constexpr int SceneVersion = 7;
+// Version 8 adds "order" to an instance's entries: the order of its children (ADR-0032).
+constexpr int SceneVersion = 8;
 
 // Every scene entity, parents before children, prefab instances as their overrides and what
 // their descendants changed.

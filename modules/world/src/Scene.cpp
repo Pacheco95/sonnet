@@ -9,6 +9,7 @@
 #include <array>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <unordered_map>
 #include <utility>
 
@@ -29,7 +30,25 @@ bool isSceneEntity(flecs::entity entity) {
   return entity.has<Identity>() && !entity.has(flecs::Prefab) && !entity.has<EditorOnly>();
 }
 
-json saveEntity(const World &world, flecs::entity entity, flecs::entity parent) {
+// The identities of the children of an instance or of a copy in it, when their order differs
+// from the default; null otherwise (ADR-0032). Only the children the file holds are listed.
+json childOrder(const World &world, flecs::entity node, bool prefab) {
+  const auto saved = [&](flecs::entity child) { return prefab || isSceneEntity(child); };
+  std::vector<flecs::entity> live = world.children(node);
+  std::vector<flecs::entity> standard = world.defaultChildren(node);
+  std::erase_if(live, std::not_fn(saved));
+  std::erase_if(standard, std::not_fn(saved));
+  if (live == standard) {
+    return nullptr;
+  }
+  json order = json::array();
+  for (const flecs::entity child : live) {
+    order.push_back(world.uuidOf(child).toString());
+  }
+  return order;
+}
+
+json saveEntity(const World &world, flecs::entity entity, flecs::entity parent, bool prefab) {
   json entry;
   entry["uuid"] = world.uuidOf(entity).toString();
   const Name *name = entity.try_get<Name>();
@@ -49,15 +68,20 @@ json saveEntity(const World &world, flecs::entity entity, flecs::entity parent) 
     components[component.name] = component.tag ? json{} : world.componentToJson(entity, component.id);
   }
   entry["components"] = std::move(components);
+  if (instance) {
+    if (json order = childOrder(world, entity, prefab); !order.is_null()) {
+      entry["order"] = std::move(order);
+    }
+  }
   return entry;
 }
 
 void saveSubtree(const World &world, flecs::entity entity, flecs::entity parent, json &entities, bool prefab);
 
 // An instance's descendant as an "instanced" entry: what differs from the prefab entity it was
-// copied from, compared by value since flecs copied the whole entity (ADR-0028). Null when
-// nothing does.
-json saveInstanced(const World &world, flecs::entity entity, flecs::entity source) {
+// copied from, compared by value since flecs copied the whole entity (ADR-0028), and the order
+// of its children. Null when nothing differs.
+json saveInstanced(const World &world, flecs::entity entity, flecs::entity source, bool prefab) {
   json components = json::object();
   json removed = json::array();
   for (const ComponentInfo &component : world.components()) {
@@ -69,7 +93,8 @@ json saveInstanced(const World &world, flecs::entity entity, flecs::entity sourc
   }
   const std::string &name = entity.get<Name>().value;
   const bool renamed = name != source.get<Name>().value;
-  if (components.empty() && removed.empty() && !renamed) {
+  json order = childOrder(world, entity, prefab);
+  if (components.empty() && removed.empty() && !renamed && order.is_null()) {
     return nullptr;
   }
   json entry;
@@ -81,6 +106,9 @@ json saveInstanced(const World &world, flecs::entity entity, flecs::entity sourc
   entry["components"] = std::move(components);
   if (!removed.empty()) {
     entry["removed"] = std::move(removed);
+  }
+  if (!order.is_null()) {
+    entry["order"] = std::move(order);
   }
   return entry;
 }
@@ -94,7 +122,7 @@ void saveInstanceChildren(const World &world, flecs::entity node, json &entities
       continue;
     }
     if (const flecs::entity source = world.sourceOf(child)) {
-      if (json entry = saveInstanced(world, child, source); !entry.is_null()) {
+      if (json entry = saveInstanced(world, child, source, prefab); !entry.is_null()) {
         entities.push_back(std::move(entry));
       }
     }
@@ -106,7 +134,7 @@ void saveSubtree(const World &world, flecs::entity entity, flecs::entity parent,
   if (!prefab && !isSceneEntity(entity)) {
     return;
   }
-  entities.push_back(saveEntity(world, entity, parent));
+  entities.push_back(saveEntity(world, entity, parent, prefab));
   if (world.isInstance(entity)) {
     saveInstanceChildren(world, entity, entities, prefab);
     return;
@@ -243,6 +271,7 @@ core::Result<json> migrate(const json &input, std::string_view source) {
     // Missing camera fields take their perspective defaults during reflected loading.
     SONNET_LOG_INFO("{}: migrated scene version {} to 7", source, version < 6 ? 6 : version);
   }
+  // Version 8 adds "order" to instance entries: a file without it keeps the default order.
   document["version"] = SceneVersion;
   return document;
 }
@@ -262,6 +291,38 @@ void setComponents(World &world, flecs::entity entity, const json &entry, const 
   }
 }
 
+// Puts the children of `node` in the stored order (ADR-0032). An identity that is not a child is
+// skipped, a repeated one counts at its first position, and a child the list leaves out follows
+// the child before it in the default order, or comes first when it has none.
+void applyChildOrder(World &world, flecs::entity node, const json &order, std::string_view source) {
+  if (!order.is_array()) {
+    return;
+  }
+  std::vector<flecs::entity> result;
+  for (const json &item : order) {
+    const auto uuid = item.is_string() ? core::Uuid::parse(item.get_ref<const std::string &>()) : std::nullopt;
+    const flecs::entity child = uuid ? world.find(*uuid) : flecs::entity{};
+    if (!child || child.parent() != node) {
+      SONNET_LOG_WARN("{}: order of {}'s children skipped {}, which is not a child", source,
+                      world.uuidOf(node).toString(), item.dump());
+    } else if (std::ranges::find(result, child) == result.end()) {
+      result.push_back(child);
+    }
+  }
+  const std::vector<flecs::entity> listed = result;
+  const std::vector<flecs::entity> standard = world.defaultChildren(node);
+  for (std::size_t i = 0; i < standard.size(); ++i) {
+    if (std::ranges::find(listed, standard[i]) != listed.end()) {
+      continue;
+    }
+    const auto after = i == 0 ? result.begin() : std::ranges::find(result, standard[i - 1]) + 1;
+    result.insert(after, standard[i]);
+  }
+  for (const flecs::entity child : result) {
+    world.assignOrder(child);
+  }
+}
+
 core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &input, std::string_view source) {
   auto migrated = migrate(input, source);
   if (!migrated) {
@@ -278,6 +339,8 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
     core::Uuid parent;
   };
   std::vector<Pending> pending;
+  // Child orders wait for the parents; the entries are in `document`, which outlives the loop.
+  std::vector<std::pair<flecs::entity, const json *>> orders;
   const auto fail = [&](std::string message) -> core::Result<std::vector<flecs::entity>> {
     for (const flecs::entity entity : loaded) {
       world.destroyEntity(entity);
@@ -313,6 +376,9 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
           }
         }
       }
+      if (entry.contains("order")) {
+        orders.emplace_back(target, &entry["order"]);
+      }
       continue;
     }
     if (world.find(*uuid)) {
@@ -333,6 +399,9 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
     }
     loaded.push_back(entity);
     setComponents(world, entity, entry, *uuid, version);
+    if (entry.contains("order")) {
+      orders.emplace_back(entity, &entry["order"]);
+    }
     if (entry.contains("parent") && entry["parent"].is_string()) {
       const auto parentUuid = core::Uuid::parse(entry["parent"].get_ref<const std::string &>());
       if (!parentUuid) {
@@ -350,6 +419,9 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
                               item.parent.toString()));
     }
     item.entity.child_of(parent);
+  }
+  for (const auto &[node, order] : orders) {
+    applyChildOrder(world, node, *order, source);
   }
   return loaded;
 }

@@ -83,6 +83,10 @@ public:
   // order for a loaded scene.
   [[nodiscard]] std::vector<flecs::entity> roots() const;
   [[nodiscard]] std::vector<flecs::entity> children(flecs::entity entity) const;
+  // The children of `node` in the order a load leaves them before a stored order applies: the
+  // copies of its prefab's children in the prefab's order, then the others in sibling order
+  // (ADR-0032).
+  [[nodiscard]] std::vector<flecs::entity> defaultChildren(flecs::entity node) const;
   // The entity's position among its siblings in roots() or children(), and a move to `index`
   // there (past the end puts it last); the others keep their order. Renumbers the siblings'
   // SiblingOrder, so a save and a load keep the new order through file order.
