@@ -290,7 +290,7 @@ void AssetBrowserPanel::up() {
 }
 
 std::filesystem::path AssetBrowserPanel::importFolder() {
-  const auto folder = currentFolder();
+  auto folder = currentFolder();
   std::error_code error;
   const auto resolved = std::filesystem::weakly_canonical(folder, error);
   for (const auto &root : m_assets.roots()) {
@@ -308,7 +308,7 @@ std::vector<AssetRow> AssetBrowserPanel::rows() {
   std::vector<std::filesystem::path> files;
   std::error_code error;
   const auto add = [&](const std::filesystem::directory_entry &entry) {
-    const auto file = entry.path();
+    const auto &file = entry.path();
     // Sidecars and editor state belong to their source rows, never to user file operations.
     if (file.filename().string().starts_with('.') || file.extension() == ".meta" || entry.is_symlink(error)) {
       return;
