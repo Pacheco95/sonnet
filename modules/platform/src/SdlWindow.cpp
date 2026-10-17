@@ -1,14 +1,17 @@
 #include "SdlWindow.h"
 
 #include "SdlDisplay.h"
+#include "WindowIconData.h"
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Log.h>
 
 #include <SDL3/SDL_error.h>
 #include <SDL3/SDL_events.h>
+#include <SDL3/SDL_iostream.h>
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_properties.h>
+#include <SDL3/SDL_surface.h>
 #include <SDL3/SDL_vulkan.h>
 
 #if defined(__ANDROID__)
@@ -18,6 +21,32 @@
 #include <format>
 
 namespace sonnet::platform {
+
+namespace {
+
+// The Sonnet icon, decoded by SDL's own PNG loader from the copy embedded in the module, so the
+// executables need no data file next to them. Windows takes its icon from the executable's
+// resource (apps/icon.rc); phones from the app package.
+void setWindowIcon(SDL_Window *window) {
+#if defined(__ANDROID__) || defined(SDL_PLATFORM_IOS)
+  (void)window;
+#else
+#if defined(__APPLE__)
+  const unsigned char *data = MacWindowIcon;
+  const std::size_t size = MacWindowIconSize;
+#else
+  const unsigned char *data = DesktopWindowIcon;
+  const std::size_t size = DesktopWindowIconSize;
+#endif
+  SDL_Surface *icon = SDL_LoadPNG_IO(SDL_IOFromConstMem(data, size), true);
+  if (icon == nullptr || !SDL_SetWindowIcon(window, icon)) {
+    SONNET_LOG_WARN("window icon not set: {}", SDL_GetError());
+  }
+  SDL_DestroySurface(icon);
+#endif
+}
+
+} // namespace
 
 SdlWindow::SdlWindow(const WindowDesc &desc)
     : m_restored(WindowRect{desc.position.value_or(glm::ivec2{0, 0}), desc.size}), m_title(desc.title),
@@ -44,6 +73,7 @@ SdlWindow::SdlWindow(const WindowDesc &desc)
   if (m_window == nullptr) {
     throw core::Exception{std::format("SDL_CreateWindow failed: {}", SDL_GetError()), core::ErrorCategory::Platform};
   }
+  setWindowIcon(m_window);
   if (!desc.position) {
     m_restored.moved(position(), isMaximized());
   }

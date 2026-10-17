@@ -92,6 +92,10 @@ function(sonnet_add_executable NAME)
   target_link_libraries(${target} PRIVATE sonnet::warnings ${ARG_DEPENDS})
   set_target_properties(${target} PROPERTIES FOLDER "Apps" COMPILE_WARNING_AS_ERROR ON OUTPUT_NAME sonnet_${NAME})
   sonnet_copy_tracy_client(${target})
+  if(WIN32)
+    # SDL takes the window and taskbar icon from resource 1 (docs/branding.md).
+    target_sources(${target} PRIVATE "${CMAKE_SOURCE_DIR}/apps/icon.rc")
+  endif()
 endfunction()
 
 # Keep Slang available without exposing the vcpkg loader to SDL's dlopen (issue #27).

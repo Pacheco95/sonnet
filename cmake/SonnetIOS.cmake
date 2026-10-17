@@ -1,4 +1,5 @@
-# sonnet_add_ios_bundle(<target> INFO_PLIST <file> LAUNCH_STORYBOARD <file> [BUNDLE <file.sbundle>])
+# sonnet_add_ios_bundle(<target> INFO_PLIST <file> LAUNCH_STORYBOARD <file> ASSET_CATALOG <dir.xcassets>
+#                       [BUNDLE <file.sbundle>])
 #
 # Turns the executable <target> into an iOS app bundle, signed by Xcode's own automatic signing
 # (ADR-0018, "Packaging"): the Xcode generator both builds and installs the bundle, which is what
@@ -11,6 +12,10 @@
 # result is set as the bundle's Info.plist. LAUNCH_STORYBOARD is added as a bundle resource with
 # MACOSX_PACKAGE_LOCATION, which the Xcode generator recognises and compiles with `ibtool` on its
 # own, the same as it would inside an Xcode project.
+#
+# ASSET_CATALOG is the .xcassets directory holding the AppIcon set (docs/branding.md); it is a
+# bundle resource like the storyboard, compiled by actool, and ASSETCATALOG_COMPILER_APPICON_NAME
+# names the set Xcode takes the app icon from.
 #
 # A cooked .sbundle (BUNDLE, or the SONNET_IOS_BUNDLE cache variable) is copied into the bundle's
 # root after the build: it is not known to exist at configure time, so it cannot be given to
@@ -28,7 +33,7 @@ set(SONNET_IOS_BUNDLE "" CACHE FILEPATH "Cooked .sbundle to ship in the iOS app 
 set(SONNET_IOS_BUNDLE_IDENTIFIER "io.github.pacheco95.sonnet" CACHE STRING "iOS app bundle identifier")
 
 function(sonnet_add_ios_bundle TARGET)
-  cmake_parse_arguments(ARG "" "INFO_PLIST;LAUNCH_STORYBOARD;BUNDLE" "" ${ARGN})
+  cmake_parse_arguments(ARG "" "INFO_PLIST;LAUNCH_STORYBOARD;ASSET_CATALOG;BUNDLE" "" ${ARGN})
   get_target_property(name ${TARGET} OUTPUT_NAME)
 
   get_filename_component(info_plist "${ARG_INFO_PLIST}" ABSOLUTE)
@@ -40,13 +45,15 @@ function(sonnet_add_ios_bundle TARGET)
   set(configured_plist "${CMAKE_CURRENT_BINARY_DIR}/${name}-Info.plist")
   configure_file("${info_plist}" "${configured_plist}" @ONLY)
 
-  target_sources(${TARGET} PRIVATE "${storyboard}")
-  set_source_files_properties("${storyboard}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+  get_filename_component(asset_catalog "${ARG_ASSET_CATALOG}" ABSOLUTE)
+  target_sources(${TARGET} PRIVATE "${storyboard}" "${asset_catalog}")
+  set_source_files_properties("${storyboard}" "${asset_catalog}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 
   set_target_properties(${TARGET} PROPERTIES
     MACOSX_BUNDLE ON
     MACOSX_BUNDLE_INFO_PLIST "${configured_plist}"
     XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${SONNET_IOS_BUNDLE_IDENTIFIER}"
+    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
     XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1"
     XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
     XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST "NO")

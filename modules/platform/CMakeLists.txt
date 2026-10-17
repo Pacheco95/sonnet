@@ -20,6 +20,7 @@ sonnet_add_module(platform
     src/SdlEntryPoint.cpp
     src/SdlEvents.cpp
     src/SdlWindow.cpp
+    src/WindowIconData.cpp
     ${SONNET_THERMAL_SOURCE}
   PUBLIC_DEPENDS
     sonnet::core

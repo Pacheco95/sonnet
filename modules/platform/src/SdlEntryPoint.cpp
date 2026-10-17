@@ -7,6 +7,7 @@
 #include <sonnet/core/Version.h>
 
 #include <SDL3/SDL_events.h>
+#include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_init.h>
 
 #if defined(__ANDROID__)
@@ -15,7 +16,9 @@
 
 #include <algorithm>
 #include <exception>
+#include <filesystem>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -55,6 +58,15 @@ void initLogging() {
 SDL_AppResult appInit(void **state, int argc, char **argv) {
   initLogging();
   SONNET_LOG_INFO("Sonnet {}", core::engineVersion().toString());
+#if defined(__linux__) && !defined(__ANDROID__)
+  if (argc > 0) {
+    // The window manager finds the desktop entry (packaging/linux) by the application id, which is
+    // the executable's name with dashes: sonnet_editor is sonnet-editor.desktop.
+    std::string appId = std::filesystem::path{argv[0]}.stem().string();
+    std::ranges::replace(appId, '_', '-');
+    SDL_SetHint(SDL_HINT_APP_ID, appId.c_str());
+  }
+#endif
   try {
     auto appState = std::make_unique<AppState>();
     // The arguments proper: the program name is of no use to an application.

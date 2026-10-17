@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sonnet Player
+Comment=Runs Sonnet projects and exported games
+Exec=sonnet_player
+Icon=sonnet_player
+Terminal=false
+Categories=Game;
+StartupWMClass=sonnet-player

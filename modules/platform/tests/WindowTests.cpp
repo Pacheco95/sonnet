@@ -2,10 +2,13 @@
 #include <sonnet/platform/Window.h>
 
 #include "RestoredRect.h"
+#include "WindowIconData.h"
 
 #include <sonnet/core/Error.h>
 
 #include <SDL3/SDL_events.h>
+#include <SDL3/SDL_iostream.h>
+#include <SDL3/SDL_surface.h>
 #include <SDL3/SDL_video.h>
 #include <catch2/catch_test_macros.hpp>
 
@@ -121,4 +124,17 @@ TEST_CASE("the platform lists its displays and the window names the one it is on
   const auto display = window->display();
   REQUIRE(display.has_value());
   REQUIRE(std::ranges::any_of(displays, [&](const auto &listed) { return listed.id == display->id; }));
+}
+
+TEST_CASE("the embedded window icons are 256 px PNG files", "[platform][window]") {
+  const auto decode = [](const unsigned char *data, std::size_t size) {
+    return SDL_LoadPNG_IO(SDL_IOFromConstMem(data, size), true);
+  };
+  for (SDL_Surface *icon : {decode(sonnet::platform::DesktopWindowIcon, sonnet::platform::DesktopWindowIconSize),
+                            decode(sonnet::platform::MacWindowIcon, sonnet::platform::MacWindowIconSize)}) {
+    REQUIRE(icon != nullptr);
+    CHECK(icon->w == 256);
+    CHECK(icon->h == 256);
+    SDL_DestroySurface(icon);
+  }
 }
