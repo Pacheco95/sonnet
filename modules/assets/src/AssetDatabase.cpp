@@ -197,6 +197,13 @@ void AssetDatabase::open(const std::filesystem::path &projectRoot, std::span<con
   close();
   m_projectRoot = std::filesystem::absolute(projectRoot).lexically_normal();
   m_roots.assign(roots.begin(), roots.end());
+  for (const std::filesystem::path &file : sourceFiles()) {
+    scanFile(file);
+  }
+  SONNET_LOG_INFO("asset database: {} assets in {}", m_assets.size() - 5, m_projectRoot.string());
+}
+
+std::vector<std::filesystem::path> AssetDatabase::sourceFiles() const {
   std::vector<std::filesystem::path> files;
   for (const std::string &root : m_roots) {
     const std::filesystem::path directory = m_projectRoot / root;
@@ -211,10 +218,7 @@ void AssetDatabase::open(const std::filesystem::path &projectRoot, std::span<con
     }
   }
   std::ranges::sort(files);
-  for (const std::filesystem::path &file : files) {
-    scanFile(file);
-  }
-  SONNET_LOG_INFO("asset database: {} assets in {}", m_assets.size() - 5, m_projectRoot.string());
+  return files;
 }
 
 void AssetDatabase::close() {
@@ -1575,6 +1579,75 @@ void AssetDatabase::unregister(const core::Uuid &requested) {
   }
 }
 
+void AssetDatabase::relocate(const core::Uuid &uuid, const std::filesystem::path &target) {
+  auto &info = m_assets.at(uuid);
+  info.source = target;
+  info.name = stemOf(target);
+  m_files.at(uuid).sidecar = target.string() + ".meta";
+  for (auto &[subId, sub] : m_assets) {
+    if (sub.parent == uuid) {
+      sub.source = target;
+    }
+  }
+  if (auto script = m_scripts.find(uuid); script != m_scripts.end()) {
+    script->second.revision = ++m_revision;
+  }
+}
+
+RescanResult AssetDatabase::rescan() {
+  SONNET_ZONE();
+  RescanResult result;
+  if (!isOpen() || m_bundle) {
+    return result;
+  }
+  const std::vector<std::filesystem::path> onDisk = sourceFiles();
+  std::map<std::filesystem::path, core::Uuid> known;
+  for (const auto &[id, record] : m_files) {
+    known.emplace(m_assets.at(id).source, id);
+  }
+  std::vector<std::filesystem::path> appeared;
+  for (const std::filesystem::path &file : onDisk) {
+    if (!known.erase(file)) {
+      appeared.push_back(file);
+    }
+  }
+  // What is left of `known` has no file any more. A new file that carries one of those identities in
+  // its sidecar is that asset moved; the rest are new.
+  std::vector<std::filesystem::path> added;
+  for (const std::filesystem::path &file : appeared) {
+    std::optional<core::Uuid> identity;
+    if (const auto sidecar = readSidecar(file.string() + ".meta")) {
+      identity = core::Uuid::parse((*sidecar)["uuid"].get<std::string>()).value();
+    }
+    const auto gone = identity
+                          ? std::ranges::find_if(known, [&](const auto &entry) { return entry.second == *identity; })
+                          : known.end();
+    if (gone == known.end()) {
+      added.push_back(file);
+      continue;
+    }
+    finishRequest(gone->second);
+    const AssetInfo &info = m_assets.at(gone->second);
+    result.moved.push_back({.uuid = info.uuid, .type = info.type, .from = gone->first, .to = file});
+    SONNET_LOG_INFO("asset database: {} moved to {}", gone->first.string(), file.string());
+    relocate(gone->second, file);
+    known.erase(gone);
+  }
+  for (const auto &[file, id] : known) {
+    result.removed.push_back({.uuid = id, .type = m_assets.at(id).type, .from = file, .to = {}});
+    SONNET_LOG_WARN("asset database: {} is gone, unregistered", file.string());
+    unregister(id);
+  }
+  for (const std::filesystem::path &file : added) {
+    scanFile(file);
+    if (const AssetInfo *info = findByPath(file)) {
+      result.added.push_back({.uuid = info->uuid, .type = info->type, .from = {}, .to = file});
+      SONNET_LOG_INFO("asset database: registered {}", file.string());
+    }
+  }
+  return result;
+}
+
 core::Result<void> AssetDatabase::move(const std::filesystem::path &from, const std::filesystem::path &to) try {
   if (!isOpen() || m_bundle) {
     return std::unexpected(core::Error{"moving files needs an open project", core::ErrorCategory::Io});
@@ -1709,19 +1782,8 @@ core::Result<void> AssetDatabase::move(const std::filesystem::path &from, const 
     }
   }
   for (const auto &id : files) {
-    auto &info = m_assets.at(id);
-    const auto target = directory ? destination / info.source.lexically_relative(source) : destination;
-    info.source = target;
-    info.name = stemOf(target);
-    m_files.at(id).sidecar = target.string() + ".meta";
-    for (auto &[subId, sub] : m_assets) {
-      if (sub.parent == id) {
-        sub.source = target;
-      }
-    }
-    if (auto script = m_scripts.find(id); script != m_scripts.end()) {
-      script->second.revision = ++m_revision;
-    }
+    const auto &path = m_assets.at(id).source;
+    relocate(id, directory ? destination / path.lexically_relative(source) : destination);
   }
   return {};
 } catch (const std::filesystem::filesystem_error &error) {

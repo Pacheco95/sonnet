@@ -24,6 +24,23 @@
 
 namespace sonnet::assets {
 
+// One file asset a rescan found different on disk: `to` is where it is now (empty for a removal) and
+// `from` where the database knew it (empty for an addition).
+struct RescanChange {
+  core::Uuid uuid;
+  AssetType type{AssetType::Texture};
+  std::filesystem::path from;
+  std::filesystem::path to;
+};
+struct RescanResult {
+  std::vector<RescanChange> added;
+  std::vector<RescanChange> removed;
+  std::vector<RescanChange> moved;
+  [[nodiscard]] bool empty() const noexcept {
+    return added.empty() && removed.empty() && moved.empty();
+  }
+};
+
 // Maps identities to metadata and to loaded renderer objects (docs/assets.md, "Database"). A
 // project's asset roots are scanned on open: every source file gets a `.meta` sidecar with its
 // identity and import settings, and a glTF file's sub-assets are listed there too. Loading is
@@ -132,6 +149,12 @@ public:
   // Moves a source or folder with its sidecars, preserving identities and loaded handles.
   // Scene and prefab files may also move within the project; other destinations need an asset root.
   [[nodiscard]] core::Result<void> move(const std::filesystem::path &from, const std::filesystem::path &to);
+  // Brings the database up to date with the asset roots after files changed outside the editor: a source
+  // file that appeared is registered as `open` would, an asset whose source has gone is unregistered
+  // (logged), and a new file whose sidecar carries the identity of a vanished one counts as that asset
+  // moved, so it keeps its identity and loaded handles. A file moved without its sidecar is a removal
+  // plus an addition with a new identity. Project mode only; a bundle has nothing to rescan.
+  RescanResult rescan();
 
   // A material's authored values; editing them updates the renderer's material at once, and
   // saving writes the .material.json of a file material.
@@ -196,6 +219,10 @@ private:
 
   void registerBuiltins();
   void scanFile(const std::filesystem::path &file);
+  // The importable source files under the asset roots, sorted.
+  [[nodiscard]] std::vector<std::filesystem::path> sourceFiles() const;
+  // Points a file asset, its sidecar record and its sub-assets at a new source path.
+  void relocate(const core::Uuid &uuid, const std::filesystem::path &target);
   // A cooked payload, or a logged failure that is not retried. Bundle mode only.
   [[nodiscard]] std::optional<std::vector<std::byte>> bundlePayload(const core::Uuid &uuid);
   [[nodiscard]] core::Result<nlohmann::json> readSidecar(const std::filesystem::path &sidecar) const;

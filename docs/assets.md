@@ -135,6 +135,21 @@ Bundle version 16 adds orthographic model cameras and version 7 scenes and prefa
 The [sampler verification report](reports/material-samplers.md) records the Khronos
 reference capture and the generated checker regression.
 
+### Rescan
+
+`rescan` brings the database up to date with the asset roots after files changed outside the
+editor; the editor calls it when its window gains the focus and when the Assets panel is shown,
+not on a timer. It compares the importable files on disk with the registered sources. A file
+that appeared is registered as `open` would have, writing its sidecar when it has none. An
+asset whose source is gone is unregistered and logged, with its sub-assets and what was loaded
+from it. A new file whose sidecar carries the identity of a vanished asset is that asset
+moved: it keeps its identity, its loaded handles, its sub-assets and its cache entries, the
+same as `move` through the shared relocation step. A file moved without its sidecar is a
+removal and an addition with a new identity. A file whose sidecar names an identity that is
+still registered at another path is a copy of both, and is skipped with the error `open` logs.
+The result lists the added, removed and moved assets, with the old and new paths, so the editor
+can follow open scenes and rebuild the prefabs of models. A bundle has nothing to rescan.
+
 ## Hot reload
 
 `AssetDatabase::pollChanges`, called by the editor every frame, compares the sources' modification times every half second. A changed file is re-imported: a texture gets a new renderer texture under the same identity and every loaded material that reads it is updated, a material file updates its material in place so handles stay valid, an environment or a glTF file is unloaded and loaded again with its sub-asset list refreshed (a glTF file is also reported by `takeReimportedModels`, which is how the editor knows to rebuild its prefab), a script or a sound is read again under a new revision, which reloads the script and restarts the sources playing the sound. Entities resolve meshes through the database each frame and pick up the new objects. Shaders reuse the previous pipeline if compilation fails and surface the error in the editor.
