@@ -104,23 +104,60 @@ The properties come from `IScriptRuntime::properties`, which loads the class the
 
 ## Asset browser
 
-The Assets panel lists the open project's assets ([assets.md](assets.md#database)) and its prefab files with a text filter and a multi-select type filter (a combo with a checkbox per type, labelled "All", the type, or "N types"; nothing checked means all types, "Clear" unchecks everything; an asset shows when its type is checked and its name contains the text): name, type and source file, sub-assets under their glTF file. Prefabs loaded from `.prefab.json` files, one made with Save as prefab included, are rows of type Prefab with their file as the source, under a "Prefabs" entry after the asset types in the type filter; a model's prefab is not listed again, since its Model row stands for it ([world.md](world.md#prefabs)). Clicking a column header sorts by it and clicking again reverses it, the arrow showing the direction: Name and Source ignore case, Type goes by the type's name, and ties go by name. The list starts sorted by name, the sort applies to the filtered rows, and assets the database adds or drops (a hot reload, New asset) take their place in it. Clicking a row leaves the entity selection (and the gizmo) alone and shows the asset in an Asset tab of the inspector beside the Entity tab (alone when nothing is selected); the tab goes away the next time the selection is touched; rows are drag sources for the inspector's pickers, and a model or a prefab dropped on the hierarchy becomes an instance of it, while an environment dropped anywhere on it becomes the scene's sky: the map of the Environment that lights the scene (the first shown one, `world::environmentEntity`), or of a new root named after the asset when there is none, as one undo step (`HierarchyPanel::useEnvironment`). A prefab has no asset view, so clicking its row inspects nothing. The "New asset" button opens a menu of what can be created: Material writes a fresh `.material.json` in the project's `assets` folder and inspects it; Script writes a script with every hook, empty, in the `scripts` folder (the first asset root when the project has no `scripts` root) and inspects it. A right-click on a row opens a menu: Copy path puts the source file's path on the clipboard, Show in file manager opens the platform's file manager on the folder holding it with the file selected (the freedesktop `FileManager1.ShowItems` D-Bus call through `dbus-send` on Linux, `open -R` on macOS, `SHOpenFolderAndSelectItems` on Windows; where that fails, such as a Linux desktop whose file manager does not implement `FileManager1`, it opens the folder with `SDL_OpenURL` instead), and Open, for scripts, opens the file in the external editor of the preferences, as the log's links do. A built-in asset has no file, so its entries are disabled.
+The Assets panel opens at the project folder and shows one folder at a time. Folders come
+from disk and sort before files; the Name, Type and Source columns keep their header sorting.
+Scenes, prefab files and ordinary files such as README and glTF buffers appear alongside
+imported assets. Sidecars, hidden files and editor state are omitted, and symbolic links are
+not followed. Built-in assets remain available at the project root. A model's sub-assets
+keep separate rows with their source file, and a loaded model's prefab is not listed twice.
 
-Prefab rows use the file stem as their name. Rename and Delete in the row menu act on source files and prefab files; built-ins and glTF
-sub-assets have both entries disabled. F2 renames the selected row and Delete asks to delete it
-while the Assets panel has focus. Rename edits the Name column in place: Enter commits,
-Escape cancels, and the extension (including `.material.json` or `.prefab.json`) stays.
-Renames keep asset identities and references, update loaded prefab file paths, open scene tab
-paths and the project's saved start scene, and can be undone. A possible `require` reference
-to an old script name or path is logged with the script that may need updating; calls are not rewritten.
+Double-click a folder or select it and press Enter to open it. Breadcrumbs show the project
+and every folder on the path; clicking a segment goes there. Backspace or Alt+Up goes up,
+Alt+Left goes back and Alt+Right goes forward, as do the Back, Forward and Up buttons.
+The current folder is remembered for each project in the layout ini's
+`[SonnetAssets][Folders]` section. A missing saved folder falls back to the project folder.
+Double-clicking a scene, or pressing Enter on it, opens it in its own scene tab as File > Open does.
 
-Delete's confirmation reports entities in open scenes referring to the asset or its sub-assets,
-materials using its textures, and prefab instances. Scenes that are not open are not counted.
-Deletion unregisters the assets, clears their cooked cache entries and drops their loaded
-prefabs. It moves source files and sidecars to `.sonnet/trash/<id>/` inside the project;
-undo restores the same files and identities, and redo deletes them again. The command erases
-its trash when dropped from history or when the project closes. Opening a project clears
-trash left by a crash. The confirmation says that deletion can be undone.
+With text in the filter, search covers the current folder and every folder below it,
+ignoring case; Source distinguishes equal names. Without text it lists only immediate
+children. The type combo has a checkbox for each asset type, Prefabs, Scenes and Files;
+nothing checked means All and Clear unchecks everything. Folders remain available for navigation.
+Clicking an imported asset inspects it without touching the entity selection or gizmo.
+Asset and prefab rows remain drag sources for inspector pickers and the hierarchy;
+a model or prefab dropped there becomes an instance, and an environment sets the scene's sky.
+
+Ctrl-click toggles rows and Shift-click selects a range using ImGui multi-select.
+The New asset menu's New folder entry and the background menu create an empty folder in
+the current folder as one undo step. Material creates a fresh `.material.json` in `assets`;
+Script creates an empty script with every hook in `scripts`, or the first asset root.
+
+The row menu offers Copy path and Show in file manager for files and folders, and Open
+for a script in the configured external editor. Rename and Delete, also F2 and Delete
+while the panel has focus, act on the selection. Built-ins and glTF sub-assets cannot be
+renamed or deleted independently. A single rename edits the Name column in place: Enter
+commits and Escape cancels. A selection rename opens a dialog with a name for each source,
+applied as one undo step. Extensions, including `.scene.json`, `.material.json` and
+`.prefab.json`, stay; folder names have no preserved extension. Folder renames use the same
+file commands as asset renames, so assets stay within the database's permitted roots.
+Renames keep identities and references and update loaded prefab paths, open scene tabs and
+the saved start scene. A possible `require` reference to an old name is logged for manual updating.
+
+Delete's confirmation lists the selected files and folders and counts references in open
+scenes, materials and prefab instances, including assets inside selected folders. Scenes
+that are not open are not counted. Deletion unregisters assets and drops loaded prefabs,
+moving source files and sidecars to `.sonnet/trash/<id>/`. Undo restores the same files and
+identities and redo deletes them again, as one command for the selection. The command erases
+its trash when dropped from history or when the project closes; opening a project clears
+trash left by a crash. Undoing folder creation removes it only while empty, preserving
+files added outside the command history.
+
+The [folder browser capture](reports/asset-browser.png) shows the basic sample at the project root.
+Capture it beside the scene with the editor's own capture path:
+
+```bash
+./build/linux-debug/apps/editor/sonnet_editor apps/samples/basic \
+  --screenshot shots/asset-folders.png --screenshot-window shots/asset-folders-window.png
+```
 
 The inspector shows an asset's name, type, source and identity, with a Reimport button, and per type:
 
@@ -133,7 +170,7 @@ The inspector shows an asset's name, type, source and identity, with a Reimport 
 
 ### Importing assets
 
-The Import button beside New asset opens a file chooser that takes any number of files, filtered to images (PNG, JPEG, TGA, BMP, KTX2), glTF models (`.gltf`, `.glb`) and equirectangular `.hdr` skies, and dropping files from the operating system's file manager on the Assets panel does the same with whatever was dropped. A drop anywhere else in the editor does nothing. Either way `editor::importAssets` copies the files into the project's first asset root and registers them with the database (`AssetDatabase::registerFile`), which writes their sidecars as opening the project would have; the copies are then ordinary assets, so a model's clips play, a texture goes in material slots and an `.hdr` file is an environment. A model is also placed in the world as a prefab, as opening the project places every model, so it can be dropped on the hierarchy at once; undoing the import leaves that prefab loaded, as undoing Save as prefab does, and an instance of it draws nothing until a redo brings the files back. The originals are not touched, and a sidecar beside one is not copied: the copy gets an identity of its own.
+The Import button beside New asset opens a file chooser that takes any number of files, filtered to images (PNG, JPEG, TGA, BMP, KTX2), glTF models (`.gltf`, `.glb`) and equirectangular `.hdr` skies, and dropping files from the operating system's file manager on the Assets panel does the same with whatever was dropped. A drop anywhere else in the editor does nothing. Either way `editor::importAssets` copies the files into the current folder when it is inside an asset root, or the first asset root otherwise and registers them with the database (`AssetDatabase::registerFile`), which writes their sidecars as opening the project would have; the copies are then ordinary assets, so a model's clips play, a texture goes in material slots and an `.hdr` file is an environment. A model is also placed in the world as a prefab, as opening the project places every model, so it can be dropped on the hierarchy at once; undoing the import leaves that prefab loaded, as undoing Save as prefab does, and an instance of it draws nothing until a redo brings the files back. The originals are not touched, and a sidecar beside one is not copied: the copy gets an identity of its own.
 
 A glTF file goes into a folder of its own named after it, with the buffers and images its URIs name copied at the same relative paths (`assets::gltfDependencies`, which refuses a URI that leaves the file's folder), so the model keeps working; an image among them is registered as a texture too, as opening the project would register it. A name already taken, by a file or by another file of the same import, gets a number as Save as prefab does: `wood 2.png`, `crate 2/`, `steel 2.material.json`. A file no importer reads is logged and skipped. Nothing is left behind when nothing could be imported or a copy failed, a missing dependency for one.
 

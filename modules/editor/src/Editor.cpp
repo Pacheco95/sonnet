@@ -98,6 +98,39 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_assetBrowserPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  m_assetBrowserPanel.setRenameHandler(
+      [this](std::span<const std::pair<std::filesystem::path, std::filesystem::path>> moves) -> core::Result<void> {
+        std::vector<std::unique_ptr<ICommand>> commands;
+        for (const auto &[from, to] : moves) {
+          auto command =
+              moveFilesCommand(m_assets, m_world, from, to,
+                               [this](const auto &oldPath, const auto &newPath) { filesMoved(oldPath, newPath); });
+          if (!command) {
+            for (auto it = commands.rbegin(); it != commands.rend(); ++it) {
+              (*it)->revert(m_world);
+            }
+            return std::unexpected(command.error());
+          }
+          commands.push_back(std::move(*command));
+        }
+        if (!commands.empty()) {
+          m_commands.record(compositeCommand("rename files", std::move(commands)));
+        }
+        return {};
+      });
+  m_assetBrowserPanel.setSceneHandler([this](const auto &file) {
+    if (auto result = openScene(file); !result) {
+      SONNET_LOG_ERROR("{}", result.error().toString());
+    }
+  });
+  m_assetBrowserPanel.setCreateFolderHandler([this](const auto &folder) -> core::Result<void> {
+    auto command = createFolderCommand(m_assets.projectRoot(), folder);
+    if (!command) {
+      return std::unexpected(command.error());
+    }
+    m_commands.record(std::move(*command));
+    return {};
+  });
   m_assetBrowserPanel.setImportHandler([this] { chooseAssetsToImport(); });
   m_assetBrowserPanel.setFileHandlers(
       [this](const std::filesystem::path &from, const std::filesystem::path &to) -> core::Result<void> {
@@ -110,8 +143,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
         m_commands.record(std::move(*command));
         return {};
       },
-      [this](const std::filesystem::path &file) -> core::Result<void> {
-        const std::array files{file};
+      [this](std::span<const std::filesystem::path> files) -> core::Result<void> {
         auto command = deleteFilesCommand(m_assets, m_world, files);
         if (!command) {
           return std::unexpected(command.error());
@@ -119,7 +151,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
         m_commands.record(std::move(*command));
         return {};
       },
-      [this](core::Uuid uuid) { return assetReferences(uuid); });
+      [this](std::span<const core::Uuid> uuids) { return assetReferences(uuids); });
   // The module's components and systems go in after the engine's and before any scene loads, as
   // the player registers them.
   if (m_module != nullptr) {
@@ -1233,7 +1265,7 @@ void Editor::chooseAssetsToImport() {
 }
 
 void Editor::importFiles(std::span<const std::filesystem::path> files) {
-  auto command = importAssets(m_assets, m_world, files);
+  auto command = importAssets(m_assets, m_world, files, m_assetBrowserPanel.importFolder());
   if (!command) {
     SONNET_LOG_ERROR("{}", command.error().toString());
     return;
@@ -1621,10 +1653,15 @@ void Editor::filesMoved(const std::filesystem::path &from, const std::filesystem
   }
 }
 
-AssetReferences Editor::assetReferences(core::Uuid uuid) {
-  std::vector<std::string> ids{uuid.toString()};
+AssetReferences Editor::assetReferences(std::span<const core::Uuid> uuids) {
+  std::vector<std::string> ids;
+  for (const auto uuid : uuids) {
+    if (!uuid.isNil()) {
+      ids.push_back(uuid.toString());
+    }
+  }
   for (const auto *info : m_assets.assets()) {
-    if (info->parent == uuid) {
+    if (!info->parent.isNil() && std::ranges::contains(uuids, info->parent)) {
       ids.push_back(info->uuid.toString());
     }
   }
@@ -1745,7 +1782,8 @@ AssetReferences Editor::assetReferences(core::Uuid uuid) {
     if (referenced) {
       ++result.entities;
     }
-    if (const auto source = m_world.prefabOf(entity); source && m_world.uuidOf(source) == uuid) {
+    if (const auto source = m_world.prefabOf(entity);
+        source && std::ranges::contains(ids, m_world.uuidOf(source).toString())) {
       ++result.instances;
     }
     for (auto child : m_world.children(entity)) {

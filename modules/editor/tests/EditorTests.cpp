@@ -1812,24 +1812,32 @@ TEST_CASE("delete reference counts include inherited assets in every open scene"
     REQUIRE(prefab);
     const auto prefabId = world.uuidOf(*prefab);
     world.instantiate(*prefab, "First");
-    CHECK(editor.assetReferences(*material).entities == 1);
-    CHECK(editor.assetReferences(prefabId).instances == 1);
+    CHECK(editor.assetReferences(std::array{*material}).entities == 1);
+    CHECK(editor.assetReferences(std::array{prefabId}).instances == 1);
     REQUIRE(editor.saveSceneAs(directory / "scenes/first.scene.json"));
     editor.newScene();
     world.instantiate(*prefab, "Second");
-    CHECK(editor.assetReferences(*material).entities == 2);
-    CHECK(editor.assetReferences(prefabId).instances == 2);
+    CHECK(editor.assetReferences(std::array{*material}).entities == 2);
+    CHECK(editor.assetReferences(std::array{prefabId}).instances == 2);
+    // Selecting multiple sources counts each entity once, even when it references several of them.
+    const auto mesh = editor.assets().assets(assets::AssetType::Mesh).front()->uuid;
+    auto combined = world.createEntity("Both");
+    combined.set<world::MeshRenderer>({.mesh = mesh, .material = *material});
+    CHECK(editor.assetReferences(std::array{*material, mesh}).entities == 3);
+    CHECK(editor.assetReferences(std::array{core::Uuid{}}).entities == 0);
+    CHECK(editor.assetReferences(std::array{*material, mesh, prefabId}).instances == 2);
+    world.destroyEntity(combined);
     // A name containing the UUID is text, not a reflected Uuid reference.
     world.createEntity(material->toString());
-    CHECK(editor.assetReferences(*material).entities == 2);
+    CHECK(editor.assetReferences(std::array{*material}).entities == 2);
     const auto texture = core::Uuid::generate();
     assets::MaterialSource textured;
     textured.baseColorTexture = texture;
     textured.normalTexture = texture;
     const auto texturedId = editor.assets().createMaterial(directory / "assets/textured.material.json", textured);
     REQUIRE(texturedId);
-    CHECK(editor.assetReferences(texture).materials == 1);
-    CHECK(editor.assetReferences(texture).entities == 0);
+    CHECK(editor.assetReferences(std::array{texture}).materials == 1);
+    CHECK(editor.assetReferences(std::array{texture}).entities == 0);
     // Crash leftovers cannot appear in prefab discovery on reopening.
     std::filesystem::create_directories(directory / ".sonnet/trash/leftover");
     REQUIRE(core::writeFile(directory / ".sonnet/trash/leftover/old.prefab.json", "{}"));

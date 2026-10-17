@@ -9,15 +9,19 @@
 #include <sonnet/core/Uuid.h>
 #include <sonnet/world/World.h>
 
+#include <imgui.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace sonnet::editor {
 
@@ -33,8 +37,7 @@ constexpr const char *AssetDragPayload = "SONNET_ASSET";
 // "built-in" for an asset without a file.
 [[nodiscard]] std::string assetSourceLabel(const assets::AssetInfo &info, const std::filesystem::path &projectRoot);
 
-// A listed row, computed once per frame for drawing and sorting: a database asset, or a prefab loaded from a file,
-// which has no AssetInfo.
+// A listed row, computed once per frame: an imported asset, prefab, scene, folder or plain file.
 struct AssetRow {
   const assets::AssetInfo *info = nullptr;
   core::Uuid uuid;
@@ -43,6 +46,7 @@ struct AssetRow {
   std::string source;
   // What the row menu copies and shows in the file manager; empty for a built-in asset.
   std::filesystem::path file;
+  bool directory{false};
 };
 [[nodiscard]] AssetRow assetRow(const assets::AssetInfo &info, const std::filesystem::path &projectRoot);
 // A prefab's row: type "Prefab", its file relative to the project as the Source.
@@ -65,22 +69,38 @@ struct AssetReferences {
   std::size_t instances{0};
 };
 
-// The project's assets and prefab files by type and name (docs/editor.md, "Asset browser"): a filter, a multi-select
-// type filter, one row per asset or prefab, sorted by the column header clicked last (Name by default). Clicking an
-// asset inspects it without touching the selection; rows are drag sources; the buttons create a material file in the
-// assets folder and a script in the scripts folder, or import files, as does a drop of files on the panel. A
-// right-click on a row copies the source path, selects it in the file manager, or opens a script in the external
-// editor.
+// Disk-backed project browser (docs/editor.md, "Asset browser"): folder navigation, recursive
+// name search, type filters and source file commands. Asset selection leaves entity selection alone.
 class AssetBrowserPanel {
 public:
   AssetBrowserPanel(assets::AssetDatabase &assets, world::World &world, Selection &selection);
 
+  ~AssetBrowserPanel();
   void draw(bool &open);
+  [[nodiscard]] const std::filesystem::path &currentFolder();
+  void navigate(const std::filesystem::path &folder);
+  void back();
+  void forward();
+  void up();
+  [[nodiscard]] std::filesystem::path importFolder();
+  [[nodiscard]] std::vector<AssetRow> rows();
+  void setRenameHandler(
+      std::function<core::Result<void>(std::span<const std::pair<std::filesystem::path, std::filesystem::path>>)>
+          handler) {
+    m_moveMany = std::move(handler);
+  }
+  void setSceneHandler(std::function<void(const std::filesystem::path &)> handler) {
+    m_scene = std::move(handler);
+  }
+  void setCreateFolderHandler(std::function<core::Result<void>(const std::filesystem::path &)> handler) {
+    m_createFolder = std::move(handler);
+  }
+
   [[nodiscard]] bool focused() const noexcept;
   void
   setFileHandlers(std::function<core::Result<void>(const std::filesystem::path &, const std::filesystem::path &)> move,
-                  std::function<core::Result<void>(const std::filesystem::path &)> remove,
-                  std::function<AssetReferences(core::Uuid)> references) {
+                  std::function<core::Result<void>(std::span<const std::filesystem::path>)> remove,
+                  std::function<AssetReferences(std::span<const core::Uuid>)> references) {
     m_move = std::move(move);
     m_remove = std::move(remove);
     m_references = std::move(references);
@@ -108,10 +128,14 @@ public:
   }
 
 private:
+  void syncProject();
+  void drawNavigation();
+  void createFolder();
   void drawContextMenu(const AssetRow &row);
   void beginRename(const AssetRow &row);
   void confirmDelete(const AssetRow &row);
   void drawDeleteModal();
+  void drawRenameModal();
   void createMaterial();
   void createScript();
 
@@ -127,15 +151,30 @@ private:
   std::function<void(const std::string &, int)> m_open;
   std::function<void()> m_import;
   std::function<core::Result<void>(const std::filesystem::path &, const std::filesystem::path &)> m_move;
-  std::function<core::Result<void>(const std::filesystem::path &)> m_remove;
-  std::function<AssetReferences(core::Uuid)> m_references;
-  core::Uuid m_focused;
-  core::Uuid m_renaming;
+  std::function<core::Result<void>(std::span<const std::filesystem::path>)> m_remove;
+  std::function<AssetReferences(std::span<const core::Uuid>)> m_references;
+  std::filesystem::path m_project;
+  std::filesystem::path m_folder;
+  std::vector<std::filesystem::path> m_history;
+  std::size_t m_historyIndex{0};
+  std::map<std::string, std::string> m_folders;
+  bool m_settingsInstalled{false};
+  ImGuiSelectionBasicStorage m_selected;
+  std::vector<AssetRow> m_rows;
+  std::function<void(const std::filesystem::path &)> m_scene;
+  std::function<core::Result<void>(const std::filesystem::path &)> m_createFolder;
+  std::function<core::Result<void>(std::span<const std::pair<std::filesystem::path, std::filesystem::path>>)>
+      m_moveMany;
+  std::vector<AssetRow> m_renameRows;
+  std::vector<std::string> m_renameNames;
+  bool m_batchRenameRequested{false};
+  std::vector<std::filesystem::path> m_deleteFiles;
+  std::vector<core::Uuid> m_deleteIds;
+  ImGuiID m_focused{0};
+  ImGuiID m_renaming{0};
   std::string m_rename;
   bool m_renameFocus{false};
   std::optional<std::pair<std::filesystem::path, std::filesystem::path>> m_pendingRename;
-  core::Uuid m_deleteUuid;
-  std::filesystem::path m_delete;
   AssetReferences m_deleteReferences;
   bool m_deleteRequested{false};
   std::string m_fileError;

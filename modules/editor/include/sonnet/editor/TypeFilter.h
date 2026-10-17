@@ -44,8 +44,7 @@ private:
 bool typeFilterCombo(const char *id, float width, std::span<const char *const> names, TypeFilter &filter);
 
 // The asset types the browser offers, in the order of its combo; a TypeFilter over them is indexed
-// by position in this list. The names add "Prefabs" after the types, at index
-// filterableAssetTypes().size().
+// by position in this list. The names add Prefabs, Scenes and Files after the asset types.
 [[nodiscard]] std::span<const assets::AssetType> filterableAssetTypes() noexcept;
 [[nodiscard]] std::span<const char *const> filterableAssetTypeNames() noexcept;
 
