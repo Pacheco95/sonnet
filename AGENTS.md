@@ -25,6 +25,7 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 | `runtime`, `apps/player`, `apps/cook`, export | `docs/player.md` |
 | `scripting`, the Lua API | `docs/scripting.md` |
 | CMake, vcpkg, CI | `docs/build.md` |
+| The icon, `tools/generate_icons.py` | `docs/branding.md` |
 | A cross-module decision | `docs/decisions/` (ADRs and the template) |
 
 Accepted ADRs are settled. Do not relitigate them in code; a change of direction is a new ADR that supersedes the old one, and an accepted ADR is only ever edited to change its status.

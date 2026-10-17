@@ -165,6 +165,7 @@ ctest --preset linux-debug
 | Scripting: script instances, errors and hot reload, the Lua API | [docs/scripting.md](docs/scripting.md) |
 | Audio: sources and listeners, playing, miniaudio | [docs/audio.md](docs/audio.md) |
 | Player: the runtime module, running a project or a bundle, what an export is | [docs/player.md](docs/player.md) |
+| Branding: the icon artwork, regenerating the platform icons | [docs/branding.md](docs/branding.md) |
 | Roadmap and milestones | [docs/roadmap.md](docs/roadmap.md) |
 | Conventions: code style, math, error handling, logging, commits, versioning | [docs/conventions.md](docs/conventions.md) |
 | Decision records | [docs/decisions/](docs/decisions/) |
