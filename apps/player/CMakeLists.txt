@@ -39,6 +39,7 @@ if(IOS)
   sonnet_add_ios_bundle(sonnet_player_app
     INFO_PLIST ios/Info.plist.in
     LAUNCH_STORYBOARD ios/LaunchScreen.storyboard
+    ASSET_CATALOG ios/Assets.xcassets
   )
 endif()
 
