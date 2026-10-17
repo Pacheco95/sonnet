@@ -489,6 +489,8 @@ private:
   void markSaved();
   void updateTitle();
   void loadPrefabs();
+  // Once per frame: after a glTF re-import, rebuilds the prefabs and the scene's instances of them.
+  void refreshModelPrefabs();
   void filesMoved(const std::filesystem::path &from, const std::filesystem::path &to);
   void openLocation(const std::string &path, int line);
   [[nodiscard]] core::Result<void> loadSceneFile(const std::filesystem::path &file);
@@ -569,6 +571,7 @@ private:
   std::function<void()> m_afterStop; // what the stop dialog was asked on behalf of
   std::size_t m_skippedChanges{0};
   bool m_stopAnswered{false};    // the dialog stays to report skipped edits after the answer
+  bool m_prefabsStale{false};    // a model was re-imported; the prefabs are rebuilt when not playing
   bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
   bool m_playLeftScene{false};   // a script loaded another scene: the play's edits are not the snapshot's
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;

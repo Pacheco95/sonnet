@@ -443,6 +443,7 @@ void Editor::update(float dt) {
   // Changed source files are re-imported before the draw list resolves them, and changed
   // shader sources rebuild their pipelines.
   static_cast<void>(m_assets.pollChanges());
+  refreshModelPrefabs();
   pollShaders();
   // Keys held when the viewport loses the focus, or the camera takes it, are let go.
   const bool gameInput = gameInputActive();
@@ -1823,6 +1824,31 @@ void Editor::loadPrefabs() {
   }
 }
 
+void Editor::refreshModelPrefabs() {
+  // A re-import during play leaves the prefabs as they are until stop: the snapshot and the other
+  // tabs are scene JSON, which loads against whatever the prefabs are then.
+  if (!m_assets.takeReimportedModels().empty()) {
+    m_prefabsStale = true;
+  }
+  if (!m_prefabsStale || isPlaying()) {
+    return;
+  }
+  m_prefabsStale = false;
+  // The round trip a tab switch makes, with the prefabs rebuilt in between: instances copy their
+  // prefab's tree (ADR-0028), so they are made again from the saved scene, which keeps the
+  // overrides by identity (ADR-0030). Every prefab is rebuilt, not only the models', because a
+  // prefab file that nests a model holds a copy of the old tree.
+  const nlohmann::json scene = world::saveScene(m_world);
+  m_world.clearScene();
+  m_world.clearPrefabs();
+  loadPrefabs();
+  m_cutHistory = true;
+  if (const auto restored = world::loadScene(m_world, scene); !restored) {
+    SONNET_LOG_ERROR("refreshing the scene after a re-import: {}", restored.error().toString());
+  }
+  m_selection.prune(m_world);
+}
+
 core::Result<std::filesystem::path> Editor::saveAsPrefab(core::Uuid entity) {
   const flecs::entity root = m_world.find(entity);
   if (!m_project || !root || root.has<world::PrefabSource>()) {
@@ -2698,7 +2724,12 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
     }
   }
   std::vector<std::unique_ptr<ICommand>> edits = m_commands.takeDone();
-  std::erase_if(edits, [](const auto &command) { return !command->isSceneEdit(); });
+  // The edits of the assets outlive the stop, so their undo entries do too.
+  const auto assetEdits =
+      std::ranges::stable_partition(edits, [](const auto &command) { return command->isSceneEdit(); });
+  std::vector<std::unique_ptr<ICommand>> keptAssetEdits;
+  std::ranges::move(assetEdits, std::back_inserter(keptAssetEdits));
+  edits.erase(assetEdits.begin(), assetEdits.end());
   // A paused audio device would swallow the silence and the next play.
   m_audio->resume();
   m_world.setPlaying(false);
@@ -2742,6 +2773,9 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
   m_historyBeforePlay = CommandStack{};
   if (!m_dirtyBeforePlay) {
     markSaved();
+  }
+  for (auto &command : keptAssetEdits) {
+    m_commands.record(std::move(command));
   }
   if (end == PlayEnd::Keep) {
     reapplyEdits([this](auto &command) { m_commands.record(std::move(command)); });

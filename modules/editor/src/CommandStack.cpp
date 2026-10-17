@@ -2,6 +2,8 @@
 
 #include <sonnet/core/Log.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <utility>
 
 namespace sonnet::editor {
@@ -30,6 +32,19 @@ void CommandStack::record(std::unique_ptr<ICommand> command) {
       }
     }
   }
+}
+
+bool CommandStack::isSaved() const noexcept {
+  if (!m_saved) {
+    return false;
+  }
+  const auto editsScene = [](const std::unique_ptr<ICommand> &command) { return command->isSceneEdit(); };
+  if (*m_saved <= m_done.size()) {
+    return std::none_of(m_done.begin() + static_cast<std::ptrdiff_t>(*m_saved), m_done.end(), editsScene);
+  }
+  // Undone past the save: the commands between are the last of the redo list.
+  const std::size_t between = *m_saved - m_done.size();
+  return std::none_of(m_undone.end() - static_cast<std::ptrdiff_t>(between), m_undone.end(), editsScene);
 }
 
 bool CommandStack::undo(world::World &world) {

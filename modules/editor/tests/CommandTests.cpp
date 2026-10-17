@@ -78,6 +78,56 @@ TEST_CASE("inspecting an asset keeps the selection until it is touched again", "
   REQUIRE(browser.inspected().isNil());
 }
 
+namespace {
+
+// A command on the assets: it moves along the history without editing the scene.
+class AssetEdit final : public editor::ICommand {
+public:
+  void apply(world::World &) override {
+  }
+  void revert(world::World &) override {
+  }
+  std::string_view description() const override {
+    return "asset edit";
+  }
+  bool isSceneEdit() const override {
+    return false;
+  }
+};
+
+} // namespace
+
+TEST_CASE("commands on the assets never make the scene unsaved", "[editor][commands]") {
+  world::World world;
+  editor::CommandStack commands;
+  const core::Uuid uuid = world.uuidOf(world.createEntity("a"));
+
+  commands.push(std::make_unique<AssetEdit>(), world);
+  REQUIRE(commands.isSaved());
+  commands.push(editor::renameCommand(uuid, "a", "b"), world);
+  REQUIRE(!commands.isSaved());
+  commands.markSaved();
+  commands.push(std::make_unique<AssetEdit>(), world);
+  REQUIRE(commands.isSaved());
+
+  // Undone past the save, the scene edit between the two positions is what counts.
+  REQUIRE(commands.undo(world)); // the asset edit
+  REQUIRE(commands.isSaved());
+  REQUIRE(commands.undo(world)); // the rename
+  REQUIRE(!commands.isSaved());
+  REQUIRE(commands.undo(world)); // the first asset edit
+  REQUIRE(!commands.isSaved());
+  REQUIRE(commands.redo(world));
+  REQUIRE(commands.redo(world));
+  REQUIRE(commands.isSaved());
+
+  // Saved with a trailing asset edit undone: the redo list holds only asset edits past the save.
+  REQUIRE(commands.redo(world));
+  commands.markSaved();
+  REQUIRE(commands.undo(world));
+  REQUIRE(commands.isSaved());
+}
+
 TEST_CASE("the history is saved exactly where the last save was", "[editor][commands]") {
   world::World world;
   editor::CommandStack commands;

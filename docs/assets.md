@@ -137,7 +137,7 @@ reference capture and the generated checker regression.
 
 ## Hot reload
 
-`AssetDatabase::pollChanges`, called by the editor every frame, compares the sources' modification times every half second. A changed file is re-imported: a texture gets a new renderer texture under the same identity and every loaded material that reads it is updated, a material file updates its material in place so handles stay valid, an environment or a glTF file is unloaded and loaded again with its sub-asset list refreshed, a script or a sound is read again under a new revision, which reloads the script and restarts the sources playing the sound. Entities resolve meshes through the database each frame and pick up the new objects. Shaders reuse the previous pipeline if compilation fails and surface the error in the editor.
+`AssetDatabase::pollChanges`, called by the editor every frame, compares the sources' modification times every half second. A changed file is re-imported: a texture gets a new renderer texture under the same identity and every loaded material that reads it is updated, a material file updates its material in place so handles stay valid, an environment or a glTF file is unloaded and loaded again with its sub-asset list refreshed (a glTF file is also reported by `takeReimportedModels`, which is how the editor knows to rebuild its prefab), a script or a sound is read again under a new revision, which reloads the script and restarts the sources playing the sound. Entities resolve meshes through the database each frame and pick up the new objects. Shaders reuse the previous pipeline if compilation fails and surface the error in the editor.
 
 ## Project file
 
