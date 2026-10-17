@@ -1,3 +1,4 @@
+#include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/Editor.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Preferences.h>
@@ -13,6 +14,7 @@
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/scripting/Components.h>
 #include <sonnet/world/Components.h>
+#include <sonnet/world/Scene.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -763,5 +765,175 @@ TEST_CASE("script slots draw in the inspector and edits reach the running game",
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}
+
+namespace {
+
+// A glTF file with a point light on each of the named nodes under a root called "Set", and
+// `intensities[i]` for node i; a name with an intensity of 0 gets no light.
+void writeLamps(const std::filesystem::path &file, const std::vector<std::pair<std::string, float>> &nodes) {
+  nlohmann::json lights = nlohmann::json::array();
+  nlohmann::json glNodes = nlohmann::json::array();
+  nlohmann::json children = nlohmann::json::array();
+  glNodes.push_back({{"name", "Set"}, {"children", children}});
+  for (const auto &[name, intensity] : nodes) {
+    nlohmann::json node{{"name", name}};
+    if (intensity > 0.0f) {
+      node["extensions"] = {{"KHR_lights_punctual", {{"light", lights.size()}}}};
+      lights.push_back({{"type", "point"}, {"intensity", intensity}});
+    }
+    glNodes[0]["children"].push_back(glNodes.size());
+    glNodes.push_back(node);
+  }
+  const nlohmann::json document{{"asset", {{"version", "2.0"}}},
+                                {"extensionsUsed", {"KHR_lights_punctual"}},
+                                {"extensions", {{"KHR_lights_punctual", {{"lights", lights}}}}},
+                                {"scene", 0},
+                                {"scenes", nlohmann::json::array({{{"nodes", {0}}}})},
+                                {"nodes", glNodes}};
+  REQUIRE(core::writeFile(file, document.dump()).has_value());
+}
+
+} // namespace
+
+TEST_CASE("a re-imported model rebuilds its prefab and instances, keeping overrides, after play stops",
+          "[editor][gpu][refresh]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_refresh";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Refresh").has_value());
+    const std::filesystem::path file = directory / "assets" / "lamps.gltf";
+    writeLamps(file, {{"A", 10.0f}, {"B", 10.0f}});
+    REQUIRE(editor.openProject(directory).has_value());
+    world::World &world = editor.world();
+    const assets::AssetInfo *model = editor.assets().findByPath(file);
+    REQUIRE(model != nullptr);
+    const core::Uuid modelUuid = model->uuid;
+    const core::Uuid instanceUuid = core::Uuid::generate();
+    editor.commands().push(editor::instantiatePrefabCommand(modelUuid, "Lamps", {}, instanceUuid), world);
+    fixture.frame(editor);
+
+    // The importer scales the file's intensities (ModelSettings::lightScale); an override is raw.
+    const auto imported = [](float watts) { return Catch::Approx(watts * assets::ModelSettings::BlenderLightScale); };
+    const auto intensity = [&](std::string_view name) -> std::optional<float> {
+      const flecs::entity node = world.findByPath(world.find(instanceUuid), std::string{"Set/"} + std::string{name});
+      if (!node || !node.has<world::PointLight>()) {
+        return std::nullopt;
+      }
+      return node.get<world::PointLight>().intensity;
+    };
+    REQUIRE(intensity("A") == imported(10.0f));
+    world.findByPath(world.find(instanceUuid), "Set/B")
+        .set<world::PointLight>({.color = {1, 1, 1}, .intensity = 99.0f, .range = 5.0f, .castsShadows = false});
+
+    // A re-export that changes A and inserts a node ahead of B, re-imported while playing: the
+    // running scene keeps what it has, and stop brings the refreshed prefab.
+    writeLamps(file, {{"A", 4.0f}, {"New", 7.0f}, {"B", 10.0f}});
+    editor.commands().markSaved();
+    editor.play();
+    REQUIRE(editor.assets().reimport(modelUuid).has_value());
+    fixture.frame(editor);
+    REQUIRE(intensity("A") == imported(10.0f));
+    editor.stop();
+    fixture.frame(editor);
+
+    REQUIRE(intensity("A") == imported(4.0f));
+    REQUIRE(intensity("New") == imported(7.0f));
+    REQUIRE(intensity("B") == 99.0f); // the override stayed on B, not on the node inserted before it
+    REQUIRE(!editor.isDirty());
+
+    // Edit mode refreshes in the frame after the re-import, and the rest of the scene is untouched.
+    writeLamps(file, {{"A", 2.0f}, {"B", 10.0f}});
+    REQUIRE(editor.assets().reimport(modelUuid).has_value());
+    fixture.frame(editor);
+    REQUIRE(intensity("A") == imported(2.0f));
+    REQUIRE(!intensity("New").has_value());
+    REQUIRE(intensity("B") == 99.0f);
+    REQUIRE(!editor.isDirty());
+  }
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a prefab file nesting a re-imported model is rebuilt too", "[editor][gpu][refresh]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_refresh_nested";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Nested").has_value());
+    const std::filesystem::path file = directory / "assets" / "lamps.gltf";
+    writeLamps(file, {{"A", 10.0f}});
+    REQUIRE(editor.openProject(directory).has_value());
+    const core::Uuid modelUuid = editor.assets().findByPath(file)->uuid;
+    const core::Uuid holder = core::Uuid::generate();
+    const core::Uuid inner = core::Uuid::generate();
+    const nlohmann::json document{
+        {"version", world::SceneVersion},
+        {"entities",
+         {{{"uuid", holder.toString()}, {"name", "Holder"}, {"components", nlohmann::json::object()}},
+          {{"uuid", inner.toString()},
+           {"name", "Inner"},
+           {"parent", holder.toString()},
+           {"prefab", modelUuid.toString()},
+           {"components", nlohmann::json::object()}}}}};
+    REQUIRE(core::writeFile(directory / "prefabs" / "holder.prefab.json", world::sceneText(document)).has_value());
+    REQUIRE(editor.openProject(directory).has_value());
+    world::World &world = editor.world();
+    const core::Uuid instanceUuid = core::Uuid::generate();
+    editor.commands().push(editor::instantiatePrefabCommand(holder, "Holder", {}, instanceUuid), world);
+    fixture.frame(editor);
+    const auto lamp = [&] {
+      const flecs::entity node = world.findByPath(world.find(instanceUuid), "Inner/Set/A");
+      return node && node.has<world::PointLight>() ? node.get<world::PointLight>().intensity : -1.0f;
+    };
+    REQUIRE(lamp() == Catch::Approx(10.0f * assets::ModelSettings::BlenderLightScale));
+
+    writeLamps(file, {{"A", 4.0f}});
+    REQUIRE(editor.assets().reimport(modelUuid).has_value());
+    fixture.frame(editor);
+    REQUIRE(lamp() ==
+            Catch::Approx(4.0f * assets::ModelSettings::BlenderLightScale)); // rebuilding only the model's prefab would
+                                                                             // leave the holder's copy at 10
+  }
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("an import settings change makes no scene unsaved and its undo entry survives play",
+          "[editor][gpu][refresh]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_refresh_settings";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Settings").has_value());
+    const std::filesystem::path file = directory / "assets" / "lamps.gltf";
+    writeLamps(file, {{"A", 10.0f}});
+    REQUIRE(editor.openProject(directory).has_value());
+    const core::Uuid modelUuid = editor.assets().findByPath(file)->uuid;
+    const assets::ModelSettings before = editor.assets().modelSettings(modelUuid);
+    assets::ModelSettings after = before;
+    after.lightScale = 0.5f;
+    fixture.frame(editor);
+    REQUIRE(!editor.isDirty());
+
+    editor.commands().push(editor::modelSettingsCommand(editor.assets(), modelUuid, before, after), editor.world());
+    REQUIRE(!editor.isDirty());
+
+    // During play the entry goes to the stack the play started from, so it can be undone after stop.
+    editor.play();
+    assets::ModelSettings during = after;
+    during.lightScale = 0.25f;
+    editor.commands().push(editor::modelSettingsCommand(editor.assets(), modelUuid, after, during), editor.world());
+    editor.stop();
+    fixture.frame(editor);
+    REQUIRE(editor.commands().size() == 2);
+    REQUIRE(!editor.isDirty());
+    REQUIRE(editor.assets().modelSettings(modelUuid).lightScale == 0.25f);
+    REQUIRE(editor.commands().undo(editor.world()));
+    REQUIRE(editor.assets().modelSettings(modelUuid).lightScale == 0.5f);
+  }
   std::filesystem::remove_all(directory);
 }

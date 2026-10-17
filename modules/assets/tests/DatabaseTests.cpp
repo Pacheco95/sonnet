@@ -352,6 +352,25 @@ TEST_CASE("a glTF file's skins and clips are sub-assets, reloaded with the file"
   REQUIRE(database.skin(skinInfo->uuid)->revision > revision);
 }
 
+TEST_CASE("every re-import of a model is reported once, loaded or not", "[assets][database]") {
+  Fixture fixture;
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const auto models = database.assets(AssetType::Model);
+  REQUIRE(!models.empty());
+  const core::Uuid uuid = models.front()->uuid;
+  REQUIRE(database.takeReimportedModels().empty());
+
+  // Only the hierarchy is loaded, as a prefab needs it.
+  REQUIRE(database.model(uuid) != nullptr);
+  REQUIRE(database.reimport(uuid).has_value());
+  REQUIRE(database.takeReimportedModels() == std::vector<core::Uuid>{uuid});
+  REQUIRE(database.takeReimportedModels().empty());
+
+  REQUIRE(database.setModelSettings(uuid, ModelSettings{.lightScale = 0.5f}).has_value());
+  REQUIRE(database.takeReimportedModels() == std::vector<core::Uuid>{uuid});
+}
+
 TEST_CASE("mesh data stays on the CPU for built-in and glTF meshes", "[assets][database]") {
   Fixture fixture;
   AssetDatabase database{fixture.renderer, fixture.jobs};

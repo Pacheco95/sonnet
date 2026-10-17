@@ -1871,6 +1871,9 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
     if (const auto written = writeSidecar(uuid); !written) {
       SONNET_LOG_WARN("{}", written.error().toString());
     }
+    // Prefabs are built from the hierarchy alone (`model`), which `unloadFile` dropped, so this
+    // counts whether or not the file's meshes and images were loaded.
+    m_reimportedModels.push_back(uuid);
   }
   if (!wasLoaded) {
     return {};
@@ -1934,6 +1937,10 @@ core::Result<void> AssetDatabase::reimport(const core::Uuid &requested) {
   }
   SONNET_LOG_INFO("re-imported {}", info->source.filename().string());
   return {};
+}
+
+std::vector<core::Uuid> AssetDatabase::takeReimportedModels() {
+  return std::exchange(m_reimportedModels, {});
 }
 
 std::vector<core::Uuid> AssetDatabase::pollChanges() {

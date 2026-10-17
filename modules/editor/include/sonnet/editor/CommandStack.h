@@ -77,11 +77,11 @@ public:
   void markUnsaved() noexcept {
     m_saved.reset();
   }
+  // True when no scene edit lies between the saved position and the current one: commands that
+  // act on the assets (isSceneEdit false) move along the history without making the scene unsaved.
   // False once the saved position is unreachable: a push discarded the redo branch it was in, or
   // the history limit trimmed the command it followed.
-  [[nodiscard]] bool isSaved() const noexcept {
-    return m_saved == m_done.size();
-  }
+  [[nodiscard]] bool isSaved() const noexcept;
 
 private:
   std::vector<std::unique_ptr<ICommand>> m_done;

@@ -155,6 +155,9 @@ public:
   // Once per frame: checks the sources' modification times every half second and re-imports
   // what changed. Returns the identities re-imported.
   std::vector<core::Uuid> pollChanges();
+  // The glTF files re-imported since the last call, by any path: `reimport`, a settings change, or
+  // `pollChanges`. A prefab built from the old import is stale until it is built again (#304).
+  [[nodiscard]] std::vector<core::Uuid> takeReimportedModels();
 
   // The KTX2 file a mobile bundle carries for a texture (ADR-0018). A compressed texture is
   // encoded as ASTC from its source's RGBA8 levels, never from the UASTC in the cache, and the
@@ -287,7 +290,8 @@ private:
   std::unordered_map<core::Uuid, renderer::EnvironmentHandle> m_environments;
   std::unordered_map<core::Uuid, Model> m_models;
   std::unordered_map<core::Uuid, bool> m_gltfLoaded; // a glTF file's sub-assets are loaded together
-  std::unordered_map<core::Uuid, bool> m_failed;     // loads that failed, not retried until reimport
+  std::vector<core::Uuid> m_reimportedModels;
+  std::unordered_map<core::Uuid, bool> m_failed; // loads that failed, not retried until reimport
   std::chrono::steady_clock::time_point m_lastPoll{};
 };
 
