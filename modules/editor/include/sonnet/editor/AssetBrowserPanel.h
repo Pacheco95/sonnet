@@ -132,8 +132,8 @@ public:
   void setViewHandler(std::function<void(const AssetsView &)> handler) {
     m_viewChanged = std::move(handler);
   }
-  // The picture of a texture or an environment, asked for only while its tile is on screen; texture 0 shows the
-  // type's icon instead. Without a source every tile shows its icon.
+  // The picture of a texture, an environment or a material, asked for only while its tile is on screen; texture 0 shows
+  // the type's icon instead. Without a source every tile shows its icon.
   void setThumbnailSource(std::function<ThumbnailImage(const core::Uuid &)> source) {
     m_thumbnail = std::move(source);
   }

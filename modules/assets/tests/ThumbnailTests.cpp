@@ -149,3 +149,62 @@ TEST_CASE("unregistering an asset drops its thumbnail", "[assets][thumbnail]") {
   fixture.database.unregister(wide);
   CHECK_FALSE(std::filesystem::exists(entry));
 }
+
+TEST_CASE("a material's thumbnail is rendered, and is as old as the material and the textures it reads",
+          "[assets][thumbnail][material]") {
+  Fixture fixture;
+  const core::Uuid wide = fixture.uuidOf("wide.png");
+  MaterialSource source;
+  source.baseColorTexture = wide;
+  const auto created = fixture.database.createMaterial(fixture.root / "assets" / "paint.material.json", source);
+  REQUIRE(created.has_value());
+  const core::Uuid paint = *created;
+  REQUIRE(fixture.database.saveMaterial(paint).has_value());
+  static_cast<void>(fixture.database.takeChangedMaterials());
+
+  auto request = fixture.database.thumbnailRequest(paint);
+  REQUIRE(request.has_value());
+  CHECK(request->type == AssetType::Material);
+  CHECK(request->store);
+  // The texture's file and its sidecar.
+  REQUIRE(request->dependencies.size() == 2);
+  CHECK(request->dependencies[0].filename() == "wide.png");
+  // There is no file to make it from: the editor renders it.
+  CHECK_FALSE(makeThumbnail(*request).has_value());
+  CHECK_FALSE(cachedThumbnail(*request).has_value());
+
+  const renderer::TextureData picture = renderer::solidTexture({10, 20, 30, 255});
+  REQUIRE(storeThumbnail(*request, picture).has_value());
+  const auto entry = thumbnailFile(fixture.database.cacheDirectory(), paint);
+  REQUIRE(std::filesystem::exists(entry));
+  const auto cached = cachedThumbnail(*request);
+  REQUIRE(cached.has_value());
+  CHECK(cached->size == picture.size);
+  CHECK(cached->data == picture.data);
+
+  // A texture it reads written after the entry makes the entry stale.
+  std::filesystem::last_write_time(request->dependencies[0],
+                                   std::filesystem::file_time_type::clock::now() + std::chrono::hours{1});
+  CHECK_FALSE(cachedThumbnail(*request).has_value());
+
+  // An edit that is not saved is reported, and its picture is not stored, as the file does not match it.
+  source.baseColor = {0.2f, 0.4f, 0.8f, 1.0f};
+  fixture.database.setMaterialSource(paint, source);
+  CHECK(fixture.database.takeChangedMaterials() == std::vector<core::Uuid>{paint});
+  CHECK(fixture.database.takeChangedMaterials().empty());
+  request = fixture.database.thumbnailRequest(paint);
+  REQUIRE(request.has_value());
+  CHECK_FALSE(request->store);
+  std::filesystem::remove(entry);
+  REQUIRE(storeThumbnail(*request, picture).has_value());
+  CHECK_FALSE(std::filesystem::exists(entry));
+  // Saving it is a change too, and the picture can be kept from then on.
+  REQUIRE(fixture.database.saveMaterial(paint).has_value());
+  CHECK(fixture.database.takeChangedMaterials() == std::vector<core::Uuid>{paint});
+  CHECK(fixture.database.thumbnailRequest(paint)->store);
+
+  REQUIRE(storeThumbnail(*fixture.database.thumbnailRequest(paint), picture).has_value());
+  REQUIRE(std::filesystem::exists(entry));
+  fixture.database.unregister(paint);
+  CHECK_FALSE(std::filesystem::exists(entry));
+}

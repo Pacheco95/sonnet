@@ -21,6 +21,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace sonnet::assets {
@@ -192,9 +193,13 @@ public:
   [[nodiscard]] core::Result<std::vector<std::byte>> mobileTexture(const core::Uuid &uuid);
 
   // What makeThumbnail needs for an asset (docs/assets.md, "Thumbnails"): a texture or an environment
-  // that is a file of its own, other than a KTX2 one. Nothing for the rest, which the editor shows
-  // as an icon. Project mode only.
-  [[nodiscard]] std::optional<ThumbnailRequest> thumbnailRequest(const core::Uuid &uuid) const;
+  // that is a file of its own, other than a KTX2 one, or a material file, which is loaded to find the
+  // textures it reads. Nothing for the rest, which the editor shows as an icon. Project mode only.
+  [[nodiscard]] std::optional<ThumbnailRequest> thumbnailRequest(const core::Uuid &uuid);
+  // The material files whose look changed since the last call: edited or saved through
+  // `setMaterialSource` or `saveMaterial`, or reading a texture that was published or re-imported.
+  // Their thumbnails are stale.
+  [[nodiscard]] std::vector<core::Uuid> takeChangedMaterials();
 
   [[nodiscard]] std::filesystem::path cacheDirectory() const {
     return m_projectRoot / ".sonnet" / "cache";
@@ -320,6 +325,8 @@ private:
   std::uint64_t m_revision{0}; // what the next loaded script, sound, skin or clip is stamped with
   std::unordered_map<core::Uuid, LoadedTexture> m_textures;
   std::unordered_map<core::Uuid, LoadedMaterial> m_materials;
+  std::unordered_set<core::Uuid> m_unsavedMaterials; // edited since the file was read or written
+  std::unordered_set<core::Uuid> m_changedMaterials; // what takeChangedMaterials returns
   std::unordered_map<core::Uuid, renderer::EnvironmentHandle> m_environments;
   std::unordered_map<core::Uuid, Model> m_models;
   std::unordered_map<core::Uuid, bool> m_gltfLoaded; // a glTF file's sub-assets are loaded together

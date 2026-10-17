@@ -4,12 +4,14 @@
 #include <sonnet/editor/Export.h>
 #include <sonnet/editor/Preferences.h>
 
+#include <sonnet/assets/Thumbnail.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
+#include <sonnet/runtime/Screenshot.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/Scene.h>
 
@@ -21,6 +23,7 @@
 #include <SDL3/SDL_video.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <stb_image.h>
 
 #include <algorithm>
 #include <cfloat>
@@ -573,6 +576,170 @@ TEST_CASE("the Assets panel's grid shows thumbnails and the choice survives a re
     // The pictures come back from the cache.
     editor->thumbnails().settle();
     REQUIRE(editor->thumbnails().resident() == 3);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+namespace {
+
+// The checkout's golden image directory, found by walking up from the test binary; empty outside one.
+std::filesystem::path goldenDirectory(platform::Platform &platform) {
+  std::error_code error;
+  for (std::filesystem::path base = std::filesystem::absolute(platform.basePath(), error); !base.empty();
+       base = base.parent_path()) {
+    const std::filesystem::path candidate = base / "modules" / "editor" / "tests" / "golden";
+    if (std::filesystem::is_directory(candidate, error)) {
+      return candidate.lexically_normal();
+    }
+    if (base == base.root_path()) {
+      break;
+    }
+  }
+  return {};
+}
+
+// A material's cached picture, which the test reads the way the next run of the editor does.
+renderer::TextureData cachedPicture(editor::Editor &editor, const core::Uuid &uuid) {
+  const auto request = editor.assets().thumbnailRequest(uuid);
+  REQUIRE(request.has_value());
+  const auto picture = assets::cachedThumbnail(*request);
+  REQUIRE(picture.has_value());
+  return *picture;
+}
+
+std::array<int, 3> pixelOf(const renderer::TextureData &picture, std::uint32_t x, std::uint32_t y) {
+  const std::size_t at = (std::size_t{y} * picture.size.x + x) * 4;
+  return {std::to_integer<int>(picture.data[at]), std::to_integer<int>(picture.data[at + 1]),
+          std::to_integer<int>(picture.data[at + 2])};
+}
+
+} // namespace
+
+TEST_CASE("the grid renders a material on a sphere, caches it, and renders it again after an edit",
+          "[editor][gpu][grid][golden]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("assets_material_thumbnails");
+  const std::filesystem::path preferences = scratch("assets_material_thumbnails_preferences") / "preferences.json";
+  std::filesystem::create_directories(preferences.parent_path());
+  const auto makeEditor = [&] {
+    auto editor =
+        std::make_unique<editor::Editor>(fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain);
+    editor->setPreferencesFile(preferences);
+    return editor;
+  };
+  // Frames until every tile has its picture: a material is copied back FramesInFlight frames after its view.
+  const auto settle = [&](editor::Editor &editor) {
+    for (int i = 0; i < 6 || (editor.thumbnails().busy() && i < 120); ++i) {
+      fixture.frame(editor);
+    }
+    REQUIRE_FALSE(editor.thumbnails().busy());
+  };
+  const auto centre = [](const renderer::TextureData &picture) {
+    return pixelOf(picture, picture.size.x / 2, picture.size.y / 2);
+  };
+
+  assets::MaterialSource red;
+  red.baseColor = {0.9f, 0.08f, 0.06f, 1.0f};
+  red.metallic = 0.0f;
+  red.roughness = 0.4f;
+  assets::MaterialSource blue = red;
+  blue.baseColor = {0.06f, 0.1f, 0.9f, 1.0f};
+
+  core::Uuid uuid;
+  std::filesystem::path root;
+  {
+    const auto editor = makeEditor();
+    REQUIRE(editor->createProject(directory, "Materials").has_value());
+    root = editor->project()->root;
+    const auto created = editor->assets().createMaterial(root / "assets" / "paint.material.json", red);
+    REQUIRE(created.has_value());
+    uuid = *created;
+    REQUIRE(editor->assets().saveMaterial(uuid).has_value());
+    editor->assetBrowser().navigate(root / "assets");
+    editor->assetBrowser().setView({.grid = true, .tileSize = 96.0f});
+    settle(*editor);
+    CHECK(editor->thumbnails().rendered() == 1);
+    CHECK(editor->thumbnails().resident() == 1);
+    CHECK(std::filesystem::exists(assets::thumbnailFile(editor->assets().cacheDirectory(), uuid)));
+    const renderer::TextureData picture = cachedPicture(*editor, uuid);
+    CHECK(picture.size == glm::uvec2{assets::ThumbnailSize, assets::ThumbnailSize});
+    const auto middle = centre(picture);
+    CHECK(middle[0] > 2 * middle[1]);
+    CHECK(middle[0] > 2 * middle[2]);
+    const auto corner = pixelOf(picture, 2, 2);
+    CHECK(corner[0] < 2 * corner[2] + 40); // the sky behind the sphere is not red
+
+    // On Lavapipe, where a golden image is reproducible, the picture is the one on disk.
+    if (fixture.device->info().driverName == "llvmpipe") {
+      const std::filesystem::path golden = goldenDirectory(fixture.platform) / "material_thumbnail.png";
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
+#endif
+      const bool update = std::getenv("SONNET_UPDATE_GOLDEN") != nullptr; // NOLINT(concurrency-mt-unsafe)
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+      if (update) {
+        REQUIRE(runtime::writeScreenshot(golden, picture.size, picture.format, std::as_bytes(std::span{picture.data}))
+                    .has_value());
+      }
+      const auto bytes = core::readFile(golden);
+      REQUIRE(bytes.has_value());
+      int width = 0;
+      int height = 0;
+      int channels = 0;
+      unsigned char *pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char *>(bytes->data()),
+                                                    static_cast<int>(bytes->size()), &width, &height, &channels, 4);
+      REQUIRE(pixels != nullptr);
+      REQUIRE(glm::uvec2(width, height) == picture.size);
+      double sum = 0.0;
+      int worst = 0;
+      for (std::size_t i = 0; i < std::size_t{picture.size.x} * picture.size.y; ++i) {
+        for (std::size_t channel = 0; channel < 3; ++channel) {
+          const int error =
+              std::abs(int{pixels[i * 4 + channel]} - std::to_integer<int>(picture.data[i * 4 + channel]));
+          sum += error;
+          worst = std::max(worst, error);
+        }
+      }
+      stbi_image_free(pixels);
+      const double mean = sum / (3.0 * picture.size.x * picture.size.y);
+      INFO("against the golden: mean " << mean << ", max " << worst);
+      CHECK(mean <= 1.5);
+      CHECK(worst <= 48);
+    }
+
+    // An edit that is not saved is shown, and not cached: the file would not match it.
+    editor->assets().setMaterialSource(uuid, blue);
+    settle(*editor);
+    CHECK(editor->thumbnails().rendered() == 2);
+    CHECK_FALSE(std::filesystem::exists(assets::thumbnailFile(editor->assets().cacheDirectory(), uuid)));
+    // Saved, it is rendered once more and cached.
+    REQUIRE(editor->assets().saveMaterial(uuid).has_value());
+    settle(*editor);
+    CHECK(editor->thumbnails().rendered() == 3);
+    const auto saved = centre(cachedPicture(*editor, uuid));
+    CHECK(saved[2] > 2 * saved[0]);
+    CHECK(saved[2] > 2 * saved[1]);
+  }
+  {
+    // The next run of the editor reads the picture from the cache.
+    const auto editor = makeEditor();
+    REQUIRE(editor->openProject(directory).has_value());
+    editor->assetBrowser().navigate(root / "assets");
+    editor->assetBrowser().setView({.grid = true, .tileSize = 96.0f});
+    settle(*editor);
+    CHECK(editor->thumbnails().rendered() == 0);
+    CHECK(editor->thumbnails().resident() == 1);
+    // A material file changed on disk since is rendered again.
+    std::filesystem::last_write_time(root / "assets" / "paint.material.json",
+                                     std::filesystem::file_time_type::clock::now() + std::chrono::hours(1));
+    REQUIRE(editor->assets().reimport(uuid).has_value());
+    editor->thumbnails().invalidate(uuid);
+    settle(*editor);
+    CHECK(editor->thumbnails().rendered() == 1);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

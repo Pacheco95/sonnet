@@ -31,6 +31,7 @@ Per frame, in this order:
 | `InspectorPanel.h` | The primary selection's name and components, with widgets generated from reflection; with nothing selected, the asset the browser inspects |
 | `AssetBrowserPanel.h` | The project's assets by type and name, drag sources for the inspector's pickers and the hierarchy, and the buttons that create a material or a script |
 | `ThumbnailCache.h` | The Assets panel's thumbnails on the GPU: made on the job system, uploaded a few per frame, released when unused ([Thumbnails](#thumbnails)) |
+| `MaterialThumbnailer.h` | Renders a material on a sphere into a small target of the editor's graph and reads it back ([Thumbnails](#thumbnails)) |
 | `Icons.h` | The icon font and the icon of each asset type ([Icons](#icons)) |
 | `AssetCommands.h` | The material edit and the texture and model import settings commands |
 | `GamePanel.h` | The dockable game view: a `renderer::RenderTarget` of its own, sized to the panel and displayed with `ImGui::Image`, drawn through the scene's `Camera` entity; it has no camera, gizmo or picking, and its `ViewportInput` is the game's input while playing. The target exists only while the panel is on screen |
@@ -217,15 +218,29 @@ A tile that has no picture, and every other place that wants an icon, draws a gl
 
 ### Thumbnails
 
-A texture or an environment that is a file of its own shows its picture in the grid; glTF sub-assets, KTX2 files and every other type show their icon. `assets::makeThumbnail` makes the picture on the job system ([assets.md](assets.md#thumbnails)) and caches it at `.sonnet/cache/<uuid>.thumb.ktx2`, remade when the source or its sidecar is newer, so reopening a project reads small files instead of decoding the images. `ThumbnailCache` turns it into an `ImTextureID`:
+A texture, an environment or a material that is a file of its own shows its picture in the grid; glTF sub-assets, KTX2 files and every other type show their icon. `assets::makeThumbnail` makes the picture of a texture or an environment on the job system ([assets.md](assets.md#thumbnails)) and caches it at `.sonnet/cache/<uuid>.thumb.ktx2`, remade when the source or its sidecar is newer, so reopening a project reads small files instead of decoding the images. `ThumbnailCache` turns it into an `ImTextureID`:
 
 - A picture is asked for only while its tile is on screen (`ImGui::IsRectVisible`), the first request schedules the job, and the tile shows its icon until `update` has uploaded the result. Scrolling a folder of hundreds of textures asks for the ones that come into view and nothing else.
 - `update`, once per frame, uploads at most eight finished pictures (`UploadsPerFrame`), so a first look at a big folder fills in over a few frames and no frame carries the whole upload.
 - A picture nobody asked for in 180 frames is released (`IdleFrames`), and at most 768 are resident (`MaxResident`), below the descriptor pool; past that a tile keeps its icon until others are released.
-- A source changed on disk is noticed by `AssetDatabase::pollChanges`, which drops the picture, and the next request makes it again.
+- A source changed on disk is noticed by `AssetDatabase::pollChanges`, which drops the picture, and the next request makes it again. A picture dropped while its tile was drawn this frame is destroyed three frames later, since the frame's draw data still names it.
 - A capture waits for the pictures its tiles asked for (`busy`), so `--screenshot-window` of the grid shows them.
 
 Measured on Lavapipe in a debug build with validation, a 2560 × 1440 window and 48 px tiles over 300 uncompressed 1024 × 1024 textures: 180 tiles were in view, filled in 22 frames, and the slowest `Editor::update` was 14 ms against a mean of 5.6 ms; with the cache warm the slowest was 8.6 ms.
+
+#### Materials
+
+A material is shown on a sphere. `MaterialThumbnailer` declares one view per material in the editor's graph, as the Game view is ([ADR-0021](decisions/0021-two-views-in-one-frame.md)): up to four a frame (`PerFrame`), each its own `RenderTarget` of 128 × 128 pixels and its own `SceneView`, whose address the renderer keeps the view's state under, so it is the same one every frame. The camera looks at a sphere of radius 0.5 from 2.2 m with a 30° field of view, and the view has no sun, since the sun's four 2048² cascades would be 64 MiB of shadow maps for every thumbnail; its light is a sky the thumbnailer makes for itself (a 128 × 64 equirectangular map, a grey gradient with a soft box above and in front of the sphere on the left and a cooler, dimmer fill on its right) and creates once, with the sphere, when the first material is asked for. The scene's own environment is not used, so a picture does not depend on the scene that is open. Bloom is off, and TAA starts over for every picture (`resetHistory`), so the picture is the same every time.
+
+The picture reaches the cache the way the picking id does ([Picker](rendering.md#editor-viewport-and-imgui)): a pass of the same graph copies the target into a readback buffer of the frame slot, and `ThumbnailCache::render` reads it `FramesInFlight` frames later, so nothing waits for the GPU. A tile asks in this order:
+
+1. `get` schedules a job that reads `.sonnet/cache/<uuid>.thumb.ktx2` (`assets::cachedThumbnail`), which is used when it is no older than the material file, its sidecar and the source files and sidecars of the textures it reads.
+2. Without a usable entry the material is queued for the thumbnailer. Rendering waits until no asset is loading, so a picture is made after the textures the material reads have arrived and not with their fallbacks; a folder of materials fills in as the project finishes loading.
+3. The picture is uploaded as every other one is, and a job writes it to the cache (`assets::storeThumbnail`), except when the material has edits that are not saved: the file would not match the picture, so it is shown and not kept.
+
+`AssetDatabase::takeChangedMaterials` names the materials whose look changed since the last call (edited through `setMaterialSource`, saved, or reading a texture that was published or re-imported), and the editor invalidates their thumbnails each frame, which also deletes the cache entry, since an edit made in the editor does not touch the file the entry's age is compared with. A picture rendered for a request that was invalidated since is dropped (each request carries a ticket the answer must return). Dragging a value in the inspector therefore shows the new picture when the drag stops, and a restart shows the saved material. Unregistering the asset removes the entry with the others of its identity.
+
+Measured on Lavapipe (software rendering) in a debug build with validation, an 800 × 600 window, 300 materials of colours, metals and roughnesses in one folder and 48 px tiles, 13 of them in view: the frames that rendered them took 27, 20 and 18 ms against a steady 16 ms for the same window in the list view, the slowest being the one that made the sky's cubes; the first frame that asks makes the sphere, the sky and the four targets and took about 80 ms more. With the cache warm no material is rendered and the slowest frame was 18 ms.
 
 ### Importing assets
 

@@ -901,7 +901,8 @@ void AssetBrowserPanel::drawGrid(std::optional<std::filesystem::path> &destinati
     // The picture is asked for only here, so a folder of hundreds of textures makes the ones in view.
     ThumbnailImage picture;
     if (m_thumbnail && row.info != nullptr && row.info->parent.isNil() &&
-        (row.info->type == assets::AssetType::Texture || row.info->type == assets::AssetType::Environment)) {
+        (row.info->type == assets::AssetType::Texture || row.info->type == assets::AssetType::Environment ||
+         row.info->type == assets::AssetType::Material)) {
       picture = m_thumbnail(row.uuid);
     }
     const ImVec2 square{min.x + tile, min.y + tile};
