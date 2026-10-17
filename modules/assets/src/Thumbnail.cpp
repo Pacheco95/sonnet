@@ -16,16 +16,19 @@ namespace sonnet::assets {
 
 namespace {
 
+// The oldest time there is for a file that does not exist, so a missing sidecar or dependency never makes an entry
+// stale. (A default-constructed time is a date in 2174 on libstdc++.)
+constexpr auto Missing = std::filesystem::file_time_type::min();
+
 std::filesystem::file_time_type modified(const std::filesystem::path &file) {
   std::error_code error;
   const auto time = std::filesystem::last_write_time(file, error);
-  return error ? std::filesystem::file_time_type{} : time;
+  return error ? Missing : time;
 }
 
 bool fresh(const ThumbnailRequest &request, const std::filesystem::path &cached) {
   const auto cachedTime = modified(cached);
-  return cachedTime != std::filesystem::file_time_type{} && cachedTime >= request.sourceTime &&
-         cachedTime >= modified(request.sidecar) &&
+  return cachedTime != Missing && cachedTime >= request.sourceTime && cachedTime >= modified(request.sidecar) &&
          std::ranges::all_of(request.dependencies, [&](const auto &file) { return cachedTime >= modified(file); });
 }
 
@@ -95,6 +98,11 @@ std::filesystem::path thumbnailFile(const std::filesystem::path &cache, const co
   return cache / (uuid.toString() + ".thumb.ktx2");
 }
 
+bool isRendered(const ThumbnailRequest &request) noexcept {
+  return request.prefab || request.type == AssetType::Material || request.type == AssetType::Mesh ||
+         request.type == AssetType::Model;
+}
+
 std::optional<renderer::TextureData> cachedThumbnail(const ThumbnailRequest &request) {
   const std::filesystem::path cached = thumbnailFile(request.cache, request.uuid);
   if (!fresh(request, cached)) {
@@ -122,9 +130,8 @@ core::Result<void> storeThumbnail(const ThumbnailRequest &request, const rendere
 
 core::Result<renderer::TextureData> makeThumbnail(const ThumbnailRequest &request) {
   SONNET_ZONE();
-  if (request.type == AssetType::Material) {
-    return std::unexpected(
-        core::Error{"a material's thumbnail is rendered, not made from its file", core::ErrorCategory::Io});
+  if (isRendered(request)) {
+    return std::unexpected(core::Error{"this thumbnail is rendered, not made from its file", core::ErrorCategory::Io});
   }
   if (auto cached = cachedThumbnail(request)) {
     return std::move(*cached);

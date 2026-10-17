@@ -638,20 +638,30 @@ bool fresh(const std::filesystem::path &cached, std::filesystem::file_time_type 
 
 std::optional<ThumbnailRequest> AssetDatabase::thumbnailRequest(const core::Uuid &uuid) {
   const AssetInfo *info = find(uuid);
-  const auto record = m_files.find(uuid);
-  if (info == nullptr || m_bundle || !info->parent.isNil() || record == m_files.end() ||
-      (info->type != AssetType::Texture && info->type != AssetType::Environment && info->type != AssetType::Material) ||
-      kindOf(info->source) == SourceKind::Ktx2) {
+  if (info == nullptr || m_bundle) {
     return std::nullopt;
   }
-  ThumbnailRequest request{.uuid = uuid,
-                           .type = info->type,
-                           .source = info->source,
-                           .sidecar = record->second.sidecar,
-                           .cache = cacheDirectory(),
-                           .sourceTime = record->second.sourceTime,
-                           .settings = TextureSettings::fromJson(record->second.settings),
-                           .dependencies = {}};
+  const bool mesh = info->type == AssetType::Mesh;
+  const bool fileAsset = info->type == AssetType::Texture || info->type == AssetType::Environment ||
+                         info->type == AssetType::Material || info->type == AssetType::Model;
+  // A mesh may be a glTF sub-asset, whose picture is as old as its file, or a built-in one, which has no file.
+  if ((!mesh && !(fileAsset && info->parent.isNil())) || kindOf(info->source) == SourceKind::Ktx2) {
+    return std::nullopt;
+  }
+  const auto record = m_files.find(info->parent.isNil() ? uuid : info->parent);
+  ThumbnailRequest request;
+  request.uuid = uuid;
+  request.type = info->type;
+  request.cache = cacheDirectory();
+  request.store = record != m_files.end();
+  if (record != m_files.end()) {
+    request.source = info->source;
+    request.sidecar = record->second.sidecar;
+    request.sourceTime = record->second.sourceTime;
+    request.settings = TextureSettings::fromJson(record->second.settings);
+  } else if (!mesh) {
+    return std::nullopt;
+  }
   if (info->type == AssetType::Material) {
     const MaterialSource *source = materialSource(uuid);
     if (source == nullptr) {

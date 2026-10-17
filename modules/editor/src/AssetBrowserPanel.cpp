@@ -26,6 +26,25 @@ namespace sonnet::editor {
 
 namespace {
 
+// Whether the tile shows a rendered or decoded picture rather than its type's icon: a file asset that has one, a mesh
+// (a model's sub-asset or a built-in one) and a prefab the world has loaded.
+bool hasThumbnail(const AssetRow &row) {
+  if (row.info == nullptr) {
+    return row.type == "Prefab" && !row.uuid.isNil();
+  }
+  switch (row.info->type) {
+  case assets::AssetType::Mesh:
+    return true;
+  case assets::AssetType::Texture:
+  case assets::AssetType::Environment:
+  case assets::AssetType::Material:
+  case assets::AssetType::Model:
+    return row.info->parent.isNil();
+  default:
+    return false;
+  }
+}
+
 // What the New asset menu's Script entry writes: every hook, empty, and the shape a script has to return.
 constexpr std::string_view ScriptTemplate = R"lua(-- Runs on its entity in play mode; see docs/scripting.md.
 local Script = {
@@ -900,9 +919,7 @@ void AssetBrowserPanel::drawGrid(std::optional<std::filesystem::path> &destinati
     }
     // The picture is asked for only here, so a folder of hundreds of textures makes the ones in view.
     ThumbnailImage picture;
-    if (m_thumbnail && row.info != nullptr && row.info->parent.isNil() &&
-        (row.info->type == assets::AssetType::Texture || row.info->type == assets::AssetType::Environment ||
-         row.info->type == assets::AssetType::Material)) {
+    if (m_thumbnail && hasThumbnail(row)) {
       picture = m_thumbnail(row.uuid);
     }
     const ImVec2 square{min.x + tile, min.y + tile};

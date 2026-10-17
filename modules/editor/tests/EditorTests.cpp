@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -599,9 +600,52 @@ std::filesystem::path goldenDirectory(platform::Platform &platform) {
   return {};
 }
 
+// On Lavapipe, where a golden image is reproducible, the picture is the one on disk (SONNET_UPDATE_GOLDEN=1 writes it).
+void expectGolden(Fixture &fixture, const char *name, const renderer::TextureData &picture) {
+  if (fixture.device->info().driverName == "llvmpipe") {
+    const std::filesystem::path golden = goldenDirectory(fixture.platform) / name;
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
+#endif
+    const bool update = std::getenv("SONNET_UPDATE_GOLDEN") != nullptr; // NOLINT(concurrency-mt-unsafe)
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+    if (update) {
+      REQUIRE(runtime::writeScreenshot(golden, picture.size, picture.format, std::as_bytes(std::span{picture.data}))
+                  .has_value());
+    }
+    const auto bytes = core::readFile(golden);
+    REQUIRE(bytes.has_value());
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    unsigned char *pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char *>(bytes->data()),
+                                                  static_cast<int>(bytes->size()), &width, &height, &channels, 4);
+    REQUIRE(pixels != nullptr);
+    REQUIRE(glm::uvec2(width, height) == picture.size);
+    double sum = 0.0;
+    int worst = 0;
+    for (std::size_t i = 0; i < std::size_t{picture.size.x} * picture.size.y; ++i) {
+      for (std::size_t channel = 0; channel < 3; ++channel) {
+        const int error = std::abs(int{pixels[i * 4 + channel]} - std::to_integer<int>(picture.data[i * 4 + channel]));
+        sum += error;
+        worst = std::max(worst, error);
+      }
+    }
+    stbi_image_free(pixels);
+    const double mean = sum / (3.0 * picture.size.x * picture.size.y);
+    INFO("against the golden: mean " << mean << ", max " << worst);
+    CHECK(mean <= 1.5);
+    CHECK(worst <= 48);
+  }
+}
+
 // A material's cached picture, which the test reads the way the next run of the editor does.
 renderer::TextureData cachedPicture(editor::Editor &editor, const core::Uuid &uuid) {
   const auto request = editor.assets().thumbnailRequest(uuid);
+  INFO("the thumbnail of " << uuid.toString());
   REQUIRE(request.has_value());
   const auto picture = assets::cachedThumbnail(*request);
   REQUIRE(picture.has_value());
@@ -671,45 +715,7 @@ TEST_CASE("the grid renders a material on a sphere, caches it, and renders it ag
     CHECK(corner[0] < 2 * corner[2] + 40); // the sky behind the sphere is not red
 
     // On Lavapipe, where a golden image is reproducible, the picture is the one on disk.
-    if (fixture.device->info().driverName == "llvmpipe") {
-      const std::filesystem::path golden = goldenDirectory(fixture.platform) / "material_thumbnail.png";
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
-#endif
-      const bool update = std::getenv("SONNET_UPDATE_GOLDEN") != nullptr; // NOLINT(concurrency-mt-unsafe)
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
-      if (update) {
-        REQUIRE(runtime::writeScreenshot(golden, picture.size, picture.format, std::as_bytes(std::span{picture.data}))
-                    .has_value());
-      }
-      const auto bytes = core::readFile(golden);
-      REQUIRE(bytes.has_value());
-      int width = 0;
-      int height = 0;
-      int channels = 0;
-      unsigned char *pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char *>(bytes->data()),
-                                                    static_cast<int>(bytes->size()), &width, &height, &channels, 4);
-      REQUIRE(pixels != nullptr);
-      REQUIRE(glm::uvec2(width, height) == picture.size);
-      double sum = 0.0;
-      int worst = 0;
-      for (std::size_t i = 0; i < std::size_t{picture.size.x} * picture.size.y; ++i) {
-        for (std::size_t channel = 0; channel < 3; ++channel) {
-          const int error =
-              std::abs(int{pixels[i * 4 + channel]} - std::to_integer<int>(picture.data[i * 4 + channel]));
-          sum += error;
-          worst = std::max(worst, error);
-        }
-      }
-      stbi_image_free(pixels);
-      const double mean = sum / (3.0 * picture.size.x * picture.size.y);
-      INFO("against the golden: mean " << mean << ", max " << worst);
-      CHECK(mean <= 1.5);
-      CHECK(worst <= 48);
-    }
+    expectGolden(fixture, "material_thumbnail.png", picture);
 
     // An edit that is not saved is shown, and not cached: the file would not match it.
     editor->assets().setMaterialSource(uuid, blue);
@@ -740,6 +746,215 @@ TEST_CASE("the grid renders a material on a sphere, caches it, and renders it ag
     editor->thumbnails().invalidate(uuid);
     settle(*editor);
     CHECK(editor->thumbnails().rendered() == 1);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+namespace {
+
+std::unique_ptr<editor::Editor> openEditor(Fixture &fixture, const std::filesystem::path &preferences) {
+  auto editor =
+      std::make_unique<editor::Editor>(fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain);
+  editor->setPreferencesFile(preferences);
+  return editor;
+}
+
+// Frames until every tile has its picture: one is copied back FramesInFlight frames after its view.
+void settleThumbnails(Fixture &fixture, editor::Editor &editor) {
+  for (int i = 0; i < 6 || (editor.thumbnails().busy() && i < 240); ++i) {
+    fixture.frame(editor);
+  }
+  REQUIRE_FALSE(editor.thumbnails().busy());
+}
+
+void showGrid(editor::Editor &editor, const std::filesystem::path &folder) {
+  editor.assetBrowser().navigate(folder);
+  editor.assetBrowser().setView({.grid = true, .tileSize = 96.0f});
+}
+
+} // namespace
+
+TEST_CASE("the grid renders models, caches them, and renders one again after a reimport",
+          "[editor][gpu][grid][golden]") {
+  Fixture fixture;
+  const auto manifest = editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
+  REQUIRE(manifest.has_value());
+  const std::filesystem::path samples = manifest->parent_path() / "assets" / "models";
+  const std::filesystem::path directory = scratch("assets_model_thumbnails");
+  const std::filesystem::path preferences = scratch("assets_model_thumbnails_preferences") / "preferences.json";
+  std::filesystem::create_directories(preferences.parent_path());
+  {
+    const auto editor = openEditor(fixture, preferences);
+    REQUIRE(editor->createProject(directory, "Models").has_value());
+    fixture.frame(*editor); // the renderer's uploads are submitted before another editor makes its own
+  }
+  const std::filesystem::path models = directory / "assets" / "models";
+  std::filesystem::create_directories(models);
+  std::filesystem::copy_file(samples / "crate.glb", models / "crate.glb");
+  std::filesystem::copy_file(samples / "walker.glb", models / "walker.glb"); // skinned: drawn in its bind pose
+
+  const auto corner = [](const renderer::TextureData &picture) { return pixelOf(picture, 2, 2); };
+  const auto centre = [](const renderer::TextureData &picture) {
+    return pixelOf(picture, picture.size.x / 2, picture.size.y / 2);
+  };
+  core::Uuid crate;
+  {
+    const auto editor = openEditor(fixture, preferences);
+    REQUIRE(editor->openProject(directory).has_value());
+    const assets::AssetInfo *crateInfo = editor->assets().findByPath(models / "crate.glb");
+    const assets::AssetInfo *walkerInfo = editor->assets().findByPath(models / "walker.glb");
+    REQUIRE(crateInfo != nullptr);
+    REQUIRE(walkerInfo != nullptr);
+    crate = crateInfo->uuid;
+    showGrid(*editor, models);
+    // The panel asks for the tiles in view, which are few in a window this size.
+    static_cast<void>(editor->thumbnails().get(crate));
+    static_cast<void>(editor->thumbnails().get(walkerInfo->uuid));
+    settleThumbnails(fixture, *editor);
+    CHECK(editor->thumbnails().rendered() >= 2);
+    CHECK(std::filesystem::exists(assets::thumbnailFile(editor->assets().cacheDirectory(), crate)));
+    const renderer::TextureData picture = cachedPicture(*editor, crate);
+    CHECK(picture.size == glm::uvec2{assets::ThumbnailSize, assets::ThumbnailSize});
+    CHECK(centre(picture) != corner(picture)); // the model, not just the sky
+    const renderer::TextureData walker = cachedPicture(*editor, walkerInfo->uuid);
+    CHECK(centre(walker) != corner(walker));
+    expectGolden(fixture, "model_thumbnail.png", picture);
+  }
+  {
+    // The next run of the editor reads the pictures from the cache.
+    const auto editor = openEditor(fixture, preferences);
+    REQUIRE(editor->openProject(directory).has_value());
+    showGrid(*editor, models);
+    settleThumbnails(fixture, *editor);
+    CHECK(editor->thumbnails().rendered() == 0);
+    CHECK(editor->thumbnails().resident() >= 2);
+    // A model file changed on disk since is rendered again.
+    std::filesystem::last_write_time(models / "crate.glb",
+                                     std::filesystem::file_time_type::clock::now() + std::chrono::hours(1));
+    REQUIRE(editor->assets().reimport(crate).has_value());
+    editor->thumbnails().invalidate(crate);
+    settleThumbnails(fixture, *editor);
+    CHECK(editor->thumbnails().rendered() >= 1);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+// The numbers in the pull request of #330: how long the frames take while a folder of models fills in, against frames
+// with nothing to render. Run by name; on Lavapipe, whose frames are far slower than a GPU's, the cost is a ceiling.
+TEST_CASE("measure the frames while a folder of models fills in", "[.thumbnail-budget][editor][gpu][grid]") {
+  Fixture fixture;
+  const auto manifest = editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
+  REQUIRE(manifest.has_value());
+  const std::filesystem::path samples = manifest->parent_path() / "assets" / "models";
+  const std::filesystem::path directory = scratch("thumbnail_budget");
+  const std::filesystem::path preferences = scratch("thumbnail_budget_preferences") / "preferences.json";
+  std::filesystem::create_directories(preferences.parent_path());
+  {
+    const auto editor = openEditor(fixture, preferences);
+    REQUIRE(editor->createProject(directory, "Budget").has_value());
+    fixture.frame(*editor);
+  }
+  const std::filesystem::path models = directory / "assets" / "models";
+  std::filesystem::create_directories(models);
+  constexpr int count = 300;
+  const char *files[] = {"crate.glb", "walker.glb", "beacon.glb", "reed.glb", "jelly.glb"};
+  for (int i = 0; i < count; ++i) {
+    std::filesystem::copy_file(samples / files[i % 5], models / std::format("model_{:03}.glb", i));
+  }
+  const auto milliseconds = [&](editor::Editor &editor) {
+    const auto start = std::chrono::steady_clock::now();
+    fixture.frame(editor);
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  };
+  const auto report = [](const char *label, std::vector<double> times) {
+    std::ranges::sort(times);
+    double sum = 0.0;
+    for (const double time : times) {
+      sum += time;
+    }
+    const auto at = [&](double fraction) {
+      return times[static_cast<std::size_t>(fraction * static_cast<double>(times.size() - 1))];
+    };
+    WARN(label << ": " << times.size() << " frames, mean " << sum / static_cast<double>(times.size()) << " ms, median "
+               << at(0.5) << " ms, 95th " << at(0.95) << " ms, worst " << times.back() << " ms");
+  };
+  for (const bool cached : {false, true}) {
+    const auto editor = openEditor(fixture, preferences);
+    REQUIRE(editor->openProject(directory).has_value());
+    showGrid(*editor, models);
+    std::vector<double> idle;
+    idle.reserve(30);
+    for (int i = 0; i < 30; ++i) {
+      idle.push_back(milliseconds(*editor));
+    }
+    // Every model asked for in one frame: more than a window ever shows, so the worst case for the scheduling.
+    for (const assets::AssetInfo *info : editor->assets().assets(assets::AssetType::Model)) {
+      static_cast<void>(editor->thumbnails().get(info->uuid));
+    }
+    std::vector<double> filling;
+    int frames = 0;
+    while ((frames < 6 || editor->thumbnails().busy()) && frames < 4000) {
+      filling.push_back(milliseconds(*editor));
+      ++frames;
+    }
+    REQUIRE_FALSE(editor->thumbnails().busy());
+    WARN((cached ? "second run, read from the cache" : "first run, rendered")
+         << ": " << editor->thumbnails().rendered() << " pictures rendered");
+    report("  frames with nothing to make", idle);
+    report("  frames while the folder fills in", filling);
+  }
+  fixture.device->waitIdle();
+}
+
+TEST_CASE("a prefab's picture is rendered and is as old as the prefabs it nests", "[editor][gpu][grid][prefab]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("assets_prefab_thumbnails");
+  const std::filesystem::path preferences = scratch("assets_prefab_thumbnails_preferences") / "preferences.json";
+  std::filesystem::create_directories(preferences.parent_path());
+  core::Uuid inner;
+  core::Uuid outer;
+  {
+    const auto editor = openEditor(fixture, preferences);
+    REQUIRE(editor->createProject(directory, "Prefabs").has_value());
+    world::World &world = editor->world();
+    core::Uuid box;
+    for (const flecs::entity root : world.roots()) {
+      if (root.get<world::Name>().value == "Box") {
+        box = world.uuidOf(root);
+      }
+    }
+    REQUIRE_FALSE(box.isNil());
+    REQUIRE(editor->saveAsPrefab(box).has_value());
+    inner = world.uuidOf(world.prefabOf(world.find(box)));
+    // The entity is an instance of the first prefab now, so the second one nests it.
+    REQUIRE(editor->saveAsPrefab(box).has_value());
+    outer = world.uuidOf(world.prefabOf(world.find(box)));
+    showGrid(*editor, directory / "prefabs");
+    settleThumbnails(fixture, *editor);
+    CHECK(editor->thumbnails().rendered() == 2);
+    CHECK(editor->thumbnails().resident() == 2);
+    CHECK(std::filesystem::exists(assets::thumbnailFile(editor->assets().cacheDirectory(), inner)));
+    CHECK(std::filesystem::exists(assets::thumbnailFile(editor->assets().cacheDirectory(), outer)));
+  }
+  {
+    const auto editor = openEditor(fixture, preferences);
+    REQUIRE(editor->openProject(directory).has_value());
+    showGrid(*editor, directory / "prefabs");
+    settleThumbnails(fixture, *editor);
+    CHECK(editor->thumbnails().rendered() == 0);
+    CHECK(editor->thumbnails().resident() == 2);
+  }
+  // The nested prefab's file changed since: its own picture is stale, and so is the one of the prefab that places it.
+  std::filesystem::last_write_time(directory / "prefabs" / "Box.prefab.json",
+                                   std::filesystem::file_time_type::clock::now() + std::chrono::hours(1));
+  {
+    const auto editor = openEditor(fixture, preferences);
+    REQUIRE(editor->openProject(directory).has_value());
+    showGrid(*editor, directory / "prefabs");
+    settleThumbnails(fixture, *editor);
+    CHECK(editor->thumbnails().rendered() == 2);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

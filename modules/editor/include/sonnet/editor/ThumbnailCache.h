@@ -4,11 +4,12 @@
 #include <sonnet/core/JobSystem.h>
 #include <sonnet/core/Math.h>
 #include <sonnet/core/Uuid.h>
-#include <sonnet/editor/MaterialThumbnailer.h>
+#include <sonnet/editor/ThumbnailRenderer.h>
 #include <sonnet/renderer/RenderGraph.h>
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/ui/ImGuiLayer.h>
+#include <sonnet/world/World.h>
 
 #include <imgui.h>
 
@@ -30,10 +31,10 @@ struct ThumbnailImage {
 
 // The Assets panel's thumbnails on the GPU (docs/editor.md, "Thumbnails"). `get` is called for a tile that is drawn:
 // the first call for an asset schedules `assets::makeThumbnail` on the job system, and a later one returns the
-// picture once `update` has uploaded it. A material's picture is read from the cache by the job system, or when
-// there is none rendered by the `MaterialThumbnailer` in the editor's graph (`render`) and cached by the job system. A
-// picture nobody has asked for in a while is released, so what is resident is about what the panel shows. Main thread
-// only.
+// picture once `update` has uploaded it. A material, a mesh, a model or a prefab is read from the cache by the job
+// system, or when there is none rendered by the `ThumbnailRenderer` in the editor's graph (`render`) and cached by the
+// job system. A picture nobody has asked for in a while is released, so what is resident is about what the panel
+// shows. Main thread only.
 class ThumbnailCache {
 public:
   // The most pictures resident at once: each holds a descriptor of Dear ImGui's pool (ImGuiLayer.cpp).
@@ -44,7 +45,7 @@ public:
   static constexpr std::uint64_t IdleFrames = 180;
 
   ThumbnailCache(rhi::IDevice &device, ui::ImGuiLayer &imgui, renderer::Renderer &renderer,
-                 assets::AssetDatabase &assets);
+                 assets::AssetDatabase &assets, const world::World &world);
   ~ThumbnailCache();
   ThumbnailCache(const ThumbnailCache &) = delete;
   ThumbnailCache &operator=(const ThumbnailCache &) = delete;
@@ -53,18 +54,23 @@ public:
   [[nodiscard]] ThumbnailImage get(const core::Uuid &uuid);
   // Once per frame: uploads what the workers finished and releases what has gone unused.
   void update();
-  // Once per frame in the editor's graph, after the device's beginFrame: declares the materials to render and takes
-  // in the pictures rendered FramesInFlight frames ago.
+  // Once per frame in the editor's graph, after the device's beginFrame: declares the pictures to render and takes
+  // in the ones rendered FramesInFlight frames ago.
   void render(renderer::RenderGraph &graph);
-  // Forgets the picture of an asset whose source changed, and its cache entry; the next `get` makes it again.
+  // Forgets the picture of an asset whose source changed, and its cache entry; the next `get` makes it again. So are
+  // the pictures made from that source: a model's meshes, the prefabs that draw them or nest the prefab.
   void invalidate(const core::Uuid &uuid);
-  // Waits for every picture asked for so far and uploads them all, for captures and tests. A material that
+  // Forgets the resident pictures of models and prefabs, and their cache entries, after the prefabs were built again:
+  // what they were drawn from may be older than what they depict.
+  void invalidatePrefabs();
+  // Waits for every picture asked for so far and uploads them all, for captures and tests. A picture that
   // is not in the cache is rendered by frames, which this does not run: it stays `busy` until they have.
   void settle();
   [[nodiscard]] std::size_t resident() const noexcept {
     return m_resident;
   }
-  // How many materials have been rendered, as opposed to read from the cache, since the editor started.
+  // How many pictures have been rendered, as opposed to read from the cache or made from a file, since the editor
+  // started.
   [[nodiscard]] std::uint64_t rendered() const noexcept {
     return m_rendered;
   }
@@ -75,7 +81,7 @@ private:
   struct Pending {
     std::atomic<bool> done{false};
     std::optional<renderer::TextureData> picture; // nothing when the asset has none or it failed
-    bool render{false};                           // a material that is not in the cache: set before `done`
+    bool render{false};                           // a rendered kind that is not in the cache: set before `done`
   };
   struct Entry {
     std::shared_ptr<Pending> pending; // null once uploaded
@@ -86,7 +92,7 @@ private:
     std::uint64_t used{0};
     std::optional<assets::ThumbnailRequest> request;
     std::uint64_t ticket{0}; // tells the render of this entry from one of an entry invalidated since
-    bool rendering{false};   // waiting for the MaterialThumbnailer
+    bool rendering{false};   // waiting for the ThumbnailRenderer
   };
 
   // A picture that was drawn this frame is still in the frame's draw data, so it is destroyed a few frames on.
@@ -96,6 +102,10 @@ private:
     std::uint64_t frame{0}; // destroyed once `m_frame` reaches it
   };
 
+  // The request for an asset, or for a prefab file of the world, which is not an asset.
+  [[nodiscard]] std::optional<assets::ThumbnailRequest> requestFor(const core::Uuid &uuid) const;
+  // Forgets the resident picture and the queued render of an asset, leaving its cache entry.
+  void drop(const core::Uuid &uuid);
   void release(Entry &entry);
   void retire(Entry &entry);
   void upload(Entry &entry);
@@ -104,7 +114,8 @@ private:
   rhi::IDevice &m_device;
   ui::ImGuiLayer &m_imgui;
   assets::AssetDatabase &m_assets;
-  MaterialThumbnailer m_materials;
+  const world::World &m_world;
+  ThumbnailRenderer m_pictures;
   std::map<core::Uuid, Entry> m_entries;
   std::vector<Retired> m_retired;
   std::uint64_t m_frame{0};

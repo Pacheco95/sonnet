@@ -27,6 +27,81 @@ renderer::Camera placedCamera(const WorldTransform &transform, const Camera &cam
 
 } // namespace
 
+namespace {
+
+// One mesh renderer's items at `transform`. `entity`, when it is one, names the skinned or morphed instance, takes
+// the pose and weights it has and writes its pick id; without it the mesh is drawn as it is.
+void appendDraws(assets::AssetDatabase &assets, flecs::entity entity, const MeshRenderer &meshRenderer,
+                 const glm::mat4 &transform, const glm::mat4 *previous, std::vector<renderer::DrawItem> &draws,
+                 std::vector<glm::mat4> &joints, std::vector<float> &morphWeights) {
+  // Requested rather than loaded: an asset that is not in memory yet imports on the job system
+  // and draws on a later frame, instead of stalling this one (ADR-0013).
+  const renderer::MeshHandle mesh = assets.requestMesh(meshRenderer.mesh);
+  if (!mesh) {
+    return; // missing, failed, or still importing: nothing drawn this frame
+  }
+  const assets::AssetInfo *info = assets.find(meshRenderer.mesh);
+  const renderer::MaterialHandle override = assets.material(meshRenderer.material);
+  const std::span<const renderer::Submesh> submeshes = assets.renderer().submeshes(mesh);
+  // A skinned mesh's pose is shared by its submeshes; without one it draws in its bind pose.
+  const auto firstJoint = static_cast<std::uint32_t>(joints.size());
+  std::uint32_t jointCount = 0;
+  if (const SkinPose *pose = entity ? entity.try_get<SkinPose>() : nullptr;
+      pose != nullptr && entity.has<SkinnedMesh>()) {
+    joints.insert(joints.end(), pose->joints.begin(), pose->joints.end());
+    jointCount = static_cast<std::uint32_t>(pose->joints.size());
+  }
+  // Likewise the morph weights.
+  const auto firstMorphWeight = static_cast<std::uint32_t>(morphWeights.size());
+  std::uint32_t morphWeightCount = 0;
+  if (const MorphWeights *morph = entity ? entity.try_get<MorphWeights>() : nullptr; morph != nullptr) {
+    morphWeights.insert(morphWeights.end(), morph->weights.begin(), morph->weights.end());
+    morphWeightCount = static_cast<std::uint32_t>(morph->weights.size());
+  }
+  std::optional<glm::mat4> previousTransform;
+  if (previous != nullptr) {
+    previousTransform = *previous;
+  }
+  for (std::uint32_t i = 0; i < submeshes.size(); ++i) {
+    renderer::MaterialHandle material = override;
+    if (!material && info != nullptr && submeshes[i].materialSlot < info->materials.size()) {
+      material = assets.material(info->materials[submeshes[i].materialSlot]);
+    }
+    draws.push_back({.mesh = mesh,
+                     .submesh = i,
+                     .material = material,
+                     .transform = transform,
+                     .previousTransform = previousTransform,
+                     .color = meshRenderer.color,
+                     .id = entity ? World::pickId(entity) : 0,
+                     .firstJoint = firstJoint,
+                     .jointCount = jointCount,
+                     .skinInstance = jointCount > 0 || morphWeightCount > 0 ? entity.id() : 0,
+                     .firstMorphWeight = firstMorphWeight,
+                     .morphWeightCount = morphWeightCount});
+  }
+}
+
+// The renderers of `entity` and everything shown under it, placed relative to `parent`.
+void appendSubtree(const World &world, assets::AssetDatabase &assets, flecs::entity entity, const glm::mat4 &parent,
+                   std::vector<renderer::DrawItem> &draws, std::vector<glm::mat4> &joints,
+                   std::vector<float> &morphWeights) {
+  if (entity.has<Disabled>()) {
+    return;
+  }
+  const Transform *local = entity.try_get<Transform>();
+  const glm::mat4 matrix = local != nullptr ? parent * local->matrix() : parent;
+  if (const MeshRenderer *meshRenderer = entity.try_get<MeshRenderer>();
+      meshRenderer != nullptr && meshRenderer->visible) {
+    appendDraws(assets, entity, *meshRenderer, matrix, nullptr, draws, joints, morphWeights);
+  }
+  for (const flecs::entity child : world.children(entity)) {
+    appendSubtree(world, assets, child, matrix, draws, joints, morphWeights);
+  }
+}
+
+} // namespace
+
 void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vector<renderer::DrawItem> &draws,
                    std::vector<glm::mat4> &joints, std::vector<float> &morphWeights) {
   SONNET_ZONE();
@@ -38,53 +113,31 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
     if (!meshRenderer.visible) {
       return;
     }
-    // Requested rather than loaded: an asset that is not in memory yet imports on the job system
-    // and draws on a later frame, instead of stalling this one (ADR-0013).
-    const renderer::MeshHandle mesh = assets.requestMesh(meshRenderer.mesh);
-    if (!mesh) {
-      return; // missing, failed, or still importing: nothing drawn this frame
-    }
-    const assets::AssetInfo *info = assets.find(meshRenderer.mesh);
-    const renderer::MaterialHandle override = assets.material(meshRenderer.material);
-    const std::span<const renderer::Submesh> submeshes = assets.renderer().submeshes(mesh);
-    // A skinned mesh's pose is shared by its submeshes; without one it draws in its bind pose.
-    const auto firstJoint = static_cast<std::uint32_t>(joints.size());
-    std::uint32_t jointCount = 0;
-    if (const SkinPose *pose = entity.try_get<SkinPose>(); pose != nullptr && entity.has<SkinnedMesh>()) {
-      joints.insert(joints.end(), pose->joints.begin(), pose->joints.end());
-      jointCount = static_cast<std::uint32_t>(pose->joints.size());
-    }
-    // Likewise the morph weights.
-    const auto firstMorphWeight = static_cast<std::uint32_t>(morphWeights.size());
-    std::uint32_t morphWeightCount = 0;
-    if (const MorphWeights *morph = entity.try_get<MorphWeights>(); morph != nullptr) {
-      morphWeights.insert(morphWeights.end(), morph->weights.begin(), morph->weights.end());
-      morphWeightCount = static_cast<std::uint32_t>(morph->weights.size());
-    }
     const PreviousWorldTransform *previous = entity.try_get<PreviousWorldTransform>();
-    std::optional<glm::mat4> previousTransform;
-    if (previous != nullptr) {
-      previousTransform = previous->matrix;
-    }
-    for (std::uint32_t i = 0; i < submeshes.size(); ++i) {
-      renderer::MaterialHandle material = override;
-      if (!material && info != nullptr && submeshes[i].materialSlot < info->materials.size()) {
-        material = assets.material(info->materials[submeshes[i].materialSlot]);
-      }
-      draws.push_back({.mesh = mesh,
-                       .submesh = i,
-                       .material = material,
-                       .transform = transform.matrix,
-                       .previousTransform = previousTransform,
-                       .color = meshRenderer.color,
-                       .id = World::pickId(entity),
-                       .firstJoint = firstJoint,
-                       .jointCount = jointCount,
-                       .skinInstance = jointCount > 0 || morphWeightCount > 0 ? entity.id() : 0,
-                       .firstMorphWeight = firstMorphWeight,
-                       .morphWeightCount = morphWeightCount});
-    }
+    appendDraws(assets, entity, meshRenderer, transform.matrix, previous != nullptr ? &previous->matrix : nullptr,
+                draws, joints, morphWeights);
   });
+}
+
+void buildDrawList(const World &world, assets::AssetDatabase &assets, flecs::entity root,
+                   std::vector<renderer::DrawItem> &draws, std::vector<glm::mat4> &joints,
+                   std::vector<float> &morphWeights) {
+  SONNET_ZONE();
+  draws.clear();
+  joints.clear();
+  morphWeights.clear();
+  // The root stands at the origin whatever its own transform is; only what is under it places the parts.
+  const Transform *rootTransform = root.try_get<Transform>();
+  const glm::mat4 inverse = rootTransform != nullptr ? glm::inverse(rootTransform->matrix()) : glm::mat4{1.0f};
+  appendSubtree(world, assets, root, inverse, draws, joints, morphWeights);
+}
+
+void buildDrawList(assets::AssetDatabase &assets, const core::Uuid &mesh, std::vector<renderer::DrawItem> &draws) {
+  draws.clear();
+  std::vector<glm::mat4> joints;
+  std::vector<float> morphWeights;
+  appendDraws(assets, {}, {.mesh = mesh, .color = {1.0f, 1.0f, 1.0f, 1.0f}}, glm::mat4{1.0f}, nullptr, draws, joints,
+              morphWeights);
 }
 
 void buildParticleList(const World &world, assets::AssetDatabase &assets,

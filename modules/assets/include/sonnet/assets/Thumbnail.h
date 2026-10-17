@@ -19,18 +19,25 @@ inline constexpr std::uint32_t ThumbnailSize = 128;
 // What making one asset's thumbnail needs, copied out of the database so a worker can run it.
 struct ThumbnailRequest {
   core::Uuid uuid;
-  AssetType type{AssetType::Texture}; // Texture, Environment or Material
+  AssetType type{AssetType::Texture}; // Texture, Environment, Material, Mesh or Model
+  // A prefab file, which is not an asset: `type` is then Model, as a prefab is drawn the way a model's is.
+  bool prefab{false};
   std::filesystem::path source;
   std::filesystem::path sidecar;
   std::filesystem::path cache; // the cache directory
   std::filesystem::file_time_type sourceTime;
   TextureSettings settings;
-  // A material: the source files and sidecars of the textures it reads, which its picture is as old as.
+  // What the picture is as old as, besides the source and the sidecar: a material's textures, the nested prefab files
+  // and the meshes' sources of a prefab.
   std::vector<std::filesystem::path> dependencies;
   // Whether `storeThumbnail` writes: not for a material with edits that are not saved, whose file the
   // picture would then outlive.
   bool store{true};
 };
+
+// Whether the picture is rendered by the editor (a material, a mesh, a model or a prefab) rather than made from the
+// source by `makeThumbnail`.
+[[nodiscard]] bool isRendered(const ThumbnailRequest &request) noexcept;
 
 // The cache entry of an asset's thumbnail, `<cache>/<uuid>.thumb.ktx2`.
 [[nodiscard]] std::filesystem::path thumbnailFile(const std::filesystem::path &cache, const core::Uuid &uuid);
@@ -45,7 +52,7 @@ struct ThumbnailRequest {
 // A picture of a texture or an environment, one RGBA8 level of at most ThumbnailSize on its longest
 // side, its bytes as ImGui shows them (sRGB-encoded, so the format is Unorm). Read from the cache
 // entry when it is no older than the source and its sidecar, and made from the source and written
-// there otherwise. A material has no source to make it from: the editor renders it
+// there otherwise. A rendered kind has no source to make it from: the editor renders it
 // ([editor.md](editor.md#thumbnails)), so asking for one is an error. Pure: touches nothing but the files, so it
 // runs on any thread.
 [[nodiscard]] core::Result<renderer::TextureData> makeThumbnail(const ThumbnailRequest &request);
