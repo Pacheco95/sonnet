@@ -91,6 +91,8 @@ A glTF node's `KHR_lights_punctual` light becomes `ModelNode::light`, its type, 
 
 A glTF mesh's morph targets (`POSITION`, `NORMAL` and `TANGENT` deltas) become `MeshData::morphDeltas`, at most 8 targets kept with a warning for the rest, and the weights a node or its mesh starts with become `ModelNode::morphWeights` (ADR-0023). `cookMesh` does not weld a morphed mesh, since vertices that look alike may move apart, but reorders it with its deltas following.
 
+A primitive's `COLOR_0` (`vec3` or `vec4`, as float or normalized unsigned byte or short) becomes `Vertex::color`, linear RGBA8 with alpha 1 for a `vec3`, white where a primitive has none; floats outside 0 to 1 are clamped and a morph target's `COLOR_0` is ignored ([ADR-0031](decisions/0031-vertex-colours.md)). `cookMesh` keeps vertices that differ only in colour apart.
+
 A mesh whose primitives carry `JOINTS_0` and `WEIGHTS_0` keeps them as one `SkinWeights` per vertex, which the renderer uploads alongside the vertices for its skinning pass ([rendering.md](rendering.md#skinning)).
 
 ## Materials
@@ -131,7 +133,7 @@ glTF imports each texture's own sampler, including independent S/T wrapping and
 all six minification filter choices. Undefined filters use linear mip filtering;
 plain NEAREST and LINEAR minification disable mipmaps. Cooking still retains the
 mip chain, since another material may sample the same image with mipmaps.
-Bundle version 16 adds orthographic model cameras and version 7 scenes and prefabs, and carries version 5 materials; older bundles must be cooked again.
+Bundle version 17 adds a packed vertex colour (60-byte vertices), 16 orthographic model cameras and version 7 scenes and prefabs, and carries version 5 materials; older bundles must be cooked again.
 The [sampler verification report](reports/material-samplers.md) records the Khronos
 reference capture and the generated checker regression.
 
@@ -191,7 +193,7 @@ The three desktop platforms cook the same bytes and differ only in which player 
 
 A bundle is one file, `<name>.sbundle` ([ADR-0011](decisions/0011-cooked-bundles-and-the-player.md)): a 32-byte header (the magic `SONNETBN`, the format version, and where the index is), the payload blobs back to back, and the index at the end. The index is CBOR, so it is a JSON document at both ends:
 
-The format version is `BundleVersion`, 16 today: 16 orthographic model cameras and version 7 scenes and prefabs, 15 per-slot material samplers, 14 version 6 scenes and prefabs, with exposure and bloom on the camera, 13 model nodes that may carry a light, 12 a camera, 11 carries version 4 materials, which may be unlit, 10 version 5 scenes and prefabs, with vectors as arrays ([world.md](world.md#scenes)), 9 vertices with a second UV set and version 3 materials, with a UV set per texture slot, 8 version 2 materials, with their texture transforms ([Materials](#materials)), 7 scenes and prefabs that may hold version 4's `instanced` entries ([world.md](world.md#scenes)), 6 added the game module's name to the manifest (`module`, empty for none), which the player checks before anything loads ([player.md](player.md#game-modules)), 5 the Font type and its `preload` ranges in the index, 4 a mesh's far shadow range, 3 HDR environments as KTX2. `Bundle::open` refuses any other version with `bundle version N is not version 16`, so a bundle is cooked again after an engine upgrade that changes it; a project's scenes and sidecars are not touched by it, and a project made before version 7 keeps its scenes.
+The format version is `BundleVersion`, 17 today: 17 vertices with a packed colour, 16 orthographic model cameras and version 7 scenes and prefabs, 15 per-slot material samplers, 14 version 6 scenes and prefabs, with exposure and bloom on the camera, 13 model nodes that may carry a light, 12 a camera, 11 carries version 4 materials, which may be unlit, 10 version 5 scenes and prefabs, with vectors as arrays ([world.md](world.md#scenes)), 9 vertices with a second UV set and version 3 materials, with a UV set per texture slot, 8 version 2 materials, with their texture transforms ([Materials](#materials)), 7 scenes and prefabs that may hold version 4's `instanced` entries ([world.md](world.md#scenes)), 6 added the game module's name to the manifest (`module`, empty for none), which the player checks before anything loads ([player.md](player.md#game-modules)), 5 the Font type and its `preload` ranges in the index, 4 a mesh's far shadow range, 3 HDR environments as KTX2. `Bundle::open` refuses any other version with `bundle version N is not version 17`, so a bundle is cooked again after an engine upgrade that changes it; a project's scenes and sidecars are not touched by it, and a project made before version 7 keeps its scenes.
 
 - `manifest`: the project's `name`, the `engineVersion` that cooked it, the `platform` it was cooked for, and the `startScene` as a path.
 - `assets`: one entry per asset with its `uuid`, `type`, `name`, the `parent` it is a sub-asset of, a mesh's default `materials`, a font's `preload` ranges, and the `offset` and `size` of its payload.

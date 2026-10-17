@@ -4,6 +4,8 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 
+#include <glm/gtc/packing.hpp>
+
 #include <fastgltf/core.hpp>
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
@@ -610,6 +612,20 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path, const Mod
       } else if (material != nullptr && highestTexCoord(*material) >= 1) {
         SONNET_LOG_WARN("{}: mesh \"{}\" has a primitive without TEXCOORD_1 whose material reads it", path.string(),
                         out.name);
+      }
+      // COLOR_0 as vec3 or vec4, already linear; normalized integers come out of the accessor as
+      // floats. A primitive without it keeps white (ADR-0031).
+      if (const auto color = primitive.findAttribute("COLOR_0"); color != primitive.attributes.end()) {
+        const fastgltf::Accessor &colors = asset.accessors[color->accessorIndex];
+        const auto assign = [&](glm::vec4 value, std::size_t i) {
+          out.data.vertices[base + i].color = glm::packUnorm4x8(value);
+        };
+        if (colors.type == fastgltf::AccessorType::Vec3) {
+          fastgltf::iterateAccessorWithIndex<glm::vec3>(
+              asset, colors, [&](glm::vec3 value, std::size_t i) { assign(glm::vec4{value, 1.0f}, i); }, views);
+        } else {
+          fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, colors, assign, views);
+        }
       }
       if (const auto tangent = primitive.findAttribute("TANGENT"); tangent != primitive.attributes.end()) {
         fastgltf::iterateAccessorWithIndex<glm::vec4>(

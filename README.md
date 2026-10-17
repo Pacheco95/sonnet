@@ -204,6 +204,7 @@ ctest --preset linux-debug
 | [0028](docs/decisions/0028-nested-scene-instances.md) | Nested scene instances are prefab instances whose children are addressed by derived identities | Accepted |
 | [0029](docs/decisions/0029-compact-scene-files.md) | Scene files write vectors as arrays | Accepted |
 | [0030](docs/decisions/0030-model-node-identities.md) | A model prefab's nodes are identified by their name path | Accepted |
+| [0031](docs/decisions/0031-vertex-colours.md) | Vertex colour is a packed RGBA8 in Vertex | Accepted |
 
 ## License
 

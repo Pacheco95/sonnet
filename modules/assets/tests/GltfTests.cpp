@@ -415,6 +415,76 @@ TEST_CASE("a glTF primitive's TEXCOORD_1 imports, and each slot reads the set it
   std::filesystem::remove_all(directory);
 }
 
+TEST_CASE("a glTF primitive's COLOR_0 imports as linear RGBA8, white where absent", "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_vertex_colour");
+  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  test::writeBoxGltf(directory / "plain.gltf", "wood.png");
+  const auto bytes = core::readFile(directory / "plain.gltf");
+  REQUIRE(bytes.has_value());
+  const nlohmann::json base =
+      nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
+  const std::size_t count = base["accessors"][0]["count"].get<std::size_t>();
+
+  // Every vertex gets the same colour, written as the glTF component type under test, then
+  // imported; `type` is VEC3 or VEC4 and `componentType` the accessor's.
+  const auto importWith = [&](const char *type, int componentType, bool normalized,
+                              const std::vector<std::byte> &data) {
+    nlohmann::json document = base;
+    REQUIRE(core::writeFile(directory / "colour.bin", data).has_value());
+    document["buffers"].push_back({{"uri", "colour.bin"}, {"byteLength", data.size()}});
+    document["bufferViews"].push_back({{"buffer", 1}, {"byteOffset", 0}, {"byteLength", data.size()}});
+    document["accessors"].push_back({{"bufferView", document["bufferViews"].size() - 1},
+                                     {"componentType", componentType},
+                                     {"normalized", normalized},
+                                     {"count", count},
+                                     {"type", type}});
+    document["meshes"][0]["primitives"][0]["attributes"]["COLOR_0"] = document["accessors"].size() - 1;
+    REQUIRE(core::writeFile(directory / "coloured.gltf", document.dump(2)).has_value());
+    const auto imported = importGltf(directory / "coloured.gltf");
+    REQUIRE(imported.has_value());
+    const std::vector<renderer::Vertex> &vertices = imported->meshes[0].data.vertices;
+    REQUIRE(vertices.size() == count);
+    for (const renderer::Vertex &vertex : vertices) {
+      REQUIRE(vertex.color == vertices[0].color);
+    }
+    return vertices[0].color;
+  };
+  // Repeats `element` per vertex as raw bytes.
+  const auto repeated = [&](const auto &element) {
+    std::vector<std::byte> data;
+    for (std::size_t i = 0; i < count; ++i) {
+      const auto *begin = reinterpret_cast<const std::byte *>(&element);
+      data.insert(data.end(), begin, begin + sizeof(element));
+    }
+    return data;
+  };
+
+  // Red in the lowest byte; 0.5 rounds to 128 and 0.25 to 64.
+  SECTION("a float vec4 keeps its alpha") {
+    REQUIRE(importWith("VEC4", 5126, false, repeated(std::array{1.0f, 0.5f, 0.0f, 0.25f})) == 0x4000'80FFu);
+  }
+  SECTION("a float vec3 is opaque") {
+    REQUIRE(importWith("VEC3", 5126, false, repeated(std::array{1.0f, 0.5f, 0.0f})) == 0xFF00'80FFu);
+  }
+  SECTION("floats outside 0 to 1 are clamped") {
+    REQUIRE(importWith("VEC4", 5126, false, repeated(std::array{2.0f, -1.0f, 0.0f, 1.0f})) == 0xFF00'00FFu);
+  }
+  SECTION("a normalized unsigned byte vec4") {
+    REQUIRE(importWith("VEC4", 5121, true, repeated(std::array<std::uint8_t, 4>{255, 128, 0, 64})) == 0x4000'80FFu);
+  }
+  SECTION("a normalized unsigned short vec3") {
+    REQUIRE(importWith("VEC3", 5123, true, repeated(std::array<std::uint16_t, 3>{65535, 32768, 0})) == 0xFF00'80FFu);
+  }
+  SECTION("without the attribute a vertex is white") {
+    const auto imported = importGltf(directory / "plain.gltf");
+    REQUIRE(imported.has_value());
+    for (const renderer::Vertex &vertex : imported->meshes[0].data.vertices) {
+      REQUIRE(vertex.color == 0xFFFFFFFFu);
+    }
+  }
+  std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("a glTF primitive quantized by KHR_mesh_quantization imports within quantization error", "[assets][gltf]") {
   using nlohmann::json;
   const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_quantized");

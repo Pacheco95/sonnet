@@ -36,7 +36,12 @@ public struct Vertex {
   public float4 tangent; // xyz in the normal's frame, w the bitangent sign
   public float2 uv;
   public float2 uv1; // zero where the mesh has no second set
+  public uint color; // COLOR_0 as linear RGBA8, red in the lowest byte; white where the mesh has none
 };
+
+public float4 vertexColor(Vertex vertex) {
+  return float4(vertex.color & 255u, (vertex.color >> 8) & 255u, (vertex.color >> 16) & 255u, vertex.color >> 24) / 255.0;
+}
 
 [[vk::binding(5, 0)]]
 public StructuredBuffer<Vertex> vertexBuffers[];

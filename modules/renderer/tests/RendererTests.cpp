@@ -721,6 +721,81 @@ TEST_CASE("a blended wall casts a shadow whose darkness follows its alpha on a G
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+TEST_CASE("a vertex colour tints the lit surface and its alpha cuts the shadow on a GPU", "[renderer][gpu][shadow]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const auto coloured = [&](std::uint32_t color, glm::vec2 size) {
+      MeshData mesh = primitives::plane(size);
+      for (Vertex &vertex : mesh.vertices) {
+        vertex.color = color;
+      }
+      return renderer.createMesh(mesh, "coloured");
+    };
+    // Forward: a red ground is lit red and nothing else, a white one is not.
+    const MeshHandle red = coloured(0xFF0000FFu, {10.0f, 10.0f});
+    const MeshHandle white = coloured(0xFFFFFFFFu, {10.0f, 10.0f});
+    MaterialDesc grey;
+    grey.metallic = 0.0f;
+    grey.roughness = 0.6f;
+    const MaterialHandle opaque = renderer.createMaterial(grey, "grey");
+    const auto ground = [&](MeshHandle mesh) {
+      const std::array draws{DrawItem{.mesh = mesh, .material = opaque}};
+      SceneView view = topDownScene(draws);
+      view.sun.direction = glm::normalize(glm::vec3{1.0f, -1.0f, 0.0f});
+      view.sun.intensity = 3.0f;
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view);
+      return scene.pixel(32, 32);
+    };
+    const Pixel tinted = ground(red);
+    const Pixel plain = ground(white);
+    WARN(std::format("red ground {} {} {}, white ground {} {} {}", tinted.r, tinted.g, tinted.b, plain.r, plain.g,
+                     plain.b));
+    // Ambient and specular light leave a little in the other channels.
+    REQUIRE(plain.g > 150);
+    REQUIRE(tinted.r > 150);
+    REQUIRE(tinted.g * 4 < tinted.r);
+    REQUIRE(tinted.b * 4 < tinted.r);
+
+    // Depth: the vertex alpha multiplies into the alpha test and into the blended shadow's hash, so
+    // a wall whose vertices are transparent casts nothing and an opaque one a full shadow.
+    const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
+    const auto wallOf = [&](std::uint32_t alpha, AlphaMode mode) {
+      const MeshHandle wall = coloured(0x00FFFFFFu | (alpha << 24), {2.0f, 4.0f});
+      MaterialDesc desc;
+      desc.alphaMode = mode;
+      const MaterialHandle material = renderer.createMaterial(desc, "wall");
+      const WallShadow result = wallShadow(*device, renderer, plane, wall, material);
+      renderer.destroyMaterial(material);
+      renderer.destroyMesh(wall);
+      return result;
+    };
+    const WallShadow masked0 = wallOf(0, AlphaMode::Mask);
+    const WallShadow masked255 = wallOf(255, AlphaMode::Mask);
+    const WallShadow blended0 = wallOf(0, AlphaMode::Blend);
+    const WallShadow blended128 = wallOf(128, AlphaMode::Blend);
+    const WallShadow blended255 = wallOf(255, AlphaMode::Blend);
+    WARN(std::format("shadowed ground: masked 0 / 255: {} {}; blended 0 / 128 / 255: {} {} {}; lit {}",
+                     masked0.shadowed, masked255.shadowed, blended0.shadowed, blended128.shadowed, blended255.shadowed,
+                     masked0.lit));
+    REQUIRE(masked0.lit > 100.0f);
+    REQUIRE(std::abs(masked0.shadowed - masked0.lit) < 1.0f);
+    REQUIRE(masked255.shadowed * 3.0f < masked0.lit);
+    REQUIRE(std::abs(blended0.shadowed - blended0.lit) < 1.0f);
+    REQUIRE(blended128.shadowed < blended0.shadowed - 5.0f);
+    REQUIRE(blended255.shadowed < blended128.shadowed - 5.0f);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMaterial(opaque);
+    renderer.destroyMesh(plane);
+    renderer.destroyMesh(white);
+    renderer.destroyMesh(red);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
