@@ -82,7 +82,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_world, m_selection),
-      m_thumbnails(device, m_imgui, m_assets) {
+      m_thumbnails(device, m_imgui, m_renderer, m_assets) {
   addIconFont(ImGui::GetIO());
   m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
   m_viewportPanel.setImmediateViews(platform.isHeadless());
@@ -472,6 +472,9 @@ void Editor::update(float dt) {
   // Changed source files are re-imported before the draw list resolves them, and changed
   // shader sources rebuild their pipelines.
   for (const core::Uuid &changed : m_assets.pollChanges()) {
+    m_thumbnails.invalidate(changed);
+  }
+  for (const core::Uuid &changed : m_assets.takeChangedMaterials()) {
     m_thumbnails.invalidate(changed);
   }
   // Both are read, so neither request is left over for the next frame.
@@ -1448,6 +1451,8 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     // The game UI over the finished scene, as the player draws it.
     m_gui.addPass(m_renderer, m_assets, m_graph, gameColor);
   }
+  // The materials the Assets panel's tiles asked for, each a small view of its own.
+  m_thumbnails.render(m_graph);
   // A screenshot waits for a frame that has what it asks for: a viewport target, and a swapchain
   // image for the window.
   if (m_screenshotRequest && !m_screenshotRequest->second.empty() && !m_swapchain.readable()) {
