@@ -673,7 +673,15 @@ TEST_CASE("the grid renders a material on a sphere, caches it, and renders it ag
     // On Lavapipe, where a golden image is reproducible, the picture is the one on disk.
     if (fixture.device->info().driverName == "llvmpipe") {
       const std::filesystem::path golden = goldenDirectory(fixture.platform) / "material_thumbnail.png";
-      if (std::getenv("SONNET_UPDATE_GOLDEN") != nullptr) { // NOLINT(concurrency-mt-unsafe)
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
+#endif
+      const bool update = std::getenv("SONNET_UPDATE_GOLDEN") != nullptr; // NOLINT(concurrency-mt-unsafe)
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+      if (update) {
         REQUIRE(runtime::writeScreenshot(golden, picture.size, picture.format, std::as_bytes(std::span{picture.data}))
                     .has_value());
       }
