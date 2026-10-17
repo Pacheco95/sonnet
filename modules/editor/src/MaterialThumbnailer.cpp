@@ -25,7 +25,7 @@ constexpr std::uint64_t PictureBytes = std::uint64_t{PictureSize.x} * PictureSiz
 renderer::TextureData studioSky() {
   constexpr std::uint32_t width = 128;
   constexpr std::uint32_t height = 64;
-  constexpr float Pi = 3.14159265358979f;
+  constexpr float pi = 3.14159265358979f;
   const glm::vec3 key = glm::normalize(glm::vec3{-0.55f, 0.7f, 0.65f});
   const glm::vec3 fill = glm::normalize(glm::vec3{0.8f, 0.15f, 0.6f});
   renderer::TextureData sky{.size = {width, height},
@@ -35,9 +35,9 @@ renderer::TextureData studioSky() {
                             .data = std::vector<std::byte>(std::size_t{width} * height * 4 * sizeof(std::uint16_t))};
   auto *out = reinterpret_cast<std::uint16_t *>(sky.data.data());
   for (std::uint32_t y = 0; y < height; ++y) {
-    const float elevation = (0.5f - (static_cast<float>(y) + 0.5f) / static_cast<float>(height)) * Pi;
+    const float elevation = (0.5f - (static_cast<float>(y) + 0.5f) / static_cast<float>(height)) * pi;
     for (std::uint32_t x = 0; x < width; ++x) {
-      const float azimuth = ((static_cast<float>(x) + 0.5f) / static_cast<float>(width) - 0.5f) * 2.0f * Pi;
+      const float azimuth = ((static_cast<float>(x) + 0.5f) / static_cast<float>(width) - 0.5f) * 2.0f * pi;
       const glm::vec3 direction{std::cos(elevation) * std::cos(azimuth), std::sin(elevation),
                                 std::cos(elevation) * std::sin(azimuth)};
       const float up = std::clamp(direction.y, -1.0f, 1.0f);

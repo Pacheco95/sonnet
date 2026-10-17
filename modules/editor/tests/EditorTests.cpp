@@ -736,7 +736,7 @@ TEST_CASE("the grid renders a material on a sphere, caches it, and renders it ag
     // A material file changed on disk since is rendered again.
     std::filesystem::last_write_time(root / "assets" / "paint.material.json",
                                      std::filesystem::file_time_type::clock::now() + std::chrono::hours(1));
-    static_cast<void>(editor->assets().reimport(uuid));
+    REQUIRE(editor->assets().reimport(uuid).has_value());
     editor->thumbnails().invalidate(uuid);
     settle(*editor);
     CHECK(editor->thumbnails().rendered() == 1);
