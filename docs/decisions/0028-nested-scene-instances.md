@@ -1,6 +1,6 @@
 # ADR-0028: Nested scene instances are prefab instances whose children are addressed by derived identities
 
-- **Status:** Accepted, amended by [ADR-0030](0030-model-node-identities.md)
+- **Status:** Accepted, amended by [ADR-0030](0030-model-node-identities.md) and [ADR-0032](0032-instance-child-order.md)
 - **Date:** 2026-10-12
 
 ## Context
