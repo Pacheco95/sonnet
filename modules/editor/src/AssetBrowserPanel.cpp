@@ -872,8 +872,9 @@ void AssetBrowserPanel::drawGrid(std::optional<std::filesystem::path> &destinati
   for (int index = 0; index < static_cast<int>(m_rows.size()); ++index) {
     const AssetRow &row = m_rows[static_cast<std::size_t>(index)];
     const auto id = rowId(row);
-    const ImVec2 min{origin.x + static_cast<float>(index % columns) * cell.x,
-                     origin.y + static_cast<float>(index / columns) * cell.y};
+    const int column = index % columns;
+    const int line = index / columns;
+    const ImVec2 min{origin.x + static_cast<float>(column) * cell.x, origin.y + static_cast<float>(line) * cell.y};
     const ImVec2 max{min.x + itemSize.x, min.y + itemSize.y};
     ImGui::SetCursorScreenPos(min);
     ImGui::PushID(static_cast<int>(id));

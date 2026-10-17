@@ -68,7 +68,7 @@ TEST_CASE("a texture's thumbnail is the largest mip level that fits, cached besi
   CHECK(thumbnail->size == glm::uvec2{75, 50});
   CHECK(thumbnail->format == rhi::Format::R8G8B8A8Unorm);
   CHECK(thumbnail->mipLevels == 1);
-  REQUIRE(thumbnail->data.size() == 75 * 50 * 4);
+  REQUIRE(thumbnail->data.size() == std::size_t{75} * 50 * 4);
   CHECK(std::to_integer<int>(thumbnail->data[0]) == 255);            // left: red
   CHECK(std::to_integer<int>(thumbnail->data[(74 * 4) + 2]) == 255); // right: blue
   CHECK(std::filesystem::exists(thumbnailFile(fixture.database.cacheDirectory(), wide)));
@@ -110,7 +110,8 @@ TEST_CASE("a thumbnail comes back from the cache until the source or the sidecar
   const auto remade = makeThumbnail(stale);
   REQUIRE(remade.has_value());
   CHECK(remade->size == glm::uvec2{64, 32});
-  CHECK(std::filesystem::last_write_time(entry) >= stale.sourceTime);
+  CHECK((std::filesystem::last_write_time(entry) >=
+         stale.sourceTime)); // not decomposed: Catch cannot print a file time on macOS
 }
 
 TEST_CASE("an environment's thumbnail is its map downscaled and tone mapped", "[assets][thumbnail]") {

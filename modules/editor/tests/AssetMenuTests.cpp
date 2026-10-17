@@ -938,7 +938,7 @@ struct GridFixture {
     using namespace sonnet;
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "assets");
-    const std::vector<std::uint8_t> pixels(4 * 4 * 4, 255);
+    const std::vector<std::uint8_t> pixels(std::size_t{4} * 4 * 4, 255);
     for (int i = 0; i < count; ++i) {
       REQUIRE(core::writeFile(root / "assets" / std::format("t{:03}.tga", i), tgaBytes(pixels)).has_value());
     }
