@@ -1,0 +1,151 @@
+#include "AssetTestSupport.h"
+
+#include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/assets/Thumbnail.h>
+#include <sonnet/core/JobSystem.h>
+#include <sonnet/platform/Platform.h>
+#include <sonnet/renderer/Renderer.h>
+#include <sonnet/rhi/NullDevice.h>
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <chrono>
+#include <thread>
+
+using namespace sonnet;
+using namespace sonnet::assets;
+
+namespace {
+
+struct Fixture {
+  platform::Platform platform{{.headless = true}};
+  std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 0}};
+  std::filesystem::path root = test::freshDirectory("sonnet_assets_thumbnails");
+  std::vector<std::string> roots{"assets"};
+  AssetDatabase database{renderer, jobs};
+
+  Fixture() {
+    std::filesystem::create_directories(root / "assets");
+    // 300x200, red on the left half and blue on the right.
+    std::vector<std::uint8_t> pixels;
+    for (int y = 0; y < 200; ++y) {
+      for (int x = 0; x < 300; ++x) {
+        pixels.insert(pixels.end(), x < 150 ? std::initializer_list<std::uint8_t>{255, 0, 0, 255}
+                                            : std::initializer_list<std::uint8_t>{0, 0, 255, 255});
+      }
+    }
+    REQUIRE(core::writeFile(root / "assets" / "wide.png", test::encodePng({300, 200}, pixels)).has_value());
+    REQUIRE(core::writeFile(root / "assets" / "tiny.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+    REQUIRE(core::writeFile(root / "assets" / "sky.hdr",
+                            test::encodeHdr({512, 256}, std::vector<float>(std::size_t{512} * 256 * 3, 1.0f)))
+                .has_value());
+    test::writeBoxGltf(root / "assets" / "crate.gltf", "tiny.png");
+    database.open(root, roots);
+  }
+  ~Fixture() {
+    std::filesystem::remove_all(root);
+  }
+
+  [[nodiscard]] core::Uuid uuidOf(const char *file) const {
+    const AssetInfo *info = database.findByPath(root / "assets" / file);
+    REQUIRE(info != nullptr);
+    return info->uuid;
+  }
+};
+
+} // namespace
+
+TEST_CASE("a texture's thumbnail is the largest mip level that fits, cached beside the other cooked files",
+          "[assets][thumbnail]") {
+  Fixture fixture;
+  const core::Uuid wide = fixture.uuidOf("wide.png");
+  const auto request = fixture.database.thumbnailRequest(wide);
+  REQUIRE(request.has_value());
+  const auto thumbnail = makeThumbnail(*request);
+  REQUIRE(thumbnail.has_value());
+  CHECK(thumbnail->size == glm::uvec2{75, 50});
+  CHECK(thumbnail->format == rhi::Format::R8G8B8A8Unorm);
+  CHECK(thumbnail->mipLevels == 1);
+  REQUIRE(thumbnail->data.size() == std::size_t{75} * 50 * 4);
+  CHECK(std::to_integer<int>(thumbnail->data[0]) == 255);            // left: red
+  CHECK(std::to_integer<int>(thumbnail->data[(74 * 4) + 2]) == 255); // right: blue
+  CHECK(std::filesystem::exists(thumbnailFile(fixture.database.cacheDirectory(), wide)));
+
+  // A smaller image than the thumbnail is kept as it is.
+  const auto tiny = makeThumbnail(*fixture.database.thumbnailRequest(fixture.uuidOf("tiny.png")));
+  REQUIRE(tiny.has_value());
+  CHECK(tiny->size == glm::uvec2{2, 2});
+}
+
+TEST_CASE("a thumbnail comes back from the cache until the source or the sidecar is newer", "[assets][thumbnail]") {
+  Fixture fixture;
+  const core::Uuid wide = fixture.uuidOf("wide.png");
+  const auto source = fixture.root / "assets" / "wide.png";
+  const auto request = *fixture.database.thumbnailRequest(wide);
+  REQUIRE(makeThumbnail(request).has_value());
+
+  // The cache entry answers while the source is gone.
+  const auto bytes = core::readFile(source);
+  REQUIRE(bytes.has_value());
+  std::filesystem::remove(source);
+  const auto cached = makeThumbnail(request);
+  REQUIRE(cached.has_value());
+  CHECK(cached->size == glm::uvec2{75, 50});
+
+  // A source written after the entry makes it stale, and the thumbnail is made again from the new one.
+  const auto entry = thumbnailFile(fixture.database.cacheDirectory(), wide);
+  const auto entryTime = std::filesystem::last_write_time(entry);
+  const auto newer = test::encodePng({64, 32}, std::vector<std::uint8_t>(std::size_t{64} * 32 * 4, 200));
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    REQUIRE(core::writeFile(source, newer).has_value());
+    if (std::filesystem::last_write_time(source) > entryTime) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  auto stale = request;
+  stale.sourceTime = std::filesystem::last_write_time(source);
+  const auto remade = makeThumbnail(stale);
+  REQUIRE(remade.has_value());
+  CHECK(remade->size == glm::uvec2{64, 32});
+  CHECK((std::filesystem::last_write_time(entry) >=
+         stale.sourceTime)); // not decomposed: Catch cannot print a file time on macOS
+}
+
+TEST_CASE("an environment's thumbnail is its map downscaled and tone mapped", "[assets][thumbnail]") {
+  Fixture fixture;
+  const auto thumbnail = makeThumbnail(*fixture.database.thumbnailRequest(fixture.uuidOf("sky.hdr")));
+  REQUIRE(thumbnail.has_value());
+  CHECK(thumbnail->size == glm::uvec2{ThumbnailSize, 64});
+  // 1 / (1 + 1) = 0.5 linear, 188 in sRGB; opaque.
+  CHECK(std::to_integer<int>(thumbnail->data[0]) == 188);
+  CHECK(std::to_integer<int>(thumbnail->data[3]) == 255);
+}
+
+TEST_CASE("only textures and environments that are files of their own have a thumbnail", "[assets][thumbnail]") {
+  Fixture fixture;
+  const AssetInfo *crate = fixture.database.findByPath(fixture.root / "assets" / "crate.gltf");
+  REQUIRE(crate != nullptr);
+  CHECK_FALSE(fixture.database.thumbnailRequest(crate->uuid).has_value());
+  bool subAssets = false;
+  for (const AssetInfo *info : fixture.database.assets()) {
+    if (info->parent == crate->uuid) {
+      subAssets = true;
+      CHECK_FALSE(fixture.database.thumbnailRequest(info->uuid).has_value());
+    }
+  }
+  CHECK(subAssets);
+  CHECK_FALSE(fixture.database.thumbnailRequest(core::Uuid{}).has_value());
+}
+
+TEST_CASE("unregistering an asset drops its thumbnail", "[assets][thumbnail]") {
+  Fixture fixture;
+  const core::Uuid wide = fixture.uuidOf("wide.png");
+  REQUIRE(makeThumbnail(*fixture.database.thumbnailRequest(wide)).has_value());
+  const auto entry = thumbnailFile(fixture.database.cacheDirectory(), wide);
+  REQUIRE(std::filesystem::exists(entry));
+  fixture.database.unregister(wide);
+  CHECK_FALSE(std::filesystem::exists(entry));
+}

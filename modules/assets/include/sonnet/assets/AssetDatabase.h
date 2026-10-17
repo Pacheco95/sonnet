@@ -4,6 +4,7 @@
 #include <sonnet/assets/Asset.h>
 #include <sonnet/assets/Bundle.h>
 #include <sonnet/assets/Importers.h>
+#include <sonnet/assets/Thumbnail.h>
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/JobSystem.h>
@@ -189,6 +190,11 @@ public:
   // first time one of them is asked for. An uncompressed texture is its RGBA8 cache entry, and a
   // KTX2 source is itself. Project mode only.
   [[nodiscard]] core::Result<std::vector<std::byte>> mobileTexture(const core::Uuid &uuid);
+
+  // What makeThumbnail needs for an asset (docs/assets.md, "Thumbnails"): a texture or an environment
+  // that is a file of its own, other than a KTX2 one. Nothing for the rest, which the editor shows
+  // as an icon. Project mode only.
+  [[nodiscard]] std::optional<ThumbnailRequest> thumbnailRequest(const core::Uuid &uuid) const;
 
   [[nodiscard]] std::filesystem::path cacheDirectory() const {
     return m_projectRoot / ".sonnet" / "cache";

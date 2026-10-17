@@ -18,6 +18,7 @@ sonnet_add_module(assets
     src/Ktx2.cpp
     src/MeshCook.cpp
     src/Project.cpp
+    src/Thumbnail.cpp
   PUBLIC_DEPENDS
     sonnet::renderer
     nlohmann_json::nlohmann_json
@@ -40,6 +41,7 @@ sonnet_add_module_test(assets
     tests/JsonTests.cpp
     tests/ProjectTests.cpp
     tests/TextureTests.cpp
+    tests/ThumbnailTests.cpp
   DEPENDS
     nlohmann_json::nlohmann_json
     KTX::ktx

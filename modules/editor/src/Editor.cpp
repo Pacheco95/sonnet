@@ -3,6 +3,7 @@
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/CameraLines.h>
 #include <sonnet/editor/EntityCommands.h>
+#include <sonnet/editor/Icons.h>
 #include <sonnet/editor/LightLines.h>
 
 #include <sonnet/assets/Json.h>
@@ -80,8 +81,9 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
       m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
       m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
-      m_inspectorPanel(m_world, m_assets, m_selection, m_commands),
-      m_assetBrowserPanel(m_assets, m_world, m_selection) {
+      m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_world, m_selection),
+      m_thumbnails(device, m_imgui, m_assets) {
+  addIconFont(ImGui::GetIO());
   m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
   m_viewportPanel.setImmediateViews(platform.isHeadless());
   if (!platform.isHeadless()) {
@@ -99,6 +101,16 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
     }
   });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  m_assetBrowserPanel.setThumbnailSource([this](const core::Uuid &uuid) { return m_thumbnails.get(uuid); });
+  m_assetBrowserPanel.setViewHandler([this](const AssetsView &view) {
+    if (!m_project) {
+      return;
+    }
+    m_preferences.assetsView[m_project->root] = view;
+    if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
+      SONNET_LOG_WARN("{}", saved.error().toString());
+    }
+  });
   m_assetBrowserPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_assetBrowserPanel.setMoveHandler(
       [this](std::span<const std::pair<std::filesystem::path, std::filesystem::path>> moves) -> core::Result<void> {
@@ -412,6 +424,7 @@ void Editor::update(float dt) {
   if (m_viewState.assets) {
     m_assetBrowserPanel.draw(m_viewState.assets);
   }
+  m_thumbnails.update();
   if (m_viewState.viewport) {
     m_viewportPanel.setWheelForGame(gameInputActive());
     const bool wantsRelativeMouse = m_viewportPanel.draw(
@@ -458,7 +471,9 @@ void Editor::update(float dt) {
   static_cast<void>(m_jobs.runMainThreadJobs());
   // Changed source files are re-imported before the draw list resolves them, and changed
   // shader sources rebuild their pipelines.
-  static_cast<void>(m_assets.pollChanges());
+  for (const core::Uuid &changed : m_assets.pollChanges()) {
+    m_thumbnails.invalidate(changed);
+  }
   // Both are read, so neither request is left over for the next frame.
   const bool focusGained = std::exchange(m_rescanRequested, false);
   const bool panelOpened = m_assetBrowserPanel.takeOpened();
@@ -1535,6 +1550,7 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   endRecovery();
   m_project = std::move(*project);
   m_assetBrowserPanel.inspect({});
+  showAssetsView();
   m_preferences.addRecentProject(m_project->root);
   if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
     SONNET_LOG_WARN("{}", saved.error().toString());
@@ -1573,6 +1589,12 @@ void Editor::setPreferencesFile(const std::filesystem::path &file) {
   m_preferencesFile = file;
   m_preferences = Preferences::load(file);
   m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
+  showAssetsView();
+}
+
+void Editor::showAssetsView() {
+  const auto kept = m_project ? m_preferences.assetsView.find(m_project->root) : m_preferences.assetsView.end();
+  m_assetBrowserPanel.setView(kept != m_preferences.assetsView.end() ? kept->second : AssetsView{});
 }
 
 OpenScenes Editor::openScenes() const {

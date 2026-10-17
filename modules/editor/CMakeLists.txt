@@ -17,10 +17,12 @@ sonnet_add_module(editor
     src/GamePanel.cpp
     src/Gizmo.cpp
     src/HierarchyPanel.cpp
+    src/Icons.cpp
     src/InspectorPanel.cpp
     src/Layout.cpp
     src/LightLines.cpp
     src/LogPanel.cpp
+    src/LucideFontData.cpp
     src/Preferences.cpp
     src/Project.cpp
     src/Recovery.cpp
@@ -28,6 +30,7 @@ sonnet_add_module(editor
     src/Selection.cpp
     src/ShaderCompiler.cpp
     src/StatisticsPanel.cpp
+    src/ThumbnailCache.cpp
     src/TypeFilter.cpp
     src/ViewportPanel.cpp
     src/WindowState.cpp

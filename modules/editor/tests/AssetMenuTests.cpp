@@ -5,6 +5,7 @@
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/FileManager.h>
+#include <sonnet/editor/Icons.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/NullDevice.h>
 
@@ -14,6 +15,8 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -887,4 +890,163 @@ TEST_CASE("duplicate copies a row beside itself with a new identity", "[editor][
   CHECK(fixture.database.find(original) != nullptr);
   REQUIRE(fixture.commands.redo(fixture.world));
   CHECK(fixture.database.findByPath(assets / "bbb 2.lua") != nullptr);
+}
+
+TEST_CASE("every icon is a glyph of the embedded font", "[editor][assets][imgui]") {
+  BrowserContext context;
+  ImGuiIO &io = ImGui::GetIO();
+  io.Fonts->Clear();
+  addIconFont(io);
+  unsigned char *pixels = nullptr;
+  int width = 0, height = 0;
+  io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+  ImFont *font = io.Fonts->Fonts[0];
+  ImFontBaked *baked = font->GetFontBaked(16.0f);
+  for (const char *icon : AllIcons) {
+    unsigned int codepoint = 0;
+    REQUIRE(ImTextCharFromUtf8(&codepoint, icon, nullptr) > 0);
+    CHECK(codepoint >= 0xE000);
+    CHECK(baked->FindGlyphNoFallback(static_cast<ImWchar>(codepoint)) != nullptr);
+  }
+  // Every type the browser lists has an icon of its own, and a plain file the generic one.
+  std::set<std::string_view> icons;
+  for (const char *type : {"Folder", "Texture", "Environment", "Material", "Mesh", "Model", "Prefab", "Script", "Sound",
+                           "Font", "Animation", "Skin", "Scene"}) {
+    CHECK(std::string_view{iconForType(type)} != std::string_view{IconFile});
+    icons.insert(iconForType(type));
+  }
+  CHECK(icons.size() == 13);
+  CHECK(std::string_view{iconForType("File")} == std::string_view{IconFile});
+}
+
+namespace {
+
+// A project folder with `count` small textures, and a panel on it in a 900 x 400 window.
+struct GridFixture {
+  BrowserContext context;
+  platform::Platform platform{{.headless = true}};
+  std::unique_ptr<sonnet::rhi::NullDevice> device = sonnet::rhi::createNullDevice();
+  sonnet::renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  sonnet::core::JobSystem jobs{{.workerCount = 0}};
+  sonnet::assets::AssetDatabase database{renderer, jobs};
+  sonnet::world::World world;
+  Selection selection;
+  std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_browser_grid";
+  std::unique_ptr<AssetBrowserPanel> panel;
+
+  explicit GridFixture(int count) {
+    using namespace sonnet;
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "assets");
+    const std::vector<std::uint8_t> pixels(std::size_t{4} * 4 * 4, 255);
+    for (int i = 0; i < count; ++i) {
+      REQUIRE(core::writeFile(root / "assets" / std::format("t{:03}.tga", i), tgaBytes(pixels)).has_value());
+    }
+    database.open(root, std::vector<std::string>{"assets"});
+    panel = std::make_unique<AssetBrowserPanel>(database, world, selection);
+    panel->navigate(root / "assets");
+  }
+  ~GridFixture() {
+    panel.reset();
+    std::filesystem::remove_all(root);
+  }
+
+  static std::vector<std::byte> tgaBytes(const std::vector<std::uint8_t> &rgba) {
+    // An uncompressed 4 x 4 TGA, which stb_image reads and needs no encoder: a header, then the pixels.
+    std::vector<std::byte> tga(18, std::byte{0});
+    tga[2] = std::byte{2};
+    tga[12] = std::byte{4};
+    tga[14] = std::byte{4};
+    tga[16] = std::byte{32};
+    tga[17] = std::byte{8};
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+      tga.push_back(static_cast<std::byte>(rgba[i]));
+    }
+    return tga;
+  }
+
+  void frame() {
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize({900, 400});
+    bool open = true;
+    panel->draw(open);
+    ImGui::Render();
+  }
+  void click(const ScreenRect &rect) {
+    auto &io = ImGui::GetIO();
+    io.AddMousePosEvent((rect.min.x + rect.max.x) * 0.5f, (rect.min.y + rect.max.y) * 0.5f);
+    frame();
+    io.AddMouseButtonEvent(0, true);
+    frame();
+    io.AddMouseButtonEvent(0, false);
+    frame();
+  }
+};
+
+} // namespace
+
+TEST_CASE("the grid button shows the tiles and tells the editor, and the list button goes back",
+          "[editor][assets][imgui][grid]") {
+  GridFixture fixture{12};
+  AssetBrowserPanel &panel = *fixture.panel;
+  std::vector<AssetsView> told;
+  panel.setViewHandler([&](const AssetsView &view) { told.push_back(view); });
+  fixture.frame();
+  fixture.frame();
+  CHECK_FALSE(panel.view().grid);
+  CHECK(panel.tiles().empty());
+
+  fixture.click(panel.gridButton());
+  REQUIRE(panel.view().grid);
+  REQUIRE(told.size() == 1);
+  CHECK(told.back().grid);
+  CHECK(panel.tiles().size() == 12);
+  // The tiles are the size of the view, in rows that fit the panel.
+  CHECK(panel.tiles()[0].max.x - panel.tiles()[0].min.x == AssetsView::DefaultTileSize);
+  CHECK(panel.tiles()[1].min.x > panel.tiles()[0].max.x);
+
+  // Selecting a tile inspects its asset, as selecting a row does.
+  const auto rows = panel.rows();
+  fixture.click(panel.tiles()[2]);
+  CHECK(panel.inspected() == rows[2].uuid);
+
+  fixture.click(panel.listButton());
+  REQUIRE_FALSE(panel.view().grid);
+  REQUIRE(told.size() == 2);
+  CHECK(panel.tiles().empty());
+
+  // setView is what the preferences do at project open: it clamps and stays quiet.
+  panel.setView({.grid = true, .tileSize = 4000.0f});
+  CHECK(panel.view().tileSize == AssetsView::MaxTileSize);
+  CHECK(told.size() == 2);
+  fixture.frame();
+  CHECK(panel.tiles().size() == 12);
+}
+
+TEST_CASE("the grid asks for the thumbnails of the tiles in view only", "[editor][assets][imgui][grid]") {
+  GridFixture fixture{300};
+  AssetBrowserPanel &panel = *fixture.panel;
+  panel.setView({.grid = true, .tileSize = 96.0f});
+  std::set<sonnet::core::Uuid> asked;
+  panel.setThumbnailSource([&](const sonnet::core::Uuid &uuid) {
+    asked.insert(uuid);
+    return ThumbnailImage{};
+  });
+  fixture.frame();
+  fixture.frame();
+  REQUIRE(panel.tiles().size() == 300);
+  CHECK_FALSE(asked.empty());
+  // 900 x 400 holds fewer than 4 rows of 8 tiles, not the 38 rows there are.
+  CHECK(asked.size() < 60);
+
+  // Scrolling brings others into view, and the ones that left are no longer asked for.
+  const auto before = asked;
+  ImGui::GetIO().AddMousePosEvent(450.0f, 250.0f);
+  fixture.frame();
+  ImGui::GetIO().AddMouseWheelEvent(0.0f, -30.0f);
+  fixture.frame();
+  fixture.frame();
+  CHECK(asked.size() > before.size());
+  CHECK(asked.size() < 300);
 }

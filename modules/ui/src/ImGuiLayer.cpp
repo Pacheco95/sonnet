@@ -97,7 +97,8 @@ ImGuiLayer::ImGuiLayer(const ImGuiLayerDesc &desc) {
   info.Device = *vulkanDevice->device();
   info.QueueFamily = vulkanDevice->graphicsFamily();
   info.Queue = *vulkanDevice->graphicsQueue();
-  info.DescriptorPoolSize = 64; // the font atlas plus the images registered for display
+  info.DescriptorPoolSize =
+      1024; // the font atlas plus the images registered for display, the editor's thumbnails among them
   info.MinImageCount = 2;
   info.ImageCount = std::max(desc.swapchainImageCount, info.MinImageCount);
   info.UseDynamicRendering = true;

@@ -634,6 +634,23 @@ bool fresh(const std::filesystem::path &cached, std::filesystem::file_time_type 
 
 } // namespace
 
+std::optional<ThumbnailRequest> AssetDatabase::thumbnailRequest(const core::Uuid &uuid) const {
+  const AssetInfo *info = find(uuid);
+  const auto record = m_files.find(uuid);
+  if (info == nullptr || m_bundle || !info->parent.isNil() || record == m_files.end() ||
+      (info->type != AssetType::Texture && info->type != AssetType::Environment) ||
+      kindOf(info->source) == SourceKind::Ktx2) {
+    return std::nullopt;
+  }
+  return ThumbnailRequest{.uuid = uuid,
+                          .type = info->type,
+                          .source = info->source,
+                          .sidecar = record->second.sidecar,
+                          .cache = cacheDirectory(),
+                          .sourceTime = record->second.sourceTime,
+                          .settings = TextureSettings::fromJson(record->second.settings)};
+}
+
 core::Result<std::vector<std::byte>> AssetDatabase::mobileTexture(const core::Uuid &uuid) {
   SONNET_ZONE();
   const AssetInfo *info = find(uuid);

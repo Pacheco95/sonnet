@@ -1,7 +1,9 @@
 #pragma once
 
 #include <sonnet/editor/CommandStack.h>
+#include <sonnet/editor/Preferences.h>
 #include <sonnet/editor/Selection.h>
+#include <sonnet/editor/ThumbnailCache.h>
 #include <sonnet/editor/TypeFilter.h>
 
 #include <sonnet/assets/AssetDatabase.h>
@@ -67,6 +69,12 @@ enum class AssetSortColumn {
 // reversing that key; ties go by name ascending, then identity, so the order is total.
 void sortAssetRows(std::span<AssetRow> rows, AssetSortColumn column, bool descending);
 
+// A rectangle in ImGui's screen space.
+struct ScreenRect {
+  glm::vec2 min{0.0f};
+  glm::vec2 max{0.0f};
+};
+
 struct AssetReferences {
   std::size_t entities{0};
   std::size_t materials{0};
@@ -112,6 +120,34 @@ public:
   }
 
   [[nodiscard]] bool focused() const noexcept;
+
+  // How the folder is shown: the list or the grid of tiles, and the tile's side (docs/editor.md, "Grid view").
+  // `setView` clamps the tile size to its limits and does not call the handler.
+  [[nodiscard]] const AssetsView &view() const noexcept {
+    return m_view;
+  }
+  void setView(AssetsView view);
+  // Called when the user switches between the list and the grid or finishes resizing the tiles, with the new
+  // view; the editor keeps it in the preferences.
+  void setViewHandler(std::function<void(const AssetsView &)> handler) {
+    m_viewChanged = std::move(handler);
+  }
+  // The picture of a texture or an environment, asked for only while its tile is on screen; texture 0 shows the
+  // type's icon instead. Without a source every tile shows its icon.
+  void setThumbnailSource(std::function<ThumbnailImage(const core::Uuid &)> source) {
+    m_thumbnail = std::move(source);
+  }
+  // Where the last frame drew the buttons that pick the list and the grid, and the grid's tiles in row order (none in
+  // the list view). The editor's tests click them.
+  [[nodiscard]] const ScreenRect &listButton() const noexcept {
+    return m_listButton;
+  }
+  [[nodiscard]] const ScreenRect &gridButton() const noexcept {
+    return m_gridButton;
+  }
+  [[nodiscard]] std::span<const ScreenRect> tiles() const noexcept {
+    return m_tiles;
+  }
   void
   setFileHandlers(std::function<core::Result<void>(const std::filesystem::path &, const std::filesystem::path &)> move,
                   std::function<core::Result<void>(std::span<const std::filesystem::path>)> remove,
@@ -162,6 +198,21 @@ private:
   void acceptDrop(const std::filesystem::path &folder);
   void queueDuplicate(std::vector<std::filesystem::path> files);
   void runQueued();
+  void drawViewButtons();
+  void drawBackgroundMenu();
+  void drawTable(std::optional<std::filesystem::path> &destination, bool keyboard);
+  void drawGrid(std::optional<std::filesystem::path> &destination, bool keyboard);
+  // The multi-selection around the rows of either view, and the shortcuts that act on it.
+  void beginSelection();
+  void endSelection(bool keyboard);
+  // The pieces of a row both views share. `handleRowKeys` is F2 and Delete on the focused row, `drawRenameField` the
+  // name field while it is renamed, `rowClicked` what selecting it does, and `finishRow` Enter, the drag source, the
+  // drop target of a folder and the context menu of the item just drawn.
+  void handleRowKeys(const AssetRow &row, ImGuiID id, bool editable, bool keyboard);
+  void drawRenameField(const AssetRow &row, float width);
+  void rowClicked(const AssetRow &row, std::optional<std::filesystem::path> &destination);
+  void finishRow(const AssetRow &row, ImGuiID id, bool editable, bool keyboard,
+                 std::optional<std::filesystem::path> &destination);
 
   assets::AssetDatabase &m_assets;
   world::World &m_world;
@@ -191,6 +242,12 @@ private:
   std::vector<std::pair<std::filesystem::path, std::filesystem::path>> m_queuedMoves;
   std::vector<std::filesystem::path> m_queuedDuplicates;
   bool m_opened{false};
+  AssetsView m_view;
+  std::function<void(const AssetsView &)> m_viewChanged;
+  std::function<ThumbnailImage(const core::Uuid &)> m_thumbnail;
+  ScreenRect m_listButton;
+  ScreenRect m_gridButton;
+  std::vector<ScreenRect> m_tiles;
   std::function<void(const std::filesystem::path &)> m_scene;
   std::function<core::Result<void>(const std::filesystem::path &)> m_createFolder;
   std::function<core::Result<void>(std::span<const std::pair<std::filesystem::path, std::filesystem::path>>)>
