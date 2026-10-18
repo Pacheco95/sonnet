@@ -343,6 +343,7 @@ TEST_CASE("the orthographic sample plays through the Game camera", "[editor][gpu
   REQUIRE(manifest);
   const auto directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "orthographic";
   std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory.parent_path()); // copy makes only the last directory
   std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
