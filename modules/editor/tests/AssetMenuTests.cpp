@@ -5,6 +5,7 @@
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/FileManager.h>
+#include <sonnet/editor/Fonts.h>
 #include <sonnet/editor/Icons.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/NullDevice.h>
@@ -896,7 +897,7 @@ TEST_CASE("every icon is a glyph of the embedded font", "[editor][assets][imgui]
   BrowserContext context;
   ImGuiIO &io = ImGui::GetIO();
   io.Fonts->Clear();
-  addIconFont(io);
+  addFonts(io);
   unsigned char *pixels = nullptr;
   int width = 0, height = 0;
   io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -917,6 +918,28 @@ TEST_CASE("every icon is a glyph of the embedded font", "[editor][assets][imgui]
   }
   CHECK(icons.size() == 13);
   CHECK(std::string_view{iconForType("File")} == std::string_view{IconFile});
+}
+
+TEST_CASE("the text and the monospace font draw ASCII and the degree sign", "[editor][imgui]") {
+  BrowserContext context;
+  ImGuiIO &io = ImGui::GetIO();
+  io.Fonts->Clear();
+  CHECK(monoFont() == nullptr);
+  addFonts(io);
+  unsigned char *pixels = nullptr;
+  int width = 0, height = 0;
+  io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+  REQUIRE(monoFont() != nullptr);
+  CHECK(monoFont() != io.Fonts->Fonts[0]);
+  for (ImFont *font : {io.Fonts->Fonts[0], monoFont()}) {
+    ImFontBaked *baked = font->GetFontBaked(14.0f);
+    for (const ImWchar codepoint : {ImWchar{'A'}, ImWchar{'z'}, ImWchar{'0'}, ImWchar{'-'}, ImWchar{0xB0}}) {
+      CHECK(baked->FindGlyphNoFallback(codepoint) != nullptr);
+    }
+  }
+  // Every glyph of the monospace font has the same advance.
+  ImFontBaked *baked = monoFont()->GetFontBaked(14.0f);
+  CHECK(baked->FindGlyph('i')->AdvanceX == baked->FindGlyph('W')->AdvanceX);
 }
 
 namespace {

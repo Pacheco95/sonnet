@@ -3,6 +3,7 @@
 #include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/EntityCommands.h>
+#include <sonnet/editor/Fonts.h>
 #include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/ScriptSlots.h>
 
@@ -264,8 +265,11 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
   const std::string source = info->source == "builtin"
                                  ? std::string{"built-in"}
                                  : info->source.lexically_relative(m_assets.projectRoot()).generic_string();
-  ImGui::TextDisabled("%s", source.c_str());
-  ImGui::TextDisabled("%s", uuid.toString().c_str());
+  {
+    const ScopedMono mono;
+    ImGui::TextDisabled("%s", source.c_str());
+    ImGui::TextDisabled("%s", uuid.toString().c_str());
+  }
   if (info->source != "builtin" && ImGui::Button("Reimport")) {
     if (const auto result = m_assets.reimport(uuid); !result) {
       SONNET_LOG_ERROR("{}", result.error().toString());
@@ -566,7 +570,10 @@ void InspectorPanel::drawEntity(flecs::entity entity) {
     const world::Name *name = prefab.try_get<world::Name>();
     ImGui::TextDisabled("Instance of %s", name != nullptr ? name->value.c_str() : "prefab");
   }
-  ImGui::TextDisabled("%s", uuid.toString().c_str());
+  {
+    const ScopedMono mono;
+    ImGui::TextDisabled("%s", uuid.toString().c_str());
+  }
   ImGui::Separator();
   for (const world::ComponentInfo &info : m_world.components()) {
     if (entity.has(info.id)) {

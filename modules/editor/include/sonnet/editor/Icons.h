@@ -7,8 +7,8 @@
 namespace sonnet::editor {
 
 // The icon font (docs/editor.md, "Icons"): sixteen glyphs of Lucide, cut out by tools/generate_lucide_font.py and
-// merged into the default font by addIconFont, so a label can start with one: `ImGui::Text("%s Folder", IconFolder)`.
-// Each is the glyph's UTF-8 encoding, in the private use area.
+// merged into the text font by addFonts (Fonts.h), so a label can start with one: `ImGui::Text("%s Folder",
+// IconFolder)`. Each is the glyph's UTF-8 encoding, in the private use area.
 extern const unsigned char LucideFontData[];
 extern const unsigned int LucideFontSize;
 
@@ -33,9 +33,6 @@ inline constexpr const char *IconList = "\xee\x84\x86";    // U+E106
 inline constexpr const char *AllIcons[] = {IconFolder,  IconFile,   IconImage,  IconGlobe, IconPalette, IconBox,
                                            IconPackage, IconBlocks, IconScript, IconSound, IconFont,    IconPlay,
                                            IconBone,    IconFilm,   IconGrid,   IconList};
-
-// Adds the default font and merges the icons into it. Once, before the first frame.
-void addIconFont(ImGuiIO &io);
 
 // The icon of an asset row's type name ("Texture", "Folder", "Scene", "File" and the other types of the browser).
 [[nodiscard]] const char *iconForType(std::string_view type) noexcept;

@@ -2,16 +2,6 @@
 
 namespace sonnet::editor {
 
-void addIconFont(ImGuiIO &io) {
-  io.Fonts->AddFontDefault();
-  ImFontConfig config;
-  config.MergeMode = true;
-  config.FontDataOwnedByAtlas = false;
-  config.PixelSnapH = true;
-  io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char *>(LucideFontData), static_cast<int>(LucideFontSize), 0.0f,
-                                 &config);
-}
-
 const char *iconForType(std::string_view type) noexcept {
   struct Entry {
     std::string_view type;

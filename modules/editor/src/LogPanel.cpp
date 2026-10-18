@@ -1,6 +1,7 @@
 #include <sonnet/editor/LogPanel.h>
 
 #include <sonnet/core/Log.h>
+#include <sonnet/editor/Fonts.h>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -175,6 +176,7 @@ void LogPanel::draw(bool &open) {
       const LogEntry &entry = *m_rows[static_cast<std::size_t>(index)];
       const auto id = static_cast<ImGuiID>(entry.sequence);
       ImGui::PushID(static_cast<int>(id));
+      const ScopedMono mono;
       // The row's selectable spans the line under the text; AllowOverlap lets the location link
       // drawn over it take its own clicks.
       const float rowStart = ImGui::GetCursorPosX();
