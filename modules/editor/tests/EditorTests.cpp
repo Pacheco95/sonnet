@@ -1342,7 +1342,8 @@ TEST_CASE("focusing frames the meshes under the selection by their bounds", "[ed
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
-TEST_CASE("middle-dragging the viewport pans the camera and Alt + left-dragging orbits it around the focused object", "[editor][gpu]") {
+TEST_CASE("middle-dragging the viewport pans the camera and Alt + left-dragging orbits it around the focused object",
+          "[editor][gpu]") {
   Fixture fixture;
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
