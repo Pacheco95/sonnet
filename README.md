@@ -206,6 +206,7 @@ ctest --preset linux-debug
 | [0030](docs/decisions/0030-model-node-identities.md) | A model prefab's nodes are identified by their name path | Accepted |
 | [0031](docs/decisions/0031-vertex-colours.md) | Vertex colour is a packed RGBA8 in Vertex | Accepted |
 | [0032](docs/decisions/0032-instance-child-order.md) | An instance stores the order of its children when it differs from the default | Accepted |
+| [0033](docs/decisions/0033-transmission.md) | Transmissive materials sample a copy of the opaque scene | Accepted |
 
 ## License
 
