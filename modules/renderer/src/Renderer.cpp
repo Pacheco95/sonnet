@@ -576,6 +576,8 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineCompute(m_hizLevelPipeline, "hiz", "buildLevel", "depth pyramid level");
   defineCompute(m_equirectPipeline, "ibl", "equirectToCube", "equirect to cube");
   defineCompute(m_cubeMipPipeline, "ibl", "cubeMip", "cube mip");
+  defineCompute(m_transmissionCopyPipeline, "ibl", "transmissionCopy", "transmission copy");
+  defineCompute(m_transmissionDownPipeline, "ibl", "transmissionDown", "transmission mip");
   defineCompute(m_irradiancePipeline, "ibl", "irradiance", "irradiance");
   defineCompute(m_prefilterPipeline, "ibl", "prefilter", "prefilter");
   defineCompute(m_brdfLutPipeline, "ibl", "brdfLut", "brdf lut");
@@ -656,6 +658,8 @@ Renderer::~Renderer() {
                                              m_prefilterPipeline,
                                              m_irradiancePipeline,
                                              m_cubeMipPipeline,
+                                             m_transmissionCopyPipeline,
+                                             m_transmissionDownPipeline,
                                              m_equirectPipeline,
                                              m_hizLevelPipeline,
                                              m_hizBasePipeline,
@@ -3095,28 +3099,33 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
 
   const GraphImage hdr = graph.createImage({.size = size, .format = HdrFormat, .debugName = "scene hdr"});
   const bool skybox = m_environments.contains(view.environment) && !m_environments.get(view.environment).pending;
+  // Everything the forward shading samples; the spike's second pass declares the same.
+  const auto declareShading = [&](PassBuilder &builder) {
+    if (v.cascadesActive) {
+      for (const GraphImage cascade : v.cascadeImages) {
+        builder.sample(cascade);
+      }
+    }
+    for (const LocalShadow &local : v.localShadows) {
+      builder.sample(local.image);
+    }
+    builder.sample(m_frameImages.lut);
+    if (skybox) {
+      builder.sample(m_frameImages.skybox);
+      builder.sample(m_frameImages.irradiance);
+      builder.sample(m_frameImages.prefiltered);
+    }
+  };
+  const bool split = m_settings.transmissionCostSpike; // SPIKE (ADR-0033)
   graph.addPass(
       "forward",
       [&](PassBuilder &builder) {
         builder.color(hdr, rhi::LoadOp::Clear, clearColor);
         builder.depth(depth, rhi::LoadOp::Load);
-        if (v.cascadesActive) {
-          for (const GraphImage cascade : v.cascadeImages) {
-            builder.sample(cascade);
-          }
-        }
-        for (const LocalShadow &local : v.localShadows) {
-          builder.sample(local.image);
-        }
-        builder.sample(m_frameImages.lut);
-        if (skybox) {
-          builder.sample(m_frameImages.skybox);
-          builder.sample(m_frameImages.irradiance);
-          builder.sample(m_frameImages.prefiltered);
-        }
+        declareShading(builder);
       },
-      [this, &v, skybox, job = occlusion ? depthJob : forwardJob](rhi::ICommandList &commands,
-                                                                  const PassResources &resources) {
+      [this, &v, skybox, split, job = occlusion ? depthJob : forwardJob](rhi::ICommandList &commands,
+                                                                         const PassResources &resources) {
         ensureFrameUploaded(v, resources);
         if (job) {
           recordIndirect(commands, v, *job, v.opaqueBatches, m_forwardPipelines);
@@ -3132,10 +3141,68 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           bindFrame(commands, v);
           commands.draw(3);
         }
-        // Blended draws keep the direct path: their order is view-dependent (ADR-0012).
-        recordDraws(commands, v, v.blendedOrder, m_blendPipelines, true);
-        recordParticleDraws(commands, v);
+        if (!split) {
+          // Blended draws keep the direct path: their order is view-dependent (ADR-0012).
+          recordDraws(commands, v, v.blendedOrder, m_blendPipelines, true);
+          recordParticleDraws(commands, v);
+        }
       });
+  if (split) {
+    // SPIKE (ADR-0033): the copy and its chain, one pass per level as the cube mips are, then the
+    // blended draws and particles in a pass of their own that declares the copy as sampled.
+    const std::uint32_t levels = rhi::fullMipCount(size);
+    const GraphImage copy = graph.createImage(
+        {.size = size, .format = HdrFormat, .mipLevels = levels, .debugName = "transmission copy"});
+    graph.addPass(
+        "transmission copy",
+        [&](PassBuilder &builder) {
+          builder.sample(hdr, true);
+          builder.storage(copy);
+        },
+        [this, hdr, copy, size](rhi::ICommandList &commands, const PassResources &resources) {
+          const IblConstants push{.source = sampledIndex(resources.image(hdr)),
+                                  .destination = m_device.storageImageIndex(resources.image(copy), 0),
+                                  .size = size.x,
+                                  .sampleCount = size.y,
+                                  .roughness = 0.0f,
+                                  .sourceLod = 0.0f,
+                                  .sampler = m_device.samplerIndex(m_linearClampSampler)};
+          commands.bindPipeline(m_transmissionCopyPipeline);
+          commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+          commands.dispatch(groups(size.x, 8), groups(size.y, 8), 1);
+        });
+    for (std::uint32_t level = 1; level < levels; ++level) {
+      graph.addPass(
+          std::format("transmission mip {}", level), [&](PassBuilder &builder) { builder.storage(copy); },
+          [this, copy, level, target = rhi::mipSize(size, level)](rhi::ICommandList &commands,
+                                                                 const PassResources &resources) {
+            const rhi::ImageHandle image = resources.image(copy);
+            const IblConstants push{.source = sampledIndex(image),
+                                    .destination = m_device.storageImageIndex(image, level),
+                                    .size = target.x,
+                                    .sampleCount = target.y,
+                                    .roughness = 0.0f,
+                                    .sourceLod = static_cast<float>(level - 1),
+                                    .sampler = m_device.samplerIndex(m_linearClampSampler)};
+            commands.bindPipeline(m_transmissionDownPipeline);
+            commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+            commands.dispatch(groups(target.x, 8), groups(target.y, 8), 1);
+          });
+    }
+    graph.addPass(
+        "forward transparent",
+        [&](PassBuilder &builder) {
+          builder.color(hdr, rhi::LoadOp::Load);
+          builder.depth(depth, rhi::LoadOp::Load);
+          builder.sample(copy);
+          declareShading(builder);
+        },
+        [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
+          ensureFrameUploaded(v, resources);
+          recordDraws(commands, v, v.blendedOrder, m_blendPipelines, true);
+          recordParticleDraws(commands, v);
+        });
+  }
 
   // Under TAA the resolved scene stands in for the unresolved one from here on.
   GraphImage scene = hdr;

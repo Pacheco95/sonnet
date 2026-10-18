@@ -112,6 +112,10 @@ struct RendererSettings {
   // Occlusion culling of the opaque draws against a depth pyramid, in two phases (ADR-0024): the
   // result is the same pixels with fewer draws.
   bool occlusionCulling{true};
+  // SPIKE (ADR-0033 cost measurement): split the forward pass after the skybox, copy the HDR
+  // target with a full mip chain and draw the blended draws and particles in a second pass that
+  // samples it, in every view, with no shading change. Measures the copy, mips and split alone.
+  bool transmissionCostSpike{false};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
   // present pipeline out, which is what the editor does: it shows the scene through Dear ImGui.
   rhi::Format presentFormat{rhi::Format::Undefined};
@@ -708,6 +712,8 @@ private:
   rhi::PipelineHandle m_hizLevelPipeline;
   rhi::PipelineHandle m_equirectPipeline;
   rhi::PipelineHandle m_cubeMipPipeline;
+  rhi::PipelineHandle m_transmissionCopyPipeline; // SPIKE
+  rhi::PipelineHandle m_transmissionDownPipeline; // SPIKE
   rhi::PipelineHandle m_irradiancePipeline;
   rhi::PipelineHandle m_prefilterPipeline;
   rhi::PipelineHandle m_brdfLutPipeline;

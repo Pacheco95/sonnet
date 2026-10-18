@@ -55,6 +55,45 @@ void cubeMip(uint3 id : SV_DispatchThreadID) {
       cubes[ibl.source].SampleLevel(samplers[ibl.sampler], direction, ibl.sourceLod);
 }
 
+// SPIKE (ADR-0033 cost measurement): level 0 of the transmission copy, the forward target texel
+// for texel. `size` is the width and `sampleCount` the height.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void transmissionCopy(uint3 id : SV_DispatchThreadID) {
+  if (id.x >= ibl.size || id.y >= ibl.sampleCount) {
+    return;
+  }
+  const float2 uv = (float2(id.xy) + 0.5) / float2(ibl.size, ibl.sampleCount);
+  storageImages[ibl.destination][uint3(id.xy, 0)] = textures[ibl.source].SampleLevel(samplers[ibl.sampler], uv, 0.0);
+}
+
+// SPIKE: one level of the copy's chain from the level above, with the bloom chain's 13 taps.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void transmissionDown(uint3 id : SV_DispatchThreadID) {
+  if (id.x >= ibl.size || id.y >= ibl.sampleCount) {
+    return;
+  }
+  uint width, height, levels;
+  textures[ibl.source].GetDimensions(uint(ibl.sourceLod), width, height, levels);
+  const float2 t = 1.0 / float2(width, height);
+  const float2 uv = (float2(id.xy) + 0.5) / float2(ibl.size, ibl.sampleCount);
+  const float lod = ibl.sourceLod;
+  const SamplerState s = samplers[ibl.sampler];
+  const Texture2D source = textures[ibl.source];
+  float3 color = source.SampleLevel(s, uv, lod).rgb * 0.125;
+  color += (source.SampleLevel(s, uv + t * float2(-2.0, -2.0), lod).rgb + source.SampleLevel(s, uv + t * float2(2.0, -2.0), lod).rgb +
+            source.SampleLevel(s, uv + t * float2(-2.0, 2.0), lod).rgb + source.SampleLevel(s, uv + t * float2(2.0, 2.0), lod).rgb) *
+           0.03125;
+  color += (source.SampleLevel(s, uv + t * float2(0.0, -2.0), lod).rgb + source.SampleLevel(s, uv + t * float2(-2.0, 0.0), lod).rgb +
+            source.SampleLevel(s, uv + t * float2(2.0, 0.0), lod).rgb + source.SampleLevel(s, uv + t * float2(0.0, 2.0), lod).rgb) *
+           0.0625;
+  color += (source.SampleLevel(s, uv + t * float2(-1.0, -1.0), lod).rgb + source.SampleLevel(s, uv + t * float2(1.0, -1.0), lod).rgb +
+            source.SampleLevel(s, uv + t * float2(-1.0, 1.0), lod).rgb + source.SampleLevel(s, uv + t * float2(1.0, 1.0), lod).rgb) *
+           0.125;
+  storageImages[ibl.destination][uint3(id.xy, 0)] = float4(color, 1.0);
+}
+
 // Cosine-weighted hemisphere samples of the environment, which is what a Lambert surface sees.
 [shader("compute")]
 [numthreads(8, 8, 1)]

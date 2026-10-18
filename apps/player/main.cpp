@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <vector>
 #include <memory>
 #include <optional>
 #include <print>
@@ -52,8 +53,12 @@ using namespace sonnet;
   return std::format("{}.{}.{}", (version >> 22U) & 0x7FU, (version >> 12U) & 0x3FFU, version & 0xFFFU);
 }
 
+// SPIKE (ADR-0033 cost measurement): --transmission-spike, stripped before parsing.
+bool g_transmissionSpike = false;
+
 [[nodiscard]] runtime::GameDesc gameDesc(const runtime::CommandLine &line) {
   runtime::GameDesc desc;
+  desc.renderer.transmissionCostSpike = g_transmissionSpike;
   // A capture run draws its settle frames before it plays, as the editor's does.
   desc.paused = line.capture.has_value();
   desc.module = game::linkedModule();
@@ -266,7 +271,16 @@ std::unique_ptr<platform::IApplication> platform::createApplication(Platform &pl
                                                                     std::span<const std::string_view> args) {
   // A game and the flags of a capture run, in any order (docs/player.md, "Capture runs"). A
   // mistake goes to the log, which is what a phone shows; --help is for a terminal.
-  const core::Result<runtime::CommandLine> line = runtime::parseCommandLine(args, runtime::CaptureApplication::Player);
+  std::vector<std::string_view> kept;
+  for (const std::string_view arg : args) {
+    if (arg == "--transmission-spike") {
+      g_transmissionSpike = true;
+    } else {
+      kept.push_back(arg);
+    }
+  }
+  SONNET_LOG_INFO("transmission cost spike: {}", g_transmissionSpike ? "on" : "off");
+  const core::Result<runtime::CommandLine> line = runtime::parseCommandLine(kept, runtime::CaptureApplication::Player);
   if (!line) {
     SONNET_LOG_ERROR("sonnet_player: {}", line.error().message);
     return std::make_unique<ExitApp>(platform::AppResult::Failure);
