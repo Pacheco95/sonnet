@@ -14,11 +14,13 @@ sonnet_add_module(editor
     src/FileDialog.cpp
     src/FileManager.cpp
     src/FlyCamera.cpp
+    src/Fonts.cpp
     src/GamePanel.cpp
     src/Gizmo.cpp
     src/HierarchyPanel.cpp
     src/Icons.cpp
     src/InspectorPanel.cpp
+    src/InterFontData.cpp
     src/Layout.cpp
     src/LightLines.cpp
     src/LogPanel.cpp

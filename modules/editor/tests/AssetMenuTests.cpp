@@ -5,6 +5,7 @@
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/FileManager.h>
+#include <sonnet/editor/Fonts.h>
 #include <sonnet/editor/Icons.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/NullDevice.h>
@@ -896,7 +897,7 @@ TEST_CASE("every icon is a glyph of the embedded font", "[editor][assets][imgui]
   BrowserContext context;
   ImGuiIO &io = ImGui::GetIO();
   io.Fonts->Clear();
-  addIconFont(io);
+  addFonts(io);
   unsigned char *pixels = nullptr;
   int width = 0, height = 0;
   io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);

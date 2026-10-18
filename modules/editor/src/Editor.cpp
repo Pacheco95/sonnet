@@ -3,6 +3,7 @@
 #include <sonnet/editor/AssetCommands.h>
 #include <sonnet/editor/CameraLines.h>
 #include <sonnet/editor/EntityCommands.h>
+#include <sonnet/editor/Fonts.h>
 #include <sonnet/editor/Icons.h>
 #include <sonnet/editor/LightLines.h>
 
@@ -83,7 +84,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_world, m_selection),
       m_thumbnails(device, m_imgui, m_renderer, m_assets, m_world) {
-  addIconFont(ImGui::GetIO());
+  addFonts(ImGui::GetIO());
   m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
   m_viewportPanel.setImmediateViews(platform.isHeadless());
   if (!platform.isHeadless()) {
