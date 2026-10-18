@@ -30,9 +30,10 @@ struct ViewportInput {
 
 // The dockable scene view: owns the render target the scene is drawn into, displays it with
 // ImGui::Image, and drives the fly camera while the right mouse button is held over it; the wheel over it dollies
-// the camera when the right button is up. Dragging with the middle button orbits the camera around
-// the pivot: the point the last focus framed, or else a point in front of the camera at the
-// distance that focus used. The pivot is kept until the next focus or until WASD moves the camera.
+// the camera when the right button is up. Dragging with the middle button pans the camera in its
+// plane; Alt with the left button orbits the camera around the pivot: the point the last focus framed, or else a point
+// in front of the camera at the distance that focus used. The pivot is kept until the next focus or until WASD moves
+// the camera.
 class ViewportPanel {
 public:
   // Everything about where the viewport looks from; a scene tab keeps its own.
@@ -128,7 +129,13 @@ private:
   bool m_immediateViews{false};
   bool m_cameraActive{false};
   bool m_wheelForGame{false};
-  bool m_orbiting{false}; // the active camera drag is the middle button's orbit
+  enum class Drag {
+    Fly,
+    Pan,
+    Orbit
+  };
+  Drag m_drag{Drag::Fly}; // what the active camera drag does, from the buttons held this frame
+  bool m_altOrbit{false}; // a left press with Alt held started the drag; it lasts while the button does
 };
 
 } // namespace sonnet::editor

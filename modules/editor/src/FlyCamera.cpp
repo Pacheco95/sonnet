@@ -13,6 +13,7 @@ constexpr float FastMultiplier = 4.0f;
 constexpr float DollyFraction = 0.1f;
 constexpr float MinDollyStep = 0.05f;
 constexpr float MinOrbitDistance = 0.05f;
+constexpr float OrthographicStandoff = 10.0f; // view heights the orthographic eye stands back for rendering
 
 } // namespace
 
@@ -241,6 +242,17 @@ void FlyCamera::zoom(float notches, glm::vec2 fraction, float aspect) {
   m_camera.position += before - m_camera.ray(fraction, aspect).origin;
 }
 
+FlyCamera::RenderView FlyCamera::renderView() const {
+  RenderView view{m_camera, m_dollyDepthOffset};
+  if (m_camera.projectionKind == renderer::ProjectionKind::Orthographic) {
+    const float standoff = OrthographicStandoff * m_camera.orthoHeight;
+    view.camera.position -= m_camera.forward() * standoff;
+    view.camera.farPlane += standoff;
+    view.depthOffset += standoff;
+  }
+  return view;
+}
+
 const char *FlyCamera::viewName() const noexcept {
   switch (m_axisView) {
   case AxisView::Front:
@@ -278,6 +290,17 @@ void FlyCamera::orbit(glm::vec2 lookDelta, glm::vec3 pivot) {
   turn(lookDelta);
   const float distance = std::max(glm::length(pivot - m_camera.position), MinOrbitDistance);
   m_camera.position = pivot - m_camera.forward() * distance;
+}
+
+glm::vec3 FlyCamera::pan(glm::vec2 lookDelta, float pivotDistance, float viewportHeight) {
+  cancelTransition();
+  const float height = m_camera.projectionKind == renderer::ProjectionKind::Orthographic
+                           ? m_camera.orthoHeight
+                           : 2.0f * std::max(pivotDistance, MinOrbitDistance) * std::tan(m_camera.fovY * 0.5f);
+  const float perPixel = height / std::max(viewportHeight, 1.0f);
+  const glm::vec3 offset = (m_camera.up() * lookDelta.y - m_camera.right() * lookDelta.x) * perPixel;
+  m_camera.position += offset;
+  return offset;
 }
 
 void FlyCamera::turn(glm::vec2 lookDelta) {

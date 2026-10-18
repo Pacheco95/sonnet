@@ -1342,7 +1342,8 @@ TEST_CASE("focusing frames the meshes under the selection by their bounds", "[ed
   REQUIRE(fixture.device->validationMessageCount() == 0);
 }
 
-TEST_CASE("middle-dragging the viewport orbits the camera around the focused object", "[editor][gpu]") {
+TEST_CASE("middle-dragging the viewport pans the camera and Alt + left-dragging orbits it around the focused object",
+          "[editor][gpu]") {
   Fixture fixture;
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
@@ -1377,15 +1378,40 @@ TEST_CASE("middle-dragging the viewport orbits the camera around the focused obj
     fixture.frame(editor);
     REQUIRE(editor.viewport().cameraActive());
 
-    motion.motion.x += 150.0f;
-    editor.nativeEvent(motion);
-    editor.event(platform::MouseMoved{{motion.motion.x, motion.motion.y}, {150.0f, 0.0f}});
-    fixture.frame(editor);
-    REQUIRE(glm::distance(position(), before) > 0.5f);
-    REQUIRE(glm::distance(position(), pivot) == Approx(glm::distance(before, pivot)).margin(0.01));
+    const auto drag = [&] {
+      motion.motion.x += 150.0f;
+      editor.nativeEvent(motion);
+      editor.event(platform::MouseMoved{{motion.motion.x, motion.motion.y}, {150.0f, 0.0f}});
+      fixture.frame(editor);
+    };
+    const glm::vec3 forward = editor.viewport().camera().camera().forward();
+    drag();
+    const glm::vec3 panned = position() - before;
+    REQUIRE(glm::length(panned) > 0.5f);
+    REQUIRE(glm::dot(editor.viewport().camera().camera().forward(), forward) == Approx(1.0f)); // slid, not turned
+    REQUIRE(std::abs(glm::dot(panned, forward)) < 0.001f);                                     // in the view plane
 
     button.type = SDL_EVENT_MOUSE_BUTTON_UP;
     editor.nativeEvent(button);
+    fixture.frame(editor);
+    REQUIRE_FALSE(editor.viewport().cameraActive());
+
+    // The focused object travelled with the camera, so Alt + left turns around it where it is now.
+    const glm::vec3 target = pivot + panned;
+    ImGui::GetIO().AddKeyEvent(ImGuiMod_Alt, true);
+    button.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    button.button.button = SDL_BUTTON_LEFT;
+    editor.nativeEvent(button);
+    fixture.frame(editor);
+    REQUIRE(editor.viewport().cameraActive());
+    const glm::vec3 beforeOrbit = position();
+    drag();
+    REQUIRE(glm::distance(position(), beforeOrbit) > 0.5f);
+    REQUIRE(glm::distance(position(), target) == Approx(glm::distance(beforeOrbit, target)).margin(0.01));
+
+    button.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    editor.nativeEvent(button);
+    ImGui::GetIO().AddKeyEvent(ImGuiMod_Alt, false);
     fixture.frame(editor);
     REQUIRE_FALSE(editor.viewport().cameraActive());
   }

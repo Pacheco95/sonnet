@@ -103,24 +103,34 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     }
   }
 
-  // Right mouse over the viewport takes the camera to fly, middle mouse to orbit; releasing that
-  // button anywhere gives it back.
+  // A mouse button pressed over the viewport takes the camera; releasing it gives it back. Right
+  // flies, middle pans, and Alt + left orbits (the left press is the camera's then, not a pick or
+  // a gizmo drag, and the drag goes on if Alt is let go first).
+  const bool rightDown = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+  const bool middleDown = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
   if (!m_cameraActive && hovered) {
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    if (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
       m_cameraActive = true;
-      m_orbiting = false;
-    } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
+      m_altOrbit = true;
+    } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
       m_cameraActive = true;
-      m_orbiting = true;
-      if (!m_view.hasPivot) {
-        m_view.pivot = m_view.camera.camera().position + m_view.camera.camera().forward() * m_view.focusDistance;
-        m_view.hasPivot = true;
-      }
     }
   }
-  if (!ImGui::IsMouseDown(m_orbiting ? ImGuiMouseButton_Middle : ImGuiMouseButton_Right)) {
+  if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    m_altOrbit = false;
+  }
+  if (!rightDown && !middleDown && !m_altOrbit) {
     m_cameraActive = false;
-    m_orbiting = false;
+  }
+  if (m_altOrbit || (hovered && ImGui::GetIO().KeyAlt)) {
+    m_input.leftClicked = false;
+    m_input.leftDoubleClicked = false;
+    m_input.leftDown = false;
+  }
+  m_drag = m_altOrbit ? Drag::Orbit : rightDown ? Drag::Fly : Drag::Pan;
+  if (m_cameraActive && m_drag == Drag::Orbit && !m_view.hasPivot) {
+    m_view.pivot = m_view.camera.camera().position + m_view.camera.camera().forward() * m_view.focusDistance;
+    m_view.hasPivot = true;
   }
   if ((hovered || m_input.focused) && !ImGui::GetIO().WantTextInput && !m_wheelForGame) {
     const bool ctrl = ImGui::GetIO().KeyCtrl;
@@ -145,19 +155,36 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     const float distance =
         m_view.hasFocusTarget ? glm::length(m_view.focusTarget - m_view.camera.camera().position) : 0.0f;
     if (m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic) {
-      const glm::vec3 before = m_view.camera.camera().position;
-      m_view.camera.zoom(wheel, (m_input.mouse - m_input.origin) / glm::max(m_input.size, glm::vec2{1.0f}),
-                         m_input.size.x / std::max(m_input.size.y, 1.0f));
-      const glm::vec3 pan = m_view.camera.camera().position - before;
-      m_view.pivot += pan;
-      m_view.focusTarget += pan;
+      const float aspect = m_input.size.x / std::max(m_input.size.y, 1.0f);
+      if (m_view.hasFocusTarget) {
+        // Like the perspective dolly, zoom about the focused object: it keeps its place on screen.
+        const renderer::Camera &camera = m_view.camera.camera();
+        const glm::vec4 clip = camera.projection(aspect) * camera.view() * glm::vec4{m_view.focusTarget, 1.0f};
+        const glm::vec2 fraction{clip.x * 0.5f + 0.5f, 0.5f - clip.y * 0.5f};
+        m_view.camera.zoom(wheel, fraction, aspect);
+      } else {
+        const glm::vec3 before = m_view.camera.camera().position;
+        m_view.camera.zoom(wheel, (m_input.mouse - m_input.origin) / glm::max(m_input.size, glm::vec2{1.0f}), aspect);
+        const glm::vec3 pan = m_view.camera.camera().position - before;
+        m_view.pivot += pan;
+      }
     } else {
       m_view.camera.dolly(wheel, distance,
                           ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift));
     }
   }
-  if (m_cameraActive && m_orbiting) {
+  if (m_cameraActive && m_drag == Drag::Orbit) {
     m_view.camera.orbit(lookDelta, m_view.pivot);
+  } else if (m_cameraActive && m_drag == Drag::Pan) {
+    // The pivot and the focused object travel with the camera, so a later orbit or dolly keeps its target.
+    const glm::vec3 pivotPoint =
+        m_view.hasPivot ? m_view.pivot
+                        : m_view.camera.camera().position + m_view.camera.camera().forward() * m_view.focusDistance;
+    const glm::vec3 offset = m_view.camera.pan(
+        lookDelta, glm::dot(pivotPoint - m_view.camera.camera().position, m_view.camera.camera().forward()),
+        m_input.size.y);
+    m_view.pivot += offset;
+    m_view.focusTarget += offset;
   } else if (m_cameraActive) {
     if (wheel != 0.0f) {
       m_view.camera.scaleSpeed(std::pow(1.2f, wheel));
