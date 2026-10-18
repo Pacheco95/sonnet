@@ -32,7 +32,7 @@ Per frame, in this order:
 | `AssetBrowserPanel.h` | The project's assets by type and name, drag sources for the inspector's pickers and the hierarchy, and the buttons that create a material or a script |
 | `ThumbnailCache.h` | The Assets panel's thumbnails on the GPU: made on the job system, uploaded a few per frame, released when unused ([Thumbnails](#thumbnails)) |
 | `ThumbnailRenderer.h` | Renders a material on a sphere, a mesh, and a model or prefab framed on its bounds into a small target of the editor's graph and reads it back ([Thumbnails](#thumbnails)) |
-| `Fonts.h` | The embedded text font, and `addFonts`, which builds the atlas ([Fonts](#fonts)) |
+| `Fonts.h` | The embedded text and monospace fonts, `addFonts`, which builds the atlas, and `ScopedMono` ([Fonts](#fonts)) |
 | `Icons.h` | The icon font and the icon of each asset type ([Icons](#icons)) |
 | `AssetCommands.h` | The material edit and the texture and model import settings commands |
 | `GamePanel.h` | The dockable game view: a `renderer::RenderTarget` of its own, sized to the panel and displayed with `ImGui::Image`, drawn through the scene's `Camera` entity; it has no camera, gizmo or picking, and its `ViewportInput` is the game's input while playing. The target exists only while the panel is on screen |
@@ -388,7 +388,9 @@ A recovery file is the scene JSON itself with one extra `recovery` key (the scen
 
 The editor draws its text in [Inter](https://rsms.me/inter/), embedded so every platform shows the same glyphs. `tools/generate_ui_fonts.py` cuts it from Google Fonts' variable `Inter[opsz,wght].ttf` (checked at 4.001) into `InterFontData.cpp`: ImGui's stb_truetype reads only a font's default instance, so the script pins the axes to Regular at the 14 pixel optical size, then keeps Basic Latin, Latin-1, Latin Extended-A and a few punctuation marks, 23 KB in all. `addFonts` adds it at 14 pixels and merges the [Lucide icons](#icons) into it, moved down two pixels (`IconOffsetY`): Lucide's glyphs are centred in their em box, which sits above the baseline of Inter's text, and the offset puts an icon in the middle of a button's label. The offset belongs to the font and its size, so changing either means measuring it again: a capture of the Assets toolbar (`--screenshot-window`) shows the List and Grid buttons, and the icon's ink should be centred in the button.
 
-Inter's licence, the SIL Open Font License 1.1, travels with it in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). The subset keeps none of Inter's private use area, where the icons live, so nothing of Inter's can win the merge over an icon.
+What is read character by character is drawn in [JetBrains Mono](https://www.jetbrains.com/lp/mono/), cut by the same script (`JetBrainsMonoFontData.cpp`, 2.211, the same subset, Regular) and added to the atlas after Inter as its second font. A `ScopedMono` draws what is in its scope in it, at the size around it, and does nothing before `addFonts` has run: the Inspector's UUIDs and source paths, and every row of the Log panel. Anything measured with `CalcTextSize`, such as a column width, has to be measured inside the same scope. Keep it to data: labels stay in Inter.
+
+Both fonts' licences, the SIL Open Font License 1.1, travel with them in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). The subset keeps none of Inter's private use area, where the icons live, so nothing of Inter's can win the merge over an icon.
 
 ## Running it
 

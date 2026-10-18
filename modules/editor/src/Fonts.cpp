@@ -21,6 +21,30 @@ void addFonts(ImGuiIO &io) {
   icons.GlyphOffset.y = IconOffsetY;
   io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char *>(LucideFontData), static_cast<int>(LucideFontSize),
                                  TextSize, &icons);
+
+  // The second font of the atlas, after the text font the icons merged into (monoFont).
+  ImFontConfig mono;
+  mono.FontDataOwnedByAtlas = false;
+  io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char *>(JetBrainsMonoFontData),
+                                 static_cast<int>(JetBrainsMonoFontSize), TextSize, &mono);
+}
+
+ImFont *monoFont() {
+  constexpr int MonoIndex = 1;
+  const ImVector<ImFont *> &fonts = ImGui::GetIO().Fonts->Fonts;
+  return fonts.Size > MonoIndex ? fonts[MonoIndex] : nullptr;
+}
+
+ScopedMono::ScopedMono() : m_pushed(monoFont() != nullptr) {
+  if (m_pushed) {
+    ImGui::PushFont(monoFont(), 0.0f); // 0 keeps the size around it
+  }
+}
+
+ScopedMono::~ScopedMono() {
+  if (m_pushed) {
+    ImGui::PopFont();
+  }
 }
 
 } // namespace sonnet::editor

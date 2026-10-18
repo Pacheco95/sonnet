@@ -21,6 +21,7 @@ sonnet_add_module(editor
     src/Icons.cpp
     src/InspectorPanel.cpp
     src/InterFontData.cpp
+    src/JetBrainsMonoFontData.cpp
     src/Layout.cpp
     src/LightLines.cpp
     src/LogPanel.cpp

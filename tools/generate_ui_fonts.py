@@ -2,12 +2,14 @@
 """Cuts the editor's text fonts out of Google Fonts' variable TTFs and embeds them (docs/editor.md, "Fonts").
 
   python3 tools/generate_ui_fonts.py inter path/to/Inter[opsz,wght].ttf
+  python3 tools/generate_ui_fonts.py jetbrains-mono path/to/JetBrainsMono[wght].ttf
 
-`inter` is the font to cut, a key of FONTS; the file is its variable TTF from github.com/google/fonts (ofl/inter,
-checked at Inter 4.001). ImGui's stb_truetype reads only a font's default instance and cannot pick an axis, so the
-script pins the axes to a static instance first, keeps the glyphs of the ranges below, and writes
-modules/editor/src/<Name>FontData.cpp. The output is committed; re-running with the same font overwrites it
-identically. The licences travel with the fonts in THIRD_PARTY_NOTICES.md. Needs fontTools.
+The first argument is the font to cut, a key of FONTS; the file is its variable TTF from github.com/google/fonts
+(ofl/inter, checked at Inter 4.001, and ofl/jetbrainsmono, checked at JetBrains Mono 2.211). ImGui's stb_truetype
+reads only a font's default instance and cannot pick an axis, so the script pins the axes to a static instance first,
+keeps the glyphs of the ranges below, and writes modules/editor/src/<Name>FontData.cpp. The output is committed;
+re-running with the same font overwrites it identically. The licences travel with the fonts in
+THIRD_PARTY_NOTICES.md. Needs fontTools.
 """
 import sys
 from io import BytesIO
@@ -30,6 +32,7 @@ LATIN = (
 # key -> (symbol prefix, the instance's axes, the font's name for the generated comment, its licence line)
 FONTS = {
     "inter": ("Inter", {"wght": 400, "opsz": 14}, "Inter", "Inter is SIL OFL 1.1 licensed"),
+    "jetbrains-mono": ("JetBrainsMono", {"wght": 400}, "JetBrains Mono", "JetBrains Mono is SIL OFL 1.1 licensed"),
 }
 
 
