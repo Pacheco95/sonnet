@@ -548,8 +548,9 @@ void Editor::update(float dt) {
       return false;
     });
   }
-  m_view.camera = m_viewportPanel.camera().camera();
-  m_view.dollyDepthOffset = m_viewportPanel.camera().dollyDepthOffset();
+  const FlyCamera::RenderView viewportView = m_viewportPanel.camera().renderView();
+  m_view.camera = viewportView.camera;
+  m_view.dollyDepthOffset = viewportView.depthOffset;
   m_view.draws = m_draws;
   m_view.joints = m_joints;
   m_view.morphWeights = m_morphWeights;

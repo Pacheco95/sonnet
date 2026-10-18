@@ -38,6 +38,15 @@ public:
   [[nodiscard]] glm::vec3 transitionPivot() const;
   void cancelTransition();
   void finishTransition();
+  // What the renderer draws from. An orthographic view has no vanishing depth, so the near plane
+  // cuts through whatever lies level with or behind the camera, as a ground plane does once the
+  // camera is panned low or zoomed in: the eye is pulled back along the view direction instead,
+  // which changes no pixel of the projection, with the far plane and the cascades moved to match.
+  struct RenderView {
+    renderer::Camera camera;
+    float depthOffset{0.0f}; // SceneView::dollyDepthOffset
+  };
+  [[nodiscard]] RenderView renderView() const;
   [[nodiscard]] float dollyDepthOffset() const noexcept {
     return m_dollyDepthOffset;
   }
@@ -69,6 +78,10 @@ public:
   // its current distance to the pivot (at least a few centimetres), so the pivot stays put on
   // screen. Yaw, pitch, sensitivity and the pitch limit are the fly camera's.
   void orbit(glm::vec2 lookDelta, glm::vec3 pivot);
+  // Slides the camera in its own plane so that what lies `pivotDistance` ahead (the orthographic
+  // size ignores it) follows the mouse: a drag of `lookDelta` pixels in a viewport `viewportHeight`
+  // pixels tall. Returns the world-space offset the camera moved by.
+  glm::vec3 pan(glm::vec2 lookDelta, float pivotDistance, float viewportHeight);
 
   [[nodiscard]] const renderer::Camera &camera() const noexcept {
     return m_camera;

@@ -89,6 +89,16 @@ TEST_CASE("dolly moves along the view by a fraction of the distance", "[editor][
   requireClose(camera.camera().position, {0.0f, 0.0f, -0.2f * camera.speed()});
 }
 
+TEST_CASE("pan slides the camera so the point at the pivot distance follows the cursor", "[editor][camera]") {
+  FlyCamera camera;
+  camera.lookAt({0.0f, 0.0f, 10.0f}, {0.0f, 0.0f, 0.0f});
+  const float perPixel = 2.0f * 10.0f * std::tan(camera.camera().fovY * 0.5f) / 800.0f;
+  const glm::vec3 offset = camera.pan({100.0f, 50.0f}, 10.0f, 800.0f); // dragging right/down moves the camera left/up
+  requireClose(offset, {-100.0f * perPixel, 50.0f * perPixel, 0.0f});
+  requireClose(camera.camera().position, glm::vec3{0.0f, 0.0f, 10.0f} + offset);
+  requireClose(camera.camera().forward(), {0.0f, 0.0f, -1.0f});
+}
+
 TEST_CASE("orbit turns around the pivot at a constant distance", "[editor][camera]") {
   FlyCamera camera;
   const glm::vec3 pivot{1.0f, 2.0f, -3.0f};
@@ -162,6 +172,27 @@ TEST_CASE("auto perspective leaves a snap only when turning and explicit orthogr
   camera.snap(AxisView::Top, pivot);
   camera.update(0.1f, {.lookDelta = {10, 5}});
   REQUIRE(camera.camera().projectionKind == sonnet::renderer::ProjectionKind::Orthographic);
+}
+
+TEST_CASE("an orthographic render view stands back so the near plane cuts nothing a pan or zoom brings level",
+          "[editor][camera][orthographic]") {
+  FlyCamera camera;
+  camera.snap(AxisView::Front, {0, 0, 0});
+  const FlyCamera::RenderView view = camera.renderView();
+  const auto &eye = camera.camera();
+  REQUIRE(glm::dot(eye.position - view.camera.position, eye.forward()) == Approx(10.0f * eye.orthoHeight));
+  REQUIRE(view.depthOffset == Approx(10.0f * eye.orthoHeight));
+  REQUIRE(view.camera.farPlane == Approx(eye.farPlane + 10.0f * eye.orthoHeight));
+  // The same rays, only started further back.
+  const auto a = eye.ray({0.3f, 0.7f}, 2.0f);
+  const auto b = view.camera.ray({0.3f, 0.7f}, 2.0f);
+  requireClose(a.direction, b.direction);
+  const glm::vec3 shift = b.origin - a.origin;
+  REQUIRE(glm::length(glm::cross(shift, eye.forward())) == Approx(0.0f).margin(1e-3f));
+
+  camera.toggleProjection({0, 0, 0}); // perspective: untouched
+  REQUIRE(camera.renderView().camera.position == camera.camera().position);
+  REQUIRE(camera.renderView().depthOffset == camera.dollyDepthOffset());
 }
 
 TEST_CASE("orthographic zoom anchors the cursor and keys pan in the view plane", "[editor][camera][orthographic]") {
