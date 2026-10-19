@@ -66,24 +66,36 @@ struct MaterialDesc {
   float normalScale{1.0f};
   float occlusionStrength{1.0f};
   float alphaCutoff{0.5f};
+  float transmission{0.0f}; // KHR_materials_transmission, 0 to 1 (ADR-0033)
   TextureHandle baseColorTexture{};
   TextureHandle metallicRoughnessTexture{}; // roughness in green, metallic in blue
   TextureHandle normalTexture{};
   TextureHandle occlusionTexture{}; // red
   TextureHandle emissiveTexture{};
+  TextureHandle transmissionTexture{}; // red
   TextureTransform baseColorTransform{};
   TextureTransform metallicRoughnessTransform{};
   TextureTransform normalTransform{};
   TextureTransform occlusionTransform{};
   TextureTransform emissiveTransform{};
+  TextureTransform transmissionTransform{};
   AlphaMode alphaMode{AlphaMode::Opaque};
   TextureSampler baseColorSampler{};
   TextureSampler metallicRoughnessSampler{};
   TextureSampler normalSampler{};
   TextureSampler occlusionSampler{};
   TextureSampler emissiveSampler{};
+  TextureSampler transmissionSampler{};
   bool doubleSided{false};
   bool unlit{false}; // KHR_materials_unlit: base colour plus emissive, no lighting
 };
+
+// Whether a material's draws can let light through, and so take the transmission path (ADR-0033,
+// "Classification"): lit, a transmission above 0, and an effective transmission the CPU cannot prove
+// zero. Only a metallic factor of 1 without a metallic-roughness texture proves it; textures are not
+// scanned, so a texture-dependent material counts as transmissive.
+[[nodiscard]] constexpr bool mayTransmit(const MaterialDesc &desc) noexcept {
+  return !desc.unlit && desc.transmission > 0.0f && (desc.metallic < 1.0f || desc.metallicRoughnessTexture.isValid());
+}
 
 } // namespace sonnet::renderer

@@ -403,7 +403,8 @@ private:
   struct Material {
     std::string debugName;
     MaterialDesc desc;
-    std::uint32_t samplers;
+    std::uint32_t samplers;            // the first five slots' bindless sampler indices (packSamplers)
+    std::uint32_t transmissionSampler; // the sixth's, which does not fit beside them
   };
   struct Environment {
     std::string debugName;

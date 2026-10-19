@@ -94,12 +94,16 @@ public static const uint AlphaMask = 1;
 public static const uint AlphaBlend = 2;
 public static const uint MaterialDoubleSided = 1u << 8;
 public static const uint MaterialUnlit = 1u << 9; // KHR_materials_unlit: no lighting, IBL or shadows
+// On the transmission path (ADR-0033): lit, transmission above 0, and not provably metal. The draw is
+// blended, and its coverage is a * (1 - T) in the forward pass and the shadows.
+public static const uint MaterialTransmissive = 1u << 10;
 // A material's texture slots, as the bits of MaterialData::uvSets.
 public static const uint SlotBaseColor = 0;
 public static const uint SlotMetallicRoughness = 1;
 public static const uint SlotNormal = 2;
 public static const uint SlotOcclusion = 3;
 public static const uint SlotEmissive = 4;
+public static const uint SlotTransmission = 5;
 
 public struct MaterialData {
   public float4 baseColor;
@@ -114,20 +118,25 @@ public struct MaterialData {
   public uint occlusionTexture;
   public uint emissiveTexture;
   public uint flags; // alpha mode in the low byte, MaterialDoubleSided and MaterialUnlit above it
-  public uint sampler; // five six-bit indices in Slot order
+  public uint sampler; // the first five slots' six-bit indices in Slot order
   public uint uvSets; // a slot's bit set: it reads Vertex::uv1 instead of Vertex::uv
+  public float transmission;
+  public uint transmissionTexture;
+  public uint transmissionSampler; // the sixth slot's sampler, which does not fit in `sampler`
+  public uint reserved;
   // Each slot's KHR_texture_transform: the 2x2 part by rows, then the offsets (uvTransform).
   public float4 baseColorUv;
   public float4 metallicRoughnessUv;
   public float4 normalUv;
   public float4 occlusionUv;
   public float4 emissiveUv;
+  public float4 transmissionUv;
   public float2 baseColorUvOffset;
   public float2 metallicRoughnessUvOffset;
   public float2 normalUvOffset;
   public float2 occlusionUvOffset;
   public float2 emissiveUvOffset;
-  public float2 uvPadding;
+  public float2 transmissionUvOffset;
 };
 
 // A texture slot's UV: its 2x2 matrix by rows, then its offset (KHR_texture_transform).
@@ -136,7 +145,7 @@ public float2 uvTransform(float4 rows, float2 offset, float2 uv) {
 }
 
 public uint materialSampler(MaterialData material, uint slot) {
-  return (material.sampler >> (6u * slot)) & 63u;
+  return slot == SlotTransmission ? material.transmissionSampler : (material.sampler >> (6u * slot)) & 63u;
 }
 
 // The vertex UV set a material's slot reads, out of both sets interpolated together: Vertex::uv in

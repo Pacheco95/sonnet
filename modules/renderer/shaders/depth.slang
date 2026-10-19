@@ -59,17 +59,42 @@ float orderedThreshold(float2 pixel) {
   return (float(bayer[cell.y * 4 + cell.x]) + 0.5) / 16.0;
 }
 
+// The effective transmission T = t * (1 - m) of a draw on the transmission path (ADR-0033).
+float transmittance(MaterialData material, float4 uvs) {
+  const float t = saturate(material.transmission *
+                           textures[material.transmissionTexture]
+                               .Sample(samplers[materialSampler(material, SlotTransmission)],
+                                       uvTransform(material.transmissionUv, material.transmissionUvOffset, uvSet(material, SlotTransmission, uvs)))
+                               .r);
+  const float metallic = saturate(material.metallic *
+                                  textures[material.metallicRoughnessTexture]
+                                      .Sample(samplers[materialSampler(material, SlotMetallicRoughness)],
+                                              uvTransform(material.metallicRoughnessUv, material.metallicRoughnessUvOffset,
+                                                          uvSet(material, SlotMetallicRoughness, uvs)))
+                                      .b);
+  return t * (1.0 - metallic);
+}
+
 // The shadow maps' fragment stage. A masked material keeps its cutoff; a blended one discards
 // under the pixel's threshold, so the 3x3 comparison of the receiver averages the survivors into a
-// partial shadow whose darkness follows alpha.
+// partial shadow whose darkness follows alpha. A draw on the transmission path takes the same
+// hashed test on its coverage a * (1 - T), after a masked material's cutoff (ADR-0033, "Shadows").
 [shader("fragment")]
 void shadowFragmentMain(VertexOutput input) {
   const MaterialData material = frame.materials[objects[input.objectIndex].material];
   const uint alphaMode = material.flags & 0xFF;
   if (alphaMode == AlphaMask) {
     alphaTest(input.objectIndex, input.uvs, input.alpha);
-  } else if (alphaMode == AlphaBlend &&
-             surfaceAlpha(material, input.objectIndex, input.uvs, input.alpha) <= orderedThreshold(input.position.xy)) {
+  }
+  const bool transmissive = (material.flags & MaterialTransmissive) != 0;
+  if (alphaMode != AlphaBlend && !transmissive) {
+    return;
+  }
+  float coverage = alphaMode == AlphaBlend ? surfaceAlpha(material, input.objectIndex, input.uvs, input.alpha) : 1.0;
+  if (transmissive) {
+    coverage *= 1.0 - transmittance(material, input.uvs);
+  }
+  if (coverage <= orderedThreshold(input.position.xy)) {
     discard;
   }
 }
