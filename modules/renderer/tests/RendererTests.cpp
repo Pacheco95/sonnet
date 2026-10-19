@@ -4239,6 +4239,15 @@ MaterialDesc dielectric() {
   return desc;
 }
 
+// What the tonemap pass writes for a linear radiance at exposure 1, in 8-bit levels (post.slang).
+float encodedChannel(float x) {
+  const float mapped = std::clamp((x * (2.51f * x + 0.03f)) / (x * (2.43f * x + 0.59f) + 0.14f), 0.0f, 1.0f);
+  return 255.0f * std::pow(mapped, 1.0f / 2.2f);
+}
+int encodedLevel(float x) {
+  return static_cast<int>(std::lround(encodedChannel(x)));
+}
+
 } // namespace
 
 TEST_CASE("a material that may transmit draws blended and one that provably cannot keeps its path",
@@ -4298,6 +4307,7 @@ TEST_CASE("with no copy, a dielectric at half transmission is the lit material b
   {
     auto settings = testSettings();
     settings.shadows = false;
+    settings.transmission = false;
     Renderer renderer{*device, shaderDir(platform), settings};
     const MeshHandle mesh = renderer.createMesh(facingQuad(0.0f), "quad");
     MaterialDesc glassDesc = dielectric();
@@ -4468,7 +4478,7 @@ TEST_CASE("a provably non-transmitting material renders as it does without trans
   REQUIRE(device->validationMessageCount() == 0);
 }
 
-TEST_CASE("a transmission texture on the second UV set, transformed and nearest, decides the coverage on a GPU",
+TEST_CASE("a transmission texture on the second UV set, transformed and nearest, decides the transmission on a GPU",
           "[renderer][gpu][transmission][sampler]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
@@ -4517,13 +4527,13 @@ TEST_CASE("a transmission texture on the second UV set, transformed and nearest,
     const Pixel background = scene.pixel(4, 64);
     REQUIRE(background.r > 200);
     REQUIRE(background.g == 0);
-    // The quad spans about 40 to 88. Its left half lets everything through: the red behind, exactly,
-    // even at u = 0.4, where a linear filter would mix in the black texel. Its right half lets
-    // nothing through: the grey glass, without red.
+    // The quad spans about 40 to 88. Its left half lets everything through: the red behind, through
+    // the white-point 0.8 base colour and 0.96 of the Fresnel, even at u = 0.4, where a linear filter
+    // would mix in the black texel. Its right half lets nothing through: the grey glass, without red.
     for (const unsigned x : {44u, 52u, 60u}) {
       CAPTURE(x);
       const Pixel through = scene.pixel(x, 64);
-      REQUIRE(through.r == background.r);
+      REQUIRE(std::abs(through.r - encodedLevel(0.8f * 0.96f)) <= 2);
       REQUIRE(through.g == 0);
     }
     for (const unsigned x : {68u, 76u, 84u}) {
@@ -4538,6 +4548,518 @@ TEST_CASE("a transmission texture on the second UV set, transformed and nearest,
     renderer.destroyMesh(glassMesh);
     renderer.destroyMesh(backMesh);
     renderer.destroyTexture(mask);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// ---- Transmission, part 2 (ADR-0033): the copy, the split forward pass and the shading ----
+
+namespace {
+
+// A lit two-metre-square front-facing pane's material: white, clear, no light of its own.
+MaterialDesc clearPane(float roughness) {
+  MaterialDesc desc;
+  desc.baseColor = {1.0f, 1.0f, 1.0f, 1.0f};
+  desc.metallic = 0.0f;
+  desc.roughness = roughness;
+  desc.transmission = 1.0f;
+  return desc;
+}
+
+MaterialDesc unlitColor(glm::vec3 color) {
+  MaterialDesc desc;
+  desc.baseColor = {color, 1.0f};
+  desc.unlit = true;
+  return desc;
+}
+
+// What a graph for one view declares: its pass names, in order, and its transient images.
+struct GraphTrace {
+  std::vector<std::string> passes;
+  std::vector<std::string> images;
+};
+
+GraphTrace traceScene(const SceneView &view, Renderer &renderer, IDevice &device, glm::uvec2 size = {64, 64}) {
+  RenderGraph graph{device};
+  RenderTarget target{device, "viewport"};
+  target.resize(size);
+  ICommandList &commands = device.beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device.endFrame();
+  GraphTrace trace;
+  for (const PassTiming &pass : graph.statistics().passes) {
+    trace.passes.push_back(pass.name);
+  }
+  return trace;
+}
+
+bool hasName(const std::vector<std::string> &names, std::string_view prefix) {
+  return std::ranges::any_of(names, [&](const std::string &name) { return name.starts_with(prefix); });
+}
+
+} // namespace
+
+TEST_CASE("a view with a draw on the transmission path splits its forward pass around a mip chain of the opaque scene",
+          "[renderer][null][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  RendererSettings settings = testSettings();
+  Renderer renderer{*device, shaderDir(platform), settings};
+  const MeshHandle quad = renderer.createMesh(facingQuad(0.0f), "quad");
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  MaterialDesc glassDesc = dielectric();
+  glassDesc.transmission = 0.5f;
+  const MaterialHandle glass = renderer.createMaterial(glassDesc, "glass");
+  const MaterialHandle plain = renderer.createMaterial(dielectric(), "plain");
+  const std::array draws{DrawItem{.mesh = box, .material = plain}, DrawItem{.mesh = quad, .material = glass}};
+  const SceneView view = boxScene(draws);
+  const GraphTrace trace = traceScene(view, renderer, *device);
+  const auto at = [&](std::string_view name) { return std::ranges::find(trace.passes, name) - trace.passes.begin(); };
+  // 64 x 64 has seven levels: the copy is level 0, then one pass for each of the six below it.
+  REQUIRE(std::ranges::count(trace.passes, "forward") == 1);
+  REQUIRE(std::ranges::count(trace.passes, "transmission copy") == 1);
+  REQUIRE(std::ranges::count(trace.passes, "forward transparent") == 1);
+  for (int level = 1; level < 7; ++level) {
+    REQUIRE(std::ranges::count(trace.passes, std::format("transmission mip {}", level)) == 1);
+  }
+  REQUIRE_FALSE(hasName(trace.passes, "transmission mip 7"));
+  REQUIRE(at("forward") < at("transmission copy"));
+  REQUIRE(at("transmission copy") < at("transmission mip 1"));
+  REQUIRE(at("transmission mip 6") < at("forward transparent"));
+  REQUIRE(at("forward transparent") < at("tonemap"));
+  // Opaque and the sky before the copy, the glass after it: one blended draw, in the second pass.
+  REQUIRE(lineIndex(*device, "bindPipeline \"forward blend\"") > lineIndex(*device, "dispatch"));
+  REQUIRE(countLines(*device, "bindPipeline \"forward blend\"") == 1);
+
+  // The setting off: the one forward pass and nothing else, with the same glass drawn blended.
+  settings.transmission = false;
+  Renderer off{*device, shaderDir(platform), settings};
+  const MeshHandle offQuad = off.createMesh(facingQuad(0.0f), "quad");
+  const MaterialHandle offGlass = off.createMaterial(glassDesc, "glass");
+  const std::array offDraws{DrawItem{.mesh = offQuad, .material = offGlass}};
+  const SceneView offView = boxScene(offDraws);
+  const GraphTrace offTrace = traceScene(offView, off, *device);
+  REQUIRE(std::ranges::count(offTrace.passes, "forward") == 1);
+  REQUIRE_FALSE(hasName(offTrace.passes, "transmission"));
+  REQUIRE_FALSE(hasName(offTrace.passes, "forward transparent"));
+  off.destroyMaterial(offGlass);
+  off.destroyMesh(offQuad);
+  renderer.destroyMaterial(plain);
+  renderer.destroyMaterial(glass);
+  renderer.destroyMesh(box);
+  renderer.destroyMesh(quad);
+}
+
+TEST_CASE("a view with nothing that can transmit declares no copy, even with a transmission factor on a metal",
+          "[renderer][null][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), testSettings()};
+  const MeshHandle quad = renderer.createMesh(facingQuad(0.0f), "quad");
+  MaterialDesc metalDesc = dielectric();
+  metalDesc.metallic = 1.0f;
+  metalDesc.transmission = 1.0f; // provably T = 0: no metallic-roughness texture
+  MaterialDesc unlit = unlitColor({1.0f, 0.0f, 0.0f});
+  unlit.transmission = 1.0f;
+  const MaterialHandle metal = renderer.createMaterial(metalDesc, "metal");
+  const MaterialHandle unlitGlass = renderer.createMaterial(unlit, "unlit");
+  const MaterialHandle none = renderer.createMaterial(dielectric(), "none");
+  for (const MaterialHandle material : {metal, unlitGlass, none}) {
+    const std::array draws{DrawItem{.mesh = quad, .material = material}};
+    const SceneView view = boxScene(draws);
+    const GraphTrace trace = traceScene(view, renderer, *device);
+    REQUIRE(std::ranges::count(trace.passes, "forward") == 1);
+    REQUIRE_FALSE(hasName(trace.passes, "transmission"));
+    REQUIRE_FALSE(hasName(trace.passes, "forward transparent"));
+  }
+  // The one-view-per-graph trace above ends with an empty scene too.
+  const SceneView empty = boxScene({});
+  REQUIRE_FALSE(hasName(traceScene(empty, renderer, *device).passes, "transmission"));
+  renderer.destroyMaterial(none);
+  renderer.destroyMaterial(unlitGlass);
+  renderer.destroyMaterial(metal);
+  renderer.destroyMesh(quad);
+}
+
+TEST_CASE("the renderer enables transmission by default, as the editor and desktop player take it",
+          "[renderer][null][transmission]") {
+  REQUIRE(RendererSettings{}.transmission);
+}
+
+namespace {
+
+// Two unlit halves with a pane in front of them, seen orthographically along the pane's normal, so
+// every pane pixel has the view angle 0. The halves meet at the middle of the longest dimension:
+// `a` is on the left of a landscape view and below the middle of a portrait one.
+struct PatternScene {
+  Renderer &renderer;
+  MeshHandle quad;
+  MaterialHandle halfA;
+  MaterialHandle halfB;
+  MaterialHandle pane;
+  std::array<DrawItem, 3> draws;
+  SceneView view;
+
+  PatternScene(Renderer &r, glm::uvec2 size, const MaterialDesc &paneDesc, glm::vec3 a, glm::vec3 b) : renderer(r) {
+    quad = renderer.createMesh(facingQuad(0.0f), "pattern quad");
+    halfA = renderer.createMaterial(unlitColor(a), "pattern a");
+    halfB = renderer.createMaterial(unlitColor(b), "pattern b");
+    pane = renderer.createMaterial(paneDesc, "pane");
+    const float height = 4.0f;
+    const float width = height * static_cast<float>(size.x) / static_cast<float>(size.y);
+    // A half is a quad whose half size is a quarter of the long axis (plus a margin, so it covers the
+    // view's corners) centred on that quarter point, so the two meet at the middle.
+    const auto half = [&](float side) {
+      const bool landscape = size.x >= size.y;
+      const float quarter = (landscape ? width : height) * 0.25f;
+      const glm::vec3 scale =
+          landscape ? glm::vec3{quarter, height * 0.5f + 1.0f, 1.0f} : glm::vec3{width * 0.5f + 1.0f, quarter, 1.0f};
+      const glm::vec3 shift =
+          landscape ? glm::vec3{side * quarter, 0.0f, -1.0f} : glm::vec3{0.0f, side * quarter, -1.0f};
+      return glm::scale(glm::translate(glm::mat4{1.0f}, shift), scale);
+    };
+    draws = {DrawItem{.mesh = quad, .material = halfA, .transform = half(-1.0f)},
+             DrawItem{.mesh = quad, .material = halfB, .transform = half(1.0f)},
+             DrawItem{.mesh = quad,
+                      .material = pane,
+                      .transform = glm::scale(glm::mat4{1.0f}, {width * 0.5f + 1.0f, height * 0.5f + 1.0f, 1.0f})}};
+    view = boxScene(draws);
+    view.camera.projectionKind = ProjectionKind::Orthographic;
+    view.camera.orthoHeight = height;
+    view.hasSun = false;
+    view.ambient = glm::vec3{0.0f};
+  }
+  ~PatternScene() {
+    renderer.destroyMaterial(pane);
+    renderer.destroyMaterial(halfB);
+    renderer.destroyMaterial(halfA);
+    renderer.destroyMesh(quad);
+  }
+  PatternScene(const PatternScene &) = delete;
+  PatternScene &operator=(const PatternScene &) = delete;
+
+  // The pixel `offset` pixels from the middle of the long axis towards `a` (negative) or `b`.
+  [[nodiscard]] static glm::uvec2 across(glm::uvec2 size, int offset) {
+    return size.x >= size.y ? glm::uvec2{static_cast<unsigned>(static_cast<int>(size.x / 2) + offset), size.y / 2}
+                            : glm::uvec2{size.x / 2, static_cast<unsigned>(static_cast<int>(size.y / 2) - offset)};
+  }
+};
+
+} // namespace
+
+TEST_CASE("a clear pane over a pattern shows 0.96 of it, and the blur takes the contrast away with roughness",
+          "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const glm::vec3 a{0.1f, 0.4f, 0.9f};
+    const glm::vec3 b{1.0f, 0.7f, 0.2f};
+    const glm::uvec2 size{128, 64};
+    const auto sample = [&](float roughness) {
+      PatternScene scene{renderer, size, clearPane(roughness), a, b};
+      GpuScene gpu{*device, renderer, size};
+      gpu.render(scene.view);
+      const glm::uvec2 pa = PatternScene::across(size, -8);
+      const glm::uvec2 pb = PatternScene::across(size, 8);
+      return std::pair{gpu.pixel(pa.x, pa.y), gpu.pixel(pb.x, pb.y)};
+    };
+    // Roughness 0 reads level 0 exactly: the pattern, 0.96 of it, at the same texel.
+    const auto [clearA, clearB] = sample(0.0f);
+    CAPTURE(clearA.r, clearA.g, clearA.b, clearB.r, clearB.g, clearB.b);
+    REQUIRE(std::abs(clearA.r - encodedLevel(0.96f * a.r)) <= 2);
+    REQUIRE(std::abs(clearA.g - encodedLevel(0.96f * a.g)) <= 2);
+    REQUIRE(std::abs(clearA.b - encodedLevel(0.96f * a.b)) <= 2);
+    REQUIRE(std::abs(clearB.r - encodedLevel(0.96f * b.r)) <= 2);
+    REQUIRE(std::abs(clearB.g - encodedLevel(0.96f * b.g)) <= 2);
+    REQUIRE(std::abs(clearB.b - encodedLevel(0.96f * b.b)) <= 2);
+    // The contrast between the halves only falls as the glass roughens, and at 1 the last level, the
+    // mean of the whole frame, leaves none: the same pixel either side of the edge.
+    int previous = std::abs(clearA.r - clearB.r);
+    REQUIRE(previous > 100);
+    for (const float roughness : {0.5f, 0.95f, 1.0f}) {
+      CAPTURE(roughness);
+      const auto [pa, pb] = sample(roughness);
+      const int contrast = std::abs(pa.r - pb.r);
+      CAPTURE(contrast, previous);
+      REQUIRE(contrast <= previous + 1);
+      previous = contrast;
+    }
+    REQUIRE(previous <= 2);
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the blur follows the roughness the same way across view sizes, landscape and portrait",
+          "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const glm::vec3 a{0.05f, 0.05f, 0.05f};
+    const glm::vec3 b{1.0f, 1.0f, 1.0f};
+    // The contrast between the halves, a quarter of the long axis either side of their edge, in output
+    // levels: the blur of 0.5 has left almost none by then, the blur of 0.95 not all.
+    const auto contrast = [&](glm::uvec2 size, float roughness) {
+      PatternScene scene{renderer, size, clearPane(roughness), a, b};
+      GpuScene gpu{*device, renderer, size};
+      gpu.render(scene.view);
+      const int quarter = static_cast<int>(std::max(size.x, size.y) / 4);
+      const glm::uvec2 pa = PatternScene::across(size, -quarter);
+      const glm::uvec2 pb = PatternScene::across(size, quarter);
+      return std::abs(gpu.pixel(pb.x, pb.y).g - gpu.pixel(pa.x, pa.y).g);
+    };
+    const std::array roughnesses{0.0f, 0.5f, 0.95f, 1.0f};
+    // The longest dimension through 1023, 1024, 1025 and 2047, 2048, on a strip 32 pixels thick.
+    std::vector<std::array<int, 4>> landscape;
+    for (const unsigned longest : {1023u, 1024u, 1025u, 2047u, 2048u}) {
+      for (const bool portrait : {false, true}) {
+        const glm::uvec2 size = portrait ? glm::uvec2{32, longest} : glm::uvec2{longest, 32};
+        CAPTURE(size.x, size.y);
+        std::array<int, 4> levels{};
+        for (std::size_t i = 0; i < roughnesses.size(); ++i) {
+          levels[i] = contrast(size, roughnesses[i]);
+        }
+        CAPTURE(levels[0], levels[1], levels[2], levels[3]);
+        // Endpoints: roughness 0 is the sharp pattern, roughness 1 the mean of the frame, the same on
+        // both sides of the edge. In between the contrast only falls.
+        REQUIRE(levels[0] > 150);
+        REQUIRE(levels[3] <= 2);
+        for (std::size_t i = 1; i < levels.size(); ++i) {
+          REQUIRE(levels[i] <= levels[i - 1] + 1);
+        }
+        // The blur is mostly spent at 0.5 not yet and at 0.95 not entirely: a view one pixel short of
+        // a power of two does not reach its last level early (it measured 19 against 20 levels).
+        REQUIRE(levels[1] > 100);
+        REQUIRE(levels[2] >= 10);
+        if (!portrait) {
+          landscape.push_back(levels);
+        }
+      }
+    }
+    // Neighbouring sizes keep the contrast within a recorded tolerance, at every roughness.
+    constexpr int NeighbourTolerance = 3; // levels out of 255; the sweep measured at most 1
+    for (const auto &[first, second] : {std::pair{0uz, 1uz}, std::pair{1uz, 2uz}, std::pair{3uz, 4uz}}) {
+      for (std::size_t i = 0; i < roughnesses.size(); ++i) {
+        CAPTURE(first, second, roughnesses[i], landscape[first][i], landscape[second][i]);
+        REQUIRE(std::abs(landscape[first][i] - landscape[second][i]) <= NeighbourTolerance);
+      }
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a metal behind glass is in the copy, and a metal that transmits nothing lets nothing through on a GPU",
+          "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.shadows = false;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle pane = renderer.createMesh(facingQuad(0.0f), "pane");
+    // A quad drawn twice over, overlapping triangles: opaque, so the second draw of a pixel is the
+    // same pixel again, depth-tested equal.
+    MeshData overlapping = facingQuad(-1.0f);
+    overlapping.indices = {0, 1, 2, 2, 1, 3, 0, 1, 2};
+    const MeshHandle behind = renderer.createMesh(overlapping, "metal quad");
+    const MaterialHandle glass = renderer.createMaterial(clearPane(0.0f), "glass");
+    MaterialDesc metalDesc;
+    metalDesc.baseColor = {1.0f, 0.0f, 0.0f, 1.0f};
+    metalDesc.metallic = 1.0f; // and no texture for it: provably T = 0, so the opaque path
+    metalDesc.roughness = 1.0f;
+    metalDesc.transmission = 1.0f;
+    const MaterialHandle metal = renderer.createMaterial(metalDesc, "metal");
+    const auto render = [&](std::span<const DrawItem> draws) {
+      SceneView view = boxScene(draws);
+      view.hasSun = false;
+      view.ambient = glm::vec3{0.6f};
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view);
+      return scene.pixel(32, 32);
+    };
+    // The metal alone, then behind the pane: the pane shows the shaded metal through the copy, at
+    // 0.96 of it, so the metal was drawn before the copy and kept its depth.
+    const std::array alone{DrawItem{.mesh = behind, .material = metal}};
+    const std::array covered{DrawItem{.mesh = behind, .material = metal}, DrawItem{.mesh = pane, .material = glass}};
+    const Pixel bare = render(alone);
+    const Pixel seen = render(covered);
+    CAPTURE(bare.r, seen.r);
+    REQUIRE(std::abs(bare.r - encodedLevel(0.6f)) <= 2);
+    REQUIRE(std::abs(seen.r - encodedLevel(0.96f * 0.6f)) <= 2);
+    REQUIRE(seen.g <= 1);
+
+    // A metal whose texture decides: the texture says metal everywhere, so T = 0 and it is drawn
+    // exactly as with transmission 0, though the CPU had to keep it on the transmission path.
+    TextureData white = solidTexture({255, 255, 255, 255});
+    const TextureHandle metalTexture = renderer.createTexture(white, "metal");
+    MaterialDesc texturedDesc = metalDesc;
+    texturedDesc.metallicRoughnessTexture = metalTexture;
+    MaterialDesc referenceDesc = texturedDesc;
+    referenceDesc.transmission = 0.0f;
+    REQUIRE(mayTransmit(texturedDesc));
+    const MaterialHandle textured = renderer.createMaterial(texturedDesc, "textured metal");
+    const MaterialHandle reference = renderer.createMaterial(referenceDesc, "reference metal");
+    const std::array texturedDraws{DrawItem{.mesh = pane, .material = textured}};
+    const std::array referenceDraws{DrawItem{.mesh = pane, .material = reference}};
+    const Pixel withTransmission = render(texturedDraws);
+    const Pixel without = render(referenceDraws);
+    CAPTURE(withTransmission.r, without.r);
+    REQUIRE(std::abs(withTransmission.r - without.r) <= 1);
+    REQUIRE(std::abs(withTransmission.g - without.g) <= 1);
+    REQUIRE(withTransmission.r > 100); // lit red metal, not the clear colour behind it
+
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMaterial(reference);
+    renderer.destroyMaterial(textured);
+    renderer.destroyTexture(metalTexture);
+    renderer.destroyMaterial(metal);
+    renderer.destroyMaterial(glass);
+    renderer.destroyMesh(behind);
+    renderer.destroyMesh(pane);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("opaque, masked and blended glass over a pattern each take their coverage from the copy on a GPU",
+          "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const glm::vec3 behind{0.8f, 0.4f, 0.1f};
+    const float albedo = 0.5f;
+    const glm::uvec2 size{64, 64};
+    const auto centre = [&](AlphaMode mode, float alpha, float cutoff) {
+      MaterialDesc desc = clearPane(0.0f);
+      desc.baseColor = {albedo, albedo, albedo, alpha};
+      desc.alphaMode = mode;
+      desc.alphaCutoff = cutoff;
+      PatternScene scene{renderer, size, desc, behind, behind};
+      GpuScene gpu{*device, renderer, size};
+      gpu.render(scene.view);
+      return gpu.pixel(32, 32);
+    };
+    const auto expected = [&](float factor) { return encodedLevel(factor * behind.r); };
+    // Transmitted: albedo * (1 - F) of the scene behind.
+    const float through = albedo * 0.96f;
+    REQUIRE(std::abs(centre(AlphaMode::Opaque, 0.2f, 0.5f).r - expected(through)) <= 2);
+    // Masked: a fragment under its cutoff is discarded and shows the scene itself; over it, the glass.
+    REQUIRE(std::abs(centre(AlphaMode::Mask, 0.2f, 0.5f).r - expected(1.0f)) <= 2);
+    REQUIRE(std::abs(centre(AlphaMode::Mask, 0.8f, 0.5f).r - expected(through)) <= 2);
+    // Blended: the authored alpha mixes the glass over the scene, half and half here.
+    REQUIRE(std::abs(centre(AlphaMode::Blend, 0.5f, 0.5f).r - expected(0.5f * through + 0.5f)) <= 2);
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a transmissive mesh whose triangles overlap on screen draws them in index order, from either side",
+          "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.shadows = false;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    // Two parallel quads, red in front and green behind, the pane's own vertex colour telling them
+    // apart; the first quad's triangles come first in the index list or the second's do.
+    const auto mesh = [&](bool frontFirst) {
+      MeshData data;
+      const auto quad = [&](float z, std::uint32_t color, std::uint32_t base) {
+        for (const glm::vec2 corner : {glm::vec2{-1, -1}, glm::vec2{1, -1}, glm::vec2{-1, 1}, glm::vec2{1, 1}}) {
+          Vertex vertex{{corner, z}, {0, 0, 1}, {1, 0, 0, 1}, {0, 0}, {0, 0}};
+          vertex.color = color;
+          data.vertices.push_back(vertex);
+        }
+        for (const std::uint32_t index : {0u, 1u, 2u, 2u, 1u, 3u}) {
+          data.indices.push_back(base + index);
+        }
+      };
+      constexpr std::uint32_t red = 0xFF0000FFu;
+      constexpr std::uint32_t green = 0xFF00FF00u;
+      if (frontFirst) {
+        quad(0.0f, red, 0);
+        quad(-0.5f, green, 4);
+      } else {
+        quad(-0.5f, green, 0);
+        quad(0.0f, red, 4);
+      }
+      return renderer.createMesh(data, "overlap");
+    };
+    MaterialDesc desc = clearPane(0.0f);
+    desc.doubleSided = true;
+    const MaterialHandle glass = renderer.createMaterial(desc, "glass");
+    // The glass's vertex colour tints what it transmits, so a white wall stands behind it, in the copy.
+    const MeshHandle wallMesh = renderer.createMesh(facingQuad(-2.0f), "wall");
+    const MeshHandle farWallMesh = renderer.createMesh(facingQuad(2.0f), "wall seen from behind");
+    MaterialDesc wallDesc = unlitColor({1.0f, 1.0f, 1.0f});
+    wallDesc.doubleSided = true;
+    const MaterialHandle wall = renderer.createMaterial(wallDesc, "wall");
+    const auto centre = [&](MeshHandle overlap, bool fromBehind) {
+      const std::array draws{DrawItem{.mesh = fromBehind ? farWallMesh : wallMesh,
+                                      .material = wall,
+                                      .transform = glm::scale(glm::mat4{1.0f}, {4.0f, 4.0f, 1.0f})},
+                             DrawItem{.mesh = overlap, .material = glass}};
+      SceneView view = boxScene(draws);
+      view.hasSun = false;
+      view.ambient = glm::vec3{0.6f};
+      if (fromBehind) {
+        view.camera.position = {0.0f, 0.0f, -3.0f};
+        view.camera.rotation = glm::angleAxis(glm::radians(180.0f), glm::vec3{0.0f, 1.0f, 0.0f});
+      }
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view);
+      return scene.pixel(32, 32);
+    };
+    const MeshHandle frontFirst = mesh(true);
+    const MeshHandle backFirst = mesh(false);
+    // No depth writes, so the later triangles win whatever their depth: the green behind when it is
+    // listed last, the red in front when it is; pinned for either side of the pane.
+    for (const bool fromBehind : {false, true}) {
+      CAPTURE(fromBehind);
+      const Pixel greenLast = centre(frontFirst, fromBehind);
+      const Pixel redLast = centre(backFirst, fromBehind);
+      CAPTURE(greenLast.r, greenLast.g, redLast.r, redLast.g);
+      REQUIRE(greenLast.g > greenLast.r + 20);
+      REQUIRE(redLast.r > redLast.g + 20);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMaterial(wall);
+    renderer.destroyMesh(farWallMesh);
+    renderer.destroyMesh(wallMesh);
+    renderer.destroyMaterial(glass);
+    renderer.destroyMesh(backFirst);
+    renderer.destroyMesh(frontFirst);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the copy follows each view's own size, an odd one, and a resize on a GPU", "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const glm::vec3 a{0.1f, 0.4f, 0.9f};
+    const glm::vec3 b{1.0f, 0.7f, 0.2f};
+    // A Scene view and a Game view of different sizes in the same frames, an odd size, then the
+    // first view resized: each pane shows its own pattern at 0.96, nothing of the other view's size.
+    for (const glm::uvec2 size : {glm::uvec2{96, 64}, glm::uvec2{1023, 577}, glm::uvec2{64, 48}, glm::uvec2{97, 65}}) {
+      CAPTURE(size.x, size.y);
+      PatternScene scene{renderer, size, clearPane(0.0f), a, b};
+      GpuScene gpu{*device, renderer, size};
+      gpu.render(scene.view, 2);
+      const int quarter = static_cast<int>(size.x / 4);
+      const glm::uvec2 pa = PatternScene::across(size, -quarter);
+      const glm::uvec2 pb = PatternScene::across(size, quarter);
+      REQUIRE(std::abs(gpu.pixel(pa.x, pa.y).r - encodedLevel(0.96f * a.r)) <= 2);
+      REQUIRE(std::abs(gpu.pixel(pb.x, pb.y).r - encodedLevel(0.96f * b.r)) <= 2);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
   }
   REQUIRE(device->validationMessageCount() == 0);
 }

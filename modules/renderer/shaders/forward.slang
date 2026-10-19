@@ -59,8 +59,10 @@ float3 fresnelSchlickRoughness(float cosTheta, float3 f0, float roughness) {
   return f0 + (max(float3(1.0 - roughness), f0) - f0) * pow(saturate(1.0 - cosTheta), 5.0);
 }
 
-// Cook-Torrance for one light direction; radiance already includes attenuation.
-float3 shade(float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float metallic, float roughness, float3 f0) {
+// Cook-Torrance for one light direction; radiance already includes attenuation. `diffuseWeight` is
+// 1 - t where transmission replaces the diffuse lobe (ADR-0033), 1 otherwise.
+float3 shade(float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float metallic, float roughness, float3 f0,
+             float diffuseWeight) {
   const float3 h = normalize(v + l);
   const float nDotL = saturate(dot(n, l));
   const float nDotV = max(dot(n, v), 1.0e-4);
@@ -71,7 +73,7 @@ float3 shade(float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float
   const float3 f = fresnelSchlick(hDotV, f0);
   const float3 specular = (d * g * f) / max(4.0 * nDotV * nDotL, 1.0e-4);
   const float3 kd = (1.0 - f) * (1.0 - metallic);
-  return (kd * albedo / Pi + specular) * radiance * nDotL;
+  return (diffuseWeight * kd * albedo / Pi + specular) * radiance * nDotL;
 }
 
 uint shadowCascade(float viewDepth) {
@@ -238,6 +240,33 @@ float2 textureToMeshFrame(float4 rows, float2 xy) {
   return turnedLength > 0.0 ? turned * (sign(determinant) * length(xy) / turnedLength) : xy;
 }
 
+// The level of the transmission copy for a perceptual roughness (ADR-0033, "Lookup"). The desired
+// footprint in base pixels is p = 1 + (size - 1) q, with q = (2^(10 r) - 1) / 1023 and size the
+// longest dimension; level i has the nominal footprint size / extent[i], from the level's own extent
+// rather than 2^i, so a size that is not a power of two reaches its last level only at roughness 1.
+float transmissionLod(float r) {
+  const uint levels = frame.transmissionLevels;
+  const float2 target = frame.targetSize;
+  const float size = max(target.x, target.y);
+  if (r <= 0.0 || size <= 1.0 || levels <= 1) {
+    return 0.0;
+  }
+  if (r >= 1.0) {
+    return float(levels - 1);
+  }
+  const float p = 1.0 + (size - 1.0) * (exp2(10.0 * r) - 1.0) / 1023.0;
+  float below = 1.0; // the nominal footprint of level i
+  for (uint i = 0; i + 1 < levels; ++i) {
+    const float2 next = max(floor(target / exp2(float(i + 1))), 1.0);
+    const float above = size / max(next.x, next.y);
+    if (p <= above || i + 2 == levels) {
+      return float(i) + saturate(log2(p / below) / log2(above / below));
+    }
+    below = above;
+  }
+  return float(levels - 1);
+}
+
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
   const MaterialData material = frame.materials[objects[input.objectIndex].material];
@@ -256,12 +285,13 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   // The effective transmission T = t * (1 - m) of ADR-0033: metal lets nothing through. Only a draw
   // on the transmission path samples the texture; every other draw has T = 0.
   float transmittance = 0.0;
+  float transmission = 0.0; // t of ADR-0033, before the metal's exclusion
   if ((material.flags & MaterialTransmissive) != 0) {
     const float2 transmissionUv =
         uvTransform(material.transmissionUv, material.transmissionUvOffset, uvSet(material, SlotTransmission, input.uvs));
-    const float t = saturate(material.transmission *
-                             sampleMaterial(material.transmissionTexture, materialSampler(material, SlotTransmission), transmissionUv).r);
-    transmittance = t * (1.0 - metallic);
+    transmission = saturate(material.transmission *
+                            sampleMaterial(material.transmissionTexture, materialSampler(material, SlotTransmission), transmissionUv).r);
+    transmittance = transmission * (1.0 - metallic);
   }
   const float2 occlusionUv = uvTransform(material.occlusionUv, material.occlusionUvOffset, uvSet(material, SlotOcclusion, input.uvs));
   const float occlusion =
@@ -284,6 +314,10 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   const float3 v = frame.cameraForward.w != 0.0 ? -frame.cameraForward.xyz : normalize(frame.cameraPosition.xyz - input.worldPosition);
   const float3 albedo = baseColor.rgb;
   const float3 f0 = lerp(float3(0.04), albedo, metallic);
+  // With the copy of the opaque scene (ADR-0033) transmission replaces the diffuse lobe; without it
+  // the surface is lit as an ordinary material and only its alpha follows the transmission.
+  const bool copied = transmission > 0.0 && frame.transmissionImage != 0xFFFFFFFF;
+  const float diffuseWeight = copied ? 1.0 - transmission : 1.0;
   const float viewDepth = -mul(frame.view, float4(input.worldPosition, 1.0)).z;
 
   float3 color = float3(0.0);
@@ -299,7 +333,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
     if (frame.sunDirection.w > 0.0) {
       const float3 l = -frame.sunDirection.xyz;
       shadow = sunShadow(input.worldPosition, viewDepth, geometricNormal);
-      sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0);
+      sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0, diffuseWeight);
       color += sunDirect * shadow;
     }
 
@@ -324,7 +358,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
         } else if (light.type == LightPoint && light.shadow != 0xFFFFFFFF) {
           attenuation *= pointShadow(light, input.worldPosition, geometricNormal, l);
         }
-        color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0);
+        color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0, diffuseWeight);
       }
     }
 
@@ -338,11 +372,23 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
       const float lod = roughness * (frame.environment.y - 1.0);
       const float3 prefiltered = cubes[frame.prefilteredCube].SampleLevel(samplers[frame.linearSampler], r, lod).rgb;
       brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
-      iblDiffuse = kd * irradiance * albedo * frame.environment.x * occlusion;
+      iblDiffuse = diffuseWeight * kd * irradiance * albedo * frame.environment.x * occlusion;
       iblSpecular = prefiltered * (f * brdf.x + brdf.y) * frame.environment.x * occlusion;
       color += iblDiffuse + iblSpecular;
     } else {
-      color += frame.ambient.rgb * albedo * occlusion;
+      color += (copied ? 1.0 - transmittance : 1.0) * frame.ambient.rgb * albedo * occlusion;
+    }
+    if (copied) {
+      // The scene behind the pixel at the surface's own position (zero thickness), blurred by the
+      // roughness the specular terms' floor does not clamp, through the base colour and what the
+      // reflection leaves. The copy already holds that light shaded, so occlusion does not touch it.
+      const float lookupRoughness = saturate(material.roughness * metallicRoughness.g);
+      const float2 uv = input.position.xy / frame.targetSize;
+      const float3 behind = textures[frame.transmissionImage]
+                                .SampleLevel(samplers[frame.linearSampler], uv, transmissionLod(lookupRoughness))
+                                .rgb;
+      const float3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
+      color += transmission * (1.0 - f) * (1.0 - metallic) * albedo * behind;
     }
   }
   color += emissive;
@@ -364,8 +410,8 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   default: break;
   }
 
-  // The coverage a, times 1 - T on the transmission path, which draws blended whatever the alpha mode:
-  // the light the surface lets through shows what is behind it (ADR-0033, "Off and mobile").
+  // The coverage a. Without the copy a transmissive draw is a plain blend, a times 1 - T, so the
+  // light the surface lets through shows what is behind it (ADR-0033, "Off and mobile").
   const float coverage = alphaMode == AlphaBlend ? baseColor.a : 1.0;
-  return float4(color, coverage * (1.0 - transmittance));
+  return float4(color, copied ? coverage : coverage * (1.0 - transmittance));
 }

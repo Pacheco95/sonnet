@@ -35,6 +35,7 @@ set_property(GLOBAL PROPERTY SONNET_ENGINE_SHADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/skin.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/skybox.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/taa.slang"
+  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/transmission.slang"
 )
 
 sonnet_add_module_test(renderer

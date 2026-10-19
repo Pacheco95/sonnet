@@ -152,6 +152,8 @@ struct FrameConstants {
   std::uint32_t shadowSampler;
   std::uint32_t lightCount;
   std::uint32_t debugView;
+  std::uint32_t transmissionImage; // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
+  std::uint32_t transmissionLevels;
   std::uint64_t visible; // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
@@ -159,7 +161,7 @@ struct FrameConstants {
   std::uint64_t localShadows;    // GpuLocalShadow per local shadow map, 0 without any
   std::uint64_t previousObjects; // PreviousObject per draw, 0 without TAA
 };
-static_assert(sizeof(FrameConstants) == 984);
+static_assert(sizeof(FrameConstants) == 992);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -203,6 +205,17 @@ struct CullDraw {
 static_assert(sizeof(CullDraw) == 56);
 constexpr std::uint32_t CullSelected = 1u << 0;
 constexpr std::uint32_t CullCoarse = 1u << 1;
+
+// Mirror of TransmissionConstants in shaders/transmission.slang.
+struct TransmissionConstants {
+  std::uint32_t source;
+  std::uint32_t destination;
+  std::uint32_t sampler;
+  std::uint32_t sourceLevel;
+  glm::uvec2 size;
+  glm::uvec2 padding;
+};
+static_assert(sizeof(TransmissionConstants) == 32);
 
 // Mirror of shaders/cull.slang.
 struct CullConstants {
@@ -587,6 +600,8 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineCompute(m_prefilterPipeline, "ibl", "prefilter", "prefilter");
   defineCompute(m_brdfLutPipeline, "ibl", "brdfLut", "brdf lut");
   defineCompute(m_skinPipeline, "skin", "computeMain", "skinning");
+  defineCompute(m_transmissionCopyPipeline, "transmission", "transmissionCopy", "transmission copy");
+  defineCompute(m_transmissionMipPipeline, "transmission", "transmissionMip", "transmission mip");
   createPipelines(shaderDir);
   createDefaults();
   for (CounterSlot &slot : m_counterSlots) {
@@ -654,7 +669,9 @@ Renderer::~Renderer() {
   for (const auto &[description, sampler] : m_materialSamplers) {
     m_device.destroySampler(sampler);
   }
-  for (const rhi::PipelineHandle pipeline : {m_skinPipeline,
+  for (const rhi::PipelineHandle pipeline : {m_transmissionMipPipeline,
+                                             m_transmissionCopyPipeline,
+                                             m_skinPipeline,
                                              m_particleResetPipeline,
                                              m_particleSimulatePipeline,
                                              m_particleDrawPipelines[0],
@@ -708,9 +725,9 @@ const char *antiAliasingName(AntiAliasing mode) noexcept {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 16> Names{
-      "cluster", "cull",    "debug",   "depth",     "forward", "grid", "hiz",    "ibl",
-      "id",      "outline", "overlay", "particles", "post",    "skin", "skybox", "taa"};
+  static constexpr std::array<std::string_view, 17> Names{
+      "cluster", "cull",    "debug",     "depth", "forward", "grid",   "hiz", "ibl",         "id",
+      "outline", "overlay", "particles", "post",  "skin",    "skybox", "taa", "transmission"};
   return Names;
 }
 
@@ -1537,6 +1554,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.taa = false;
   v.motion = {};
   v.resolvedScene = {};
+  v.transmission = {};
   v.jitter = glm::vec2{0.0f};
   v.viewProjection =
       view.camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u))) *
@@ -1593,6 +1611,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
                                       .coarse = coarse,
                                       // A draw that may transmit joins the blended draws (ADR-0033).
                                       .blended = desc.alphaMode == AlphaMode::Blend || mayTransmit(desc),
+                                      .transmissive = mayTransmit(desc),
                                       .masked = desc.alphaMode == AlphaMode::Mask,
                                       .viewDepth = -viewPosition.z});
   }
@@ -2753,6 +2772,9 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .shadowSampler = m_device.samplerIndex(m_shadowSampler),
       .lightCount = lightCount,
       .debugView = static_cast<std::uint32_t>(m_settings.debugView),
+      .transmissionImage =
+          v.transmission.isValid() ? sampledIndex(resources.image(v.transmission)) : rhi::InvalidBindlessIndex,
+      .transmissionLevels = v.transmission.isValid() ? rhi::fullMipCount(v.targetSize) : 0u,
       .visible = m_visibleBuffer ? m_device.bufferAddress(m_visibleBuffer) : 0,
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
@@ -2908,6 +2930,51 @@ void Renderer::addBloomPasses(RenderGraph &graph, const SceneView &view, GraphIm
         });
   }
   result = up[0];
+}
+
+// The blended and transmissive draws, back to front, then the particles. Blended draws keep the
+// direct path: their order is view-dependent (ADR-0012).
+void Renderer::drawTransparent(rhi::ICommandList &commands, ViewState &v) {
+  recordDraws(commands, v, v.blendedOrder, m_blendPipelines, true);
+  recordParticleDraws(commands, v);
+}
+
+void Renderer::addTransmissionPasses(RenderGraph &graph, GraphImage source, GraphImage chain, glm::uvec2 size) {
+  const std::uint32_t sampler = m_device.samplerIndex(m_linearClampSampler);
+  const std::uint32_t levels = rhi::fullMipCount(size);
+  const auto dispatch = [this, sampler](rhi::ICommandList &commands, rhi::PipelineHandle pipeline,
+                                        std::uint32_t sourceIndex, rhi::ImageHandle destination, std::uint32_t level,
+                                        glm::uvec2 levelSize) {
+    const TransmissionConstants push{.source = sourceIndex,
+                                     .destination = m_device.storageImageIndex(destination, level),
+                                     .sampler = sampler,
+                                     .sourceLevel = level > 0 ? level - 1 : 0,
+                                     .size = levelSize,
+                                     .padding = {}};
+    commands.bindPipeline(pipeline);
+    commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+    commands.dispatch(groups(levelSize.x, 8), groups(levelSize.y, 8), 1);
+  };
+  graph.addPass(
+      "transmission copy",
+      [&](PassBuilder &builder) {
+        builder.sample(source, true);
+        builder.storage(chain);
+      },
+      [=, this](rhi::ICommandList &commands, const PassResources &resources) {
+        dispatch(commands, m_transmissionCopyPipeline, sampledIndex(resources.image(source)), resources.image(chain), 0,
+                 size);
+      });
+  // Each level reads the one above through the sampled view; the write-after-write on the image
+  // between passes is the barrier that orders them, as in the environment's mip chain.
+  for (std::uint32_t level = 1; level < levels; ++level) {
+    graph.addPass(
+        std::format("transmission mip {}", level), [&](PassBuilder &builder) { builder.storage(chain); },
+        [=, this](rhi::ICommandList &commands, const PassResources &resources) {
+          dispatch(commands, m_transmissionMipPipeline, sampledIndex(resources.image(chain)), resources.image(chain),
+                   level, rhi::mipSize(size, level));
+        });
+  }
 }
 
 void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth,
@@ -3112,28 +3179,39 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
 
   const GraphImage hdr = graph.createImage({.size = size, .format = HdrFormat, .debugName = "scene hdr"});
   const bool skybox = m_environments.contains(view.environment) && !m_environments.get(view.environment).pending;
+  // A view with a draw on the transmission path splits its forward pass after the skybox, copies what
+  // it drew into a mip chain, and draws the blended and transmissive draws over it (ADR-0033).
+  const bool transmissive = m_settings.transmission &&
+                            std::ranges::any_of(v.resolved, [](const ResolvedDraw &draw) { return draw.transmissive; });
+  const auto declareInputs = [&](PassBuilder &builder) {
+    if (v.cascadesActive) {
+      for (const GraphImage cascade : v.cascadeImages) {
+        builder.sample(cascade);
+      }
+    }
+    for (const LocalShadow &local : v.localShadows) {
+      builder.sample(local.image);
+    }
+    builder.sample(m_frameImages.lut);
+    if (skybox) {
+      builder.sample(m_frameImages.skybox);
+      builder.sample(m_frameImages.irradiance);
+      builder.sample(m_frameImages.prefiltered);
+    }
+  };
+  if (transmissive) {
+    v.transmission = graph.createImage(
+        {.size = size, .format = HdrFormat, .mipLevels = rhi::fullMipCount(size), .debugName = "transmission"});
+  }
   graph.addPass(
       "forward",
       [&](PassBuilder &builder) {
         builder.color(hdr, rhi::LoadOp::Clear, clearColor);
         builder.depth(depth, rhi::LoadOp::Load);
-        if (v.cascadesActive) {
-          for (const GraphImage cascade : v.cascadeImages) {
-            builder.sample(cascade);
-          }
-        }
-        for (const LocalShadow &local : v.localShadows) {
-          builder.sample(local.image);
-        }
-        builder.sample(m_frameImages.lut);
-        if (skybox) {
-          builder.sample(m_frameImages.skybox);
-          builder.sample(m_frameImages.irradiance);
-          builder.sample(m_frameImages.prefiltered);
-        }
+        declareInputs(builder);
       },
-      [this, &v, skybox, job = occlusion ? depthJob : forwardJob](rhi::ICommandList &commands,
-                                                                  const PassResources &resources) {
+      [this, &v, skybox, transmissive, job = occlusion ? depthJob : forwardJob](rhi::ICommandList &commands,
+                                                                                const PassResources &resources) {
         ensureFrameUploaded(v, resources);
         if (job) {
           recordIndirect(commands, v, *job, v.opaqueBatches, m_forwardPipelines);
@@ -3149,10 +3227,25 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           bindFrame(commands, v);
           commands.draw(3);
         }
-        // Blended draws keep the direct path: their order is view-dependent (ADR-0012).
-        recordDraws(commands, v, v.blendedOrder, m_blendPipelines, true);
-        recordParticleDraws(commands, v);
+        if (!transmissive) {
+          drawTransparent(commands, v);
+        }
       });
+  if (transmissive) {
+    addTransmissionPasses(graph, hdr, v.transmission, size);
+    graph.addPass(
+        "forward transparent",
+        [&](PassBuilder &builder) {
+          builder.color(hdr, rhi::LoadOp::Load);
+          builder.depth(depth, rhi::LoadOp::Load);
+          builder.sample(v.transmission);
+          declareInputs(builder);
+        },
+        [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
+          ensureFrameUploaded(v, resources);
+          drawTransparent(commands, v);
+        });
+  }
 
   // Under TAA the resolved scene stands in for the unresolved one from here on.
   GraphImage scene = hdr;
