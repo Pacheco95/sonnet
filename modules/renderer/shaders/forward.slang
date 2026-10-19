@@ -253,6 +253,16 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
                      uvTransform(material.metallicRoughnessUv, material.metallicRoughnessUvOffset, uvSet(material, SlotMetallicRoughness, input.uvs)));
   const float metallic = saturate(material.metallic * metallicRoughness.b);
   const float roughness = clamp(material.roughness * metallicRoughness.g, 0.04, 1.0);
+  // The effective transmission T = t * (1 - m) of ADR-0033: metal lets nothing through. Only a draw
+  // on the transmission path samples the texture; every other draw has T = 0.
+  float transmittance = 0.0;
+  if ((material.flags & MaterialTransmissive) != 0) {
+    const float2 transmissionUv =
+        uvTransform(material.transmissionUv, material.transmissionUvOffset, uvSet(material, SlotTransmission, input.uvs));
+    const float t = saturate(material.transmission *
+                             sampleMaterial(material.transmissionTexture, materialSampler(material, SlotTransmission), transmissionUv).r);
+    transmittance = t * (1.0 - metallic);
+  }
   const float2 occlusionUv = uvTransform(material.occlusionUv, material.occlusionUvOffset, uvSet(material, SlotOcclusion, input.uvs));
   const float occlusion =
       lerp(1.0, sampleMaterial(material.occlusionTexture, materialSampler(material, SlotOcclusion), occlusionUv).r, material.occlusionStrength);
@@ -354,6 +364,8 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   default: break;
   }
 
-  const float alpha = alphaMode == AlphaBlend ? baseColor.a : 1.0;
-  return float4(color, alpha);
+  // The coverage a, times 1 - T on the transmission path, which draws blended whatever the alpha mode:
+  // the light the surface lets through shows what is behind it (ADR-0033, "Off and mobile").
+  const float coverage = alphaMode == AlphaBlend ? baseColor.a : 1.0;
+  return float4(color, coverage * (1.0 - transmittance));
 }

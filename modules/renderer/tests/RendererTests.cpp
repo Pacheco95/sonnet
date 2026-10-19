@@ -4214,3 +4214,330 @@ TEST_CASE("dolly zoom keeps the sun shadow range at the scene", "[renderer][gpu]
   device->waitIdle();
   REQUIRE(device->validationMessageCount() == 0);
 }
+
+// ---- Transmission, part 1 (ADR-0033): the material model and the blended path ----
+
+namespace {
+
+// A front-facing two-metre quad at depth `z`, its second UV set the first one's.
+MeshData facingQuad(float z) {
+  MeshData quad;
+  quad.vertices = {{{-1, -1, z}, {0, 0, 1}, {1, 0, 0, 1}, {0, 0}, {0, 0}},
+                   {{1, -1, z}, {0, 0, 1}, {1, 0, 0, 1}, {1, 0}, {1, 0}},
+                   {{-1, 1, z}, {0, 0, 1}, {1, 0, 0, 1}, {0, 1}, {0, 1}},
+                   {{1, 1, z}, {0, 0, 1}, {1, 0, 0, 1}, {1, 1}, {1, 1}}};
+  quad.indices = {0, 1, 2, 2, 1, 3};
+  return quad;
+}
+
+// A lit grey dielectric, roughness 1 so the highlight is small.
+MaterialDesc dielectric() {
+  MaterialDesc desc;
+  desc.baseColor = {0.8f, 0.8f, 0.8f, 1.0f};
+  desc.metallic = 0.0f;
+  desc.roughness = 1.0f;
+  return desc;
+}
+
+} // namespace
+
+TEST_CASE("a material that may transmit draws blended and one that provably cannot keeps its path",
+          "[renderer][null][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  struct Case {
+    const char *name;
+    MaterialDesc desc;
+    bool transmits;
+  };
+  MaterialDesc glass = dielectric();
+  glass.transmission = 0.5f;
+  MaterialDesc metal = glass;
+  metal.metallic = 1.0f; // and no metallic-roughness texture: T = 0 everywhere
+  MaterialDesc texturedMetal = metal;
+  MaterialDesc unlit = glass;
+  unlit.unlit = true;
+  MaterialDesc none = dielectric();
+  MaterialDesc masked = glass;
+  masked.alphaMode = AlphaMode::Mask;
+  std::vector<Case> cases{
+      {"dielectric", glass, true}, {"metal", metal, false},         {"textured metal", texturedMetal, true},
+      {"unlit", unlit, false},     {"transmission 0", none, false}, {"masked", masked, true}};
+  for (Case &c : cases) {
+    CAPTURE(c.name);
+    const auto device = createNullDevice();
+    auto settings = testSettings();
+    settings.antialiasing = AntiAliasing::Taa; // the pre-pass then writes motion too
+    Renderer renderer{*device, shaderDir(platform), settings};
+    if (std::string_view{c.name} == "textured metal") {
+      // Conservative: the CPU does not read the texture that decides T.
+      c.desc.metallicRoughnessTexture = renderer.createTexture(solidTexture({255, 255, 255, 255}), "white");
+    }
+    REQUIRE(mayTransmit(c.desc) == c.transmits);
+    const MeshHandle mesh = renderer.createMesh(facingQuad(0.0f), "quad");
+    const MaterialHandle material = renderer.createMaterial(c.desc, c.name);
+    const std::array draws{DrawItem{.mesh = mesh, .material = material}};
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({64, 64});
+    const SceneView view = boxScene(draws); // the passes keep a pointer to it until execute
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    graph.execute(commands);
+    device->endFrame();
+    // On the transmission path: blended, out of the depth and motion pre-pass. Otherwise its own path.
+    REQUIRE(countLines(*device, "bindPipeline \"forward blend\"") == (c.transmits ? 1u : 0u));
+    REQUIRE(countLines(*device, "bindPipeline \"depth motion\"") == (c.transmits ? 0u : 1u));
+  }
+}
+
+TEST_CASE("with no copy, a dielectric at half transmission is the lit material blended at half coverage on a GPU",
+          "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.shadows = false;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle mesh = renderer.createMesh(facingQuad(0.0f), "quad");
+    MaterialDesc glassDesc = dielectric();
+    glassDesc.transmission = 0.5f;
+    MaterialDesc halfDesc = dielectric();
+    halfDesc.alphaMode = AlphaMode::Blend;
+    halfDesc.baseColor.a = 0.5f;
+    const MaterialHandle glass = renderer.createMaterial(glassDesc, "glass");
+    const MaterialHandle half = renderer.createMaterial(halfDesc, "half");
+    const MaterialHandle solid = renderer.createMaterial(dielectric(), "solid");
+    const EnvironmentHandle sky = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
+
+    // Each diffuse term on its own: the sun, the flat ambient, the environment's irradiance.
+    enum class Light {
+      Direct,
+      Ambient,
+      Environment
+    };
+    for (const Light light : {Light::Direct, Light::Ambient, Light::Environment}) {
+      CAPTURE(static_cast<int>(light));
+      const auto centre = [&](MaterialHandle material) {
+        const std::array draws{DrawItem{.mesh = mesh, .material = material}};
+        SceneView view = boxScene(draws);
+        view.hasSun = light == Light::Direct;
+        view.sun.direction = glm::normalize(glm::vec3{0.3f, -0.2f, -1.0f});
+        view.sun.intensity = 2.0f;
+        view.ambient = light == Light::Ambient ? glm::vec3{0.6f} : glm::vec3{0.0f};
+        view.environment = light == Light::Environment ? sky : EnvironmentHandle{};
+        GpuScene scene{*device, renderer, {64, 64}};
+        scene.render(view, 2); // the environment is ready from the second frame
+        return scene.pixel(32, 32);
+      };
+      const Pixel transmissive = centre(glass);
+      const Pixel blended = centre(half);
+      const Pixel opaque = centre(solid);
+      CAPTURE(transmissive.r, blended.r, opaque.r);
+      REQUIRE(std::abs(transmissive.r - blended.r) <= 1);
+      REQUIRE(std::abs(transmissive.g - blended.g) <= 1);
+      REQUIRE(std::abs(transmissive.b - blended.b) <= 1);
+      // Blended, not drawn opaque: darker over the black clear colour, brighter over the sky.
+      REQUIRE(std::abs(opaque.r - transmissive.r) > 5);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyEnvironment(sky);
+    for (const MaterialHandle material : {glass, half, solid}) {
+      renderer.destroyMaterial(material);
+    }
+    renderer.destroyMesh(mesh);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("transmission coverage is a times 1 - T in every alpha mode, shadows included, on a GPU",
+          "[renderer][gpu][transmission][shadow]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle quad = renderer.createMesh(facingQuad(0.0f), "quad");
+    const MeshHandle plane = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "plane");
+    const MeshHandle wall = renderer.createMesh(primitives::plane({2.0f, 4.0f}), "wall");
+    const auto make = [&](AlphaMode mode, float alpha, float transmission, float metallic = 0.0f) {
+      MaterialDesc desc = dielectric();
+      desc.alphaMode = mode;
+      desc.baseColor.a = alpha;
+      desc.transmission = transmission;
+      desc.metallic = metallic;
+      desc.doubleSided = true; // the wall is seen by the sun from behind
+      return renderer.createMaterial(desc, "material");
+    };
+    // Ordinary blended materials of a known coverage are the references.
+    const MaterialHandle blend25 = make(AlphaMode::Blend, 0.25f, 0.0f);
+    const MaterialHandle blend50 = make(AlphaMode::Blend, 0.5f, 0.0f);
+    const MaterialHandle clear = make(AlphaMode::Blend, 0.0f, 0.0f);
+    const MaterialHandle solid = make(AlphaMode::Opaque, 1.0f, 0.0f);
+    struct Case {
+      const char *name;
+      MaterialHandle material;
+      MaterialHandle reference;
+    };
+    const std::vector<Case> cases{
+        {"opaque, t 0.5", make(AlphaMode::Opaque, 1.0f, 0.5f), blend50},
+        {"blend 0.5, t 0.5", make(AlphaMode::Blend, 0.5f, 0.5f), blend25},
+        {"mask passed, t 0.5", make(AlphaMode::Mask, 1.0f, 0.5f), blend50},
+        {"mask cut, t 0.5", make(AlphaMode::Mask, 0.3f, 0.5f), clear},
+        {"opaque, t 1", make(AlphaMode::Opaque, 1.0f, 1.0f), clear},
+        {"metal, t 1", make(AlphaMode::Opaque, 1.0f, 1.0f, 1.0f), solid},
+    };
+    const auto lit = [&](MaterialHandle material) {
+      const std::array draws{DrawItem{.mesh = quad, .material = material}};
+      SceneView view = boxScene(draws);
+      view.hasSun = false;
+      view.ambient = glm::vec3{0.6f};
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view);
+      return scene.pixel(32, 32);
+    };
+    for (const Case &c : cases) {
+      CAPTURE(c.name);
+      const Pixel got = lit(c.material);
+      const Pixel want = lit(c.reference);
+      CAPTURE(got.r, want.r);
+      REQUIRE(std::abs(got.r - want.r) <= 1);
+      // The shadow takes the same coverage through the same hashed test, pixel for pixel.
+      const WallShadow shadow = wallShadow(*device, renderer, plane, wall, c.material);
+      const WallShadow expected = wallShadow(*device, renderer, plane, wall, c.reference);
+      CAPTURE(shadow.shadowed, expected.shadowed);
+      REQUIRE(shadow.shadowed == Catch::Approx(expected.shadowed).margin(0.5));
+      REQUIRE(shadow.lit == Catch::Approx(expected.lit).margin(0.5));
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a provably non-transmitting material renders as it does without transmission on a GPU",
+          "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    // Transmission 0 and 1 against metallic 0 and 1: of the four, only the metal at transmission 1
+    // has a nonzero factor and still renders as without it.
+    for (const float metallic : {0.0f, 1.0f}) {
+      MaterialDesc plain = dielectric();
+      plain.metallic = metallic;
+      plain.roughness = 0.4f;
+      MaterialDesc transmissive = plain;
+      transmissive.transmission = 1.0f;
+      const MaterialHandle without = renderer.createMaterial(plain, "without");
+      const MaterialHandle with = renderer.createMaterial(transmissive, "with");
+      const EnvironmentHandle sky = renderer.createEnvironment(skyTexture({0.4f, 0.5f, 0.8f}), "sky");
+      const auto render = [&](MaterialHandle material) {
+        const std::array draws{DrawItem{.mesh = box, .material = material}};
+        SceneView view = boxScene(draws);
+        view.environment = sky;
+        view.sun.direction = glm::normalize(glm::vec3{0.3f, -0.6f, -1.0f});
+        GpuScene scene{*device, renderer, {64, 64}};
+        scene.render(view, 2);
+        std::vector<Pixel> pixels;
+        for (unsigned y = 16; y < 48; y += 4) {
+          for (unsigned x = 16; x < 48; x += 4) {
+            pixels.push_back(scene.pixel(x, y));
+          }
+        }
+        return pixels;
+      };
+      const std::vector<Pixel> a = render(without);
+      const std::vector<Pixel> b = render(with);
+      CAPTURE(metallic);
+      int largest = 0;
+      for (std::size_t i = 0; i < a.size(); ++i) {
+        largest = std::max({largest, std::abs(a[i].r - b[i].r), std::abs(a[i].g - b[i].g), std::abs(a[i].b - b[i].b)});
+      }
+      CAPTURE(largest);
+      if (metallic == 1.0f) {
+        REQUIRE(largest == 0); // the same path, the same pixels
+      } else {
+        REQUIRE(largest > 20); // a clear dielectric lets the sky through
+      }
+      renderer.destroyEnvironment(sky);
+      renderer.destroyMaterial(without);
+      renderer.destroyMaterial(with);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a transmission texture on the second UV set, transformed and nearest, decides the coverage on a GPU",
+          "[renderer][gpu][transmission][sampler]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.shadows = false;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    // Black on the left, white on the right.
+    TextureData halves{.size = {2, 1}, .format = Format::R8G8B8A8Unorm, .data = {}};
+    halves.data.resize(static_cast<std::size_t>(halves.expectedSize()));
+    for (std::size_t i = 0; i < 4; ++i) {
+      halves.data[i] = std::byte{i == 3 ? std::uint8_t{255} : std::uint8_t{0}};
+      halves.data[4 + i] = std::byte{255};
+    }
+    const TextureHandle mask = renderer.createTexture(halves, "halves");
+    // The first UV set is one point, on the white half: a slot that read it would be clear all over.
+    MeshData glassQuad = facingQuad(0.0f);
+    for (Vertex &vertex : glassQuad.vertices) {
+      vertex.uv = {0.75f, 0.5f};
+    }
+    const MeshHandle glassMesh = renderer.createMesh(glassQuad, "glass quad");
+    const MeshHandle backMesh = renderer.createMesh(facingQuad(-1.0f), "back quad");
+    MaterialDesc glassDesc = dielectric();
+    glassDesc.transmission = 1.0f;
+    glassDesc.transmissionTexture = mask;
+    // Mirrored, so the left of the quad reads the white half: u' = 1 - u.
+    glassDesc.transmissionTransform = {.offset = {1.0f, 0.0f}, .rotation = 0.0f, .scale = {-1.0f, 1.0f}, .texCoord = 1};
+    glassDesc.transmissionSampler = {.wrapS = TextureWrap::ClampToEdge,
+                                     .wrapT = TextureWrap::ClampToEdge,
+                                     .magFilter = TextureFilter::Nearest,
+                                     .minFilter = TextureFilter::Nearest,
+                                     .mipFilter = TextureMipFilter::None};
+    MaterialDesc backDesc;
+    backDesc.baseColor = {1.0f, 0.0f, 0.0f, 1.0f};
+    backDesc.unlit = true;
+    const MaterialHandle glass = renderer.createMaterial(glassDesc, "glass");
+    const MaterialHandle back = renderer.createMaterial(backDesc, "back");
+    const std::array draws{
+        DrawItem{.mesh = backMesh, .material = back, .transform = glm::scale(glm::mat4{1.0f}, {3.0f, 3.0f, 1.0f})},
+        DrawItem{.mesh = glassMesh, .material = glass}};
+    SceneView view = boxScene(draws);
+    view.hasSun = false;
+    view.ambient = glm::vec3{0.6f};
+    GpuScene scene{*device, renderer, {128, 128}};
+    scene.render(view);
+    const Pixel background = scene.pixel(4, 64);
+    REQUIRE(background.r > 200);
+    REQUIRE(background.g == 0);
+    // The quad spans about 40 to 88. Its left half lets everything through: the red behind, exactly,
+    // even at u = 0.4, where a linear filter would mix in the black texel. Its right half lets
+    // nothing through: the grey glass, without red.
+    for (const unsigned x : {44u, 52u, 60u}) {
+      CAPTURE(x);
+      const Pixel through = scene.pixel(x, 64);
+      REQUIRE(through.r == background.r);
+      REQUIRE(through.g == 0);
+    }
+    for (const unsigned x : {68u, 76u, 84u}) {
+      CAPTURE(x);
+      const Pixel covered = scene.pixel(x, 64);
+      REQUIRE(covered.g > 40);
+      REQUIRE(std::abs(covered.r - covered.g) <= 2);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMaterial(glass);
+    renderer.destroyMaterial(back);
+    renderer.destroyMesh(glassMesh);
+    renderer.destroyMesh(backMesh);
+    renderer.destroyTexture(mask);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}

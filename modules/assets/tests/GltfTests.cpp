@@ -182,38 +182,81 @@ TEST_CASE("a glTF file imports its meshes, materials, images and node hierarchy"
   std::filesystem::remove_all(directory);
 }
 
-TEST_CASE("a transmissive glTF material imports as alpha-blended until refraction exists", "[assets][gltf]") {
+TEST_CASE("a transmissive glTF material imports its transmission and keeps its alpha", "[assets][gltf]") {
   const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_transmission");
   REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  REQUIRE(core::writeFile(directory / "mask.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
   test::writeBoxGltf(directory / "glass.gltf", "wood.png");
   const auto bytes = core::readFile(directory / "glass.gltf");
   REQUIRE(bytes.has_value());
   nlohmann::json document =
       nlohmann::json::parse(std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()});
   // Required too, so every parse of the file has to accept it.
-  document["extensionsUsed"] = {"KHR_materials_transmission"};
+  document["extensionsUsed"] = {"KHR_materials_transmission", "KHR_texture_transform"};
   document["extensionsRequired"] = {"KHR_materials_transmission"};
+  document["images"].push_back({{"uri", "mask.png"}});
+  document["samplers"].push_back({{"magFilter", 9728}, {"minFilter", 9984}});
+  document["textures"].push_back({{"source", 1}, {"sampler", 1}});
   document["materials"][0]["pbrMetallicRoughness"]["baseColorFactor"] = {1.0, 1.0, 1.0, 0.8};
-  document["materials"][0]["extensions"]["KHR_materials_transmission"] = {{"transmissionFactor", 0.75}};
+  const nlohmann::json textureTransform = {{"offset", {0.5, 0.0}}, {"scale", {2.0, 1.0}}, {"texCoord", 1}};
+  nlohmann::json transmissionTexture = {{"index", 1}};
+  transmissionTexture["extensions"]["KHR_texture_transform"] = textureTransform;
+  document["materials"][0]["extensions"]["KHR_materials_transmission"] = {{"transmissionFactor", 0.75},
+                                                                          {"transmissionTexture", transmissionTexture}};
   REQUIRE(core::writeFile(directory / "glass.gltf", document.dump(2)).has_value());
 
+  std::ostringstream log;
+  const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
+  core::Log::addSink(sink);
   const auto imported = importGltf(directory / "glass.gltf");
+  core::Log::removeSink(sink);
   REQUIRE(imported.has_value());
   REQUIRE(imported->materials.size() == 1);
-  const MaterialSource &source = imported->materials[0].source;
-  REQUIRE(source.alphaMode == renderer::AlphaMode::Blend);
-  REQUIRE(source.baseColor.a == Approx(0.2f));
-  REQUIRE(source.baseColor.r == Approx(1.0f));
+  const GltfMaterial &material = imported->materials[0];
+  const MaterialSource &source = material.source;
+  // The alpha as authored: the renderer, not the importer, takes the transmitted light off it.
+  REQUIRE(source.alphaMode == renderer::AlphaMode::Opaque);
+  REQUIRE(source.baseColor.a == Approx(0.8f));
+  REQUIRE(source.transmission == Approx(0.75f));
+  REQUIRE(material.transmissionImage == 1);
+  REQUIRE(source.transmissionTransform ==
+          renderer::TextureTransform{.offset = {0.5f, 0.0f}, .rotation = 0.0f, .scale = {2.0f, 1.0f}, .texCoord = 1});
+  REQUIRE(source.transmissionSampler == renderer::TextureSampler{.magFilter = renderer::TextureFilter::Nearest,
+                                                                 .minFilter = renderer::TextureFilter::Nearest,
+                                                                 .mipFilter = renderer::TextureMipFilter::Nearest});
+  // A data slot's own image stays linear, and nothing is shared, so nothing is warned.
+  REQUIRE(imported->images[0].srgb);
+  REQUIRE_FALSE(imported->images[1].srgb);
+  REQUIRE(log.str().find("is read as colour") == std::string::npos);
   REQUIRE(importGltfStructure(directory / "glass.gltf").has_value());
   REQUIRE(gltfDependencies(directory / "glass.gltf").has_value());
 
-  // No transmission, or none let through, leaves the material as authored.
-  document["materials"][0]["extensions"]["KHR_materials_transmission"]["transmissionFactor"] = 0.0;
+  // The base colour's image as the transmission texture: sRGB for both, warned once, naming both slots.
+  document["materials"][0]["extensions"]["KHR_materials_transmission"]["transmissionTexture"] = {{"index", 0}};
+  document["materials"].push_back(document["materials"][0]); // a second user must not repeat the warning
+  REQUIRE(core::writeFile(directory / "glass.gltf", document.dump(2)).has_value());
+  std::ostringstream shared;
+  const auto sharedSink = std::make_shared<spdlog::sinks::ostream_sink_mt>(shared, true);
+  core::Log::addSink(sharedSink);
+  const auto both = importGltf(directory / "glass.gltf");
+  core::Log::removeSink(sharedSink);
+  REQUIRE(both.has_value());
+  REQUIRE(both->materials[0].transmissionImage == 0);
+  REQUIRE(both->images[0].srgb);
+  const std::string warned = shared.str();
+  const auto at = warned.find("is read as colour (base colour) and as data (transmission)");
+  REQUIRE(at != std::string::npos);
+  REQUIRE(warned.find("is read as colour", at + 1) == std::string::npos);
+
+  // No transmission leaves the material as authored.
+  document["materials"][0]["extensions"]["KHR_materials_transmission"] = {{"transmissionFactor", 0.0}};
   REQUIRE(core::writeFile(directory / "glass.gltf", document.dump(2)).has_value());
   const auto opaque = importGltf(directory / "glass.gltf");
   REQUIRE(opaque.has_value());
   REQUIRE(opaque->materials[0].source.alphaMode == renderer::AlphaMode::Opaque);
   REQUIRE(opaque->materials[0].source.baseColor.a == Approx(0.8f));
+  REQUIRE(opaque->materials[0].source.transmission == 0.0f);
+  REQUIRE(opaque->materials[0].transmissionImage == -1);
   std::filesystem::remove_all(directory);
 }
 

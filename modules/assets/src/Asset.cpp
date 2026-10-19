@@ -61,12 +61,13 @@ struct TextureSlot {
   renderer::TextureTransform MaterialSource::*transform;
   renderer::TextureSampler MaterialSource::*sampler;
 };
-constexpr std::array<TextureSlot, 5> TextureSlots{{
+constexpr std::array<TextureSlot, 6> TextureSlots{{
     {"baseColor", &MaterialSource::baseColorTransform, &MaterialSource::baseColorSampler},
     {"metallicRoughness", &MaterialSource::metallicRoughnessTransform, &MaterialSource::metallicRoughnessSampler},
     {"normal", &MaterialSource::normalTransform, &MaterialSource::normalSampler},
     {"occlusion", &MaterialSource::occlusionTransform, &MaterialSource::occlusionSampler},
     {"emissive", &MaterialSource::emissiveTransform, &MaterialSource::emissiveSampler},
+    {"transmission", &MaterialSource::transmissionTransform, &MaterialSource::transmissionSampler},
 }};
 
 json transformToJson(const renderer::TextureTransform &transform) {
@@ -207,6 +208,7 @@ json saveMaterial(const MaterialSource &material) {
   put("normal", material.normalTexture);
   put("occlusion", material.occlusionTexture);
   put("emissive", material.emissiveTexture);
+  put("transmission", material.transmissionTexture);
   json transforms = json::object();
   for (const TextureSlot &slot : TextureSlots) {
     if (material.*slot.transform != renderer::TextureTransform{}) {
@@ -235,6 +237,7 @@ json saveMaterial(const MaterialSource &material) {
       {"normalScale", material.normalScale},
       {"occlusionStrength", material.occlusionStrength},
       {"alphaCutoff", material.alphaCutoff},
+      {"transmission", material.transmission},
       {"alphaMode", std::string{toString(material.alphaMode)}},
       {"samplers", std::move(samplers)},
       {"doubleSided", material.doubleSided},
@@ -266,6 +269,7 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
   material.normalScale = document.value("normalScale", material.normalScale);
   material.occlusionStrength = document.value("occlusionStrength", material.occlusionStrength);
   material.alphaCutoff = document.value("alphaCutoff", material.alphaCutoff);
+  material.transmission = document.value("transmission", material.transmission);
   material.doubleSided = document.value("doubleSided", material.doubleSided);
   material.unlit = document.value("unlit", material.unlit);
   const std::string alphaMode = document.value("alphaMode", std::string{"Opaque"});
@@ -305,6 +309,7 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
     material.normalTexture = uuidFromJson(textures, "normal");
     material.occlusionTexture = uuidFromJson(textures, "occlusion");
     material.emissiveTexture = uuidFromJson(textures, "emissive");
+    material.transmissionTexture = uuidFromJson(textures, "transmission");
   }
   if (document.contains("transforms") && document["transforms"].is_object()) {
     const json &transforms = document["transforms"];

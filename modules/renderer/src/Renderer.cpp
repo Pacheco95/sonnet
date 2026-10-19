@@ -50,12 +50,14 @@ constexpr std::uint32_t AlphaMask = 1;
 constexpr std::uint32_t AlphaBlend = 2;
 constexpr std::uint32_t MaterialDoubleSided = 1u << 8;
 constexpr std::uint32_t MaterialUnlit = 1u << 9;
+constexpr std::uint32_t MaterialTransmissive = 1u << 10; // mayTransmit: on the transmission path (ADR-0033)
 // A material's texture slots, as the bits of GpuMaterial::uvSets. Mirror of shaders/sonnet.slang.
 constexpr std::uint32_t SlotBaseColor = 0;
 constexpr std::uint32_t SlotMetallicRoughness = 1;
 constexpr std::uint32_t SlotNormal = 2;
 constexpr std::uint32_t SlotOcclusion = 3;
 constexpr std::uint32_t SlotEmissive = 4;
+constexpr std::uint32_t SlotTransmission = 5;
 
 struct GpuLight {
   glm::vec3 position;
@@ -94,8 +96,12 @@ struct GpuMaterial {
   std::uint32_t occlusionTexture;
   std::uint32_t emissiveTexture;
   std::uint32_t flags;
-  std::uint32_t sampler; // five six-bit bindless sampler indices, in texture slot order
+  std::uint32_t sampler; // the first five slots' six-bit bindless sampler indices, in slot order
   std::uint32_t uvSets;  // a slot's bit set: it reads Vertex::uv1 instead of Vertex::uv
+  float transmission;
+  std::uint32_t transmissionTexture;
+  std::uint32_t transmissionSampler; // the sixth slot's sampler index
+  std::uint32_t reserved;
   // Each slot's KHR_texture_transform, the 2x2 part by rows and then the offsets, so every vec4
   // stays 16-byte aligned for Metal.
   glm::vec4 baseColorUv;
@@ -103,14 +109,15 @@ struct GpuMaterial {
   glm::vec4 normalUv;
   glm::vec4 occlusionUv;
   glm::vec4 emissiveUv;
+  glm::vec4 transmissionUv;
   glm::vec2 baseColorUvOffset;
   glm::vec2 metallicRoughnessUvOffset;
   glm::vec2 normalUvOffset;
   glm::vec2 occlusionUvOffset;
   glm::vec2 emissiveUvOffset;
-  glm::vec2 uvPadding;
+  glm::vec2 transmissionUvOffset;
 };
-static_assert(sizeof(GpuMaterial) == 208);
+static_assert(sizeof(GpuMaterial) == 240);
 
 struct FrameConstants {
   glm::mat4 view;
@@ -1059,7 +1066,8 @@ std::uint32_t Renderer::packSamplers(const MaterialDesc &desc) {
 
 MaterialHandle Renderer::createMaterial(const MaterialDesc &desc, std::string debugName) {
   const auto samplers = packSamplers(desc);
-  const MaterialHandle handle = m_materials.emplace(Material{std::move(debugName), desc, samplers});
+  const MaterialHandle handle =
+      m_materials.emplace(Material{std::move(debugName), desc, samplers, materialSampler(desc.transmissionSampler)});
   m_materialSlots = std::max(m_materialSlots, handle.index + 1);
   return handle;
 }
@@ -1071,6 +1079,7 @@ void Renderer::updateMaterial(MaterialHandle handle, const MaterialDesc &desc) {
     return;
   }
   material->samplers = packSamplers(desc);
+  material->transmissionSampler = materialSampler(desc.transmissionSampler);
   material->desc = desc;
 }
 
@@ -1582,7 +1591,8 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
                                       .doubleSided = desc.doubleSided,
                                       .mirrored = glm::determinant(glm::mat3{item.transform}) < 0.0f,
                                       .coarse = coarse,
-                                      .blended = desc.alphaMode == AlphaMode::Blend,
+                                      // A draw that may transmit joins the blended draws (ADR-0033).
+                                      .blended = desc.alphaMode == AlphaMode::Blend || mayTransmit(desc),
                                       .masked = desc.alphaMode == AlphaMode::Mask,
                                       .viewDepth = -viewPosition.z});
   }
@@ -2603,41 +2613,48 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
 
   // Materials: slot 0 the default, then every live material by pool index.
   auto *gpuMaterials = reinterpret_cast<GpuMaterial *>(materials.data.data());
-  const auto encode = [this](const MaterialDesc &desc, std::uint32_t samplers) {
+  const auto encode = [this](const MaterialDesc &desc, std::uint32_t samplers, std::uint32_t transmissionSampler) {
     const std::uint32_t mode = desc.alphaMode == AlphaMode::Blend  ? AlphaBlend
                                : desc.alphaMode == AlphaMode::Mask ? AlphaMask
                                                                    : AlphaOpaque;
     const Texture *normal = m_textures.find(desc.normalTexture);
-    return GpuMaterial{
-        .baseColor = desc.baseColor,
-        .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
-        .metallic = desc.metallic,
-        .roughness = desc.roughness,
-        .normalScale = desc.normalScale,
-        .occlusionStrength = desc.occlusionStrength,
-        .baseColorTexture = textureIndex(desc.baseColorTexture),
-        .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
-        .normalTexture =
-            normal != nullptr ? m_device.sampledImageIndex(normal->image) : textureIndex(m_flatNormalTexture),
-        .occlusionTexture = textureIndex(desc.occlusionTexture),
-        .emissiveTexture = textureIndex(desc.emissiveTexture),
-        .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) | (desc.unlit ? MaterialUnlit : 0u),
-        .sampler = samplers,
-        .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
-                  uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
-                  uvSetBit(desc.normalTransform, SlotNormal) | uvSetBit(desc.occlusionTransform, SlotOcclusion) |
-                  uvSetBit(desc.emissiveTransform, SlotEmissive),
-        .baseColorUv = uvMatrix(desc.baseColorTransform),
-        .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
-        .normalUv = uvMatrix(desc.normalTransform),
-        .occlusionUv = uvMatrix(desc.occlusionTransform),
-        .emissiveUv = uvMatrix(desc.emissiveTransform),
-        .baseColorUvOffset = desc.baseColorTransform.offset,
-        .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
-        .normalUvOffset = desc.normalTransform.offset,
-        .occlusionUvOffset = desc.occlusionTransform.offset,
-        .emissiveUvOffset = desc.emissiveTransform.offset,
-        .uvPadding = {}};
+    return GpuMaterial{.baseColor = desc.baseColor,
+                       .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
+                       .metallic = desc.metallic,
+                       .roughness = desc.roughness,
+                       .normalScale = desc.normalScale,
+                       .occlusionStrength = desc.occlusionStrength,
+                       .baseColorTexture = textureIndex(desc.baseColorTexture),
+                       .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
+                       .normalTexture = normal != nullptr ? m_device.sampledImageIndex(normal->image)
+                                                          : textureIndex(m_flatNormalTexture),
+                       .occlusionTexture = textureIndex(desc.occlusionTexture),
+                       .emissiveTexture = textureIndex(desc.emissiveTexture),
+                       .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) |
+                                (desc.unlit ? MaterialUnlit : 0u) | (mayTransmit(desc) ? MaterialTransmissive : 0u),
+                       .sampler = samplers,
+                       .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
+                                 uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
+                                 uvSetBit(desc.normalTransform, SlotNormal) |
+                                 uvSetBit(desc.occlusionTransform, SlotOcclusion) |
+                                 uvSetBit(desc.emissiveTransform, SlotEmissive) |
+                                 uvSetBit(desc.transmissionTransform, SlotTransmission),
+                       .transmission = desc.transmission,
+                       .transmissionTexture = textureIndex(desc.transmissionTexture),
+                       .transmissionSampler = transmissionSampler,
+                       .reserved = 0,
+                       .baseColorUv = uvMatrix(desc.baseColorTransform),
+                       .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
+                       .normalUv = uvMatrix(desc.normalTransform),
+                       .occlusionUv = uvMatrix(desc.occlusionTransform),
+                       .emissiveUv = uvMatrix(desc.emissiveTransform),
+                       .transmissionUv = uvMatrix(desc.transmissionTransform),
+                       .baseColorUvOffset = desc.baseColorTransform.offset,
+                       .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
+                       .normalUvOffset = desc.normalTransform.offset,
+                       .occlusionUvOffset = desc.occlusionTransform.offset,
+                       .emissiveUvOffset = desc.emissiveTransform.offset,
+                       .transmissionUvOffset = desc.transmissionTransform.offset};
   };
   MaterialDesc defaultMaterial;
   defaultMaterial.metallic = 0.0f;
@@ -2646,10 +2663,10 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   const auto defaultSamplers =
       defaultIndex | (defaultIndex << 6u) | (defaultIndex << 12u) | (defaultIndex << 18u) | (defaultIndex << 24u);
   for (std::uint32_t i = 0; i < materialCount; ++i) {
-    gpuMaterials[i] = encode(defaultMaterial, defaultSamplers);
+    gpuMaterials[i] = encode(defaultMaterial, defaultSamplers, defaultIndex);
   }
   m_materials.forEach([&](MaterialHandle handle, const Material &material) {
-    gpuMaterials[handle.index + 1] = encode(material.desc, material.samplers);
+    gpuMaterials[handle.index + 1] = encode(material.desc, material.samplers, material.transmissionSampler);
   });
 
   // The budgeted lights' maps, matrices and depth slots, and which light each belongs to.

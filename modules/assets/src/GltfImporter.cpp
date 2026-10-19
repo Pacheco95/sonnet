@@ -22,8 +22,11 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace sonnet::assets {
 
@@ -231,11 +234,17 @@ template <typename OptionalInfo> renderer::TextureTransform transformOf(const Op
           .texCoord = texCoord};
 }
 
+// KHR_materials_transmission's texture, or none.
+const fastgltf::Optional<fastgltf::TextureInfo> &transmissionTextureOf(const fastgltf::Material &material) {
+  static const fastgltf::Optional<fastgltf::TextureInfo> None{};
+  return material.transmission != nullptr ? material.transmission->transmissionTexture : None;
+}
+
 // The highest UV set any of a material's texture slots reads.
 std::size_t highestTexCoord(const fastgltf::Material &material) {
   return std::max({texCoordOf(material.pbrData.baseColorTexture), texCoordOf(material.pbrData.metallicRoughnessTexture),
                    texCoordOf(material.normalTexture), texCoordOf(material.occlusionTexture),
-                   texCoordOf(material.emissiveTexture)});
+                   texCoordOf(material.emissiveTexture), texCoordOf(transmissionTextureOf(material))});
 }
 
 std::string nameOr(std::string_view name, const char *kind, std::size_t index) {
@@ -525,6 +534,48 @@ void readAnimationEvents(simdjson::dom::object *extras, std::size_t index, fastg
   }
 }
 
+// An image is sRGB for every slot when any material reads it as colour, so a data slot that shares it
+// reads it wrong. Warned once per image, naming the slots on both sides (docs/assets.md, "Materials").
+void warnSharedImages(const std::filesystem::path &path, const GltfImport &import) {
+  struct Use {
+    std::vector<std::string_view> colour;
+    std::vector<std::string_view> data;
+  };
+  std::vector<Use> uses(import.images.size());
+  const auto add = [&](std::int32_t image, std::vector<std::string_view> Use::*side, std::string_view slot) {
+    if (image < 0 || static_cast<std::size_t>(image) >= uses.size()) {
+      return;
+    }
+    auto &slots = uses[static_cast<std::size_t>(image)].*side;
+    if (std::ranges::find(slots, slot) == slots.end()) {
+      slots.push_back(slot);
+    }
+  };
+  for (const GltfMaterial &material : import.materials) {
+    add(material.baseColorImage, &Use::colour, "base colour");
+    add(material.emissiveImage, &Use::colour, "emissive");
+    add(material.metallicRoughnessImage, &Use::data, "metallic-roughness");
+    add(material.normalImage, &Use::data, "normal");
+    add(material.occlusionImage, &Use::data, "occlusion");
+    add(material.transmissionImage, &Use::data, "transmission");
+  }
+  const auto join = [](const std::vector<std::string_view> &slots) {
+    std::string text;
+    for (const std::string_view slot : slots) {
+      text += text.empty() ? "" : ", ";
+      text += slot;
+    }
+    return text;
+  };
+  for (std::size_t i = 0; i < uses.size(); ++i) {
+    if (!uses[i].colour.empty() && !uses[i].data.empty()) {
+      SONNET_LOG_WARN("{}: image \"{}\" is read as colour ({}) and as data ({}); it imports as sRGB, so the data "
+                      "slots read it in sRGB",
+                      path.string(), import.images[i].name, join(uses[i].colour), join(uses[i].data));
+    }
+  }
+}
+
 } // namespace
 
 core::Result<GltfImport> importGltf(const std::filesystem::path &path, const ModelSettings &settings) {
@@ -749,12 +800,12 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path, const Mod
     out.source.alphaMode = material.alphaMode == fastgltf::AlphaMode::Blend  ? renderer::AlphaMode::Blend
                            : material.alphaMode == fastgltf::AlphaMode::Mask ? renderer::AlphaMode::Mask
                                                                              : renderer::AlphaMode::Opaque;
-    // Transmission until refraction exists (#254): blended, with the light the surface lets
-    // through taken off its alpha, so clear glass shows what is behind it. The texture is ignored.
-    if (material.transmission != nullptr && material.transmission->transmissionFactor > 0.0f) {
-      out.source.alphaMode = renderer::AlphaMode::Blend;
-      out.source.baseColor.a *= 1.0f - material.transmission->transmissionFactor;
+    // KHR_materials_transmission as authored, the alpha left alone: the renderer draws the light
+    // the surface lets through (ADR-0033).
+    if (material.transmission != nullptr) {
+      out.source.transmission = material.transmission->transmissionFactor;
     }
+    const auto &transmissionTexture = transmissionTextureOf(material);
     out.baseColorImage = imageOf(asset, pbr.baseColorTexture);
     out.metallicRoughnessImage = imageOf(asset, pbr.metallicRoughnessTexture);
     out.normalImage = imageOf(asset, material.normalTexture);
@@ -766,11 +817,13 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path, const Mod
       out.source.occlusionStrength = material.occlusionTexture->strength;
     }
     out.emissiveImage = imageOf(asset, material.emissiveTexture);
+    out.transmissionImage = imageOf(asset, transmissionTexture);
     out.source.baseColorTransform = transformOf(pbr.baseColorTexture);
     out.source.metallicRoughnessTransform = transformOf(pbr.metallicRoughnessTexture);
     out.source.normalTransform = transformOf(material.normalTexture);
     out.source.occlusionTransform = transformOf(material.occlusionTexture);
     out.source.emissiveTransform = transformOf(material.emissiveTexture);
+    out.source.transmissionTransform = transformOf(transmissionTexture);
     const auto samplerOf = [&](const auto &info) {
       renderer::TextureSampler result;
       if (!info.has_value() || info->textureIndex >= asset.textures.size())
@@ -801,6 +854,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path, const Mod
     out.source.normalSampler = samplerOf(material.normalTexture);
     out.source.occlusionSampler = samplerOf(material.occlusionTexture);
     out.source.emissiveSampler = samplerOf(material.emissiveTexture);
+    out.source.transmissionSampler = samplerOf(transmissionTexture);
     for (const std::int32_t colour : {out.baseColorImage, out.emissiveImage}) {
       if (colour >= 0 && static_cast<std::size_t>(colour) < import.images.size()) {
         import.images[static_cast<std::size_t>(colour)].srgb = true;
@@ -808,6 +862,7 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path, const Mod
     }
     import.materials.push_back(std::move(out));
   }
+  warnSharedImages(path, import);
 
   const NodeWalk walk = walkNodes(asset, settings, import.model, import.meshIndices, import.skinIndices);
   for (const std::string &name : walk.duplicateNames) {
