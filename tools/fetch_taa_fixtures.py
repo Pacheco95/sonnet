@@ -22,7 +22,7 @@ import generate_taa_fixtures as fixtures  # noqa: E402
 SAMPLE_ASSETS = ("https://github.com/KhronosGroup/glTF-Sample-Assets", "edc7c9e67c639d230715049ee31f9a96a6babbbe")
 SAMPLE_ENVIRONMENTS = ("https://github.com/KhronosGroup/glTF-Sample-Environments",
                        "4fc29557763275b8519b42920f85ad0ca1822f22")
-MODELS = ["ChronographWatch", "TransmissionTest"]
+MODELS = ["ChronographWatch", "CommercialRefrigerator", "TransmissionTest"]
 
 
 def run(*command, cwd=None):
