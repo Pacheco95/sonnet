@@ -59,4 +59,4 @@ Corrected to the first off run. The last run lost its clock samples between 0.5 
 - Sustained, the frame stays under 33 ms: **21.2 ms at most**, met.
 - Sustained, the thermal status reached is no worse than with transmission off: **2 in both**, met as written. The rule compares the status reached, not how fast; the spike reaching it sooner is a cost the rule does not capture.
 
-The iPad is not measured yet ([#336](https://github.com/Pacheco95/sonnet/issues/336)).
+The iPad is measured in [transmission-cost-ipad](transmission-cost-ipad.md): +3.4 ms cold, over the 2 ms limit.
