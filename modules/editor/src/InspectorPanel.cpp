@@ -422,6 +422,8 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   track();
   ImGui::SliderFloat("Alpha cutoff", &edited.alphaCutoff, 0.0f, 1.0f);
   track();
+  ImGui::SliderFloat("Transmission", &edited.transmission, 0.0f, 1.0f);
+  track();
   picked = drawEnumCombo("Alpha mode", edited.alphaMode, AlphaModeNames) || picked;
   if (ImGui::Checkbox("Double sided", &edited.doubleSided)) {
     picked = true;
@@ -482,6 +484,7 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   texture("Normal map", edited.normalTexture, edited.normalTransform, edited.normalSampler);
   texture("Occlusion map", edited.occlusionTexture, edited.occlusionTransform, edited.occlusionSampler);
   texture("Emissive map", edited.emissiveTexture, edited.emissiveTransform, edited.emissiveSampler);
+  texture("Transmission map", edited.transmissionTexture, edited.transmissionTransform, edited.transmissionSampler);
 
   if (edited != *current) {
     m_assets.setMaterialSource(info.uuid, edited);
