@@ -88,22 +88,26 @@ struct MaterialSource {
   float normalScale{1.0f};
   float occlusionStrength{1.0f};
   float alphaCutoff{0.5f};
+  float transmission{0.0f};
   core::Uuid baseColorTexture{};
   core::Uuid metallicRoughnessTexture{};
   core::Uuid normalTexture{};
   core::Uuid occlusionTexture{};
   core::Uuid emissiveTexture{};
+  core::Uuid transmissionTexture{};
   renderer::TextureTransform baseColorTransform{};
   renderer::TextureTransform metallicRoughnessTransform{};
   renderer::TextureTransform normalTransform{};
   renderer::TextureTransform occlusionTransform{};
   renderer::TextureTransform emissiveTransform{};
+  renderer::TextureTransform transmissionTransform{};
   renderer::AlphaMode alphaMode{renderer::AlphaMode::Opaque};
   renderer::TextureSampler baseColorSampler{};
   renderer::TextureSampler metallicRoughnessSampler{};
   renderer::TextureSampler normalSampler{};
   renderer::TextureSampler occlusionSampler{};
   renderer::TextureSampler emissiveSampler{};
+  renderer::TextureSampler transmissionSampler{};
   bool doubleSided{false};
   bool unlit{false};
 
@@ -112,8 +116,8 @@ struct MaterialSource {
 
 // The .material.json format, versioned like the scene files (docs/assets.md, "Materials").
 // Version 2 adds the texture transforms, version 3 the UV set each slot reads, version 4 unlit, version 5 per-slot
-// samplers.
-constexpr int MaterialFileVersion = 5;
+// samplers, version 6 transmission and its texture slot (ADR-0033).
+constexpr int MaterialFileVersion = 6;
 [[nodiscard]] nlohmann::json saveMaterial(const MaterialSource &material);
 [[nodiscard]] core::Result<MaterialSource> loadMaterial(const nlohmann::json &document);
 

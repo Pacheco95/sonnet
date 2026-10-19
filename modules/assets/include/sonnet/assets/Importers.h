@@ -64,6 +64,7 @@ struct GltfMaterial {
   std::int32_t normalImage{-1};
   std::int32_t occlusionImage{-1};
   std::int32_t emissiveImage{-1};
+  std::int32_t transmissionImage{-1};
 };
 
 struct GltfImage {

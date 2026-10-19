@@ -437,6 +437,32 @@ TEST_CASE("material files round-trip and refuse unknown versions", "[assets][mat
   REQUIRE(!loadMaterial(nlohmann::json::array()).has_value());
 }
 
+TEST_CASE("material files carry transmission from version 6", "[assets][material]") {
+  MaterialSource source;
+  source.transmission = 0.6f;
+  source.transmissionTexture = core::Uuid::generate();
+  source.transmissionTransform = {.offset = {0.25f, 0.0f}, .rotation = 0.5f, .scale = {2.0f, 2.0f}, .texCoord = 1};
+  source.transmissionSampler = {.wrapS = renderer::TextureWrap::ClampToEdge,
+                                .magFilter = renderer::TextureFilter::Nearest,
+                                .minFilter = renderer::TextureFilter::Nearest,
+                                .mipFilter = renderer::TextureMipFilter::Nearest};
+  const nlohmann::json document = saveMaterial(source);
+  REQUIRE(document["version"] == 6);
+  REQUIRE(document["transmission"] == 0.6f);
+  REQUIRE(document["textures"]["transmission"] == source.transmissionTexture.toString());
+  REQUIRE(document["transforms"].contains("transmission"));
+  REQUIRE(document["samplers"].contains("transmission"));
+  REQUIRE(loadMaterial(document).value() == source);
+
+  // A version 5 file has neither field: no transmission and no texture, nothing to migrate.
+  const auto older = loadMaterial(nlohmann::json{{"version", 5}, {"metallic", 0.0}});
+  REQUIRE(older.has_value());
+  REQUIRE(older->transmission == 0.0f);
+  REQUIRE(older->transmissionTexture.isNil());
+  REQUIRE(older->transmissionTransform == renderer::TextureTransform{});
+  REQUIRE(older->transmissionSampler == renderer::TextureSampler{});
+}
+
 TEST_CASE("material files round-trip texture transforms and read version 1", "[assets][material]") {
   MaterialSource source;
   source.baseColorTransform = {.offset = {0.25f, -0.5f}, .rotation = 1.5f, .scale = {2.0f, 3.0f}};
@@ -772,6 +798,62 @@ TEST_CASE("a material requests its textures and shows a placeholder until they a
   REQUIRE_FALSE(fixture.renderer.material(broken).baseColorTexture.isValid());
 }
 
+// The sixth slot goes through the same loading as the other five (ADR-0033): pending, published in
+// place, followed on hot reload, and part of the material thumbnail's dependencies.
+TEST_CASE("a material's transmission texture loads asynchronously and follows hot reload", "[assets][database]") {
+  Fixture fixture;
+  core::JobSystem jobs{{.workerCount = 0}}; // nothing runs until the test drains it
+  core::Uuid woodUuid;
+  {
+    AssetDatabase database{fixture.renderer, jobs};
+    database.open(fixture.root, fixture.roots);
+    woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
+  }
+  MaterialSource source;
+  source.metallic = 0.0f;
+  source.transmission = 0.5f;
+  source.transmissionTexture = woodUuid;
+  REQUIRE(core::writeFile(fixture.root / "assets" / "glass.material.json", saveMaterial(source).dump(2)).has_value());
+
+  AssetDatabase database{fixture.renderer, jobs};
+  database.open(fixture.root, fixture.roots);
+  std::filesystem::remove(database.cacheDirectory() / (woodUuid.toString() + ".ktx2"));
+  const core::Uuid glassUuid = byName(database, "glass", AssetType::Material)->uuid;
+  const renderer::MaterialHandle glass = database.material(glassUuid);
+
+  // Pending: the slot reads the renderer's fallback, and the import is in flight.
+  REQUIRE(fixture.renderer.isValid(glass));
+  REQUIRE(database.loading());
+  REQUIRE_FALSE(fixture.renderer.material(glass).transmissionTexture.isValid());
+
+  // Published into the existing material, with no reopening.
+  database.waitForLoads();
+  const renderer::TextureHandle first = database.requestTexture(woodUuid);
+  REQUIRE(fixture.renderer.isValid(first));
+  REQUIRE(fixture.renderer.material(glass).transmissionTexture == first);
+  REQUIRE(fixture.renderer.material(glass).transmission == Approx(0.5f));
+  static_cast<void>(database.takeChangedMaterials());
+
+  // The thumbnail is as old as the transmission texture too.
+  const auto request = database.thumbnailRequest(glassUuid);
+  REQUIRE(request.has_value());
+  REQUIRE(request->dependencies.size() == 2);
+  REQUIRE(request->dependencies[0].filename() == "wood.png");
+
+  // A new image in the file: re-imported, and the material reads it and is reported changed.
+  Fixture::touchLater(fixture.root / "assets" / "wood.png",
+                      test::encodePng({4, 4}, std::vector<std::uint8_t>(std::size_t{4} * 4 * 4, 90)));
+  std::this_thread::sleep_for(std::chrono::milliseconds{600});
+  REQUIRE(database.pollChanges() == std::vector<core::Uuid>{woodUuid});
+  database.waitForLoads();
+  const renderer::TextureHandle second = database.texture(woodUuid);
+  REQUIRE(fixture.renderer.isValid(second));
+  REQUIRE(second != first);
+  REQUIRE(fixture.renderer.material(glass).transmissionTexture == second);
+  const std::vector<core::Uuid> changed = database.takeChangedMaterials();
+  REQUIRE(std::ranges::find(changed, glassUuid) != changed.end());
+}
+
 // Reopening a project kept its file materials, which still read the textures the close had
 // destroyed: the basic sample's ground lost its checker on the second open.
 TEST_CASE("reopening a project resolves its materials against the new textures", "[assets][database]") {
@@ -950,7 +1032,7 @@ TEST_CASE("material samplers round-trip per slot and migrate legacy wraps", "[as
   source.normalSampler = {.wrapT = TextureWrap::ClampToEdge, .mipFilter = TextureMipFilter::Nearest};
   source.emissiveSampler.magFilter = TextureFilter::Nearest;
   const auto json = saveMaterial(source);
-  REQUIRE(json["version"] == 5);
+  REQUIRE(json["version"] == MaterialFileVersion);
   REQUIRE_FALSE(json.contains("wrap"));
   REQUIRE_FALSE(json["samplers"].contains("occlusion"));
   REQUIRE(loadMaterial(json).value() == source);
@@ -959,7 +1041,7 @@ TEST_CASE("material samplers round-trip per slot and migrate legacy wraps", "[as
     const auto migrated = loadMaterial(nlohmann::json{{"version", version}, {"wrap", "MirroredRepeat"}});
     REQUIRE(migrated.has_value());
     for (auto sampler : {migrated->baseColorSampler, migrated->metallicRoughnessSampler, migrated->normalSampler,
-                         migrated->occlusionSampler, migrated->emissiveSampler}) {
+                         migrated->occlusionSampler, migrated->emissiveSampler, migrated->transmissionSampler}) {
       REQUIRE(sampler.wrapS == TextureWrap::MirroredRepeat);
       REQUIRE(sampler.wrapT == TextureWrap::MirroredRepeat);
       REQUIRE(sampler.magFilter == TextureFilter::Linear);

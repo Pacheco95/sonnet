@@ -669,7 +669,7 @@ std::optional<ThumbnailRequest> AssetDatabase::thumbnailRequest(const core::Uuid
     }
     request.store = !m_unsavedMaterials.contains(uuid);
     for (const core::Uuid &texture : {source->baseColorTexture, source->metallicRoughnessTexture, source->normalTexture,
-                                      source->occlusionTexture, source->emissiveTexture}) {
+                                      source->occlusionTexture, source->emissiveTexture, source->transmissionTexture}) {
       const auto file = m_files.find(texture);
       if (!texture.isNil() && file != m_files.end()) {
         request.dependencies.push_back(find(texture)->source);
@@ -759,6 +759,7 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   desc.normalScale = source.normalScale;
   desc.occlusionStrength = source.occlusionStrength;
   desc.alphaCutoff = source.alphaCutoff;
+  desc.transmission = source.transmission;
   // Requested, not loaded: resolving a material must not import its textures on the frame that
   // first draws it. A slot still importing reads the renderer's fallback, which means "no effect",
   // except the base colour, whose fallback would show the material's untextured colour as if it
@@ -771,17 +772,20 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   desc.normalTexture = requestTexture(source.normalTexture);
   desc.occlusionTexture = requestTexture(source.occlusionTexture);
   desc.emissiveTexture = requestTexture(source.emissiveTexture);
+  desc.transmissionTexture = requestTexture(source.transmissionTexture);
   desc.baseColorTransform = source.baseColorTransform;
   desc.metallicRoughnessTransform = source.metallicRoughnessTransform;
   desc.normalTransform = source.normalTransform;
   desc.occlusionTransform = source.occlusionTransform;
   desc.emissiveTransform = source.emissiveTransform;
+  desc.transmissionTransform = source.transmissionTransform;
   desc.alphaMode = source.alphaMode;
   desc.baseColorSampler = source.baseColorSampler;
   desc.metallicRoughnessSampler = source.metallicRoughnessSampler;
   desc.normalSampler = source.normalSampler;
   desc.occlusionSampler = source.occlusionSampler;
   desc.emissiveSampler = source.emissiveSampler;
+  desc.transmissionSampler = source.transmissionSampler;
   desc.doubleSided = source.doubleSided;
   desc.unlit = source.unlit;
   return desc;
@@ -887,6 +891,7 @@ bool AssetDatabase::publishGltf(const GltfRequest &request, GltfLoad &&load) {
     material.source.normalTexture = imageUuid(material.normalImage);
     material.source.occlusionTexture = imageUuid(material.occlusionImage);
     material.source.emissiveTexture = imageUuid(material.emissiveImage);
+    material.source.transmissionTexture = imageUuid(material.transmissionImage);
     auto existing = m_materials.find(materialUuid);
     if (existing != m_materials.end()) {
       existing->second.source = material.source;
@@ -1946,7 +1951,8 @@ void AssetDatabase::refreshMaterials(const core::Uuid &textureUuid) {
   for (auto &[uuid, loaded] : m_materials) {
     const MaterialSource &s = loaded.source;
     if (s.baseColorTexture == textureUuid || s.metallicRoughnessTexture == textureUuid ||
-        s.normalTexture == textureUuid || s.occlusionTexture == textureUuid || s.emissiveTexture == textureUuid) {
+        s.normalTexture == textureUuid || s.occlusionTexture == textureUuid || s.emissiveTexture == textureUuid ||
+        s.transmissionTexture == textureUuid) {
       m_renderer.updateMaterial(loaded.handle, resolve(s));
       m_changedMaterials.insert(uuid);
     }

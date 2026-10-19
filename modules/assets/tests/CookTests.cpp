@@ -364,6 +364,63 @@ TEST_CASE("a project cooks into a bundle the database opens again", "[assets][co
   REQUIRE(document->at("version") == 2);
 }
 
+TEST_CASE("a transmissive material cooks with its transmission slot and resolves in the player",
+          "[assets][cook][material]") {
+  ProjectFixture fixture;
+  const std::filesystem::path out = fixture.root / "export";
+  REQUIRE(
+      core::writeFile(fixture.root / "assets" / "mask.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  const renderer::TextureTransform transform{
+      .offset = {0.5f, 0.25f}, .rotation = 0.5f, .scale = {2.0f, 1.0f}, .texCoord = 1};
+  const renderer::TextureSampler sampler{.wrapS = renderer::TextureWrap::ClampToEdge,
+                                         .magFilter = renderer::TextureFilter::Nearest,
+                                         .minFilter = renderer::TextureFilter::Nearest,
+                                         .mipFilter = renderer::TextureMipFilter::Nearest};
+  core::Uuid maskId;
+  core::Uuid glassId;
+  {
+    AssetDatabase database{fixture.renderer, fixture.jobs};
+    database.open(fixture.root, fixture.project.assetRoots);
+    maskId = idOf(database, "mask", AssetType::Texture);
+    // The mask is read by the transmission slot and nothing else.
+    MaterialSource glass;
+    glass.metallic = 0.0f;
+    glass.transmission = 0.4f;
+    glass.transmissionTexture = maskId;
+    glass.transmissionTransform = transform;
+    glass.transmissionSampler = sampler;
+    const auto created = database.createMaterial(fixture.root / "assets" / "glass.material.json", glass);
+    REQUIRE(created.has_value());
+    glassId = *created;
+    REQUIRE(database.saveMaterial(glassId).has_value());
+    REQUIRE(cook(database, fixture.project, {.outputDirectory = out, .platform = CookPlatform::Linux}).has_value());
+  }
+
+  AssetDatabase player{fixture.renderer, fixture.jobs};
+  REQUIRE(player.openBundle(out / "game.sbundle").has_value());
+  REQUIRE(player.bundle()->contains(maskId)); // the texture's payload
+  REQUIRE(player.bundle()->read(maskId).has_value());
+  const MaterialSource *cooked = player.materialSource(glassId);
+  REQUIRE(cooked != nullptr);
+  REQUIRE(cooked->transmission == Approx(0.4f));
+  REQUIRE(cooked->transmissionTexture == maskId);
+  REQUIRE(cooked->transmissionTransform == transform);
+  REQUIRE(cooked->transmissionSampler == sampler);
+
+  // Through the player's asynchronous material loading, as a scene would.
+  const renderer::MaterialHandle handle = player.material(glassId);
+  REQUIRE(fixture.renderer.isValid(handle));
+  player.waitForLoads();
+  const renderer::TextureHandle mask = player.requestTexture(maskId);
+  REQUIRE(fixture.renderer.isValid(mask));
+  const renderer::MaterialDesc &desc = fixture.renderer.material(handle);
+  REQUIRE(desc.transmissionTexture == mask);
+  REQUIRE(desc.transmission == Approx(0.4f));
+  REQUIRE(desc.transmissionTransform == transform);
+  REQUIRE(desc.transmissionSampler == sampler);
+  REQUIRE(renderer::mayTransmit(desc));
+}
+
 TEST_CASE("a font cooks as the file itself, with its preload ranges, into the current bundle version",
           "[assets][cook][font]") {
   ProjectFixture fixture;
@@ -410,11 +467,11 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
   REQUIRE(cooked != nullptr);
   REQUIRE(cooked->bytes == file); // byte for byte
   REQUIRE(cooked->preload == std::vector<GlyphRange>{{65, 90}});
-  // The header says version 18.
+  // The header says version 19.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 18);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 18);
+  REQUIRE(BundleVersion == 19);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 19);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {
