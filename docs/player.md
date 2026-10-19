@@ -228,6 +228,10 @@ Measured on that phone with the basic sample and the debug APK, 10 minutes from 
 
 The phone started at about 35 °C each time. With Mailbox the GPU drew every frame it could and the display showed at most 120 of them each second. FIFO removed those extra frames, but 120 frames a second of the basic sample still kept the GPU over 80 % busy. At 60 Hz the GPU keeps up at its lowest clocks, and the skin stayed under the 38 °C of the phone's first thermal threshold.
 
+### Transmission on a phone
+
+The editor and the desktop player draw a view with a transmissive material through a copy of the opaque scene ([rendering.md](rendering.md#transmission), `RendererSettings::transmission`). The Android and iOS players set it off in `gameDesc`, so a transmissive material draws as a blend on a phone, with no copy and no extra pass, until the S25 and iPad measurements of [#339](https://github.com/Pacheco95/sonnet/issues/339) show it fits the budget there.
+
 ## Running on iOS
 
 On iOS the player is `sonnet_player.app`, an Xcode-signed bundle the `ios-debug` and `ios-release` presets build ([build.md](build.md#ios)). Its bundle identifier is `io.github.pacheco95.sonnet`, the same as the Android package. A game is cooked for `ios` the same way as `android`, with ASTC textures, and packaged into the bundle at configure:

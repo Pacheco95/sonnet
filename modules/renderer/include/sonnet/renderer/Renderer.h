@@ -112,6 +112,10 @@ struct RendererSettings {
   // Occlusion culling of the opaque draws against a depth pyramid, in two phases (ADR-0024): the
   // result is the same pixels with fewer draws.
   bool occlusionCulling{true};
+  // A view with a transmissive draw copies its opaque scene and blurs it by roughness behind that
+  // draw (ADR-0033). Off, such a draw is blended with the opacity the same transmission gives, and
+  // no copy or extra pass is made.
+  bool transmission{true};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
   // present pipeline out, which is what the editor does: it shows the scene through Dear ImGui.
   rhi::Format presentFormat{rhi::Format::Undefined};
@@ -446,6 +450,7 @@ private:
     bool mirrored; // the transform's upper 3x3 has a negative determinant: the winding reverses
     bool coarse;   // the far cascades may draw the submesh's coarse range (ADR-0025)
     bool blended;
+    bool transmissive; // on the transmission path (ADR-0033), and so in `blended` too
     bool masked;
     float viewDepth;
   };
@@ -550,6 +555,7 @@ private:
     glm::mat4 previousViewProjection{1.0f};
     GraphImage motion;        // the pre-pass's motion attachment, under TAA
     GraphImage resolvedScene; // what the resolve wrote, under TAA
+    GraphImage transmission;  // the opaque scene's mip chain, when this view has a draw on the transmission path
   };
   // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
   // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
@@ -672,6 +678,8 @@ private:
   [[nodiscard]] EnvironmentImport importEnvironment(RenderGraph &graph, EnvironmentHandle handle,
                                                     const Environment &environment);
   void addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment);
+  void drawTransparent(rhi::ICommandList &commands, ViewState &v);
+  void addTransmissionPasses(RenderGraph &graph, GraphImage source, GraphImage chain, glm::uvec2 size);
   void addBloomPasses(RenderGraph &graph, const SceneView &view, GraphImage hdr, glm::uvec2 size, GraphImage &result);
   void recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask);
   void recordDebugLines(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
@@ -713,6 +721,8 @@ private:
   rhi::PipelineHandle m_prefilterPipeline;
   rhi::PipelineHandle m_brdfLutPipeline;
   rhi::PipelineHandle m_skinPipeline;
+  rhi::PipelineHandle m_transmissionCopyPipeline;
+  rhi::PipelineHandle m_transmissionMipPipeline;
   rhi::PipelineHandle m_particleResetPipeline;
   rhi::PipelineHandle m_particleSimulatePipeline;
   std::array<rhi::PipelineHandle, 2> m_particleDrawPipelines; // by ParticleBlend
