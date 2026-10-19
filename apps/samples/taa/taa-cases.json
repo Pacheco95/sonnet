@@ -1,0 +1,46 @@
+{
+  "cases": [
+    {
+      "name": "rough-pane",
+      "scene": "scenes/rough_pane.scene.json",
+      "description": "a rough pane (roughness 0.5) still in front of a box moving across a depth edge"
+    },
+    {
+      "name": "masked-pane",
+      "scene": "scenes/masked_pane.scene.json",
+      "description": "a textured, masked pane translating over a stationary pattern at 3 px a frame, then stopping",
+      "warmup": 32,
+      "measured": 24
+    },
+    {
+      "name": "masked-pane-fast",
+      "scene": "scenes/masked_pane_fast.scene.json",
+      "diagnostic": true,
+      "description": "the same pane at 8 px a frame: a stress case, reported and not judged",
+      "warmup": 32,
+      "measured": 24
+    },
+    {
+      "name": "watch",
+      "scene": "scenes/watch.scene.json",
+      "description": "ChronographWatch with its second hand moving behind still glass, 30 times faster than real"
+    },
+    {
+      "name": "watch-fast",
+      "scene": "scenes/watch_fast.scene.json",
+      "diagnostic": true,
+      "description": "the same at 90 times: a stress case, reported and not judged"
+    },
+    {
+      "name": "transmission-test",
+      "scene": "scenes/transmission_test.scene.json",
+      "description": "TransmissionTest on a turntable, half a degree a frame"
+    },
+    {
+      "name": "transmission-test-still",
+      "scene": "scenes/transmission_test_still.scene.json",
+      "diagnostic": true,
+      "description": "the same without the turntable: what TAA reaches on this glass at rest"
+    }
+  ]
+}

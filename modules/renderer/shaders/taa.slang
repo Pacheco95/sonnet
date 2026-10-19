@@ -31,6 +31,9 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
   return output;
 }
 
+// How far the glass around a pixel may differ from the history's before the history is dropped.
+static const float GlassMarkChange = 0.5;
+
 float3 toYCoCg(float3 c) {
   return float3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
 }
@@ -44,8 +47,8 @@ float2 clipToUv(float4 clip) {
 }
 
 // The history at `uv` through a Catmull-Rom filter in nine bilinear taps, whose negative lobes are
-// clamped away afterwards.
-float3 historyAt(float2 uv) {
+// clamped away afterwards. Alpha is the glass mark below, filtered the same way.
+float4 historyAt(float2 uv) {
   const float2 position = uv * taa.size;
   const float2 center = floor(position - 0.5) + 0.5;
   const float2 f = position - center;
@@ -61,16 +64,16 @@ float3 historyAt(float2 uv) {
   const float2 t12 = (center + w2 / w12) / taa.size;
   const SamplerState linear = samplers[taa.sampler];
   const Texture2D<float4> image = textures[taa.history];
-  float3 result = image.SampleLevel(linear, float2(t0.x, t0.y), 0.0).rgb * (w0.x * w0.y);
-  result += image.SampleLevel(linear, float2(t12.x, t0.y), 0.0).rgb * (w12.x * w0.y);
-  result += image.SampleLevel(linear, float2(t3.x, t0.y), 0.0).rgb * (w3.x * w0.y);
-  result += image.SampleLevel(linear, float2(t0.x, t12.y), 0.0).rgb * (w0.x * w12.y);
-  result += image.SampleLevel(linear, float2(t12.x, t12.y), 0.0).rgb * (w12.x * w12.y);
-  result += image.SampleLevel(linear, float2(t3.x, t12.y), 0.0).rgb * (w3.x * w12.y);
-  result += image.SampleLevel(linear, float2(t0.x, t3.y), 0.0).rgb * (w0.x * w3.y);
-  result += image.SampleLevel(linear, float2(t12.x, t3.y), 0.0).rgb * (w12.x * w3.y);
-  result += image.SampleLevel(linear, float2(t3.x, t3.y), 0.0).rgb * (w3.x * w3.y);
-  return max(result, float3(0.0, 0.0, 0.0));
+  float4 result = image.SampleLevel(linear, float2(t0.x, t0.y), 0.0) * (w0.x * w0.y);
+  result += image.SampleLevel(linear, float2(t12.x, t0.y), 0.0) * (w12.x * w0.y);
+  result += image.SampleLevel(linear, float2(t3.x, t0.y), 0.0) * (w3.x * w0.y);
+  result += image.SampleLevel(linear, float2(t0.x, t12.y), 0.0) * (w0.x * w12.y);
+  result += image.SampleLevel(linear, float2(t12.x, t12.y), 0.0) * (w12.x * w12.y);
+  result += image.SampleLevel(linear, float2(t3.x, t12.y), 0.0) * (w3.x * w12.y);
+  result += image.SampleLevel(linear, float2(t0.x, t3.y), 0.0) * (w0.x * w3.y);
+  result += image.SampleLevel(linear, float2(t12.x, t3.y), 0.0) * (w12.x * w3.y);
+  result += image.SampleLevel(linear, float2(t3.x, t3.y), 0.0) * (w3.x * w3.y);
+  return float4(max(result.rgb, float3(0.0, 0.0, 0.0)), saturate(result.a));
 }
 
 [shader("fragment")]
@@ -107,8 +110,16 @@ float4 resolve(VertexOutput input) : SV_Target {
       }
     }
   }
+  // What the alpha of the resolve holds: the share of the 5x5 neighbourhood that is not glass.
+  int glassNeighbours = 0;
+  for (int y = -2; y <= 2; ++y) {
+    for (int x = -2; x <= 2; ++x) {
+      glassNeighbours += currentImage.Load(int3(clamp(pixel + int2(x, y), int2(0, 0), last), 0)).a < 0.5 ? 1 : 0;
+    }
+  }
+  const float markNow = 1.0 - float(glassNeighbours) / 25.0;
   if (taa.historyValid == 0) {
-    return float4(center, 1.0);
+    return float4(center, markNow);
   }
 
   float2 motion;
@@ -123,7 +134,7 @@ float4 resolve(VertexOutput input) : SV_Target {
   }
   const float2 previousUv = uv - motion;
   if (any(previousUv < 0.0) || any(previousUv > 1.0)) {
-    return float4(center, 1.0);
+    return float4(center, markNow);
   }
 
   // The box the neighbourhood spans: its mean and one and a quarter deviations, within its extremes.
@@ -134,7 +145,18 @@ float4 resolve(VertexOutput input) : SV_Target {
   const float3 boxCenter = 0.5 * (boxHigh + boxLow);
   const float3 extent = 0.5 * (boxHigh - boxLow) + 1.0e-4;
 
-  const float3 history = historyAt(previousUv);
+  const float4 historySample = historyAt(previousUv);
+  const float3 history = historySample.rgb;
+  // Glass is not in the motion: the forward pass leaves alpha 0 where a blended or transmissive
+  // surface drew, and the resolve carries that mark along with the colour. Where the glass around
+  // the pixel is not where it was in the history, the history is the other layer's, and no clip can
+  // tell it from a plausible neighbour, so it is dropped (ADR-0033, "TAA"). The mark is the share
+  // of the 5x5 neighbourhood that is glass rather than the pixel's own: on a still glass edge a
+  // pixel's own mark flips with the jitter while its neighbourhood hardly does, and the accumulation
+  // is what anti-aliases that pixel.
+  if (abs(markNow - historySample.a) > GlassMarkChange) {
+    return float4(center, markNow);
+  }
   const float3 offset = toYCoCg(history) - boxCenter;
   const float3 scaled = abs(offset / extent);
   const float outside = max(scaled.x, max(scaled.y, scaled.z));
@@ -154,5 +176,5 @@ float4 resolve(VertexOutput input) : SV_Target {
   const float historyWeight = (1.0 - blend) / (1.0 + luma(max(resolvedHistory, float3(0.0, 0.0, 0.0))));
   const float3 result = (center * currentWeight + max(resolvedHistory, float3(0.0, 0.0, 0.0)) * historyWeight) /
                         (currentWeight + historyWeight);
-  return float4(any(isnan(result)) ? center : result, 1.0);
+  return float4(any(isnan(result)) ? center : result, lerp(historySample.a, markNow, blend));
 }

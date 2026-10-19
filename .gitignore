@@ -36,3 +36,8 @@ __pycache__/
 
 # OpenAI
 .agents/
+
+# The TAA harness downloads these (tools/fetch_taa_fixtures.py)
+/apps/samples/taa/assets/ChronographWatch/
+/apps/samples/taa/assets/TransmissionTest/
+/apps/samples/taa/assets/helipad.hdr*

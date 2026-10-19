@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "TAA harness",
+  "engineVersion": "0.20.0",
+  "startScene": "scenes/rough_pane.scene.json",
+  "assetRoots": [
+    "assets",
+    "scripts"
+  ]
+}

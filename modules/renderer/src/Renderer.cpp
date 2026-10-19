@@ -499,7 +499,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depthFormat = DepthFormat,
                     .depth = {.test = true, .write = false},
                     .cullMode = cullModes[i],
-                    .blend = rhi::BlendMode::Alpha,
+                    .blend = rhi::BlendMode::AlphaMarked,
                     .debugName = std::format("forward blend{}", side)});
     // Reversed-Z GreaterOrEqual against the scene's depth keeps exactly the visible surface.
     defineGraphics(m_idPipelines[i], "id",
@@ -1554,6 +1554,8 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.taa = false;
   v.motion = {};
   v.resolvedScene = {};
+  v.sceneColor = {};
+  v.mipBias = 0.0f;
   v.transmission = {};
   v.jitter = glm::vec2{0.0f};
   v.viewProjection =
@@ -1739,9 +1741,18 @@ void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::I
   commands.draw(3);
 }
 
+void Renderer::applyJitter(ViewState &v, glm::vec2 jitter) {
+  v.jitter = jitter;
+  const glm::vec2 ndc = jitter * 2.0f / glm::vec2{v.targetSize};
+  v.jitteredViewProjection = glm::translate(glm::mat4{1.0f}, glm::vec3{ndc, 0.0f}) * v.viewProjection;
+  v.mipBias = TaaMipBias;
+}
+
 void Renderer::beginTemporal(ViewState &v) {
-  // A debug view shows the unresolved frame, which jitter would only shake.
-  const bool wanted = m_settings.antialiasing == AntiAliasing::Taa && m_settings.debugView == DebugView::Final;
+  // A debug view shows the unresolved frame, which jitter would only shake. A reference render
+  // brings its own jitter and keeps no history.
+  const bool wanted = m_settings.antialiasing == AntiAliasing::Taa && m_settings.debugView == DebugView::Final &&
+                      !v.view->referenceJitter;
   // Views come and go (a panel is hidden, a test ends); forget the ones nobody has drawn in a while.
   for (auto it = m_histories.begin(); it != m_histories.end();) {
     if (it->second.lastFrame + HistoryFrames < m_frameNumber || (!wanted && it->first == v.view)) {
@@ -1752,6 +1763,9 @@ void Renderer::beginTemporal(ViewState &v) {
     }
   }
   if (!wanted) {
+    if (v.view->referenceJitter) {
+      applyJitter(v, *v.view->referenceJitter);
+    }
     return;
   }
   History &history = m_histories[v.view];
@@ -1766,12 +1780,10 @@ void Renderer::beginTemporal(ViewState &v) {
   history.projectionKind = v.view->camera.projectionKind;
   history.lastFrame = m_frameNumber;
   v.taa = true;
-  v.jitter =
-      glm::vec2{halton(history.sequence % JitterSamples + 1, 2), halton(history.sequence % JitterSamples + 1, 3)} -
-      glm::vec2{0.5f};
+  applyJitter(
+      v, glm::vec2{halton(history.sequence % JitterSamples + 1, 2), halton(history.sequence % JitterSamples + 1, 3)} -
+             glm::vec2{0.5f});
   history.sequence = (history.sequence + 1) % JitterSamples;
-  const glm::vec2 ndc = v.jitter * 2.0f / glm::vec2{v.targetSize};
-  v.jitteredViewProjection = glm::translate(glm::mat4{1.0f}, glm::vec3{ndc, 0.0f}) * v.viewProjection;
   v.previousViewProjection = history.hasPrevious ? history.previousViewProjection : v.viewProjection;
   history.previousViewProjection = v.viewProjection;
   history.hasPrevious = true;
@@ -2761,7 +2773,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .targetSize = glm::vec2{v.targetSize},
       .nearPlane = nearPlane,
       .shadowBias = m_settings.shadowBias,
-      .mipBias = v.taa ? TaaMipBias : 0.0f,
+      .mipBias = v.mipBias,
       .skyboxSampler = materialSampler({.wrapT = TextureWrap::ClampToEdge}),
       .cascadeImages = {},
       .irradianceCube = environmentReady ? sampledIndex(environment->irradiance) : rhi::InvalidBindlessIndex,
@@ -3257,22 +3269,11 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   if (m_settings.bloom && view.bloomStrength > 0.0f && size.x >= 2 && size.y >= 2) {
     addBloomPasses(graph, view, scene, size, bloom);
   }
+  v.sceneColor = scene;
   const bool fxaa = m_settings.antialiasing == AntiAliasing::Fxaa;
   const GraphImage ldr =
       fxaa ? graph.createImage({.size = size, .format = ColorFormat, .debugName = "scene ldr"}) : color;
-  graph.addPass(
-      "tonemap",
-      [&](PassBuilder &builder) {
-        builder.sample(scene);
-        if (bloom.isValid()) {
-          builder.sample(bloom);
-        }
-        builder.color(ldr, rhi::LoadOp::DontCare);
-      },
-      [this, &view, scene, bloom, size](rhi::ICommandList &commands, const PassResources &resources) {
-        recordPost(commands, &view, m_tonemapPipeline, resources.image(scene),
-                   bloom.isValid() ? resources.image(bloom) : rhi::ImageHandle{}, size);
-      });
+  addTonemapPass(graph, view, scene, bloom, ldr);
   if (fxaa) {
     graph.addPass(
         "fxaa",
@@ -3284,6 +3285,24 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           recordPost(commands, &view, m_fxaaPipeline, resources.image(ldr), {}, size);
         });
   }
+}
+
+void Renderer::addTonemapPass(RenderGraph &graph, const SceneView &view, GraphImage scene, GraphImage bloom,
+                              GraphImage target) {
+  const glm::uvec2 size = graph.imageDesc(target).size;
+  graph.addPass(
+      "tonemap",
+      [&](PassBuilder &builder) {
+        builder.sample(scene);
+        if (bloom.isValid()) {
+          builder.sample(bloom);
+        }
+        builder.color(target, rhi::LoadOp::DontCare);
+      },
+      [this, &view, scene, bloom, size](rhi::ICommandList &commands, const PassResources &resources) {
+        recordPost(commands, &view, m_tonemapPipeline, resources.image(scene),
+                   bloom.isValid() ? resources.image(bloom) : rhi::ImageHandle{}, size);
+      });
 }
 
 void Renderer::addPresentPass(RenderGraph &graph, GraphImage source, GraphImage target) {

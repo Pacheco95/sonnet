@@ -138,6 +138,11 @@ struct SceneView {
   // (ADR-0024). The renderer never clears it; the owner does. A resize, a skipped frame and a
   // frame drawn without the resolve reset it by themselves.
   bool resetHistory{false};
+  // Rasterises with this sub-pixel offset (in pixels, within [-0.5, 0.5]) and TAA's material mip
+  // bias, with no history and no resolve, whatever the anti-aliasing setting says. The TAA
+  // harness's reference renders use it (docs/rendering.md, "TAA checks"); a view that sets it
+  // keeps no temporal state, so it draws in graph frames of its own.
+  std::optional<glm::vec2> referenceJitter;
 };
 
 } // namespace sonnet::renderer

@@ -1,0 +1,91 @@
+{
+ "version": 6,
+ "entities": [
+  {
+   "uuid": "7aa00000-0000-4000-8000-000300000001",
+   "name": "Sky",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Environment": {
+     "map": "1efc2063-3e15-56a9-9665-62c02f77c7a4",
+     "intensity": 1.0
+    }
+   }
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000300000002",
+   "name": "Camera",
+   "components": {
+    "Transform": {
+     "position": [
+      0.0006470680236816406,
+      -0.08905792236328125,
+      8.970009803771973
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Camera": {
+     "fovY": 0.7853981633974483,
+     "nearPlane": 0.0107,
+     "exposure": 1.0,
+     "bloomStrength": 0.0
+    }
+   }
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000300000003",
+   "name": "Watch",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Animator": {
+     "speed": 30.0
+    }
+   },
+   "prefab": "08725ae1-bbc5-5f30-a954-8418fceabd24"
+  }
+ ]
+}

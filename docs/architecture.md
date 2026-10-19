@@ -27,6 +27,7 @@ Applications live under `apps/`:
 - `apps/editor` links `editor` and is built only on desktop platforms.
 - `apps/player` links `runtime` and runs a project folder or a cooked bundle; it never links `ui` or `editor` ([player.md](player.md)).
 - `apps/cook` is `sonnet_cook`, which cooks a project into a bundle ([assets.md](assets.md#cooking-and-export)). Desktop only.
+- `apps/taa_harness` is `sonnet_taa_harness`, the measurement tool of the TAA checks ([rendering.md](rendering.md#taa-checks)): it plays a project's cases under TAA and as references on a real GPU and judges the difference. Desktop only, and not run by CI.
 - `apps/samples/<name>` are project folders, not executables. They are opened by the editor and run by the player.
   `basic` is the small feature tour; `showcase` is a sunset courtyard built from procedural assets that `tools/generate_showcase_assets.py` writes (two steps, because the editor writes the assets' sidecars: see the script's docstring), a stress and a beauty scene for the renderer.
 

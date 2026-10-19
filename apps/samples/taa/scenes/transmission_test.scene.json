@@ -1,0 +1,96 @@
+{
+ "version": 6,
+ "entities": [
+  {
+   "uuid": "7aa00000-0000-4000-8000-000400000001",
+   "name": "Sky",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Environment": {
+     "map": "1efc2063-3e15-56a9-9665-62c02f77c7a4",
+     "intensity": 1.0
+    }
+   }
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000400000002",
+   "name": "Camera",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      4.855337619781494
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Camera": {
+     "fovY": 0.7853981633974483,
+     "nearPlane": 0.0047,
+     "exposure": 1.0,
+     "bloomStrength": 0.0
+    }
+   }
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000400000003",
+   "name": "Board",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Spin": {
+     "axis": [
+      0.0,
+      1.0,
+      0.0
+     ],
+     "speed": 0.5
+    }
+   },
+   "prefab": "1affdb98-1a02-5f78-a1f0-a1ee0b40e5f0"
+  }
+ ]
+}

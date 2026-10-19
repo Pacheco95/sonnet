@@ -241,6 +241,11 @@ public:
   // the id or mask pass, is preceded by the skinning pass when the view has skinned draws.
   void addScenePasses(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth,
                       glm::vec4 clearColor = {0.05f, 0.05f, 0.07f, 1.0f});
+  // Declares the tone mapping pass on its own: `scene` (linear HDR, HdrFormat) with `bloom` added
+  // by the view's bloom strength when valid, exposed by the view and display-encoded into `target`.
+  // addScenePasses ends with it; a tool that averages several renders in HDR calls it on the
+  // average, so the result is mapped exactly as a frame is.
+  void addTonemapPass(RenderGraph &graph, const SceneView &view, GraphImage scene, GraphImage bloom, GraphImage target);
   // Declares the present pass: `source`, already tone-mapped and display-encoded by the scene
   // passes, copied into `target`, which may have another format. The player puts its scene into
   // the acquired swapchain image this way (docs/rendering.md, "Frame structure"). Adds nothing
@@ -288,6 +293,11 @@ public:
   // reads as history; valid until the next graph reset, invalid without TAA.
   [[nodiscard]] GraphImage resolved(std::size_t view = 0) const noexcept {
     return view < m_viewCount ? m_views[view]->resolvedScene : GraphImage{};
+  }
+  // The linear HDR image the frame's `view`th declared view hands to bloom and tone mapping: the
+  // resolve under TAA, the forward passes' image otherwise. Valid until the next graph reset.
+  [[nodiscard]] GraphImage sceneColor(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->sceneColor : GraphImage{};
   }
   // The motion image the pre-pass of the frame's `view`th declared view wrote, valid until the
   // next graph reset; invalid without TAA.
@@ -555,6 +565,8 @@ private:
     glm::mat4 previousViewProjection{1.0f};
     GraphImage motion;        // the pre-pass's motion attachment, under TAA
     GraphImage resolvedScene; // what the resolve wrote, under TAA
+    GraphImage sceneColor;    // what bloom and tone mapping read: resolvedScene, or the forward passes' image
+    float mipBias{0.0f};      // added to the level of material samples: TaaMipBias for a jittered view
     GraphImage transmission;  // the opaque scene's mip chain, when this view has a draw on the transmission path
   };
   // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
@@ -599,6 +611,8 @@ private:
   // Chooses this frame's jitter and the matrices the scene passes use, from the view's history
   // (ADR-0024); the scene passes call it before they reserve their culling jobs.
   void beginTemporal(ViewState &v);
+  // Rasterises the view with the sub-pixel `jitter` (in pixels) and the mip bias that goes with it.
+  void applyJitter(ViewState &v, glm::vec2 jitter);
   void releaseHistory(History &history);
   // Declares the resolve between the forward pass and bloom: it takes the unresolved scene colour
   // and returns the image bloom and tone mapping read in its place.

@@ -1,0 +1,156 @@
+{
+ "version": 6,
+ "entities": [
+  {
+   "uuid": "7aa00000-0000-4000-8000-000100000001",
+   "name": "Camera",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      6
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Camera": {
+     "fovY": 0.6981317007977318,
+     "nearPlane": 0.1,
+     "exposure": 1.0,
+     "bloomStrength": 0.0
+    }
+   }
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000100000002",
+   "name": "Sun",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      10,
+      0
+     ],
+     "rotation": [
+      -0.3007057995042731,
+      0,
+      0,
+      0.9537169507482269
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "DirectionalLight": {
+     "color": [
+      1.0,
+      0.96,
+      0.9
+     ],
+     "intensity": 3.0
+    }
+   }
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000100000003",
+   "name": "Wall",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      -3
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    }
+   },
+   "prefab": "805834b5-138e-5659-856e-df40550eb0cf"
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000100000004",
+   "name": "Box",
+   "components": {
+    "Transform": {
+     "position": [
+      -1.5,
+      0,
+      -1.2
+     ],
+     "rotation": [
+      0,
+      0.2588,
+      0,
+      0.9659
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Scripts": {
+     "slots": [
+      {
+       "script": "0aa4b34f-9251-5025-a2e4-d19b8e16a850",
+       "properties": {
+        "velocity": {
+         "x": 3.6,
+         "y": 0,
+         "z": 0
+        }
+       }
+      }
+     ]
+    }
+   },
+   "prefab": "595897ec-830d-50aa-993a-442b9efe11b8"
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000100000005",
+   "name": "Pane",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      1
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    }
+   },
+   "prefab": "e760706a-e7bb-58f3-9999-2ff8590dbb6c"
+  }
+ ]
+}
