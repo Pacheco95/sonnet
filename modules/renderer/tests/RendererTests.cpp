@@ -4279,10 +4279,10 @@ TEST_CASE("a material that may transmit draws blended and one that provably cann
     RenderGraph graph{*device};
     RenderTarget target{*device, "viewport"};
     target.resize({64, 64});
+    const SceneView view = boxScene(draws); // the passes keep a pointer to it until execute
     ICommandList &commands = device->beginFrame();
     graph.reset();
-    renderer.addScenePasses(graph, boxScene(draws), graph.importImage(target.color()),
-                            graph.importImage(target.depth()));
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
     graph.execute(commands);
     device->endFrame();
     // On the transmission path: blended, out of the depth and motion pre-pass. Otherwise its own path.
