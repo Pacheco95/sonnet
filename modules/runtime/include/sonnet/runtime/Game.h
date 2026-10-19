@@ -137,6 +137,23 @@ public:
     return m_target;
   }
 
+  // For a tool that draws the scene itself instead of calling render (apps/taa_harness): the
+  // renderer, the graph and the target it draws into, and the view the last update built, which
+  // a copy can change (renderer::SceneView::referenceJitter) while the spans it holds stay valid
+  // until the next update.
+  [[nodiscard]] renderer::Renderer &renderer() noexcept {
+    return m_renderer;
+  }
+  [[nodiscard]] renderer::RenderGraph &graph() noexcept {
+    return m_graph;
+  }
+  [[nodiscard]] renderer::RenderTarget &target() noexcept {
+    return m_target;
+  }
+  [[nodiscard]] const renderer::SceneView &view() const noexcept {
+    return m_view;
+  }
+
 private:
   void loadPrefabs();
   void loadModelPrefabs();

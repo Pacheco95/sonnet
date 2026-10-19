@@ -1553,6 +1553,98 @@ RendererSettings taaSettings() {
   return settings;
 }
 
+TEST_CASE("a reference jitter is applied without history, whatever the anti-aliasing setting",
+          "[renderer][taa][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  for (const AntiAliasing mode : {AntiAliasing::None, AntiAliasing::Taa}) {
+    RendererSettings settings = testSettings();
+    settings.antialiasing = mode;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const std::array draws{DrawItem{.mesh = box}};
+    SceneView view = boxScene(draws);
+    view.referenceJitter = glm::vec2{0.25f, -0.125f};
+    for (int frame = 0; frame < 3; ++frame) {
+      ICommandList &commands = device->beginFrame();
+      graph.reset();
+      renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+      REQUIRE(renderer.jitter() == glm::vec2{0.25f, -0.125f});
+      // Neither the resolve nor the motion it reads: no temporal accumulation.
+      REQUIRE_FALSE(renderer.resolved().isValid());
+      REQUIRE_FALSE(renderer.motion().isValid());
+      REQUIRE(renderer.sceneColor().isValid());
+      graph.execute(commands);
+      device->endFrame();
+    }
+    renderer.destroyMesh(box);
+  }
+}
+
+TEST_CASE("blended and transmissive draws leave the HDR scene's alpha at 0, the rest at 1", "[renderer][taa][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
+    MaterialDesc blended;
+    blended.alphaMode = AlphaMode::Blend;
+    blended.baseColor = {1.0f, 1.0f, 1.0f, 0.5f};
+    MaterialDesc transmissive;
+    transmissive.metallic = 0.0f; // a metal lets nothing through, and stays on the opaque path
+    transmissive.transmission = 1.0f;
+    const MaterialHandle blendedMaterial = renderer.createMaterial(blended, "blended");
+    const MaterialHandle transmissiveMaterial = renderer.createMaterial(transmissive, "transmissive");
+    // A wall behind two spheres, which land about 15 pixels either side of the middle.
+    const std::array draws{DrawItem{.mesh = box,
+                                    .transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.0f, -1.0f}) *
+                                                 glm::scale(glm::mat4{1.0f}, {8.0f, 8.0f, 0.2f})},
+                           DrawItem{.mesh = sphere,
+                                    .material = blendedMaterial,
+                                    .transform = glm::translate(glm::mat4{1.0f}, {-0.8f, 0.0f, 0.0f})},
+                           DrawItem{.mesh = sphere,
+                                    .material = transmissiveMaterial,
+                                    .transform = glm::translate(glm::mat4{1.0f}, {0.8f, 0.0f, 0.0f})}};
+    const SceneView view = boxScene(draws);
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({64, 64});
+    const BufferHandle readback = device->createBuffer({.size = 64ull * 64 * 8,
+                                                        .usage = BufferUsage::TransferDst,
+                                                        .memory = MemoryUsage::GpuToCpu,
+                                                        .debugName = "hdr readback"});
+    ICommandList &commands = device->beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    const GraphImage hdr = renderer.sceneColor();
+    graph.addPass(
+        "hdr readback", [&](PassBuilder &b) { b.transferSrc(hdr); },
+        [&](ICommandList &cmd, const PassResources &resources) {
+          cmd.copyImageToBuffer(resources.image(hdr), readback);
+        });
+    graph.execute(commands);
+    device->endFrame();
+    device->waitIdle();
+    const auto alphaAt = [&](unsigned x, unsigned y) {
+      std::uint16_t half = 0;
+      std::memcpy(&half, device->mappedRange(readback).data() + (std::size_t{y} * 64 + x) * 8 + 6, sizeof(half));
+      return glm::unpackHalf1x16(half);
+    };
+    REQUIRE(alphaAt(17, 32) == 0.0f); // the blended sphere
+    REQUIRE(alphaAt(47, 32) == 0.0f); // the transmissive one
+    REQUIRE(alphaAt(32, 32) == 1.0f); // the wall between them
+    REQUIRE(alphaAt(2, 2) == 1.0f);
+    device->destroyBuffer(readback);
+    renderer.destroyMesh(box);
+    renderer.destroyMesh(sphere);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("the pre-pass writes the motion of a moving box and of a moving camera", "[renderer][taa][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);

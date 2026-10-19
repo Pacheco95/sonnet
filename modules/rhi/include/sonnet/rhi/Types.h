@@ -481,6 +481,10 @@ enum class BlendMode : std::uint8_t {
   None,
   Alpha,    // source alpha, one minus source alpha
   Additive, // one, one
+  // As Alpha for the colour; the alpha channel is written 0 wherever a fragment lands, so a target
+  // cleared to 1 keeps a mark of the pixels the draws touched (the HDR scene's blended and
+  // transmissive surfaces, which the TAA resolve reads: docs/rendering.md, "TAA").
+  AlphaMarked,
 };
 
 // Every pipeline, graphics or compute, shares one layout (docs/rendering.md, "Frame

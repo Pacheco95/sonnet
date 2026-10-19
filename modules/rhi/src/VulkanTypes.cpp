@@ -313,6 +313,15 @@ vk::PipelineColorBlendAttachmentState toVk(BlendMode mode) noexcept {
     state.dstAlphaBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
     state.alphaBlendOp = vk::BlendOp::eAdd;
     break;
+  case BlendMode::AlphaMarked:
+    state.blendEnable = VK_TRUE;
+    state.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha;
+    state.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
+    state.colorBlendOp = vk::BlendOp::eAdd;
+    state.srcAlphaBlendFactor = vk::BlendFactor::eZero;
+    state.dstAlphaBlendFactor = vk::BlendFactor::eZero;
+    state.alphaBlendOp = vk::BlendOp::eAdd;
+    break;
   case BlendMode::Additive:
     state.blendEnable = VK_TRUE;
     state.srcColorBlendFactor = vk::BlendFactor::eOne;
