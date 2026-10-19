@@ -4841,11 +4841,11 @@ TEST_CASE("the blur follows the roughness the same way across view sizes, landsc
       }
     }
     // Neighbouring sizes keep the contrast within a recorded tolerance, at every roughness.
-    constexpr int NeighbourTolerance = 3; // levels out of 255; the sweep measured at most 1
+    constexpr int neighbourTolerance = 3; // levels out of 255; the sweep measured at most 1
     for (const auto &[first, second] : {std::pair{0uz, 1uz}, std::pair{1uz, 2uz}, std::pair{3uz, 4uz}}) {
       for (std::size_t i = 0; i < roughnesses.size(); ++i) {
         CAPTURE(first, second, roughnesses[i], landscape[first][i], landscape[second][i]);
-        REQUIRE(std::abs(landscape[first][i] - landscape[second][i]) <= NeighbourTolerance);
+        REQUIRE(std::abs(landscape[first][i] - landscape[second][i]) <= neighbourTolerance);
       }
     }
     REQUIRE(device->validationMessageCount() == 0);
