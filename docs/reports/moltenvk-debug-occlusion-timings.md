@@ -24,6 +24,10 @@ work in the sustained Release workload. Keep Release wall clock as the performan
 reference. Do not subtract Debug pass samples across configurations to estimate
 occlusion cost.
 
+The [performance-state follow-up](apple-gpu-performance-state.md) repeats the live
+benchmark with a recording-scoped Maximum state request and checks observed
+device-state intervals. It records the supported workflow and its limits.
+
 ## Controlled measurements
 
 The hidden `ten thousand draws and a hundred lights at 1080p` benchmark uses AA
