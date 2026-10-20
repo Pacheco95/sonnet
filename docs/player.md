@@ -231,7 +231,9 @@ The phone started at about 35 °C each time. With Mailbox the GPU drew every fra
 
 ### Transmission on a phone
 
-The editor and the desktop player draw a view with a transmissive material through a copy of the opaque scene ([rendering.md](rendering.md#transmission), `RendererSettings::transmission`). The Android and iOS players set it off in `gameDesc`, so a transmissive material draws as a blend on a phone, with no copy and no extra pass, until the S25 and iPad measurements of [#339](https://github.com/Pacheco95/sonnet/issues/339) show it fits the budget there.
+The editor and the desktop player draw a view with a transmissive material through a copy of the opaque scene ([rendering.md](rendering.md#transmission), `RendererSettings::transmission`). The Android and iOS players set it off in `gameDesc`, so a transmissive material draws as a blend on a phone, with no copy and no extra pass. `--transmission on` turns it on for a capture run, which is how the phone measurements run both settings with the shipped defaults unchanged.
+
+The Galaxy S25 Ultra's measurements of ADR-0033's two acceptance scenes ([transmission-mobile](reports/transmission-mobile.md), [#342](https://github.com/Pacheco95/sonnet/issues/342)) put the cost cold at +1.2 and +1.4 ms and the frame at most 16.8 ms sustained, within the budget, but on TransmissionTest the phone reaches thermal status 2 over 20 minutes where it stops at 1 with transmission off, which the ADR's rule does not allow. **Android keeps it off.** iOS stays off until the iPad's report ([#344](https://github.com/Pacheco95/sonnet/issues/344)) decides it. The scenes are `scenes/transmission_test_phone.scene.json` and `scenes/commercial_refrigerator_phone.scene.json` of `apps/samples/taa`, cooked with `sonnet_cook apps/samples/taa --platform android` after `tools/fetch_taa_fixtures.py`, and a run is `--es args '<bundle> --scene scenes/<scene>.scene.json --transmission on --play 600 --screenshot x.png'`.
 
 ## Running on iOS
 
