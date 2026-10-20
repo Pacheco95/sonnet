@@ -97,7 +97,7 @@ TEST_CASE("the editor and the player share one table", "[runtime][capture]") {
     REQUIRE(line.has_value() == option.player);
     players += option.player ? 1 : 0;
   }
-  REQUIRE(players == 7);
+  REQUIRE(players == 8);
   // The player's window is its scene, which its line for --screenshot says.
   REQUIRE(usage.contains("the scene, at the window's size"));
   REQUIRE(!usage.contains("viewport"));
