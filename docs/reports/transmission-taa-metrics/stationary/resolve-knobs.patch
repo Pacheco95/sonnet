@@ -1,0 +1,156 @@
+diff --git a/modules/renderer/include/sonnet/renderer/Renderer.h b/modules/renderer/include/sonnet/renderer/Renderer.h
+index a465b33..30786cd 100644
+--- a/modules/renderer/include/sonnet/renderer/Renderer.h
++++ b/modules/renderer/include/sonnet/renderer/Renderer.h
+@@ -559,6 +559,7 @@ private:
+     // everything that is compared against the resolved image (shadows, the selection mask, the
+     // outline, the debug lines) with the unjittered one; without TAA the two are equal.
+     bool taa{false};
++    std::uint32_t taaAge{0}; // EXPERIMENT
+     glm::vec2 jitter{0.0f}; // in pixels, within [-0.5, 0.5]
+     glm::mat4 viewProjection{1.0f};
+     glm::mat4 jitteredViewProjection{1.0f};
+@@ -578,6 +579,7 @@ private:
+     std::uint32_t next{0};     // the image the next resolve writes; the other holds the last one
+     bool valid{false};         // the other image holds a resolved frame to reproject
+     std::uint32_t sequence{0}; // the jitter sample the next frame uses
++    std::uint32_t age{0};      // EXPERIMENT
+     std::uint64_t lastFrame{0};
+     bool hasPrevious{false};
+     glm::mat4 previousViewProjection{1.0f};
+diff --git a/modules/renderer/shaders/taa.slang b/modules/renderer/shaders/taa.slang
+index c3e19f9..0d316fa 100644
+--- a/modules/renderer/shaders/taa.slang
++++ b/modules/renderer/shaders/taa.slang
+@@ -15,6 +15,10 @@ struct TaaConstants {
+   uint sampler;
+   uint historyValid;
+   float2 size;
++  float age;
++  uint flags;
++  float fixedBlend;
++  float pad;
+ };
+ 
+ [[vk::push_constant]]
+@@ -140,8 +144,8 @@ float4 resolve(VertexOutput input) : SV_Target {
+   // The box the neighbourhood spans: its mean and one and a quarter deviations, within its extremes.
+   const float3 mean = sum / 9.0;
+   const float3 deviation = sqrt(max(sumSquares / 9.0 - mean * mean, float3(0.0, 0.0, 0.0)));
+-  const float3 boxLow = max(mean - 1.25 * deviation, low);
+-  const float3 boxHigh = min(mean + 1.25 * deviation, high);
++  const float3 boxLow = max(mean - taa.pad * deviation, low);
++  const float3 boxHigh = min(mean + taa.pad * deviation, high);
+   const float3 boxCenter = 0.5 * (boxHigh + boxLow);
+   const float3 extent = 0.5 * (boxHigh - boxLow) + 1.0e-4;
+ 
+@@ -154,14 +158,14 @@ float4 resolve(VertexOutput input) : SV_Target {
+   // of the 5x5 neighbourhood that is glass rather than the pixel's own: on a still glass edge a
+   // pixel's own mark flips with the jitter while its neighbourhood hardly does, and the accumulation
+   // is what anti-aliases that pixel.
+-  if (abs(markNow - historySample.a) > GlassMarkChange) {
++  if ((taa.flags & 4) == 0 && abs(markNow - historySample.a) > GlassMarkChange) {
+     return float4(center, markNow);
+   }
+   const float3 offset = toYCoCg(history) - boxCenter;
+   const float3 scaled = abs(offset / extent);
+   const float outside = max(scaled.x, max(scaled.y, scaled.z));
+   float3 clipped = toYCoCg(history);
+-  if (outside > 1.0) {
++  if ((taa.flags & 1) == 0 && !((taa.flags & 32) != 0 && length(motion * taa.size) < 0.01) && outside > 1.0) {
+     clipped = boxCenter + offset / outside;
+   }
+   const float3 resolvedHistory =
+@@ -171,9 +175,15 @@ float4 resolve(VertexOutput input) : SV_Target {
+   // than a fraction of a pixel, is worth less.
+   const float clipAmount = saturate(outside - 1.0);
+   const float motionPixels = length(motion * taa.size);
+-  const float blend = clamp(0.1 + 0.4 * clipAmount + 0.2 * saturate(motionPixels * 0.25), 0.1, 0.8);
+-  const float currentWeight = blend / (1.0 + luma(center));
+-  const float historyWeight = (1.0 - blend) / (1.0 + luma(max(resolvedHistory, float3(0.0, 0.0, 0.0))));
++  float blend = clamp(0.1 + 0.4 * clipAmount + 0.2 * saturate(motionPixels * 0.25), 0.1, 0.8);
++  if ((taa.flags & 8) != 0) {
++    blend = max(1.0 / (taa.age + 1.0), taa.fixedBlend);
++  } else if ((taa.flags & 16) != 0) {
++    blend = taa.fixedBlend;
++  }
++  const bool noLuma = (taa.flags & 2) != 0;
++  const float currentWeight = blend / (noLuma ? 1.0 : 1.0 + luma(center));
++  const float historyWeight = (1.0 - blend) / (noLuma ? 1.0 : 1.0 + luma(max(resolvedHistory, float3(0.0, 0.0, 0.0))));
+   const float3 result = (center * currentWeight + max(resolvedHistory, float3(0.0, 0.0, 0.0)) * historyWeight) /
+                         (currentWeight + historyWeight);
+   return float4(any(isnan(result)) ? center : result, lerp(historySample.a, markNow, blend));
+diff --git a/modules/renderer/src/Renderer.cpp b/modules/renderer/src/Renderer.cpp
+index c2f2e20..7d9023d 100644
+--- a/modules/renderer/src/Renderer.cpp
++++ b/modules/renderer/src/Renderer.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include <sonnet/renderer/Renderer.h>
+ 
+ #include <sonnet/core/Assert.h>
+@@ -297,8 +298,12 @@ struct TaaConstants {
+   std::uint32_t sampler;
+   std::uint32_t historyValid;
+   glm::vec2 size;
++  float age;   // EXPERIMENT
++  std::uint32_t flags; // EXPERIMENT: 1 no clip, 2 no luma, 4 no mark drop, 8 blend 1/(age+1) capped by param
++  float fixedBlend;
++  float pad;
+ };
+-static_assert(sizeof(TaaConstants) == 32);
++static_assert(sizeof(TaaConstants) == 48);
+ 
+ // Mirror of shaders/outline.slang.
+ struct OutlineConstants {
+@@ -415,7 +420,7 @@ constexpr std::uint64_t ParticleStateFrames = 8;
+ constexpr std::uint64_t SkinnedBufferFrames = 8;
+ 
+ // Jitter samples before the sequence repeats (ADR-0024).
+-constexpr std::uint32_t JitterSamples = 8;
++const std::uint32_t JitterSamples = std::getenv("SONNET_TAA_JITTERS") ? static_cast<std::uint32_t>(std::atoi(std::getenv("SONNET_TAA_JITTERS"))) : 8u; // EXPERIMENT
+ // Graph frames a view's history outlives its last draw.
+ constexpr std::uint64_t HistoryFrames = 8;
+ // Added to the level of material samples under TAA: the resolve softens the image, and a sharper
+@@ -1722,6 +1727,15 @@ GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr
+   return write;
+ }
+ 
++static std::uint32_t expFlags() {
++  const char *e = std::getenv("SONNET_TAA_FLAGS");
++  return e ? static_cast<std::uint32_t>(std::atoi(e)) : 0u;
++}
++static float expBlend() {
++  const char *e = std::getenv("SONNET_TAA_BLEND");
++  return e ? static_cast<float>(std::atof(e)) : 0.1f;
++}
++
+ void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current,
+                          rhi::ImageHandle history, rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth) {
+   SONNET_ZONE();
+@@ -1734,7 +1748,11 @@ void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::I
+                           .depth = sampledIndex(depth),
+                           .sampler = m_device.samplerIndex(m_linearClampSampler),
+                           .historyValid = historyValid ? 1u : 0u,
+-                          .size = glm::vec2{v.targetSize}};
++                          .size = glm::vec2{v.targetSize},
++                          .age = static_cast<float>(v.taaAge),
++                          .flags = expFlags(),
++                          .fixedBlend = expBlend(),
++                          .pad = std::getenv("SONNET_TAA_GAMMA") ? static_cast<float>(std::atof(std::getenv("SONNET_TAA_GAMMA"))) : 1.25f};
+   commands.bindPipeline(m_taaPipeline);
+   bindFrame(commands, v);
+   commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+@@ -1776,10 +1794,12 @@ void Renderer::beginTemporal(ViewState &v) {
+     history.valid = false;
+     history.hasPrevious = false;
+     history.sequence = 0;
++    history.age = 0;
+   }
+   history.projectionKind = v.view->camera.projectionKind;
+   history.lastFrame = m_frameNumber;
+   v.taa = true;
++  v.taaAge = history.age++;
+   applyJitter(
+       v, glm::vec2{halton(history.sequence % JitterSamples + 1, 2), halton(history.sequence % JitterSamples + 1, 3)} -
+              glm::vec2{0.5f});

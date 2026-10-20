@@ -1,0 +1,36 @@
+variant,case,glass_mean,glass_p99,unrecovered
+default,rough-pane,0.24,2,0
+default,masked-pane,2.37,20,683
+default,watch,1.76,27,0
+default,transmission-test,10.64,61,38
+default,masked-pane-fast,3.31,21,1616
+default,watch-fast,2.09,36,0
+default,transmission-test-still,3.08,29,0
+clip off,rough-pane,0.45,4,0
+clip off,masked-pane,2.51,22,704
+clip off,watch,2.91,55,0
+clip off,transmission-test,11.75,63,37
+clip off,masked-pane-fast,3.39,23,1678
+clip off,watch-fast,2.99,58,0
+clip off,transmission-test-still,2.89,27,0
+16 jitters,rough-pane,0.23,1,0
+16 jitters,masked-pane,2.13,21,796
+16 jitters,watch,1.53,26,0
+16 jitters,transmission-test,10.56,58,36
+16 jitters,masked-pane-fast,3.21,21,1527
+16 jitters,watch-fast,1.88,33,0
+16 jitters,transmission-test-still,2.56,28,0
+"clip off, 16 jitters",rough-pane,0.45,4,0
+"clip off, 16 jitters",masked-pane,2.24,22,815
+"clip off, 16 jitters",watch,2.72,56,0
+"clip off, 16 jitters",transmission-test,11.65,60,38
+"clip off, 16 jitters",masked-pane-fast,3.28,23,1550
+"clip off, 16 jitters",watch-fast,2.91,58,0
+"clip off, 16 jitters",transmission-test-still,2.22,25,0
+clip off at zero motion,rough-pane,0.39,4,0
+clip off at zero motion,masked-pane,2.51,22,704
+clip off at zero motion,watch,2.81,54,0
+clip off at zero motion,transmission-test,10.65,61,38
+clip off at zero motion,masked-pane-fast,3.39,23,1678
+clip off at zero motion,watch-fast,3.04,59,0
+clip off at zero motion,transmission-test-still,2.89,27,0

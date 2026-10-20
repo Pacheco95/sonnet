@@ -35,7 +35,7 @@ Worst measured frame of each measure, in levels out of 255 (budgets: mean 2, p99
 
 - **`rough-pane` passes** with margin: a rough pane over a moving box accumulates fine, because what it shows is smooth.
 - **`masked-pane`**: the mitigation takes the ghost out (the picture below) and halves the 99th percentile in the moving frames, but the budget fails in them, and the *not recovered* count rose with it. The frames from 45 on, when the pane is still, pass (11 of 24). The pixels the pane leaves take the current single sample, which on a busy pattern is off by more than 8 levels, and the numbers are consistent with four frames of a 0.1 blend not bringing that below 8 again: the rule asks for faster re-accumulation than the resolve has. A per-pixel history age (a count in the history, blending 1/n up to 0.1) would give it; it is not built.
-- **`watch` and `transmission-test` are not changed by the mitigation**: their glass does not move relative to its own history, and the error is elsewhere. `transmission-test-still`, with no motion at all, already has mean 3.1 and p99 29, in the sphere rims and the reflections and stripes inside them (the third picture). Opaque pixels of the same scene are at 0.11. Neither the clip (disabled), the luminance weighting (removed) nor the blend (0.04, longer warm-up) accounts for it; with the clip and its blend term both off the still case is 2.5 / 20, and a reference of TAA's own eight samples gives the same 2.3 / 27 as one of sixteen. On this content the resolve's floor is above the p99 budget before any motion.
+- **`watch` and `transmission-test` are not changed by the mitigation**: their glass does not move relative to its own history, and the error is elsewhere. `transmission-test-still`, with no motion at all, already has mean 3.1 and p99 29, in the sphere rims and the reflections and stripes inside them (the third picture). Opaque pixels of the same scene are at 0.11. [The stationary error](#the-stationary-error-350) below takes that apart: it is the resolve's clip, the sample set and the blend working as designed, not a defect, and on this content the resolve's floor is above the p99 budget before any motion.
 - **`transmission-test` rotating at half a degree a frame is 3.5 times worse than still** (10.6 against 3.1). The spheres stand 0.5 m off the board they turn with, so their motion differs from the board's by a fraction of a pixel and the resolve reprojects them with the board's; the history of their details is a pixel off. This is the first of the ADR's approximations ("the pixel's motion is that of the closest surface behind it") measured, and the mitigation cannot touch it because the glass is there in both frames.
 
 ![the masked pane before and after](images/transmission-taa/masked-pane-before.png)
@@ -45,11 +45,46 @@ Worst measured frame of each measure, in levels out of 255 (budgets: mean 2, p99
 ![TransmissionTest turning](images/transmission-taa/transmission-test.png)
 ![TransmissionTest still](images/transmission-taa/transmission-test-still.png)
 
+## The stationary error (#350)
+
+[#350](https://github.com/Pacheco95/sonnet/issues/350) asked why `transmission-test-still` is at 3.08 / 29 with nothing moving. Reproduced at `25d8363`, same device, driver and Debug build as above (the default numbers match the *after* column to the digit). The still case is the only one used, 1280×720, 32 warm-up and 16 measured frames; every number is the worst of the measured frames, mean / p99 over the glass region in levels (opaque pixels outside it stay at 0.06 to 0.13 / 1 to 2 in all of them). The resolve variants come from a temporary patch, [`resolve-knobs.patch`](transmission-taa-metrics/stationary/resolve-knobs.patch) on `25d8363`, that reads environment variables for the clip, the luminance weights, the glass-mark drop, a running-mean blend (1/n up to a cap, n the frames since the history was cut) and the jitter count; it is not part of the renderer. What the repository keeps is the harness's `--reference-samples N` (default 16), which swaps the reference for the first N Halton points, 8 being TAA's own sequence. Per-frame metrics and the full table are in [transmission-taa-metrics/stationary](transmission-taa-metrics/stationary/).
+
+| Resolve | Reference | Glass mean / p99 |
+|---|---|---|
+| default (clip, luma weights, blend 0.1, 8 jitters) | 16 samples | 3.08 / 29 |
+| default | TAA's own 8 | 2.30 / 29 |
+| no clip | 16 | 2.89 / 27 |
+| no clip, no luma weights | 16 | 2.79 / 25 |
+| no clip, no luma weights, 16 jitters | 16 | 2.09 / 23 |
+| no clip, no luma weights, running mean | 16 | 2.06 / 16 |
+| same, and no glass-mark drop | TAA's own 8 | **0.87 / 3** |
+| no clip, no luma weights, running mean, 16 jitters | 16 | **0.89 / 4** |
+| clip on, no luma weights, running mean, 16 jitters | 16 | 2.28 / 28 |
+
+What the table says:
+
+- **The two renders agree.** A resolve that averages its eight jitters evenly, with nothing clipped or weighted, matches a reference made of those eight jitters to 0.87 / 3, and with sixteen jitters it matches the sixteen-sample reference to 0.89 / 4. So jitter positions, reprojection (zero motion, the Catmull-Rom filter at texel centres), the current-frame reconstruction, the `-0.5` mip bias, the transmission copy's sampling and the reference's HDR averaging and tone mapping give the same pixels in both runs to within a few levels. No harness mismatch and no defect in those parts showed up. The glass-mark drop does nothing in a still scene (2.30 / 29 with and without it).
+- **Three working terms make up the 3.08 / 29, in order of weight for p99:**
+  1. **The clip.** On top of the even sixteen-jitter average it takes 0.89 / 4 to 2.28 / 28: all of the p99. Its box is the mean and 1.25 deviations of the current, jittered 3×3 neighbourhood, inside that neighbourhood's extremes. For a pixel whose detail is finer than a pixel (a sphere rim, a refracted stripe) that box does not hold the converged value, and every frame pulls the history towards its own sample. Widening the deviations to 2 or 3 changes the default only to 2.89 / 25 and 2.87 / 25, since the extremes bound the box then.
+  2. **The sample set.** Even with an even average and nothing clipped, TAA's eight jitters differ from the sixteen-point reference by 2.06 / 16 on this detail. Sixteen jitters remove it (0.89 / 4), at the price of a longer sequence for the blend to weigh evenly.
+  3. **The blend.** A fixed 0.1 weighs the newest of the eight jitters about 2.1 times the oldest, so the history is a recency-weighted average, not the box the reference is (2.79 / 25 against 2.06 / 16, both unclipped). The luminance weights add about 0.1 of mean.
+- **The clip cannot be dropped as it is.** With it off for every pixel, `watch` goes from 1.76 / 27 to 2.91 / 55 (the vacated second hand ghosts), `watch-fast` from 2.09 / 36 to 2.99 / 58, `rough-pane` from 0.24 / 2 to 0.45 / 4, and `transmission-test` from 10.6 / 61 to 11.8 / 63. Dropping it only where the pixel's motion is zero is the same (`watch` 2.81 / 54): the ghost of a thing that left sits at zero motion. Sixteen jitters with the clip on improve each case a little (still 2.56 / 28, `watch` 1.53 / 26, `transmission-test` 10.56 / 58) and none reaches its budget; it also changes the jitter contract `renderer_tests` and ADR-0024 state (eight points), so it was not made. All five variants, all seven cases: `stationary/all-cases.csv`.
+
+The pictures are the worst frame of the still case under the even average (TAA, reference, error ×16): [eight jitters](images/transmission-taa/still-ideal-8-jitters.png), [sixteen](images/transmission-taa/still-ideal-16-jitters.png) (nearly black error), and [sixteen with the clip](images/transmission-taa/still-ideal-16-jitters-clip.png).
+
+![eight jitters, even average](images/transmission-taa/still-ideal-8-jitters.png)
+![sixteen jitters, even average](images/transmission-taa/still-ideal-16-jitters.png)
+![sixteen jitters, even average, clip on](images/transmission-taa/still-ideal-16-jitters-clip.png)
+
+**Verdict: a reconstruction limitation of a single clamped history, and a budget that sits below it, not a defect.** Nothing in the renderer changed, so there is no *after* to record: the default numbers of every case are those above. It applies to moving glass too: the 3 of mean the still case carries is part of `transmission-test`'s 10.6. What remains uncertain: the clip's mechanism is inferred from the variants above (clip on and off, box widths), not from a per-pixel dump of box and history; one scene and one device (Debug, RTX 4090; Lavapipe and the phones were not run); and the variants were run one at a time, so interactions between them (the clip and a longer blend, say) are not mapped.
+
+The concrete decision this leaves for [#339](https://github.com/Pacheco95/sonnet/issues/339): the only variants that met the budgets in the still case are unclipped, evenly weighted accumulations, and the clip is what keeps `watch` from ghosting. A resolve that reaches both needs a per-pixel history age (blend 1/n up to the cap, a clip that relaxes as the age and the history's agreement with it grow), which is also what `masked-pane`'s re-accumulation asks for; it has not been built or measured here, and any change of the accepted budgets is a new ADR.
+
 ## What a decision depends on
 
 - The budgets as written (every measured frame, p99 at 8 levels over the region) are met by smooth glass (`rough-pane`) and not by glass with sub-pixel detail even at rest (`transmission-test-still`), so they measure the resolve's accumulation on detail more than the glass handling. A change of them is a new ADR (an accepted one is only edited to change its status). Candidates the numbers support: a budget on the glass region *relative to* the same scene's opaque error, or on the frames after the glass stops, or a p99 over the region without the pixels within a pixel of a silhouette or cut-out edge.
-- What the data leaves open for the remaining error: a motion written by the glass for its own layer (the ADR's other approximation, which this report's `transmission-test` and `watch-fast` cases are the tests for), a history per layer, and an age-weighted blend after a drop. None is built.
+- What the data leaves open for the remaining error (the still part is explained in [the stationary error](#the-stationary-error-350)): a motion written by the glass for its own layer (the ADR's other approximation, which this report's `transmission-test` and `watch-fast` cases are the tests for), a history per layer, and an age-weighted blend after a drop. None is built.
 - The mitigation's cost on a phone is not measured: the resolve reads 25 alpha values more a pixel, and `forward blend` writes alpha with its blend. It is part of the measurement of [#342](https://github.com/Pacheco95/sonnet/issues/342), whose baseline is the build with it.
 - The marking also covers alpha-blended (`AlphaMode::Blend`) materials, which write no motion either; a moving blended surface takes the same treatment.
 
-Reproduce: `tools/fetch_taa_fixtures.py`, then the commands in [rendering.md](../rendering.md#taa-checks); `before` is the same run with the resolve's history never dropped (`GlassMarkChange` set above 1).
+Reproduce: `tools/fetch_taa_fixtures.py`, then the commands in [rendering.md](../rendering.md#taa-checks) (`--reference-samples 8` for the second row of the stationary table); `before` is the same run with the resolve's history never dropped (`GlassMarkChange` set above 1).
