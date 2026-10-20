@@ -1,6 +1,6 @@
 # Transmission on the S25
 
-Measured 2026-10-19 and 2026-10-20 for [#342](https://github.com/Pacheco95/sonnet/issues/342), the phone part of [#254](https://github.com/Pacheco95/sonnet/issues/254) ([ADR-0033](../decisions/0033-transmission.md), *Phone player*). This runs the finished implementation, with the transmission shading, on the ADR's two acceptance scenes at the phone's native resolution, with the setting on and off. The pass structure alone was measured earlier on the [S25](transmission-cost-phone.md) and the [iPad](transmission-cost-ipad.md). The iPad's measurements of these scenes are the work of [#344](https://github.com/Pacheco95/sonnet/issues/344); until that report is in there is no iOS decision here.
+Measured 2026-10-19 and 2026-10-20 for [#342](https://github.com/Pacheco95/sonnet/issues/342), the phone part of [#254](https://github.com/Pacheco95/sonnet/issues/254) ([ADR-0033](../decisions/0033-transmission.md), *Phone player*). This runs the finished implementation, with the transmission shading, on the ADR's two acceptance scenes at the phone's native resolution, with the setting on and off. The pass structure alone was measured earlier on the [S25](transmission-cost-phone.md) and the [iPad](transmission-cost-ipad.md). The iPad's measurements of these scenes are in [transmission-mobile-ipad](transmission-mobile-ipad.md) ([#344](https://github.com/Pacheco95/sonnet/issues/344)) and decide iOS below.
 
 ## Setup
 
@@ -62,6 +62,14 @@ With transmission on, the phone throttled to 734 MHz at status 2 and the frame t
 
 What this does and does not establish: one S25, one build, and for the 1200 s pair one order. The two 600 s pairs, in both orders, agree that transmission reaches status 1 sooner; the 1200 s pair is the only one that shows the state reached, and the refrigerator has no run past 600 s. A change that cuts the heat (a smaller copy, a cheaper chain, no transmission pass for a view where glass covers little of the screen) would be measured with the same recipe.
 
-## iOS
+## Decision: iOS
 
-Not decided here: the iPad's runs are issue #344. ADR-0033 expects the iPad to fail the cold budget at its native 1640×2360, where the pass structure alone added 3.4 ms ([transmission-cost-ipad](transmission-cost-ipad.md)); the iOS player stays on the fallback until that report decides it.
+**The iOS player keeps transmission off.** The iPad's report ([transmission-mobile-ipad](transmission-mobile-ipad.md)) measured the same two scenes at its native 1640×2360:
+
+- Cold, the added GPU time is at most 2 ms: **not met.** TransmissionTest adds 4.9 ms (17.9 off, 22.8 on) and CommercialRefrigerator 5.1 ms (16.6 off, 21.7 on), raw. The transmission passes and `forward transparent` alone are 4.0 to 5.2 ms. The per-pass timestamps are sparse on MoltenVK ([#152](https://github.com/Pacheco95/sonnet/issues/152)) and the off totals scatter (12.9 to 20.2 ms for TransmissionTest), so the unchanged-pass scaling used for the S25 would move the figures a lot; the report keeps it as a sensitivity calculation and not as a correction, and the figures here are the raw ones. The pass structure alone had added 3.4 ms on this iPad ([transmission-cost-ipad](transmission-cost-ipad.md)), and the shading comes on top of that, as ADR-0033 expected.
+- Sustained, the frame stays under 33 ms: met, at most 25.2 ms in the totals that have timestamps, and the interval grows from 20.5 or 22.5 ms to 24 or 25.8 ms.
+- Sustained, the thermal state reached is no worse than with transmission off: **not met in TransmissionTest.** Both on runs reached serious (after 402 and 488 s), and off reached it once (759 s) and stayed nominal once. CommercialRefrigerator stayed nominal in all four runs.
+
+One failed budget is enough for the fallback, and a platform on the fallback is a valid completion of #342; here two fail. The iPad is the weakest of the two devices on this cost (the cold figure is over twice the S25's), so the case for turning it on is weaker than on Android. What a later change would measure is the same as on Android: a cheaper chain or a smaller copy, with the same recipe.
+
+Limits: one iPad, one build, GPU clocks not sampled, and a quarter of the sustained rows lack GPU timestamps, so the sustained GPU delta of the first TransmissionTest pair and the second refrigerator pair is not known. The interval and the thermal rows do not depend on them.
