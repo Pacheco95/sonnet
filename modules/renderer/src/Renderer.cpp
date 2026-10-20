@@ -152,9 +152,9 @@ struct FrameConstants {
   std::uint32_t shadowSampler;
   std::uint32_t lightCount;
   std::uint32_t debugView;
-  std::uint32_t transmissionImage; // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
+  std::uint32_t transmissionImage;   // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
   std::uint32_t transmissionPadding; // the chain's size and levels come from the image itself
-  std::uint64_t visible; // the object index of each instance an indirect or direct draw submits (ADR-0016)
+  std::uint64_t visible;             // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
@@ -2982,8 +2982,8 @@ void Renderer::addTransmissionPasses(RenderGraph &graph, GraphImage source, Grap
   const std::uint32_t sampler = m_device.samplerIndex(m_linearClampSampler);
   const std::uint32_t levels = rhi::fullMipCount(size);
   const auto dispatch = [this, sampler, scale](rhi::ICommandList &commands, rhi::PipelineHandle pipeline,
-                                        std::uint32_t sourceIndex, rhi::ImageHandle destination, std::uint32_t level,
-                                        glm::uvec2 levelSize) {
+                                               std::uint32_t sourceIndex, rhi::ImageHandle destination,
+                                               std::uint32_t level, glm::uvec2 levelSize) {
     const TransmissionConstants push{.source = sourceIndex,
                                      .destination = m_device.storageImageIndex(destination, level),
                                      .sampler = sampler,

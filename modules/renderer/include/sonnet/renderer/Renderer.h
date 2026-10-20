@@ -571,7 +571,8 @@ private:
     GraphImage resolvedScene; // what the resolve wrote, under TAA
     GraphImage sceneColor;    // what bloom and tone mapping read: resolvedScene, or the forward passes' image
     float mipBias{0.0f};      // added to the level of material samples: TaaMipBias for a jittered view
-    GraphImage transmission;  // the opaque scene's mip chain, 1/transmissionDownscale of the view's size, when this view has a draw on the transmission path
+    GraphImage transmission; // the opaque scene's mip chain, 1/transmissionDownscale of the view's size, when this view
+                             // has a draw on the transmission path
   };
   // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
   // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
