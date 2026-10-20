@@ -80,6 +80,27 @@ The pictures are the worst frame of the still case under the even average (TAA, 
 
 The concrete decision this leaves for [#339](https://github.com/Pacheco95/sonnet/issues/339): the only variants that met the budgets in the still case are unclipped, evenly weighted accumulations, and the clip is what keeps `watch` from ghosting. A resolve that reaches both needs a per-pixel history age (blend 1/n up to the cap, a clip that relaxes as the age and the history's agreement with it grow), which is also what `masked-pane`'s re-accumulation asks for; it has not been built or measured here, and any change of the accepted budgets is a new ADR.
 
+## Age-weighted accumulation (#351)
+
+The history now has a per-pixel age ([Temporal anti-aliasing](../rendering.md#temporal-anti-aliasing)): a second `R8Unorm` target beside each history image, 1 where the resolve takes the current frame, a running mean 1/(age + 1) after it, never below 1/16, with the clip and motion terms added to the weight as before and the age carried forward as the reciprocal of the final weight. It was the alpha-based storage's only alternative: the alpha holds the glass share, and the Catmull-Rom filter would mix an age packed with it. Same device and build as above; every number is the worst measured frame ([`age/`](transmission-taa-metrics/age/), `summarize.py` prints the table).
+
+| Case | Before (mitigation) mean / p99 / not recovered | Age, cap 16 | Frames passing |
+|---|---|---|---|
+| `rough-pane` | 0.24 / 2 / 0 | 0.22 / 2 / 0 | 16 of 16 |
+| `masked-pane` | 2.37 / 20 / 683 | 1.87 / 19 / 7 | 14 of 24 (was 11) |
+| `masked-pane-fast` (diagnostic) | 3.31 / 21 / 1616 | 2.40 / 21 / 257 | |
+| `watch` | 1.76 / 27 / 0 | 1.51 / 23 / 0 | 0 of 16 |
+| `watch-fast` (diagnostic) | 2.09 / 36 / 0 | 1.81 / 29 / 0 | |
+| `transmission-test` | 10.6 / 61 / 38 | 9.74 / 59 / 34 | 0 of 16 |
+| `transmission-test-still` (diagnostic) | 3.08 / 29 / 0 | 2.93 / 28 / 0 | |
+
+Opaque pixels outside the regions improve too (`masked-pane` 1.70 / 4 to 1.49 / 3; the others are unchanged). A cap of 10 (the old 0.1 floor) gave 2.00 / 19 / 6 on `masked-pane` and 3.07 / 29 on the still case, so the longer cap is worth a little.
+
+- **Recovery is fixed; the budget is not met.** The vacated pixels recover (683 to 7 worst; the 7 pixels are in the last moving frames). What fails the moving `masked-pane` frames is p99 10 to 19 over the pane's own lattice, which reprojects with the wall's motion: the glass moves and writes no motion, the ADR's other approximation, which age does not touch. The frames after the stop pass.
+- **A clip that relaxes with age** (deviation 1.25 growing to 3 over the age, as [#350](#the-stationary-error-350) suggested) was tried and dropped: the still case improved (2.71 / 25) while `transmission-test` went from 9.7 to 10.7, `watch-fast` from 1.81 to 1.92 and `masked-pane` passed 13 frames rather than 14. It needs the history's agreement and not the age alone, which was not built.
+- **Cost.** 2 bytes a pixel for the pair of age images (1.8 MB at 720p, 16.6 MB at 4K, against 16 bytes a pixel for the histories), one more bilinear tap, a second render target in the resolve. The resolve's GPU time on the RTX 4090 in Release (`SONNET_BENCH_AA=taa renderer_tests "[benchmark]"`, five runs each, performance power profile) goes from 0.051 to 0.052 ms to 0.053 to 0.054 ms, about 0.002 ms. The phone on/off baselines were not re-measured; [#342](https://github.com/Pacheco95/sonnet/issues/342)'s numbers still describe the build before this change.
+- **Not done:** the stationary floor of the still case, the lattice's moving error and 16 jitters stay open under [#339](https://github.com/Pacheco95/sonnet/issues/339).
+
 ## What a decision depends on
 
 - The budgets as written (every measured frame, p99 at 8 levels over the region) are met by smooth glass (`rough-pane`) and not by glass with sub-pixel detail even at rest (`transmission-test-still`), so they measure the resolve's accumulation on detail more than the glass handling. A change of them is a new ADR (an accepted one is only edited to change its status). Candidates the numbers support: a budget on the glass region *relative to* the same scene's opaque error, or on the frames after the glass stops, or a p99 over the region without the pixels within a pixel of a silhouette or cut-out edge.
