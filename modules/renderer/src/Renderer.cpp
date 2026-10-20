@@ -296,9 +296,11 @@ struct TaaConstants {
   std::uint32_t depth;
   std::uint32_t sampler;
   std::uint32_t historyValid;
+  std::uint32_t historyAge;
+  std::uint32_t padding{0};
   glm::vec2 size;
 };
-static_assert(sizeof(TaaConstants) == 32);
+static_assert(sizeof(TaaConstants) == 40);
 
 // Mirror of shaders/outline.slang.
 struct OutlineConstants {
@@ -421,6 +423,9 @@ constexpr std::uint64_t HistoryFrames = 8;
 // Added to the level of material samples under TAA: the resolve softens the image, and a sharper
 // level of detail gives back what it takes.
 constexpr float TaaMipBias = -0.5f;
+// What the resolve keeps beside its colour: how many frames each pixel's history has accumulated,
+// in 1/255ths (taa.slang caps it).
+constexpr rhi::Format AgeFormat = rhi::Format::R8Unorm;
 
 // The `index`th term of the Halton sequence of `base`, in [0, 1).
 float halton(std::uint32_t index, std::uint32_t base) {
@@ -542,7 +547,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
       {.fragmentEntry = "fxaa", .colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "fxaa"});
   defineGraphics(m_taaPipeline, "taa",
                  {.fragmentEntry = "resolve",
-                  .colorFormats = {HdrFormat},
+                  .colorFormats = {HdrFormat, AgeFormat},
                   .cullMode = rhi::CullMode::None,
                   .debugName = "taa resolve"});
   if (m_settings.presentFormat != rhi::Format::Undefined) {
@@ -1672,6 +1677,12 @@ void Renderer::releaseHistory(History &history) {
       image = {};
     }
   }
+  for (rhi::ImageHandle &image : history.ages) {
+    if (image) {
+      m_device.destroyImage(image);
+      image = {};
+    }
+  }
 }
 
 GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth) {
@@ -1688,6 +1699,10 @@ GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr
                                                 .format = HdrFormat,
                                                 .usage = rhi::ImageUsage::ColorAttachment | rhi::ImageUsage::Sampled,
                                                 .debugName = std::format("taa history {}", i)});
+      history.ages[i] = m_device.createImage({.size = size,
+                                              .format = AgeFormat,
+                                              .usage = rhi::ImageUsage::ColorAttachment | rhi::ImageUsage::Sampled,
+                                              .debugName = std::format("taa age {}", i)});
       history.valid = false;
     }
   }
@@ -1696,10 +1711,14 @@ GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr
   // The image the last resolve wrote is read and this one's result goes into the other, and they
   // swap for the next frame. Both end in the shader-read layout the next frame starts them in.
   const GraphImage write = graph.importImage(history.images[history.next], rhi::ImageLayout::ShaderReadOnly);
+  const GraphImage writeAge = graph.importImage(history.ages[history.next], rhi::ImageLayout::ShaderReadOnly);
   GraphImage read;
+  GraphImage readAge;
   if (valid) {
     read = graph.importImage(history.images[1 - history.next], rhi::ImageLayout::ShaderReadOnly,
                              rhi::ImageLayout::ShaderReadOnly);
+    readAge = graph.importImage(history.ages[1 - history.next], rhi::ImageLayout::ShaderReadOnly,
+                                rhi::ImageLayout::ShaderReadOnly);
   }
   history.next = 1 - history.next;
   history.valid = true;
@@ -1711,19 +1730,23 @@ GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr
         builder.sample(depth);
         if (valid) {
           builder.sample(read);
+          builder.sample(readAge);
         }
         builder.color(write, rhi::LoadOp::DontCare);
+        builder.color(writeAge, rhi::LoadOp::DontCare);
       },
-      [this, &v, hdr, read, depth, valid](rhi::ICommandList &commands, const PassResources &resources) {
+      [this, &v, hdr, read, readAge, depth, valid](rhi::ICommandList &commands, const PassResources &resources) {
         ensureFrameUploaded(v, resources);
         recordTaa(commands, v, resources.image(hdr), valid ? resources.image(read) : resources.image(hdr),
-                  resources.image(v.motion), valid, resources.image(depth));
+                  valid ? resources.image(readAge) : resources.image(hdr), resources.image(v.motion), valid,
+                  resources.image(depth));
       });
   return write;
 }
 
 void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current,
-                         rhi::ImageHandle history, rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth) {
+                         rhi::ImageHandle history, rhi::ImageHandle historyAge, rhi::ImageHandle motion,
+                         bool historyValid, rhi::ImageHandle depth) {
   SONNET_ZONE();
   if (!v.frameBuffers.valid()) {
     return;
@@ -1734,6 +1757,7 @@ void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::I
                           .depth = sampledIndex(depth),
                           .sampler = m_device.samplerIndex(m_linearClampSampler),
                           .historyValid = historyValid ? 1u : 0u,
+                          .historyAge = sampledIndex(historyAge),
                           .size = glm::vec2{v.targetSize}};
   commands.bindPipeline(m_taaPipeline);
   bindFrame(commands, v);

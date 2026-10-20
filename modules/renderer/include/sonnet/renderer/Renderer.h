@@ -574,6 +574,7 @@ private:
   // SceneView's address like the rest of a view's state (ADR-0021).
   struct History {
     std::array<rhi::ImageHandle, 2> images;
+    std::array<rhi::ImageHandle, 2> ages; // each pixel's frame count, beside the image of the same index
     glm::uvec2 size{0, 0};
     std::uint32_t next{0};     // the image the next resolve writes; the other holds the last one
     bool valid{false};         // the other image holds a resolved frame to reproject
@@ -618,7 +619,7 @@ private:
   // and returns the image bloom and tone mapping read in its place.
   [[nodiscard]] GraphImage addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth);
   void recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current, rhi::ImageHandle history,
-                 rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth);
+                 rhi::ImageHandle historyAge, rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth);
   // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
   // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
   // InvalidBindlessIndex when the array is full.

@@ -14,6 +14,8 @@ struct TaaConstants {
   uint depth;   // an index into depthTextures[]
   uint sampler;
   uint historyValid;
+  uint historyAge; // how many frames each history pixel has accumulated, in 1/255ths
+  uint padding;
   float2 size;
 };
 
@@ -24,6 +26,18 @@ struct VertexOutput {
   float4 position : SV_Position;
 };
 
+struct ResolveOutput {
+  float4 color : SV_Target0; // the resolved colour, with the glass mark below in alpha
+  float age : SV_Target1;    // frames accumulated in it, over 255
+};
+
+ResolveOutput resolved(float3 color, float mark, float frames) {
+  ResolveOutput output;
+  output.color = float4(color, mark);
+  output.age = frames / 255.0;
+  return output;
+}
+
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
   VertexOutput output;
@@ -33,6 +47,8 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
 
 // How far the glass around a pixel may differ from the history's before the history is dropped.
 static const float GlassMarkChange = 0.5;
+// The most frames a pixel's history averages evenly; its blend never goes below one over this.
+static const float AgeCap = 16.0;
 
 float3 toYCoCg(float3 c) {
   return float3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
@@ -77,7 +93,7 @@ float4 historyAt(float2 uv) {
 }
 
 [shader("fragment")]
-float4 resolve(VertexOutput input) : SV_Target {
+ResolveOutput resolve(VertexOutput input) {
   const int2 pixel = int2(input.position.xy);
   const int2 last = int2(taa.size) - 1;
   const float2 uv = input.position.xy / taa.size;
@@ -119,7 +135,7 @@ float4 resolve(VertexOutput input) : SV_Target {
   }
   const float markNow = 1.0 - float(glassNeighbours) / 25.0;
   if (taa.historyValid == 0) {
-    return float4(center, markNow);
+    return resolved(center, markNow, 1.0);
   }
 
   float2 motion;
@@ -134,9 +150,10 @@ float4 resolve(VertexOutput input) : SV_Target {
   }
   const float2 previousUv = uv - motion;
   if (any(previousUv < 0.0) || any(previousUv > 1.0)) {
-    return float4(center, markNow);
+    return resolved(center, markNow, 1.0);
   }
 
+  const float historyFrames = round(textures[taa.historyAge].SampleLevel(samplers[taa.sampler], previousUv, 0.0).r * 255.0);
   // The box the neighbourhood spans: its mean and one and a quarter deviations, within its extremes.
   const float3 mean = sum / 9.0;
   const float3 deviation = sqrt(max(sumSquares / 9.0 - mean * mean, float3(0.0, 0.0, 0.0)));
@@ -155,7 +172,7 @@ float4 resolve(VertexOutput input) : SV_Target {
   // pixel's own mark flips with the jitter while its neighbourhood hardly does, and the accumulation
   // is what anti-aliases that pixel.
   if (abs(markNow - historySample.a) > GlassMarkChange) {
-    return float4(center, markNow);
+    return resolved(center, markNow, 1.0);
   }
   const float3 offset = toYCoCg(history) - boxCenter;
   const float3 scaled = abs(offset / extent);
@@ -167,14 +184,18 @@ float4 resolve(VertexOutput input) : SV_Target {
   const float3 resolvedHistory =
       float3(clipped.x - clipped.z + clipped.y, clipped.x + clipped.z, clipped.x - clipped.z - clipped.y);
 
-  // How much to trust the new frame: a history that had to be clipped, or that was moved by more
-  // than a fraction of a pixel, is worth less.
+  // How much to trust the new frame: one over the frames the history holds, so a pixel that starts
+  // over averages its first samples evenly, and no less than the usual 0.1 once it has settled; a
+  // history that had to be clipped, or that was moved by more than a fraction of a pixel, is worth
+  // less. The age that goes forward is what that weight stands for.
   const float clipAmount = saturate(outside - 1.0);
   const float motionPixels = length(motion * taa.size);
-  const float blend = clamp(0.1 + 0.4 * clipAmount + 0.2 * saturate(motionPixels * 0.25), 0.1, 0.8);
+  const float blend = clamp(1.0 / (historyFrames + 1.0) + 0.4 * clipAmount + 0.2 * saturate(motionPixels * 0.25),
+                            1.0 / AgeCap, 0.8);
   const float currentWeight = blend / (1.0 + luma(center));
   const float historyWeight = (1.0 - blend) / (1.0 + luma(max(resolvedHistory, float3(0.0, 0.0, 0.0))));
   const float3 result = (center * currentWeight + max(resolvedHistory, float3(0.0, 0.0, 0.0)) * historyWeight) /
                         (currentWeight + historyWeight);
-  return float4(any(isnan(result)) ? center : result, lerp(historySample.a, markNow, blend));
+  return resolved(any(isnan(result)) ? center : result, lerp(historySample.a, markNow, blend),
+                  clamp(round(1.0 / blend), 1.0, AgeCap));
 }

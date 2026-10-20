@@ -1909,6 +1909,43 @@ TEST_CASE("a still scene resolves to an anti-aliased image and stops changing", 
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+TEST_CASE("a history that starts over averages its first samples evenly", "[renderer][taa][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), taaSettings()};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const glm::mat4 turned = glm::rotate(glm::mat4{1.0f}, glm::radians(30.0f), glm::vec3{0.0f, 0.0f, 1.0f});
+    const std::array draws{DrawItem{.mesh = box, .transform = turned}};
+    SceneView view = boxScene(draws);
+    GpuScene scene{*device, renderer, {64, 64}};
+    for (int frame = 0; frame < 32; ++frame) {
+      scene.render(view);
+    }
+    const std::vector<std::byte> settled = imageOf(scene);
+
+    // Cut the history: the first frame is a single jittered sample, and the edge pixels, which are
+    // a fraction covered, differ from the settled image by up to a jitter's worth of coverage.
+    view.resetHistory = true;
+    scene.render(view);
+    view.resetHistory = false;
+    const ImageDifference single = differenceOf(imageOf(scene), settled);
+    for (int frame = 0; frame < 3; ++frame) {
+      scene.render(view);
+    }
+    // Four frames in, a fixed blend of 0.1 still weighs the first sample at 0.66 (mean 0.62 against
+    // this 0.40); averaging the four evenly puts each at a quarter.
+    const ImageDifference four = differenceOf(imageOf(scene), settled);
+    INFO("one sample: max " << single.maximum << " mean " << single.mean << "; four: max " << four.maximum << " mean "
+                            << four.mean);
+    REQUIRE(single.maximum > 0);
+    REQUIRE(four.mean * 100 < single.mean * 50);
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("a bright box crossing a dark background leaves no trail", "[renderer][taa][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
@@ -3339,13 +3376,13 @@ TEST_CASE("sky rays and mip selection ignore camera distance", "[renderer][gpu][
     for (const auto projection : {ProjectionKind::Perspective, ProjectionKind::Orthographic}) {
       view.camera.projectionKind = projection;
       view.camera.position = glm::vec3{0};
-      scene.render(view, 8);
+      scene.render(view, 24);
       const auto bytes = device->mappedRange(scene.readback);
       const std::vector<std::byte> reference{bytes.begin(), bytes.end()};
       for (const float distance : {10000.0f, -10000.0f, 1000000.0f, -1000000.0f}) {
         CAPTURE(antialiasing, projection, distance);
         view.camera.position = glm::vec3{distance, distance * 0.5f, -distance};
-        scene.render(view, 8);
+        scene.render(view, 24);
         CHECK(std::ranges::equal(reference, device->mappedRange(scene.readback)));
       }
     }
