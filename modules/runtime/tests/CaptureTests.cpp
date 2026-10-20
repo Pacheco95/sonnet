@@ -121,6 +121,16 @@ TEST_CASE("--render-size takes two sizes from 1 to the limit", "[runtime][captur
   REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->renderSize.has_value());
 }
 
+TEST_CASE("--transmission-downscale takes 1 to 8", "[runtime][capture]") {
+  REQUIRE(player({"--transmission-downscale", "2", "--screenshot", "a.png"})->capture->transmissionDownscale == 2u);
+  REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->transmissionDownscale.has_value());
+  for (const char *bad : {"0", "9", "two", "2x"}) {
+    const auto parsed = player({"--transmission-downscale", bad, "--screenshot", "a.png"});
+    REQUIRE_FALSE(parsed.has_value());
+    REQUIRE(parsed.error().message.find("--transmission-downscale") != std::string::npos);
+  }
+}
+
 TEST_CASE("--transmission takes on or off", "[runtime][capture]") {
   REQUIRE(player({"--transmission", "on", "--screenshot", "a.png"})->capture->transmission == true);
   REQUIRE(player({"--transmission", "off", "--screenshot", "a.png"})->capture->transmission == false);
