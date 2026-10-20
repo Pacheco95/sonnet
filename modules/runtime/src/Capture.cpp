@@ -50,7 +50,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 9> Options{{
+constexpr std::array<CommandLineOption, 10> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -67,6 +67,9 @@ constexpr std::array<CommandLineOption, 9> Options{{
     {"--render-size", "WxH",
      "draw the scene at this size and scale it to the window, so 1080x1920 measures a phone at 1080p", "1080x1920",
      true, ""},
+    {"--transmission", "on|off",
+     "draw transmissive materials through a copy of the scene, or as plain blends; the platform's default otherwise",
+     "off", true, ""},
 }};
 
 } // namespace
@@ -289,6 +292,11 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
         return std::unexpected(captureError(
             std::format("--render-size takes WIDTHxHEIGHT from 1x1 to {0}x{0}, not \"{1}\"", MaxRenderSide, value)));
       }
+    } else if (arg == "--transmission") {
+      if (value != "on" && value != "off") {
+        return std::unexpected(captureError("--transmission takes on or off"));
+      }
+      capture.transmission = value == "on";
     } else if (arg == "--shading-term") {
       capture.shadingTerm = shadingTerm(value);
       if (!capture.shadingTerm) {
@@ -415,6 +423,12 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
   if (options.renderSize) {
     SONNET_LOG_INFO("capture draws at {}x{}, scaled to the window", options.renderSize->x, options.renderSize->y);
     m_game.setRenderSize(options.renderSize);
+  }
+  if (options.transmission) {
+    SONNET_LOG_INFO("capture draws with transmission {}", *options.transmission ? "on" : "off");
+    renderer::RendererSettings settings = m_game.renderer().settings();
+    settings.transmission = *options.transmission;
+    m_game.renderer().setSettings(settings);
   }
   return {};
 }

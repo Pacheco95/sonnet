@@ -1,0 +1,88 @@
+{
+ "version": 6,
+ "entities": [
+  {
+   "uuid": "7aa00000-0000-4000-8000-000900000001",
+   "name": "Sky",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Environment": {
+     "map": "1efc2063-3e15-56a9-9665-62c02f77c7a4",
+     "intensity": 1.0
+    }
+   }
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000900000002",
+   "name": "Camera",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      1.09,
+      3.4
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Camera": {
+     "fovY": 0.7853981633974483,
+     "nearPlane": 0.01,
+     "exposure": 1.0,
+     "bloomStrength": 0.0
+    }
+   }
+  },
+  {
+   "uuid": "7aa00000-0000-4000-8000-000900000003",
+   "name": "Refrigerator",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    }
+   },
+   "prefab": "23bfa938-dc22-5ffe-b39c-cfd6e1be3b64"
+  }
+ ]
+}

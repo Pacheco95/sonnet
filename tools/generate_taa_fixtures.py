@@ -29,6 +29,7 @@ def identity(name: str) -> str:
 # Identities of the downloaded models and the environment, which tools/fetch_taa_fixtures.py writes sidecars for.
 WATCH = identity("ChronographWatch.gltf")
 TRANSMISSION_TEST = identity("TransmissionTest.gltf")
+COMMERCIAL_REFRIGERATOR = identity("CommercialRefrigerator.gltf")
 ENVIRONMENT = identity("helipad.hdr")
 
 # ---------------------------------------------------------------------------------------------
@@ -310,6 +311,23 @@ def scenes():
         scene.add("Board", {"Transform": transform((0, 0, 0)), "Spin": {"axis": [0.0, 1.0, 0.0], "speed": speed}},
                   TRANSMISSION_TEST)
         scene.write(f"{name}.scene.json")
+
+    # The two acceptance scenes of the phone measurements (docs/player.md, "Transmission on a
+    # phone"), framed for a portrait screen and still: the camera is the same at the S25's 1080x2340
+    # and the iPad's 1640x2360, and nothing moves, so each frame costs what the last did.
+    # TransmissionTest stands on its end, 1.8 m of board along the screen's long side.
+    quarter = math.sqrt(0.5)
+    scene = Scene(8)
+    scene.sky()
+    scene.camera((0, 0, 2.8), math.pi / 4, 0.01)
+    scene.add("Board", {"Transform": transform((0, 0, 0), (0, 0, quarter, quarter))}, TRANSMISSION_TEST)
+    scene.write("transmission_test_phone.scene.json")
+    # CommercialRefrigerator is 2.2 m tall: the camera looks at its middle from 2.9 m in front of it.
+    scene = Scene(9)
+    scene.sky()
+    scene.camera((0, 1.09, 3.4), math.pi / 4, 0.01)
+    scene.add("Refrigerator", {"Transform": transform((0, 0, 0))}, COMMERCIAL_REFRIGERATOR)
+    scene.write("commercial_refrigerator_phone.scene.json")
 
 
 def project():

@@ -37,6 +37,9 @@ struct CaptureOptions {
   // --render-size: what the scene is drawn at, scaled to the window; the player's only. The window's
   // own size when empty.
   std::optional<glm::uvec2> renderSize;
+  // --transmission: RendererSettings::transmission for the run, over the player's platform default;
+  // the player's only (the editor always draws it).
+  std::optional<bool> transmission;
   bool grid{false}; // editor capture only; does not change preferences
 };
 
