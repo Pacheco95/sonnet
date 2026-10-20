@@ -1,7 +1,7 @@
 // sonnet_taa_harness: the TAA checks of ADR-0033 ("TAA"; docs/rendering.md, "TAA checks"). For each
 // case of a project's taa-cases.json it plays the scene twice from the start at a fixed step: once
 // under TAA, keeping the display-encoded frames, and once with TAA off, where each measured frame
-// holds the simulation still and renders ReferenceSamples jittered samples without temporal
+// holds the simulation still and renders a set of jittered samples without temporal
 // accumulation, averages them in linear HDR and tone maps the average with the renderer's own
 // pass. runtime::taa then judges the difference in the glass's region of every measured frame.
 #include <sonnet/core/Error.h>
@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -41,11 +42,14 @@ namespace {
 using namespace sonnet;
 using json = nlohmann::json;
 
-constexpr const char *Usage =
-    "usage: sonnet_taa_harness <project> --out <directory> [--case <name>]... [--size WxH] [--keep-frames]";
+constexpr const char *Usage = "usage: sonnet_taa_harness <project> --out <directory> [--case <name>]... [--size WxH] "
+                              "[--reference-samples N] [--keep-frames]";
 
-// The jitter of the reference samples: Halton (2, 3), 16 points, centred on the pixel.
-constexpr std::uint32_t ReferenceSamples = 16;
+// The jitter of the reference samples: Halton (2, 3), centred on the pixel, 16 of them unless
+// `--reference-samples` says otherwise (8 are TAA's own sequence, which tells the sample set apart
+// from the resolve in an error).
+constexpr std::uint32_t DefaultReferenceSamples = 16;
+constexpr std::uint32_t MaxReferenceSamples = 64;
 // Frames drawn after the assets have loaded and before the simulation starts, so the environment
 // and the pipelines are ready (what a capture run settles for).
 constexpr std::uint32_t SettleFrames = 10;
@@ -66,6 +70,7 @@ struct Arguments {
   std::filesystem::path output;
   std::vector<std::string> cases;
   glm::uvec2 size{1280, 720};
+  std::uint32_t referenceSamples{DefaultReferenceSamples};
   bool keepFrames{false};
 };
 
@@ -84,6 +89,13 @@ struct Arguments {
         return std::nullopt;
       }
       parsed.size = *size;
+    } else if (arg == "--reference-samples" && hasValue) {
+      const std::string_view value = args[++i];
+      const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), parsed.referenceSamples);
+      if (error != std::errc{} || end != value.data() + value.size() || parsed.referenceSamples == 0 ||
+          parsed.referenceSamples > MaxReferenceSamples) {
+        return std::nullopt;
+      }
     } else if (arg == "--keep-frames") {
       parsed.keepFrames = true;
     } else if (!arg.starts_with("--") && parsed.project.empty()) {
@@ -142,6 +154,7 @@ struct Rig {
   platform::IWindow &window;
   std::filesystem::path project;
   glm::uvec2 size;
+  std::uint32_t referenceSamples;
 };
 
 // A pass copying a graph image into a buffer the CPU reads after the frame.
@@ -387,9 +400,9 @@ void runReference(const Rig &rig, const Case &testCase, Measured &measured) {
       measured.reference.emplace_back();
       continue;
     }
-    // The simulation holds still: ReferenceSamples renders of this pose, averaged in linear HDR.
+    // The simulation holds still: `referenceSamples` renders of this pose, averaged in linear HDR.
     std::vector<float> sum(pixels * 4, 0.0f);
-    for (std::uint32_t sample = 0; sample < ReferenceSamples; ++sample) {
+    for (std::uint32_t sample = 0; sample < rig.referenceSamples; ++sample) {
       renderer::SceneView view = run.game().view();
       view.referenceJitter = referenceJitter(sample);
       const std::vector<std::byte> hdr = run.hdr(view);
@@ -401,7 +414,7 @@ void runReference(const Rig &rig, const Case &testCase, Measured &measured) {
     }
     std::vector<std::byte> average(sum.size() * sizeof(std::uint16_t));
     for (std::size_t i = 0; i < sum.size(); ++i) {
-      const std::uint16_t half = glm::packHalf1x16(sum[i] / static_cast<float>(ReferenceSamples));
+      const std::uint16_t half = glm::packHalf1x16(sum[i] / static_cast<float>(rig.referenceSamples));
       std::memcpy(average.data() + i * sizeof(half), &half, sizeof(half));
     }
     measured.reference.push_back(run.toneMap(run.game().view(), average));
@@ -499,9 +512,9 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
   summary["substeps"] = testCase.substeps;
   summary["warmupFrames"] = testCase.warmup;
   summary["measuredFrames"] = testCase.measured;
-  summary["referenceSamples"] = ReferenceSamples;
+  summary["referenceSamples"] = rig.referenceSamples;
   summary["referenceJitter"] = json::array();
-  for (std::uint32_t i = 0; i < ReferenceSamples; ++i) {
+  for (std::uint32_t i = 0; i < rig.referenceSamples; ++i) {
     const glm::vec2 jitter = referenceJitter(i);
     summary["referenceJitter"].push_back({jitter.x, jitter.y});
   }
@@ -554,7 +567,9 @@ int main(int argc, char **argv) {
     const std::unique_ptr<rhi::IDevice> device =
         rhi::createDevice({.platform = &platform, .applicationName = "TAA harness"});
     const std::unique_ptr<rhi::ISwapchain> swapchain = device->createSwapchain(*window);
-    const Rig rig{*device, *swapchain, *window, std::filesystem::absolute(arguments->project), arguments->size};
+    const Rig rig{*device,         *swapchain,
+                  *window,         std::filesystem::absolute(arguments->project),
+                  arguments->size, arguments->referenceSamples};
     const std::string deviceName = device->info().deviceName;
 
     bool allPass = true;
