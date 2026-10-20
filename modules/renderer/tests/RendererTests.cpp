@@ -3731,16 +3731,27 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timedStart).count();
       WARN(std::format("wall clock: {:.3f} ms per frame over {} frames submitted back to back",
                        wallMilliseconds / timedFrames, timedFrames));
-      // The last frame's timings are those of the frame two before it, complete by now.
+      // GPU timings describe one earlier completed slot, not an average of the timed run.
+      // In particular, the final readback did not exist in that slot. Missing queries are not
+      // measured zeroes, and a partial sum must not masquerade as a complete frame time.
       float total = 0.0f;
-      for (const PassTiming &pass : scene.graph.statistics().passes) {
-        WARN(
-            std::format("{:<20} {:8.3f} ms GPU {:8.3f} ms CPU", pass.name, pass.gpuMilliseconds, pass.cpuMilliseconds));
-        total += pass.gpuMilliseconds;
+      std::size_t availablePasses = 0;
+      const auto &passes = scene.graph.statistics().passes;
+      for (const PassTiming &pass : passes) {
+        if (pass.gpuAvailable) {
+          WARN(std::format("{:<20} {:8.3f} ms GPU {:8.3f} ms CPU", pass.name, pass.gpuMilliseconds,
+                           pass.cpuMilliseconds));
+          total += pass.gpuMilliseconds;
+          ++availablePasses;
+        } else {
+          WARN(std::format("{:<20} unavailable GPU {:8.3f} ms CPU", pass.name, pass.cpuMilliseconds));
+        }
       }
-      WARN(std::format("{} draws, {} lights, {} triangles: {:.3f} ms GPU per frame on {}",
+      WARN(std::format("{} draws, {} lights, {} triangles: {:.3f} ms sampled GPU pass sum ({}/{} passes "
+                       "available, one earlier frame) on {}",
                        renderer.statistics().drawCount, renderer.statistics().lightCount,
-                       renderer.statistics().triangleCount, total, device.info().deviceName));
+                       renderer.statistics().triangleCount, total, availablePasses, passes.size(),
+                       device.info().deviceName));
       WARN(std::format("submitted from the GPU in {} indirect calls over {} passes",
                        renderer.statistics().indirectCallCount, Renderer::CascadeCount + Renderer::CullJobsOpaque));
       WARN(std::format("{} of {} draws survived culling ({} triangles), {} shadow draws, occlusion {}, wall {}",
