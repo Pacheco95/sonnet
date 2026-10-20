@@ -153,7 +153,7 @@ struct FrameConstants {
   std::uint32_t lightCount;
   std::uint32_t debugView;
   std::uint32_t transmissionImage; // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
-  std::uint32_t transmissionLevels;
+  std::uint32_t transmissionPadding; // the chain's size and levels come from the image itself
   std::uint64_t visible; // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
@@ -213,7 +213,8 @@ struct TransmissionConstants {
   std::uint32_t sampler;
   std::uint32_t sourceLevel;
   glm::uvec2 size;
-  glm::uvec2 padding;
+  std::uint32_t scale; // the copy's source texels per destination texel on each side; unused by the filter
+  std::uint32_t padding;
 };
 static_assert(sizeof(TransmissionConstants) == 32);
 
@@ -2810,7 +2811,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .debugView = static_cast<std::uint32_t>(m_settings.debugView),
       .transmissionImage =
           v.transmission.isValid() ? sampledIndex(resources.image(v.transmission)) : rhi::InvalidBindlessIndex,
-      .transmissionLevels = v.transmission.isValid() ? rhi::fullMipCount(v.targetSize) : 0u,
+      .transmissionPadding = 0,
       .visible = m_visibleBuffer ? m_device.bufferAddress(m_visibleBuffer) : 0,
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
@@ -2975,10 +2976,12 @@ void Renderer::drawTransparent(rhi::ICommandList &commands, ViewState &v) {
   recordParticleDraws(commands, v);
 }
 
-void Renderer::addTransmissionPasses(RenderGraph &graph, GraphImage source, GraphImage chain, glm::uvec2 size) {
+void Renderer::addTransmissionPasses(RenderGraph &graph, GraphImage source, GraphImage chain) {
+  const glm::uvec2 size = graph.imageDesc(chain).size;
+  const std::uint32_t scale = std::max(1u, m_settings.transmissionDownscale);
   const std::uint32_t sampler = m_device.samplerIndex(m_linearClampSampler);
   const std::uint32_t levels = rhi::fullMipCount(size);
-  const auto dispatch = [this, sampler](rhi::ICommandList &commands, rhi::PipelineHandle pipeline,
+  const auto dispatch = [this, sampler, scale](rhi::ICommandList &commands, rhi::PipelineHandle pipeline,
                                         std::uint32_t sourceIndex, rhi::ImageHandle destination, std::uint32_t level,
                                         glm::uvec2 levelSize) {
     const TransmissionConstants push{.source = sourceIndex,
@@ -2986,7 +2989,8 @@ void Renderer::addTransmissionPasses(RenderGraph &graph, GraphImage source, Grap
                                      .sampler = sampler,
                                      .sourceLevel = level > 0 ? level - 1 : 0,
                                      .size = levelSize,
-                                     .padding = {}};
+                                     .scale = scale,
+                                     .padding = 0};
     commands.bindPipeline(pipeline);
     commands.pushConstants(std::as_bytes(std::span{&push, 1}));
     commands.dispatch(groups(levelSize.x, 8), groups(levelSize.y, 8), 1);
@@ -3236,8 +3240,12 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
     }
   };
   if (transmissive) {
-    v.transmission = graph.createImage(
-        {.size = size, .format = HdrFormat, .mipLevels = rhi::fullMipCount(size), .debugName = "transmission"});
+    const std::uint32_t scale = std::max(1u, m_settings.transmissionDownscale);
+    const glm::uvec2 chainSize = glm::max((size + scale - 1u) / scale, glm::uvec2{1});
+    v.transmission = graph.createImage({.size = chainSize,
+                                        .format = HdrFormat,
+                                        .mipLevels = rhi::fullMipCount(chainSize),
+                                        .debugName = "transmission"});
   }
   graph.addPass(
       "forward",
@@ -3268,7 +3276,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         }
       });
   if (transmissive) {
-    addTransmissionPasses(graph, hdr, v.transmission, size);
+    addTransmissionPasses(graph, hdr, v.transmission);
     graph.addPass(
         "forward transparent",
         [&](PassBuilder &builder) {

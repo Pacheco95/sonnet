@@ -116,6 +116,10 @@ struct RendererSettings {
   // draw (ADR-0033). Off, such a draw is blended with the opacity the same transmission gives, and
   // no copy or extra pass is made.
   bool transmission{true};
+  // The copy's level 0 is the scene box-filtered to 1/n of the view's size on each side (1 is the view's
+  // own size, bit for bit), and its chain has the levels of that smaller size. A smaller copy is cheaper
+  // to write and to build and softens clear glass by n pixels. Values below 1 are 1.
+  std::uint32_t transmissionDownscale{1};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
   // present pipeline out, which is what the editor does: it shows the scene through Dear ImGui.
   rhi::Format presentFormat{rhi::Format::Undefined};
@@ -567,7 +571,7 @@ private:
     GraphImage resolvedScene; // what the resolve wrote, under TAA
     GraphImage sceneColor;    // what bloom and tone mapping read: resolvedScene, or the forward passes' image
     float mipBias{0.0f};      // added to the level of material samples: TaaMipBias for a jittered view
-    GraphImage transmission;  // the opaque scene's mip chain, when this view has a draw on the transmission path
+    GraphImage transmission;  // the opaque scene's mip chain, 1/transmissionDownscale of the view's size, when this view has a draw on the transmission path
   };
   // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
   // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
@@ -694,7 +698,7 @@ private:
                                                     const Environment &environment);
   void addEnvironmentPasses(RenderGraph &graph, EnvironmentHandle handle, Environment &environment);
   void drawTransparent(rhi::ICommandList &commands, ViewState &v);
-  void addTransmissionPasses(RenderGraph &graph, GraphImage source, GraphImage chain, glm::uvec2 size);
+  void addTransmissionPasses(RenderGraph &graph, GraphImage source, GraphImage chain);
   void addBloomPasses(RenderGraph &graph, const SceneView &view, GraphImage hdr, glm::uvec2 size, GraphImage &result);
   void recordOutline(rhi::ICommandList &commands, rhi::ImageHandle mask);
   void recordDebugLines(rhi::ICommandList &commands, const SceneView &view, glm::uvec2 targetSize);
