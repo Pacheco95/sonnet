@@ -23,8 +23,10 @@
 #include <cstring>
 #include <deque>
 #include <format>
+#include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -1523,11 +1525,12 @@ struct MotionScene {
   MotionScene(const MotionScene &) = delete;
   MotionScene &operator=(const MotionScene &) = delete;
 
-  void render(const SceneView &view) {
+  // Draws `view` and reads back the pre-pass's motion, or the glass's when `glass`.
+  void render(const SceneView &view, bool glass = false) {
     ICommandList &commands = device.beginFrame();
     graph.reset();
     renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
-    const GraphImage motion = renderer.motion();
+    const GraphImage motion = glass ? renderer.glassMotion() : renderer.motion();
     REQUIRE(motion.isValid());
     graph.addPass(
         "motion readback", [&](PassBuilder &b) { b.transferSrc(motion); },
@@ -1680,6 +1683,60 @@ TEST_CASE("the pre-pass writes the motion of a moving box and of a moving camera
     renderer.destroyMesh(box);
   }
   REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a moving glass sphere writes its own motion, and the wall behind it none", "[renderer][taa][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = taaSettings();
+    settings.taaGlassMotion = true;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 16, 8), "sphere");
+    MaterialDesc blended;
+    blended.alphaMode = AlphaMode::Blend;
+    blended.baseColor = {1.0f, 1.0f, 1.0f, 0.5f};
+    const MaterialHandle glass = renderer.createMaterial(blended, "glass");
+    MotionScene scene{*device, renderer, {64, 64}};
+    const float uvPerMetre = 1.0f / (std::tan(glm::radians(30.0f)) * 2.5f) * 0.5f;
+    // The sphere slid a quarter of a metre to the right since last frame; the wall did not move.
+    const std::array draws{DrawItem{.mesh = box,
+                                    .transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.0f, -1.0f}) *
+                                                 glm::scale(glm::mat4{1.0f}, {8.0f, 8.0f, 0.2f})},
+                           DrawItem{.mesh = sphere,
+                                    .material = glass,
+                                    .previousTransform = glm::translate(glm::mat4{1.0f}, {-0.25f, 0.0f, 0.0f})}};
+    const SceneView view = boxScene(draws);
+    scene.render(view, true);
+    REQUIRE(scene.motionAt(32, 32).x == Catch::Approx(0.25f * uvPerMetre).margin(0.01));
+    REQUIRE(scene.motionAt(2, 2) == glm::vec2{0.0f});
+    // The pre-pass's own motion image has none of it: the glass is not in it.
+    scene.render(view);
+    REQUIRE(scene.motionAt(32, 32) == glm::vec2{0.0f});
+    renderer.destroyMesh(box);
+    renderer.destroyMesh(sphere);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the glass's motion is only drawn when asked for", "[renderer][taa][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  Renderer renderer{*device, shaderDir(platform), taaSettings()};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  MaterialDesc blended;
+  blended.alphaMode = AlphaMode::Blend;
+  const MaterialHandle glass = renderer.createMaterial(blended, "glass");
+  const std::array draws{DrawItem{.mesh = box, .material = glass}};
+  const SceneView view = boxScene(draws);
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  CHECK_FALSE(renderer.glassMotion().isValid());
+  renderer.destroyMesh(box);
 }
 
 TEST_CASE("a skinned box's motion comes from the vertices it was deformed to the frame before",
@@ -3828,6 +3885,72 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
   measure(*device, true, false);
   measure(*device, false, true);
   measure(*device, true, true);
+}
+
+// What the glass motion experiment costs (#352): `renderer_tests "[glass-motion]"` draws a hundred overlapping
+// transmissive spheres over a wall at 1080p with TAA, with `taaGlassMotion` off and on, and prints the median
+// over seven samples of the GPU time of the passes it adds or reads.
+TEST_CASE("the cost of the glass motion pass at 1080p", "[.][benchmark][glass-motion][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  for (const bool glassMotion : {false, true}) {
+    {
+      RendererSettings settings = taaSettings();
+      settings.taaGlassMotion = glassMotion;
+      Renderer renderer{*device, shaderDir(platform), settings};
+      const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+      const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 32, 16), "sphere");
+      MaterialDesc transmissive;
+      transmissive.metallic = 0.0f;
+      transmissive.transmission = 1.0f;
+      const MaterialHandle glass = renderer.createMaterial(transmissive, "glass");
+      std::vector<DrawItem> draws{DrawItem{.mesh = box,
+                                           .transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.0f, -1.0f}) *
+                                                        glm::scale(glm::mat4{1.0f}, {16.0f, 9.0f, 0.2f})}};
+      for (int row = 0; row < 10; ++row) {
+        for (int column = 0; column < 10; ++column) {
+          const glm::vec3 position{(static_cast<float>(column) - 4.5f) * 1.4f, (static_cast<float>(row) - 4.5f) * 0.8f,
+                                   static_cast<float>((row * 10 + column) % 3) * 0.3f};
+          const glm::mat4 scale = glm::scale(glm::mat4{1.0f}, glm::vec3{1.6f});
+          draws.push_back(
+              {.mesh = sphere,
+               .material = glass,
+               .transform = glm::translate(glm::mat4{1.0f}, position) * scale,
+               .previousTransform = glm::translate(glm::mat4{1.0f}, position - glm::vec3{0.05f, 0.0f, 0.0f}) * scale});
+        }
+      }
+      SceneView view = boxScene(draws);
+      view.camera.position.z = 9.0f;
+      GpuScene scene{*device, renderer, {1920, 1080}};
+      scene.render(view, 30);
+      std::map<std::string, std::vector<float>> samples;
+      for (int run = 0; run < 7; ++run) {
+        scene.render(view, 5);
+        for (const PassTiming &pass : scene.graph.statistics().passes) {
+          if (pass.gpuAvailable) {
+            samples[pass.name].push_back(pass.gpuMilliseconds);
+          }
+        }
+      }
+      WARN(std::format("taaGlassMotion {}: {} draws on {}", glassMotion ? "on" : "off", renderer.statistics().drawCount,
+                       device->info().deviceName));
+      for (const char *name : {"glass motion", "forward transparent", "taa"}) {
+        std::vector<float> &values = samples[name];
+        if (values.empty()) {
+          WARN(std::format("  {:<20} not drawn", name));
+          continue;
+        }
+        std::ranges::sort(values);
+        WARN(std::format("  {:<20} {:8.4f} ms GPU median (min {:.4f}, max {:.4f}, {} samples)", name,
+                         values[values.size() / 2], values.front(), values.back(), values.size()));
+      }
+      REQUIRE(device->validationMessageCount() == 0);
+      renderer.destroyMaterial(glass);
+      renderer.destroyMesh(sphere);
+      renderer.destroyMesh(box);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+  }
 }
 
 // What particles cost (ADR-0023): `renderer_tests "[particles]"` fills ten emitters up to about a

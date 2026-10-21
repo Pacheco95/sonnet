@@ -15,6 +15,8 @@ struct TaaConstants {
   uint sampler;
   uint historyValid;
   uint historyAge; // how many frames each history pixel has accumulated, in 1/255ths
+  uint glassMotion;    // the glass's own motion, in UV units
+  uint useGlassMotion; // nonzero: a pixel the glass covers takes it in place of the surface behind's
   uint padding;
   float2 size;
 };
@@ -147,6 +149,11 @@ ResolveOutput resolve(VertexOutput input) {
              clipToUv(mul(frame.previousViewProjection, float4(direction, 0.0)));
   } else {
     motion = textures[taa.motion].Load(int3(closestPixel, 0)).xy;
+  }
+  // The experiment of #352: where the glass is, reproject with its own motion. The transmitted
+  // background then takes the glass's motion in place of its own.
+  if (taa.useGlassMotion != 0 && currentImage.Load(int3(pixel, 0)).a < 0.5) {
+    motion = textures[taa.glassMotion].Load(int3(pixel, 0)).xy;
   }
   const float2 previousUv = uv - motion;
   if (any(previousUv < 0.0) || any(previousUv > 1.0)) {

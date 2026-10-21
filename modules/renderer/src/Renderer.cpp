@@ -298,10 +298,12 @@ struct TaaConstants {
   std::uint32_t sampler;
   std::uint32_t historyValid;
   std::uint32_t historyAge;
+  std::uint32_t glassMotion; // the glass's own motion; read where the glass mark is set, when `useGlassMotion`
+  std::uint32_t useGlassMotion;
   std::uint32_t padding{0};
   glm::vec2 size;
 };
-static_assert(sizeof(TaaConstants) == 40);
+static_assert(sizeof(TaaConstants) == 48);
 
 // Mirror of shaders/outline.slang.
 struct OutlineConstants {
@@ -500,6 +502,16 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
                     .cullMode = cullModes[i],
                     .debugName = std::format("forward{}", side)});
+    // The glass's motion for the experiment of #352: the pre-pass's shader on the blended draws, kept where
+    // they are in front of the opaque depth; the draws arrive back to front, so the nearest layer is last.
+    defineGraphics(m_glassMotionPipelines[i], "depth",
+                   {.vertexEntry = "motionVertexMain",
+                    .fragmentEntry = "motionFragmentMain",
+                    .colorFormats = {MotionFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = false},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("glass motion{}", side)});
     defineGraphics(m_blendPipelines[i], "forward",
                    {.colorFormats = {HdrFormat},
                     .depthFormat = DepthFormat,
@@ -711,8 +723,8 @@ Renderer::~Renderer() {
       m_device.destroyPipeline(pipeline);
     }
   }
-  for (const auto &pair : {m_maskPipelines, m_idPipelines, m_blendPipelines, m_forwardPipelines, m_shadowPipelines,
-                           m_depthMotionPipelines, m_depthPipelines}) {
+  for (const auto &pair : {m_maskPipelines, m_idPipelines, m_blendPipelines, m_glassMotionPipelines, m_forwardPipelines,
+                           m_shadowPipelines, m_depthMotionPipelines, m_depthPipelines}) {
     m_device.destroyPipeline(pair[1]);
     m_device.destroyPipeline(pair[0]);
   }
@@ -1728,6 +1740,9 @@ GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr
       [&](PassBuilder &builder) {
         builder.sample(hdr);
         builder.sample(v.motion);
+        if (v.glassMotion.isValid()) {
+          builder.sample(v.glassMotion);
+        }
         builder.sample(depth);
         if (valid) {
           builder.sample(read);
@@ -1739,7 +1754,8 @@ GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr
       [this, &v, hdr, read, readAge, depth, valid](rhi::ICommandList &commands, const PassResources &resources) {
         ensureFrameUploaded(v, resources);
         recordTaa(commands, v, resources.image(hdr), valid ? resources.image(read) : resources.image(hdr),
-                  valid ? resources.image(readAge) : resources.image(hdr), resources.image(v.motion), valid,
+                  valid ? resources.image(readAge) : resources.image(hdr), resources.image(v.motion),
+                  v.glassMotion.isValid() ? resources.image(v.glassMotion) : rhi::ImageHandle{}, valid,
                   resources.image(depth));
       });
   return write;
@@ -1747,7 +1763,7 @@ GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr
 
 void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current,
                          rhi::ImageHandle history, rhi::ImageHandle historyAge, rhi::ImageHandle motion,
-                         bool historyValid, rhi::ImageHandle depth) {
+                         rhi::ImageHandle glassMotion, bool historyValid, rhi::ImageHandle depth) {
   SONNET_ZONE();
   if (!v.frameBuffers.valid()) {
     return;
@@ -1759,6 +1775,8 @@ void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::I
                           .sampler = m_device.samplerIndex(m_linearClampSampler),
                           .historyValid = historyValid ? 1u : 0u,
                           .historyAge = sampledIndex(historyAge),
+                          .glassMotion = glassMotion ? sampledIndex(glassMotion) : 0u,
+                          .useGlassMotion = glassMotion ? 1u : 0u,
                           .size = glm::vec2{v.targetSize}};
   commands.bindPipeline(m_taaPipeline);
   bindFrame(commands, v);
@@ -3207,6 +3225,21 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
         [this, &v, depthPipelines, job = *depthJob](rhi::ICommandList &commands, const PassResources &resources) {
           ensureFrameUploaded(v, resources);
           recordIndirect(commands, v, job, v.opaqueBatches, depthPipelines, 0, true);
+        });
+  }
+  // The experiment of #352: the glass's own motion, where it is in front of what the pre-pass drew.
+  v.glassMotion = {};
+  if (v.taa && m_settings.taaGlassMotion && !v.blendedOrder.empty()) {
+    v.glassMotion = graph.createImage({.size = size, .format = MotionFormat, .debugName = "glass motion"});
+    graph.addPass(
+        "glass motion",
+        [&](PassBuilder &builder) {
+          builder.color(v.glassMotion, rhi::LoadOp::Clear, {0.0f, 0.0f, 0.0f, 0.0f});
+          builder.depth(depth, rhi::LoadOp::Load);
+        },
+        [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
+          ensureFrameUploaded(v, resources);
+          recordDraws(commands, v, v.blendedOrder, m_glassMotionPipelines, false);
         });
   }
   graph.addPass(

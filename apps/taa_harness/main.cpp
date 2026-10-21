@@ -43,7 +43,7 @@ using namespace sonnet;
 using json = nlohmann::json;
 
 constexpr const char *Usage = "usage: sonnet_taa_harness <project> --out <directory> [--case <name>]... [--size WxH] "
-                              "[--reference-samples N] [--keep-frames]";
+                              "[--reference-samples N] [--glass-motion] [--keep-frames]";
 
 // The jitter of the reference samples: Halton (2, 3), centred on the pixel, 16 of them unless
 // `--reference-samples` says otherwise (8 are TAA's own sequence, which tells the sample set apart
@@ -53,6 +53,8 @@ constexpr std::uint32_t MaxReferenceSamples = 64;
 // Frames drawn after the assets have loaded and before the simulation starts, so the environment
 // and the pipelines are ready (what a capture run settles for).
 constexpr std::uint32_t SettleFrames = 10;
+// The search window, in pixels each way, of the temporal floor the metrics report (#352).
+constexpr int FloorRadius = 6;
 constexpr float FrameSeconds = runtime::CaptureRun::FrameSeconds;
 
 struct Case {
@@ -71,6 +73,7 @@ struct Arguments {
   std::vector<std::string> cases;
   glm::uvec2 size{1280, 720};
   std::uint32_t referenceSamples{DefaultReferenceSamples};
+  bool glassMotion{false}; // the glass writes its own motion (#352)
   bool keepFrames{false};
 };
 
@@ -96,6 +99,8 @@ struct Arguments {
           parsed.referenceSamples > MaxReferenceSamples) {
         return std::nullopt;
       }
+    } else if (arg == "--glass-motion") {
+      parsed.glassMotion = true;
     } else if (arg == "--keep-frames") {
       parsed.keepFrames = true;
     } else if (!arg.starts_with("--") && parsed.project.empty()) {
@@ -155,6 +160,7 @@ struct Rig {
   std::filesystem::path project;
   glm::uvec2 size;
   std::uint32_t referenceSamples;
+  bool glassMotion;
 };
 
 // A pass copying a graph image into a buffer the CPU reads after the frame.
@@ -296,6 +302,7 @@ private:
     desc.audioOutput = false;
     desc.paused = true;
     desc.renderer.antialiasing = antialiasing;
+    desc.renderer.taaGlassMotion = rig.glassMotion;
     return std::make_unique<runtime::Game>(rig.window, rig.device, rig.swapchain, desc);
   }
 
@@ -469,14 +476,25 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
 
   std::ofstream csv{directory / "metrics.csv"};
   csv << "frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,"
-         "unrecovered,pass\n";
+         "unrecovered,pass,covered_pixels,covered_mean,covered_p99,uncovered_pixels,uncovered_mean,uncovered_p99,"
+         "floor_still_mean,floor_still_p99,floor_best_mean,floor_best_p99\n";
   bool allPass = true;
   std::size_t worst = 0;
   for (std::size_t i = 0; i < results.size(); ++i) {
     const runtime::taa::FrameResult &r = results[i];
-    csv << std::format("{},{},{:.3f},{},{},{:.3f},{},{},{},{},{}", testCase.warmup + i, r.glass.pixels, r.glass.mean,
-                       r.glass.percentile99, r.glass.maximum, r.opaque.mean, r.opaque.percentile99, r.opaque.maximum,
-                       r.vacated, r.unrecovered, r.pass() ? 1 : 0)
+    // The reference's own change since the frame before, over what the glass covers now (none for the first).
+    runtime::taa::TemporalFloor floor;
+    if (i > 0) {
+      floor = runtime::taa::temporalFloor(rig.size, measured.reference[i + measured.firstMeasured],
+                                          measured.reference[i + measured.firstMeasured - 1],
+                                          measured.glass[i + measured.firstMeasured].coverage, FloorRadius);
+    }
+    csv << std::format("{},{},{:.3f},{},{},{:.3f},{},{},{},{},{},{},{:.3f},{},{},{:.3f},{},{:.3f},{},{:.3f},{}",
+                       testCase.warmup + i, r.glass.pixels, r.glass.mean, r.glass.percentile99, r.glass.maximum,
+                       r.opaque.mean, r.opaque.percentile99, r.opaque.maximum, r.vacated, r.unrecovered,
+                       r.pass() ? 1 : 0, r.covered.pixels, r.covered.mean, r.covered.percentile99, r.uncovered.pixels,
+                       r.uncovered.mean, r.uncovered.percentile99, floor.still.mean, floor.still.percentile99,
+                       floor.best.mean, floor.best.percentile99)
         << '\n';
     allPass = allPass && r.pass();
     if (r.glass.mean > results[worst].glass.mean) {
@@ -513,6 +531,7 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
   summary["warmupFrames"] = testCase.warmup;
   summary["measuredFrames"] = testCase.measured;
   summary["referenceSamples"] = rig.referenceSamples;
+  summary["glassMotion"] = rig.glassMotion;
   summary["referenceJitter"] = json::array();
   for (std::uint32_t i = 0; i < rig.referenceSamples; ++i) {
     const glm::vec2 jitter = referenceJitter(i);
@@ -567,9 +586,13 @@ int main(int argc, char **argv) {
     const std::unique_ptr<rhi::IDevice> device =
         rhi::createDevice({.platform = &platform, .applicationName = "TAA harness"});
     const std::unique_ptr<rhi::ISwapchain> swapchain = device->createSwapchain(*window);
-    const Rig rig{*device,         *swapchain,
-                  *window,         std::filesystem::absolute(arguments->project),
-                  arguments->size, arguments->referenceSamples};
+    const Rig rig{*device,
+                  *swapchain,
+                  *window,
+                  std::filesystem::absolute(arguments->project),
+                  arguments->size,
+                  arguments->referenceSamples,
+                  arguments->glassMotion};
     const std::string deviceName = device->info().deviceName;
 
     bool allPass = true;

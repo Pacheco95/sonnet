@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 
 namespace sonnet::runtime::taa {
 
@@ -86,6 +87,67 @@ ErrorStatistics statistics(std::span<const std::uint8_t> errors, const Mask &mas
   return result;
 }
 
+TemporalFloor temporalFloor(glm::uvec2 size, std::span<const std::byte> image, std::span<const std::byte> previous,
+                            const Mask &mask, int radius) {
+  const std::size_t count = std::size_t{size.x} * size.y;
+  if (image.size() < count * 4 || previous.size() < count * 4) {
+    return {};
+  }
+  const auto width = static_cast<int>(size.x);
+  const auto height = static_cast<int>(size.y);
+  const int margin = radius + 2;
+  const auto at = [&](std::span<const std::byte> pixels, int x, int y, std::size_t channel) {
+    return std::to_integer<int>(
+        pixels[(static_cast<std::size_t>(y) * size.x + static_cast<std::size_t>(x)) * 4 + channel]);
+  };
+  // The 3x3 neighbourhood of (x, y) now, against the one at (x - dx, y - dy) before: summed over channels.
+  const auto patch = [&](int x, int y, int dx, int dy) {
+    int sum = 0;
+    for (int v = -1; v <= 1; ++v) {
+      for (int u = -1; u <= 1; ++u) {
+        for (std::size_t channel = 0; channel < 3; ++channel) {
+          sum += std::abs(at(image, x + u, y + v, channel) - at(previous, x + u - dx, y + v - dy, channel));
+        }
+      }
+    }
+    return sum;
+  };
+  const auto center = [&](int x, int y, int dx, int dy) {
+    int largest = 0;
+    for (std::size_t channel = 0; channel < 3; ++channel) {
+      largest = std::max(largest, std::abs(at(image, x, y, channel) - at(previous, x - dx, y - dy, channel)));
+    }
+    return static_cast<std::uint8_t>(largest);
+  };
+  std::vector<std::uint8_t> still(count, 0);
+  std::vector<std::uint8_t> best(count, 0);
+  Mask inside(count, 0);
+  for (int y = margin; y < height - margin; ++y) {
+    for (int x = margin; x < width - margin; ++x) {
+      const std::size_t index = static_cast<std::size_t>(y) * size.x + static_cast<std::size_t>(x);
+      if (mask[index] == 0) {
+        continue;
+      }
+      inside[index] = 1;
+      still[index] = center(x, y, 0, 0);
+      int bestSum = patch(x, y, 0, 0);
+      int bestX = 0;
+      int bestY = 0;
+      for (int dy = -radius; dy <= radius; ++dy) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+          if (const int sum = patch(x, y, dx, dy); sum < bestSum) {
+            bestSum = sum;
+            bestX = dx;
+            bestY = dy;
+          }
+        }
+      }
+      best[index] = center(x, y, bestX, bestY);
+    }
+  }
+  return {.still = statistics(still, inside), .best = statistics(best, inside)};
+}
+
 std::vector<FrameResult> evaluate(glm::uvec2 size, std::span<const GlassFrame> glass,
                                   std::span<const std::vector<std::uint8_t>> errors, std::size_t firstMeasured) {
   std::vector<FrameResult> results;
@@ -102,6 +164,12 @@ std::vector<FrameResult> evaluate(glm::uvec2 size, std::span<const GlassFrame> g
     FrameResult result;
     result.glass = statistics(errors[frame], region);
     result.opaque = statistics(errors[frame], region, false);
+    result.covered = statistics(errors[frame], glass[frame].coverage);
+    Mask rest(pixels, 0);
+    for (std::size_t i = 0; i < pixels; ++i) {
+      rest[i] = region[i] != 0 && glass[frame].coverage[i] == 0 ? 1 : 0;
+    }
+    result.uncovered = statistics(errors[frame], rest);
     // The pixels the glass left HistoryFrames frames ago: swept then, uncovered then, and not
     // covered or swept again by now.
     if (frame >= HistoryFrames) {

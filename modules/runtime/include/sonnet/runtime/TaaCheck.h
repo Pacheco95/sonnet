@@ -51,9 +51,28 @@ struct ErrorStatistics {
 // The error over the pixels inside the mask, or outside it.
 [[nodiscard]] ErrorStatistics statistics(std::span<const std::uint8_t> errors, const Mask &mask, bool inside = true);
 
+// How much of a frame's change from the one before no single motion vector explains: the error, over the
+// masked pixels, of reading the previous reference at the pixel itself (`still`) and at the best whole-pixel
+// displacement within `radius` (`best`), chosen by the 3x3 neighbourhood's difference. It is computed from two
+// references, so it says what the content allows, not what a resolve does; choosing the displacement per pixel
+// flatters `best` somewhat (a diagnostic of #352, not a budget). Pixels within radius + 1 of the border are left
+// out.
+struct TemporalFloor {
+  ErrorStatistics still;
+  ErrorStatistics best;
+};
+
+[[nodiscard]] TemporalFloor temporalFloor(glm::uvec2 size, std::span<const std::byte> image,
+                                          std::span<const std::byte> previous, const Mask &mask, int radius);
+
 struct FrameResult {
-  ErrorStatistics glass;      // the evaluation region: current and recent coverage, swept areas, dilated
-  ErrorStatistics opaque;     // everything else, a diagnostic
+  ErrorStatistics glass;  // the evaluation region: current and recent coverage, swept areas, dilated
+  ErrorStatistics opaque; // everything else, a diagnostic
+  // The region split by the frame's own coverage (a diagnostic, not a budget): what the glass covers
+  // now, so its details and what is seen through it, and the rest of the region, which the glass left
+  // or will cross, where the history of another layer shows.
+  ErrorStatistics covered;
+  ErrorStatistics uncovered;
   std::size_t vacated{0};     // pixels the glass left HistoryFrames frames ago and no longer covers
   std::size_t unrecovered{0}; // of those, the ones still more than MaxRecoveredError off
   [[nodiscard]] bool pass() const noexcept {
