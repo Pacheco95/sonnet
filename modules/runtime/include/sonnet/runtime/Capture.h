@@ -40,6 +40,8 @@ struct CaptureOptions {
   // --transmission: RendererSettings::transmission for the run, over the player's platform default;
   // the player's only (the editor always draws it).
   std::optional<bool> transmission;
+  // --transmission-downscale: RendererSettings::transmissionDownscale for the run; the player's only.
+  std::optional<std::uint32_t> transmissionDownscale;
   bool grid{false}; // editor capture only; does not change preferences
 };
 

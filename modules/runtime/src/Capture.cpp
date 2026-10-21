@@ -50,7 +50,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 10> Options{{
+constexpr std::array<CommandLineOption, 11> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -70,6 +70,8 @@ constexpr std::array<CommandLineOption, 10> Options{{
     {"--transmission", "on|off",
      "draw transmissive materials through a copy of the scene, or as plain blends; the platform's default otherwise",
      "off", true, ""},
+    {"--transmission-downscale", "N",
+     "build the transmission copy at 1/N of the view's size on each side, 1 to 8 (1, the view's size)", "2", true, ""},
 }};
 
 } // namespace
@@ -297,6 +299,13 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
         return std::unexpected(captureError("--transmission takes on or off"));
       }
       capture.transmission = value == "on";
+    } else if (arg == "--transmission-downscale") {
+      std::uint32_t downscale = 0;
+      const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), downscale);
+      if (error != std::errc{} || end != value.data() + value.size() || downscale < 1 || downscale > 8) {
+        return std::unexpected(captureError(std::format("--transmission-downscale takes 1 to 8, not \"{}\"", value)));
+      }
+      capture.transmissionDownscale = downscale;
     } else if (arg == "--shading-term") {
       capture.shadingTerm = shadingTerm(value);
       if (!capture.shadingTerm) {
@@ -424,10 +433,16 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
     SONNET_LOG_INFO("capture draws at {}x{}, scaled to the window", options.renderSize->x, options.renderSize->y);
     m_game.setRenderSize(options.renderSize);
   }
-  if (options.transmission) {
-    SONNET_LOG_INFO("capture draws with transmission {}", *options.transmission ? "on" : "off");
+  if (options.transmission || options.transmissionDownscale) {
     renderer::RendererSettings settings = m_game.renderer().settings();
-    settings.transmission = *options.transmission;
+    if (options.transmission) {
+      SONNET_LOG_INFO("capture draws with transmission {}", *options.transmission ? "on" : "off");
+      settings.transmission = *options.transmission;
+    }
+    if (options.transmissionDownscale) {
+      SONNET_LOG_INFO("capture builds the transmission copy at 1/{}", *options.transmissionDownscale);
+      settings.transmissionDownscale = *options.transmissionDownscale;
+    }
     m_game.renderer().setSettings(settings);
   }
   return {};

@@ -244,8 +244,12 @@ float2 textureToMeshFrame(float4 rows, float2 xy) {
 // footprint in base pixels is p = 1 + (size - 1) q, with q = (2^(10 r) - 1) / 1023 and size the
 // longest dimension; level i has the nominal footprint size / extent[i], from the level's own extent
 // rather than 2^i, so a size that is not a power of two reaches its last level only at roughness 1.
+// The chain may be smaller than the view (RendererSettings::transmissionDownscale): its extents and
+// levels are the image's own, and a footprint finer than level 0's reads level 0.
 float transmissionLod(float r) {
-  const uint levels = frame.transmissionLevels;
+  uint width, height, levels;
+  textures[frame.transmissionImage].GetDimensions(0, width, height, levels);
+  const float2 chain = float2(width, height);
   const float2 target = frame.targetSize;
   const float size = max(target.x, target.y);
   if (r <= 0.0 || size <= 1.0 || levels <= 1) {
@@ -255,9 +259,9 @@ float transmissionLod(float r) {
     return float(levels - 1);
   }
   const float p = 1.0 + (size - 1.0) * (exp2(10.0 * r) - 1.0) / 1023.0;
-  float below = 1.0; // the nominal footprint of level i
+  float below = size / max(chain.x, chain.y); // the nominal footprint of level i
   for (uint i = 0; i + 1 < levels; ++i) {
-    const float2 next = max(floor(target / exp2(float(i + 1))), 1.0);
+    const float2 next = max(floor(chain / exp2(float(i + 1))), 1.0);
     const float above = size / max(next.x, next.y);
     if (p <= above || i + 2 == levels) {
       return float(i) + saturate(log2(p / below) / log2(above / below));

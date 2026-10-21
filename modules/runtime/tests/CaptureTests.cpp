@@ -97,7 +97,7 @@ TEST_CASE("the editor and the player share one table", "[runtime][capture]") {
     REQUIRE(line.has_value() == option.player);
     players += option.player ? 1 : 0;
   }
-  REQUIRE(players == 7);
+  REQUIRE(players == 8);
   // The player's window is its scene, which its line for --screenshot says.
   REQUIRE(usage.contains("the scene, at the window's size"));
   REQUIRE(!usage.contains("viewport"));
@@ -119,6 +119,16 @@ TEST_CASE("--render-size takes two sizes from 1 to the limit", "[runtime][captur
   REQUIRE_FALSE(bad.has_value());
   REQUIRE(bad.error().message.find("--render-size") != std::string::npos);
   REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->renderSize.has_value());
+}
+
+TEST_CASE("--transmission-downscale takes 1 to 8", "[runtime][capture]") {
+  REQUIRE(player({"--transmission-downscale", "2", "--screenshot", "a.png"})->capture->transmissionDownscale == 2u);
+  REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->transmissionDownscale.has_value());
+  for (const char *bad : {"0", "9", "two", "2x"}) {
+    const auto parsed = player({"--transmission-downscale", bad, "--screenshot", "a.png"});
+    REQUIRE_FALSE(parsed.has_value());
+    REQUIRE(parsed.error().message.find("--transmission-downscale") != std::string::npos);
+  }
 }
 
 TEST_CASE("--transmission takes on or off", "[runtime][capture]") {

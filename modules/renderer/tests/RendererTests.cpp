@@ -4826,6 +4826,36 @@ TEST_CASE("a view with nothing that can transmit declares no copy, even with a t
 TEST_CASE("the renderer enables transmission by default, as the editor and desktop player take it",
           "[renderer][null][transmission]") {
   REQUIRE(RendererSettings{}.transmission);
+  REQUIRE(RendererSettings{}.transmissionDownscale == 1);
+}
+
+TEST_CASE("a downscaled copy has the mip chain of its own, smaller size", "[renderer][null][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  const auto passes = [&](std::uint32_t downscale) {
+    RendererSettings settings = testSettings();
+    settings.transmissionDownscale = downscale;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle quad = renderer.createMesh(facingQuad(0.0f), "quad");
+    MaterialDesc glassDesc = dielectric();
+    glassDesc.transmission = 0.5f;
+    const MaterialHandle glass = renderer.createMaterial(glassDesc, "glass");
+    const std::array draws{DrawItem{.mesh = quad, .material = glass}};
+    const SceneView view = boxScene(draws);
+    const GraphTrace trace = traceScene(view, renderer, *device);
+    renderer.destroyMaterial(glass);
+    renderer.destroyMesh(quad);
+    return trace.passes;
+  };
+  // The view is 64 x 64: seven levels at its size, six at half (32), five at a quarter (16), and a
+  // setting of 0 is the view's size. One copy pass either way.
+  for (const auto &[downscale, levels] : {std::pair{0u, 7}, std::pair{1u, 7}, std::pair{2u, 6}, std::pair{4u, 5}}) {
+    CAPTURE(downscale);
+    const auto names = passes(downscale);
+    REQUIRE(std::ranges::count(names, "transmission copy") == 1);
+    REQUIRE(hasName(names, std::format("transmission mip {}", levels - 1)));
+    REQUIRE_FALSE(hasName(names, std::format("transmission mip {}", levels)));
+  }
 }
 
 namespace {
@@ -4928,6 +4958,58 @@ TEST_CASE("a clear pane over a pattern shows 0.96 of it, and the blur takes the 
       previous = contrast;
     }
     REQUIRE(previous <= 2);
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a downscaled copy keeps the pattern away from the edge, blurs by roughness, and softens the edge",
+          "[renderer][gpu][transmission]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    const glm::vec3 a{0.1f, 0.4f, 0.9f};
+    const glm::vec3 b{1.0f, 0.7f, 0.2f};
+    // An odd size, so a rounded-up copy has a column and a row the view has no texels for.
+    const glm::uvec2 size{129, 65};
+    const auto contrast = [&](std::uint32_t downscale, float roughness, int offset) {
+      RendererSettings settings = testSettings();
+      settings.transmissionDownscale = downscale;
+      Renderer renderer{*device, shaderDir(platform), settings};
+      PatternScene scene{renderer, size, clearPane(roughness), a, b};
+      GpuScene gpu{*device, renderer, size};
+      gpu.render(scene.view);
+      const glm::uvec2 pa = PatternScene::across(size, -offset);
+      const glm::uvec2 pb = PatternScene::across(size, offset);
+      return std::pair{gpu.pixel(pa.x, pa.y), gpu.pixel(pb.x, pb.y)};
+    };
+    for (const std::uint32_t downscale : {2u, 4u}) {
+      CAPTURE(downscale);
+      // Clear glass, 12 pixels either side of the edge: the pattern's flat colours, 0.96 of them.
+      const auto [clearA, clearB] = contrast(downscale, 0.0f, 12);
+      REQUIRE(std::abs(clearA.g - encodedLevel(0.96f * a.g)) <= 2);
+      REQUIRE(std::abs(clearB.g - encodedLevel(0.96f * b.g)) <= 2);
+      REQUIRE(std::abs(clearA.b - encodedLevel(0.96f * a.b)) <= 2);
+      REQUIRE(std::abs(clearB.b - encodedLevel(0.96f * b.b)) <= 2);
+      // Rough glass: the contrast only falls, and at roughness 1, the mean of the copy, leaves none.
+      int previous = std::abs(clearA.r - clearB.r);
+      REQUIRE(previous > 100);
+      for (const float roughness : {0.5f, 0.95f, 1.0f}) {
+        CAPTURE(roughness);
+        const auto [pa, pb] = contrast(downscale, roughness, 12);
+        const int now = std::abs(pa.r - pb.r);
+        CAPTURE(now, previous);
+        REQUIRE(now <= previous + 1);
+        previous = now;
+      }
+      REQUIRE(previous <= 2);
+      // Clear glass at the edge: the copy's texels span the downscale, so the pixels beside the edge
+      // are mixed where the full-size copy has them sharp.
+      const auto [sharpA, sharpB] = contrast(1, 0.0f, 1);
+      const auto [softA, softB] = contrast(downscale, 0.0f, 1);
+      CAPTURE(sharpA.r, sharpB.r, softA.r, softB.r);
+      REQUIRE(std::abs(softA.r - softB.r) < std::abs(sharpA.r - sharpB.r));
+    }
     REQUIRE(device->validationMessageCount() == 0);
   }
   REQUIRE(device->validationMessageCount() == 0);

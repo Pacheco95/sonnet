@@ -1,5 +1,5 @@
 // The copy a transmissive surface samples (ADR-0033): the forward pass's opaque scene and sky
-// into level 0 of a mip chain, then each level from the one above with the bloom chain's 13-tap
+// into level 0 of a mip chain, box-filtered by `scale` texels on each side when the chain is smaller, then each level from the one above with the bloom chain's 13-tap
 // filter. One dispatch per level, so the write to a level orders before the read of it.
 import sonnet;
 
@@ -9,21 +9,35 @@ struct TransmissionConstants {
   uint sampler;
   uint sourceLevel; // the level the filter reads; unused by the copy
   uint2 size;       // the destination level's size
-  uint2 padding;
+  uint scale;       // source texels per destination texel on each side; unused by the filter
+  uint padding;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<TransmissionConstants> transmission;
 
-// Level 0 is the target's texels, bit for bit.
+// Level 0 is the target's texels, bit for bit at scale 1, and at a larger scale the mean of the
+// scale x scale block, leaving out the texels past the target's edge that a rounded-up size adds.
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void transmissionCopy(uint3 id : SV_DispatchThreadID) {
   if (any(id.xy >= transmission.size)) {
     return;
   }
-  storageImages[transmission.destination][uint3(id.xy, 0)] =
-      float4(textures[transmission.source].Load(int3(id.xy, 0)).rgb, 1.0);
+  uint width, height, levels;
+  textures[transmission.source].GetDimensions(0, width, height, levels);
+  float3 sum = 0.0;
+  float count = 0.0;
+  for (uint y = 0; y < transmission.scale; ++y) {
+    for (uint x = 0; x < transmission.scale; ++x) {
+      const uint2 texel = id.xy * transmission.scale + uint2(x, y);
+      if (texel.x < width && texel.y < height) {
+        sum += textures[transmission.source].Load(int3(texel, 0)).rgb;
+        count += 1.0;
+      }
+    }
+  }
+  storageImages[transmission.destination][uint3(id.xy, 0)] = float4(sum / count, 1.0);
 }
 
 float3 fetch(float2 uv) {
