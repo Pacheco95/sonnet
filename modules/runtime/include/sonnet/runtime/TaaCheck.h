@@ -9,16 +9,24 @@
 
 namespace sonnet::runtime::taa {
 
-// The comparison behind the TAA checks of ADR-0033 ("TAA"), on 8-bit display-encoded images: the
-// harness in apps/taa_harness renders the frames and the references, and this decides whether a
-// frame is within the budgets (docs/rendering.md, "TAA checks").
+// The comparison behind the TAA checks of ADR-0034 (which supersedes the gate of ADR-0033's "TAA"), on
+// 8-bit display-encoded images: the harness in apps/taa_harness renders the frames and the references,
+// and this decides whether a frame is within the budgets (docs/rendering.md, "TAA checks").
 
-// Budgets, in levels out of 255 (ADR-0033).
-constexpr double MaxMeanError = 2.0;
-constexpr std::uint32_t MaxPercentileError = 8;
-constexpr std::uint32_t MaxRecoveredError = 8;
-// Frames of glass coverage before the measured one that stay in the region, and the frames a
-// vacated pixel has to return to the reference in.
+// Budgets, in levels out of 255 (ADR-0034). The error of the pixels the glass covers may be this much
+// when nothing in them changes since the frame before, plus this much for each level of the change that
+// no whole-pixel displacement explains (`TemporalFloor::best`).
+constexpr double RestMeanError = 4.0;
+constexpr std::uint32_t RestPercentileError = 40;
+constexpr double MeanPerFloor = 2.5;
+constexpr double PercentilePerFloor = 1.5;
+// The pixels the glass left HistoryFrames frames ago, when there are at least MinVacatedPixels of them, may
+// be this many levels worse on average than one unresolved jittered sample of the same frame, which is what
+// the content alone leaves on them; a history of another layer that has not been dropped shows as more.
+constexpr std::size_t MinVacatedPixels = 100;
+constexpr double RecoveredMeanMargin = 3.0;
+// Frames of glass coverage before the measured one that stay in the region, and the frames after which a
+// pixel the glass left is judged.
 constexpr std::uint32_t HistoryFrames = 4;
 // The region grows by this many pixels, for the reconstruction filters.
 constexpr int DilationPixels = 2;
@@ -68,24 +76,36 @@ struct TemporalFloor {
 struct FrameResult {
   ErrorStatistics glass;  // the evaluation region: current and recent coverage, swept areas, dilated
   ErrorStatistics opaque; // everything else, a diagnostic
-  // The region split by the frame's own coverage (a diagnostic, not a budget): what the glass covers
-  // now, so its details and what is seen through it, and the rest of the region, which the glass left
-  // or will cross, where the history of another layer shows.
+  // The region split by the frame's own coverage: what the glass covers now, so its details and what is
+  // seen through it, which the budgets judge, and the rest of the region, which the glass left or will
+  // cross, where the history of another layer shows (a diagnostic).
   ErrorStatistics covered;
   ErrorStatistics uncovered;
-  std::size_t vacated{0};     // pixels the glass left HistoryFrames frames ago and no longer covers
-  std::size_t unrecovered{0}; // of those, the ones still more than MaxRecoveredError off
+  // The pixels the glass left HistoryFrames frames ago and nothing covers now, where the history is another
+  // layer's if the resolve does not drop it: the error of the frame, and of one unresolved jittered sample.
+  ErrorStatistics vacated;
+  ErrorStatistics vacatedSample;
+  // The temporal floor of the covered pixels, which the caller sets with `temporalFloor` from the
+  // references (`evaluate` sees only errors); left zero, the budgets are the rest ones.
+  TemporalFloor floor;
   [[nodiscard]] bool pass() const noexcept {
-    return glass.pixels > 0 && glass.mean <= MaxMeanError && glass.percentile99 <= MaxPercentileError &&
-           unrecovered == 0;
+    return covered.pixels > 0 && covered.mean <= RestMeanError + MeanPerFloor * floor.best.mean &&
+           static_cast<double>(covered.percentile99) <=
+               static_cast<double>(RestPercentileError) + PercentilePerFloor * floor.best.percentile99 &&
+           recovered();
+  }
+  [[nodiscard]] bool recovered() const noexcept {
+    return vacated.pixels < MinVacatedPixels || vacated.mean <= vacatedSample.mean + RecoveredMeanMargin;
   }
 };
 
-// Judges the frames from `firstMeasured` on. `glass` and `errors` hold one entry per frame from the
-// first with a coverage mask (the HistoryFrames before the first measured one are context); the
-// errors of the frames before `firstMeasured` are not read.
+// Judges the frames from `firstMeasured` on. `glass`, `errors` and `sampleErrors` (the error image of one
+// unresolved jittered sample of each frame) hold one entry per frame from the first with a coverage mask
+// (the HistoryFrames before the first measured one are context); the errors of the frames before
+// `firstMeasured` are not read. The caller sets each result's `floor`.
 [[nodiscard]] std::vector<FrameResult> evaluate(glm::uvec2 size, std::span<const GlassFrame> glass,
                                                 std::span<const std::vector<std::uint8_t>> errors,
+                                                std::span<const std::vector<std::uint8_t>> sampleErrors,
                                                 std::size_t firstMeasured);
 
 } // namespace sonnet::runtime::taa

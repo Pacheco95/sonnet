@@ -149,7 +149,8 @@ TemporalFloor temporalFloor(glm::uvec2 size, std::span<const std::byte> image, s
 }
 
 std::vector<FrameResult> evaluate(glm::uvec2 size, std::span<const GlassFrame> glass,
-                                  std::span<const std::vector<std::uint8_t>> errors, std::size_t firstMeasured) {
+                                  std::span<const std::vector<std::uint8_t>> errors,
+                                  std::span<const std::vector<std::uint8_t>> sampleErrors, std::size_t firstMeasured) {
   std::vector<FrameResult> results;
   const std::size_t pixels = std::size_t{size.x} * size.y;
   for (std::size_t frame = firstMeasured; frame < glass.size(); ++frame) {
@@ -175,14 +176,12 @@ std::vector<FrameResult> evaluate(glm::uvec2 size, std::span<const GlassFrame> g
     if (frame >= HistoryFrames) {
       const GlassFrame &then = glass[frame - HistoryFrames];
       const GlassFrame &now = glass[frame];
+      Mask vacated(pixels, 0);
       for (std::size_t i = 0; i < pixels; ++i) {
-        if (then.swept[i] != 0 && then.coverage[i] == 0 && now.coverage[i] == 0 && now.swept[i] == 0) {
-          ++result.vacated;
-          if (errors[frame][i] > MaxRecoveredError) {
-            ++result.unrecovered;
-          }
-        }
+        vacated[i] = then.swept[i] != 0 && then.coverage[i] == 0 && now.coverage[i] == 0 && now.swept[i] == 0 ? 1 : 0;
       }
+      result.vacated = statistics(errors[frame], vacated);
+      result.vacatedSample = statistics(sampleErrors[frame], vacated);
     }
     results.push_back(result);
   }

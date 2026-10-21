@@ -1,6 +1,6 @@
 # ADR-0033: Transmissive materials sample a copy of the opaque scene
 
-- **Status:** Accepted
+- **Status:** Accepted, TAA gate superseded by [ADR-0034](0034-taa-glass-gate.md)
 - **Date:** 2026-10-18
 
 ## Context
