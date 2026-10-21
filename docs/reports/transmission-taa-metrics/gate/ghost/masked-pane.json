@@ -6,6 +6,7 @@
   "frameSeconds": 0.01666666753590107,
   "glassMotion": false,
   "measuredFrames": 24,
+  "motionInterval": "rendered-frame",
   "pass": false,
   "referenceJitter": [
     [
@@ -73,6 +74,7 @@
       0.09259259700775146
     ]
   ],
+  "referenceMotionSearchRadius": 6,
   "referenceSamples": 16,
   "scene": "scenes/masked_pane.scene.json",
   "size": [

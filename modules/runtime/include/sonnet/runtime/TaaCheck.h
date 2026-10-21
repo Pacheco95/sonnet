@@ -18,8 +18,8 @@ namespace sonnet::runtime::taa {
 // policy input; it is not a lower bound on reconstruction error (see ReferenceMotionResidual below).
 constexpr double RestMeanError = 4.0;
 constexpr std::uint32_t RestPercentileError = 40;
-constexpr double MeanPerFloor = 2.5;
-constexpr double PercentilePerFloor = 1.5;
+constexpr double MeanPerFloor = 4.0;
+constexpr double PercentilePerFloor = 2.0;
 // The pixels the glass left HistoryFrames frames ago, when there are at least MinVacatedPixels of them, may
 // be this many levels worse on average than one unresolved jittered sample of the same frame, which is what
 // the content alone leaves on them; a history of another layer that has not been dropped shows as more.

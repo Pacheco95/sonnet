@@ -6,6 +6,7 @@
   "frameSeconds": 0.01666666753590107,
   "glassMotion": false,
   "measuredFrames": 16,
+  "motionInterval": "rendered-frame",
   "pass": true,
   "referenceJitter": [
     [
@@ -73,6 +74,7 @@
       0.09259259700775146
     ]
   ],
+  "referenceMotionSearchRadius": 6,
   "referenceSamples": 16,
   "scene": "scenes/transmission_test_still.scene.json",
   "size": [

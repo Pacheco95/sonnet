@@ -1,4 +1,4 @@
-frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,vacated_mean,vacated_p99,vacated_sample_mean,vacated_sample_p99,pass,covered_pixels,covered_mean,covered_p99,uncovered_pixels,uncovered_mean,uncovered_p99,floor_still_mean,floor_still_p99,floor_best_mean,floor_best_p99,single_covered_mean,single_covered_p99
+frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,vacated_mean,vacated_p99,vacated_sample_mean,vacated_sample_p99,pass,covered_pixels,covered_mean,covered_p99,uncovered_pixels,uncovered_mean,uncovered_p99,residual_unshifted_mean,residual_unshifted_p99,residual_matched_mean,residual_matched_p99,single_covered_mean,single_covered_p99
 32,177480,2.229,25,92,1.140,3,23,712,3.823,11,2.288,7,1,169100,1.988,21,8380,7.105,84,1.971,76,1.001,38,2.334,12
 33,177840,2.518,34,91,1.461,3,28,1068,2.032,6,2.217,6,1,169100,2.323,28,8740,6.290,72,2.066,76,0.670,19,2.257,12
 34,177840,2.017,22,105,0.918,3,27,1068,3.169,14,2.107,6,1,169100,1.883,18,8740,4.599,40,2.121,80,0.765,25,2.222,12

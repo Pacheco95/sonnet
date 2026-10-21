@@ -6,6 +6,7 @@
   "frameSeconds": 0.01666666753590107,
   "glassMotion": false,
   "measuredFrames": 16,
+  "motionInterval": "rendered-frame",
   "pass": true,
   "referenceJitter": [
     [
@@ -73,6 +74,7 @@
       0.09259259700775146
     ]
   ],
+  "referenceMotionSearchRadius": 6,
   "referenceSamples": 16,
   "scene": "scenes/watch_fast.scene.json",
   "size": [
@@ -82,9 +84,9 @@
   "substeps": 4,
   "warmupFrames": 32,
   "worstFrame": 47,
-  "worstMean": 1.814723926380368,
+  "worstMean": 1.6178747254411876,
   "worstOpaqueMean": 0.2664749849518166,
   "worstOpaquePercentile99": 5.0,
-  "worstPercentile99": 29.0,
+  "worstPercentile99": 26.0,
   "worstVacatedMean": 0.0
 }

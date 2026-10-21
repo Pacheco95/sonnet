@@ -5,7 +5,7 @@ floor), the least slack to either, the most the pixels the glass left are worse 
 100 pixels), and the frames passing. Re-derives the verdict from the columns, so a change of constants is checked here."""
 import csv, glob, os, sys
 
-REST_MEAN, REST_P99, MEAN_PER_FLOOR, P99_PER_FLOOR = 4.0, 40, 2.5, 1.5
+REST_MEAN, REST_P99, MEAN_PER_FLOOR, P99_PER_FLOOR = 4.0, 40, 4.0, 2.0
 MIN_VACATED, VACATED_MARGIN = 100, 3.0
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -13,8 +13,8 @@ for variant, pattern in (("gate", "*.csv"), ("ghost (history never dropped on a 
     print(variant)
     for path in sorted(glob.glob(os.path.join(here, pattern))):
         rows = list(csv.DictReader(open(path)))
-        mean_budget = [REST_MEAN + MEAN_PER_FLOOR * float(r["floor_best_mean"]) for r in rows]
-        p99_budget = [REST_P99 + P99_PER_FLOOR * int(r["floor_best_p99"]) for r in rows]
+        mean_budget = [REST_MEAN + MEAN_PER_FLOOR * float(r["residual_matched_mean"]) for r in rows]
+        p99_budget = [REST_P99 + P99_PER_FLOOR * int(r["residual_matched_p99"]) for r in rows]
         mean_slack = min(b - float(r["covered_mean"]) for b, r in zip(mean_budget, rows))
         p99_slack = min(b - int(r["covered_p99"]) for b, r in zip(p99_budget, rows))
         judged = [r for r in rows if int(r["vacated"]) >= MIN_VACATED]

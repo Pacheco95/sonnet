@@ -6,6 +6,7 @@
   "frameSeconds": 0.01666666753590107,
   "glassMotion": false,
   "measuredFrames": 16,
+  "motionInterval": "rendered-frame",
   "pass": true,
   "referenceJitter": [
     [
@@ -73,6 +74,7 @@
       0.09259259700775146
     ]
   ],
+  "referenceMotionSearchRadius": 6,
   "referenceSamples": 16,
   "scene": "scenes/rough_pane.scene.json",
   "size": [
@@ -82,7 +84,7 @@
   "substeps": 4,
   "warmupFrames": 32,
   "worstFrame": 39,
-  "worstMean": 0.21681258117265464,
+  "worstMean": 0.21133321669145308,
   "worstOpaqueMean": 1.4791801655317431,
   "worstOpaquePercentile99": 3.0,
   "worstPercentile99": 2.0,

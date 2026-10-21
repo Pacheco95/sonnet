@@ -298,3 +298,21 @@ TEST_CASE("integer reference residual is not a floor for fractional motion", "[t
   CHECK(residual.integerMatched.percentile99 == 3);
   CHECK(statistics(errorLevels(size, current, reconstructed), interior).maximum == 0);
 }
+
+TEST_CASE("the covered error may exceed the rest budgets by a multiple of the reference residual", "[taa]") {
+  FrameResult result;
+  result.covered = {.pixels = 100, .mean = RestMeanError + 1.0, .percentile99 = RestPercentileError + 5, .maximum = 90};
+  CHECK_FALSE(result.pass()); // content that does not change is held to the rest budgets
+  result.referenceMotion.integerMatched = {.pixels = 100, .mean = 0.5, .percentile99 = 4, .maximum = 20};
+  CHECK(result.pass()); // 0.5 of residual allows 2.0 more mean, and 4 allows 8 more of the percentile
+  result.referenceMotion.integerMatched.mean = 0.2;
+  CHECK_FALSE(result.pass()); // 0.8 more is under the 1.0 the mean exceeds by
+  result.referenceMotion.integerMatched.mean = 0.5;
+  result.vacated = {.pixels = MinVacatedPixels, .mean = 9.0};
+  result.vacatedSample = {.pixels = MinVacatedPixels, .mean = 5.0};
+  CHECK_FALSE(result.pass()); // vacated pixels 4 levels worse than a sample, over the margin
+  result.vacatedSample.mean = 6.5;
+  CHECK(result.pass());
+  result.covered.pixels = 0; // nothing covered is nothing measured
+  CHECK_FALSE(result.pass());
+}

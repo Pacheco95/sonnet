@@ -6,6 +6,7 @@
   "frameSeconds": 0.01666666753590107,
   "glassMotion": false,
   "measuredFrames": 16,
+  "motionInterval": "rendered-frame",
   "pass": true,
   "referenceJitter": [
     [
@@ -73,6 +74,7 @@
       0.09259259700775146
     ]
   ],
+  "referenceMotionSearchRadius": 6,
   "referenceSamples": 16,
   "scene": "scenes/transmission_test.scene.json",
   "size": [
@@ -82,9 +84,9 @@
   "substeps": 4,
   "warmupFrames": 32,
   "worstFrame": 41,
-  "worstMean": 9.740865444569149,
-  "worstOpaqueMean": 0.328321455152598,
-  "worstOpaquePercentile99": 7.0,
-  "worstPercentile99": 59.0,
-  "worstVacatedMean": 19.566666666666666
+  "worstMean": 12.368936276343684,
+  "worstOpaqueMean": 0.2064719744336691,
+  "worstOpaquePercentile99": 4.0,
+  "worstPercentile99": 68.0,
+  "worstVacatedMean": 20.575757575757574
 }

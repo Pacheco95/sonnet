@@ -1,4 +1,4 @@
-frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,vacated_mean,vacated_p99,vacated_sample_mean,vacated_sample_p99,pass,covered_pixels,covered_mean,covered_p99,uncovered_pixels,uncovered_mean,uncovered_p99,floor_still_mean,floor_still_p99,floor_best_mean,floor_best_p99,single_covered_mean,single_covered_p99
+frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,vacated_mean,vacated_p99,vacated_sample_mean,vacated_sample_p99,pass,covered_pixels,covered_mean,covered_p99,uncovered_pixels,uncovered_mean,uncovered_p99,residual_unshifted_mean,residual_unshifted_p99,residual_matched_mean,residual_matched_p99,single_covered_mean,single_covered_p99
 32,66015,1.227,17,92,0.248,4,99,0,0.000,0,0.000,0,1,63719,1.263,18,2296,0.226,7,0.000,0,0.000,0,2.883,55
 33,66015,1.507,22,138,0.262,4,113,0,0.000,0,0.000,0,1,63719,1.554,23,2296,0.223,7,2.575,143,0.433,7,2.926,56
 34,66015,1.240,19,101,0.241,4,96,0,0.000,0,0.000,0,1,63719,1.278,20,2296,0.207,6,0.000,0,0.000,0,2.926,56
