@@ -30,11 +30,6 @@ Mask columns(unsigned first, unsigned last) {
   return mask;
 }
 
-// The error image of an unresolved sample that is exact everywhere, for frames that need none.
-std::vector<std::vector<std::uint8_t>> exactSamples(std::size_t frames) {
-  return std::vector<std::vector<std::uint8_t>>(frames, std::vector<std::uint8_t>(PixelCount, 0));
-}
-
 } // namespace
 
 TEST_CASE("the error is the largest channel difference", "[taa]") {
@@ -87,74 +82,33 @@ TEST_CASE("statistics split the image by the mask and find the 99th percentile",
 }
 
 TEST_CASE("a pane that leaves a ghost trail fails the recovery check, one that is clean passes", "[taa]") {
-  // The recovery check judges 100 pixels or more, which the small image of the other cases is too small for.
-  constexpr glm::uvec2 wide{64, 32};
-  constexpr std::size_t wideCount = std::size_t{64} * 32;
+  // A one-column pane moving right one column a frame; the sequence is the pane's pose in 10 frames.
   constexpr std::size_t frameCount = 10;
-  const auto strip = [&](unsigned first, unsigned last) {
-    Mask mask(wideCount, 0);
-    for (unsigned y = 0; y < wide.y; ++y) {
-      for (unsigned x = first; x <= last; ++x) {
-        mask[y * wide.x + x] = 1;
-      }
-    }
-    return mask;
-  };
-  // A pane four columns wide moving right four columns a frame; the sequence is its pose in 10 frames.
   std::vector<GlassFrame> glass;
   for (unsigned frame = 0; frame < frameCount; ++frame) {
-    const unsigned x = 2 + 4 * frame;
-    glass.push_back({.coverage = strip(x, x + 3), .swept = strip(frame == 0 ? x : x - 4, x + 3)});
+    const unsigned x = 2 + frame;
+    glass.push_back({.coverage = columns(x, x), .swept = columns(frame == 0 ? x : x - 1, x)});
   }
-  const auto frames = [&](std::uint8_t level, unsigned column) {
-    std::vector<std::vector<std::uint8_t>> errors(frameCount, std::vector<std::uint8_t>(wideCount, 0));
-    for (auto &frame : errors) {
-      for (unsigned y = 0; y < wide.y; ++y) {
-        frame[y * wide.x + column] = level;
-      }
-    }
-    return errors;
-  };
-  const std::vector<std::vector<std::uint8_t>> none(frameCount, std::vector<std::uint8_t>(wideCount, 0));
-  const std::vector<FrameResult> good = evaluate(wide, glass, none, none, 4);
+  std::vector<std::vector<std::uint8_t>> clean(frameCount, std::vector<std::uint8_t>(PixelCount, 0));
+  const std::vector<FrameResult> good = evaluate(Size, glass, clean, 4);
   REQUIRE(good.size() == frameCount - 4);
   for (const FrameResult &result : good) {
     CHECK(result.pass());
   }
-  CHECK(good.back().vacated.pixels >= MinVacatedPixels); // columns the pane left more than four frames ago
+  CHECK(good.back().vacated > 0); // columns the pane left more than four frames ago
 
-  // A ghost left on column 2 (the pane's first pose), 20 levels off in every frame.
-  const std::vector<std::vector<std::uint8_t>> ghost = frames(20, 2);
-  const std::vector<FrameResult> bad = evaluate(wide, glass, ghost, none, 4);
-  CHECK(bad[0].uncovered.maximum == 20); // frame 4: column 2 is in the region and no longer covered
-  // The pane left column 2 in frame 1; in frame 5 it is still wrong, over a quarter of the 128 pixels it left.
-  CHECK(bad[1].vacated.pixels >= MinVacatedPixels);
-  CHECK(bad[1].vacated.mean > RecoveredMeanMargin);
-  CHECK_FALSE(bad[1].recovered());
-  CHECK_FALSE(bad[1].pass());
-
-  // The same errors where an unresolved sample is as far off (the content, not the history, is the cause).
-  const std::vector<FrameResult> detailed = evaluate(wide, glass, ghost, frames(20, 2), 4);
-  CHECK(detailed[1].recovered());
-  CHECK(detailed[1].pass());
-}
-
-TEST_CASE("fewer than MinVacatedPixels vacated pixels are too few to judge", "[taa]") {
-  std::vector<GlassFrame> glass;
-  for (unsigned frame = 0; frame < 10; ++frame) {
-    const unsigned x = 2 + frame;
-    glass.push_back({.coverage = columns(x, x), .swept = columns(frame == 0 ? x : x - 1, x)});
-  }
-  std::vector<std::vector<std::uint8_t>> ghost(10, std::vector<std::uint8_t>(PixelCount, 0));
-  for (auto &frame : ghost) {
+  // A ghost left on column 2 (the pane's first pose) that is still there in every frame.
+  std::vector<std::vector<std::uint8_t>> ghost = clean;
+  for (std::size_t frame = 0; frame < frameCount; ++frame) {
     for (unsigned y = 0; y < Size.y; ++y) {
-      frame[y * Size.x + 2] = 60;
+      ghost[frame][y * Size.x + 2] = 20;
     }
   }
-  const std::vector<FrameResult> results = evaluate(Size, glass, ghost, exactSamples(10), 4);
-  REQUIRE(results[1].vacated.pixels > 0);
-  CHECK(results[1].vacated.pixels < MinVacatedPixels);
-  CHECK(results[1].recovered());
+  const std::vector<FrameResult> bad = evaluate(Size, glass, ghost, 4);
+  CHECK_FALSE(bad[0].pass()); // frame 4: column 2 is in the region, 20 levels off over a column in a small region
+  // The pane left column 2 in frame 1; four frames later, in frame 5, it is still wrong: unrecovered.
+  CHECK(bad[1].unrecovered > 0);
+  CHECK_FALSE(bad[1].pass());
 }
 
 TEST_CASE("the mean and percentile budgets are checked on the region only", "[taa]") {
@@ -166,7 +120,7 @@ TEST_CASE("the mean and percentile budgets are checked on the region only", "[ta
       frame[y * Size.x + 15] = 100;
     }
   }
-  const std::vector<FrameResult> results = evaluate(Size, glass, errors, exactSamples(5), 4);
+  const std::vector<FrameResult> results = evaluate(Size, glass, errors, 4);
   REQUIRE(results.size() == 1);
   CHECK(results[0].pass());
   CHECK(results[0].opaque.maximum == 100);
@@ -210,7 +164,7 @@ TEST_CASE("the region's error is split by what the glass covers now", "[taa]") {
       frame[y * Size.x + 3] = 30; // where the pane was, in the region and uncovered
     }
   }
-  const std::vector<FrameResult> results = evaluate(Size, glass, errors, exactSamples(5), 4);
+  const std::vector<FrameResult> results = evaluate(Size, glass, errors, 4);
   REQUIRE(results.size() == 1);
   CHECK(results[0].covered.pixels == std::size_t{2} * Size.y);
   CHECK(results[0].covered.maximum == 0);
