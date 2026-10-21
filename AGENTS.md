@@ -72,6 +72,8 @@ adb shell "am start -S -W --user 0 -n io.github.pacheco95.sonnet/.SonnetActivity
 adb shell run-as io.github.pacheco95.sonnet cat files/final.png > final.png
 ```
 
+**Cooldown before an S25 performance run.** Do not wait a fixed time. Read the temperature first (`adb shell dumpsys thermalservice`, the `SKIN` line under "Current temperatures from HAL") and the thermal status (0 is none). At 30 to 31 °C, or below, start the run at once; above 31 °C, wait and re-read until the skin is in range, instead of a fixed 15 minutes. A warm start brings the throttle forward ([s25-m14](docs/reports/s25-m14.md)).
+
 Machine-specific notes (tool locations, checkouts of the previous iterations to adapt patterns from) live in `CLAUDE.local.md`, which is gitignored.
 
 ## Architecture in one page
