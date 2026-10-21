@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sonnet/core/Math.h>
+#include <sonnet/renderer/SceneView.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -33,6 +34,11 @@ struct GlassFrame {
   Mask swept;
 };
 
+// A harness may update the simulation several times between renders. Replace the last update's
+// previousTransform with the previous rendered pose, matched by nonzero id, mesh and submesh.
+// Unmatched/new draws use their current pose. `previous` must be a separate snapshot.
+void usePreviousFrameTransforms(std::span<renderer::DrawItem> current, std::span<const renderer::DrawItem> previous);
+
 // Per pixel, the largest absolute difference of the red, green and blue channels of two tightly
 // packed RGBA images of `size`.
 [[nodiscard]] std::vector<std::uint8_t> errorLevels(glm::uvec2 size, std::span<const std::byte> image,
@@ -51,19 +57,20 @@ struct ErrorStatistics {
 // The error over the pixels inside the mask, or outside it.
 [[nodiscard]] ErrorStatistics statistics(std::span<const std::uint8_t> errors, const Mask &mask, bool inside = true);
 
-// How much of a frame's change from the one before no single motion vector explains: the error, over the
-// masked pixels, of reading the previous reference at the pixel itself (`still`) and at the best whole-pixel
-// displacement within `radius` (`best`), chosen by the 3x3 neighbourhood's difference. It is computed from two
-// references, so it says what the content allows, not what a resolve does; choosing the displacement per pixel
-// flatters `best` somewhat (a diagnostic of #352, not a budget). Pixels within radius + 1 of the border are left
-// out.
-struct TemporalFloor {
-  ErrorStatistics still;
-  ErrorStatistics best;
+// Reference-to-reference matching residual, not a lower bound on temporal reconstruction error.
+// `unshifted` compares the current pixel with the same previous pixel. `integerMatched` reads the
+// previous pixel at a whole-pixel displacement within `radius`, chosen by the 3x3 patch's RGB L1
+// difference. Fractional motion and motion outside the search window are not tested; even a pure
+// half-pixel translation can leave a nonzero residual. Pixels within radius + 2 of the border are
+// excluded. This diagnostic does not change the acceptance budgets.
+struct ReferenceMotionResidual {
+  ErrorStatistics unshifted;
+  ErrorStatistics integerMatched;
 };
 
-[[nodiscard]] TemporalFloor temporalFloor(glm::uvec2 size, std::span<const std::byte> image,
-                                          std::span<const std::byte> previous, const Mask &mask, int radius);
+[[nodiscard]] ReferenceMotionResidual referenceMotionResidual(glm::uvec2 size, std::span<const std::byte> image,
+                                                              std::span<const std::byte> previous, const Mask &mask,
+                                                              int radius);
 
 struct FrameResult {
   ErrorStatistics glass;  // the evaluation region: current and recent coverage, swept areas, dilated

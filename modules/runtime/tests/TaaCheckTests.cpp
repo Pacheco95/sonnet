@@ -127,7 +127,7 @@ TEST_CASE("the mean and percentile budgets are checked on the region only", "[ta
   CHECK(results[0].glass.maximum == 0);
 }
 
-TEST_CASE("the temporal floor is zero for a translation and not for a change of content", "[taa]") {
+TEST_CASE("integer reference matching recognizes an in-range translation and retains a content residual", "[taa]") {
   constexpr glm::uvec2 big{32, 16};
   constexpr std::size_t count = std::size_t{32} * 16;
   // A ramp that does not repeat within the search window, then the same ramp moved two pixels right.
@@ -145,14 +145,14 @@ TEST_CASE("the temporal floor is zero for a translation and not for a change of 
     return pixels;
   };
   const Mask everything(count, 1);
-  const TemporalFloor moved = temporalFloor(big, ramp(2, 0), ramp(0, 0), everything, 4);
-  REQUIRE(moved.still.pixels > 0);
-  CHECK(moved.still.mean > 5.0);
-  CHECK(moved.best.maximum == 0);
+  const ReferenceMotionResidual moved = referenceMotionResidual(big, ramp(2, 0), ramp(0, 0), everything, 4);
+  REQUIRE(moved.unshifted.pixels > 0);
+  CHECK(moved.unshifted.mean > 5.0);
+  CHECK(moved.integerMatched.maximum == 0);
   // The same translation with the content brightened by 50 levels: no displacement within the window
   // explains that, where it explained all of the translation.
-  const TemporalFloor changed = temporalFloor(big, ramp(2, 50), ramp(0, 0), everything, 4);
-  CHECK(changed.best.mean > 5.0);
+  const ReferenceMotionResidual changed = referenceMotionResidual(big, ramp(2, 50), ramp(0, 0), everything, 4);
+  CHECK(changed.integerMatched.mean > 5.0);
 }
 
 TEST_CASE("the region's error is split by what the glass covers now", "[taa]") {
@@ -171,4 +171,84 @@ TEST_CASE("the region's error is split by what the glass covers now", "[taa]") {
   // Columns 1 to 7 are the region once dilated by two; the covered 4 and 5 are not in the rest.
   CHECK(results[0].uncovered.pixels == std::size_t{5} * Size.y);
   CHECK(results[0].uncovered.maximum == 30);
+}
+
+TEST_CASE("capture motion spans all updates since the previous rendered pose", "[taa]") {
+  const renderer::MeshHandle mesh{1, 1};
+  const std::vector previous{renderer::DrawItem{.mesh = mesh, .id = 7}};
+  std::vector current = previous;
+  // Four simulation updates of one quarter metre overwrite the world's previous transform.
+  for (int substep = 0; substep < 4; ++substep) {
+    current[0].previousTransform = current[0].transform;
+    current[0].transform[3].x += 0.25f;
+  }
+  REQUIRE((*current[0].previousTransform)[3].x == Catch::Approx(0.75f));
+  usePreviousFrameTransforms(current, previous);
+  REQUIRE(current[0].transform[3].x == Catch::Approx(1.0f));
+  REQUIRE(current[0].previousTransform == previous[0].transform);
+  // The next rendered frame, not the first frame forever, is the next snapshot.
+  const auto nextPrevious = current;
+  current[0].transform[3].x = 2.0f;
+  usePreviousFrameTransforms(current, nextPrevious);
+  REQUIRE(current[0].previousTransform == nextPrevious[0].transform);
+}
+
+TEST_CASE("capture motion matches draw identity across reorder, replacement and appearance", "[taa]") {
+  const renderer::MeshHandle mesh{1, 1};
+  std::vector previous{renderer::DrawItem{.mesh = mesh, .submesh = 1, .id = 7},
+                       renderer::DrawItem{.mesh = mesh, .submesh = 0, .id = 7}};
+  previous[0].transform[3].x = 3.0f;
+  previous[1].transform[3].x = 4.0f;
+  std::vector current{previous[1], previous[0]};
+  for (auto &draw : current) {
+    draw.transform[3].x += 1.0f;
+  }
+  usePreviousFrameTransforms(current, previous);
+  REQUIRE(current[0].previousTransform == previous[1].transform);
+  REQUIRE(current[1].previousTransform == previous[0].transform);
+  for (const renderer::DrawItem &fresh :
+       {renderer::DrawItem{.mesh = mesh, .id = 8}, renderer::DrawItem{.mesh = mesh, .submesh = 2, .id = 7},
+        renderer::DrawItem{.mesh = {1, 2}, .id = 7}, renderer::DrawItem{.mesh = mesh, .id = 0}}) {
+    current = {fresh};
+    usePreviousFrameTransforms(current, previous);
+    REQUIRE(current[0].previousTransform == current[0].transform);
+  }
+  usePreviousFrameTransforms(current, {});
+  REQUIRE(current[0].previousTransform == current[0].transform);
+}
+
+TEST_CASE("integer reference residual is not a floor for fractional motion", "[taa]") {
+  constexpr glm::uvec2 size{32, 32};
+  constexpr std::size_t count = 32 * 32;
+  std::vector<std::byte> previous(count * 4, std::byte{255});
+  auto current = previous;
+  auto reconstructed = previous;
+  Mask interior(count, 0);
+  for (unsigned y = 0; y < size.y; ++y) {
+    for (unsigned x = 0; x < size.x; ++x) {
+      const std::size_t pixel = std::size_t{y} * size.x + x;
+      for (std::size_t channel = 0; channel < 3; ++channel) {
+        previous[pixel * 4 + channel] = static_cast<std::byte>(10 + 6 * x);
+        current[pixel * 4 + channel] = static_cast<std::byte>(7 + 6 * x);
+      }
+      if (x >= 8 && x < 24 && y >= 8 && y < 24) {
+        interior[pixel] = 1;
+      }
+    }
+  }
+  // A half-pixel shift of this ramp is exactly a bilinear read between the previous samples.
+  for (std::size_t pixel = 0; pixel < count; ++pixel) {
+    if (interior[pixel] != 0) {
+      for (std::size_t channel = 0; channel < 3; ++channel) {
+        const int left = std::to_integer<int>(previous[(pixel - 1) * 4 + channel]);
+        const int right = std::to_integer<int>(previous[pixel * 4 + channel]);
+        reconstructed[pixel * 4 + channel] = static_cast<std::byte>((left + right) / 2);
+      }
+    }
+  }
+  const auto residual = referenceMotionResidual(size, current, previous, interior, 6);
+  REQUIRE(residual.integerMatched.pixels == 16 * 16);
+  CHECK(residual.integerMatched.mean == 3.0);
+  CHECK(residual.integerMatched.percentile99 == 3);
+  CHECK(statistics(errorLevels(size, current, reconstructed), interior).maximum == 0);
 }

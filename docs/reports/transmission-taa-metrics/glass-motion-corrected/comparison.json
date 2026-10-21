@@ -1,0 +1,589 @@
+{
+  "rough-pane": {
+    "background": {
+      "worstMean": 0.2113231226825838,
+      "worstPercentile99": 2.0,
+      "worstUnrecovered": 0.0,
+      "worstOpaqueMean": 1.4791801655317431,
+      "worstOpaquePercentile99": 3.0,
+      "pass": true,
+      "passingFrames": 16,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 16,
+      "p99BudgetFrames": 16,
+      "recoveryBudgetFrames": 16,
+      "covered": {
+        "covered_mean": 0.198,
+        "covered_p99": 1.0
+      },
+      "uncovered": {
+        "uncovered_mean": 1.673,
+        "uncovered_p99": 8.0
+      }
+    },
+    "glass": {
+      "worstMean": 0.21748887976689568,
+      "worstPercentile99": 2.0,
+      "worstUnrecovered": 0.0,
+      "worstOpaqueMean": 1.4791801655317431,
+      "worstOpaquePercentile99": 3.0,
+      "pass": true,
+      "passingFrames": 16,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 16,
+      "p99BudgetFrames": 16,
+      "recoveryBudgetFrames": 16,
+      "covered": {
+        "covered_mean": 0.204,
+        "covered_p99": 1.0
+      },
+      "uncovered": {
+        "uncovered_mean": 1.673,
+        "uncovered_p99": 8.0
+      }
+    },
+    "referenceMotionResidual": {
+      "residual_unshifted_mean": 0.418,
+      "residual_unshifted_p99": 5.0,
+      "residual_matched_mean": 0.131,
+      "residual_matched_p99": 2.0
+    },
+    "captures": [
+      {
+        "frame": 39,
+        "crop": [
+          360,
+          180,
+          980,
+          540
+        ]
+      }
+    ],
+    "referenceSha256": {
+      "32": "0976e8143b974d678c475eb798e79b8fa16e65ce976ea036fe778f482fbc98ee",
+      "33": "896f54df2990a127dc2b36cd74b9cf87caa3a400cb33655acd3b57b2a45dd3f4",
+      "34": "e97f22021446b06d193bdc23fe0c6893ae33b31eb5eae06d51aa1c1dd4575fdb",
+      "35": "5af5c9dc8fd16fc0f74c6f8609f2f3e2b2569db3351fdf20b9e5ac0357186372",
+      "36": "2391a83f2f3f4cb7f5131cdd25202741e842f92337c1163d9b56e1584201efc1",
+      "37": "8c0977869a3c63b9ce019ae051a7cda07046041e25d526d36f1416c23a8108dc",
+      "38": "5ef01feff25a158fc0b17066532f1e4fc92bbf9baf3e89d38edaf79f4bd2e207",
+      "39": "a9ca840c7ef2ef54b9afc485e799f7b09a343d9dfc5b59685281cc94237cede8",
+      "40": "795f2331f6769df65e30028c8578625bc28b02472e37c81b501fa72d70fb90d2",
+      "41": "c53b2cc4ba258293b8e2e161b0c98b732d52731fdda18062638096619702aff8",
+      "42": "6f06141c785039508b92e231cee4cbc5f6fe0bdf1b15fd40cf2ffee944068d6c",
+      "43": "30c845b4682fdab8a609a8fd5e735a8da4512bd2f5fb5f74f5bbf335b38c0e88",
+      "44": "f48f06abccd6b1d20f7d1fb1181d66873d5bd6ad2958c925a75617ba99c93f34",
+      "45": "cfb5726f223356b9b0853e8f28967cb6ff2f8862b8eeeaaddfe8d0f594609948",
+      "46": "011578dc547b68bb48aabd27c84757a13d2653bfc824130a882dc3e7ce5387ca",
+      "47": "f08a73a266782bb3390129b769b6411b22caff6a90747ffc9453bc5c6cd9fc01"
+    }
+  },
+  "masked-pane": {
+    "background": {
+      "worstMean": 1.8725033738191632,
+      "worstPercentile99": 19.0,
+      "worstUnrecovered": 7.0,
+      "worstOpaqueMean": 1.4848136579635858,
+      "worstOpaquePercentile99": 3.0,
+      "pass": false,
+      "passingFrames": 14,
+      "measuredFrames": 24,
+      "meanBudgetFrames": 24,
+      "p99BudgetFrames": 15,
+      "recoveryBudgetFrames": 21,
+      "covered": {
+        "covered_mean": 1.821,
+        "covered_p99": 19.0
+      },
+      "uncovered": {
+        "uncovered_mean": 3.676,
+        "uncovered_p99": 19.0
+      }
+    },
+    "glass": {
+      "worstMean": 2.6415598290598292,
+      "worstPercentile99": 21.0,
+      "worstUnrecovered": 2.0,
+      "worstOpaqueMean": 1.4840047519888941,
+      "worstOpaquePercentile99": 3.0,
+      "pass": false,
+      "passingFrames": 14,
+      "measuredFrames": 24,
+      "meanBudgetFrames": 21,
+      "p99BudgetFrames": 14,
+      "recoveryBudgetFrames": 21,
+      "covered": {
+        "covered_mean": 2.608,
+        "covered_p99": 22.0
+      },
+      "uncovered": {
+        "uncovered_mean": 3.669,
+        "uncovered_p99": 19.0
+      }
+    },
+    "referenceMotionResidual": {
+      "residual_unshifted_mean": 2.212,
+      "residual_unshifted_p99": 93.0,
+      "residual_matched_mean": 0.927,
+      "residual_matched_p99": 32.0
+    },
+    "captures": [
+      {
+        "frame": 39,
+        "crop": [
+          330,
+          165,
+          1010,
+          555
+        ]
+      },
+      {
+        "frame": 48,
+        "crop": [
+          330,
+          165,
+          1010,
+          555
+        ]
+      }
+    ],
+    "referenceSha256": {
+      "32": "b58aee264ad7f046a563893b5f6676a28c0718f5c6ca078c23dba9a1266cd729",
+      "33": "8c1286d315f467e75d41c7c3537632c96a329800a5c265f78eb6d6e0191c77b9",
+      "34": "7c667a1bf5cd5ad02e04ba8d53a8026254ced4850ec70bb6ba8335930d3a4848",
+      "35": "f3adcc0b132b4ad2fadef11e63539dd3fda4e314cfc04850b051483ac489a78c",
+      "36": "36b55a451200f002fd125766df654fbb0fbc1c5e6e8c1f763bfc338c13a065fe",
+      "37": "45758a6a94345cd39eb13b09bdf36b242bc952f03910c2f3d540219c13538ee5",
+      "38": "7e6cb7796a2087b887b4a9f8cb8077a99073dd738d7474ad3ee33db5c46b9b0a",
+      "39": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "40": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "41": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "42": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "43": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "44": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "45": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "46": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "47": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "48": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "49": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "50": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "51": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "52": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "53": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "54": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b",
+      "55": "f60c1c1b4df51fe83ce1d93c60375aa825acb8e579e1e9927ff4514e28a59f5b"
+    }
+  },
+  "masked-pane-fast": {
+    "background": {
+      "worstMean": 2.405143438235924,
+      "worstPercentile99": 21.0,
+      "worstUnrecovered": 257.0,
+      "worstOpaqueMean": 1.4935821453361098,
+      "worstOpaquePercentile99": 4.0,
+      "pass": false,
+      "passingFrames": 13,
+      "measuredFrames": 24,
+      "meanBudgetFrames": 22,
+      "p99BudgetFrames": 15,
+      "recoveryBudgetFrames": 17,
+      "covered": {
+        "covered_mean": 2.16,
+        "covered_p99": 20.0
+      },
+      "uncovered": {
+        "uncovered_mean": 5.809,
+        "uncovered_p99": 106.0
+      }
+    },
+    "glass": {
+      "worstMean": 3.153805394990366,
+      "worstPercentile99": 21.0,
+      "worstUnrecovered": 356.0,
+      "worstOpaqueMean": 1.493584814992792,
+      "worstOpaquePercentile99": 4.0,
+      "pass": false,
+      "passingFrames": 13,
+      "measuredFrames": 24,
+      "meanBudgetFrames": 19,
+      "p99BudgetFrames": 14,
+      "recoveryBudgetFrames": 20,
+      "covered": {
+        "covered_mean": 2.905,
+        "covered_p99": 24.0
+      },
+      "uncovered": {
+        "uncovered_mean": 5.524,
+        "uncovered_p99": 92.0
+      }
+    },
+    "referenceMotionResidual": {
+      "residual_unshifted_mean": 5.467,
+      "residual_unshifted_p99": 115.0,
+      "residual_matched_mean": 2.621,
+      "residual_matched_p99": 73.0
+    },
+    "captures": [
+      {
+        "frame": 39,
+        "crop": [
+          330,
+          165,
+          1010,
+          555
+        ]
+      },
+      {
+        "frame": 48,
+        "crop": [
+          330,
+          165,
+          1010,
+          555
+        ]
+      }
+    ],
+    "referenceSha256": {
+      "32": "f8824fdb54feb46ab03a0493c530b6ec740a30f3dac028f5e586acc7654db89d",
+      "33": "37a282f8aa7d713f801d781e305685e180c037ace5507c593a53fce01d123019",
+      "34": "444a4047bdc2d97677cd01249c2101a6203583236a9242a8425d15f7a9eaec3f",
+      "35": "af4c73252ac338ddd49fc4f13a3209ee9d460784ccc1dc7a33f51bfb34d022bb",
+      "36": "2d1791f8bac1d76116a6a1bc2e5d8a5e1e1724ef58e9c61ed3449c5ff09c57ae",
+      "37": "947cef08cb6a146e528dd351ac536998c5c63f00a99c266bcc1cff068dc97f7d",
+      "38": "191f426c2b1499f2e721a451fced2afae6e1fcd5ed57892d0f36f3d003476029",
+      "39": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "40": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "41": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "42": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "43": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "44": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "45": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "46": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "47": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "48": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "49": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "50": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "51": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "52": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "53": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "54": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375",
+      "55": "69aaf68e4ed4be230786481ad85a034e657b1ae56e0daed42ea502c830865375"
+    }
+  },
+  "watch": {
+    "background": {
+      "worstMean": 1.5071877603574946,
+      "worstPercentile99": 23.0,
+      "worstUnrecovered": 0.0,
+      "worstOpaqueMean": 0.26647030978803976,
+      "worstOpaquePercentile99": 5.0,
+      "pass": false,
+      "passingFrames": 0,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 16,
+      "p99BudgetFrames": 0,
+      "recoveryBudgetFrames": 16,
+      "covered": {
+        "covered_mean": 1.553,
+        "covered_p99": 23.0
+      },
+      "uncovered": {
+        "uncovered_mean": 0.266,
+        "uncovered_p99": 7.0
+      }
+    },
+    "glass": {
+      "worstMean": 1.8826024388396576,
+      "worstPercentile99": 32.0,
+      "worstUnrecovered": 0.0,
+      "worstOpaqueMean": 0.26647030978803976,
+      "worstOpaquePercentile99": 5.0,
+      "pass": false,
+      "passingFrames": 0,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 16,
+      "p99BudgetFrames": 0,
+      "recoveryBudgetFrames": 16,
+      "covered": {
+        "covered_mean": 1.942,
+        "covered_p99": 33.0
+      },
+      "uncovered": {
+        "uncovered_mean": 0.266,
+        "uncovered_p99": 7.0
+      }
+    },
+    "referenceMotionResidual": {
+      "residual_unshifted_mean": 3.197,
+      "residual_unshifted_p99": 150.0,
+      "residual_matched_mean": 0.467,
+      "residual_matched_p99": 7.0
+    },
+    "captures": [
+      {
+        "frame": 33,
+        "crop": [
+          470,
+          190,
+          810,
+          510
+        ]
+      }
+    ],
+    "referenceSha256": {
+      "32": "9d166ef492d51bd0e34bb86199ab0fece7acf1e692e69bf11ba2c3665c6b8b54",
+      "33": "3b129d8228516bed2e42beaced110c59f9afd322e47b188af355df54d44293f9",
+      "34": "3b129d8228516bed2e42beaced110c59f9afd322e47b188af355df54d44293f9",
+      "35": "4f9c49b982f484cb18500e9659387c6caf00f813e222aae740919918195864e0",
+      "36": "4f9c49b982f484cb18500e9659387c6caf00f813e222aae740919918195864e0",
+      "37": "0e9de90ef45012b0b9f94d71c651cf790b78ca3805b8da6464e7c335e8a975ba",
+      "38": "0e9de90ef45012b0b9f94d71c651cf790b78ca3805b8da6464e7c335e8a975ba",
+      "39": "078ef56361bb9db727a1fa61c4edee76f657917c0d72498cfc84d2adaf353f34",
+      "40": "078ef56361bb9db727a1fa61c4edee76f657917c0d72498cfc84d2adaf353f34",
+      "41": "4209a43a02b7101aade6621b1608e48d63e5489b522568da197b1217c90f8186",
+      "42": "4209a43a02b7101aade6621b1608e48d63e5489b522568da197b1217c90f8186",
+      "43": "ecc4019437502eb74d2fcf6d1e4e377db2b97b7a7fc060a0760575702c491de1",
+      "44": "ecc4019437502eb74d2fcf6d1e4e377db2b97b7a7fc060a0760575702c491de1",
+      "45": "3e8dc6fc6dae46afc7b0487bc450627700b94c36a7bbb39b8444f89d2cb9d5c5",
+      "46": "3e8dc6fc6dae46afc7b0487bc450627700b94c36a7bbb39b8444f89d2cb9d5c5",
+      "47": "56dd7b9e21e0278c3427370946ca70425c2fab388ce0d373b4482871210c209e"
+    }
+  },
+  "watch-fast": {
+    "background": {
+      "worstMean": 1.6179050215860031,
+      "worstPercentile99": 26.0,
+      "worstUnrecovered": 0.0,
+      "worstOpaqueMean": 0.26647030978803976,
+      "worstOpaquePercentile99": 5.0,
+      "pass": false,
+      "passingFrames": 0,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 16,
+      "p99BudgetFrames": 0,
+      "recoveryBudgetFrames": 16,
+      "covered": {
+        "covered_mean": 1.667,
+        "covered_p99": 27.0
+      },
+      "uncovered": {
+        "uncovered_mean": 0.266,
+        "uncovered_p99": 7.0
+      }
+    },
+    "glass": {
+      "worstMean": 1.8016511398924486,
+      "worstPercentile99": 28.0,
+      "worstUnrecovered": 0.0,
+      "worstOpaqueMean": 0.26647030978803976,
+      "worstOpaquePercentile99": 5.0,
+      "pass": false,
+      "passingFrames": 0,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 16,
+      "p99BudgetFrames": 0,
+      "recoveryBudgetFrames": 16,
+      "covered": {
+        "covered_mean": 1.857,
+        "covered_p99": 29.0
+      },
+      "uncovered": {
+        "uncovered_mean": 0.266,
+        "uncovered_p99": 7.0
+      }
+    },
+    "referenceMotionResidual": {
+      "residual_unshifted_mean": 2.593,
+      "residual_unshifted_p99": 133.0,
+      "residual_matched_mean": 0.818,
+      "residual_matched_p99": 18.0
+    },
+    "captures": [
+      {
+        "frame": 47,
+        "crop": [
+          470,
+          190,
+          810,
+          510
+        ]
+      }
+    ],
+    "referenceSha256": {
+      "32": "2b9282760d8299b8eabc9a91292965eb1177da53f9c7e65e190f13d56af2cddb",
+      "33": "30ef1da5bfeb71b8b94f9e4538ff7dd06f938af4cbeac885eda9943c3923f632",
+      "34": "69920bfc9058cfcd8277a2d3fe15bbaea5819bdd6596772ce381d54a6bcc462c",
+      "35": "353163f6c438a7c31ce1fb9713b72b013bb6ffee0223d41f9b52a04dbd061729",
+      "36": "0ab2a7d9b2aeb5965c101fdeb718ade344cf46d9354bf29b20014d23c821bf52",
+      "37": "de7a720d47c97987c225b53371765e98399ed0e1b577b31ef734bfde47a43aea",
+      "38": "088a4052ee8f6087341a74b3dbc3b5df71b5a810b61c8942e1b78da617803f86",
+      "39": "2b035249b71914cca9d68a596434fe60a68a3e45cfdc349e5f177ca9168699c4",
+      "40": "6da79ce80fe60c1697204bfd00e91d53abeb10cd5e4c56dc63615362cbe107d1",
+      "41": "a05ad61aa977a8256c8fab5b3e9e80513312f237859df4d3811bd5969da83356",
+      "42": "1bdeca97180cc998eb38033299ed449edb0a43f79426033767d9b7058f82d6e9",
+      "43": "e92ebbfea19fb385ca72c37e60613fc153b0d06a0bb58003ab86c0210de38e35",
+      "44": "f73a425eae4432a86d12d59d50936353383ee8829956c1c4bb4a84249750c190",
+      "45": "6a061cebede50d519b5ff29307f837bf25e73024c8987f914d65e32d94c545b9",
+      "46": "a4a9353053f4fcce65d82282caf8ee09015f475f09c5b107764996edff293eb3",
+      "47": "d57db23acbcbe8c5fafced08fe7e41e3658bbce7b3dd5e9812e463c5c0744f60"
+    }
+  },
+  "transmission-test": {
+    "background": {
+      "worstMean": 12.368749220601073,
+      "worstPercentile99": 68.0,
+      "worstUnrecovered": 32.0,
+      "worstOpaqueMean": 0.2064543059257967,
+      "worstOpaquePercentile99": 4.0,
+      "pass": false,
+      "passingFrames": 0,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 0,
+      "p99BudgetFrames": 0,
+      "recoveryBudgetFrames": 0,
+      "covered": {
+        "covered_mean": 14.36,
+        "covered_p99": 71.0
+      },
+      "uncovered": {
+        "uncovered_mean": 6.126,
+        "uncovered_p99": 51.0
+      }
+    },
+    "glass": {
+      "worstMean": 8.440064862167894,
+      "worstPercentile99": 57.0,
+      "worstUnrecovered": 32.0,
+      "worstOpaqueMean": 0.2063935704299852,
+      "worstOpaquePercentile99": 4.0,
+      "pass": false,
+      "passingFrames": 0,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 0,
+      "p99BudgetFrames": 0,
+      "recoveryBudgetFrames": 0,
+      "covered": {
+        "covered_mean": 9.091,
+        "covered_p99": 59.0
+      },
+      "uncovered": {
+        "uncovered_mean": 6.405,
+        "uncovered_p99": 52.0
+      }
+    },
+    "referenceMotionResidual": {
+      "residual_unshifted_mean": 3.833,
+      "residual_unshifted_p99": 31.0,
+      "residual_matched_mean": 3.431,
+      "residual_matched_p99": 27.0
+    },
+    "captures": [
+      {
+        "frame": 47,
+        "crop": [
+          450,
+          240,
+          760,
+          445
+        ]
+      }
+    ],
+    "referenceSha256": {
+      "32": "847cacb4e5f4c5ed81de3c156acde5653293c1c6ffa1beaa9d3a862c045e6938",
+      "33": "ce3e3a74062086f379342d712a758aa8072d22136b5a8ecd2d70cf2ea07cb7ce",
+      "34": "eef82d62075f470e56c88bb5394af61b0293491c3240ace01c12ce575cb55255",
+      "35": "37947f66a268323b0860896f48ae3cbdbcc6ab1ef10d12b567545f33f29ad10e",
+      "36": "e451aeca6ad3de71417bb846a6ddcdc10a37bc745987a0fb474fd404a20fb9ab",
+      "37": "f8848da317cbb7c3385e5f09649037e2b777801edbba5f74bf0dc7adf6328990",
+      "38": "370480e56e199a050f074a62910c1bf331063422f118d56503cf6b82c6c5c4b6",
+      "39": "7e3fb2888a010e4b9dcbb33c1c06a502ef4319310c2ff3099d2022b49c737efc",
+      "40": "048bf733256263dc8638402570c64cd67cd5467baff0e384b1c5622d9f5e1c13",
+      "41": "1e1aff6b9ae9d153ff8131429f3c4d088c945f21c2a6ec5e3e22300fe42233b5",
+      "42": "794f47b1f2c7ea7558469babbb894a4914f5d58ac5d33bd9fbeacd6dd83b82ba",
+      "43": "c3ee863b422a616785b76f210d4599e40872945ccbb5f507752adf4eb7c09e06",
+      "44": "1893db7c3b2e64dbaae3173e4abfc83b6ebcb07bcbe3b731cc75c41206bb5bc2",
+      "45": "50294fb99d17559bfa6805b125877020868c22a4d5f12323bfb3e2b88d340b97",
+      "46": "3b50e709871d0c660b71d23a678cf49308b0fcc8261777587f72b79609f65f92",
+      "47": "800b2dc10490006c966ddc02fcea48eb34e2dcea90e7984cb0cebe3f9fe10f56"
+    }
+  },
+  "transmission-test-still": {
+    "background": {
+      "worstMean": 2.927761949984172,
+      "worstPercentile99": 28.0,
+      "worstUnrecovered": 0.0,
+      "worstOpaqueMean": 0.13018254480820926,
+      "worstOpaquePercentile99": 2.0,
+      "pass": false,
+      "passingFrames": 0,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 0,
+      "p99BudgetFrames": 0,
+      "recoveryBudgetFrames": 16,
+      "covered": {
+        "covered_mean": 3.21,
+        "covered_p99": 31.0
+      },
+      "uncovered": {
+        "uncovered_mean": 2.021,
+        "uncovered_p99": 22.0
+      }
+    },
+    "glass": {
+      "worstMean": 2.927761949984172,
+      "worstPercentile99": 28.0,
+      "worstUnrecovered": 0.0,
+      "worstOpaqueMean": 0.13018254480820926,
+      "worstOpaquePercentile99": 2.0,
+      "pass": false,
+      "passingFrames": 0,
+      "measuredFrames": 16,
+      "meanBudgetFrames": 0,
+      "p99BudgetFrames": 0,
+      "recoveryBudgetFrames": 16,
+      "covered": {
+        "covered_mean": 3.21,
+        "covered_p99": 31.0
+      },
+      "uncovered": {
+        "uncovered_mean": 2.021,
+        "uncovered_p99": 22.0
+      }
+    },
+    "referenceMotionResidual": {
+      "residual_unshifted_mean": 0.0,
+      "residual_unshifted_p99": 0.0,
+      "residual_matched_mean": 0.0,
+      "residual_matched_p99": 0.0
+    },
+    "captures": [
+      {
+        "frame": 47,
+        "crop": [
+          450,
+          240,
+          760,
+          445
+        ]
+      }
+    ],
+    "referenceSha256": {
+      "32": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "33": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "34": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "35": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "36": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "37": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "38": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "39": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "40": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "41": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "42": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "43": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "44": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "45": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "46": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0",
+      "47": "edddace7b6bb9086f6d17a6698d8ba1023a6a79cf835cd4d751a1ca7bb0e6ae0"
+    }
+  }
+}
