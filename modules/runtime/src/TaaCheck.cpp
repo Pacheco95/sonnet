@@ -6,6 +6,15 @@
 
 namespace sonnet::runtime::taa {
 
+void usePreviousFrameTransforms(std::span<renderer::DrawItem> current, std::span<const renderer::DrawItem> previous) {
+  for (renderer::DrawItem &draw : current) {
+    const auto found = std::ranges::find_if(previous, [&](const renderer::DrawItem &old) {
+      return draw.id != 0 && draw.id == old.id && draw.mesh == old.mesh && draw.submesh == old.submesh;
+    });
+    draw.previousTransform = found != previous.end() ? found->transform : draw.transform;
+  }
+}
+
 std::vector<std::uint8_t> errorLevels(glm::uvec2 size, std::span<const std::byte> image,
                                       std::span<const std::byte> reference) {
   const std::size_t count = std::size_t{size.x} * size.y;
@@ -87,8 +96,8 @@ ErrorStatistics statistics(std::span<const std::uint8_t> errors, const Mask &mas
   return result;
 }
 
-TemporalFloor temporalFloor(glm::uvec2 size, std::span<const std::byte> image, std::span<const std::byte> previous,
-                            const Mask &mask, int radius) {
+ReferenceMotionResidual referenceMotionResidual(glm::uvec2 size, std::span<const std::byte> image,
+                                                std::span<const std::byte> previous, const Mask &mask, int radius) {
   const std::size_t count = std::size_t{size.x} * size.y;
   if (image.size() < count * 4 || previous.size() < count * 4) {
     return {};
@@ -145,7 +154,7 @@ TemporalFloor temporalFloor(glm::uvec2 size, std::span<const std::byte> image, s
       best[index] = center(x, y, bestX, bestY);
     }
   }
-  return {.still = statistics(still, inside), .best = statistics(best, inside)};
+  return {.unshifted = statistics(still, inside), .integerMatched = statistics(best, inside)};
 }
 
 std::vector<FrameResult> evaluate(glm::uvec2 size, std::span<const GlassFrame> glass,

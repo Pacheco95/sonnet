@@ -1,0 +1,92 @@
+{
+  "case": "transmission-test-still",
+  "description": "the same without the turntable: what TAA reaches on this glass at rest",
+  "device": "NVIDIA GeForce RTX 4090",
+  "diagnostic": true,
+  "frameSeconds": 0.01666666753590107,
+  "glassMotion": false,
+  "measuredFrames": 16,
+  "motionInterval": "rendered-frame",
+  "pass": false,
+  "referenceJitter": [
+    [
+      0.0,
+      -0.1666666567325592
+    ],
+    [
+      -0.25,
+      0.1666666865348816
+    ],
+    [
+      0.25,
+      -0.3888888955116272
+    ],
+    [
+      -0.375,
+      -0.0555555522441864
+    ],
+    [
+      0.125,
+      0.2777777910232544
+    ],
+    [
+      -0.125,
+      -0.2777777910232544
+    ],
+    [
+      0.375,
+      0.05555558204650879
+    ],
+    [
+      -0.4375,
+      0.3888888955116272
+    ],
+    [
+      0.0625,
+      -0.46296295523643494
+    ],
+    [
+      -0.1875,
+      -0.12962961196899414
+    ],
+    [
+      0.3125,
+      0.20370370149612427
+    ],
+    [
+      -0.3125,
+      -0.35185185074806213
+    ],
+    [
+      0.1875,
+      -0.018518507480621338
+    ],
+    [
+      -0.0625,
+      0.31481480598449707
+    ],
+    [
+      0.4375,
+      -0.24074074625968933
+    ],
+    [
+      -0.46875,
+      0.09259259700775146
+    ]
+  ],
+  "referenceMotionSearchRadius": 6,
+  "referenceSamples": 16,
+  "scene": "scenes/transmission_test_still.scene.json",
+  "size": [
+    1280,
+    720
+  ],
+  "substeps": 4,
+  "warmupFrames": 32,
+  "worstFrame": 47,
+  "worstMean": 2.927761949984172,
+  "worstOpaqueMean": 0.13018254480820926,
+  "worstOpaquePercentile99": 2.0,
+  "worstPercentile99": 28.0,
+  "worstUnrecovered": 0.0
+}

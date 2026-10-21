@@ -53,8 +53,8 @@ constexpr std::uint32_t MaxReferenceSamples = 64;
 // Frames drawn after the assets have loaded and before the simulation starts, so the environment
 // and the pipelines are ready (what a capture run settles for).
 constexpr std::uint32_t SettleFrames = 10;
-// The search window, in pixels each way, of the temporal floor the metrics report (#352).
-constexpr int FloorRadius = 6;
+// Whole-pixel reference matching is a diagnostic, not an error floor (#352).
+constexpr int MotionSearchRadius = 6;
 constexpr float FrameSeconds = runtime::CaptureRun::FrameSeconds;
 
 struct Case {
@@ -363,9 +363,19 @@ constexpr std::uint32_t ContextFrames = runtime::taa::HistoryFrames;
   Measured measured;
   Run run{rig, testCase, renderer::AntiAliasing::Taa};
   const std::uint32_t total = testCase.warmup + testCase.measured;
+  // The view's address is the history key. The world's previous transform spans only one update;
+  // the harness renders once after several updates, so motion must use the last rendered pose.
+  renderer::SceneView view;
+  std::vector<renderer::DrawItem> previous(run.game().view().draws.begin(), run.game().view().draws.end());
+  std::vector<renderer::DrawItem> draws;
   for (std::uint32_t frame = 0; frame < total; ++frame) {
     run.advance([](std::uint32_t) {});
-    std::vector<std::byte> image = run.display(run.game().view());
+    view = run.game().view();
+    draws.assign(view.draws.begin(), view.draws.end());
+    runtime::taa::usePreviousFrameTransforms(draws, previous);
+    view.draws = draws;
+    std::vector<std::byte> image = run.display(view);
+    previous = draws;
     if (frame >= testCase.warmup) {
       measured.taa.push_back(std::move(image));
     } else {
@@ -477,25 +487,28 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
   std::ofstream csv{directory / "metrics.csv"};
   csv << "frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,"
          "unrecovered,pass,covered_pixels,covered_mean,covered_p99,uncovered_pixels,uncovered_mean,uncovered_p99,"
-         "floor_still_mean,floor_still_p99,floor_best_mean,floor_best_p99\n";
+         "residual_unshifted_mean,residual_unshifted_p99,residual_matched_mean,residual_matched_p99\n";
   bool allPass = true;
   std::size_t worst = 0;
   for (std::size_t i = 0; i < results.size(); ++i) {
     const runtime::taa::FrameResult &r = results[i];
-    // The reference's own change since the frame before, over what the glass covers now (none for the first).
-    runtime::taa::TemporalFloor floor;
+    csv << std::format("{},{},{:.3f},{},{},{:.3f},{},{},{},{},{},{},{:.3f},{},{},{:.3f},{}", testCase.warmup + i,
+                       r.glass.pixels, r.glass.mean, r.glass.percentile99, r.glass.maximum, r.opaque.mean,
+                       r.opaque.percentile99, r.opaque.maximum, r.vacated, r.unrecovered, r.pass() ? 1 : 0,
+                       r.covered.pixels, r.covered.mean, r.covered.percentile99, r.uncovered.pixels, r.uncovered.mean,
+                       r.uncovered.percentile99);
+    // No prior reference is captured for the first measured frame. Empty cells mean unavailable,
+    // not a measured zero; the remaining rows compare the same reference pair in both treatments.
     if (i > 0) {
-      floor = runtime::taa::temporalFloor(rig.size, measured.reference[i + measured.firstMeasured],
-                                          measured.reference[i + measured.firstMeasured - 1],
-                                          measured.glass[i + measured.firstMeasured].coverage, FloorRadius);
+      const runtime::taa::ReferenceMotionResidual residual = runtime::taa::referenceMotionResidual(
+          rig.size, measured.reference[i + measured.firstMeasured], measured.reference[i + measured.firstMeasured - 1],
+          measured.glass[i + measured.firstMeasured].coverage, MotionSearchRadius);
+      csv << std::format(",{:.3f},{},{:.3f},{}", residual.unshifted.mean, residual.unshifted.percentile99,
+                         residual.integerMatched.mean, residual.integerMatched.percentile99);
+    } else {
+      csv << ",,,,";
     }
-    csv << std::format("{},{},{:.3f},{},{},{:.3f},{},{},{},{},{},{},{:.3f},{},{},{:.3f},{},{:.3f},{},{:.3f},{}",
-                       testCase.warmup + i, r.glass.pixels, r.glass.mean, r.glass.percentile99, r.glass.maximum,
-                       r.opaque.mean, r.opaque.percentile99, r.opaque.maximum, r.vacated, r.unrecovered,
-                       r.pass() ? 1 : 0, r.covered.pixels, r.covered.mean, r.covered.percentile99, r.uncovered.pixels,
-                       r.uncovered.mean, r.uncovered.percentile99, floor.still.mean, floor.still.percentile99,
-                       floor.best.mean, floor.best.percentile99)
-        << '\n';
+    csv << '\n';
     allPass = allPass && r.pass();
     if (r.glass.mean > results[worst].glass.mean) {
       worst = i;
@@ -532,6 +545,8 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
   summary["measuredFrames"] = testCase.measured;
   summary["referenceSamples"] = rig.referenceSamples;
   summary["glassMotion"] = rig.glassMotion;
+  summary["motionInterval"] = "rendered-frame";
+  summary["referenceMotionSearchRadius"] = MotionSearchRadius;
   summary["referenceJitter"] = json::array();
   for (std::uint32_t i = 0; i < rig.referenceSamples; ++i) {
     const glm::vec2 jitter = referenceJitter(i);

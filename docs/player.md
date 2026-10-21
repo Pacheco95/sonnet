@@ -6,6 +6,8 @@ The player is the generic runtime an exported game ships as ([ADR-0007](decision
 
 `sonnet/runtime/Game.h` is the whole public surface. `Game` owns the renderer, the render graph, the target it draws into, the asset database, the world, the input state and the subsystems — physics, scripts, animation and audio — in the same order the editor constructs them, for the same reason: they register into the world and must be destroyed before it, scripts after physics so their fixed update follows the physics step ([ADR-0009](decisions/0009-physics-and-scripting.md)), and the audio device last so it hears entities where the frame left them.
 
+The offline [TAA harness](rendering.md#taa-checks) also uses `runtime::taa` to compare images and match draw transforms to the previous rendered frame when several simulation updates occur between renders. This bookkeeping is local to the harness.
+
 It is the editor's play mode with the editing removed. There is no edit mode to switch out of: the world is playing from the first frame, and `runtime` links neither `ui` nor `editor`.
 
 Per frame, in the order `apps/player/main.cpp` calls them:
