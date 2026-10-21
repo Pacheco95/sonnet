@@ -3907,15 +3907,17 @@ TEST_CASE("the cost of the glass motion pass at 1080p", "[.][benchmark][glass-mo
       std::vector<DrawItem> draws{DrawItem{.mesh = box,
                                            .transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.0f, -1.0f}) *
                                                         glm::scale(glm::mat4{1.0f}, {16.0f, 9.0f, 0.2f})}};
-      for (int i = 0; i < 100; ++i) {
-        const glm::vec3 position{(static_cast<float>(i % 10) - 4.5f) * 1.4f, (static_cast<float>(i / 10) - 4.5f) * 0.8f,
-                                 static_cast<float>(i % 3) * 0.3f};
-        draws.push_back(
-            {.mesh = sphere,
-             .material = glass,
-             .transform = glm::translate(glm::mat4{1.0f}, position) * glm::scale(glm::mat4{1.0f}, glm::vec3{1.6f}),
-             .previousTransform = glm::translate(glm::mat4{1.0f}, position - glm::vec3{0.05f, 0.0f, 0.0f}) *
-                                  glm::scale(glm::mat4{1.0f}, glm::vec3{1.6f})});
+      for (int row = 0; row < 10; ++row) {
+        for (int column = 0; column < 10; ++column) {
+          const glm::vec3 position{(static_cast<float>(column) - 4.5f) * 1.4f, (static_cast<float>(row) - 4.5f) * 0.8f,
+                                   static_cast<float>((row * 10 + column) % 3) * 0.3f};
+          const glm::mat4 scale = glm::scale(glm::mat4{1.0f}, glm::vec3{1.6f});
+          draws.push_back(
+              {.mesh = sphere,
+               .material = glass,
+               .transform = glm::translate(glm::mat4{1.0f}, position) * scale,
+               .previousTransform = glm::translate(glm::mat4{1.0f}, position - glm::vec3{0.05f, 0.0f, 0.0f}) * scale});
+        }
       }
       SceneView view = boxScene(draws);
       view.camera.position.z = 9.0f;
