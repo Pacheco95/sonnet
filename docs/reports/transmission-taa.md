@@ -139,6 +139,57 @@ The next decision under #339 is not a motion vector. Either a history per layer 
 
 Reproduce: the commands in [rendering.md](../rendering.md#taa-checks) with and without `--glass-motion`; `python3 docs/reports/transmission-taa-metrics/glass-motion/summarize.py`.
 
+## The rotating error (#361)
+
+[#361](https://github.com/Pacheco95/sonnet/issues/361) asked what puts `transmission-test` rotating at 9.74 / 59 against the 3.4 its content keeps between frames. Same device, build and harness as above, at `5db1a8d`; every number is the worst measured frame (mean / p99 over the glass region, levels). The variants come from a temporary patch, [`resolve-knobs.patch`](transmission-taa-metrics/rotating/resolve-knobs.patch), that reads environment variables for the clip, box width, luma weights, mark drop, blend terms, age cap, jitter count and a debug output of the resolve's intermediate values; it is not part of the renderer. Per-frame metrics of every run are in [transmission-taa-metrics/rotating](transmission-taa-metrics/rotating/) (`summarize.py` prints them).
+
+### One term at a time
+
+| Variant (rotating case) | Mean / p99 |
+|---|---|
+| default | 9.74 / 59 |
+| no history at all (age cap 1: the jittered sample alone) | 10.64 / 75 |
+| no clip | 10.22 / 59 |
+| clip box 3 deviations | 10.92 / 62 |
+| no luma weights | 9.69 / 59 |
+| no mark drop | 9.74 / 59 |
+| no clip term in the blend | 11.26 / 62 |
+| no motion term in the blend | 10.92 / 64 |
+| age cap 32 | 9.74 / 59 |
+| 16 jitters | 9.63 / 54 |
+| glass motion (#352) | 9.89 / 56 |
+| age cap 2 / 3, default blend terms | 7.79 / 54 / 7.38 / 47 |
+| unclipped even average, cap 2 / 4 / 8 / 16 | 7.97 / 10.14 / 16.79 / 24.79 |
+| clip on, even average, cap 3 | 7.52 / 46 |
+| unclipped even average, cap 16, glass motion | 22.20 / 78 |
+
+### What it says
+
+- **TAA barely improves on one sample here.** The jittered sample alone is at 10.64 / 75; the default at 9.74 / 59. The history is not the 16-sample average the reference is: the content changes between frames, so what accumulates is lag, not convergence.
+- **A per-pixel dump of the worst frame (41)** confirms it. Run with the resolve writing, in turn, the reprojected history, the clipped history, the current sample and the clip flag in place of its result (`SONNET_TAA_DEBUG_CALL`, frames kept with `--keep-frames`), the error against the reference over the 14,922 pixels of the region is: result 10.5, **raw history 12.5**, clipped history 12.0, current sample 10.1. The history is a worse predictor of the frame than the sample taken in it, while the previous *reference* at the same pixel is at 3.9 (the floor). Only 24.5 % of the region is clipped (those pixels carry 18 % of the squared error), and where it clips it moves the history closer to the reference in 54 % of them, so the clip is not the mechanism. The other 75 % are inside the box and wrong: the box of a 3×3 jittered neighbourhood on sub-pixel detail is wide enough to hold a stale value.
+- **The terms that matter are the history's weight and its length**, not the clip, the luma weights, the mark drop or the jitter count (all within about 1 level of the default). Cutting the length to 2 or 3 frames takes the case to 7.4 to 8, because the aliased samples of changing content stop averaging into lag; at 8 and 16 an even average is much worse (16.8, 24.8). The default's clip and motion terms are what keep it at 9.74 rather than there, since they shorten the history where it disagrees. A better motion vector for the spheres does not help (glass motion 9.89, and 22.2 with the long even average): the parallax term is not what is left.
+- **Split of the gap, honestly stated.** From 10.6 (sample alone) to the 3.4 floor: about 1 level is what the accumulation buys today, up to about 3 more are available to a shorter or disagreement-aware history (7.4), and the remaining 4 are not reachable by these terms: they are the sample's own aliasing on content that changes, which a single history cannot average. The terms are not additive (the best shortening and the clip interact).
+
+### A resolve change that relaxes with disagreement
+
+The history's weight rises with the clip distance only past the box edge (`clipAmount = saturate(outside - 1)`). Starting the ramp inside the box (`saturate(outside - start)`, same gain 0.4), so a history that is within the box and far from its centre also loses weight, was measured on all seven cases:
+
+| Case | Default | start 0.7 | start 0.5 |
+|---|---|---|---|
+| `rough-pane` | 0.22 / 2 | 0.22 / 2 | 0.24 / 3 |
+| `masked-pane` | 1.87 / 19 | 2.01 / 19 | 2.57 / 19 |
+| `watch` | 1.51 / 23 | 1.66 / 25 | 2.08 / 33 |
+| `transmission-test` | 9.74 / 59 | 8.29 / 53 | 7.87 / 53 |
+| `masked-pane-fast` (diagnostic) | 2.41 / 21 | 2.61 / 21 | 3.20 / 21 |
+| `watch-fast` (diagnostic) | 1.81 / 29 | 1.94 / 32 | 2.33 / 39 |
+| `transmission-test-still` (diagnostic) | 2.93 / 28 | 3.65 / 36 | 5.03 / 48 |
+
+It helps the rotating case by 1.5 to 1.9 mean and costs every other glass case something, the still floor most (2.9 to 3.7 and 5.0), and none reaches a budget. Shortening the history for everything (cap 2 or 3) is the same trade in the other direction (it gives up the still case's accumulation). **No resolve change measured here improves `transmission-test` without a regression in `watch`, `masked-pane` or the still floor, so the renderer is unchanged.**
+
+### For the gate decision (#360)
+
+The rotating case is 10.6 → 7.4 at best under a single-history resolve and no variant came near the floor or the budget of 8 at p99 (best 46). That supports the gate being rewritten (a budget relative to what the content allows, or a history per layer) rather than a resolve tuned to meet it. Limits: one scene, one device (RTX 4090, Debug), a single run of each variant (frame-to-frame noise of the worst frame is about 0.2 mean), per-pixel dump of one frame, and the dump region differs slightly from the harness's (10.5 against 9.7 mean at the frame).
+
 ## What a decision depends on
 
 - The budgets as written (every measured frame, p99 at 8 levels over the region) are met by smooth glass (`rough-pane`) and not by glass with sub-pixel detail even at rest (`transmission-test-still`), so they measure the resolve's accumulation on detail more than the glass handling. A change of them is a new ADR (an accepted one is only edited to change its status). Candidates the numbers support: a budget on the glass region *relative to* the same scene's opaque error, or on the frames after the glass stops, or a p99 over the region without the pixels within a pixel of a silhouette or cut-out edge.
