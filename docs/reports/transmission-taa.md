@@ -1,8 +1,8 @@
 # TAA and glass: harness and measurements
 
-What [ADR-0033](../decisions/0033-transmission.md) (*TAA*) asks for before [#254](https://github.com/Pacheco95/sonnet/issues/254) closes, measured by the harness of [#339](https://github.com/Pacheco95/sonnet/issues/339): four glass cases rendered under TAA and against a 16-sample reference on the RTX 4090. The harness, its fixtures and how to run it are in [rendering.md](../rendering.md#taa-checks). **The budgets are not met**, before or after the mitigation that came out of this work; the numbers below say where they fail and why, and what a decision on them depends on.
+The TAA acceptance criteria in [ADR-0033](../decisions/0033-transmission.md), measured by [#339](https://github.com/Pacheco95/sonnet/issues/339): four glass cases rendered under TAA and against a 16-sample reference on the RTX 4090. The later [ADR-0034](../decisions/0034-taa-glass-gate.md) supersedes these criteria; [#339 and the TAA part of #254](#the-gate-360) were closed on that basis. The harness, its fixtures and how to run it are in [rendering.md](../rendering.md#taa-checks). **The budgets as ADR-0033 wrote them are not met**, before or after the mitigation that came out of this work; the numbers below say where they fail and why, and [ADR-0034](../decisions/0034-taa-glass-gate.md) replaced them with a gate the four required cases pass ([the gate](#the-gate-360)).
 
-**Motion correction:** the moving-case measurements below used the last simulation substep's object transform as the previous rendered pose. With four updates per frame, that supplies only a quarter-frame of object motion. The [corrected comparison](transmission-taa-motion-corrected.md) retains these historical data, reruns the same `RG16F` experiment with full-frame motion, and supersedes the motion conclusions below. The stationary diagnosis remains applicable.
+**Motion correction:** the moving-case measurements in the original sections below used the last simulation substep as the previous rendered pose. With four updates per frame, that supplies only a quarter-frame of object motion. The [corrected comparison](transmission-taa-motion-corrected.md) preserves those historical data, reruns the same `RG16F` experiment with full-frame motion and ADR-0034's gate, and supersedes the moving-case conclusions below. The stationary diagnosis remains applicable.
 
 ## Setup
 
@@ -143,7 +143,7 @@ Reproduce: the commands in [rendering.md](../rendering.md#taa-checks) with and w
 
 ## The rotating error (#361)
 
-**Historical motion interval:** these runs also used the last simulation substep as the previous object pose. The numerical tables below are preserved as recorded, but their motion-independent error-floor interpretation, the conclusion that better sphere motion cannot help, and the derived split of the remaining gap are superseded by the [corrected comparison](transmission-taa-motion-corrected.md). The other resolve variants need rerunning with the previous rendered pose before guiding the gate decision.
+**Historical motion interval:** these runs used the last simulation substep as the previous object pose. Their recorded measurements are retained, but their motion-independent error-floor interpretation, the claim that better sphere motion cannot help, and the derived split of the remaining error are superseded by the [corrected comparison](transmission-taa-motion-corrected.md). The other resolve variants need rerunning with the previous rendered pose before guiding decisions.
 
 [#361](https://github.com/Pacheco95/sonnet/issues/361) asked what puts `transmission-test` rotating at 9.74 / 59 against the 3.4 its content keeps between frames. Same device, build and harness as above, at `5db1a8d`; every number is the worst measured frame (mean / p99 over the glass region, levels). The variants come from a temporary patch, [`resolve-knobs.patch`](transmission-taa-metrics/rotating/resolve-knobs.patch), that reads environment variables for the clip, box width, luma weights, mark drop, blend terms, age cap, jitter count and a debug output of the resolve's intermediate values; it is not part of the renderer. Per-frame metrics of every run are in [transmission-taa-metrics/rotating](transmission-taa-metrics/rotating/) (`summarize.py` prints them).
 
@@ -194,10 +194,36 @@ It helps the rotating case by 1.5 to 1.9 mean and costs every other glass case s
 
 The rotating case is 10.6 → 7.4 at best under a single-history resolve and no variant came near the floor or the budget of 8 at p99 (best 46). That supports the gate being rewritten (a budget relative to what the content allows, or a history per layer) rather than a resolve tuned to meet it. Limits: one scene, one device (RTX 4090, Debug), a single run of each variant (frame-to-frame noise of the worst frame is about 0.2 mean), per-pixel dump of one frame, and the dump region differs slightly from the harness's (10.5 against 9.7 mean at the frame).
 
+## The gate (#360)
+
+[#360](https://github.com/Pacheco95/sonnet/issues/360) replaced the budgets above with [ADR-0034](../decisions/0034-taa-glass-gate.md)'s gate, and the harness now judges against it. The sections above report the original ADR-0033 metrics; this section records ADR-0034's full run. Its `f` input is the bounded integer-matched reference residual; this statistic does not establish a lower bound on reconstruction error. The first measured frame has a previous warm-up reference, and the harness renders one unresolved jittered sample of each frame (the first of the 16) for the recovery check.
+
+| Case | Covered mean / p99 | Least slack to covered limits (mean / p99) | Vacated mean above sample | Frames passing ADR-0034 (legacy ADR-0033) |
+|---|---|---|---|---|
+| `rough-pane` | 0.20 / 1 | 4.02 / 40 | | 16/16 (16) |
+| `masked-pane` | 1.82 / 19 | 2.47 / 31 | +0.86 | 24/24 (14) |
+| `watch` | 1.55 / 23 | 2.67 / 20 | | 16/16 (0) |
+| `transmission-test` | 10.76 / 61 | 0.90 / 15 | | 16/16 (0) |
+| `masked-pane-fast` (diagnostic) | 2.16 / 20 | 2.32 / 30 | +1.91 | 24/24 |
+| `watch-fast` (diagnostic) | 1.87 / 30 | 2.91 / 17 | | 16/16 |
+| `transmission-test-still` (diagnostic) | 3.21 / 31 | 0.79 / 9 | | 16/16 |
+
+These numbers are for the original last-substep motion interval. The [corrected full-frame comparison](transmission-taa-motion-corrected.md) reruns the gate and supersedes this gate table for moving cases.
+
+**Every required case passes** (and the diagnostics, which are reported and do not set the exit code). The tightest are the two where sub-pixel detail decides: TransmissionTest turning (0.9 level of mean slack, 15 of p99) and at rest (0.8 and 9). The vacated pixels are judged only for the masked pane (a thousand or more; TransmissionTest has 25 to 47, `watch` none).
+
+**The recovery rule has teeth.** The masked pane with the resolve's mark drop disabled (`GlassMarkChange` set above 1 so the history is never dropped, the ghost the harness found first; [`gate/ghost/`](transmission-taa-metrics/gate/ghost/)) has its vacated pixels 6.0 levels worse than a sample in `masked-pane` and 4.3 in `masked-pane-fast`, against 0.9 and 1.9 with it, and fails frame 43 of both (23 of 24). The covered budgets alone do not see it (2.41 / 36 and 3.03 / 30 are inside them), which is what ADR-0034 says about the percentile.
+
+**What else it fails.** The covered rules applied to the variants of [#350, #352 and #361](#the-rotating-error-361) (their runs have no sample, so recovery is not re-judged, and their first frame no floor, so it is left out): the unclipped, evenly weighted averages of 8 and 16 frames fail every frame of TransmissionTest (15 of 15), the blend without the clip's term 4 and without the motion's 5, a clip box of 3 deviations 2, no history 1 (of 15), and a clip that starts to relax half a box inside fails the still case in 12 of 15. The glass motion experiment of [#352](#glass-motion-352) passes. The gate therefore stops a resolve that gets worse by a margin; it does not decide between the current resolve and no history on TransmissionTest turning (9.74 / 59 and 10.64 / 75 both pass).
+
+**Limits.** One device (RTX 4090, Debug), one run of each case; the constants were fitted to these seven cases and the ghost, so a case that is not among them is a check of the constants, not a pass by construction; the ghost was run on the masked pane only (`watch` and TransmissionTest do not move relative to their history, so the mark drop does not touch them); the old runs' CSVs (`before/`, `after/`, `age/`, `glass-motion/`) keep the old columns and `pass`.
+
+Reproduce: `tools/fetch_taa_fixtures.py`, then the commands in [rendering.md](../rendering.md#taa-checks); `python3 docs/reports/transmission-taa-metrics/gate/summarize.py`. A full run takes about ten minutes in Debug.
+
 ## What a decision depends on
 
-- The budgets as written (every measured frame, p99 at 8 levels over the region) are met by smooth glass (`rough-pane`) and not by glass with sub-pixel detail even at rest (`transmission-test-still`), so they measure the resolve's accumulation on detail more than the glass handling. A change of them is a new ADR (an accepted one is only edited to change its status). Candidates the numbers support: a budget on the glass region *relative to* the same scene's opaque error, or on the frames after the glass stops, or a p99 over the region without the pixels within a pixel of a silhouette or cut-out edge.
-- Motion handling remains a tradeoff measured in the [corrected comparison](transmission-taa-motion-corrected.md), while the [stationary diagnosis](#the-stationary-error-350) identifies additional reconstruction limits. A history per layer is not built; the age-weighted blend after a drop is [built](#age-weighted-accumulation-351).
+- The old mean-2, p99-8 and vacated-pixel thresholds in the sections above are historical results under ADR-0033. [ADR-0034](../decisions/0034-taa-glass-gate.md) now defines the acceptance gate; see [the gate results](#the-gate-360).
+- Motion handling remains a tradeoff measured in the [corrected comparison](transmission-taa-motion-corrected.md), while the [stationary diagnosis](#the-stationary-error-350) identifies additional reconstruction limits. Glass motion lowers rotating-scene error under the full-frame harness comparison and worsens the watch and masked pane. The production default remains unchanged; a history per layer is not built, and the age-weighted blend after a drop is [built](#age-weighted-accumulation-351).
 - The mitigation's cost on a phone is not measured: the resolve reads 25 alpha values more a pixel, and `forward blend` writes alpha with its blend. It is part of the measurement of [#342](https://github.com/Pacheco95/sonnet/issues/342), whose baseline is the build with it.
 - The marking also covers alpha-blended (`AlphaMode::Blend`) materials, which write no motion either; a moving blended surface takes the same treatment.
 

@@ -352,6 +352,7 @@ private:
 struct Measured {
   std::vector<std::vector<std::byte>> taa;       // display-encoded, one per frame from firstContext
   std::vector<std::vector<std::byte>> reference; // the same
+  std::vector<std::vector<std::byte>> single;    // one jittered sample of each reference frame, tone mapped alone
   std::vector<runtime::taa::GlassFrame> glass;
   std::size_t firstMeasured{0}; // the index of the first judged frame in the vectors above
 };
@@ -413,8 +414,9 @@ void runReference(const Rig &rig, const Case &testCase, Measured &measured) {
     previousPose = pose;
     glass.coverage = std::move(pose);
     measured.glass.push_back(std::move(glass));
-    if (frame < testCase.warmup) {
+    if (frame + 1 < testCase.warmup) {
       measured.reference.emplace_back();
+      measured.single.emplace_back();
       continue;
     }
     // The simulation holds still: `referenceSamples` renders of this pose, averaged in linear HDR.
@@ -423,6 +425,9 @@ void runReference(const Rig &rig, const Case &testCase, Measured &measured) {
       renderer::SceneView view = run.game().view();
       view.referenceJitter = referenceJitter(sample);
       const std::vector<std::byte> hdr = run.hdr(view);
+      if (sample == 0) {
+        measured.single.push_back(run.toneMap(run.game().view(), hdr));
+      }
       for (std::size_t i = 0; i < sum.size(); ++i) {
         std::uint16_t half = 0;
         std::memcpy(&half, hdr.data() + i * sizeof(half), sizeof(half));
@@ -481,34 +486,42 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
   for (std::size_t i = measured.firstMeasured; i < errors.size(); ++i) {
     errors[i] = runtime::taa::errorLevels(rig.size, measured.taa[i], measured.reference[i]);
   }
-  const std::vector<runtime::taa::FrameResult> results =
-      runtime::taa::evaluate(rig.size, measured.glass, errors, measured.firstMeasured);
+  // The error of one jittered sample of each frame, with no accumulation: what the content alone leaves.
+  std::vector<std::vector<std::uint8_t>> sampleErrors(measured.glass.size());
+  for (std::size_t i = measured.firstMeasured; i < sampleErrors.size(); ++i) {
+    sampleErrors[i] = runtime::taa::errorLevels(rig.size, measured.single[i], measured.reference[i]);
+  }
+  std::vector<runtime::taa::FrameResult> results =
+      runtime::taa::evaluate(rig.size, measured.glass, errors, sampleErrors, measured.firstMeasured);
+  std::vector<runtime::taa::ErrorStatistics> single(results.size());
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    single[i] = runtime::taa::statistics(sampleErrors[i + measured.firstMeasured],
+                                         measured.glass[i + measured.firstMeasured].coverage);
+  }
 
   std::ofstream csv{directory / "metrics.csv"};
-  csv << "frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,"
-         "unrecovered,pass,covered_pixels,covered_mean,covered_p99,uncovered_pixels,uncovered_mean,uncovered_p99,"
-         "residual_unshifted_mean,residual_unshifted_p99,residual_matched_mean,residual_matched_p99\n";
+  csv << "frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,vacated_mean,"
+         "vacated_p99,vacated_sample_mean,vacated_sample_p99,pass,covered_pixels,covered_mean,covered_p99,uncovered_"
+         "pixels,uncovered_mean,uncovered_p99,residual_unshifted_mean,residual_unshifted_p99,residual_matched_mean,"
+         "residual_matched_p99,single_covered_mean,single_covered_p99\n";
   bool allPass = true;
   std::size_t worst = 0;
   for (std::size_t i = 0; i < results.size(); ++i) {
-    const runtime::taa::FrameResult &r = results[i];
-    csv << std::format("{},{},{:.3f},{},{},{:.3f},{},{},{},{},{},{},{:.3f},{},{},{:.3f},{}", testCase.warmup + i,
-                       r.glass.pixels, r.glass.mean, r.glass.percentile99, r.glass.maximum, r.opaque.mean,
-                       r.opaque.percentile99, r.opaque.maximum, r.vacated, r.unrecovered, r.pass() ? 1 : 0,
+    runtime::taa::FrameResult &r = results[i];
+    const std::size_t frame = i + measured.firstMeasured;
+    r.referenceMotion =
+        runtime::taa::referenceMotionResidual(rig.size, measured.reference[frame], measured.reference[frame - 1],
+                                              measured.glass[frame].coverage, MotionSearchRadius);
+    csv << std::format("{},{},{:.3f},{},{},{:.3f},{},{},{},{:.3f},{},{:.3f},{},{},{},{:.3f},{},{},{:.3f},{},{:.3f},{},{"
+                       ":.3f},{},{:.3f},{}",
+                       testCase.warmup + i, r.glass.pixels, r.glass.mean, r.glass.percentile99, r.glass.maximum,
+                       r.opaque.mean, r.opaque.percentile99, r.opaque.maximum, r.vacated.pixels, r.vacated.mean,
+                       r.vacated.percentile99, r.vacatedSample.mean, r.vacatedSample.percentile99, r.pass() ? 1 : 0,
                        r.covered.pixels, r.covered.mean, r.covered.percentile99, r.uncovered.pixels, r.uncovered.mean,
-                       r.uncovered.percentile99);
-    // No prior reference is captured for the first measured frame. Empty cells mean unavailable,
-    // not a measured zero; the remaining rows compare the same reference pair in both treatments.
-    if (i > 0) {
-      const runtime::taa::ReferenceMotionResidual residual = runtime::taa::referenceMotionResidual(
-          rig.size, measured.reference[i + measured.firstMeasured], measured.reference[i + measured.firstMeasured - 1],
-          measured.glass[i + measured.firstMeasured].coverage, MotionSearchRadius);
-      csv << std::format(",{:.3f},{},{:.3f},{}", residual.unshifted.mean, residual.unshifted.percentile99,
-                         residual.integerMatched.mean, residual.integerMatched.percentile99);
-    } else {
-      csv << ",,,,";
-    }
-    csv << '\n';
+                       r.uncovered.percentile99, r.referenceMotion.unshifted.mean,
+                       r.referenceMotion.unshifted.percentile99, r.referenceMotion.integerMatched.mean,
+                       r.referenceMotion.integerMatched.percentile99, single[i].mean, single[i].percentile99)
+        << '\n';
     allPass = allPass && r.pass();
     if (r.glass.mean > results[worst].glass.mean) {
       worst = i;
@@ -562,16 +575,16 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
   };
   summary["worstMean"] = worstOf([](const auto &r) { return r.glass.mean; });
   summary["worstPercentile99"] = worstOf([](const auto &r) { return r.glass.percentile99; });
-  summary["worstUnrecovered"] = worstOf([](const auto &r) { return r.unrecovered; });
+  summary["worstVacatedMean"] = worstOf([](const auto &r) { return r.vacated.mean; });
   summary["worstOpaqueMean"] = worstOf([](const auto &r) { return r.opaque.mean; });
   summary["worstOpaquePercentile99"] = worstOf([](const auto &r) { return r.opaque.percentile99; });
   summary["worstFrame"] = testCase.warmup + worst;
   summary["diagnostic"] = testCase.diagnostic;
   summary["pass"] = allPass;
   std::ofstream{directory / "summary.json"} << summary.dump(2) << '\n';
-  std::println("{}: {} ({} frames, worst frame {} mean {:.2f} p99 {} unrecovered {})", testCase.name,
+  std::println("{}: {} ({} frames, worst frame {} mean {:.2f} p99 {} vacated {:.2f})", testCase.name,
                allPass ? "pass" : "FAIL", results.size(), testCase.warmup + worst, results[worst].glass.mean,
-               results[worst].glass.percentile99, results[worst].unrecovered);
+               results[worst].glass.percentile99, results[worst].vacated.mean);
   return allPass;
 }
 

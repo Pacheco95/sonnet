@@ -148,22 +148,26 @@ def main():
             if [int(r["frame"]) for r in rows] != list(frames):
                 raise ValueError(f"{case}: missing judged frames")
             s = summaries[mode]
-            result[mode] = {key: s[key] for key in ("worstMean", "worstPercentile99", "worstUnrecovered",
+            result[mode] = {key: s[key] for key in ("worstMean", "worstPercentile99", "worstVacatedMean",
                                                     "worstOpaqueMean", "worstOpaquePercentile99", "pass")}
             result[mode].update({"passingFrames": sum(int(r["pass"]) for r in rows), "measuredFrames": count,
-                                 "meanBudgetFrames": sum(float(r["glass_mean"]) <= 2 for r in rows),
-                                 "p99BudgetFrames": sum(int(r["glass_p99"]) <= 8 for r in rows),
-                                 "recoveryBudgetFrames": sum(int(r["unrecovered"]) == 0 for r in rows)})
+                                 "legacyMeanBudgetFrames": sum(float(r["glass_mean"]) <= 2 for r in rows),
+                                 "legacyP99BudgetFrames": sum(int(r["glass_p99"]) <= 8 for r in rows),
+                                 "recoveryBudgetFrames": sum(
+                                     int(r["vacated"]) < 100 or
+                                     float(r["vacated_mean"]) <= float(r["vacated_sample_mean"]) + 3
+                                     for r in rows)})
         residual_fields = ("residual_unshifted_mean", "residual_unshifted_p99",
                            "residual_matched_mean", "residual_matched_p99")
-        same_fields = ("glass_pixels", "covered_pixels", "uncovered_pixels", "vacated", *residual_fields)
+        same_fields = ("glass_pixels", "covered_pixels", "uncovered_pixels", "vacated", *residual_fields,
+                       "vacated_sample_mean", "vacated_sample_p99", "single_covered_mean", "single_covered_p99")
         for index, (a, b) in enumerate(zip(rows_by_mode["background"], rows_by_mode["glass"])):
             if any(a[key] != b[key] for key in same_fields):
                 raise ValueError(f"{case} frame {a['frame']}: coverage or reference residual changed")
-            if any((a[key] == "") != (index == 0) for key in residual_fields):
-                raise ValueError(f"{case}: only the first frame lacks a prior reference")
+            if any(a[key] == "" or b[key] == "" for key in residual_fields):
+                raise ValueError(f"{case}: every measured frame needs its previous warm-up reference")
         result["referenceMotionResidual"] = {
-            key: max(float(row[key]) for row in rows_by_mode["background"][1:]) for key in residual_fields
+            key: max(float(row[key]) for row in rows_by_mode["background"]) for key in residual_fields
         }
         for mode, rows in rows_by_mode.items():
             result[mode]["covered"] = {key: max(float(row[key]) for row in rows)
@@ -192,7 +196,7 @@ def main():
                 result.setdefault("captures", []).append({"frame": frame, "crop": crop})
         result["referenceSha256"] = reference_hashes
         comparison[case] = result
-        print(case, *[f"{mode}: {r['worstMean']:.3f}/{r['worstPercentile99']:g}/{r['worstUnrecovered']:g} "
+        print(case, *[f"{mode}: {r['worstMean']:.3f}/{r['worstPercentile99']:g}/{r['worstVacatedMean']:.3f} "
                       f"({r['passingFrames']}/{count})" for mode, r in result.items() if mode in paths])
     (args.out / "comparison.json").write_text(json.dumps(comparison, indent=2) + "\n")
     with (args.out / "diagnostics.csv").open("w") as target:
