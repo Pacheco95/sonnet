@@ -219,7 +219,7 @@ TEST_CASE("capture motion matches draw identity across reorder, replacement and 
 
 TEST_CASE("integer reference residual is not a floor for fractional motion", "[taa]") {
   constexpr glm::uvec2 size{32, 32};
-  constexpr std::size_t count = 32 * 32;
+  constexpr std::size_t count = std::size_t{size.x} * size.y;
   std::vector<std::byte> previous(count * 4, std::byte{255});
   auto current = previous;
   auto reconstructed = previous;
@@ -247,7 +247,7 @@ TEST_CASE("integer reference residual is not a floor for fractional motion", "[t
     }
   }
   const auto residual = referenceMotionResidual(size, current, previous, interior, 6);
-  REQUIRE(residual.integerMatched.pixels == 16 * 16);
+  REQUIRE(residual.integerMatched.pixels == std::size_t{16} * 16);
   CHECK(residual.integerMatched.mean == 3.0);
   CHECK(residual.integerMatched.percentile99 == 3);
   CHECK(statistics(errorLevels(size, current, reconstructed), interior).maximum == 0);
