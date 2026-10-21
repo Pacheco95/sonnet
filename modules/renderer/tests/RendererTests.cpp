@@ -23,8 +23,10 @@
 #include <cstring>
 #include <deque>
 #include <format>
+#include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -3883,6 +3885,70 @@ TEST_CASE("ten thousand draws and a hundred lights at 1080p", "[.][benchmark][gp
   measure(*device, true, false);
   measure(*device, false, true);
   measure(*device, true, true);
+}
+
+// What the glass motion experiment costs (#352): `renderer_tests "[glass-motion]"` draws a hundred overlapping
+// transmissive spheres over a wall at 1080p with TAA, with `taaGlassMotion` off and on, and prints the median
+// over seven samples of the GPU time of the passes it adds or reads.
+TEST_CASE("the cost of the glass motion pass at 1080p", "[.][benchmark][glass-motion][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  for (const bool glassMotion : {false, true}) {
+    {
+      RendererSettings settings = taaSettings();
+      settings.taaGlassMotion = glassMotion;
+      Renderer renderer{*device, shaderDir(platform), settings};
+      const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+      const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 32, 16), "sphere");
+      MaterialDesc transmissive;
+      transmissive.metallic = 0.0f;
+      transmissive.transmission = 1.0f;
+      const MaterialHandle glass = renderer.createMaterial(transmissive, "glass");
+      std::vector<DrawItem> draws{DrawItem{.mesh = box,
+                                           .transform = glm::translate(glm::mat4{1.0f}, {0.0f, 0.0f, -1.0f}) *
+                                                        glm::scale(glm::mat4{1.0f}, {16.0f, 9.0f, 0.2f})}};
+      for (int i = 0; i < 100; ++i) {
+        const glm::vec3 position{(static_cast<float>(i % 10) - 4.5f) * 1.4f, (static_cast<float>(i / 10) - 4.5f) * 0.8f,
+                                 static_cast<float>(i % 3) * 0.3f};
+        draws.push_back(
+            {.mesh = sphere,
+             .material = glass,
+             .transform = glm::translate(glm::mat4{1.0f}, position) * glm::scale(glm::mat4{1.0f}, glm::vec3{1.6f}),
+             .previousTransform = glm::translate(glm::mat4{1.0f}, position - glm::vec3{0.05f, 0.0f, 0.0f}) *
+                                  glm::scale(glm::mat4{1.0f}, glm::vec3{1.6f})});
+      }
+      SceneView view = boxScene(draws);
+      view.camera.position.z = 9.0f;
+      GpuScene scene{*device, renderer, {1920, 1080}};
+      scene.render(view, 30);
+      std::map<std::string, std::vector<float>> samples;
+      for (int run = 0; run < 7; ++run) {
+        scene.render(view, 5);
+        for (const PassTiming &pass : scene.graph.statistics().passes) {
+          if (pass.gpuAvailable) {
+            samples[pass.name].push_back(pass.gpuMilliseconds);
+          }
+        }
+      }
+      WARN(std::format("taaGlassMotion {}: {} draws on {}", glassMotion ? "on" : "off", renderer.statistics().drawCount,
+                       device->info().deviceName));
+      for (const char *name : {"glass motion", "forward transparent", "taa"}) {
+        std::vector<float> &values = samples[name];
+        if (values.empty()) {
+          WARN(std::format("  {:<20} not drawn", name));
+          continue;
+        }
+        std::ranges::sort(values);
+        WARN(std::format("  {:<20} {:8.4f} ms GPU median (min {:.4f}, max {:.4f}, {} samples)", name,
+                         values[values.size() / 2], values.front(), values.back(), values.size()));
+      }
+      REQUIRE(device->validationMessageCount() == 0);
+      renderer.destroyMaterial(glass);
+      renderer.destroyMesh(sphere);
+      renderer.destroyMesh(box);
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+  }
 }
 
 // What particles cost (ADR-0023): `renderer_tests "[particles]"` fills ten emitters up to about a
