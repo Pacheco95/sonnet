@@ -352,7 +352,6 @@ private:
 struct Measured {
   std::vector<std::vector<std::byte>> taa;       // display-encoded, one per frame from firstContext
   std::vector<std::vector<std::byte>> reference; // the same
-  std::vector<std::vector<std::byte>> single;    // one jittered sample of each reference frame, tone mapped alone
   std::vector<runtime::taa::GlassFrame> glass;
   std::size_t firstMeasured{0}; // the index of the first judged frame in the vectors above
 };
@@ -404,9 +403,8 @@ void runReference(const Rig &rig, const Case &testCase, Measured &measured) {
     previousPose = pose;
     glass.coverage = std::move(pose);
     measured.glass.push_back(std::move(glass));
-    if (frame + 1 < testCase.warmup) {
+    if (frame < testCase.warmup) {
       measured.reference.emplace_back();
-      measured.single.emplace_back();
       continue;
     }
     // The simulation holds still: `referenceSamples` renders of this pose, averaged in linear HDR.
@@ -415,9 +413,6 @@ void runReference(const Rig &rig, const Case &testCase, Measured &measured) {
       renderer::SceneView view = run.game().view();
       view.referenceJitter = referenceJitter(sample);
       const std::vector<std::byte> hdr = run.hdr(view);
-      if (sample == 0) {
-        measured.single.push_back(run.toneMap(run.game().view(), hdr));
-      }
       for (std::size_t i = 0; i < sum.size(); ++i) {
         std::uint16_t half = 0;
         std::memcpy(&half, hdr.data() + i * sizeof(half), sizeof(half));
@@ -476,43 +471,30 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
   for (std::size_t i = measured.firstMeasured; i < errors.size(); ++i) {
     errors[i] = runtime::taa::errorLevels(rig.size, measured.taa[i], measured.reference[i]);
   }
-  // The error of one jittered sample of each frame, with no accumulation: what the content alone leaves.
-  std::vector<std::vector<std::uint8_t>> sampleErrors(measured.glass.size());
-  for (std::size_t i = measured.firstMeasured; i < sampleErrors.size(); ++i) {
-    sampleErrors[i] = runtime::taa::errorLevels(rig.size, measured.single[i], measured.reference[i]);
-  }
-  std::vector<runtime::taa::FrameResult> results =
-      runtime::taa::evaluate(rig.size, measured.glass, errors, sampleErrors, measured.firstMeasured);
-  // The reference's own change since the frame before, over what the glass covers now.
-  for (std::size_t i = 0; i < results.size(); ++i) {
-    const std::size_t frame = i + measured.firstMeasured;
-    results[i].floor = runtime::taa::temporalFloor(rig.size, measured.reference[frame], measured.reference[frame - 1],
-                                                   measured.glass[frame].coverage, FloorRadius);
-  }
-  std::vector<runtime::taa::ErrorStatistics> single(results.size());
-  for (std::size_t i = 0; i < results.size(); ++i) {
-    single[i] = runtime::taa::statistics(sampleErrors[i + measured.firstMeasured],
-                                         measured.glass[i + measured.firstMeasured].coverage);
-  }
+  const std::vector<runtime::taa::FrameResult> results =
+      runtime::taa::evaluate(rig.size, measured.glass, errors, measured.firstMeasured);
 
   std::ofstream csv{directory / "metrics.csv"};
   csv << "frame,glass_pixels,glass_mean,glass_p99,glass_max,opaque_mean,opaque_p99,opaque_max,vacated,"
-         "vacated_mean,vacated_p99,vacated_sample_mean,vacated_sample_p99,pass,covered_pixels,covered_mean,covered_p99,"
-         "uncovered_pixels,uncovered_mean,uncovered_p99,"
-         "floor_still_mean,floor_still_p99,floor_best_mean,floor_best_p99,single_covered_mean,single_covered_p99\n";
+         "unrecovered,pass,covered_pixels,covered_mean,covered_p99,uncovered_pixels,uncovered_mean,uncovered_p99,"
+         "floor_still_mean,floor_still_p99,floor_best_mean,floor_best_p99\n";
   bool allPass = true;
   std::size_t worst = 0;
   for (std::size_t i = 0; i < results.size(); ++i) {
     const runtime::taa::FrameResult &r = results[i];
-    const runtime::taa::TemporalFloor &floor = r.floor;
-    csv << std::format("{},{},{:.3f},{},{},{:.3f},{},{},{},{:.3f},{},{:.3f},{},{},{},{:.3f},{},{},{:.3f},{},{:.3f},{},{"
-                       ":.3f},{},{:.3f},{}",
+    // The reference's own change since the frame before, over what the glass covers now (none for the first).
+    runtime::taa::TemporalFloor floor;
+    if (i > 0) {
+      floor = runtime::taa::temporalFloor(rig.size, measured.reference[i + measured.firstMeasured],
+                                          measured.reference[i + measured.firstMeasured - 1],
+                                          measured.glass[i + measured.firstMeasured].coverage, FloorRadius);
+    }
+    csv << std::format("{},{},{:.3f},{},{},{:.3f},{},{},{},{},{},{},{:.3f},{},{},{:.3f},{},{:.3f},{},{:.3f},{}",
                        testCase.warmup + i, r.glass.pixels, r.glass.mean, r.glass.percentile99, r.glass.maximum,
-                       r.opaque.mean, r.opaque.percentile99, r.opaque.maximum, r.vacated.pixels, r.vacated.mean,
-                       r.vacated.percentile99, r.vacatedSample.mean, r.vacatedSample.percentile99, r.pass() ? 1 : 0,
-                       r.covered.pixels, r.covered.mean, r.covered.percentile99, r.uncovered.pixels, r.uncovered.mean,
-                       r.uncovered.percentile99, floor.still.mean, floor.still.percentile99, floor.best.mean,
-                       floor.best.percentile99, single[i].mean, single[i].percentile99)
+                       r.opaque.mean, r.opaque.percentile99, r.opaque.maximum, r.vacated, r.unrecovered,
+                       r.pass() ? 1 : 0, r.covered.pixels, r.covered.mean, r.covered.percentile99, r.uncovered.pixels,
+                       r.uncovered.mean, r.uncovered.percentile99, floor.still.mean, floor.still.percentile99,
+                       floor.best.mean, floor.best.percentile99)
         << '\n';
     allPass = allPass && r.pass();
     if (r.glass.mean > results[worst].glass.mean) {
@@ -565,16 +547,16 @@ void writeTriptych(const std::filesystem::path &file, glm::uvec2 size, std::span
   };
   summary["worstMean"] = worstOf([](const auto &r) { return r.glass.mean; });
   summary["worstPercentile99"] = worstOf([](const auto &r) { return r.glass.percentile99; });
-  summary["worstVacatedMean"] = worstOf([](const auto &r) { return r.vacated.mean; });
+  summary["worstUnrecovered"] = worstOf([](const auto &r) { return r.unrecovered; });
   summary["worstOpaqueMean"] = worstOf([](const auto &r) { return r.opaque.mean; });
   summary["worstOpaquePercentile99"] = worstOf([](const auto &r) { return r.opaque.percentile99; });
   summary["worstFrame"] = testCase.warmup + worst;
   summary["diagnostic"] = testCase.diagnostic;
   summary["pass"] = allPass;
   std::ofstream{directory / "summary.json"} << summary.dump(2) << '\n';
-  std::println("{}: {} ({} frames, worst frame {} mean {:.2f} p99 {} vacated {:.2f})", testCase.name,
+  std::println("{}: {} ({} frames, worst frame {} mean {:.2f} p99 {} unrecovered {})", testCase.name,
                allPass ? "pass" : "FAIL", results.size(), testCase.warmup + worst, results[worst].glass.mean,
-               results[worst].glass.percentile99, results[worst].vacated.mean);
+               results[worst].glass.percentile99, results[worst].unrecovered);
   return allPass;
 }
 
