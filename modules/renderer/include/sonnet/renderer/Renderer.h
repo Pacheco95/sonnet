@@ -109,6 +109,11 @@ struct RendererSettings {
   bool bloom{true};
   std::uint32_t bloomLevels{5};
   AntiAliasing antialiasing{AntiAliasing::Taa};
+  // Experiment (#352): under TAA the blended and transmissive draws write their own surface motion into
+  // a second image, and the resolve reprojects a pixel they cover with it rather than with the motion of
+  // the opaque surface behind. Not a default: it trades the glass's own details for the transmitted
+  // background (docs/reports/transmission-taa-glass-motion.md).
+  bool taaGlassMotion{false};
   // Occlusion culling of the opaque draws against a depth pyramid, in two phases (ADR-0024): the
   // result is the same pixels with fewer draws.
   bool occlusionCulling{true};
@@ -307,6 +312,11 @@ public:
   // next graph reset; invalid without TAA.
   [[nodiscard]] GraphImage motion(std::size_t view = 0) const noexcept {
     return view < m_viewCount ? m_views[view]->motion : GraphImage{};
+  }
+  // The glass's own motion of the `view`th declared view, with `taaGlassMotion` under TAA and a blended or
+  // transmissive draw; invalid otherwise. Valid until the next graph reset.
+  [[nodiscard]] GraphImage glassMotion(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->glassMotion : GraphImage{};
   }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
@@ -568,6 +578,7 @@ private:
     glm::mat4 jitteredViewProjection{1.0f};
     glm::mat4 previousViewProjection{1.0f};
     GraphImage motion;        // the pre-pass's motion attachment, under TAA
+    GraphImage glassMotion;   // the glass's own motion, under TAA with `taaGlassMotion` and a draw to show it
     GraphImage resolvedScene; // what the resolve wrote, under TAA
     GraphImage sceneColor;    // what bloom and tone mapping read: resolvedScene, or the forward passes' image
     float mipBias{0.0f};      // added to the level of material samples: TaaMipBias for a jittered view
@@ -624,7 +635,8 @@ private:
   // and returns the image bloom and tone mapping read in its place.
   [[nodiscard]] GraphImage addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth);
   void recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current, rhi::ImageHandle history,
-                 rhi::ImageHandle historyAge, rhi::ImageHandle motion, bool historyValid, rhi::ImageHandle depth);
+                 rhi::ImageHandle historyAge, rhi::ImageHandle motion, rhi::ImageHandle glassMotion, bool historyValid,
+                 rhi::ImageHandle depth);
   // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
   // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
   // InvalidBindlessIndex when the array is full.
@@ -714,6 +726,7 @@ private:
   std::array<rhi::PipelineHandle, 2> m_shadowPipelines;      // both cull nothing; kept as a pair for recordDraws
   std::array<rhi::PipelineHandle, 2> m_forwardPipelines;     // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_blendPipelines;       // by doubleSided
+  std::array<rhi::PipelineHandle, 2> m_glassMotionPipelines; // the blended draws' motion, tested against the depth
   std::array<rhi::PipelineHandle, 2> m_idPipelines;
   std::array<rhi::PipelineHandle, 2> m_maskPipelines;
   rhi::PipelineHandle m_skyboxPipeline;

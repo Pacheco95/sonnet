@@ -126,3 +126,49 @@ TEST_CASE("the mean and percentile budgets are checked on the region only", "[ta
   CHECK(results[0].opaque.maximum == 100);
   CHECK(results[0].glass.maximum == 0);
 }
+
+TEST_CASE("the temporal floor is zero for a translation and not for a change of content", "[taa]") {
+  constexpr glm::uvec2 Big{32, 16};
+  constexpr std::size_t Count = std::size_t{32} * 16;
+  // A ramp that does not repeat within the search window, then the same ramp moved two pixels right.
+  const auto ramp = [&](int shift, int tint) {
+    std::vector<std::byte> pixels(Count * 4, std::byte{255});
+    for (unsigned y = 0; y < Big.y; ++y) {
+      for (unsigned x = 0; x < Big.x; ++x) {
+        const auto level =
+            static_cast<unsigned>((static_cast<int>(x) - shift) * 7 % 150 + static_cast<int>(y) * 2 + tint);
+        for (std::size_t channel = 0; channel < 3; ++channel) {
+          pixels[(y * Big.x + x) * 4 + channel] = static_cast<std::byte>(level);
+        }
+      }
+    }
+    return pixels;
+  };
+  const Mask everything(Count, 1);
+  const TemporalFloor moved = temporalFloor(Big, ramp(2, 0), ramp(0, 0), everything, 4);
+  REQUIRE(moved.still.pixels > 0);
+  CHECK(moved.still.mean > 5.0);
+  CHECK(moved.best.maximum == 0);
+  // The same translation with the content brightened by 50 levels: no displacement within the window
+  // explains that, where it explained all of the translation.
+  const TemporalFloor changed = temporalFloor(Big, ramp(2, 50), ramp(0, 0), everything, 4);
+  CHECK(changed.best.mean > 5.0);
+}
+
+TEST_CASE("the region's error is split by what the glass covers now", "[taa]") {
+  // The pane covers columns 4 and 5 in every frame and swept column 3 on the way.
+  std::vector<GlassFrame> glass(5, {.coverage = columns(4, 5), .swept = columns(3, 5)});
+  std::vector<std::vector<std::uint8_t>> errors(5, std::vector<std::uint8_t>(PixelCount, 0));
+  for (auto &frame : errors) {
+    for (unsigned y = 0; y < Size.y; ++y) {
+      frame[y * Size.x + 3] = 30; // where the pane was, in the region and uncovered
+    }
+  }
+  const std::vector<FrameResult> results = evaluate(Size, glass, errors, 4);
+  REQUIRE(results.size() == 1);
+  CHECK(results[0].covered.pixels == 2 * Size.y);
+  CHECK(results[0].covered.maximum == 0);
+  // Columns 1 to 7 are the region once dilated by two; the covered 4 and 5 are not in the rest.
+  CHECK(results[0].uncovered.pixels == 5 * Size.y);
+  CHECK(results[0].uncovered.maximum == 30);
+}
