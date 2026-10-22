@@ -1,6 +1,7 @@
 # ADR-NNNN: Title
 
-- **Status:** Proposed | Accepted | Superseded by ADR-MMMM
+- **Status:** Proposed | Accepted
+- **Supersedes / Amends:** ADR-MMMM (optional; written here only, never in the older ADR)
 - **Date:** YYYY-MM-DD
 
 ## Context

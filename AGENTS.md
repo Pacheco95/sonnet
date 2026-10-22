@@ -28,7 +28,7 @@ The docs are the source of truth. Read the relevant one before a non-trivial cha
 | The icon, `tools/generate_icons.py` | `docs/branding.md` |
 | A cross-module decision | `docs/decisions/` (ADRs and the template) |
 
-Accepted ADRs are settled. Do not relitigate them in code; a change of direction is a new ADR that supersedes the old one, and an accepted ADR is only ever edited to change its status.
+Accepted ADRs are settled. Do not relitigate them in code; a change of direction is a new ADR that supersedes the old one, and an accepted ADR is never edited. ADR statuses are only Proposed and Accepted; the new ADR records `Supersedes:` or `Amends:` and the old one is left untouched. Accepted ADR files are read-only (`chmod a-w`, set in the commit that accepts them); git records only the executable bit, so a fresh clone must repeat `chmod a-w` on them.
 
 ## Commands
 

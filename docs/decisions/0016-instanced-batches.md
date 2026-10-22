@@ -1,6 +1,7 @@
 # ADR-0016: Instanced batches, one indirect command per batch
 
 - **Status:** Accepted
+- **Supersedes:** [ADR-0014](0014-indirect-draws-without-count.md)
 - **Date:** 2026-09-22
 
 ## Context

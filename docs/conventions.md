@@ -109,5 +109,4 @@ Rules:
 ## Documentation
 
 - Each module has a page under `docs/` or a section in an existing page, kept current with the code in the same change.
-- Decisions that affect more than one module get an ADR in `docs/decisions/`, numbered sequentially, using the template there. An ADR is never edited after acceptance except to change its status; a new ADR supersedes it.
-- The README stays short: goals, platforms, stack, architecture summary, index.
+- Decisions that affect more than one module get an ADR in `docs/decisions/`, numbered sequentially, using the template there. An ADR is never edited after acceptance. Its status is only `Proposed` or `Accepted`: a decision that is replaced or refined stays `Accepted`, and the new ADR carries a `Supersedes:` or `Amends:` line pointing at the old one, so the old file is left untouched. Accepted ADR files are marked read-only (`chmod a-w`) to enforce that, in the commit that accepts them. Git records only the executable bit, so the mode does not travel with a clone; run `chmod a-w` on the accepted ADRs there.
