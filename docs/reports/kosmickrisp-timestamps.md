@@ -173,7 +173,13 @@ copy without changing tracked sample assets.
 
 [Archived logs](kosmickrisp-timestamps/logs.tar.gz) retain the instrumented stock
 capture, both Debug controls, both Release results, the independent Metal probe,
-the repaired full capture with GPU feedback, and the regular RHI suite. No
-upstream report was submitted by this change. The remaining qualification gate
-is a production KosmicKrisp/Metal fix passing the unmodified raw diagnostic and
-scene capture without this experimental shim, followed by performance checks.
+the repaired full capture with GPU feedback, and the regular RHI suite.
+
+Standalone Vulkan and Metal reproducers, with no engine code, confirmed the
+failure on the stock SDK ([upstream-repro](kosmickrisp-upstream-repro/README.md))
+and on unpatched Mesa main ([mesa-main](kosmickrisp-mesa-main/README.md)); the
+smallest failing count is 5 consecutive timestamps. The upstream report is
+[Mesa issue 16668](https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16668).
+The remaining qualification gate is a production KosmicKrisp/Metal fix passing
+the unmodified raw diagnostic and scene capture without this experimental shim,
+followed by performance checks.
