@@ -104,6 +104,10 @@ Full rules are in `docs/conventions.md`; these are the ones that differ from com
 - Run clang-format 20 (`clang-format-20`, the version CI uses) over the changed sources before opening a PR; other versions can disagree with CI.
 - Every module has `tests/` built through `sonnet_add_module_test`; a bug fix comes with the test that would have caught it.
 
+## Waiting for CI
+
+Do not poll GitHub to wait for a pipeline (`gh pr checks --watch`, repeated `gh pr view` or `gh run view` loops, scheduled re-checks): every poll costs tokens. After pushing, check once, give the developer the PR link and stop; look again only when the developer asks.
+
 ## The issue backlog
 
 Open issues are ranked on the private GitHub project "Sonnet Issue Prioritization" (project 1 of the repository owner). Each card carries a Priority Tier (Quick Win, Medium Fit, Deferred), an Effort in hours (the rounded midpoint of the estimated range) and a Target Release. Read it before choosing what to work on next:
