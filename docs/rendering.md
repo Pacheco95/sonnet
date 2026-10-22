@@ -221,7 +221,7 @@ Opaque draws are submitted by the GPU ([ADR-0012](decisions/0012-gpu-driven-rend
 
 ### TAA checks
 
-[ADR-0033](decisions/0033-transmission.md) asks for glass to be measured under TAA against a reference before transmission is accepted, and [ADR-0034](decisions/0034-taa-glass-gate.md) sets the gate it is judged by. The measurement is `apps/taa_harness`, which builds beside the player and needs a Vulkan device (it opens a hidden window); `modules/runtime/TaaCheck.h` holds the comparison and `runtime_tests "[taa]"` its unit tests. Results are in [transmission-taa](reports/transmission-taa.md).
+[ADR-0033](decisions/0033-transmission.md) asks for glass to be measured under TAA against a reference before transmission is accepted, and [ADR-0034](decisions/0034-taa-glass-gate.md) sets the gate it is judged by. The measurement is `apps/taa_harness`, which builds beside the player and needs a Vulkan device (it opens a hidden window); `modules/runtime/TaaCheck.h` holds the comparison and `runtime_tests "[taa]"` its unit tests. Results are in [transmission-taa](reports/transmission-taa.md); the closing run on main is [Final run on main](reports/transmission-taa.md#final-run-on-main-339).
 
 ```bash
 python3 tools/generate_taa_fixtures.py   # the procedural cases (committed output; only to change them)

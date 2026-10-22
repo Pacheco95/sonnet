@@ -9,9 +9,13 @@ REST_MEAN, REST_P99, MEAN_PER_FLOOR, P99_PER_FLOOR = 4.0, 40, 4.0, 2.0
 MIN_VACATED, VACATED_MARGIN = 100, 3.0
 
 here = os.path.dirname(os.path.abspath(__file__))
-for variant, pattern in (("gate", "*.csv"), ("ghost (history never dropped on a glass change)", "ghost/*.csv")):
+# With a directory argument (for example ../final), judges that directory's CSVs alone.
+variants = ((sys.argv[1], "*.csv"),) if len(sys.argv) > 1 else (
+    ("gate", "*.csv"), ("ghost (history never dropped on a glass change)", "ghost/*.csv"))
+for variant, pattern in variants:
     print(variant)
-    for path in sorted(glob.glob(os.path.join(here, pattern))):
+    root = os.path.abspath(variant) if len(sys.argv) > 1 else here
+    for path in sorted(glob.glob(os.path.join(root, pattern))):
         rows = list(csv.DictReader(open(path)))
         mean_budget = [REST_MEAN + MEAN_PER_FLOOR * float(r["residual_matched_mean"]) for r in rows]
         p99_budget = [REST_P99 + P99_PER_FLOOR * int(r["residual_matched_p99"]) for r in rows]

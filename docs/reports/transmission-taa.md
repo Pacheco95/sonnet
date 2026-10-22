@@ -220,6 +220,26 @@ This is the run on the corrected full-frame motion of [#364](transmission-taa-mo
 
 Reproduce: `tools/fetch_taa_fixtures.py`, then the commands in [rendering.md](../rendering.md#taa-checks); `python3 docs/reports/transmission-taa-metrics/gate/summarize.py`. A full run takes about ten minutes in Debug.
 
+## Final run on main (#339)
+
+The closing run of [#339](https://github.com/Pacheco95/sonnet/issues/339), on `6e8833c0e44de88597948efaf2c5eef907b07a2d` (main, after #366 restored the ADR-0034 gate), in Release on an RTX 4090 at 1280×720. Each case ran 32 warm-up frames and then its measured frames (16, or 24 for the masked pane) at a step of 1/60 s in four updates, with the previous rendered pose as the motion interval (`motionInterval: rendered-frame`) and 16 reference samples. The fixtures are glTF-Sample-Assets `edc7c9e67c639d230715049ee31f9a96a6babbbe` and glTF-Sample-Environments `4fc29557763275b8519b42920f85ad0ca1822f22` (`tools/fetch_taa_fixtures.py`). The GPU was shared with a desktop session, which does not matter for error metrics. The default treatment (background motion) is the run archived in [`final/`](transmission-taa-metrics/final/): per-frame `<case>.csv`, `<case>.json` summaries and the worst frame of each required case under `images/` (TAA, reference, error ×16, region in red; JPEG-compressed from the harness's `worst.png`). Both treatments exited 0; the `--glass-motion` run's worst metrics are in the second column of the [corrected comparison](transmission-taa-motion-corrected.md#corrected-adr-0034-results) and reproduce it to within a level.
+
+| Case | Covered mean / p99 | Least slack (mean / p99) | Vacated mean above sample | Opaque mean / p99 | Frames passing |
+|---|---|---|---|---|---|
+| `rough-pane` | 0.20 / 1 | 4.14 / 41 | | 1.48 / 3 | 16/16 |
+| `masked-pane` | 1.82 / 19 | 2.47 / 31 | +0.86 | 1.49 / 3 | 24/24 |
+| `watch` | 1.55 / 23 | 2.67 / 20 | | 0.27 / 5 | 16/16 |
+| `transmission-test` | 14.36 / 71 | 1.91 / 17 | | 0.21 / 4 | 16/16 |
+| `masked-pane-fast` (diagnostic) | 2.16 / 20 | 2.32 / 30 | +1.91 | 1.49 / 4 | 24/24 |
+| `watch-fast` (diagnostic) | 1.67 / 27 | 3.37 / 25 | | 0.27 / 5 | 16/16 |
+| `transmission-test-still` (diagnostic) | 3.21 / 31 | 0.79 / 9 | | 0.13 / 2 | 16/16 |
+
+All four required cases meet ADR-0034's budgets in every measured frame, and so do the three diagnostics. The opaque-region columns are the worst measured frame's error outside the glass region, reported apart from the gate. `python3 docs/reports/transmission-taa-metrics/gate/summarize.py docs/reports/transmission-taa-metrics/final` re-derives the verdicts from the CSVs. The numbers equal the [gate run](#the-gate-360)'s to the digit because the renderer and fixtures are unchanged since; what this run adds is the commit, the asset revisions, Release builds, and the opaque-region column.
+
+**Remaining limits.** One device and one run of each case; the constants were fitted to these cases (see the gate's limits). `transmission-test` has the least margin (1.9 levels of mean slack turning, 0.8 at rest), so a resolve change should rerun it first. Glass motion stays off, and the phone costs of the mitigation belong to [#342](https://github.com/Pacheco95/sonnet/issues/342) and its follow-ups.
+
+Verification of the same checkout: `runtime_tests '[taa]'` 191 assertions in 12 test cases, `renderer_tests '[taa],[transmission]'` 584 assertions in 29 test cases. Commands: the [corrected report's reproduction](transmission-taa-motion-corrected.md#reproduction-and-verification) (Release build, then the harness without and with `--glass-motion`).
+
 ## What a decision depends on
 
 - The old mean-2, p99-8 and vacated-pixel thresholds in the sections above are historical results under ADR-0033. [ADR-0034](../decisions/0034-taa-glass-gate.md) now defines the acceptance gate; see [the gate results](#the-gate-360).
