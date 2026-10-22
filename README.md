@@ -208,6 +208,7 @@ ctest --preset linux-debug
 | [0032](docs/decisions/0032-instance-child-order.md) | An instance stores the order of its children when it differs from the default | Accepted |
 | [0033](docs/decisions/0033-transmission.md) | Transmissive materials sample a copy of the opaque scene | Accepted, TAA gate superseded by 0034 |
 | [0034](docs/decisions/0034-taa-glass-gate.md) | Glass under TAA is judged against what its content allows | Accepted |
+| [0035](docs/decisions/0035-moltenvk-stays-pinned.md) | MoltenVK is deprecated upstream and stays pinned | Accepted |
 
 ## License
 
