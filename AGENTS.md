@@ -96,7 +96,7 @@ Machine-specific notes (tool locations, checkouts of the previous iterations to 
 
 Full rules are in `docs/conventions.md`; these are the ones that differ from common habits.
 
-- Commits follow Conventional Commits with the module name as scope: `feat(rhi): adopt vk-bootstrap handles into RAII wrappers`. Breaking changes carry `!` and a `BREAKING CHANGE:` footer. Before 1.0.0 each milestone bumps MINOR.
+- Commits follow Conventional Commits with the module name as scope (or a non-module one such as `ports`, `tools` or `ci`, listed in `docs/conventions.md`): `feat(rhi): adopt vk-bootstrap handles into RAII wrappers`. Breaking changes carry `!` and a `BREAKING CHANGE:` footer. Before 1.0.0 each milestone bumps MINOR.
 - Logging goes only through the `SONNET_LOG_*` macros, which attach file, line and function; calling spdlog directly is not allowed. `Error` values and `core::Exception` capture `std::source_location` at creation, so a reported error shows where it was created rather than where it was caught.
 - Init and resource creation may throw; the per-frame path never throws; recoverable operations return `std::expected<T, Error>`.
 - No compatibility shims, feature flags or future-proofing ahead of need. Third-party code is never edited in place; patches go through vcpkg overlay ports. vcpkg first, `FetchContent` only for libraries without a port, never both for one library.
