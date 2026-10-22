@@ -70,7 +70,8 @@ using namespace sonnet;
   desc.renderer.farShadowMapSize = 1024;
   desc.renderer.shadowLodCascade = 3;
   desc.renderer.maxEnvironmentSize = 1024;
-  desc.renderer.transmission = false; // cold cost over 2 ms on the iPad (docs/reports/transmission-mobile-ipad.md)
+  // Half-size copy still does not establish the cold budget (docs/reports/transmission-ipad-half-copy.md).
+  desc.renderer.transmission = false;
 #endif
   return desc;
 }
