@@ -1,0 +1,18 @@
+device=Apple M4 Max timestampPeriod=1.000000
+query= 0 ticks=462716704567375 available=1
+query= 1 ticks=462716704574041 available=1
+query= 2 ticks=462716704581125 available=1
+query= 3 ticks=462716704588000 available=1
+query= 4 ticks=462716704594541 available=1
+query= 5 ticks=462716704602250 available=1
+query= 6 ticks=462716704616916 available=1
+query= 7 ticks=462716704624208 available=1
+query= 8 ticks=462716704630791 available=1
+query= 9 ticks=462716704637500 available=1
+query=10 ticks=462716704644250 available=1
+query=11 ticks=462716704651083 available=1
+query=12 ticks=462716704657625 available=1
+query=13 ticks=462716704664708 available=1
+query=14 ticks=462716704671291 available=1
+query=15 ticks=462716704677958 available=1
+PASS

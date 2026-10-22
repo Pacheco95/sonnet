@@ -1,0 +1,3 @@
+2a1d336b438b957eb948583eefc8ba86ef06cbc9
+2026-10-22T21:57:52Z
+meson: imgui-sdl3-vulkan needs the vulkan loader headers

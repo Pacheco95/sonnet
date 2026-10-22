@@ -1,0 +1,5 @@
+device=Apple M4 Max timestampPeriod=41.666668
+query= 0 ticks=11106174741010 available=1
+query= 1 ticks=11106174741010 available=1
+query= 2 ticks=11106174741010 available=1
+PASS

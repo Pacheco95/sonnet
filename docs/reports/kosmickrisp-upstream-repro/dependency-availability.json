@@ -1,0 +1,187 @@
+{
+  "formulae": [
+    {
+      "name": "spirv-llvm-translator",
+      "full_name": "spirv-llvm-translator",
+      "tap": "homebrew/core",
+      "oldnames": [],
+      "aliases": [],
+      "versioned_formulae": [],
+      "desc": "Tool and a library for bi-directional translation between SPIR-V and LLVM IR",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "homepage": "https://github.com/KhronosGroup/SPIRV-LLVM-Translator",
+      "versions": {
+        "stable": "23.1.2",
+        "head": null,
+        "bottle": true
+      },
+      "urls": {
+        "stable": {
+          "url": "https://github.com/KhronosGroup/SPIRV-LLVM-Translator/archive/refs/tags/v23.1.2.tar.gz",
+          "tag": null,
+          "revision": null,
+          "using": null,
+          "checksum": "b657254b5e0a2dda7914a8cb1eace467f22847d75d877b83829026c1452f827a"
+        }
+      },
+      "patches": [],
+      "revision": 0,
+      "version_scheme": 0,
+      "compatibility_version": null,
+      "autobump": true,
+      "no_autobump_message": null,
+      "skip_livecheck": false,
+      "bottle": {
+        "stable": {
+          "rebuild": 0,
+          "root_url": "https://ghcr.io/v2/homebrew/core",
+          "files": {
+            "arm64_tahoe": {
+              "cellar": ":any",
+              "url": "https://ghcr.io/v2/homebrew/core/spirv-llvm-translator/blobs/sha256:bf3ff1c931ea367a8b753b7534d7c1c5db17d713363db1f658434aee7b83462b",
+              "sha256": "bf3ff1c931ea367a8b753b7534d7c1c5db17d713363db1f658434aee7b83462b"
+            }
+          }
+        }
+      },
+      "pour_bottle_only_if": null,
+      "keg_only": false,
+      "keg_only_reason": null,
+      "options": [],
+      "build_dependencies": [
+        "cmake",
+        "pkgconf",
+        "spirv-headers"
+      ],
+      "dependencies": [
+        "llvm"
+      ],
+      "test_dependencies": [],
+      "recommended_dependencies": [],
+      "optional_dependencies": [],
+      "uses_from_macos": [],
+      "uses_from_macos_bounds": [],
+      "requirements": [],
+      "conflicts_with": [],
+      "conflicts_with_reasons": [],
+      "link_overwrite": [],
+      "caveats": null,
+      "installed": [],
+      "linked_keg": null,
+      "pinned": false,
+      "outdated": false,
+      "deprecated": false,
+      "deprecation_date": null,
+      "deprecation_reason": null,
+      "deprecation_replacement_formula": null,
+      "deprecation_replacement_cask": null,
+      "deprecate_args": null,
+      "disabled": false,
+      "disable_date": null,
+      "disable_reason": null,
+      "disable_replacement_formula": null,
+      "disable_replacement_cask": null,
+      "disable_args": null,
+      "post_install_steps": [],
+      "post_install_defined": false,
+      "service": null,
+      "tap_git_head": "e933e1d893b74a90298c16445ed22c734b51b656",
+      "ruby_source_path": "Formula/s/spirv-llvm-translator.rb",
+      "ruby_source_checksum": {
+        "sha256": "1bafd19d6234b9c5de5fc09ddf9ff4d4ede312d1c11f1dd9b607c95dc032ee6d"
+      }
+    },
+    {
+      "name": "libclc",
+      "full_name": "libclc",
+      "tap": "homebrew/core",
+      "oldnames": [],
+      "aliases": [],
+      "versioned_formulae": [],
+      "desc": "Implementation of the library requirements of the OpenCL C programming language",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "homepage": "https://libclc.llvm.org/",
+      "versions": {
+        "stable": "23.1.4",
+        "head": null,
+        "bottle": true
+      },
+      "urls": {
+        "stable": {
+          "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.4/llvm-project-23.1.4.src.tar.xz",
+          "tag": null,
+          "revision": null,
+          "using": null,
+          "checksum": "819ecf7351f1a66f76b2d701d8942faaf5faeb324cb90c9d5b090de142434bb2"
+        }
+      },
+      "patches": [],
+      "revision": 0,
+      "version_scheme": 0,
+      "compatibility_version": null,
+      "autobump": true,
+      "no_autobump_message": null,
+      "skip_livecheck": false,
+      "bottle": {
+        "stable": {
+          "rebuild": 0,
+          "root_url": "https://ghcr.io/v2/homebrew/core",
+          "files": {
+            "arm64_tahoe": {
+              "cellar": ":any_skip_relocation",
+              "url": "https://ghcr.io/v2/homebrew/core/libclc/blobs/sha256:e39c37e42ad846c3976dcb1a65d9b0e46b392f9170c43e85bf5ac52f10f1f526",
+              "sha256": "e39c37e42ad846c3976dcb1a65d9b0e46b392f9170c43e85bf5ac52f10f1f526"
+            }
+          }
+        }
+      },
+      "pour_bottle_only_if": null,
+      "keg_only": false,
+      "keg_only_reason": null,
+      "options": [],
+      "build_dependencies": [
+        "cmake",
+        "llvm",
+        "spirv-llvm-translator"
+      ],
+      "dependencies": [],
+      "test_dependencies": [
+        "llvm"
+      ],
+      "recommended_dependencies": [],
+      "optional_dependencies": [],
+      "uses_from_macos": [],
+      "uses_from_macos_bounds": [],
+      "requirements": [],
+      "conflicts_with": [],
+      "conflicts_with_reasons": [],
+      "link_overwrite": [],
+      "caveats": null,
+      "installed": [],
+      "linked_keg": null,
+      "pinned": false,
+      "outdated": false,
+      "deprecated": false,
+      "deprecation_date": null,
+      "deprecation_reason": null,
+      "deprecation_replacement_formula": null,
+      "deprecation_replacement_cask": null,
+      "deprecate_args": null,
+      "disabled": false,
+      "disable_date": null,
+      "disable_reason": null,
+      "disable_replacement_formula": null,
+      "disable_replacement_cask": null,
+      "disable_args": null,
+      "post_install_steps": [],
+      "post_install_defined": false,
+      "service": null,
+      "tap_git_head": "e933e1d893b74a90298c16445ed22c734b51b656",
+      "ruby_source_path": "Formula/lib/libclc.rb",
+      "ruby_source_checksum": {
+        "sha256": "0d769978b1a6bc9a5af86a9dff23c64a3fd0eda9866ae4fdc2050b269589f05a"
+      }
+    }
+  ],
+  "casks": []
+}
