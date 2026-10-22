@@ -1,0 +1,12 @@
+$ cmake -S /tmp/sonnet-377/translator -B /tmp/sonnet-377/translator-build -DBUILD_SHARED_LIBS=OFF
+-- SPIR-V Headers location is not specified. Will try to download
+          spirv.hpp from https://github.com/KhronosGroup/SPIRV-Headers into
+          /tmp/sonnet-377/translator-build/SPIRV-Headers
+-- Building with -fPIC
+-- Found LLVM: 22.1.0
+-- Found SPIR-V Backend
+-- Configuring done (0.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: /tmp/sonnet-377/translator-build
+
+exit=0

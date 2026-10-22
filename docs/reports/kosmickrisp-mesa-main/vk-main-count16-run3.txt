@@ -1,0 +1,21 @@
+$ env DYLD_LIBRARY_PATH=/tmp/sonnet-377/mesa-build/src/kosmickrisp/vulkan:/tmp/sonnet-368/sdk/macOS/lib VK_DRIVER_FILES=/tmp/sonnet-377/mesa-build/src/kosmickrisp/vulkan/kosmickrisp_mesa_devenv_icd.aarch64.json /tmp/sonnet-377/vk-timestamps-count16
+device=Apple M4 Max timestampPeriod=41.666668
+query= 0 ticks=11122171477469 available=1
+query= 1 ticks=11122171477469 available=1
+query= 2 ticks=11122171477469 available=1
+query= 3 ticks=11122171477469 available=1
+query= 4 ticks=0 available=1
+query= 5 ticks=0 available=1
+query= 6 ticks=0 available=1
+query= 7 ticks=0 available=1
+query= 8 ticks=0 available=1
+query= 9 ticks=0 available=1
+query=10 ticks=0 available=1
+query=11 ticks=0 available=1
+query=12 ticks=0 available=1
+query=13 ticks=0 available=1
+query=14 ticks=0 available=1
+query=15 ticks=0 available=1
+FAIL: available query returned zero or went backwards
+
+exit=1

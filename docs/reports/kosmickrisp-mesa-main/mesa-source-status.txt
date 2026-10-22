@@ -1,0 +1,3 @@
+$ git -C /tmp/sonnet-377/mesa status --porcelain
+
+exit=0

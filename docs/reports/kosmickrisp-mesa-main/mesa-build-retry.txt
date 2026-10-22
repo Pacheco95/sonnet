@@ -1,0 +1,18 @@
+$ env PATH=/tmp/sonnet-376/venv/bin:/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:/usr/bin:/bin DYLD_LIBRARY_PATH=/tmp/sonnet-377/prefix/lib:/tmp/sonnet-368/sdk/macOS/lib ninja -C /tmp/sonnet-377/mesa-build -j 8
+ninja: Entering directory `/tmp/sonnet-377/mesa-build'
+[1/60] Generating src/poly/cl/libpoly.spv with a custom command
+FAILED: [code=134] src/poly/cl/libpoly.spv
+/private/tmp/sonnet-377/mesa-build/src/compiler/clc/mesa_clc -o src/poly/cl/libpoly.spv --depfile src/poly/cl/libpoly_shaders.h.d ../mesa/src/poly/cl/geometry.cl ../mesa/src/poly/cl/tessellation.cl -- -I/private/tmp/sonnet-377/mesa/include -I/private/tmp/sonnet-377/mesa/src/compiler/libcl -I/private/tmp/sonnet-377/mesa/src/poly/cl/. -I/private/tmp/sonnet-377/mesa/src/poly/cl/../../ -fmacro-prefix-map=../mesa/= -fmacro-prefix-map=/private/tmp/sonnet-377/mesa/= -fmacro-prefix-map=/private/tmp/sonnet-377/mesa-build/= -cl-std=cl2.0 -D__OPENCL_VERSION__=200 -DHAVE___BUILTIN_FFS -DHAVE___BUILTIN_CLZ
+dyld[54511]: Library not loaded: @rpath/libLLVMSPIRVLib.dylib
+  Referenced from: <<uuid>> /private/tmp/sonnet-377/mesa-build/src/compiler/clc/mesa_clc
+  Reason: tried: '/opt/homebrew/Cellar/llvm/22.1.0/lib/libLLVMSPIRVLib.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/Cellar/llvm/22.1.0/lib/libLLVMSPIRVLib.dylib' (no such file), '/opt/homebrew/Cellar/llvm/22.1.0/lib/libLLVMSPIRVLib.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/Cellar/llvm/22.1.0/lib/libLLVMSPIRVLib.dylib' (no such file)
+[2/60] Generating src/kosmickrisp/libkk/libkk.spv with a custom command
+FAILED: [code=134] src/kosmickrisp/libkk/libkk.spv
+/private/tmp/sonnet-377/mesa-build/src/compiler/clc/mesa_clc -o src/kosmickrisp/libkk/libkk.spv --depfile src/kosmickrisp/libkk/libkk_shaders.h.d ../mesa/src/kosmickrisp/libkk/kk_draws.cl ../mesa/src/kosmickrisp/libkk/kk_geometry.cl ../mesa/src/kosmickrisp/libkk/kk_query.cl ../mesa/src/kosmickrisp/libkk/kk_tessellation.cl ../mesa/src/kosmickrisp/libkk/kk_tessellator.cl -- -I/private/tmp/sonnet-377/mesa/include -I/private/tmp/sonnet-377/mesa/src/compiler/libcl -I/private/tmp/sonnet-377/mesa/src/poly/cl -I/private/tmp/sonnet-377/mesa/src/kosmickrisp/libkk/. -I/private/tmp/sonnet-377/mesa/src/kosmickrisp/libkk/../../ -I/private/tmp/sonnet-377/mesa/src/kosmickrisp/libkk/shaders -fmacro-prefix-map=../mesa/= -fmacro-prefix-map=/private/tmp/sonnet-377/mesa/= -fmacro-prefix-map=/private/tmp/sonnet-377/mesa-build/= -cl-std=cl2.0 -D__OPENCL_VERSION__=200 -DHAVE___BUILTIN_FFS -DHAVE___BUILTIN_CLZ
+dyld[54512]: Library not loaded: @rpath/libLLVMSPIRVLib.dylib
+  Referenced from: <<uuid>> /private/tmp/sonnet-377/mesa-build/src/compiler/clc/mesa_clc
+  Reason: tried: '/opt/homebrew/Cellar/llvm/22.1.0/lib/libLLVMSPIRVLib.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/Cellar/llvm/22.1.0/lib/libLLVMSPIRVLib.dylib' (no such file), '/opt/homebrew/Cellar/llvm/22.1.0/lib/libLLVMSPIRVLib.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/Cellar/llvm/22.1.0/lib/libLLVMSPIRVLib.dylib' (no such file)
+[3/60] Generating src/git_sha1.h with a custom command
+ninja: build stopped: subcommand failed.
+
+exit=134

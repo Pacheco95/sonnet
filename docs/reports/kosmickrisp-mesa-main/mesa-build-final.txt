@@ -1,0 +1,68 @@
+$ env PATH=/tmp/sonnet-376/venv/bin:/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:/usr/bin:/bin ninja -C /tmp/sonnet-377/mesa-build -j 8
+ninja: Entering directory `/tmp/sonnet-377/mesa-build'
+[1/61] Linking target src/compiler/clc/mesa_clc
+ld: warning: ignoring duplicate libraries: '-lLLVM-22', '-lz'
+[2/61] Generating src/git_sha1.h with a custom command
+[3/61] Generating src/poly/cl/libpoly.spv with a custom command
+[4/61] Generating src/kosmickrisp/libkk/libkk.spv with a custom command
+[5/61] Generating src/poly/cl/libpoly.cpp with a custom command
+[6/61] Generating src/kosmickrisp/libkk/libkk.cpp with a custom command
+[7/61] Compiling C object src/poly/nir/liblibpoly_nir.a.p/poly_nir_lower_sysvals.c.o
+[8/61] Compiling C object src/poly/nir/liblibpoly_nir.a.p/poly_nir_lower_vs.c.o
+[9/61] Compiling C object src/poly/nir/liblibpoly_nir.a.p/poly_nir_passthrough_gs.c.o
+[10/61] Compiling C object src/poly/nir/liblibpoly_nir.a.p/poly_nir_lower_tess.c.o
+[11/61] Compiling C++ object src/poly/nir/liblibpoly_nir.a.p/meson-generated_.._.._cl_libpoly.cpp.o
+[12/61] Compiling C object src/poly/nir/liblibpoly_nir.a.p/poly_nir_lower_gs.c.o
+[13/61] Linking static target src/poly/nir/liblibpoly_nir.a
+[14/61] Generating src/kosmickrisp/libkk/libkk_shaders.h with a custom command
+[15/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/meson-generated_.._kk_entrypoints.c.o
+[16/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_bo.c.o
+[17/61] Compiling C++ object src/kosmickrisp/libkk/liblibkk_shaders.a.p/meson-generated_.._.._.._poly_cl_libpoly.cpp.o
+[18/61] Compiling C object src/kosmickrisp/libkk/liblibkk_shaders.a.p/meson-generated_.._libkk_shaders.c.o
+[19/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_buffer_view.c.o
+[20/61] Compiling C++ object src/kosmickrisp/vulkan/libkk.a.p/meson-generated_.._.._libkk_libkk.cpp.o
+[21/61] Compiling C object src/kosmickrisp/vulkan/libkk_device_dispatch_table.a.p/meson-generated_.._.._util_kk_dispatch_trampolines.c.o
+[22/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_buffer.c.o
+[23/61] Compiling C object src/kosmickrisp/vulkan/libkk_device_cmd_dispatch_table.a.p/meson-generated_.._.._util_kk_dispatch_cmd.c.o
+[24/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_debug.c.o
+[25/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_cmd_buffer.c.o
+[26/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_cmd_clear.c.o
+[27/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_cmd_dispatch.c.o
+[28/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_cmd_copy.c.o
+[29/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_cmd_pool.c.o
+[30/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_cmd_meta.c.o
+[31/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_cmd_draw.c.o
+[32/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_descriptor_set_layout.c.o
+[33/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_device_memory.c.o
+[34/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_descriptor_set.c.o
+[35/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_format.c.o
+[36/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_image_layout.c.o
+[37/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_event.c.o
+[38/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_device_lib.c.o
+[39/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_device.c.o
+[40/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_image_view.c.o
+[41/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_instance.c.o
+[42/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_image.c.o
+[43/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_nir_lower_custom_border.c.o
+[44/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_nir_lower_image_view_min_lod.c.o
+[45/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_nir_lower_multiview.c.o
+[46/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_nir_lower_null_images.c.o
+[47/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_nir_lower_descriptors.c.o
+[48/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_nir_lower_textures.c.o
+[49/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_nir_lower_vbo.c.o
+[50/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_query_table.c.o
+[51/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_physical_device.c.o
+[52/61] Linking static target src/kosmickrisp/libkk/liblibkk_shaders.a
+[53/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_query_pool.c.o
+[54/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_sampler.c.o
+[55/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_sync.c.o
+[56/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_queue.c.o
+[57/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_wsi.c.o
+[58/61] Compiling C object src/kosmickrisp/vulkan/libkk.a.p/kk_shader.c.o
+[59/61] Linking static target src/kosmickrisp/vulkan/libkk.a
+[60/61] Linking target src/kosmickrisp/kosmicomp
+ld: warning: ignoring duplicate libraries: '-lz'
+[61/61] Linking target src/kosmickrisp/vulkan/libvulkan_kosmickrisp.dylib
+ld: warning: ignoring duplicate libraries: '-lz'
+
+exit=0

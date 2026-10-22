@@ -1,0 +1,4 @@
+$ brew search spirv-llvm-translator
+spirv-llvm-translator
+
+exit=0
