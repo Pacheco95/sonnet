@@ -28,7 +28,7 @@ Do this before the first edit, so the board shows the work is taken. Then create
 
 ## 3. Implement
 
-Follow `AGENTS.md`: Conventional Commits with the module as scope (subject at most 72 characters, no `fixup!`; run `sh tools/install_hooks.sh` once per clone if the commit-msg hook is missing), a test with every bug fix, docs updated with the behaviour (`tools/check_docs.py`), and the build/test commands from `AGENTS.md` and `CLAUDE.local.md` (for example `VCPKG_ROOT=$HOME/vcpkg cmake --build --preset linux-debug`). Verify before opening the PR; say plainly what was and was not verified (a Mac or phone-only path cannot be checked here).
+Follow `AGENTS.md`: Conventional Commits with the module as scope, or one of the non-module scopes such as `ports` listed in `docs/conventions.md` (subject at most 72 characters, no `fixup!`; run `sh tools/install_hooks.sh` once per clone if the commit-msg hook is missing), a test with every bug fix, docs updated with the behaviour (`tools/check_docs.py`), and the build/test commands from `AGENTS.md` and `CLAUDE.local.md` (for example `VCPKG_ROOT=$HOME/vcpkg cmake --build --preset linux-debug`). Verify before opening the PR; say plainly what was and was not verified (a Mac or phone-only path cannot be checked here).
 
 Commit attribution follows the session's reminder. Keep commits reviewable, one concern each.
 
