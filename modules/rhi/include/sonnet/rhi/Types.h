@@ -436,7 +436,8 @@ enum class IndexType : std::uint8_t {
 };
 
 // One SPIR-V module holding every entry point of a .slang file, as slangc emits it with
-// -fvk-use-entrypoint-name. The bytes are copied at creation.
+// -fvk-use-entrypoint-name. The bytes are copied at creation; Vulkan makes Position outputs
+// invariant so separate depth and colour shaders can use an exact depth comparison.
 struct ShaderDesc {
   std::span<const std::byte> spirv{};
   std::string debugName;

@@ -1,6 +1,7 @@
 #include "VulkanDevice.h"
 
 #include "OwnerThread.h"
+#include "Spirv.h"
 #include "VulkanSwapchain.h"
 #include "VulkanTypes.h"
 
@@ -932,6 +933,7 @@ ShaderHandle VulkanDevice::createShader(const ShaderDesc &desc) {
     throw core::Exception{std::format("shader \"{}\" has no SPIR-V magic number", desc.debugName),
                           core::ErrorCategory::Shader};
   }
+  makePositionInvariant(words);
   vk::raii::ShaderModule module{m_device, vk::ShaderModuleCreateInfo{{}, words}};
   setDebugName(vk::ObjectType::eShaderModule, objectHandle(*module), desc.debugName);
   return m_shaders.emplace(VulkanShader{desc.debugName, std::move(module)});

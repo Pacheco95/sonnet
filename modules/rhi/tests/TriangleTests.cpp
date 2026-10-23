@@ -1,5 +1,7 @@
 #include "TestDevice.h"
 
+#include "Spirv.h"
+
 #include <sonnet/core/File.h>
 #include <sonnet/rhi/Device.h>
 
@@ -152,4 +154,34 @@ TEST_CASE("the tint push constant scales the triangle colour", "[rhi][pipeline][
   device->destroyImage(target);
   device->destroyPipeline(pipeline);
   device->destroyShader(shader);
+}
+
+TEST_CASE("SPIR-V position invariance is added once before types", "[rhi][spirv]") {
+  const std::vector<std::uint32_t> header{0x07230203u, 0x00010600u, 0, 10, 0};
+  auto words = header;
+  // Standalone Position, block-member Position, and an unrelated decoration.
+  const std::vector<std::uint32_t> body{0x00040047u, 1,           11, 0,  0x00050048u, 2,           0, 11,
+                                        0,           0x00040047u, 3,  11, 15,          0x00020013u, 4};
+  words.insert(words.end(), body.begin(), body.end());
+  makePositionInvariant(words);
+  auto expected = header;
+  expected.insert(expected.end(), body.begin(), body.end() - 2);
+  const std::vector<std::uint32_t> decorations{0x00030047u, 1, 18, 0x00040048u, 2, 0, 18};
+  expected.insert(expected.end(), decorations.begin(), decorations.end());
+  expected.insert(expected.end(), body.end() - 2, body.end());
+  REQUIRE(words == expected);
+  makePositionInvariant(words);
+  REQUIRE(words == expected);
+
+  words = header;
+  words.insert(words.end(), {0x00020013u, 1});
+  const auto unchanged = words;
+  makePositionInvariant(words);
+  REQUIRE(words == unchanged);
+  words.push_back(0);
+  REQUIRE_THROWS_AS(makePositionInvariant(words), sonnet::core::Exception);
+  words.back() = 0x00040047u;
+  REQUIRE_THROWS_AS(makePositionInvariant(words), sonnet::core::Exception);
+  words.clear();
+  REQUIRE_THROWS_AS(makePositionInvariant(words), sonnet::core::Exception);
 }
