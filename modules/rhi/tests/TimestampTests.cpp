@@ -22,8 +22,8 @@ TEST_CASE("raw timestamps survive render and compute encoder boundaries", "[.tim
   auto &backend = static_cast<VulkanDevice &>(*fixture);
   const auto &device = backend.device();
   const auto *vk = device.getDispatcher();
-  constexpr std::uint32_t QueryCount = 44;
-  const vk::raii::QueryPool queries{device, {{}, vk::QueryType::eTimestamp, QueryCount}};
+  constexpr std::uint32_t queryCount = 44;
+  const vk::raii::QueryPool queries{device, {{}, vk::QueryType::eTimestamp, queryCount}};
   const vk::raii::CommandPool pool{device, {{}, backend.graphicsFamily()}};
   const vk::raii::CommandBuffers buffers{device, {*pool, vk::CommandBufferLevel::ePrimary, 1}};
   const auto command = *buffers.front();
@@ -33,7 +33,7 @@ TEST_CASE("raw timestamps survive render and compute encoder boundaries", "[.tim
                                                    .debugName = "timestamp boundary"});
   const auto &image = backend.getImage(target);
   buffers.front().begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
-  vk->vkCmdResetQueryPool(command, *queries, 0, QueryCount);
+  vk->vkCmdResetQueryPool(command, *queries, 0, queryCount);
   const auto stamp = [&](std::uint32_t index) {
     vk->vkCmdWriteTimestamp2(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, *queries, index);
   };
@@ -83,18 +83,18 @@ TEST_CASE("raw timestamps survive render and compute encoder boundaries", "[.tim
   REQUIRE(vk->vkQueueWaitIdle(*backend.graphicsQueue()) == VK_SUCCESS);
   const double hostNanoseconds =
       std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count();
-  std::array<std::array<std::uint64_t, 2>, QueryCount> raw{};
+  std::array<std::array<std::uint64_t, 2>, queryCount> raw{};
   const VkResult result =
-      vk->vkGetQueryPoolResults(*device, *queries, 0, QueryCount, sizeof(raw), raw.data(), sizeof(raw.front()),
+      vk->vkGetQueryPoolResults(*device, *queries, 0, queryCount, sizeof(raw), raw.data(), sizeof(raw.front()),
                                 VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
   const double period = static_cast<double>(backend.physicalDevice().getProperties().limits.timestampPeriod);
   SONNET_LOG_INFO("driver={} {}; period_ns={}; host_ns={}; result={}", fixture->info().driverName,
                   fixture->info().driverInfo, period, hostNanoseconds, static_cast<int>(result));
-  for (std::uint32_t i = 0; i < QueryCount; ++i) {
+  for (std::uint32_t i = 0; i < queryCount; ++i) {
     SONNET_LOG_INFO("query={} ticks={} available={}", i, raw[i][0], raw[i][1]);
   }
   CHECK(result == VK_SUCCESS);
-  for (std::uint32_t i = 0; i < QueryCount; ++i) {
+  for (std::uint32_t i = 0; i < queryCount; ++i) {
     CAPTURE(i, raw[i][0], raw[i][1]);
     CHECK(raw[i][1] != 0);
     if (i > 0 && raw[i - 1][1] != 0 && raw[i][1] != 0) {
