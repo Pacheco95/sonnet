@@ -44,16 +44,20 @@ function(sonnet_copy_tracy_client TARGET)
     COMMAND_EXPAND_LISTS VERBATIM)
 endfunction()
 
-# sonnet_add_module_test(<name> SOURCES ... DEPENDS ...)
+# sonnet_add_module_test(<name> SOURCES ... DEPENDS ... [TIMEOUT <seconds>])
 #
 # Creates <name>_tests linked against sonnet::<name> and Catch2, registers it with CTest under the
-# label <name>, and allows including the module's src/ for white-box tests.
+# label <name>, and allows including the module's src/ for white-box tests. TIMEOUT (default 300)
+# is the suite's limit; only a suite measured to need more passes it, with the numbers beside it.
 function(sonnet_add_module_test NAME)
   if(NOT SONNET_BUILD_TESTS)
     return()
   endif()
-  cmake_parse_arguments(ARG "" "" "SOURCES;DEPENDS" ${ARGN})
+  cmake_parse_arguments(ARG "" "TIMEOUT" "SOURCES;DEPENDS" ${ARGN})
   set(target ${NAME}_tests)
+  if(NOT ARG_TIMEOUT)
+    set(ARG_TIMEOUT 300)
+  endif()
 
   find_package(Catch2 CONFIG REQUIRED)
   # TestSupport.cpp is compiled in rather than linked from a library so its static initialiser
@@ -67,8 +71,9 @@ function(sonnet_add_module_test NAME)
 
   # A binary whose every case skipped (rhi_tests without a Vulkan device) is a pass, not Catch2's exit code 4.
   add_test(NAME ${target} COMMAND ${target} --allow-running-no-tests)
-  # A suite takes seconds; a hang (a blocked dialog on Windows, a driver wait) must fail with output.
-  set_tests_properties(${target} PROPERTIES LABELS "${NAME}" TIMEOUT 300)
+  # A suite takes seconds to minutes; a hang (a blocked dialog on Windows, a driver wait) must fail with output.
+  # The property wins over `ctest --timeout`, which is only the default for a test without one.
+  set_tests_properties(${target} PROPERTIES LABELS "${NAME}" TIMEOUT ${ARG_TIMEOUT})
 endfunction()
 
 # sonnet_add_executable(<name> SOURCES ... DEPENDS ...)
