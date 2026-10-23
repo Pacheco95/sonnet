@@ -51,7 +51,10 @@ if(WIN32)
   target_link_libraries(sonnet_editor PRIVATE shell32 ole32)
 endif()
 
+# The Linux ASan job runs this suite about 2.4 times slower than a local machine: 124 s here, ~300 s in CI on
+# 2026-10-23, which grew from 200 s over three merges. 600 s is twice that, so a failure still means a hang.
 sonnet_add_module_test(editor
+  TIMEOUT 600
   SOURCES
     tests/AssetMenuTests.cpp
     tests/CameraLinesTests.cpp
