@@ -209,6 +209,7 @@ ctest --preset linux-debug
 | [0033](docs/decisions/0033-transmission.md) | Transmissive materials sample a copy of the opaque scene | Accepted, TAA gate superseded by 0034 |
 | [0034](docs/decisions/0034-taa-glass-gate.md) | Glass under TAA is judged against what its content allows | Accepted |
 | [0035](docs/decisions/0035-moltenvk-stays-pinned.md) | MoltenVK is deprecated upstream and stays pinned | Accepted |
+| [0036](docs/decisions/0036-dear-imgui-stays-the-editor-ui.md) | Dear ImGui stays the editor's UI library | Accepted |
 
 ## License
 
