@@ -202,8 +202,12 @@ Editor::~Editor() {
 }
 
 void Editor::setLayoutFile(const std::filesystem::path &file) {
-  m_layoutFile = file.string();
   m_layoutsDirectory = file.parent_path() / "layouts";
+  // Dear ImGui loads the file by itself on the first frame and trusts it, so a bad one is set aside first.
+  if (!setAsideBadLayout(file)) {
+    return;
+  }
+  m_layoutFile = file.string();
   ImGui::GetIO().IniFilename = m_layoutFile.c_str();
 }
 
@@ -237,6 +241,11 @@ void Editor::applyPendingLayout() {
   }
   if (!bytes || !isLayoutIni(text)) {
     SONNET_LOG_WARN("layout \"{}\" is missing or corrupt, skipped", name);
+    return;
+  }
+  // Dear ImGui trusts what it loads and asserts or crashes on a dock tree that is not sound.
+  if (const auto problem = layoutIniProblem(text)) {
+    SONNET_LOG_WARN("layout \"{}\" is malformed ({}), skipped", name, *problem);
     return;
   }
   // The dock root's size now, or the work area before the first frame has made one.
