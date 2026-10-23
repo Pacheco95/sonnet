@@ -496,8 +496,16 @@ bool setAsideBadLayout(const std::filesystem::path &file) {
   std::error_code error;
   std::filesystem::rename(file, kept, error);
   if (error) {
-    SONNET_LOG_WARN("{} is not a usable layout ({}) and could not be renamed ({}); the layout is not kept this session",
-                    file.string(), *problem, error.message());
+    // An earlier rejected file is replaced; some platforms will not rename over an existing file.
+    std::error_code ignored;
+    std::filesystem::remove(kept, ignored);
+    std::filesystem::rename(file, kept, error);
+  }
+  if (error) {
+    SONNET_LOG_WARN(
+        "{} is not a usable layout ({}) and could not be renamed to {} ({}, code {}); the layout is not kept this "
+        "session",
+        file.string(), *problem, kept.filename().string(), error.message(), error.value());
     return false;
   }
   SONNET_LOG_WARN("{} is not a usable layout ({}); the default layout is used and the file is kept as {}",

@@ -1,10 +1,11 @@
 #include <sonnet/editor/Layout.h>
 
+#include <sonnet/core/File.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <string>
 
 using namespace sonnet;
@@ -58,6 +59,13 @@ std::string changed(std::string_view from, std::string_view to) {
   const std::size_t at = ini.find(from);
   REQUIRE(at != std::string::npos);
   return ini.replace(at, from.size(), to);
+}
+
+// The whole file, read and closed (Windows will not rename over a file that is open).
+std::string contentsOf(const std::filesystem::path &file) {
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  return std::string(reinterpret_cast<const char *>(bytes->data()), bytes->size());
 }
 
 } // namespace
@@ -138,13 +146,11 @@ TEST_CASE("setting aside a bad layout keeps the file under another name", "[edit
   std::ofstream{file, std::ios::trunc} << bad;
   CHECK(setAsideBadLayout(file));
   CHECK(!std::filesystem::exists(file));
-  std::ifstream kept{directory / "layout.ini.rejected"};
-  CHECK(std::string(std::istreambuf_iterator<char>{kept}, {}) == bad);
+  CHECK(contentsOf(directory / "layout.ini.rejected") == bad);
   // A second bad file replaces the first one.
   std::ofstream{file} << "[Docking][Data]\nDockSpace ID=0x1 trunc";
   CHECK(setAsideBadLayout(file));
-  std::ifstream second{directory / "layout.ini.rejected"};
-  CHECK(std::string(std::istreambuf_iterator<char>{second}, {}).starts_with("[Docking]"));
+  CHECK(contentsOf(directory / "layout.ini.rejected").starts_with("[Docking]"));
 }
 
 TEST_CASE("scaling a layout multiplies the dock sizes and nothing else", "[editor][layout]") {
