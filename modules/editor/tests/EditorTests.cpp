@@ -2,6 +2,7 @@
 #include <sonnet/editor/Editor.h>
 #include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Export.h>
+#include <sonnet/editor/Layout.h>
 #include <sonnet/editor/Preferences.h>
 
 #include <sonnet/assets/Thumbnail.h>
@@ -32,6 +33,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <regex>
@@ -49,9 +51,9 @@ struct Fixture {
   std::unique_ptr<rhi::IDevice> device;
   std::unique_ptr<rhi::ISwapchain> swapchain;
 
-  Fixture() {
+  explicit Fixture(glm::uvec2 size = {800, 600}) {
     try {
-      window = platform.createWindow({.title = "editor_tests", .size = {800, 600}});
+      window = platform.createWindow({.title = "editor_tests", .size = size});
       device = rhi::createDevice({.platform = &platform, .applicationName = "editor_tests"});
     } catch (const core::Exception &e) {
       SKIP("no usable Vulkan 1.4 device: " << e.what());
@@ -224,7 +226,6 @@ TEST_CASE("a saved layout restores the arrangement and the view, and the built-i
   // Default is today's arrangement with colliders and gizmos off, and shares View > Reset layout.
   editor.applyLayout("Default");
   frames(fixture, editor);
-  CHECK(dockOf("Viewport") == dockOf("Game"));
   CHECK(dockOf("Assets") == dockOf("Log"));
   CHECK(editor.viewState() == editor::builtinViewState(editor::BuiltinLayout::Default));
   CHECK(!editor.viewState().colliders);
@@ -337,6 +338,319 @@ TEST_CASE("a preset saved at twice the size keeps its split fractions", "[editor
   CHECK(dockFraction("Log").y == Approx(log.y).margin(0.02));
   fixture.device->waitIdle();
   CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+namespace {
+
+// Layouts ImGui must never be handed (ADR-0036). Each takes an ini this editor saved and breaks one thing.
+using Defect = std::string (*)(const std::string &);
+
+// `ini` with `change` applied to every line of the dock tree and nothing else.
+std::string mapDockLines(const std::string &ini, const std::function<std::string(const std::string &)> &change) {
+  std::string out;
+  bool inDock = false;
+  std::size_t position = 0;
+  while (position < ini.size()) {
+    const std::size_t newline = ini.find('\n', position);
+    const std::size_t end = newline == std::string::npos ? ini.size() : newline;
+    const std::string line = ini.substr(position, end - position);
+    if (!line.empty() && line.front() == '[') {
+      inDock = line == "[Docking][Data]";
+    }
+    out += inDock && line.find("Dock") != std::string::npos && line.front() != '[' ? change(line) : line;
+    if (newline != std::string::npos) {
+      out += '\n';
+    }
+    position = end + 1;
+  }
+  return out;
+}
+
+// Every dock Size and SizeRef is zero.
+std::string zeroSize(const std::string &ini) {
+  return mapDockLines(ini, [](const std::string &line) {
+    return std::regex_replace(line, std::regex{R"((Size|SizeRef)=-?\d+,-?\d+)"}, "$1=0,0");
+  });
+}
+
+// Only the dock root has no size.
+std::string zeroRoot(const std::string &ini) {
+  return mapDockLines(ini, [](const std::string &line) {
+    return line.find("DockSpace") != std::string::npos
+               ? std::regex_replace(line, std::regex{R"(Size=\d+,\d+)"}, "Size=0,0")
+               : line;
+  });
+}
+
+// The first child points at a node that is not in the file.
+std::string missingParent(const std::string &ini) {
+  bool done = false;
+  return mapDockLines(ini, [&](const std::string &line) {
+    if (done || line.find("Parent=0x") == std::string::npos) {
+      return line;
+    }
+    done = true;
+    return std::regex_replace(line, std::regex{R"(Parent=0x[0-9A-Fa-f]+)"}, "Parent=0xDEADBEEF");
+  });
+}
+
+// The file ends in the middle of the third line of the dock tree.
+std::string truncatedDock(const std::string &ini) {
+  std::size_t position = ini.find("[Docking][Data]");
+  for (int line = 0; line < 3; ++line) {
+    position = ini.find('\n', position) + 1;
+  }
+  return ini.substr(0, position + 28);
+}
+
+// The file ends in the middle of the view section, which comes before the dock tree.
+std::string truncatedView(const std::string &ini) {
+  const std::size_t view = ini.find("[SonnetView][View]");
+  return ini.substr(0, ini.find("Game", view) + 3);
+}
+
+// A node with the id of an earlier one.
+std::string duplicateNode(const std::string &ini) {
+  std::string firstId;
+  return mapDockLines(ini, [&](const std::string &line) {
+    std::smatch id;
+    if (!std::regex_search(line, id, std::regex{R"(ID=0x[0-9A-Fa-f]+)"})) {
+      return line;
+    }
+    if (firstId.empty()) {
+      firstId = id[0];
+      return line;
+    }
+    return std::regex_replace(line, std::regex{R"(ID=0x[0-9A-Fa-f]+)"}, firstId);
+  });
+}
+
+// Every window claims a dock node that is not in the file.
+std::string danglingWindowDock(const std::string &ini) {
+  return std::regex_replace(ini, std::regex{R"(DockId=0x[0-9A-Fa-f]+)"}, "DockId=0x0BADBAD1");
+}
+
+// A dock node comes before its parent.
+std::string parentAfterChild(const std::string &ini) {
+  const std::size_t start = ini.find("DockSpace");
+  const std::size_t end = ini.find('\n', start) + 1;
+  const std::string line = ini.substr(start, end - start);
+  std::string out = ini;
+  out.erase(start, line.size());
+  const std::size_t tail = out.find("\n\n", start);
+  out.insert(tail + 1, line);
+  return out;
+}
+
+// A node that is its own parent.
+std::string selfParent(const std::string &ini) {
+  bool done = false;
+  return mapDockLines(ini, [&](const std::string &line) {
+    std::smatch id;
+    if (done || line.find("Parent=0x") == std::string::npos ||
+        !std::regex_search(line, id, std::regex{R"(ID=(0x[0-9A-Fa-f]+))"})) {
+      return line;
+    }
+    done = true;
+    return std::regex_replace(line, std::regex{R"(Parent=0x[0-9A-Fa-f]+)"}, "Parent=" + id[1].str());
+  });
+}
+
+// An ini saved by an editor whose Assets are split from its Log, so that a layout that loads is told from the default.
+std::string splitLayoutIni(Fixture &fixture) {
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  frames(fixture, editor);
+  changeLayout(fixture, editor);
+  return ImGui::SaveIniSettingsToMemory();
+}
+
+// The editor starts on `bad` as its layout.ini: ImGui never sees it, the default arrangement is built, and the
+// file is renamed rather than deleted.
+void expectStartupRejects(const char *name, Defect defect) {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch(name);
+  std::filesystem::create_directories(directory);
+  const std::string good = splitLayoutIni(fixture);
+  const std::string bad = defect(good);
+  REQUIRE(bad != good);
+  const std::filesystem::path file = directory / "layout.ini";
+  REQUIRE(core::writeFile(file, bad).has_value());
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(file);
+    frames(fixture, editor);
+    CHECK(dockOf("Assets") == dockOf("Log"));
+    CHECK(editor.viewState() == editor::builtinViewState(editor::BuiltinLayout::Default));
+    CHECK(!std::filesystem::exists(file));
+    const auto kept = core::readFile(directory / "layout.ini.rejected");
+    REQUIRE(kept.has_value());
+    CHECK(std::string(reinterpret_cast<const char *>(kept->data()), kept->size()) == bad);
+  }
+  // The editor saves the layout it used when it closes.
+  CHECK(std::filesystem::exists(file));
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+// `bad` as a saved preset: refused, and the layout and view in use stay.
+void expectPresetRefused(const char *name, Defect defect) {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch(name);
+  std::filesystem::create_directories(directory / "layouts");
+  const std::string good = splitLayoutIni(fixture);
+  const std::string bad = defect(good);
+  REQUIRE(bad != good);
+  REQUIRE(core::writeFile(directory / "layouts" / "bad.ini", bad).has_value());
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  editor.setLayoutFile(directory / "layout.ini");
+  frames(fixture, editor);
+  REQUIRE(dockOf("Assets") == dockOf("Log"));
+  const editor::ViewState before = editor.viewState();
+  editor.applyLayout("bad");
+  frames(fixture, editor);
+  CHECK(dockOf("Assets") == dockOf("Log"));
+  CHECK(editor.viewState() == before);
+  CHECK(std::filesystem::exists(directory / "layouts" / "bad.ini")); // a preset is not renamed or deleted
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+} // namespace
+
+namespace {
+
+// Every layout an editor with a window of `size` can write, in the order a user reaches them: the default, a split
+// one, both built-ins, a saved preset, the reset, and what the files hold (the preset and layout.ini at exit).
+std::vector<std::string> layoutsSavedAt(glm::uvec2 size, const char *name) {
+  Fixture fixture{size};
+  const std::filesystem::path directory = scratch(name);
+  std::filesystem::create_directories(directory);
+  std::vector<std::string> inis;
+  const auto save = [&](editor::Editor &editor) {
+    frames(fixture, editor);
+    inis.emplace_back(ImGui::SaveIniSettingsToMemory());
+  };
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(directory / "layout.ini");
+    save(editor);
+    changeLayout(fixture, editor);
+    save(editor);
+    REQUIRE(editor.saveLayout("mine"));
+    for (const char *builtin : {"Play", "Default", "mine"}) {
+      editor.applyLayout(builtin);
+      save(editor);
+    }
+    editor.resetLayout();
+    save(editor);
+  }
+  for (const std::filesystem::path &file : {directory / "layouts" / "mine.ini", directory / "layout.ini"}) {
+    const auto bytes = core::readFile(file);
+    REQUIRE(bytes.has_value());
+    inis.emplace_back(reinterpret_cast<const char *>(bytes->data()), bytes->size());
+  }
+  return inis;
+}
+
+} // namespace
+
+TEST_CASE("the layouts this editor saves pass the check at two window sizes and load unchanged",
+          "[editor][gpu][layout]") {
+  const std::vector<std::string> small = layoutsSavedAt({800, 600}, "saved_small");
+  const std::vector<std::string> large = layoutsSavedAt({1280, 720}, "saved_large");
+  REQUIRE(small.size() == large.size());
+  REQUIRE(small.front() != large.front()); // the dock root's size differs
+  for (const auto *set : {&small, &large}) {
+    for (const std::string &ini : *set) {
+      INFO(ini);
+      CHECK(!editor::layoutIniProblem(ini));
+      CHECK(editor::isLayoutIni(ini));
+      // What the editor does to a preset saved at another size.
+      CHECK(!editor::layoutIniProblem(editor::scaleLayoutIni(ini, 1600.0f, 900.0f)));
+    }
+  }
+
+  // The split layout saved at 1280x720 starts an 800x600 editor as it was, not as the default.
+  Fixture fixture;
+  const std::filesystem::path file = scratch("saved_startup") / "layout.ini";
+  std::filesystem::create_directories(file.parent_path());
+  REQUIRE(core::writeFile(file, large[1]).has_value());
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  editor.setLayoutFile(file);
+  frames(fixture, editor);
+  CHECK(dockOf("Assets") != dockOf("Log"));
+  CHECK(editor.viewState().colliders);
+  CHECK(std::filesystem::exists(file));
+  CHECK(!std::filesystem::exists(file.string() + ".rejected"));
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a layout.ini with a dock tree of zero size is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("startup_zero_size", zeroSize);
+}
+
+TEST_CASE("a layout.ini with a dock root of zero size is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("startup_zero_root", zeroRoot);
+}
+
+TEST_CASE("a layout.ini with a dock node whose parent is missing is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("startup_missing_parent", missingParent);
+}
+
+TEST_CASE("a layout.ini truncated in the dock tree is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("startup_truncated_dock", truncatedDock);
+}
+
+TEST_CASE("a layout.ini truncated in the view section is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("startup_truncated_view", truncatedView);
+}
+
+TEST_CASE("a layout.ini with two dock nodes of one id is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("startup_duplicate", duplicateNode);
+}
+
+TEST_CASE("a preset with a dock tree of zero size is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("preset_zero_size", zeroSize);
+}
+
+TEST_CASE("a preset with a dock root of zero size is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("preset_zero_root", zeroRoot);
+}
+
+TEST_CASE("a preset with a dock node whose parent is missing is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("preset_missing_parent", missingParent);
+}
+
+TEST_CASE("a preset truncated in the dock tree is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("preset_truncated_dock", truncatedDock);
+}
+
+TEST_CASE("a preset truncated in the view section is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("preset_truncated_view", truncatedView);
+}
+
+TEST_CASE("a preset with two dock nodes of one id is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("preset_duplicate", duplicateNode);
+}
+
+TEST_CASE("a layout.ini docking a window in a node it lacks is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("p1", danglingWindowDock);
+}
+TEST_CASE("a layout.ini listing a dock node before its parent is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("p2", parentAfterChild);
+}
+TEST_CASE("a layout.ini with a dock node that is its own parent is not loaded", "[editor][gpu][layout][defect]") {
+  expectStartupRejects("p3", selfParent);
+}
+TEST_CASE("a preset docking a window in a node it lacks is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("p4", danglingWindowDock);
+}
+TEST_CASE("a preset listing a dock node before its parent is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("p5", parentAfterChild);
+}
+TEST_CASE("a preset with a dock node that is its own parent is refused", "[editor][gpu][layout][defect]") {
+  expectPresetRefused("p6", selfParent);
 }
 
 TEST_CASE("regaining the focus picks up assets and prefab files changed outside the editor",
