@@ -32,10 +32,11 @@ The output of this skill is designed to automatically update your [GitHub Projec
    - Specific hour estimates for each issue
 
 3. **Target Release** (Single select)
-   - Options at the time of writing: Pre-1.0, Post-1.0 (the M9, M10 and M11+ options were removed once those milestones were done). Read the live options before proposing anything, since options can be added or go stale:
+   - Options at the time of writing: ADR-0036 Editor UI, Pre-1.0, Post-1.0 (the M9, M10 and M11+ options were removed once those milestones were done). Read the live options before proposing anything, since options can be added or go stale:
      `gh project field-list 1 --owner Pacheco95 --format json`
    - Use **Pre-1.0** for work that should land before the 1.0.0 release tag: anything that changes the project, scene, prefab, material, sidecar or bundle formats (1.0.0 waits for them to stop changing), and the editor and engine polish, fixes and features the release should have. Use **Post-1.0** for work that can wait until after it, including work that waits on a future milestone or an ADR not yet written; name that milestone or ADR in the report, since the field has no option for it. Read the roadmap's 1.0.0 section for what the tag still requires, and say in the report which cards you put before and after it and why. A card that waits on an upstream fix (a Deferred blocker) still takes the release it should ship in.
-   - Never add a milestone option to this field: a milestone is done in weeks and its option goes stale. If an option names a milestone (an old one, or one someone added), tell the user it is stale and propose removing it. Removing an option goes through `updateProjectV2Field` with the options to keep, which regenerates every option ID and clears **every** card's value, not only the removed option's. So first record each card's value with a paginated GraphQL query of the project's items (`gh project item-list` can leave out recently added items), plus any card added in this session that the query does not return yet. Then remove the option, restore each value with `gh project item-edit` and the new option IDs (a card on the removed option takes the release it fits now), and read every card back against the record.
+   - Never add a milestone option to this field: a milestone is done in weeks and its option goes stale. If an option names a milestone (an old one, or one someone added), tell the user it is stale and propose removing it. The exception is an ADR the owner makes the next priority, which can have an option of its own for the cards that implement it (`ADR-0036 Editor UI`): classify those cards with it, and once the last of them is done, propose removing the option.
+   - Options change through `updateProjectV2Field`, which takes the whole list: an option passed with its `id` keeps its ID and its cards' values, a new option has no `id`, and an option left out is deleted, so the cards on it lose their value. Without the `id`s every option is regenerated and **every** card's value is cleared. So first record each card's value with a paginated GraphQL query of the project's items (`gh project item-list` can leave out recently added items), plus any card added in this session that the query does not return yet. Then change the options, passing each kept option's `id`; give a card on a removed option the release it fits now with `gh project item-edit`; and read every card back against the record.
 
 4. **Status** (Built-in)
    - Options: Backlog, Refining, Ready for dev, In Progress, Blocked, Done. Read the live options with `gh project field-list 1 --owner Pacheco95 --format json`.
@@ -47,7 +48,7 @@ The output of this skill is designed to automatically update your [GitHub Projec
      - **Refining**: the card fits the roadmap and nothing blocks it, but it needs a decision, an ADR (new or superseding one in `docs/decisions/`), a spike's answer, a missing "Done when" or a question to the author before it can be built. Say what is missing.
      - **Backlog**: blocked by another open issue (soft "do first" relations included when the order matters), deferred, too large and not yet split, or not a priority now. Say which.
      - A card moves forward or back between these three as the analysis says, so a card whose blocker closed can be promoted and one whose scope turned out open can be demoted. There is no limit on how many cards are in Ready for dev: every card that meets the Ready for dev rule goes there, whatever the column already holds. Board order, not the column's size, decides what `sonnet-next-issue` takes first.
-   - Do not add or rename Status options through the API without care: `updateProjectV2Field` regenerates every option ID and resets every card's Status. Record all cards' Status first and restore them afterwards.
+   - Do not add or rename Status options through the API without care: `updateProjectV2Field` regenerates every option passed without its `id` and resets the Status of the cards on it. Pass each kept option's `id`, record all cards' Status first and read them back afterwards.
 
 **Automated Workflow:**
 1. Run the skill → get prioritized report + update summary
@@ -298,7 +299,7 @@ Your [Sonnet Issue Prioritization project](https://github.com/users/Pacheco95/pr
    - Issue number
    - Priority Tier (Quick Win / Medium Fit / Deferred)
    - Effort Hours (specific range)
-   - Target Release (Pre-1.0 / Post-1.0)
+   - Target Release (an ADR's own option, Pre-1.0 or Post-1.0)
    - Status (Backlog / Refining / Ready for dev)
 3. Asks for approval: "Ready to update the GitHub Project?"
 4. If approved: Uses GitHub API to set all fields in batch
@@ -320,7 +321,7 @@ Your [Sonnet Issue Prioritization project](https://github.com/users/Pacheco95/pr
 After running the skill, you'll have a report with each issue assigned to:
 - **Priority Tier** (Quick Win / Medium Fit / Deferred)
 - **Effort Hours** (specific range)
-- **Target Release** (Pre-1.0 or Post-1.0)
+- **Target Release** (an ADR's own option, Pre-1.0 or Post-1.0)
 - **Reasoning** (why it belongs in that tier)
 
 To update the project:
