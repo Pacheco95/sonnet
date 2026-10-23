@@ -1,5 +1,7 @@
 #include <sonnet/editor/ViewportPanel.h>
 
+#include <sonnet/ui/Theme.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -221,8 +223,9 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
   const ImVec2 max{min.x + textSize.x + 2.0f * padding.x, origin.y + available.y - margin};
   ImDrawList *drawList = ImGui::GetWindowDrawList();
   drawList->PushClipRect(origin, ImVec2{origin.x + available.x, origin.y + available.y}, true);
-  drawList->AddRectFilled(min, max, IM_COL32(0, 0, 0, 200), fontSize * 0.2f);
-  drawList->AddText(ImVec2{min.x + padding.x, min.y + padding.y}, IM_COL32(240, 240, 240, 255), label.c_str());
+  const ui::Theme &theme = ui::currentTheme();
+  drawList->AddRectFilled(min, max, ui::toU32(theme.label), fontSize * 0.2f);
+  drawList->AddText(ImVec2{min.x + padding.x, min.y + padding.y}, ui::toU32(theme.labelText), label.c_str());
   drawList->PopClipRect();
   if (overlay) {
     overlay(m_input);
@@ -250,6 +253,7 @@ bool ViewportPanel::drawAxisWidget(ImVec2 origin, ImVec2 size) {
     float depth;
     AxisView view;
     ImU32 color;
+    ImU32 highlight;
     const char *label;
     bool positive;
   };
@@ -257,8 +261,10 @@ bool ViewportPanel::drawAxisWidget(ImVec2 origin, ImVec2 size) {
   const std::array<glm::vec3, 3> axes{glm::vec3{1, 0, 0}, glm::vec3{0, 1, 0}, glm::vec3{0, 0, 1}};
   const std::array<AxisView, 6> views{AxisView::Right,  AxisView::Left,  AxisView::Top,
                                       AxisView::Bottom, AxisView::Front, AxisView::Back};
-  const std::array<ImU32, 3> colors{IM_COL32(235, 80, 80, 255), IM_COL32(100, 210, 100, 255),
-                                    IM_COL32(90, 145, 245, 255)};
+  const ui::Theme &theme = ui::currentTheme();
+  const std::array<ImU32, 3> colors{ui::toU32(theme.axisX), ui::toU32(theme.axisY), ui::toU32(theme.axisZ)};
+  const std::array<ImU32, 3> highlights{ui::toU32(theme.axisXHighlight), ui::toU32(theme.axisYHighlight),
+                                        ui::toU32(theme.axisZHighlight)};
   const std::array<const char *, 3> labels{"X", "Y", "Z"};
   const auto &camera = m_view.camera.camera();
   for (std::size_t i = 0; i < ends.size(); ++i) {
@@ -268,6 +274,7 @@ bool ViewportPanel::drawAxisWidget(ImVec2 origin, ImVec2 size) {
         -glm::dot(direction, camera.forward()),
         views[i],
         colors[i / 2],
+        highlights[i / 2],
         labels[i / 2],
         i % 2 == 0};
   }
@@ -307,17 +314,18 @@ bool ViewportPanel::drawAxisWidget(ImVec2 origin, ImVec2 size) {
   }
   ImDrawList *draw = ImGui::GetWindowDrawList();
   draw->PushClipRect(origin, {origin.x + size.x, origin.y + size.y}, true);
-  draw->AddCircleFilled(center, extent - unit * 0.25f, IM_COL32(25, 28, 35, hovered || active ? 190 : 130));
+  draw->AddCircleFilled(center, extent - unit * 0.25f,
+                        ui::toU32(hovered || active ? theme.widgetDiscActive : theme.widgetDisc));
   for (const auto &end : ends) {
     if (end.positive) {
       draw->AddLine(center, end.position, end.color, unit * 0.15f);
     }
     const bool highlighted = hovered && hit == end.view;
-    draw->AddCircleFilled(end.position, radius, end.positive ? end.color : IM_COL32(35, 38, 45, 255));
-    draw->AddCircle(end.position, radius, highlighted ? IM_COL32_WHITE : end.color, 0, highlighted ? 2.5f : 1.5f);
+    draw->AddCircleFilled(end.position, radius, end.positive ? end.color : ui::toU32(theme.widgetNegative));
+    draw->AddCircle(end.position, radius, highlighted ? end.highlight : end.color, 0, highlighted ? 2.5f : 1.5f);
     if (end.positive) {
       const ImVec2 text = ImGui::CalcTextSize(end.label);
-      draw->AddText({end.position.x - text.x * 0.5f, end.position.y - text.y * 0.5f}, IM_COL32(15, 18, 25, 255),
+      draw->AddText({end.position.x - text.x * 0.5f, end.position.y - text.y * 0.5f}, ui::toU32(theme.widgetLabel),
                     end.label);
     }
   }

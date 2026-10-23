@@ -9,6 +9,7 @@
 
 #include <sonnet/core/Log.h>
 #include <sonnet/scripting/Components.h>
+#include <sonnet/ui/Theme.h>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -1081,7 +1082,7 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
       m_deactivatedAfterEdit = true;
     }
     if (identity.isNil() && assetType == assets::AssetType::Font) {
-      ImGui::TextColored(ImVec4{1.0f, 0.75f, 0.3f, 1.0f}, "No font: the text is not drawn");
+      ImGui::TextColored(ui::currentTheme().warning, "No font: the text is not drawn");
     }
   } else if (type.has<flecs::Primitive>()) {
     switch (scalarWidget(ecs, member)) {

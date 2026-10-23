@@ -12,6 +12,7 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 #include <sonnet/core/Version.h>
+#include <sonnet/ui/Theme.h>
 #include <sonnet/world/Scene.h>
 
 #include <SDL3/SDL_events.h>
@@ -45,7 +46,7 @@ constexpr const char *ModalId = "Project";
 // A modal's error, wrapped at the dialog's fixed width: an error names paths and modules, longer
 // than one line of it.
 void drawWrappedError(const std::string &message) {
-  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.4f, 0.4f, 1.0f});
+  ImGui::PushStyleColor(ImGuiCol_Text, ui::currentTheme().danger);
   ImGui::TextWrapped("%s", message.c_str());
   ImGui::PopStyleColor();
 }
@@ -620,7 +621,7 @@ void Editor::drawGameOverlay(const ViewportInput &input) {
     }
     const ImVec2 min{input.origin.x + element->rect.min.x, input.origin.y + element->rect.min.y};
     const ImVec2 max{input.origin.x + element->rect.max.x, input.origin.y + element->rect.max.y};
-    input.drawList->AddRect(min, max, IM_COL32(255, 153, 26, 255), 0.0f, 0, 2.0f);
+    input.drawList->AddRect(min, max, ui::toU32(ui::currentTheme().selection), 0.0f, 0, 2.0f);
   }
 }
 
@@ -941,7 +942,7 @@ void Editor::drawMenuBar() {
   const char *label = playing ? "  Stop  " : "  Play  ";
   ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.5f - ImGui::CalcTextSize(label).x * 0.5f);
   if (playing) {
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.7f, 0.25f, 0.2f, 1.0f});
+    ImGui::PushStyleColor(ImGuiCol_Button, ui::currentTheme().stop);
   }
   if (ImGui::SmallButton(label)) {
     playing ? requestStop() : play();
@@ -951,7 +952,7 @@ void Editor::drawMenuBar() {
     ImGui::SameLine();
     const bool paused = isPaused();
     if (paused) {
-      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.75f, 0.55f, 0.15f, 1.0f});
+      ImGui::PushStyleColor(ImGuiCol_Button, ui::currentTheme().paused);
     }
     if (ImGui::SmallButton(paused ? "  Resume  " : "  Pause  ")) {
       paused ? resume() : pause();
@@ -1439,7 +1440,8 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     m_renderer.addDebugLinePass(m_graph, m_view, sceneColor, depth);
     m_renderer.addIdPass(m_graph, m_view, ids, depth);
     m_renderer.addSelectionMaskPass(m_graph, m_view, mask, m_outlineIds);
-    m_renderer.addOutlinePass(m_graph, sceneColor, mask);
+    const ImVec4 &selection = ui::currentTheme().selection;
+    m_renderer.addOutlinePass(m_graph, sceneColor, mask, glm::vec4{selection.x, selection.y, selection.z, selection.w});
     m_picker.addPass(m_graph, ids, target.size());
   }
   // The Game view: the scene's camera into a target of its own, with none of the editor's

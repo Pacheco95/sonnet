@@ -4,6 +4,7 @@
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
+#include <sonnet/ui/Theme.h>
 
 // The one documented place above rhi that sees Vulkan: Dear ImGui's backend needs the raw
 // objects (docs/architecture.md, "Dependency rule").
@@ -63,13 +64,8 @@ ImGuiLayer::ImGuiLayer(const ImGuiLayerDesc &desc) {
   }
   io.ConfigDpiScaleFonts = true;
   io.ConfigDpiScaleViewports = true;
-  ImGui::StyleColorsDark();
-  ImGuiStyle &style = ImGui::GetStyle();
-  if (desc.viewports) {
-    // Platform windows have no transparency: an opaque background and square corners.
-    style.WindowRounding = 0.0f;
-    style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-  }
+  setCurrentTheme(desc.theme);
+  applyTheme(ImGui::GetStyle(), desc.theme, 1.0f, desc.viewports);
 
   if (!ImGui_ImplSDL3_InitForVulkan(desc.window->nativeHandle())) {
     throw core::Exception{"ImGui_ImplSDL3_InitForVulkan failed", core::ErrorCategory::Platform};

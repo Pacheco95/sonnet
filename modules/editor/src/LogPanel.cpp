@@ -2,6 +2,7 @@
 
 #include <sonnet/core/Log.h>
 #include <sonnet/editor/Fonts.h>
+#include <sonnet/ui/Theme.h>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -37,19 +38,20 @@ const char *levelName(spdlog::level::level_enum level) {
 }
 
 ImVec4 levelColor(spdlog::level::level_enum level) {
+  const ui::Theme &theme = ui::currentTheme();
   switch (level) {
   case spdlog::level::trace:
-    return {0.55f, 0.55f, 0.55f, 1.0f};
+    return theme.logTrace;
   case spdlog::level::debug:
-    return {0.6f, 0.75f, 0.95f, 1.0f};
+    return theme.logDebug;
   case spdlog::level::warn:
-    return {0.95f, 0.8f, 0.3f, 1.0f};
+    return theme.logWarn;
   case spdlog::level::err:
-    return {0.95f, 0.4f, 0.4f, 1.0f};
+    return theme.logError;
   case spdlog::level::critical:
-    return {1.0f, 0.3f, 0.8f, 1.0f};
+    return theme.logCritical;
   default:
-    return {0.9f, 0.9f, 0.9f, 1.0f};
+    return theme.logInfo;
   }
 }
 

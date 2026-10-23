@@ -1,11 +1,12 @@
 #include <sonnet/editor/Fonts.h>
 #include <sonnet/editor/Icons.h>
+#include <sonnet/ui/Theme.h>
 
 namespace sonnet::editor {
 
 void addFonts(ImGuiIO &io) {
   // A glyph offset needs a reference size to scale from, so both fonts name theirs.
-  constexpr float textSize = 14.0f;
+  const float textSize = ui::currentTheme().textSize;
   // Lucide's glyphs sit above Inter's baseline: this centres them on the text (measured on a button at textSize).
   constexpr float iconOffsetY = 2.0f;
 
