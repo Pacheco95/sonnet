@@ -66,8 +66,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                .swapchainFormat = swapchain.format(),
                .swapchainImageCount = swapchain.imageCount(),
                .docking = true,
-               // Platform windows need a display; the headless driver has none.
-               .viewports = !platform.isHeadless()}),
+               // Platform windows need a display and a window the platform can position.
+               .viewports = wantsViewports(platform.isHeadless(), platform.canPositionWindows())}),
       m_renderer(device, platform.basePath() / "shaders", {.jobs = &m_jobs}), m_graph(device), m_picker(device),
       m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}), m_gui(m_world),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)), m_animation(m_world, m_assets),

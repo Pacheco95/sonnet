@@ -653,6 +653,62 @@ TEST_CASE("a preset with a dock node that is its own parent is refused", "[edito
   expectPresetRefused("p6", selfParent);
 }
 
+TEST_CASE("viewports are requested only where a window can be shown and positioned", "[editor]") {
+  // Platform cannot be faked, so the request is a function of the two facts it reads from it.
+  CHECK(editor::wantsViewports(false, true));   // X11, Windows, macOS, XWayland
+  CHECK(!editor::wantsViewports(false, false)); // native Wayland
+  CHECK(!editor::wantsViewports(true, true));   // the headless drivers
+  CHECK(!editor::wantsViewports(true, false));
+}
+
+TEST_CASE("a layout saved with viewports on opens its floating panel inside the window when they are off",
+          "[editor][gpu][layout]") {
+  Fixture fixture; // headless: the editor asks for no viewports
+  const std::filesystem::path file = scratch("layout_floating") / "layout.ini";
+  std::filesystem::create_directories(file.parent_path());
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(file);
+    frames(fixture, editor);
+  }
+  REQUIRE(std::filesystem::exists(file));
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  std::string ini{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
+
+  // What an editor with viewports writes for the Log panel dragged out to a second display: no
+  // dock, a position far beyond the main window, and the viewport it lived in.
+  const std::size_t header = ini.find("[Window][Log]\n");
+  REQUIRE(header != std::string::npos);
+  const std::size_t end = ini.find("\n\n", header);
+  REQUIRE(end != std::string::npos);
+  ini.replace(header, end - header,
+              "[Window][Log]\nPos=5200,2100\nSize=640,360\nViewportId=0x4F1B2C3D\nViewportPos=5200,2100\nCollapsed=0");
+  // The edited file must be one the editor accepts, so ImGui's own placement is what is tested.
+  REQUIRE(!editor::layoutIniProblem(ini).has_value());
+  REQUIRE(core::writeFile(file, ini).has_value());
+
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  editor.setLayoutFile(file);
+  REQUIRE(!std::filesystem::exists(file.string() + ".rejected"));
+  frames(fixture, editor);
+  const ImGuiWindow *log = ImGui::FindWindowByName("Log");
+  REQUIRE(log != nullptr);
+  const ImVec2 display = ImGui::GetIO().DisplaySize;
+  INFO("Log at " << log->Pos.x << "," << log->Pos.y << " docked " << (log->DockId != 0) << " in a display of "
+                 << display.x << "x" << display.y);
+  CHECK(log->Active);
+  CHECK(log->Viewport == ImGui::GetMainViewport());
+  // ImGui pulls the window back into the main window, to its corner with a sliver showing: reachable
+  // to drag or dock, though not placed well (layout validation is where that improves).
+  CHECK(log->Pos.x < display.x);
+  CHECK(log->Pos.y < display.y);
+  CHECK(log->Pos.x + log->Size.x > 0.0f);
+  CHECK(log->Pos.y + log->Size.y > 0.0f);
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("regaining the focus picks up assets and prefab files changed outside the editor",
           "[editor][gpu][prefab][rescan]") {
   Fixture fixture;

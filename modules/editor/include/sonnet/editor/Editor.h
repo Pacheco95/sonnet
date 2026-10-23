@@ -62,6 +62,14 @@ union SDL_Event;
 
 namespace sonnet::editor {
 
+// Whether the editor asks Dear ImGui for multi-viewport: a panel dragged out of the window becomes
+// a window of its own. That needs a display (not the headless driver) and a platform that can put
+// a window where ImGui says (Platform::canPositionWindows; native Wayland cannot), otherwise every
+// panel stays inside the main window.
+[[nodiscard]] constexpr bool wantsViewports(bool headless, bool canPositionWindows) noexcept {
+  return !headless && canPositionWindows;
+}
+
 // The editor (docs/editor.md): the world being edited, the panels around the viewport, the
 // undo history, play mode and the project. The application owns the window, device and
 // swapchain and calls the steps below in its frame order (docs/architecture.md, "Application
