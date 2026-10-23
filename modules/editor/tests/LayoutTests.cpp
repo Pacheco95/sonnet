@@ -139,16 +139,16 @@ TEST_CASE("setting aside a bad layout keeps the file under another name", "[edit
   std::filesystem::create_directories(directory);
   const std::filesystem::path file = directory / "layout.ini";
   CHECK(setAsideBadLayout(file)); // absent
-  std::ofstream{file} << SampleIni;
+  REQUIRE(core::writeFile(file, SampleIni).has_value());
   CHECK(setAsideBadLayout(file));
   CHECK(std::filesystem::exists(file));
   const std::string bad = changed("Size=800,581", "Size=0,0");
-  std::ofstream{file, std::ios::trunc} << bad;
+  REQUIRE(core::writeFile(file, bad).has_value());
   CHECK(setAsideBadLayout(file));
   CHECK(!std::filesystem::exists(file));
   CHECK(contentsOf(directory / "layout.ini.rejected") == bad);
   // A second bad file replaces the first one.
-  std::ofstream{file} << "[Docking][Data]\nDockSpace ID=0x1 trunc";
+  REQUIRE(core::writeFile(file, std::string_view{"[Docking][Data]\nDockSpace ID=0x1 trunc"}).has_value());
   CHECK(setAsideBadLayout(file));
   CHECK(contentsOf(directory / "layout.ini.rejected").starts_with("[Docking]"));
 }
