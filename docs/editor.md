@@ -4,7 +4,7 @@ Two modules, both editor-only and never linked by the player ([architecture.md](
 
 ## The ui module
 
-`sonnet/ui/ImGuiLayer.h` is the whole public surface. `ImGuiLayer` creates the Dear ImGui context with docking, keyboard navigation and DPI-scaled fonts, initialises the SDL3 backend on the platform window and the Vulkan backend in dynamic-rendering mode on the device, with multi-viewport on when the platform is not headless.
+`sonnet/ui/ImGuiLayer.h` and `sonnet/ui/Theme.h` are the public surface. `ImGuiLayer` creates the Dear ImGui context with docking, keyboard navigation and DPI-scaled fonts, initialises the SDL3 backend on the platform window and the Vulkan backend in dynamic-rendering mode on the device, with multi-viewport on when the platform is not headless.
 
 Per frame, in this order:
 
@@ -18,6 +18,30 @@ Per frame, in this order:
 `ui` is the documented exception to the backend rule: it links `sonnet::rhi_vulkan` to reach the Vulkan objects behind the device, the command list and the images. Nothing else above `rhi` sees Vulkan. The overlay port builds the backend without Vulkan prototypes and without linking a loader; the layer hands it the instance's `vkGetInstanceProcAddr` through `ImGui_ImplVulkan_LoadFunctions`, so the loader SDL opened stays the only one in the process ([ADR-0006](decisions/0006-vulkan-object-ownership.md)). Linking vcpkg's loader instead put it ahead of the system one on Linux, and it is built without X11 or Wayland surface support.
 
 `ui_tests` refuses a non-Vulkan device and, on Lavapipe, draws ImGui frames with a registered image into a headless swapchain and checks that validation stays silent.
+
+### Theme
+
+`Theme` is the editor's look as unscaled base tokens ([ADR-0036](decisions/0036-dear-imgui-stays-the-editor-ui.md)). `ImGuiLayerDesc::theme` carries it, and the layer applies it at scale 1 where it used to call `StyleColorsDark`. Its first values reproduce that style and the colours the panels drew as literals, so the editor looks as before.
+
+- **Style tokens.** Surfaces and text (`text`, `window`, `popup`, `menuBar`, `title`, `border`, `frame` and the like), the accent in four strengths (`accent`, `accentPressed`, `accentGrab`, `accentDark`), plots, tables, drag and drop, and the `dim` of a modal. `applyTheme(style, theme, scale, viewports)` gives each of the 63 `ImGuiCol` slots its token with the alpha and the blends of Dear ImGui's dark style; a `static_assert` on `ImGuiCol_COUNT` stops the build when an update adds a slot without a token.
+- **Sizes.** `textSize` (the font size `addFonts` loads), paddings, spacing, rounding and border sizes. `applyTheme` rebuilds the whole `ImGuiStyle` from these base values each time and then multiplies every size by the scale (`ScaleAllSizes`, once, over the fresh style), so going from scale 2 to 1 gives exactly the scale-1 style; repeated scaling of a scaled style loses precision ([#5452](https://github.com/ocornut/imgui/issues/5452)). The font scales (`FontSizeBase`, `FontScaleMain`, `FontScaleDpi`) are kept. Reacting to a display scale change is #390.
+- **Viewports.** With multi-viewport on, platform windows have no transparency: `applyTheme` forces square window corners and an opaque window background, whatever the tokens say.
+- **Colours with no `ImGuiCol` slot** (upstream declined application-defined slots, [#8588](https://github.com/ocornut/imgui/issues/8588)) are read from `ui::currentTheme()`, which needs no reference to the layer and is the default `Theme` where there is no layer, as in the panel tests. `ui::toU32` packs one for `ImDrawList`.
+
+| Token | Read by |
+|---|---|
+| `danger` | The error text of the project dialogs (`Editor.cpp`) |
+| `warning` | The inspector's missing-font warning |
+| `stop`, `paused` | The Stop button while playing, the Resume button while paused (`Editor.cpp`) |
+| `selection` | The 3D outline, passed to `Renderer::addOutlinePass`, and the GUI selection rectangle (`Editor.cpp`) |
+| `overlay` | The statistics overlay's backdrop |
+| `label`, `labelText` | The viewport's view label |
+| `axisX`, `axisY`, `axisZ` and their `...Highlight` | The gizmo's handles and planes, and the axis widget's ends, so both show one set of axis colours |
+| `gizmoOrigin` | The gizmo's centre dot |
+| `widgetDisc`, `widgetDiscActive`, `widgetNegative`, `widgetLabel` | The axis widget's disc (idle, and hovered or dragged), its outlined negative ends and its end labels |
+| `logTrace`, `logDebug`, `logInfo`, `logWarn`, `logError`, `logCritical` | The log panel's rows by level |
+
+The 3D debug lines (camera, light and collider outlines) keep their own colours. `ui_tests` checks, without a GPU, that the default theme gives Dear ImGui's dark style, that every slot comes from a token, that a scale of 2 and then 1 gives exactly the scale-1 style, and that viewports keep the corners square and the background opaque.
 
 ## The editor module
 
@@ -60,7 +84,7 @@ The Debug build of the application turns on the flecs explorer through `World`.
 
 Numpad 1 snaps to Front (looking down -Z), Numpad 3 to Right (-X), and Numpad 7 to Top (-Y). Ctrl selects Back (+Z), Left (+X), and Bottom (+Y). Top has -Z up; Bottom has +Z up. Numpad 9 switches to the opposite axis view. View > Axis view offers the same commands without a numpad. The viewport labels its view and projection in the lower-left corner, with light text on a compact translucent black backing for contrast over bright and dark scenes. The backing fits the measured text and scales its padding with the font; it is clipped to the viewport and does not take input or change the image rectangle. `editor_tests "[.view-label-captures]"` writes Basic sample window captures for Front, Top and Bottom (with the environment darkened) at 100% and 200% font scales to the temporary directory in `sonnet-view-label-captures`. Each scene tab keeps its own projection, axis view and auto-perspective state alongside its fly camera.
 
-The upper-right axis widget shows X in red, Y in green and Z in blue, with filled, labelled positive ends and outlined negative ends. Ends are drawn back to front. Hover highlights an end; clicking snaps to its axis view, and clicking the current axis flips to its opposite. Left-drag anywhere inside the widget orbits around the same pivot as Alt + left-drag, including when the pointer leaves the widget. The adjacent P/O button toggles perspective and orthographic projection. These controls consume their pointer input before picking and gizmos; they scale with the UI font and are hidden if the viewport cannot fit them. [Verification images and tests](reports/viewport-axis-widget.md) cover perspective and axis views at two UI scales.
+The upper-right axis widget shows X in red, Y in green and Z in blue (the gizmo's colours, from the theme), with a hovered end ringed in its axis highlight, with filled, labelled positive ends and outlined negative ends. Ends are drawn back to front. Hover highlights an end; clicking snaps to its axis view, and clicking the current axis flips to its opposite. Left-drag anywhere inside the widget orbits around the same pivot as Alt + left-drag, including when the pointer leaves the widget. The adjacent P/O button toggles perspective and orthographic projection. These controls consume their pointer input before picking and gizmos; they scale with the UI font and are hidden if the viewport cannot fit them. [Verification images and tests](reports/viewport-axis-widget.md) cover perspective and axis views at two UI scales.
 
 An axis snap turns around the current pivot: the focus target, or a point `focusDistance` ahead when there is none. It switches to orthographic, preserving the size at that pivot with `orthoHeight = 2 * distance * tan(fovY / 2)`. Turning with Alt + left-drag or right-drag returns an automatically snapped view to perspective, preserving the zoomed size. Numpad 5 or View > Orthographic explicitly toggles projection; explicitly chosen orthographic views remain orthographic when turned.
 

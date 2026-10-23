@@ -1,6 +1,7 @@
 #include <sonnet/editor/Gizmo.h>
 
 #include <sonnet/renderer/Camera.h>
+#include <sonnet/ui/Theme.h>
 
 #include <imgui.h>
 
@@ -85,20 +86,21 @@ float angleInPlane(glm::vec3 point, glm::vec3 origin, glm::vec3 axis) {
 }
 
 ImU32 axisColor(GizmoAxis axis, bool highlighted) {
+  const ui::Theme &theme = ui::currentTheme();
   switch (axis) {
   case GizmoAxis::X:
   case GizmoAxis::PlaneYZ: // a plane takes the colour of its normal
-    return highlighted ? IM_COL32(255, 130, 130, 255) : IM_COL32(225, 60, 60, 255);
+    return ui::toU32(highlighted ? theme.axisXHighlight : theme.axisX);
   case GizmoAxis::Y:
   case GizmoAxis::PlaneXZ:
-    return highlighted ? IM_COL32(150, 255, 150, 255) : IM_COL32(70, 200, 70, 255);
+    return ui::toU32(highlighted ? theme.axisYHighlight : theme.axisY);
   case GizmoAxis::Z:
   case GizmoAxis::PlaneXY:
-    return highlighted ? IM_COL32(150, 170, 255, 255) : IM_COL32(70, 110, 255, 255);
+    return ui::toU32(highlighted ? theme.axisZHighlight : theme.axisZ);
   case GizmoAxis::None:
     break;
   }
-  return IM_COL32(220, 220, 220, 255);
+  return ui::toU32(theme.text);
 }
 
 } // namespace
@@ -394,7 +396,7 @@ void Gizmo::draw(ImDrawList *drawList, const GizmoView &view, glm::vec3 origin, 
       drawList->AddRectFilled(ImVec2{end.x - 5.0f, end.y - 5.0f}, ImVec2{end.x + 5.0f, end.y + 5.0f}, color);
     }
   }
-  drawList->AddCircleFilled(centre, 4.0f, IM_COL32(230, 230, 230, 220));
+  drawList->AddCircleFilled(centre, 4.0f, ui::toU32(ui::currentTheme().gizmoOrigin));
 }
 
 } // namespace sonnet::editor
