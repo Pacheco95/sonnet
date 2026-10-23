@@ -111,8 +111,10 @@ in [albedo](kosmickrisp-macos/release-albedo.png),
 Those shading-term views bypass TAA. Thus final lighting, cooking, TAA and the
 player's static link do not individually explain it. The responsible engine or
 driver mechanism is **unproven**; the small passing tests do not establish
-full-scene correctness. Investigation and a regression reproducer are
-[issue 373](https://github.com/Pacheco95/sonnet/issues/373).
+full-scene correctness. The [issue 373 follow-up](kosmickrisp-position-invariance.md) now isolates this to missing
+position invariance across the depth and forward programs, fixes shader-module creation,
+and records a failing-before/passing-after GPU regression and clean source/cooked captures.
+The original trial above remains the pre-fix evidence.
 
 Other capture checks still behaved as expected:
 

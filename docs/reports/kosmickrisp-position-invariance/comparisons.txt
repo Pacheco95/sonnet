@@ -1,0 +1,19 @@
+Debug
+albedo kosmic-source / kosmic-cooked: RGB MAE [0.0909, 0.0676, 0.0529], maxima [1, 1, 1]
+albedo molten-source / molten-cooked: RGB MAE [0.091, 0.0676, 0.0528], maxima [1, 1, 1]
+albedo kosmic-source / molten-source: RGB MAE [0.0011, 0.0011, 0.0011], maxima [1, 1, 2]
+albedo kosmic-cooked / molten-cooked: RGB MAE [0.0012, 0.0012, 0.0012], maxima [1, 1, 2]
+final kosmic-source / kosmic-cooked: RGB MAE [0.1028, 0.0723, 0.0619], maxima [5, 8, 7]
+final molten-source / molten-cooked: RGB MAE [0.1, 0.0704, 0.0556], maxima [5, 8, 7]
+final kosmic-source / molten-source: RGB MAE [0.0078, 0.0055, 0.0051], maxima [2, 2, 2]
+final kosmic-cooked / molten-cooked: RGB MAE [0.0127, 0.0078, 0.012], maxima [2, 2, 3]
+
+Release
+albedo kosmic-source / kosmic-cooked: RGB MAE [0.0909, 0.0676, 0.0529], maxima [1, 1, 1]
+albedo molten-source / molten-cooked: RGB MAE [0.091, 0.0676, 0.0528], maxima [1, 1, 1]
+albedo kosmic-source / molten-source: RGB MAE [0.0011, 0.0011, 0.0011], maxima [1, 1, 2]
+albedo kosmic-cooked / molten-cooked: RGB MAE [0.0012, 0.0012, 0.0012], maxima [1, 1, 2]
+final kosmic-source / kosmic-cooked: RGB MAE [0.1028, 0.0723, 0.0619], maxima [5, 8, 7]
+final molten-source / molten-cooked: RGB MAE [0.1, 0.0704, 0.0556], maxima [5, 8, 7]
+final kosmic-source / molten-source: RGB MAE [0.0078, 0.0055, 0.0051], maxima [2, 2, 2]
+final kosmic-cooked / molten-cooked: RGB MAE [0.0127, 0.0078, 0.012], maxima [2, 2, 3]

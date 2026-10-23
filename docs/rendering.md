@@ -56,6 +56,17 @@ All GPU memory goes through VMA. `rhi` exposes:
 
 ## Shaders
 
+At Vulkan shader-module creation, the RHI adds SPIR-V `Invariant` to `BuiltIn Position`
+outputs, including block members, leaving an existing decoration in place. This applies to
+built shaders and editor hot reload. The depth and forward shaders compute the same clip
+position but are separate programs; the opaque forward pass's exact `Equal` test requires
+invariance across them. Slang 2026.7.1's direct SPIR-V backend does not emit that decoration
+for `precise`. Without it, KosmicKrisp legally optimizes the two position computations
+differently and leaves holes even in albedo views. The off-axis sphere GPU regression
+exercises both the ordinary and motion depth paths. See the
+[issue 373 investigation](reports/kosmickrisp-position-invariance.md) for controls and
+source/cooked comparisons with pinned MoltenVK.
+
 Slang is the only shading language ([ADR-0005](decisions/0005-slang.md)). Engine shaders live in `modules/renderer/shaders/`, project shaders in the project's `shaders/` folder.
 
 - **Build time**: `sonnet_add_shaders(<target> SHADERS ...)` (in `cmake/SonnetShaders.cmake`) runs `slangc` on each `.slang` file, emitting one SPIR-V 1.6 module per file that holds every `[shader("...")]` entry point under its own name (`-fvk-use-entrypoint-name`), scalar block layout (`-fvk-use-scalar-layout`, so C++ and Slang share struct layouts byte for byte), column-major matrices, debug information in Debug and `-O2` otherwise. The module lands in `shaders/<name>.spv` next to the target's binary, and a depfile makes edits to imported modules rebuild their users. `sonnet_add_engine_shaders(<target>)` does the same for the engine's own shaders, for every executable and test that renders through `renderer`. Release builds ship only SPIR-V.

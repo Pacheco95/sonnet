@@ -5408,3 +5408,56 @@ TEST_CASE("the copy follows each view's own size, an odd one, and a resize on a 
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
+
+// Issue 373: a non-axis-aligned view of a curved surface exposes depth/forward
+// rounding differences that the centred boxes in the smaller scenes do not.
+TEST_CASE("opaque curved surfaces have no holes against their depth pre-pass on a GPU",
+          "[renderer][gpu][depth-invariance]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  auto device = gpuDevice(platform);
+  {
+    auto settings = testSettings();
+    settings.shadows = false;
+    settings.antialiasing = GENERATE(AntiAliasing::None, AntiAliasing::Taa);
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle sphere = renderer.createMesh(primitives::sphere(0.5f, 32, 16), "sphere");
+    MaterialDesc material;
+    material.unlit = true;
+    const MaterialHandle white = renderer.createMaterial(material, "white");
+    const glm::vec3 centre{-3.0f, 0.5f, 2.5f};
+    const std::array draws{
+        DrawItem{.mesh = sphere, .material = white, .transform = glm::translate(glm::mat4{1.0f}, centre)}};
+    SceneView view;
+    view.camera.position = {5.0f, 3.5f, 7.0f};
+    view.camera.rotation = glm::normalize(glm::quat{0.9459f, -0.1442f, 0.287f, 0.0437f});
+    view.draws = draws;
+    view.hasSun = false;
+    constexpr glm::uvec2 size{320, 180};
+    GpuScene scene{*device, renderer, size};
+    scene.render(view, 8);
+    unsigned interior = 0;
+    unsigned holes = 0;
+    for (unsigned y = 0; y < size.y; ++y) {
+      for (unsigned x = 0; x < size.x; ++x) {
+        const glm::vec3 ray =
+            view.camera.rayDirection({(float(x) + 0.5f) / size.x, (float(y) + 0.5f) / size.y}, float(size.x) / size.y);
+        const glm::vec3 offset = centre - view.camera.position;
+        const float along = glm::dot(offset, ray);
+        // A smaller analytic sphere excludes silhouette coverage and TAA's edge filtering.
+        if (along > 0.0f && glm::dot(offset, offset) - along * along < 0.16f) {
+          ++interior;
+          const Pixel pixel = scene.pixel(x, y);
+          if (std::min({pixel.r, pixel.g, pixel.b}) < 150) {
+            ++holes;
+          }
+        }
+      }
+    }
+    CAPTURE(settings.antialiasing, interior, holes);
+    REQUIRE(interior > 30);
+    REQUIRE(holes == 0);
+    renderer.destroyMesh(sphere);
+    renderer.destroyMaterial(white);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
