@@ -1,6 +1,6 @@
 --- a/backends/imgui_impl_vulkan.cpp
 +++ b/backends/imgui_impl_vulkan.cpp
-@@ -1927,80 +1927,6 @@
+@@ -1977,80 +1977,6 @@
      ImGui_ImplVulkanH_CreateWindowSwapChain(physical_device, device, wd, allocator, width, height, min_image_count, image_usage);
      ImGui_ImplVulkanH_CreateWindowCommandBuffers(physical_device, device, wd, queue_family, allocator);
  
@@ -81,7 +81,7 @@
  }
  
  void ImGui_ImplVulkanH_DestroyWindow(VkInstance instance, VkDevice device, ImGui_ImplVulkanH_Window* wd, const VkAllocationCallbacks* allocator)
-@@ -2230,7 +2156,11 @@
+@@ -2280,7 +2206,11 @@
              VkImageMemoryBarrier barrier = {};
              barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
              barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
