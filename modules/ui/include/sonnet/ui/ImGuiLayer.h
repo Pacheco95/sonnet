@@ -3,6 +3,7 @@
 #include <sonnet/platform/Window.h>
 #include <sonnet/rhi/CommandList.h>
 #include <sonnet/rhi/Device.h>
+#include <sonnet/ui/Theme.h>
 
 #include <imgui.h>
 
@@ -24,6 +25,8 @@ struct ImGuiLayerDesc {
   // Dear ImGui windows dragged outside the main window become OS windows. Desktop only, and off
   // for headless tests.
   bool viewports{true};
+  // The look, applied at scale 1 and what the panels read through currentTheme().
+  Theme theme{};
 };
 
 // Dear ImGui with its SDL3 and Vulkan backends in dynamic-rendering mode (docs/rendering.md,
