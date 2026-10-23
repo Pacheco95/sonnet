@@ -160,7 +160,7 @@ The driver reports `timestampPeriod=41.6667` and `timestampValidBits=64`.
 A successful RHI timestamp test does not prove these mixed render/compute
 measurements valid. Raw query diagnosis belongs to
 [issue 374](https://github.com/Pacheco95/sonnet/issues/374); no driver-only root
-cause is asserted here.
+cause is asserted here. The [timestamp follow-up](kosmickrisp-timestamps.md) now reproduces the available-zero failure directly in Metal 4 relaxed compute sampling, and verifies a precise-sampling repair experiment against independent Metal GPU commit feedback. The SDK and shipping backend remain unchanged.
 
 ## Portability, shading rules and shipping decision
 

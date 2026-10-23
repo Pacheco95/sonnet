@@ -57,9 +57,11 @@ sonnet_add_module_test(rhi
     tests/NullDeviceTests.cpp
     tests/ResourceTests.cpp
     tests/SwapchainTests.cpp
+    tests/TimestampTests.cpp
     tests/TriangleTests.cpp
 )
 if(TARGET rhi_tests)
+  target_link_libraries(rhi_tests PRIVATE sonnet::rhi_vulkan)
   sonnet_add_shaders(rhi_tests SHADERS
     tests/shaders/triangle.slang tests/shaders/mesh.slang tests/shaders/id.slang tests/shaders/readid.slang
     tests/shaders/texture.slang tests/shaders/fill.slang tests/shaders/indirect.slang)

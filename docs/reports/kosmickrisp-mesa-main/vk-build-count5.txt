@@ -1,0 +1,3 @@
+$ /usr/bin/cc /tmp/sonnet-377/vk-timestamps-count5.c -o /tmp/sonnet-377/vk-timestamps-count5 -I/tmp/sonnet-368/sdk/macOS/include -L/tmp/sonnet-368/sdk/macOS/lib -lvulkan
+
+exit=0

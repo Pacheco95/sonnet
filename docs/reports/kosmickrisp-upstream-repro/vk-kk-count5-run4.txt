@@ -1,0 +1,7 @@
+device=Apple M4 Max timestampPeriod=41.666668
+query= 0 ticks=11106993710734 available=1
+query= 1 ticks=11106993710734 available=1
+query= 2 ticks=11106993710734 available=1
+query= 3 ticks=11106993710734 available=1
+query= 4 ticks=0 available=1
+FAIL: available query returned zero or went backwards

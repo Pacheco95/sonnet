@@ -1,0 +1,4 @@
+$ git clone --depth 1 --branch llvm_release_220 https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git /tmp/sonnet-377/translator
+Cloning into '/tmp/sonnet-377/translator'...
+
+exit=0

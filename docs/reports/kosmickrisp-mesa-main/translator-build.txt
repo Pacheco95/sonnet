@@ -1,0 +1,56 @@
+$ ninja -C /tmp/sonnet-377/translator-build -j 8 install
+ninja: Entering directory `/tmp/sonnet-377/translator-build'
+[1/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/Mangler/ManglingUtils.cpp.o
+[2/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/Mangler/FunctionDescriptor.cpp.o
+[3/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/Mangler/ParameterType.cpp.o
+[4/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/Mangler/Mangler.cpp.o
+[5/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/LLVMSPIRVOpts.cpp.o
+[6/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/OCLTypeToSPIRV.cpp.o
+[7/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/VectorComputeUtil.cpp.o
+[8/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVBuiltinHelper.cpp.o
+[9/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVLowerBitCastToNonStandardType.cpp.o
+[10/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/LLVMToSPIRVDbgTran.cpp.o
+[11/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVLowerBool.cpp.o
+[12/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/OCLUtil.cpp.o
+[13/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/OCLToSPIRV.cpp.o
+[14/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVLowerLLVMIntrinsic.cpp.o
+[15/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVLowerConstExpr.cpp.o
+[16/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVLowerMemmove.cpp.o
+[17/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVLowerOCLBlocks.cpp.o
+[18/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVRegularizeLLVM.cpp.o
+[19/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVToOCL12.cpp.o
+[20/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVToOCL.cpp.o
+[21/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVToLLVMDbgTran.cpp.o
+[22/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVToOCL20.cpp.o
+[23/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVTypeScavenger.cpp.o
+[24/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVWriterPass.cpp.o
+[25/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVDebug.cpp.o
+[26/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVBasicBlock.cpp.o
+[27/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/PreprocessMetadata.cpp.o
+[28/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVDecorate.cpp.o
+[29/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVUtil.cpp.o
+[30/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVReader.cpp.o
+[31/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/PassPlugin.cpp.o
+[32/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVFunction.cpp.o
+[33/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVType.cpp.o
+[34/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVInstruction.cpp.o
+[35/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVError.cpp.o
+[36/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVValue.cpp.o
+[37/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVStream.cpp.o
+[38/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVEntry.cpp.o
+[39/45] Building CXX object tools/llvm-spirv/CMakeFiles/llvm-spirv.dir/llvm-spirv.cpp.o
+[40/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVFnVar.cpp.o
+[41/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/SPIRVWriter.cpp.o
+[42/45] Building CXX object lib/SPIRV/CMakeFiles/LLVMSPIRVLib.dir/libSPIRV/SPIRVModule.cpp.o
+[43/45] Linking CXX shared library lib/SPIRV/libLLVMSPIRVLib.dylib
+[44/45] Linking CXX executable tools/llvm-spirv/llvm-spirv
+[44/45] Install the project...
+-- Install configuration: "Release"
+-- Installing: /tmp/sonnet-377/prefix/include/LLVMSPIRVLib/LLVMSPIRVLib.h
+-- Installing: /tmp/sonnet-377/prefix/include/LLVMSPIRVLib/LLVMSPIRVOpts.h
+-- Installing: /tmp/sonnet-377/prefix/include/LLVMSPIRVLib/LLVMSPIRVExtensions.inc
+-- Installing: /tmp/sonnet-377/prefix/lib/pkgconfig/LLVMSPIRVLib.pc
+-- Installing: /tmp/sonnet-377/prefix/lib/libLLVMSPIRVLib.dylib
+-- Installing: /tmp/sonnet-377/prefix/bin/llvm-spirv
+
+exit=0

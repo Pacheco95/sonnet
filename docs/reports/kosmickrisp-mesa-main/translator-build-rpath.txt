@@ -1,0 +1,13 @@
+$ ninja -C /tmp/sonnet-377/translator-build -j 8 install
+ninja: Entering directory `/tmp/sonnet-377/translator-build'
+[0/1] Install the project...
+-- Install configuration: "Release"
+-- Up-to-date: /tmp/sonnet-377/prefix/include/LLVMSPIRVLib/LLVMSPIRVLib.h
+-- Up-to-date: /tmp/sonnet-377/prefix/include/LLVMSPIRVLib/LLVMSPIRVOpts.h
+-- Up-to-date: /tmp/sonnet-377/prefix/include/LLVMSPIRVLib/LLVMSPIRVExtensions.inc
+-- Up-to-date: /tmp/sonnet-377/prefix/lib/pkgconfig/LLVMSPIRVLib.pc
+-- Up-to-date: /tmp/sonnet-377/prefix/lib/libLLVMSPIRVLib.dylib
+-- Up-to-date: /tmp/sonnet-377/prefix/bin/llvm-spirv
+error: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool: no LC_RPATH load command with path: /tmp/sonnet-377/translator-build/lib/SPIRV found in: /tmp/sonnet-377/prefix/bin/llvm-spirv (for architecture arm64), required for specified option "-delete_rpath /tmp/sonnet-377/translator-build/lib/SPIRV"
+
+exit=0

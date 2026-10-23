@@ -1,0 +1,23 @@
+Collecting meson
+  Downloading meson-1.12.1-py3-none-any.whl.metadata (1.7 kB)
+Collecting mako
+  Downloading mako-1.4.3-py3-none-any.whl.metadata (2.9 kB)
+Collecting packaging
+  Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+Collecting pyyaml
+  Downloading pyyaml-6.0.3-cp313-cp313-macosx_11_0_arm64.whl.metadata (2.4 kB)
+Collecting MarkupSafe>=2.0 (from mako)
+  Downloading markupsafe-3.0.4-cp313-cp313-macosx_11_0_arm64.whl.metadata (2.7 kB)
+Downloading meson-1.12.1-py3-none-any.whl (1.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.1/1.1 MB 15.7 MB/s  0:00:00
+Downloading mako-1.4.3-py3-none-any.whl (80 kB)
+Downloading packaging-26.3-py3-none-any.whl (129 kB)
+Downloading pyyaml-6.0.3-cp313-cp313-macosx_11_0_arm64.whl (173 kB)
+Downloading markupsafe-3.0.4-cp313-cp313-macosx_11_0_arm64.whl (12 kB)
+Installing collected packages: pyyaml, packaging, meson, MarkupSafe, mako
+
+Successfully installed MarkupSafe-3.0.4 mako-1.4.3 meson-1.12.1 packaging-26.3 pyyaml-6.0.3
+WARNING: Cache entry deserialization failed, entry ignored
+
+[notice] A new release of pip is available: 25.2 -> 26.2.2
+[notice] To update, run: /private/tmp/sonnet-376/venv/bin/python3 -m pip install --upgrade pip

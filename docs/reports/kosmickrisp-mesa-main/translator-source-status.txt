@@ -1,0 +1,3 @@
+$ git -C /tmp/sonnet-377/translator status --porcelain
+
+exit=0

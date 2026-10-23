@@ -1,0 +1,10 @@
+$ sh -c sw_vers; xcodebuild -version; xcrun --show-sdk-version; /opt/homebrew/opt/llvm/bin/llvm-config --version
+ProductName:		macOS
+ProductVersion:		26.7.1
+BuildVersion:		25G241
+Xcode 26.3
+Build version 17C529
+26.2
+22.1.0
+
+exit=0
