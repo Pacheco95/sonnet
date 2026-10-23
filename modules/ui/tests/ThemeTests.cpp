@@ -5,6 +5,8 @@
 
 #include <imgui.h>
 
+#include <iterator>
+
 using namespace sonnet;
 using Catch::Approx;
 
@@ -43,16 +45,105 @@ bool sameColours(const ImGuiStyle &a, const ImGuiStyle &b) {
 
 } // namespace
 
-TEST_CASE("the default theme at scale 1 is Dear ImGui's dark style", "[ui][theme]") {
+// The 63 colours and the sizes of `ImGuiStyle`'s default (`StyleColorsDark`) in Dear ImGui 1.92.9, the style the editor
+// had before the theme and the look the default theme reproduces. They are fixed here on purpose: 1.93.0 changed the
+// dark style (a greyer window, darker frames, a darker docking background and lighter table headers), and the editor's
+// look moves only when its own theme does. Generated once from the 1.92.9b-docking sources.
+constexpr ImVec4 Dark1929Colours[] = {
+    {1.0f, 1.0f, 1.0f, 1.0f},                                    // Text
+    {0.5f, 0.5f, 0.5f, 1.0f},                                    // TextDisabled
+    {0.0599999987f, 0.0599999987f, 0.0599999987f, 0.939999998f}, // WindowBg
+    {0.0f, 0.0f, 0.0f, 0.0f},                                    // ChildBg
+    {0.0799999982f, 0.0799999982f, 0.0799999982f, 0.939999998f}, // PopupBg
+    {0.430000007f, 0.430000007f, 0.5f, 0.5f},                    // Border
+    {0.0f, 0.0f, 0.0f, 0.0f},                                    // BorderShadow
+    {0.159999996f, 0.289999992f, 0.479999989f, 0.540000021f},    // FrameBg
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.400000006f},     // FrameBgHovered
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.670000017f},     // FrameBgActive
+    {0.0399999991f, 0.0399999991f, 0.0399999991f, 1.0f},         // TitleBg
+    {0.159999996f, 0.289999992f, 0.479999989f, 1.0f},            // TitleBgActive
+    {0.0f, 0.0f, 0.0f, 0.50999999f},                             // TitleBgCollapsed
+    {0.140000001f, 0.140000001f, 0.140000001f, 1.0f},            // MenuBarBg
+    {0.0199999996f, 0.0199999996f, 0.0199999996f, 0.529999971f}, // ScrollbarBg
+    {0.310000002f, 0.310000002f, 0.310000002f, 1.0f},            // ScrollbarGrab
+    {0.409999996f, 0.409999996f, 0.409999996f, 1.0f},            // ScrollbarGrabHovered
+    {0.50999999f, 0.50999999f, 0.50999999f, 1.0f},               // ScrollbarGrabActive
+    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // CheckMark
+    {0.224999994f, 0.484999955f, 0.804999948f, 0.449000001f},    // CheckboxSelectedBg
+    {0.239999995f, 0.519999981f, 0.879999995f, 1.0f},            // SliderGrab
+    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // SliderGrabActive
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.400000006f},     // Button
+    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // ButtonHovered
+    {0.0599999987f, 0.529999971f, 0.980000019f, 1.0f},           // ButtonActive
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.310000002f},     // Header
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.800000012f},     // HeaderHovered
+    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // HeaderActive
+    {0.430000007f, 0.430000007f, 0.5f, 0.5f},                    // Separator
+    {0.100000001f, 0.400000006f, 0.75f, 0.779999971f},           // SeparatorHovered
+    {0.100000001f, 0.400000006f, 0.75f, 1.0f},                   // SeparatorActive
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.200000003f},     // ResizeGrip
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.670000017f},     // ResizeGripHovered
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.949999988f},     // ResizeGripActive
+    {1.0f, 1.0f, 1.0f, 1.0f},                                    // InputTextCursor
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.800000012f},     // TabHovered
+    {0.179999992f, 0.349999964f, 0.580000043f, 0.861999989f},    // Tab
+    {0.199999988f, 0.409999967f, 0.680000007f, 1.0f},            // TabSelected
+    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // TabSelectedOverline
+    {0.0680000037f, 0.101999983f, 0.148000032f, 0.97240001f},    // TabDimmed
+    {0.135999978f, 0.261999965f, 0.423999995f, 1.0f},            // TabDimmedSelected
+    {0.5f, 0.5f, 0.5f, 0.0f},                                    // TabDimmedSelectedOverline
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.699999988f},     // DockingPreview
+    {0.200000003f, 0.200000003f, 0.200000003f, 1.0f},            // DockingEmptyBg
+    {0.610000014f, 0.610000014f, 0.610000014f, 1.0f},            // PlotLines
+    {1.0f, 0.430000007f, 0.349999994f, 1.0f},                    // PlotLinesHovered
+    {0.899999976f, 0.699999988f, 0.0f, 1.0f},                    // PlotHistogram
+    {1.0f, 0.600000024f, 0.0f, 1.0f},                            // PlotHistogramHovered
+    {0.189999998f, 0.189999998f, 0.200000003f, 1.0f},            // TableHeaderBg
+    {0.310000002f, 0.310000002f, 0.349999994f, 1.0f},            // TableBorderStrong
+    {0.230000004f, 0.230000004f, 0.25f, 1.0f},                   // TableBorderLight
+    {0.0f, 0.0f, 0.0f, 0.0f},                                    // TableRowBg
+    {1.0f, 1.0f, 1.0f, 0.0599999987f},                           // TableRowBgAlt
+    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // TextLink
+    {0.25999999f, 0.589999974f, 0.980000019f, 0.349999994f},     // TextSelectedBg
+    {0.430000007f, 0.430000007f, 0.5f, 0.5f},                    // TreeLines
+    {1.0f, 1.0f, 0.0f, 0.899999976f},                            // DragDropTarget
+    {0.0f, 0.0f, 0.0f, 0.0f},                                    // DragDropTargetBg
+    {1.0f, 1.0f, 1.0f, 1.0f},                                    // UnsavedMarker
+    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // NavCursor
+    {1.0f, 1.0f, 1.0f, 0.699999988f},                            // NavWindowingHighlight
+    {0.800000012f, 0.800000012f, 0.800000012f, 0.200000003f},    // NavWindowingDimBg
+    {0.800000012f, 0.800000012f, 0.800000012f, 0.349999994f},    // ModalWindowDimBg
+};
+
+static_assert(std::size(Dark1929Colours) == ImGuiCol_COUNT,
+              "a slot was added or removed: write its 1.92.9 value, or none");
+
+TEST_CASE("the default theme at scale 1 is Dear ImGui 1.92.9's dark style", "[ui][theme]") {
   ImGuiStyle derived;
   ui::applyTheme(derived, ui::Theme{}, 1.0f, false);
-  const ImGuiStyle dark; // its constructor applies StyleColorsDark
 
   for (int i = 0; i < ImGuiCol_COUNT; ++i) {
     INFO("ImGuiCol " << i << " " << ImGui::GetStyleColorName(i));
-    CHECK(near(derived.Colors[i], dark.Colors[i]));
+    CHECK(near(derived.Colors[i], Dark1929Colours[i]));
   }
-  CHECK(sameSizes(derived, dark));
+
+  const auto sizeIs = [](ImVec2 value, float x, float y) { return value.x == x && value.y == y; };
+  CHECK(sizeIs(derived.WindowPadding, 8.0f, 8.0f));
+  CHECK(sizeIs(derived.FramePadding, 4.0f, 3.0f));
+  CHECK(sizeIs(derived.ItemSpacing, 8.0f, 4.0f));
+  CHECK(sizeIs(derived.ItemInnerSpacing, 4.0f, 4.0f));
+  CHECK(sizeIs(derived.CellPadding, 4.0f, 2.0f));
+  CHECK(derived.IndentSpacing == 21.0f);
+  CHECK(derived.ScrollbarSize == 14.0f);
+  CHECK(derived.GrabMinSize == 12.0f);
+  CHECK(derived.WindowRounding == 0.0f);
+  CHECK(derived.FrameRounding == 0.0f);
+  CHECK(derived.ScrollbarRounding == 9.0f);
+  CHECK(derived.TabRounding == 5.0f);
+  CHECK(derived.WindowBorderSize == 1.0f);
+  CHECK(derived.FrameBorderSize == 0.0f);
+  CHECK(derived.DockingSeparatorSize == 2.0f);
+  CHECK(derived.WindowMinSize.x == 32.0f);
 }
 
 TEST_CASE("the style takes its colours and sizes from the tokens", "[ui][theme]") {

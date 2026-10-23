@@ -348,7 +348,7 @@ void Gizmo::draw(ImDrawList *drawList, const GizmoView &view, glm::vec3 origin, 
       const ImU32 color = axisColor(axis, axis == highlighted);
       const ImU32 fill = (color & 0x00ffffffu) | (axis == highlighted ? 0x90000000u : 0x55000000u);
       drawList->AddConvexPolyFilled(points, 4, fill);
-      drawList->AddPolyline(points, 4, color, ImDrawFlags_Closed, 1.5f);
+      drawList->AddPolyline(points, 4, color, 1.5f, ImDrawFlags_Closed);
     }
   }
   for (int i = 0; i < 3; ++i) {
