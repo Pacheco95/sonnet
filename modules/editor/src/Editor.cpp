@@ -621,7 +621,7 @@ void Editor::drawGameOverlay(const ViewportInput &input) {
     }
     const ImVec2 min{input.origin.x + element->rect.min.x, input.origin.y + element->rect.min.y};
     const ImVec2 max{input.origin.x + element->rect.max.x, input.origin.y + element->rect.max.y};
-    input.drawList->AddRect(min, max, ui::toU32(ui::currentTheme().selection), 0.0f, 0, 2.0f);
+    input.drawList->AddRect(min, max, ui::toU32(ui::currentTheme().selection), 0.0f, 2.0f);
   }
 }
 

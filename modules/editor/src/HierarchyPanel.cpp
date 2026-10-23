@@ -335,7 +335,7 @@ void HierarchyPanel::acceptDrop(flecs::entity row, bool openParent) {
         ImDrawList *draw = ImGui::GetWindowDrawList();
         const ImU32 colour = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
         if (zone == Zone::Onto) {
-          draw->AddRect(min, max, colour, 0.0f, 0, 2.0f);
+          draw->AddRect(min, max, colour, 0.0f, 2.0f);
         } else {
           const float y = zone == Zone::Before ? min.y : max.y;
           draw->AddLine(ImVec2{min.x, y}, ImVec2{max.x, y}, colour, 2.0f);
