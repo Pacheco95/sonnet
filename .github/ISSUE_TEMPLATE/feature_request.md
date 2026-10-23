@@ -16,10 +16,14 @@ Part of #
 
 - [ ]
 
+## Risks
+
+<!-- What could go wrong or turn out harder than it looks (a fragile area this touches, a platform that behaves differently, a regression that nothing would catch), each with how to reduce it. Write "None known." if there are none. -->
+
+-
+
 ## Follow-ups (optional)
 
 <!-- Related work left out of this issue, with its issue number if filed. Delete if none. -->
 
 -
-
-Estimate: h.
