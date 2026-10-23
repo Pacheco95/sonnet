@@ -14,8 +14,8 @@ namespace sonnet::rhi {
 // module creation, including editor hot reload. Both standalone and block-member builtins occur
 // in SPIR-V. No arithmetic or descriptor layout is changed.
 inline void makePositionInvariant(std::vector<std::uint32_t> &words) {
-  constexpr std::uint32_t OpDecorate = 71, OpMemberDecorate = 72;
-  constexpr std::uint32_t BuiltIn = 11, Position = 0, Invariant = 18;
+  constexpr std::uint32_t opDecorate = 71, opMemberDecorate = 72;
+  constexpr std::uint32_t builtIn = 11, position = 0, invariant = 18;
   if (words.size() < 5 || words[0] != 0x07230203u) {
     throw core::Exception{"invalid SPIR-V header", core::ErrorCategory::Shader};
   }
@@ -32,12 +32,12 @@ inline void makePositionInvariant(std::vector<std::uint32_t> &words) {
     if (insertion == words.size() && op >= 19 && op <= 39) {
       insertion = offset;
     }
-    if (op == OpDecorate && count == 4 && words[offset + 2] == BuiltIn && words[offset + 3] == Position) {
-      required.push_back({(3u << 16) | OpDecorate, words[offset + 1], Invariant});
-    } else if (op == OpMemberDecorate && count == 5 && words[offset + 3] == BuiltIn && words[offset + 4] == Position) {
-      required.push_back({(4u << 16) | OpMemberDecorate, words[offset + 1], words[offset + 2], Invariant});
-    } else if ((op == OpDecorate && count == 3 && words[offset + 2] == Invariant) ||
-               (op == OpMemberDecorate && count == 4 && words[offset + 3] == Invariant)) {
+    if (op == opDecorate && count == 4 && words[offset + 2] == builtIn && words[offset + 3] == position) {
+      required.push_back({(3u << 16) | opDecorate, words[offset + 1], invariant});
+    } else if (op == opMemberDecorate && count == 5 && words[offset + 3] == builtIn && words[offset + 4] == position) {
+      required.push_back({(4u << 16) | opMemberDecorate, words[offset + 1], words[offset + 2], invariant});
+    } else if ((op == opDecorate && count == 3 && words[offset + 2] == invariant) ||
+               (op == opMemberDecorate && count == 4 && words[offset + 3] == invariant)) {
       existing.emplace_back(words.data() + offset, words.data() + offset + count);
     }
     offset += count;
