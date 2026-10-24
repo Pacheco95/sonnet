@@ -656,7 +656,8 @@ void Editor::drawGameOverlay(const ViewportInput &input) {
     }
     const ImVec2 min{input.origin.x + element->rect.min.x, input.origin.y + element->rect.min.y};
     const ImVec2 max{input.origin.x + element->rect.max.x, input.origin.y + element->rect.max.y};
-    input.drawList->AddRect(min, max, ui::toU32(ui::currentTheme().selection), 0.0f, 2.0f);
+    input.drawList->AddRect(min, max, ui::toU32(ui::currentTheme().selection), 0.0f, ImDrawFlags_None,
+                            ui::scaled(2.0f));
   }
 }
 
@@ -854,11 +855,11 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Snap to grid", "hold Ctrl", &m_snapEnabled);
     GizmoSnap snap = m_gizmo.snap();
     float degrees = glm::degrees(snap.rotate);
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(ui::em(8.5f));
     bool changed = ImGui::DragFloat("Move step", &snap.translate, 0.05f, 0.01f, 100.0f, "%.2f m");
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(ui::em(8.5f));
     changed = ImGui::DragFloat("Rotate step", &degrees, 0.5f, 1.0f, 180.0f, "%.1f deg") || changed;
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(ui::em(8.5f));
     changed = ImGui::DragFloat("Scale step", &snap.scale, 0.01f, 0.01f, 10.0f, "%.2f") || changed;
     if (changed) {
       snap.rotate = glm::radians(degrees);
@@ -885,7 +886,7 @@ void Editor::drawMenuBar() {
   }
   if (ImGui::BeginMenu("View")) {
     m_viewportPanel.drawViewMenu();
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(ui::em(8.5f));
     if (ImGui::DragFloat("Smooth view duration", &m_preferences.smoothViewDuration, 0.01f, 0.0f, 2.0f, "%.2f s",
                          ImGuiSliderFlags_AlwaysClamp)) {
       m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
@@ -1020,7 +1021,7 @@ void Editor::drawModal() {
       m_modalPath = m_project->root.parent_path().string();
     }
   }
-  ImGui::SetNextWindowSize(ImVec2{520.0f, 0.0f});
+  ImGui::SetNextWindowSize(ImVec2{ui::em(37.0f), 0.0f});
   if (!ImGui::BeginPopupModal(ModalId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     return;
   }

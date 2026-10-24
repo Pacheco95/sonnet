@@ -93,6 +93,7 @@ void applyColours(ImVec4 (&c)[ImGuiCol_COUNT], const Theme &t) {
 }
 
 Theme g_theme;
+float g_scale = 1.0f;
 
 } // namespace
 
@@ -146,6 +147,15 @@ const Theme &currentTheme() {
 
 void setCurrentTheme(const Theme &theme) {
   g_theme = theme;
+}
+
+float currentScale() {
+  return g_scale;
+}
+
+void setCurrentScale(float scale) {
+  SONNET_ASSERT(scale > 0.0f, "a display scale has to be positive");
+  g_scale = scale;
 }
 
 } // namespace sonnet::ui

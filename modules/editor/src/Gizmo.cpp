@@ -2,6 +2,7 @@
 
 #include <sonnet/renderer/Camera.h>
 #include <sonnet/ui/Theme.h>
+#include <sonnet/ui/Widgets.h>
 
 #include <imgui.h>
 
@@ -14,7 +15,7 @@ namespace sonnet::editor {
 namespace {
 
 constexpr float HandleSizeFraction = 0.18f; // of the distance to the camera
-constexpr float PickDistancePixels = 8.0f;
+constexpr float PickDistancePixels = 8.0f;  // unscaled, ui::scaled at use
 constexpr int CircleSegments = 48;
 constexpr float MinimumScale = 0.01f;
 constexpr float PlaneNear = 0.25f; // the plane handle's square spans these fractions of the length
@@ -154,7 +155,7 @@ GizmoAxis Gizmo::hitTest(const GizmoView &view, glm::vec3 origin, const glm::vec
     return GizmoAxis::None;
   }
   GizmoAxis best = GizmoAxis::None;
-  float bestDistance = PickDistancePixels;
+  float bestDistance = ui::scaled(PickDistancePixels);
   for (int i = 0; i < 3; ++i) {
     const auto axis = static_cast<GizmoAxis>(i + 1);
     float distance = std::numeric_limits<float>::max();
@@ -348,7 +349,7 @@ void Gizmo::draw(ImDrawList *drawList, const GizmoView &view, glm::vec3 origin, 
       const ImU32 color = axisColor(axis, axis == highlighted);
       const ImU32 fill = (color & 0x00ffffffu) | (axis == highlighted ? 0x90000000u : 0x55000000u);
       drawList->AddConvexPolyFilled(points, 4, fill);
-      drawList->AddPolyline(points, 4, color, 1.5f, ImDrawFlags_Closed);
+      drawList->AddPolyline(points, 4, color, ui::scaled(1.5f), ImDrawFlags_Closed);
     }
   }
   for (int i = 0; i < 3; ++i) {
@@ -368,7 +369,7 @@ void Gizmo::draw(ImDrawList *drawList, const GizmoView &view, glm::vec3 origin, 
         }
         const ImVec2 current{pixel->x, pixel->y};
         if (previous) {
-          drawList->AddLine(*previous, current, color, 2.0f);
+          drawList->AddLine(*previous, current, color, ui::scaled(2.0f));
         }
         previous = current;
       }
@@ -379,7 +380,7 @@ void Gizmo::draw(ImDrawList *drawList, const GizmoView &view, glm::vec3 origin, 
       continue;
     }
     const ImVec2 end{tip->x, tip->y};
-    drawList->AddLine(centre, end, color, 2.5f);
+    drawList->AddLine(centre, end, color, ui::scaled(2.5f));
     const glm::vec2 direction = *tip - *originPixel;
     const float shaft = glm::length(direction);
     if (shaft < 1.0f) {
@@ -388,15 +389,16 @@ void Gizmo::draw(ImDrawList *drawList, const GizmoView &view, glm::vec3 origin, 
     const glm::vec2 forward = direction / shaft;
     const glm::vec2 side{-forward.y, forward.x};
     if (m_mode == GizmoMode::Translate) {
-      const glm::vec2 base = *tip - forward * 12.0f;
-      const glm::vec2 left = base + side * 5.0f;
-      const glm::vec2 right = base - side * 5.0f;
+      const glm::vec2 base = *tip - forward * ui::scaled(12.0f);
+      const glm::vec2 left = base + side * ui::scaled(5.0f);
+      const glm::vec2 right = base - side * ui::scaled(5.0f);
       drawList->AddTriangleFilled(end, ImVec2{left.x, left.y}, ImVec2{right.x, right.y}, color);
     } else {
-      drawList->AddRectFilled(ImVec2{end.x - 5.0f, end.y - 5.0f}, ImVec2{end.x + 5.0f, end.y + 5.0f}, color);
+      const float half = ui::scaled(5.0f);
+      drawList->AddRectFilled(ImVec2{end.x - half, end.y - half}, ImVec2{end.x + half, end.y + half}, color);
     }
   }
-  drawList->AddCircleFilled(centre, 4.0f, ui::toU32(ui::currentTheme().gizmoOrigin));
+  drawList->AddCircleFilled(centre, ui::scaled(4.0f), ui::toU32(ui::currentTheme().gizmoOrigin));
 }
 
 } // namespace sonnet::editor

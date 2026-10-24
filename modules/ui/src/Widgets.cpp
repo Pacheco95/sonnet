@@ -31,9 +31,11 @@ private:
 } // namespace
 
 float scaled(float base) {
-  // The scale `ScaleAllSizes` applied to the style (applyTheme). Dear ImGui marks the field as not for use yet, so this
-  // is the one place that reads it; #390 gives the theme a scale of its own.
-  return base * ImGui::GetStyle()._MainScale;
+  return base * currentScale();
+}
+
+float em(float count) {
+  return count * ImGui::GetFontSize();
 }
 
 int dialogButtons(std::initializer_list<DialogButton> buttons) {

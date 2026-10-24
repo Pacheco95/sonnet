@@ -14,9 +14,14 @@
 // behaviour the widgets do not cover.
 namespace sonnet::ui {
 
-// A base size from the theme, in pixels at the style's current scale. Tokens are unscaled (applyTheme multiplies the
-// ones that live in ImGuiStyle), so a width that no ImGuiStyle field holds goes through here.
+// A base size from the theme, in pixels at the display scale (`currentScale()`). Tokens are unscaled (applyTheme
+// multiplies the ones that live in ImGuiStyle), so a width that no ImGuiStyle field holds goes through here.
 [[nodiscard]] float scaled(float base);
+
+// `count` text heights at the current font size: the width of what holds text (a filter field, a combo, a column of
+// names), which follows the text whatever drives it. Geometry that does not hold text (a line's thickness, a pick
+// distance) goes through `scaled`. Call it inside a frame.
+[[nodiscard]] float em(float count);
 
 // -- Dialog buttons ----------------------------------------------------------------------------------------------
 

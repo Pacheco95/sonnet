@@ -313,7 +313,8 @@ bool ViewportPanel::drawAxisWidget(ImVec2 origin, ImVec2 size) {
     }
     const bool highlighted = hovered && hit == end.view;
     draw->AddCircleFilled(end.position, radius, end.positive ? end.color : ui::toU32(theme.widgetNegative));
-    draw->AddCircle(end.position, radius, highlighted ? end.highlight : end.color, 0, highlighted ? 2.5f : 1.5f);
+    draw->AddCircle(end.position, radius, highlighted ? end.highlight : end.color, 0,
+                    ui::scaled(highlighted ? 2.5f : 1.5f));
     if (end.positive) {
       const ImVec2 text = ImGui::CalcTextSize(end.label);
       draw->AddText({end.position.x - text.x * 0.5f, end.position.y - text.y * 0.5f}, ui::toU32(theme.widgetLabel),

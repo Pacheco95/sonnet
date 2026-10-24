@@ -21,7 +21,9 @@ struct OpenScenes {
 // How the Assets panel shows a project's folder: the list, or a grid of tiles (docs/editor.md, "Grid view").
 struct AssetsView {
   static constexpr float MinTileSize = 48.0f;
-  static constexpr float MaxTileSize = 128.0f; // the thumbnails' size, so a tile never magnifies one
+  // Unscaled pixels (the display scale is applied where the tile is drawn). 128 is the thumbnails' size, so a tile
+  // does not magnify one at scale 1; a larger display scale does (docs/editor.md, "Display scale").
+  static constexpr float MaxTileSize = 128.0f;
   static constexpr float DefaultTileSize = 96.0f;
 
   bool grid{false};

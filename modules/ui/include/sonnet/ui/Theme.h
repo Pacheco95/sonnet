@@ -101,7 +101,7 @@ struct Theme {
   float tabBorderSize{0.0f};
 
   // Widths and distances the widgets of Widgets.h draw with. They are in no ImGuiStyle field, so the widgets multiply
-  // them by the style's scale themselves (`ui::scaled`).
+  // them by the display scale themselves (`ui::scaled`, which reads `currentScale()`).
   float dialogButtonWidth{120.0f};     // a modal's buttons
   float dialogButtonWideWidth{200.0f}; // a modal's button with a label that is too long for the normal width
   float propertyLabelWidth{90.0f};     // the name column of the inspector's property tables
@@ -119,6 +119,13 @@ void applyTheme(ImGuiStyle &style, const Theme &theme, float scale, bool viewpor
 // is the default Theme.
 [[nodiscard]] const Theme &currentTheme();
 void setCurrentTheme(const Theme &theme);
+
+// The display scale the style was derived with, 1 for the base tokens. ImGuiLayer sets it where it calls `applyTheme`,
+// and without a layer (headless panel tests) it is 1. The widgets multiply the width tokens that no ImGuiStyle field
+// holds by it (`ui::scaled`); it is a ui value, not Dear ImGui's `ImGuiStyle::_MainScale`, which upstream marks as not
+// for use.
+[[nodiscard]] float currentScale();
+void setCurrentScale(float scale);
 
 // A theme colour as the packed value ImDrawList takes.
 [[nodiscard]] inline ImU32 toU32(const ImVec4 &colour) {

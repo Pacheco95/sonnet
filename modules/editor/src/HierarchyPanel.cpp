@@ -8,6 +8,7 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/physics/Components.h>
 #include <sonnet/scripting/Components.h>
+#include <sonnet/ui/Widgets.h>
 #include <sonnet/world/DrawList.h>
 
 #include <imgui.h>
@@ -131,10 +132,10 @@ void HierarchyPanel::draw(bool &open) {
     drawBackgroundMenu();
     ImGui::EndPopup();
   }
-  ImGui::SetNextItemWidth(160.0f);
+  ImGui::SetNextItemWidth(ui::em(11.5f));
   ImGui::InputTextWithHint("##filter", "filter", &m_filter);
   ImGui::SameLine();
-  typeFilterCombo("##kind", 130.0f, kindNames(), m_kinds);
+  typeFilterCombo("##kind", ui::em(9.25f), kindNames(), m_kinds);
   for (const flecs::entity root : m_world.roots()) {
     if (!root.has<world::EditorOnly>() && (!filtering() || subtreeMatches(root))) {
       drawNode(root);
@@ -145,7 +146,8 @@ void HierarchyPanel::draw(bool &open) {
   }
   // The rest of the window: a drop target for the root and the background context menu.
   const ImVec2 remaining = ImGui::GetContentRegionAvail();
-  ImGui::InvisibleButton("background", ImVec2{std::max(remaining.x, 1.0f), std::max(remaining.y, 24.0f)});
+  ImGui::InvisibleButton(
+      "background", ImVec2{std::max(remaining.x, 1.0f), std::max(remaining.y, ImGui::GetFrameHeightWithSpacing())});
   acceptDrop({}, false);
   if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
     m_selection.clear();
@@ -335,10 +337,10 @@ void HierarchyPanel::acceptDrop(flecs::entity row, bool openParent) {
         ImDrawList *draw = ImGui::GetWindowDrawList();
         const ImU32 colour = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
         if (zone == Zone::Onto) {
-          draw->AddRect(min, max, colour, 0.0f, 2.0f);
+          draw->AddRect(min, max, colour, 0.0f, ImDrawFlags_None, ui::scaled(2.0f));
         } else {
           const float y = zone == Zone::Before ? min.y : max.y;
-          draw->AddLine(ImVec2{min.x, y}, ImVec2{max.x, y}, colour, 2.0f);
+          draw->AddLine(ImVec2{min.x, y}, ImVec2{max.x, y}, colour, ui::scaled(2.0f));
         }
         if (payload->IsDelivery()) {
           moveEntity(dragged, parent, index);

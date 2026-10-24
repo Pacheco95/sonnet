@@ -52,7 +52,6 @@ constexpr std::array<const char *, 3> WrapNames{"Repeat", "ClampToEdge", "Mirror
 constexpr std::array<const char *, 2> UvSetNames{"0", "1"};
 constexpr float UvDragSpeed = 0.01f;
 constexpr float EmissiveStrengthSpeed = 0.05f;
-constexpr float LightScaleWidth = 120.0f;
 
 template <typename Enum, std::size_t N>
 bool drawEnumCombo(const char *label, Enum &value, const std::array<const char *, N> &names) {
@@ -231,7 +230,7 @@ bool InspectorPanel::drawAssetPicker(core::Uuid &value, std::optional<assets::As
     ImGui::EndDragDropTarget();
   }
   if (ImGui::BeginPopup("pick asset")) {
-    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SetNextItemWidth(ui::em(15.5f));
     ImGui::InputTextWithHint("##filter", "filter", &m_pickerFilter);
     if (ImGui::Selectable("(none)", value.isNil()) && !value.isNil()) {
       value = {};
@@ -542,7 +541,7 @@ void InspectorPanel::drawModel(const assets::AssetInfo &info) {
   assets::ModelSettings settings = before;
   // Typed, so one command per edit rather than a re-import for every step of a drag. A scale the
   // sidecar would not accept (negative, not finite) is dropped, as reading it back would.
-  ImGui::SetNextItemWidth(LightScaleWidth);
+  ImGui::SetNextItemWidth(ui::em(8.5f));
   ImGui::InputFloat("Light scale", &settings.lightScale, 0.0f, 0.0f, "%.6g");
   if (ImGui::IsItemDeactivatedAfterEdit() && settings != before) {
     if (std::isfinite(settings.lightScale) && settings.lightScale >= 0.0f) {
@@ -950,7 +949,7 @@ bool InspectorPanel::drawEntityPicker(core::Uuid &value) {
     ImGui::EndDragDropTarget();
   }
   if (ImGui::BeginPopup("pick entity")) {
-    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SetNextItemWidth(ui::em(15.5f));
     ImGui::InputTextWithHint("##filter", "filter", &m_pickerFilter);
     if (ImGui::Selectable("(none)", value.isNil()) && !value.isNil()) {
       value = {};
