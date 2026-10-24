@@ -2669,7 +2669,7 @@ TEST_CASE("only an interactive editor uses the saved layout and preferences", "[
     int asked = 0;
     const auto ask = [&] {
       ++asked;
-      return directory;
+      return std::filesystem::path{directory};
     };
     REQUIRE(editor::userFiles(ask, true, false).preferences.empty());
     REQUIRE(editor::userFiles(ask, false, true).preferences.empty());
