@@ -6,11 +6,16 @@
 #include <sonnet/rhi/NullDevice.h>
 #include <sonnet/rhi/Swapchain.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <SDL3/SDL_video.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 
+#include <algorithm>
 #include <array>
+#include <limits>
 #include <memory>
 
 using namespace sonnet;
@@ -149,4 +154,150 @@ TEST_CASE("frames with a window and an image draw into the swapchain without val
   }
   fixture.device->waitIdle();
   fixture.device->destroyImage(picture);
+}
+
+namespace {
+
+// The style fields whose scaled value a test compares. They are the ones `ScaleAllSizes` truncates, so they show a
+// derivation that compounds as well as one that is missing.
+struct SizesSeen {
+  float windowPaddingX;
+  float framePaddingY;
+  float itemSpacingX;
+  float indentSpacing;
+  float scrollbarSize;
+  float fontScaleDpi;
+  float fontScaleMain;
+  float fontSize;
+
+  bool operator==(const SizesSeen &) const = default;
+};
+
+SizesSeen seen(const ImGuiStyle &style) {
+  return {style.WindowPadding.x, style.FramePadding.y, style.ItemSpacing.x, style.IndentSpacing,
+          style.ScrollbarSize,   style.FontScaleDpi,   style.FontScaleMain, ImGui::GetFontSize()};
+}
+
+// One frame with a floating window of a fixed size, returning what the style looked like inside it.
+SizesSeen frame(ui::ImGuiLayer &layer) {
+  layer.beginFrame();
+  ImGui::SetNextWindowPos(ImVec2{20.0f, 20.0f}, ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2{200.0f, 100.0f}, ImGuiCond_FirstUseEver);
+  ImGui::Begin("panel", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking);
+  const SizesSeen result = seen(ImGui::GetStyle());
+  ImGui::End();
+  layer.endFrame();
+  return result;
+}
+
+} // namespace
+
+TEST_CASE("a change of the display scale derives the style and the font scale from the theme again",
+          "[ui][gpu][scale]") {
+  Fixture fixture;
+  float scale = 1.0f;
+  ui::ImGuiLayerDesc desc = fixture.layerDesc();
+  desc.displayScale = [&scale] { return scale; };
+  ui::ImGuiLayer layer{desc};
+  const ui::Theme theme;
+  const ImGuiIO &io = ImGui::GetIO();
+  CHECK_FALSE(io.ConfigDpiScaleFonts);
+  CHECK_FALSE(io.ConfigDpiScaleViewports);
+
+  const SizesSeen base = frame(layer);
+  CHECK(ui::currentScale() == 1.0f);
+  CHECK(base.fontScaleDpi == 1.0f);
+  CHECK(base.itemSpacingX == theme.itemSpacing.x);
+  CHECK(base.windowPaddingX == theme.windowPadding.x);
+
+  for (const float next : {1.25f, 1.5f, 2.0f}) {
+    scale = next;
+    const SizesSeen scaled = frame(layer);
+    CAPTURE(next);
+    ImGuiStyle expected;
+    ui::applyTheme(expected, theme, next, false);
+    CHECK(ui::currentScale() == next);
+    CHECK(scaled.fontScaleDpi == next);
+    CHECK(scaled.fontScaleMain == 1.0f);
+    CHECK(scaled.fontSize == Catch::Approx(base.fontSize * next).margin(0.5f)); // Dear ImGui rounds to whole pixels
+    CHECK(scaled.windowPaddingX == expected.WindowPadding.x);
+    CHECK(scaled.framePaddingY == expected.FramePadding.y);
+    CHECK(scaled.itemSpacingX == expected.ItemSpacing.x);
+    CHECK(scaled.indentSpacing == expected.IndentSpacing);
+    CHECK(scaled.scrollbarSize == expected.ScrollbarSize);
+  }
+
+  // Back and forth ends exactly where it began: the style is rebuilt from the tokens, not scaled by the ratio.
+  for (const float next : {1.25f, 2.0f, 1.0f, 1.5f, 1.0f}) {
+    scale = next;
+    frame(layer);
+  }
+  CHECK(frame(layer) == base);
+  CHECK(ui::currentScale() == 1.0f);
+}
+
+TEST_CASE("the style is derived again only when the display scale changes", "[ui][gpu][scale]") {
+  Fixture fixture;
+  float scale = 1.0f;
+  ui::ImGuiLayerDesc desc = fixture.layerDesc();
+  desc.displayScale = [&scale] { return scale; };
+  ui::ImGuiLayer layer{desc};
+  frame(layer);
+
+  ImGui::GetStyle().ItemSpacing = ImVec2{99.0f, 99.0f};
+  frame(layer);
+  CHECK(ImGui::GetStyle().ItemSpacing.x == 99.0f); // the same scale: left alone
+
+  for (const float ignored : {0.0f, -1.0f, std::numeric_limits<float>::quiet_NaN()}) {
+    scale = ignored;
+    frame(layer);
+    CHECK(ImGui::GetStyle().ItemSpacing.x == 99.0f);
+    CHECK(ui::currentScale() == 1.0f);
+  }
+
+  scale = 1.5f;
+  frame(layer);
+  CHECK(ImGui::GetStyle().ItemSpacing.x == ImTrunc(ui::Theme{}.itemSpacing.x * 1.5f));
+
+  scale = 40.0f; // clamped, not followed
+  frame(layer);
+  CHECK(ui::currentScale() == 4.0f);
+  scale = 0.01f;
+  frame(layer);
+  CHECK(ui::currentScale() == 0.5f);
+}
+
+TEST_CASE("a change of the display scale resizes the windows by the ratio", "[ui][gpu][scale]") {
+  Fixture fixture;
+  float scale = 1.0f;
+  ui::ImGuiLayerDesc desc = fixture.layerDesc();
+  desc.displayScale = [&scale] { return scale; };
+  ui::ImGuiLayer layer{desc};
+  frame(layer);
+  frame(layer);
+  const ImGuiWindow *panel = ImGui::FindWindowByName("panel");
+  REQUIRE(panel != nullptr);
+  CHECK(panel->Size.x == Catch::Approx(200.0f));
+  CHECK(panel->Size.y == Catch::Approx(100.0f));
+
+  scale = 2.0f;
+  frame(layer);
+  CHECK(panel->Size.x == Catch::Approx(400.0f));
+  CHECK(panel->Size.y == Catch::Approx(200.0f));
+  CHECK(panel->Pos.x == Catch::Approx(40.0f));
+
+  scale = 1.0f;
+  frame(layer);
+  CHECK(panel->Size.x == Catch::Approx(200.0f));
+  CHECK(panel->Size.y == Catch::Approx(100.0f));
+}
+
+TEST_CASE("the layer reads the main window's scale when it is given no source", "[ui][gpu][scale]") {
+  Fixture fixture;
+  ui::ImGuiLayer layer{fixture.layerDesc()};
+  frame(layer);
+  const float windowScale = SDL_GetWindowDisplayScale(fixture.window->nativeHandle()) /
+                            SDL_GetWindowPixelDensity(fixture.window->nativeHandle());
+  CHECK(ui::currentScale() == Catch::Approx(std::clamp(windowScale, 0.5f, 4.0f)));
+  CHECK(ImGui::GetStyle().FontScaleDpi == Catch::Approx(ui::currentScale()));
 }

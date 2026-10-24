@@ -12,11 +12,14 @@
 #include "VulkanDevice.h"
 #include "VulkanTypes.h"
 
+#include <SDL3/SDL_video.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <imgui_internal.h> // ScaleWindowsInViewport: one of the few uses of the internal API, kept in ui (ADR-0036)
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <format>
 
 namespace sonnet::ui {
@@ -27,6 +30,22 @@ void checkVkResult(VkResult result) {
   if (result != VK_SUCCESS) {
     SONNET_LOG_ERROR("Dear ImGui Vulkan backend: {}", vk::to_string(static_cast<vk::Result>(result)));
   }
+}
+
+// A display scale outside this is a misreport, not a monitor: it would make the editor unusable.
+constexpr float MinScale = 0.5f;
+constexpr float MaxScale = 4.0f;
+
+// The scale of the window's content in the units of its own size. SDL's window display scale counts the window's pixel
+// density as well (a Retina or fractional Wayland window is smaller than its pixels), and Dear ImGui's backend already
+// handles the density through DisplayFramebufferScale, so the density comes out again. On X11 and Windows it is 1.
+float windowScale(SDL_Window *window) {
+  const float display = SDL_GetWindowDisplayScale(window);
+  const float density = SDL_GetWindowPixelDensity(window);
+  if (!(display > 0.0f) || !(density > 0.0f)) {
+    return 0.0f;
+  }
+  return display / density;
 }
 
 } // namespace
@@ -50,6 +69,9 @@ ImGuiLayer::ImGuiLayer(const ImGuiLayerDesc &desc) {
   }
   m_backend = std::make_unique<Backend>(*vulkanDevice);
   m_viewports = desc.viewports;
+  m_theme = desc.theme;
+  m_displayScale =
+      desc.displayScale ? desc.displayScale : [window = desc.window->nativeHandle()] { return windowScale(window); };
 
   IMGUI_CHECKVERSION();
   m_backend->context = ImGui::CreateContext();
@@ -62,10 +84,13 @@ ImGuiLayer::ImGuiLayer(const ImGuiLayerDesc &desc) {
   if (desc.viewports) {
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
   }
-  io.ConfigDpiScaleFonts = true;
-  io.ConfigDpiScaleViewports = true;
+  // One scale drives sizes and text, and it is the layer's: Dear ImGui's own per-monitor scaling would overwrite
+  // style.FontScaleDpi from the monitor under each viewport, and resize windows that move between monitors.
+  io.ConfigDpiScaleFonts = false;
+  io.ConfigDpiScaleViewports = false;
   setCurrentTheme(desc.theme);
-  applyTheme(ImGui::GetStyle(), desc.theme, 1.0f, desc.viewports);
+  const float scale = readDisplayScale();
+  applyDisplayScale(scale > 0.0f ? scale : 1.0f, false);
 
   if (!ImGui_ImplSDL3_InitForVulkan(desc.window->nativeHandle())) {
     throw core::Exception{"ImGui_ImplSDL3_InitForVulkan failed", core::ErrorCategory::Platform};
@@ -141,10 +166,35 @@ void ImGuiLayer::beginFrame() {
   SONNET_ASSERT(!m_frameOpen, "ImGuiLayer::beginFrame called twice");
   ++m_frame;
   releaseTextures(false);
+  if (const float scale = readDisplayScale(); scale > 0.0f && scale != m_scale) {
+    applyDisplayScale(scale, true);
+  }
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
   m_frameOpen = true;
+}
+
+float ImGuiLayer::readDisplayScale() const {
+  const float scale = m_displayScale();
+  return std::isfinite(scale) && scale > 0.0f ? std::clamp(scale, MinScale, MaxScale) : 0.0f;
+}
+
+void ImGuiLayer::applyDisplayScale(float scale, bool rescaleWindows) {
+  ImGuiStyle &style = ImGui::GetStyle();
+  applyTheme(style, m_theme, scale, m_viewports);
+  // FontSizeBase stays the text size the atlas was built at and FontScaleMain stays free for the user's text zoom;
+  // the display scale is the one that Dear ImGui calls the DPI's, so text follows the sizes.
+  style.FontScaleDpi = scale;
+  if (rescaleWindows) {
+    const float ratio = scale / m_scale;
+    for (ImGuiViewportP *viewport : ImGui::GetCurrentContext()->Viewports) {
+      ImGui::ScaleWindowsInViewport(viewport, ratio);
+    }
+  }
+  SONNET_LOG_DEBUG("display scale {} -> {}", m_scale, scale);
+  m_scale = scale;
+  setCurrentScale(scale);
 }
 
 void ImGuiLayer::endFrame() {
