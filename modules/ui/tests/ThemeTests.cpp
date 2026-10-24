@@ -289,6 +289,14 @@ TEST_CASE("the current theme is the default until one is set", "[ui][theme]") {
   CHECK(same(ui::currentTheme().danger, ui::Theme{}.danger));
 }
 
+TEST_CASE("the current scale is 1 until one is set", "[ui][theme]") {
+  CHECK(ui::currentScale() == 1.0f);
+  ui::setCurrentScale(1.5f);
+  CHECK(ui::currentScale() == 1.5f);
+  ui::setCurrentScale(1.0f);
+  CHECK(ui::currentScale() == 1.0f);
+}
+
 TEST_CASE("colours pack as the byte literals they replaced", "[ui][theme]") {
   const ui::Theme theme;
   CHECK(ui::toU32(theme.selection) == IM_COL32(255, 153, 26, 255));

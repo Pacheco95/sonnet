@@ -14,8 +14,8 @@
 // behaviour the widgets do not cover.
 namespace sonnet::ui {
 
-// A base size from the theme, in pixels at the style's current scale. Tokens are unscaled (applyTheme multiplies the
-// ones that live in ImGuiStyle), so a width that no ImGuiStyle field holds goes through here.
+// A base size from the theme, in pixels at the display scale (`currentScale()`). Tokens are unscaled (applyTheme
+// multiplies the ones that live in ImGuiStyle), so a width that no ImGuiStyle field holds goes through here.
 [[nodiscard]] float scaled(float base);
 
 // -- Dialog buttons ----------------------------------------------------------------------------------------------

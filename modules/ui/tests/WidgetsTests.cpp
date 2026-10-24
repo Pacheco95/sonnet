@@ -31,9 +31,11 @@ public:
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     ui::setCurrentTheme(theme);
     ui::applyTheme(ImGui::GetStyle(), theme, scale, false);
+    ui::setCurrentScale(scale);
   }
   ~HeadlessImGui() {
     ui::setCurrentTheme(ui::Theme{});
+    ui::setCurrentScale(1.0f);
     ImGui::DestroyContext();
   }
   HeadlessImGui(const HeadlessImGui &) = delete;
@@ -111,7 +113,7 @@ ImVec2 buttonCentre(int index, float width) {
 
 } // namespace
 
-TEST_CASE("scaled follows the scale the style was built at", "[ui][widgets]") {
+TEST_CASE("scaled follows the display scale the layer set", "[ui][widgets]") {
   {
     HeadlessImGui imgui;
     CHECK(ui::scaled(120.0f) == Approx(120.0f));
