@@ -4,6 +4,7 @@ sonnet_add_module(ui
   SOURCES
     src/ImGuiLayer.cpp
     src/Theme.cpp
+    src/Widgets.cpp
   PUBLIC_DEPENDS
     sonnet::rhi
     sonnet::platform
@@ -18,4 +19,5 @@ sonnet_add_module_test(ui
   SOURCES
     tests/ImGuiLayerTests.cpp
     tests/ThemeTests.cpp
+    tests/WidgetsTests.cpp
 )

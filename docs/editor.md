@@ -4,7 +4,7 @@ Two modules, both editor-only and never linked by the player ([architecture.md](
 
 ## The ui module
 
-`sonnet/ui/ImGuiLayer.h` and `sonnet/ui/Theme.h` are the public surface. `ImGuiLayer` creates the Dear ImGui context with docking, keyboard navigation and DPI-scaled fonts, initialises the SDL3 backend on the platform window and the Vulkan backend in dynamic-rendering mode on the device, with multi-viewport on when the platform is not headless and can position windows (`Platform::canPositionWindows`, false on native Wayland; the editor's `wantsViewports` makes the request, so it does not depend on the SDL3 backend's list of drivers). Without it every panel stays in the main window, docked or floating inside it.
+`sonnet/ui/ImGuiLayer.h`, `sonnet/ui/Theme.h` and `sonnet/ui/Widgets.h` are the public surface. `ImGuiLayer` creates the Dear ImGui context with docking, keyboard navigation and DPI-scaled fonts, initialises the SDL3 backend on the platform window and the Vulkan backend in dynamic-rendering mode on the device, with multi-viewport on when the platform is not headless and can position windows (`Platform::canPositionWindows`, false on native Wayland; the editor's `wantsViewports` makes the request, so it does not depend on the SDL3 backend's list of drivers). Without it every panel stays in the main window, docked or floating inside it.
 
 Per frame, in this order:
 
@@ -30,18 +30,35 @@ Per frame, in this order:
 
 | Token | Read by |
 |---|---|
-| `danger` | The error text of the project dialogs (`Editor.cpp`) |
-| `warning` | The inspector's missing-font warning |
-| `stop`, `paused` | The Stop button while playing, the Resume button while paused (`Editor.cpp`) |
+| `danger` | `ui::statusText` with `Status::Error`: the error text of the project dialogs (`Editor.cpp`) |
+| `warning` | `ui::statusText` with `Status::Warning`: the inspector's missing-font warning |
+| `stop`, `paused` | `ui::stateButton`: the Stop button while playing, the Resume button while paused (`Editor.cpp`); `stop` is also the colour of a destructive dialog button |
 | `selection` | The 3D outline, passed to `Renderer::addOutlinePass`, and the GUI selection rectangle (`Editor.cpp`) |
-| `overlay` | The statistics overlay's backdrop |
-| `label`, `labelText` | The viewport's view label |
+| `overlay` | `ui::beginOverlay`: the statistics overlay's backdrop |
+| `label`, `labelText` | `ui::overlayLabel`: the viewport's view label |
 | `axisX`, `axisY`, `axisZ` and their `...Highlight` | The gizmo's handles and planes, and the axis widget's ends, so both show one set of axis colours |
 | `gizmoOrigin` | The gizmo's centre dot |
 | `widgetDisc`, `widgetDiscActive`, `widgetNegative`, `widgetLabel` | The axis widget's disc (idle, and hovered or dragged), its outlined negative ends and its end labels |
 | `logTrace`, `logDebug`, `logInfo`, `logWarn`, `logError`, `logCritical` | The log panel's rows by level |
 
-The 3D debug lines (camera, light and collider outlines) keep their own colours. `ui_tests` checks, without a GPU, that the default theme gives Dear ImGui's dark style, that every slot comes from a token, that a scale of 2 and then 1 gives exactly the scale-1 style, and that viewports keep the corners square and the background opaque.
+The 3D debug lines (camera, light and collider outlines) keep their own colours.
+
+The widths the widgets draw with are tokens too: `dialogButtonWidth` (120) and `dialogButtonWideWidth` (200), `propertyLabelWidth` (90), `propertyRevertWidth` (50) and `overlayInset` (8). No `ImGuiStyle` field holds them, so a widget multiplies one by the style's scale with `ui::scaled`, the one place that reads the scale `ScaleAllSizes` left on the style (a field Dear ImGui marks as not for use yet). ### Widgets
+
+`sonnet/ui/Widgets.h` holds the patterns the panels repeat, drawn from the theme ([ADR-0036](decisions/0036-dear-imgui-stays-the-editor-ui.md): panels use the design system's widgets for appearance and keep calling `ImGui::` for behaviour the widgets do not cover). They use the public Dear ImGui API; any internal API a widget needs stays in `modules/ui/src`. A widget pushes no ID of its own, so each item's ID is its label in the caller's ID stack, which is how the editor's tests find items.
+
+| Widget | A panel uses it for | Rather than |
+|---|---|---|
+| `dialogButtons` | The buttons of a modal, on one line. Each is `dialogButtonWidth` wide (`Wide`: `dialogButtonWideWidth`); `Default` is also pressed by Enter and `Cancel` by Escape; `Destructive` (Discard) is drawn in `stop`; a disabled one ignores clicks and keys. It returns the index pressed, or -1 | `ImGui::Button` with a fixed `ImVec2` and a key check of its own |
+| `toggleButton` | One of a few buttons of which one is selected, such as the Assets panel's List and Grid | `ImGui::Button` between a push and a pop of `ImGuiCol_ButtonActive` |
+| `stateButton` | A small button on the menu bar that shows a state: Stop while playing, Resume while paused | `ImGui::SmallButton` between a push and a pop of a colour |
+| `statusText` | A message about what went wrong or what to look out for, in `danger` or `warning`, wrapped unless asked not to | `ImGui::TextWrapped` or `TextColored` with a colour read from the theme |
+| `beginPropertyTable`, `endPropertyTable` | The inspector's name and value table of a component member or a script property (with a revert column). The value column keeps an explicit stretch weight: without one, `SizingStretchProp` weighs it by its content's auto width, which a table's first frame has not measured, and the weight came out as 0/0, so the values drew a few pixels wide on the frame after every selection | `ImGui::BeginTable` and `TableSetupColumn` with pixel widths |
+| `beginOverlay`, `endOverlay`, `overlayInset`, `overlayLabel` | Text drawn over the viewport: the statistics overlay on its backdrop, placed `overlayInset` from the corner, and the camera label | A child with a colour of its own, or a rectangle and text drawn by hand |
+
+Anything else (an input, a drag, a combo, a tree node, a picker, a table that is not a property table) stays a call to `ImGui::`. A pattern joins this file when a second place draws it; the widget reads its colours and sizes from the theme and does not choose new ones (the look is [#391](https://github.com/Pacheco95/sonnet/issues/391)). `tools/check_dependencies.py` rejects `imgui_internal.h` outside `modules/ui/src`, `Editor.cpp`, `Layout.cpp`, `AssetBrowserPanel.cpp` (the docking, settings and panel state ADR-0036 names) and tests.
+
+`ui_tests` checks, without a GPU, that each widget draws and answers as above in a headless ImGui context, that the default theme gives Dear ImGui's dark style, that every slot comes from a token, that a scale of 2 and then 1 gives exactly the scale-1 style, and that viewports keep the corners square and the background opaque.
 
 ## The editor module
 
