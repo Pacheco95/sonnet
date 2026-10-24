@@ -2696,8 +2696,9 @@ TEST_CASE("a capture run leaves preferences.json as it found it", "[editor][gpu]
   const std::filesystem::path file = fixture.platform.prefPath("sonnet", "editor") / "preferences.json";
   REQUIRE(file.string().starts_with(data.string()));
   const auto read = [&file] {
-    std::ifstream in{file, std::ios::binary};
-    return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+    const auto bytes = core::readFile(file);
+    REQUIRE(bytes.has_value());
+    return std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
   };
   {
     std::ofstream out{file, std::ios::binary};
