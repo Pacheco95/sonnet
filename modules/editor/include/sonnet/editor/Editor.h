@@ -151,6 +151,12 @@ public:
   void setCaptureGrid(bool show) {
     m_captureGrid = show;
   }
+  // The panel named in lower case ("log", "assets", ...) is shown, if it was closed, and brought in front of the
+  // panels it is tabbed with, from the end of the frame being drawn on. For a capture: the layout is not saved.
+  [[nodiscard]] core::Result<void> bringToFront(std::string_view panel);
+  // Opens the dialog named "new-project", "open-project", "save-scene-as", "export" or "save-layout", which the
+  // user would open from a menu. For a capture; the others (quit, stop, close tab, recover) are answers to a state.
+  [[nodiscard]] core::Result<void> openDialog(std::string_view name);
 
   // Reads the preferences from `file` and saves them there from now on, instead of the per-user
   // file the constructor read (none, in a capture run or on a headless platform); for tests.
@@ -607,6 +613,7 @@ private:
   std::filesystem::path m_preferencesFile; // empty: the preferences are neither read nor saved
   Preferences m_preferences;
   bool m_captureGrid{false};
+  std::string m_frontPanel; // the title of the window to focus once the panels have drawn; empty for none
   bool m_rememberOpenScenes{false};
   std::optional<assets::Project> m_project;
   std::filesystem::path m_scenePath;

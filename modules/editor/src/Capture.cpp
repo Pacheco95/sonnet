@@ -53,6 +53,29 @@ public:
       return std::unexpected(captureError("--transmission is the player's: the editor always draws it"));
     }
     m_editor.setCaptureGrid(options.grid);
+    if (options.assetsGrid || options.tileSize) {
+      AssetsView view = m_editor.assetBrowser().view();
+      view.grid = options.assetsGrid.value_or(view.grid);
+      if (options.tileSize) {
+        const auto size = static_cast<float>(*options.tileSize);
+        if (size < AssetsView::MinTileSize || size > AssetsView::MaxTileSize) {
+          return std::unexpected(captureError(std::format("--tile-size takes {} to {}, not {}", AssetsView::MinTileSize,
+                                                          AssetsView::MaxTileSize, *options.tileSize)));
+        }
+        view.tileSize = size;
+      }
+      m_editor.assetBrowser().setView(view); // not through the view handler, which saves the preferences
+    }
+    if (!options.front.empty()) {
+      if (const auto front = m_editor.bringToFront(options.front); !front) {
+        return front;
+      }
+    }
+    if (!options.dialog.empty()) {
+      if (const auto opened = m_editor.openDialog(options.dialog); !opened) {
+        return opened;
+      }
+    }
     if (options.shadingTerm) {
       m_editor.setShadingTerm(*options.shadingTerm);
     }
