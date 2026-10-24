@@ -21,6 +21,7 @@
 
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_stdinc.h>
 #include <SDL3/SDL_video.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -35,6 +36,7 @@
 #include <fstream>
 #include <functional>
 #include <initializer_list>
+#include <iterator>
 #include <memory>
 #include <regex>
 #include <string_view>
@@ -2642,6 +2644,90 @@ TEST_CASE("the editor saves and restores its floor grid toggle", "[editor][gpu][
   REQUIRE(editor::Preferences::load(file).floorGrid);
   std::filesystem::remove(file);
 }
+
+TEST_CASE("a capture run uses neither the saved layout nor the saved preferences", "[editor][capture][files]") {
+  const std::filesystem::path directory{"/home/user/.local/share/sonnet/editor"};
+  SECTION("an interactive desktop editor keeps both") {
+    const editor::UserFiles files = editor::userFiles(directory, false, false);
+    REQUIRE(files.preferences == directory / "preferences.json");
+    REQUIRE(files.layout == directory / "layout.ini");
+  }
+  SECTION("a headless editor keeps the preferences and no layout") {
+    const editor::UserFiles files = editor::userFiles(directory, true, false);
+    REQUIRE(files.preferences == directory / "preferences.json");
+    REQUIRE(files.layout.empty());
+  }
+  SECTION("a capture run keeps neither, on a desktop or headless") {
+    for (const bool headless : {false, true}) {
+      const editor::UserFiles files = editor::userFiles(directory, headless, true);
+      REQUIRE(files.preferences.empty());
+      REQUIRE(files.layout.empty());
+    }
+  }
+}
+
+#if defined(__linux__)
+// SDL puts the per-user files under XDG_DATA_HOME, so a private one keeps the real files out of reach.
+TEST_CASE("a capture run leaves preferences.json as it found it", "[editor][gpu][capture][files]") {
+  const std::filesystem::path data = scratch("capture-user-files");
+  std::filesystem::create_directories(data);
+  const char *previous = std::getenv("XDG_DATA_HOME");
+  const std::string restore = previous != nullptr ? previous : "";
+  const auto setDataHome = [](const std::string &value) {
+    setenv("XDG_DATA_HOME", value.c_str(), 1);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "XDG_DATA_HOME", value.c_str(), true);
+  };
+  setDataHome(data.string());
+  struct Restore {
+    std::function<void()> undo;
+    ~Restore() {
+      undo();
+    }
+  } restoreEnvironment{[&] {
+    if (previous != nullptr) {
+      setDataHome(restore);
+    } else {
+      unsetenv("XDG_DATA_HOME");
+      SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), "XDG_DATA_HOME");
+    }
+  }};
+
+  Fixture fixture;
+  const std::filesystem::path file = fixture.platform.prefPath("sonnet", "editor") / "preferences.json";
+  REQUIRE(file.string().starts_with(data.string()));
+  const auto read = [&file] {
+    std::ifstream in{file, std::ios::binary};
+    return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+  };
+  {
+    std::ofstream out{file, std::ios::binary};
+    out << R"({"floorGrid": false, "smoothViewDuration": 1.5})";
+  }
+  const std::string before = read();
+  const auto modified = std::filesystem::last_write_time(file);
+
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, false, nullptr, true};
+    // The default (on), not what the file holds (off).
+    REQUIRE(editor.floorGrid());
+    // Everything that saves the preferences: a project becoming the most recent, a toggle.
+    REQUIRE(editor.createProject(data / "project", "Capture files").has_value());
+    editor.setFloorGrid(false);
+    editor.setFloorGrid(true);
+    fixture.frame(editor);
+  }
+  REQUIRE(read() == before);
+  REQUIRE(std::filesystem::last_write_time(file) == modified);
+
+  // The same actions in an interactive editor do rewrite it, which is what the test above guards.
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE_FALSE(editor.floorGrid()); // read from the file
+    editor.setFloorGrid(true);
+  }
+  REQUIRE(read() != before);
+}
+#endif
 
 TEST_CASE("capture the orthographic showcase for visual review", "[.orthographic-showcase][editor][gpu]") {
   Fixture fixture;

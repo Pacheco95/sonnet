@@ -89,8 +89,9 @@ public:
         m_device(rhi::createDevice({.platform = &platform, .applicationName = "Sonnet Editor"})),
         m_swapchain(m_device->createSwapchain(*m_window)),
         m_editor(std::make_unique<editor::Editor>(platform, *m_window, *m_device, *m_swapchain, Explorer,
-                                                  game::linkedModule())) {
-    // A capture run or a headless platform must not read or rewrite the user's open tabs.
+                                                  game::linkedModule(), line.capture.has_value())) {
+    // A capture run or a headless platform must not read or rewrite the user's open tabs; the
+    // constructor leaves a capture run's layout and preferences alone the same way.
     m_editor->setRememberOpenScenes(!line.capture && !platform.isHeadless());
     m_editor->viewport().setImmediateViews(line.capture.has_value() || platform.isHeadless());
     if (!line.project.empty()) {

@@ -70,6 +70,24 @@ namespace sonnet::editor {
   return !headless && canPositionWindows;
 }
 
+// The per-user files an editor reads at start and writes while it runs (docs/editor.md, "Screenshots").
+// A path is empty when the editor must neither read nor write that file.
+struct UserFiles {
+  std::filesystem::path preferences; // preferences.json
+  std::filesystem::path layout;      // layout.ini, Dear ImGui's panel layout
+};
+
+// Which of the files in `directory` (the per-user preferences directory) an editor uses. A capture
+// run starts from the defaults and leaves both alone, so it reproduces whatever the user arranged;
+// a headless editor (a test's) keeps no layout unless told (Editor::setLayoutFile).
+[[nodiscard]] inline UserFiles userFiles(const std::filesystem::path &directory, bool headless, bool capture) {
+  if (capture) {
+    return {};
+  }
+  return {.preferences = directory / "preferences.json",
+          .layout = headless ? std::filesystem::path{} : directory / "layout.ini"};
+}
+
 // The editor (docs/editor.md): the world being edited, the panels around the viewport, the
 // undo history, play mode and the project. The application owns the window, device and
 // swapchain and calls the steps below in its frame order (docs/architecture.md, "Application
@@ -79,9 +97,12 @@ public:
   // The swapchain only tells the ImGui pipeline its format and image count. `explorer` serves
   // the flecs explorer, for Debug builds of the application. `module` is the game module the
   // editor was linked with, registered before any scene loads; without one the editor refuses a
-  // project that needs a module (ADR-0027).
+  // project that needs a module (ADR-0027). A `capture` run uses the default layout and default
+  // preferences and writes neither file (`userFiles`); `setLayoutFile` and `setPreferencesFile`
+  // still point it at files, for a test.
   Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
-         const rhi::ISwapchain &swapchain, bool explorer = false, const runtime::GameModule *module = nullptr);
+         const rhi::ISwapchain &swapchain, bool explorer = false, const runtime::GameModule *module = nullptr,
+         bool capture = false);
   ~Editor();
   Editor(const Editor &) = delete;
   Editor &operator=(const Editor &) = delete;
@@ -123,7 +144,7 @@ public:
   }
 
   // Reads the preferences from `file` and saves them there from now on, instead of the per-user
-  // file the constructor read; for tests.
+  // file the constructor read (none, in a capture run); for tests.
   void setPreferencesFile(const std::filesystem::path &file);
   // The scene tabs a closing project would record: the saved scenes in tab order and the active one.
   [[nodiscard]] OpenScenes openScenes() const;
@@ -309,7 +330,7 @@ public:
   // seconds after a change and when the editor is destroyed; it carries the shown panels and the
   // overlays too. A missing or unsplit layout gets the default one. Call before the first `update`;
   // the desktop editor sets it to `layout.ini` beside the preferences, a headless editor (a test's)
-  // keeps none unless told.
+  // and a capture run keep none unless told.
   void setLayoutFile(const std::filesystem::path &file);
   // View > Reset layout: the Default layout (panels, overlays and arrangement), from the next frame.
   void resetLayout();
@@ -488,6 +509,8 @@ private:
   [[nodiscard]] bool reopenScenes();
   // The Assets panel's list or grid, and its tile size, as the preferences kept them for the open project.
   void showAssetsView();
+  // Writes the preferences to their file; does nothing when there is none (a capture run).
+  void savePreferences() const;
   void addTab();
   void handleShortcuts();
   void refreshWindowOrigins();
@@ -571,8 +594,8 @@ private:
   CommandStack m_commands;
   CommandStack m_historyBeforePlay; // the edit history play set aside, which stop puts back
   Gizmo m_gizmo;
-  bool m_snapEnabled{false}; // Ctrl held during a drag inverts it
-  std::filesystem::path m_preferencesFile;
+  bool m_snapEnabled{false};               // Ctrl held during a drag inverts it
+  std::filesystem::path m_preferencesFile; // empty: the preferences are neither read nor saved
   Preferences m_preferences;
   bool m_captureGrid{false};
   bool m_rememberOpenScenes{false};

@@ -56,10 +56,15 @@ std::string nameOf(flecs::entity entity) {
   return name != nullptr ? name->value : std::string{};
 }
 
+// Asking for the preferences directory creates it, which a capture run leaves alone with the rest.
+UserFiles userFilesOf(const platform::Platform &platform, bool capture) {
+  return capture ? UserFiles{} : userFiles(platform.prefPath("sonnet", "editor"), platform.isHeadless(), capture);
+}
+
 } // namespace
 
 Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
-               const rhi::ISwapchain &swapchain, bool explorer, const runtime::GameModule *module)
+               const rhi::ISwapchain &swapchain, bool explorer, const runtime::GameModule *module, bool capture)
     : m_window(window), m_device(device), m_swapchain(swapchain), m_basePath(platform.basePath()), m_module(module),
       m_imgui({.window = &window,
                .device = &device,
@@ -80,9 +85,10 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                                                 .view = &m_scriptView})),
       // A headless editor is a test's: it mixes without a device rather than making a sound.
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = !platform.isHeadless()})), m_screenshots(device),
-      m_preferencesFile(platform.prefPath("sonnet", "editor") / "preferences.json"),
-      m_preferences(Preferences::load(m_preferencesFile)), m_viewportPanel(device, m_imgui),
-      m_gamePanel(device, m_imgui), m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
+      m_preferencesFile(userFilesOf(platform, capture).preferences),
+      m_preferences(m_preferencesFile.empty() ? Preferences{} : Preferences::load(m_preferencesFile)),
+      m_viewportPanel(device, m_imgui), m_gamePanel(device, m_imgui),
+      m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_world, m_selection),
       m_thumbnails(device, m_imgui, m_renderer, m_assets, m_world) {
   addFonts(ImGui::GetIO());
@@ -90,7 +96,9 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   m_viewportPanel.setImmediateViews(platform.isHeadless());
   if (!platform.isHeadless()) {
     setFileDialogBackend(makeSdlFileDialogBackend(window.nativeHandle()));
-    setLayoutFile(platform.prefPath("sonnet", "editor") / "layout.ini");
+  }
+  if (const std::filesystem::path layout = userFilesOf(platform, capture).layout; !layout.empty()) {
+    setLayoutFile(layout);
   }
   m_logPanel.setLocationHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_inspectorPanel.setAudio(m_audio.get());
@@ -109,9 +117,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       return;
     }
     m_preferences.assetsView[m_project->root] = view;
-    if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
-      SONNET_LOG_WARN("{}", saved.error().toString());
-    }
+    savePreferences();
   });
   m_assetBrowserPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_assetBrowserPanel.setMoveHandler(
@@ -863,9 +869,7 @@ void Editor::drawMenuBar() {
     if (ImGui::DragFloat("Smooth view duration", &m_preferences.smoothViewDuration, 0.01f, 0.0f, 2.0f, "%.2f s",
                          ImGuiSliderFlags_AlwaysClamp)) {
       m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
-      if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
-        SONNET_LOG_ERROR("{}", saved.error().toString());
-      }
+      savePreferences();
     }
     ImGui::Separator();
     ImGui::MenuItem("Viewport", nullptr, &m_viewState.viewport);
@@ -1570,9 +1574,7 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
   m_assetBrowserPanel.inspect({});
   showAssetsView();
   m_preferences.addRecentProject(m_project->root);
-  if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
-    SONNET_LOG_WARN("{}", saved.error().toString());
-  }
+  savePreferences();
   // The project's scenes replace the previous project's: its tabs go, unsaved changes with them.
   m_tabs.clear();
   m_world.clearScene();
@@ -1598,6 +1600,13 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
 
 void Editor::setFloorGrid(bool show) {
   m_preferences.floorGrid = show;
+  savePreferences();
+}
+
+void Editor::savePreferences() const {
+  if (m_preferencesFile.empty()) {
+    return;
+  }
   if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
     SONNET_LOG_WARN("{}", saved.error().toString());
   }
@@ -1638,9 +1647,7 @@ void Editor::recordOpenScenes() {
     return;
   }
   m_preferences.openScenes[m_project->root] = openScenes();
-  if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
-    SONNET_LOG_WARN("{}", saved.error().toString());
-  }
+  savePreferences();
 }
 
 bool Editor::reopenScenes() {
@@ -1684,9 +1691,7 @@ void Editor::reopenLastProject() {
   if (const auto opened = openProject(*project); !opened) {
     SONNET_LOG_WARN("the last project cannot be reopened and is forgotten: {}", opened.error().toString());
     m_preferences.removeRecentProject(*project);
-    if (const auto saved = m_preferences.save(m_preferencesFile); !saved) {
-      SONNET_LOG_WARN("{}", saved.error().toString());
-    }
+    savePreferences();
   }
 }
 
