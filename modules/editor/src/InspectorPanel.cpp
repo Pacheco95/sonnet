@@ -9,7 +9,7 @@
 
 #include <sonnet/core/Log.h>
 #include <sonnet/scripting/Components.h>
-#include <sonnet/ui/Theme.h>
+#include <sonnet/ui/Widgets.h>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -826,12 +826,9 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
   const bool changedBefore = propertyChanged(slot, property);
   bool edited = false;
   bool immediate = false; // a pick is one edit in itself
-  if (!ImGui::BeginTable("property", 3, ImGuiTableFlags_SizingStretchProp)) {
+  if (!ui::beginPropertyTable("property", true)) {
     return;
   }
-  ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-  ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-  ImGui::TableSetupColumn("revert", ImGuiTableColumnFlags_WidthFixed, 50.0f);
   ImGui::TableNextRow();
   ImGui::TableNextColumn();
   ImGui::AlignTextToFramePadding();
@@ -921,7 +918,7 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
     immediate = true;
     edited = false;
   }
-  ImGui::EndTable();
+  ui::endPropertyTable();
   if (edited) {
     slot = setProperty(std::move(slot), property, value);
   }
@@ -1032,15 +1029,9 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
   void *field = static_cast<std::byte *>(data) + member.offset;
   const std::string_view name = member.name;
   ImGui::SetNextItemWidth(-1.0f);
-  const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchProp;
-  if (!ImGui::BeginTable("member", 2, tableFlags)) {
+  if (!ui::beginPropertyTable("member")) {
     return;
   }
-  ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-  // An explicit weight: without one, SizingStretchProp weighs a stretch column by its content's
-  // auto width, which a table's first frame has not measured yet. The weight came out as 0/0, so on
-  // the frame after every selection the values drew a few pixels wide, and grew back over the next.
-  ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 1.0f);
   ImGui::TableNextRow();
   ImGui::TableNextColumn();
   ImGui::AlignTextToFramePadding();
@@ -1082,7 +1073,7 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
       m_deactivatedAfterEdit = true;
     }
     if (identity.isNil() && assetType == assets::AssetType::Font) {
-      ImGui::TextColored(ui::currentTheme().warning, "No font: the text is not drawn");
+      ui::statusText(ui::Status::Warning, "No font: the text is not drawn", false);
     }
   } else if (type.has<flecs::Primitive>()) {
     switch (scalarWidget(ecs, member)) {
@@ -1136,7 +1127,7 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
   } else {
     ImGui::TextDisabled("(unsupported)");
   }
-  ImGui::EndTable();
+  ui::endPropertyTable();
 }
 
 } // namespace sonnet::editor

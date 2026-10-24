@@ -1,6 +1,7 @@
 #include <sonnet/editor/ViewportPanel.h>
 
 #include <sonnet/ui/Theme.h>
+#include <sonnet/ui/Widgets.h>
 
 #include <algorithm>
 #include <array>
@@ -215,23 +216,13 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
       std::string{m_view.camera.viewName()} +
       (m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic ? " Orthographic"
                                                                                        : " Perspective");
-  const float fontSize = ImGui::GetFontSize();
-  const ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
-  const float margin = fontSize * 0.5f;
-  const ImVec2 padding{fontSize * 0.4f, fontSize * 0.2f};
-  const ImVec2 min{origin.x + margin, origin.y + available.y - margin - textSize.y - 2.0f * padding.y};
-  const ImVec2 max{min.x + textSize.x + 2.0f * padding.x, origin.y + available.y - margin};
-  ImDrawList *drawList = ImGui::GetWindowDrawList();
-  drawList->PushClipRect(origin, ImVec2{origin.x + available.x, origin.y + available.y}, true);
-  const ui::Theme &theme = ui::currentTheme();
-  drawList->AddRectFilled(min, max, ui::toU32(theme.label), fontSize * 0.2f);
-  drawList->AddText(ImVec2{min.x + padding.x, min.y + padding.y}, ui::toU32(theme.labelText), label.c_str());
-  drawList->PopClipRect();
+  ui::overlayLabel(*ImGui::GetWindowDrawList(), origin, available, label.c_str());
   if (overlay) {
     overlay(m_input);
   }
   if (statistics != nullptr) {
-    ImGui::SetCursorScreenPos(ImVec2{origin.x + 8.0f, origin.y + 8.0f});
+    const ImVec2 inset = ui::overlayInset();
+    ImGui::SetCursorScreenPos(ImVec2{origin.x + inset.x, origin.y + inset.y});
     statistics->drawOverlay();
   }
   ImGui::End();

@@ -1,6 +1,6 @@
 #include <sonnet/editor/StatisticsPanel.h>
 
-#include <sonnet/ui/Theme.h>
+#include <sonnet/ui/Widgets.h>
 
 #include <imgui.h>
 
@@ -42,15 +42,10 @@ void StatisticsPanel::drawWindow(bool &open) {
 }
 
 void StatisticsPanel::drawOverlay() {
-  ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::currentTheme().overlay);
-  if (ImGui::BeginChild("statistics overlay", ImVec2{0.0f, 0.0f},
-                        ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY |
-                            ImGuiChildFlags_AlwaysUseWindowPadding,
-                        ImGuiWindowFlags_NoInputs)) {
+  if (ui::beginOverlay("statistics overlay")) {
     drawContents(true);
   }
-  ImGui::EndChild();
-  ImGui::PopStyleColor();
+  ui::endOverlay();
 }
 
 void StatisticsPanel::drawContents(bool compact) {

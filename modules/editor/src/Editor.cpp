@@ -13,6 +13,7 @@
 #include <sonnet/core/Profile.h>
 #include <sonnet/core/Version.h>
 #include <sonnet/ui/Theme.h>
+#include <sonnet/ui/Widgets.h>
 #include <sonnet/world/Scene.h>
 
 #include <SDL3/SDL_events.h>
@@ -42,14 +43,6 @@ namespace sonnet::editor {
 namespace {
 
 constexpr const char *ModalId = "Project";
-
-// A modal's error, wrapped at the dialog's fixed width: an error names paths and modules, longer
-// than one line of it.
-void drawWrappedError(const std::string &message) {
-  ImGui::PushStyleColor(ImGuiCol_Text, ui::currentTheme().danger);
-  ImGui::TextWrapped("%s", message.c_str());
-  ImGui::PopStyleColor();
-}
 
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity ? entity.try_get<world::Name>() : nullptr;
@@ -950,24 +943,15 @@ void Editor::drawMenuBar() {
   const bool playing = isPlaying();
   const char *label = playing ? "  Stop  " : "  Play  ";
   ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.5f - ImGui::CalcTextSize(label).x * 0.5f);
-  if (playing) {
-    ImGui::PushStyleColor(ImGuiCol_Button, ui::currentTheme().stop);
-  }
-  if (ImGui::SmallButton(label)) {
+  if (ui::stateButton(label, playing ? ui::ButtonState::Stop : ui::ButtonState::Normal)) {
     playing ? requestStop() : play();
   }
   if (playing) {
-    ImGui::PopStyleColor();
     ImGui::SameLine();
     const bool paused = isPaused();
-    if (paused) {
-      ImGui::PushStyleColor(ImGuiCol_Button, ui::currentTheme().paused);
-    }
-    if (ImGui::SmallButton(paused ? "  Resume  " : "  Pause  ")) {
+    if (ui::stateButton(paused ? "  Resume  " : "  Pause  ",
+                        paused ? ui::ButtonState::Paused : ui::ButtonState::Normal)) {
       paused ? resume() : pause();
-    }
-    if (paused) {
-      ImGui::PopStyleColor();
     }
   }
   ImGui::EndMainMenuBar();
@@ -1087,12 +1071,12 @@ void Editor::drawModal() {
     ImGui::TextUnformatted(m_modalMessage.c_str());
   }
   if (!m_modalError.empty()) {
-    drawWrappedError(m_modalError);
+    ui::statusText(ui::Status::Error, m_modalError); // wrapped: an error names paths and modules
   }
   const bool exportSucceeded = m_modal == Modal::Export && !m_modalMessage.empty() && m_modalError.empty();
   if (exportSucceeded) {
-    const bool close = ImGui::Button("Close", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                       ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    const bool close =
+        ui::dialogButtons({{"Close", ui::DialogButtonFlags::Default | ui::DialogButtonFlags::Cancel}}) == 0;
     if (close) {
       m_modal = Modal::None;
       ImGui::CloseCurrentPopup();
@@ -1100,9 +1084,10 @@ void Editor::drawModal() {
     ImGui::EndPopup();
     return;
   }
-  const bool confirmed = ImGui::Button("OK", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Enter, false);
-  ImGui::SameLine();
-  const bool cancelled = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  const int answer =
+      ui::dialogButtons({{"OK", ui::DialogButtonFlags::Default}, {"Cancel", ui::DialogButtonFlags::Cancel}});
+  const bool confirmed = answer == 0;
+  const bool cancelled = answer == 1;
   if (confirmed && !m_modalPath.empty() && (m_modal == Modal::NewProject || m_modal == Modal::OpenProject) &&
       hasPlayChanges()) {
     // Opening a project ends play: the stop dialog comes first, then the project opens.
@@ -2154,13 +2139,12 @@ void Editor::drawCloseTabModal() {
   if (!canSave) {
     ImGui::TextUnformatted("It has no file yet: cancel and use Save scene as first.");
   }
-  ImGui::BeginDisabled(!canSave);
-  const bool save = ImGui::Button("Save", ImVec2{120.0f, 0.0f});
-  ImGui::EndDisabled();
-  ImGui::SameLine();
-  const bool discard = ImGui::Button("Discard", ImVec2{120.0f, 0.0f});
-  ImGui::SameLine();
-  const bool cancel = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  const int answer = ui::dialogButtons({{"Save", ui::DialogButtonFlags::None, canSave},
+                                        {"Discard", ui::DialogButtonFlags::Destructive},
+                                        {"Cancel", ui::DialogButtonFlags::Cancel}});
+  const bool save = answer == 0;
+  const bool discard = answer == 1;
+  const bool cancel = answer == 2;
   if (save) {
     if (const auto saved = saveScene(); !saved) {
       m_modalError = saved.error().message;
@@ -2176,7 +2160,7 @@ void Editor::drawCloseTabModal() {
     ImGui::CloseCurrentPopup();
   }
   if (!m_modalError.empty()) {
-    drawWrappedError(m_modalError);
+    ui::statusText(ui::Status::Error, m_modalError); // wrapped: an error names paths and modules
   }
 }
 
@@ -2238,7 +2222,7 @@ void Editor::drawStopModal() {
     ImGui::TextWrapped(
         "%zu of the edits could not be applied: the entities they changed are not in the restored scene.",
         m_skippedChanges);
-    if (ImGui::Button("Close", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ui::dialogButtons({{"Close", ui::DialogButtonFlags::Cancel}}) == 0) {
       closeStopPrompt();
       ImGui::CloseCurrentPopup();
     }
@@ -2271,17 +2255,16 @@ void Editor::drawStopModal() {
   ImGui::SameLine();
   ImGui::TextUnformatted("Save as");
   if (!m_modalError.empty()) {
-    drawWrappedError(m_modalError);
+    ui::statusText(ui::Status::Error, m_modalError); // wrapped: an error names paths and modules
   }
-  const bool keep = ImGui::Button("Keep", ImVec2{120.0f, 0.0f});
-  ImGui::SameLine();
-  ImGui::BeginDisabled(m_modalPath.empty());
-  const bool saveAs = ImGui::Button("Save as...", ImVec2{120.0f, 0.0f});
-  ImGui::EndDisabled();
-  ImGui::SameLine();
-  const bool discard = ImGui::Button("Discard", ImVec2{120.0f, 0.0f});
-  ImGui::SameLine();
-  const bool cancel = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  const int answer = ui::dialogButtons({{"Keep"},
+                                        {"Save as...", ui::DialogButtonFlags::None, !m_modalPath.empty()},
+                                        {"Discard", ui::DialogButtonFlags::Destructive},
+                                        {"Cancel", ui::DialogButtonFlags::Cancel}});
+  const bool keep = answer == 0;
+  const bool saveAs = answer == 1;
+  const bool discard = answer == 2;
+  const bool cancel = answer == 3;
   if (keep) {
     keepPlayChanges();
   } else if (saveAs) {
@@ -2304,11 +2287,11 @@ void Editor::drawQuitModal() {
     const std::string name = tabTitle(index);
     ImGui::BulletText("%s", name.c_str());
   }
-  const bool save = ImGui::Button("Save All", ImVec2{120.0f, 0.0f});
-  ImGui::SameLine();
-  const bool discard = ImGui::Button("Discard", ImVec2{120.0f, 0.0f});
-  ImGui::SameLine();
-  const bool cancel = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  const int answer = ui::dialogButtons(
+      {{"Save All"}, {"Discard", ui::DialogButtonFlags::Destructive}, {"Cancel", ui::DialogButtonFlags::Cancel}});
+  const bool save = answer == 0;
+  const bool discard = answer == 1;
+  const bool cancel = answer == 2;
   if (save) {
     saveAllAndQuit();
   } else if (discard) {
@@ -2319,7 +2302,7 @@ void Editor::drawQuitModal() {
   if (m_modal == Modal::None) {
     ImGui::CloseCurrentPopup();
   } else if (!m_modalError.empty()) {
-    drawWrappedError(m_modalError);
+    ui::statusText(ui::Status::Error, m_modalError); // wrapped: an error names paths and modules
   }
 }
 
@@ -2335,10 +2318,10 @@ void Editor::drawSaveLayoutModal() {
   if (m_layoutOverwrite) {
     ImGui::TextUnformatted("A layout with this name exists. Replace it?");
   }
-  const bool save = ImGui::Button(m_layoutOverwrite ? "Replace" : "Save", ImVec2{120.0f, 0.0f}) ||
-                    ImGui::IsKeyPressed(ImGuiKey_Enter, false);
-  ImGui::SameLine();
-  const bool cancel = ImGui::Button("Cancel", ImVec2{120.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  const int answer = ui::dialogButtons({{m_layoutOverwrite ? "Replace" : "Save", ui::DialogButtonFlags::Default},
+                                        {"Cancel", ui::DialogButtonFlags::Cancel}});
+  const bool save = answer == 0;
+  const bool cancel = answer == 1;
   if (save) {
     const std::string clean = sanitizeLayoutName(m_layoutName);
     std::error_code exists;
@@ -2356,7 +2339,7 @@ void Editor::drawSaveLayoutModal() {
     ImGui::CloseCurrentPopup();
   }
   if (!m_modalError.empty()) {
-    drawWrappedError(m_modalError);
+    ui::statusText(ui::Status::Error, m_modalError); // wrapped: an error names paths and modules
   }
 }
 
@@ -2365,12 +2348,13 @@ void Editor::drawRecoverModal() {
   for (const std::string &title : recoverableScenes()) {
     ImGui::BulletText("%s", title.c_str());
   }
-  const bool restore = ImGui::Button("Restore", ImVec2{120.0f, 0.0f});
-  ImGui::SameLine();
-  const bool discard = ImGui::Button("Discard", ImVec2{120.0f, 0.0f});
-  ImGui::SameLine();
-  const bool later =
-      ImGui::Button("Open without restoring", ImVec2{200.0f, 0.0f}) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+  const int answer =
+      ui::dialogButtons({{"Restore"},
+                         {"Discard", ui::DialogButtonFlags::Destructive},
+                         {"Open without restoring", ui::DialogButtonFlags::Cancel | ui::DialogButtonFlags::Wide}});
+  const bool restore = answer == 0;
+  const bool discard = answer == 1;
+  const bool later = answer == 2;
   if (restore) {
     restoreRecovered();
   } else if (discard) {

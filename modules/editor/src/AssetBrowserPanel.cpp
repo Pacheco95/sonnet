@@ -6,6 +6,7 @@
 
 #include <sonnet/assets/Json.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/ui/Widgets.h>
 #include <sonnet/world/Components.h>
 
 #include <imgui.h>
@@ -678,15 +679,9 @@ void AssetBrowserPanel::drawViewButtons() {
   for (const bool grid : {false, true}) {
     const bool active = m_view.grid == grid;
     ImGui::PushID(grid ? "grid" : "list");
-    if (active) {
-      ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-    }
-    if (ImGui::Button(grid ? IconGrid : IconList) && !active) {
+    if (ui::toggleButton(grid ? IconGrid : IconList, active) && !active) {
       m_view.grid = grid;
       changed = true;
-    }
-    if (active) {
-      ImGui::PopStyleColor();
     }
     (grid ? m_gridButton : m_listButton) = lastItemRect();
     ImGui::SetItemTooltip(grid ? "Grid view" : "List view");
