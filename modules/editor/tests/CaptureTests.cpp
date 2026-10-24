@@ -377,3 +377,89 @@ TEST_CASE("captures omit the saved grid unless explicitly requested", "[editor][
   REQUIRE(fixture.device->validationMessageCount() == 0);
   std::filesystem::remove_all(directory);
 }
+
+TEST_CASE("the view flags are parsed, and refused by the player", "[editor][capture][view]") {
+  const auto line = parse({"project", "--screenshot-window", "w.png", "--assets", "grid", "--tile-size", "64",
+                           "--front", "log", "--dialog", "save-layout"});
+  REQUIRE(line.has_value());
+  REQUIRE(line->capture->assetsGrid == true);
+  REQUIRE(line->capture->tileSize == 64);
+  REQUIRE(line->capture->front == "log");
+  REQUIRE(line->capture->dialog == "save-layout");
+  REQUIRE(parse({"project", "--screenshot", "v.png", "--assets", "list"})->capture->assetsGrid == false);
+  REQUIRE_FALSE(parse({"project", "--screenshot", "v.png"})->capture->assetsGrid.has_value());
+  REQUIRE_FALSE(parse({"project", "--screenshot", "v.png", "--assets", "tiles"}).has_value());
+  REQUIRE_FALSE(parse({"project", "--screenshot", "v.png", "--tile-size", "big"}).has_value());
+  // Without a screenshot they are no capture, as every capture flag.
+  REQUIRE_FALSE(parse({"project", "--dialog", "save-layout"}).has_value());
+}
+
+TEST_CASE("a capture shows the Assets grid, a panel in front and a dialog without saving them",
+          "[editor][capture][gpu][view]") {
+  Fixture fixture;
+  const auto directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "view-capture";
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setPreferencesFile(directory / "preferences.json");
+    REQUIRE(editor.createProject(directory / "project", "View capture").has_value());
+    editor::CaptureOptions options;
+    options.viewport = directory / "view.png";
+    options.settleFrames = 2;
+
+    const auto selectedTab = [](const char *title) {
+      const ImGuiWindow *window = ImGui::FindWindowByName(title);
+      REQUIRE(window != nullptr);
+      REQUIRE(window->DockNode != nullptr);
+      return window->DockNode->SelectedTabId == window->TabId;
+    };
+
+    editor::CaptureRun plain{options};
+    REQUIRE(fixture.run(editor, plain) == editor::CaptureRun::Status::Done);
+    REQUIRE_FALSE(editor.assetBrowser().view().grid);
+    REQUIRE_FALSE(selectedTab("Log")); // the default layout tabs it behind Assets
+    REQUIRE(ImGui::GetTopMostPopupModal() == nullptr);
+
+    options.assetsGrid = true;
+    options.tileSize = 64;
+    options.front = "log";
+    options.dialog = "save-layout";
+    editor::CaptureRun shown{options};
+    REQUIRE(fixture.run(editor, shown) == editor::CaptureRun::Status::Done);
+    REQUIRE(editor.assetBrowser().view().grid);
+    REQUIRE(editor.assetBrowser().view().tileSize == 64.0f);
+    REQUIRE(selectedTab("Log"));
+    REQUIRE(ImGui::GetTopMostPopupModal() != nullptr);
+    // The run's own, not the user's: the view handler would have saved it.
+    REQUIRE(editor::Preferences::load(directory / "preferences.json").assetsView.empty());
+  }
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a capture refuses a view it cannot show", "[editor][capture][gpu][view]") {
+  Fixture fixture;
+  const auto directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "view-refused";
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory / "project", "View refused").has_value());
+    editor::CaptureOptions options;
+    options.viewport = directory / "view.png";
+    options.settleFrames = 1;
+    const auto fails = [&](auto set) {
+      editor::CaptureOptions bad = options;
+      set(bad);
+      editor::CaptureRun capture{bad};
+      return fixture.run(editor, capture) == editor::CaptureRun::Status::Failed;
+    };
+    REQUIRE(fails([](editor::CaptureOptions &o) { o.tileSize = 47; }));
+    REQUIRE(fails([](editor::CaptureOptions &o) { o.tileSize = 129; }));
+    REQUIRE(fails([](editor::CaptureOptions &o) { o.front = "console"; }));
+    REQUIRE(fails([](editor::CaptureOptions &o) { o.dialog = "quit"; }));
+    REQUIRE_FALSE(std::filesystem::exists(options.viewport));
+  }
+  std::filesystem::remove_all(directory);
+}

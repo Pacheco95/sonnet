@@ -501,6 +501,10 @@ void Editor::update(float dt) {
   if (m_viewState.statistics) {
     m_statisticsPanel.drawWindow(m_viewState.statistics);
   }
+  if (!m_frontPanel.empty()) {
+    ImGui::SetWindowFocus(m_frontPanel.c_str());
+    m_frontPanel.clear();
+  }
   m_imgui.endFrame();
 
   // Imports that finished on a worker are published here, before the draw list resolves the
@@ -1537,6 +1541,56 @@ void Editor::setShadingTerm(renderer::DebugView view) {
   renderer::RendererSettings settings = m_renderer.settings();
   settings.debugView = view;
   m_renderer.setSettings(settings);
+}
+
+core::Result<void> Editor::bringToFront(std::string_view panel) {
+  struct Entry {
+    std::string_view name;
+    const char *title;
+    bool ViewState::*shown;
+  };
+  static constexpr std::array Panels{
+      Entry{"hierarchy", "Hierarchy", &ViewState::hierarchy},
+      Entry{"inspector", "Inspector", &ViewState::inspector},
+      Entry{"viewport", "Viewport", &ViewState::viewport},
+      Entry{"game", "Game", &ViewState::game},
+      Entry{"log", "Log", &ViewState::log},
+      Entry{"assets", "Assets", &ViewState::assets},
+      Entry{"statistics", "Statistics", &ViewState::statistics},
+  };
+  const auto found = std::ranges::find(Panels, panel, &Entry::name);
+  if (found == Panels.end()) {
+    return std::unexpected(core::Error{
+        std::format(
+            "unknown panel \"{}\"; the panels are hierarchy, inspector, viewport, game, log, assets, statistics",
+            panel),
+        core::ErrorCategory::Unknown});
+  }
+  m_viewState.*found->shown = true;
+  m_frontPanel = found->title;
+  return {};
+}
+
+core::Result<void> Editor::openDialog(std::string_view name) {
+  struct Entry {
+    std::string_view name;
+    Modal modal;
+  };
+  static constexpr std::array Dialogs{
+      Entry{"new-project", Modal::NewProject},    Entry{"open-project", Modal::OpenProject},
+      Entry{"save-scene-as", Modal::SaveSceneAs}, Entry{"export", Modal::Export},
+      Entry{"save-layout", Modal::SaveLayout},
+  };
+  const auto found = std::ranges::find(Dialogs, name, &Entry::name);
+  if (found == Dialogs.end()) {
+    return std::unexpected(core::Error{
+        std::format("unknown dialog \"{}\"; the dialogs are new-project, open-project, save-scene-as, export, "
+                    "save-layout",
+                    name),
+        core::ErrorCategory::Unknown});
+  }
+  m_modal = found->modal;
+  return {};
 }
 
 void Editor::setAntiAliasing(renderer::AntiAliasing mode) {

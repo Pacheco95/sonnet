@@ -50,7 +50,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 11> Options{{
+constexpr std::array<CommandLineOption, 15> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -60,6 +60,13 @@ constexpr std::array<CommandLineOption, 11> Options{{
     {"--play", "SECONDS", "play for this many seconds first (60 fixed steps a second) and capture while playing", "2.5",
      true, ""},
     {"--grid", "on|off", "include the editor floor grid in captures (off)", "on", false, ""},
+    {"--assets", "list|grid", "show the Assets panel as a list or a grid of tiles (list)", "grid", false, ""},
+    {"--tile-size", "PIXELS", "the grid's tile side, 48 to 128 unscaled pixels (96)", "64", false, ""},
+    {"--front", "PANEL",
+     "bring a panel in front of its tabs: hierarchy, inspector, viewport, game, log, assets, statistics", "log", false,
+     ""},
+    {"--dialog", "NAME", "open this dialog: new-project, open-project, save-scene-as, export or save-layout",
+     "save-layout", false, ""},
     {"--select", "PATH", "select the entity at this path of names, Parent/Child, so it is outlined", "Ball", false, ""},
     {"--shading-term", "TERM", "show one term of the forward shading instead of the final image", "sun-direct", true,
      ""},
@@ -274,6 +281,22 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
         return std::unexpected(captureError("--grid takes on or off"));
       }
       capture.grid = value == "on";
+    } else if (arg == "--assets") {
+      if (value != "list" && value != "grid") {
+        return std::unexpected(captureError("--assets takes list or grid"));
+      }
+      capture.assetsGrid = value == "grid";
+    } else if (arg == "--tile-size") {
+      std::uint32_t size = 0;
+      const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), size);
+      if (error != std::errc{} || end != value.data() + value.size()) {
+        return std::unexpected(captureError(std::format("--tile-size takes a number of pixels, not \"{}\"", value)));
+      }
+      capture.tileSize = size;
+    } else if (arg == "--front") {
+      capture.front = std::string{value};
+    } else if (arg == "--dialog") {
+      capture.dialog = std::string{value};
     } else if (arg == "--select") {
       capture.select = std::string{value};
     } else if (arg == "--play") {
