@@ -1549,7 +1549,7 @@ core::Result<void> Editor::bringToFront(std::string_view panel) {
     const char *title;
     bool ViewState::*shown;
   };
-  static constexpr std::array panels{
+  static constexpr std::array Panels{
       Entry{"hierarchy", "Hierarchy", &ViewState::hierarchy},
       Entry{"inspector", "Inspector", &ViewState::inspector},
       Entry{"viewport", "Viewport", &ViewState::viewport},
@@ -1558,8 +1558,8 @@ core::Result<void> Editor::bringToFront(std::string_view panel) {
       Entry{"assets", "Assets", &ViewState::assets},
       Entry{"statistics", "Statistics", &ViewState::statistics},
   };
-  const auto found = std::ranges::find(panels, panel, &Entry::name);
-  if (found == panels.end()) {
+  const auto found = std::ranges::find(Panels, panel, &Entry::name);
+  if (found == Panels.end()) {
     return std::unexpected(core::Error{
         std::format(
             "unknown panel \"{}\"; the panels are hierarchy, inspector, viewport, game, log, assets, statistics",
@@ -1576,13 +1576,13 @@ core::Result<void> Editor::openDialog(std::string_view name) {
     std::string_view name;
     Modal modal;
   };
-  static constexpr std::array dialogs{
+  static constexpr std::array Dialogs{
       Entry{"new-project", Modal::NewProject},    Entry{"open-project", Modal::OpenProject},
       Entry{"save-scene-as", Modal::SaveSceneAs}, Entry{"export", Modal::Export},
       Entry{"save-layout", Modal::SaveLayout},
   };
-  const auto found = std::ranges::find(dialogs, name, &Entry::name);
-  if (found == dialogs.end()) {
+  const auto found = std::ranges::find(Dialogs, name, &Entry::name);
+  if (found == Dialogs.end()) {
     return std::unexpected(core::Error{
         std::format("unknown dialog \"{}\"; the dialogs are new-project, open-project, save-scene-as, export, "
                     "save-layout",
