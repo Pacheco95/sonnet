@@ -99,6 +99,14 @@ struct Theme {
   float popupBorderSize{1.0f};
   float frameBorderSize{0.0f};
   float tabBorderSize{0.0f};
+
+  // Widths and distances the widgets of Widgets.h draw with. They are in no ImGuiStyle field, so the widgets multiply
+  // them by the style's scale themselves (`ui::scaled`).
+  float dialogButtonWidth{120.0f};     // a modal's buttons
+  float dialogButtonWideWidth{200.0f}; // a modal's button with a label that is too long for the normal width
+  float propertyLabelWidth{90.0f};     // the name column of the inspector's property tables
+  float propertyRevertWidth{50.0f};    // the revert column of a script property
+  float overlayInset{8.0f};            // from the corner of a view to an overlay drawn in it
 };
 
 // Overwrites `style` with the theme's, from the base values every time, so a change of scale never compounds the
