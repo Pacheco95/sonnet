@@ -49,9 +49,9 @@ std::string nameOf(flecs::entity entity) {
   return name != nullptr ? name->value : std::string{};
 }
 
-// Asking for the preferences directory creates it, which a capture run leaves alone with the rest.
+// Asking for the preferences directory creates it, which an editor that uses no user file leaves alone.
 UserFiles userFilesOf(const platform::Platform &platform, bool capture) {
-  return capture ? UserFiles{} : userFiles(platform.prefPath("sonnet", "editor"), platform.isHeadless(), capture);
+  return userFiles([&platform] { return platform.prefPath("sonnet", "editor"); }, platform.isHeadless(), capture);
 }
 
 } // namespace

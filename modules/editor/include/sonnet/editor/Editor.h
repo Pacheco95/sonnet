@@ -45,6 +45,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -56,6 +57,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 union SDL_Event;
@@ -77,15 +79,22 @@ struct UserFiles {
   std::filesystem::path layout;      // layout.ini, Dear ImGui's panel layout
 };
 
-// Which of the files in `directory` (the per-user preferences directory) an editor uses. A capture
-// run starts from the defaults and leaves both alone, so it reproduces whatever the user arranged;
-// a headless editor (a test's) keeps no layout unless told (Editor::setLayoutFile).
-[[nodiscard]] inline UserFiles userFiles(const std::filesystem::path &directory, bool headless, bool capture) {
-  if (capture) {
+// Which user files an editor uses; `directory` is the per-user preferences directory, asked for only
+// when some file is used (asking creates it). A capture run starts from the defaults and leaves both
+// files alone, so it reproduces whatever the user arranged. A headless editor is a test's: it keeps
+// neither file unless told (Editor::setPreferencesFile, Editor::setLayoutFile), so a test run never
+// reads or rewrites the developer's own files. Any other editor uses both.
+template <std::invocable Directory>
+[[nodiscard]] UserFiles userFiles(Directory &&directory, bool headless, bool capture) {
+  if (headless || capture) {
     return {};
   }
-  return {.preferences = directory / "preferences.json",
-          .layout = headless ? std::filesystem::path{} : directory / "layout.ini"};
+  const std::filesystem::path root = std::forward<Directory>(directory)();
+  return {.preferences = root / "preferences.json", .layout = root / "layout.ini"};
+}
+
+[[nodiscard]] inline UserFiles userFiles(const std::filesystem::path &directory, bool headless, bool capture) {
+  return userFiles([&directory] { return directory; }, headless, capture);
 }
 
 // The editor (docs/editor.md): the world being edited, the panels around the viewport, the
@@ -97,9 +106,9 @@ public:
   // The swapchain only tells the ImGui pipeline its format and image count. `explorer` serves
   // the flecs explorer, for Debug builds of the application. `module` is the game module the
   // editor was linked with, registered before any scene loads; without one the editor refuses a
-  // project that needs a module (ADR-0027). A `capture` run uses the default layout and default
-  // preferences and writes neither file (`userFiles`); `setLayoutFile` and `setPreferencesFile`
-  // still point it at files, for a test.
+  // project that needs a module (ADR-0027). A `capture` run, like a headless platform's editor (a
+  // test's), uses the default layout and default preferences and writes neither file (`userFiles`);
+  // `setLayoutFile` and `setPreferencesFile` still point it at files, for a test.
   Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
          const rhi::ISwapchain &swapchain, bool explorer = false, const runtime::GameModule *module = nullptr,
          bool capture = false);
@@ -144,7 +153,7 @@ public:
   }
 
   // Reads the preferences from `file` and saves them there from now on, instead of the per-user
-  // file the constructor read (none, in a capture run); for tests.
+  // file the constructor read (none, in a capture run or on a headless platform); for tests.
   void setPreferencesFile(const std::filesystem::path &file);
   // The scene tabs a closing project would record: the saved scenes in tab order and the active one.
   [[nodiscard]] OpenScenes openScenes() const;
