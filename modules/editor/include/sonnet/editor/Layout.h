@@ -71,6 +71,12 @@ enum class BuiltinLayout : std::uint8_t {
 // unchanged when the preset recorded no size.
 [[nodiscard]] std::string scaleLayoutIni(std::string_view ini, float width, float height);
 
+// `ini` with every window that is not docked moved, and shrunk when it must be, to lie entirely inside the rectangle
+// `x`, `y`, `width` x `height` (the main window less its menu bar), and the viewport the window was saved in dropped.
+// For an editor with no multi-viewport: Dear ImGui keeps such a window where a second display put it and then pulls
+// it back to the nearest corner with a sliver showing. A window that already fits, and one docked, is not touched.
+[[nodiscard]] std::string keepFloatingWindowsInside(std::string_view ini, int x, int y, int width, int height);
+
 // Teaches the current ImGui context's ini to carry a ViewState, so layout.ini and the presets
 // restore it with the dock tree, and to record the dock root's size. Lives as long as the editor.
 class LayoutSettings {

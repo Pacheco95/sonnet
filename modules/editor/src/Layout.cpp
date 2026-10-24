@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <format>
 #include <memory>
+#include <optional>
+#include <span>
 #include <system_error>
 #include <unordered_map>
 #include <vector>
@@ -537,6 +539,101 @@ std::string scaleLayoutIni(std::string_view ini, float width, float height) {
       out += '\n';
     }
     position = end + 1;
+  }
+  return out;
+}
+
+std::string keepFloatingWindowsInside(std::string_view ini, int x, int y, int width, int height) {
+  constexpr std::uint32_t mainViewportId = 0x11111111; // the id Dear ImGui gives the main viewport
+  struct Entry {
+    std::string_view line;
+    bool drop = false;
+    std::string replacement; // empty: the line stays
+  };
+  std::vector<std::string_view> lines;
+  for (std::size_t position = 0; position < ini.size();) {
+    const std::size_t newline = ini.find('\n', position);
+    const std::size_t end = newline == std::string_view::npos ? ini.size() : newline;
+    lines.push_back(ini.substr(position, end - position));
+    position = end + 1;
+  }
+  std::string out;
+  out.reserve(ini.size());
+  for (std::size_t first = 0; first < lines.size();) {
+    std::size_t last = first + 1;
+    while (last < lines.size() && (lines[last].empty() || lines[last].front() != '[')) {
+      ++last;
+    }
+    const bool isWindow = lines[first].starts_with("[Window]");
+    std::vector<Entry> entries;
+    for (std::size_t i = first; i < last; ++i) {
+      entries.push_back(Entry{.line = lines[i], .drop = false, .replacement = {}});
+    }
+    first = last;
+    if (isWindow) {
+      bool docked = false;
+      bool positionReadable = true; // a missing Pos line is 0,0
+      bool sizeReadable = false;
+      bool hasViewport = false;
+      std::pair<int, int> position{0, 0};
+      std::pair<int, int> size{0, 0};
+      std::pair<int, int> viewportPosition{0, 0};
+      std::uint32_t viewportId = 0;
+      std::size_t positionLine = 0;
+      std::size_t sizeLine = 0;
+      for (std::size_t i = 1; i < entries.size(); ++i) {
+        const std::string_view line = entries[i].line;
+        if (line.starts_with("DockId=")) {
+          docked = true;
+        } else if (line.starts_with("Pos=")) {
+          const auto parsed = parseCoordinatePair(line.substr(4));
+          positionReadable = parsed.has_value();
+          position = parsed.value_or(position);
+          positionLine = i;
+        } else if (line.starts_with("Size=")) {
+          const auto parsed = parseCoordinatePair(line.substr(5));
+          sizeReadable = parsed.has_value() && parsed->first > 0 && parsed->second > 0;
+          size = parsed.value_or(size);
+          sizeLine = i;
+        } else if (line.starts_with("ViewportPos=")) {
+          viewportPosition = parseCoordinatePair(line.substr(12)).value_or(viewportPosition);
+          entries[i].drop = true;
+          hasViewport = true;
+        } else if (line.starts_with("ViewportId=")) {
+          viewportId = parseId(line.substr(11)).value_or(0);
+          entries[i].drop = true;
+          hasViewport = true;
+        }
+      }
+      if (!docked && positionReadable && sizeReadable) {
+        // Pos is relative to the viewport the window was in, and only a second viewport has an origin of its own.
+        const bool elsewhere = viewportId != 0 && viewportId != mainViewportId;
+        const int w = std::min(size.first, width);
+        const int h = std::min(size.second, height);
+        const int placedX = std::clamp(position.first + (elsewhere ? viewportPosition.first : 0), x, x + width - w);
+        const int placedY = std::clamp(position.second + (elsewhere ? viewportPosition.second : 0), y, y + height - h);
+        if (hasViewport || placedX != position.first || placedY != position.second || w != size.first ||
+            h != size.second) {
+          const std::string placed = std::format("Pos={},{}", placedX, placedY);
+          if (positionLine != 0) {
+            entries[positionLine].replacement = placed;
+          } else {
+            entries.insert(entries.begin() + 1, Entry{.line = {}, .drop = false, .replacement = placed});
+            ++sizeLine; // the new line came before it
+          }
+          entries[sizeLine].replacement = std::format("Size={},{}", w, h);
+        }
+      }
+    }
+    for (const Entry &entry : entries) {
+      if (!entry.drop) {
+        out.append(entry.replacement.empty() ? entry.line : std::string_view{entry.replacement});
+        out += '\n';
+      }
+    }
+  }
+  if (!ini.empty() && ini.back() != '\n' && !out.empty()) {
+    out.pop_back(); // the last line had no newline of its own
   }
   return out;
 }

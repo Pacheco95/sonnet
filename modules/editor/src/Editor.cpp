@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <format>
 #include <fstream>
@@ -52,6 +53,23 @@ std::string nameOf(flecs::entity entity) {
 // Asking for the preferences directory creates it, which an editor that uses no user file leaves alone.
 UserFiles userFilesOf(const platform::Platform &platform, bool capture) {
   return userFiles([&platform] { return platform.prefPath("sonnet", "editor"); }, platform.isHeadless(), capture);
+}
+
+// `ini` with its floating windows brought inside the main window, for an editor that has no second platform window to
+// hold one outside it (Dear ImGui would pull it to the nearest corner with a sliver showing). With multi-viewport on
+// the layout is the user's, positions beyond the window included.
+std::string placedForThisWindow(std::string_view ini, const platform::IWindow &window) {
+  if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0) {
+    return std::string{ini};
+  }
+  // The menu bar's height. Before the first frame Dear ImGui has no font size yet, so the theme's stands in.
+  const float fontSize = ImGui::GetFontSize() > 0.0f ? ImGui::GetFontSize() : ui::currentTheme().textSize;
+  const int top = static_cast<int>(std::ceil(fontSize + ImGui::GetStyle().FramePadding.y * 2.0f));
+  const glm::uvec2 size = window.size();
+  if (size.x == 0 || size.y <= static_cast<unsigned>(top)) {
+    return std::string{ini};
+  }
+  return keepFloatingWindowsInside(ini, 0, top, static_cast<int>(size.x), static_cast<int>(size.y) - top);
 }
 
 } // namespace
@@ -208,6 +226,15 @@ void Editor::setLayoutFile(const std::filesystem::path &file) {
   }
   m_layoutFile = file.string();
   ImGui::GetIO().IniFilename = m_layoutFile.c_str();
+  // Read here rather than by Dear ImGui on the first frame, so that a floating window saved beyond the window can be
+  // placed inside it (NewFrame leaves settings that were loaded before it alone).
+  if (!ImGui::GetCurrentContext()->SettingsLoaded) {
+    if (const auto bytes = core::readFile(file)) {
+      const std::string placed =
+          placedForThisWindow(std::string_view{reinterpret_cast<const char *>(bytes->data()), bytes->size()}, m_window);
+      ImGui::LoadIniSettingsFromMemory(placed.c_str(), placed.size());
+    }
+  }
 }
 
 void Editor::resetLayout() {
@@ -251,7 +278,7 @@ void Editor::applyPendingLayout() {
   const ImGuiDockNode *root =
       m_layoutSettings.dockspace() != 0 ? ImGui::DockBuilderGetNode(m_layoutSettings.dockspace()) : nullptr;
   const ImVec2 size = root != nullptr ? root->Size : ImGui::GetMainViewport()->WorkSize;
-  const std::string scaled = scaleLayoutIni(text, size.x, size.y);
+  const std::string scaled = placedForThisWindow(scaleLayoutIni(text, size.x, size.y), m_window);
   ImGui::LoadIniSettingsFromMemory(scaled.c_str(), scaled.size());
   ImGui::MarkIniSettingsDirty();
 }
