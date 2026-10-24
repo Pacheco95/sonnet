@@ -38,6 +38,7 @@
 #include <initializer_list>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <string_view>
 #include <vector>
@@ -2645,16 +2646,16 @@ TEST_CASE("the editor saves and restores its floor grid toggle", "[editor][gpu][
   std::filesystem::remove(file);
 }
 
-TEST_CASE("a capture run uses neither the saved layout nor the saved preferences", "[editor][capture][files]") {
+TEST_CASE("only an interactive editor uses the saved layout and preferences", "[editor][capture][files]") {
   const std::filesystem::path directory{"/home/user/.local/share/sonnet/editor"};
   SECTION("an interactive desktop editor keeps both") {
     const editor::UserFiles files = editor::userFiles(directory, false, false);
     REQUIRE(files.preferences == directory / "preferences.json");
     REQUIRE(files.layout == directory / "layout.ini");
   }
-  SECTION("a headless editor keeps the preferences and no layout") {
+  SECTION("a headless editor keeps neither, whatever the user has saved") {
     const editor::UserFiles files = editor::userFiles(directory, true, false);
-    REQUIRE(files.preferences == directory / "preferences.json");
+    REQUIRE(files.preferences.empty());
     REQUIRE(files.layout.empty());
   }
   SECTION("a capture run keeps neither, on a desktop or headless") {
@@ -2664,37 +2665,63 @@ TEST_CASE("a capture run uses neither the saved layout nor the saved preferences
       REQUIRE(files.layout.empty());
     }
   }
+  SECTION("the directory is asked for only when a file is used") {
+    int asked = 0;
+    const auto ask = [&] {
+      ++asked;
+      return std::filesystem::path{directory};
+    };
+    REQUIRE(editor::userFiles(ask, true, false).preferences.empty());
+    REQUIRE(editor::userFiles(ask, false, true).preferences.empty());
+    REQUIRE(asked == 0);
+    REQUIRE(editor::userFiles(ask, false, false).preferences == directory / "preferences.json");
+    REQUIRE(asked == 1);
+  }
 }
 
 #if defined(__linux__)
+namespace {
+
 // SDL puts the per-user files under XDG_DATA_HOME, so a private one keeps the real files out of reach.
-TEST_CASE("a capture run leaves preferences.json as it found it", "[editor][gpu][capture][files]") {
-  const std::filesystem::path data = scratch("capture-user-files");
-  std::filesystem::create_directories(data);
-  const char *previous = std::getenv("XDG_DATA_HOME");
-  const std::string restore = previous != nullptr ? previous : "";
-  const auto setDataHome = [](const std::string &value) {
-    setenv("XDG_DATA_HOME", value.c_str(), 1);
-    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "XDG_DATA_HOME", value.c_str(), true);
-  };
-  setDataHome(data.string());
-  struct Restore {
-    std::function<void()> undo;
-    ~Restore() {
-      undo();
+struct PrivateDataHome {
+  std::filesystem::path path;
+  std::optional<std::string> previous;
+
+  explicit PrivateDataHome(const char *name) : path(scratch(name)) {
+    std::filesystem::create_directories(path);
+    if (const char *value = std::getenv("XDG_DATA_HOME"); value != nullptr) {
+      previous = value;
     }
-  } restoreEnvironment{[&] {
-    if (previous != nullptr) {
-      setDataHome(restore);
+    set(path.string());
+  }
+  ~PrivateDataHome() {
+    if (previous) {
+      set(*previous);
     } else {
       unsetenv("XDG_DATA_HOME");
       SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), "XDG_DATA_HOME");
     }
-  }};
+  }
+  PrivateDataHome(const PrivateDataHome &) = delete;
+  PrivateDataHome &operator=(const PrivateDataHome &) = delete;
 
+private:
+  static void set(const std::string &value) {
+    setenv("XDG_DATA_HOME", value.c_str(), 1);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "XDG_DATA_HOME", value.c_str(), true);
+  }
+};
+
+// Runs the actions that save the preferences (a project becoming the most recent, a toggle) in an
+// editor that must not use the preferences file in the platform's preference directory, and checks the
+// file is as it was: same bytes, same modification time. The file holds the floor grid off, which
+// only an editor that read it shows. The same actions in an editor pointed at that file do rewrite
+// it, which is what the first half guards.
+void expectPreferencesLeftAlone(const char *name, bool capture) {
+  const PrivateDataHome home{name};
   Fixture fixture;
   const std::filesystem::path file = fixture.platform.prefPath("sonnet", "editor") / "preferences.json";
-  REQUIRE(file.string().starts_with(data.string()));
+  REQUIRE(file.string().starts_with(home.path.string()));
   const auto read = [&file] {
     const auto bytes = core::readFile(file);
     REQUIRE(bytes.has_value());
@@ -2708,11 +2735,10 @@ TEST_CASE("a capture run leaves preferences.json as it found it", "[editor][gpu]
   const auto modified = std::filesystem::last_write_time(file);
 
   {
-    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, false, nullptr, true};
-    // The default (on), not what the file holds (off).
-    REQUIRE(editor.floorGrid());
-    // Everything that saves the preferences: a project becoming the most recent, a toggle.
-    REQUIRE(editor.createProject(data / "project", "Capture files").has_value());
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, false,
+                          nullptr,          capture};
+    REQUIRE(editor.floorGrid()); // the default (on), not what the file holds (off)
+    REQUIRE(editor.createProject(home.path / "project", "Preferences left alone").has_value());
     editor.setFloorGrid(false);
     editor.setFloorGrid(true);
     fixture.frame(editor);
@@ -2720,13 +2746,24 @@ TEST_CASE("a capture run leaves preferences.json as it found it", "[editor][gpu]
   REQUIRE(read() == before);
   REQUIRE(std::filesystem::last_write_time(file) == modified);
 
-  // The same actions in an interactive editor do rewrite it, which is what the test above guards.
   {
-    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain, false,
+                          nullptr,          capture};
+    editor.setPreferencesFile(file);
     REQUIRE_FALSE(editor.floorGrid()); // read from the file
     editor.setFloorGrid(true);
   }
   REQUIRE(read() != before);
+}
+
+} // namespace
+
+TEST_CASE("a capture run leaves preferences.json as it found it", "[editor][gpu][capture][files]") {
+  expectPreferencesLeftAlone("capture-user-files", true);
+}
+
+TEST_CASE("a headless editor leaves preferences.json as it found it", "[editor][gpu][files]") {
+  expectPreferencesLeftAlone("headless-user-files", false);
 }
 #endif
 
