@@ -664,10 +664,11 @@ TEST_CASE("viewports are requested only where a window can be shown and position
   CHECK(!editor::wantsViewports(true, false));
 }
 
-TEST_CASE("a layout saved with viewports on opens its floating panel inside the window when they are off",
-          "[editor][gpu][layout]") {
-  Fixture fixture; // headless: the editor asks for no viewports
-  const std::filesystem::path file = scratch("layout_floating") / "layout.ini";
+namespace {
+
+// What an editor with viewports writes for the Log panel dragged out to a second display: no dock, a position far
+// beyond the main window, and the viewport it lived in. The rest is the layout a headless editor saves.
+std::string floatingLogIni(Fixture &fixture, const std::filesystem::path &file) {
   std::filesystem::create_directories(file.parent_path());
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
@@ -678,38 +679,114 @@ TEST_CASE("a layout saved with viewports on opens its floating panel inside the 
   const auto bytes = core::readFile(file);
   REQUIRE(bytes.has_value());
   std::string ini{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
-
-  // What an editor with viewports writes for the Log panel dragged out to a second display: no
-  // dock, a position far beyond the main window, and the viewport it lived in.
   const std::size_t header = ini.find("[Window][Log]\n");
   REQUIRE(header != std::string::npos);
   const std::size_t end = ini.find("\n\n", header);
   REQUIRE(end != std::string::npos);
   ini.replace(header, end - header,
               "[Window][Log]\nPos=5200,2100\nSize=640,360\nViewportId=0x4F1B2C3D\nViewportPos=5200,2100\nCollapsed=0");
-  // The edited file must be one the editor accepts, so ImGui's own placement is what is tested.
+  // The edited file must be one the editor accepts, so the placement is what is tested.
   REQUIRE(!editor::layoutIniProblem(ini).has_value());
+  return ini;
+}
+
+// The Log panel is open, in the main window and entirely inside it.
+void checkLogInsideWindow() {
+  const ImGuiWindow *log = ImGui::FindWindowByName("Log");
+  REQUIRE(log != nullptr);
+  const ImVec2 display = ImGui::GetIO().DisplaySize;
+  INFO("Log at " << log->Pos.x << "," << log->Pos.y << " size " << log->Size.x << "x" << log->Size.y << " docked "
+                 << (log->DockId != 0) << " in a display of " << display.x << "x" << display.y);
+  CHECK(log->Active);
+  CHECK(log->Viewport == ImGui::GetMainViewport());
+  CHECK(log->Pos.x >= 0.0f);
+  CHECK(log->Pos.y >= 0.0f);
+  CHECK(log->Pos.x + log->Size.x <= display.x);
+  CHECK(log->Pos.y + log->Size.y <= display.y);
+}
+
+} // namespace
+
+TEST_CASE("a layout saved with viewports on opens its floating panel inside the window when they are off",
+          "[editor][gpu][layout]") {
+  Fixture fixture; // headless: the editor asks for no viewports
+  const std::filesystem::path file = scratch("layout_floating") / "layout.ini";
+  const std::string ini = floatingLogIni(fixture, file);
   REQUIRE(core::writeFile(file, ini).has_value());
 
   editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
   editor.setLayoutFile(file);
   REQUIRE(!std::filesystem::exists(file.string() + ".rejected"));
   frames(fixture, editor);
-  const ImGuiWindow *log = ImGui::FindWindowByName("Log");
-  REQUIRE(log != nullptr);
-  const ImVec2 display = ImGui::GetIO().DisplaySize;
-  INFO("Log at " << log->Pos.x << "," << log->Pos.y << " docked " << (log->DockId != 0) << " in a display of "
-                 << display.x << "x" << display.y);
-  CHECK(log->Active);
-  CHECK(log->Viewport == ImGui::GetMainViewport());
-  // ImGui pulls the window back into the main window, to its corner with a sliver showing: reachable
-  // to drag or dock, though not placed well (layout validation is where that improves).
-  CHECK(log->Pos.x < display.x);
-  CHECK(log->Pos.y < display.y);
-  CHECK(log->Pos.x + log->Size.x > 0.0f);
-  CHECK(log->Pos.y + log->Size.y > 0.0f);
+  checkLogInsideWindow();
   fixture.device->waitIdle();
   CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a preset with a floating panel opens it inside the window when viewports are off", "[editor][gpu][layout]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("preset_floating");
+  const std::string ini = floatingLogIni(fixture, directory / "layout.ini");
+  std::filesystem::create_directories(directory / "layouts");
+  REQUIRE(core::writeFile(directory / "layouts" / "floating.ini", ini).has_value());
+
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  editor.setLayoutFile(directory / "layout.ini");
+  frames(fixture, editor);
+  editor.applyLayout("floating");
+  frames(fixture, editor);
+  checkLogInsideWindow();
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a layout saved with viewports on keeps its floating panel where it was when they are on",
+          "[editor][gpu][layout]") {
+  Fixture fixture;
+  const std::filesystem::path file = scratch("layout_floating_on") / "layout.ini";
+  const std::string ini = floatingLogIni(fixture, file);
+  REQUIRE(core::writeFile(file, ini).has_value());
+
+  // The headless platform cannot show a second window, so the flag is raised for the load alone: what is read is
+  // what ImGui keeps for the window, and a frame with the flag raised would need a platform backend that supports it.
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+  editor.setLayoutFile(file);
+  ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+  const ImGuiWindowSettings *settings = ImGui::FindWindowSettingsByID(ImHashStr("Log"));
+  REQUIRE(settings != nullptr);
+  CHECK(settings->Pos.x == 5200);
+  CHECK(settings->Pos.y == 2100);
+  CHECK(settings->ViewportId == 0x4F1B2C3Du);
+  CHECK(settings->DockId == 0);
+}
+
+TEST_CASE("floating windows of an ini are placed inside a rectangle and nothing else is touched", "[editor][layout]") {
+  const std::string docked = "[Window][Assets]\nPos=10,20\nSize=300,200\nCollapsed=0\nDockId=0x00000002,0\n\n";
+  const std::string fits = "[Window][Fits]\nPos=100,120\nSize=300,200\nCollapsed=0\n\n";
+  const auto place = [](const std::string &ini) { return editor::keepFloatingWindowsInside(ini, 0, 20, 800, 580); };
+
+  CHECK(place("") == "");
+  CHECK(place(docked + fits) == docked + fits);
+  // Beyond the right and bottom edges: moved back until the whole window shows.
+  CHECK(place("[Window][Far]\nPos=5200,2100\nSize=640,360\n\n") == "[Window][Far]\nPos=160,240\nSize=640,360\n\n");
+  // Before the left and top edges, and above the rectangle (under the menu bar).
+  CHECK(place("[Window][Near]\nPos=-50,-70\nSize=300,200\n\n") == "[Window][Near]\nPos=0,20\nSize=300,200\n\n");
+  // Larger than the rectangle: shrunk to it.
+  CHECK(place("[Window][Big]\nPos=40,40\nSize=2000,900\n\n") == "[Window][Big]\nPos=0,20\nSize=800,580\n\n");
+  // Saved in a second viewport: its origin counts, the viewport lines go, and a Pos line is added when 0,0 was left
+  // out.
+  CHECK(place("[Window][Second]\nSize=300,200\nViewportId=0x4F1B2C3D\nViewportPos=1920,100\nCollapsed=0\n\n") ==
+        "[Window][Second]\nPos=500,100\nSize=300,200\nCollapsed=0\n\n");
+  // Sections that are not windows, and docked windows, come through byte for byte around a moved one.
+  const std::string around = docked + "[Docking][Data]\nDockSpace ID=0x00000002 Pos=0,20 Size=800,580\n\n";
+  CHECK(place(around + "[Window][Far]\nPos=900,700\nSize=100,100\n\n" + fits) ==
+        around + "[Window][Far]\nPos=700,500\nSize=100,100\n\n" + fits);
+  // A window line that cannot be read is left to Dear ImGui.
+  const std::string odd = "[Window][Odd]\nPos=far,away\nSize=300,200\n\n";
+  CHECK(place(odd) == odd);
+  // The result is still a layout the editor accepts.
+  CHECK(!editor::layoutIniProblem(place(around + "[Window][Far]\nPos=900,700\nSize=100,100\n\n")).has_value());
 }
 
 TEST_CASE("regaining the focus picks up assets and prefab files changed outside the editor",
