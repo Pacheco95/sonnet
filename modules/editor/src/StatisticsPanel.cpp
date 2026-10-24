@@ -61,7 +61,8 @@ void StatisticsPanel::drawContents(bool compact) {
           const std::size_t i = (panel->m_historyIndex + static_cast<std::size_t>(index)) % HistorySize;
           return panel->m_history[i];
         },
-        this, static_cast<int>(HistorySize), 0, nullptr, 0.0f, std::max(33.0f, average * 2.0f), ImVec2{-1.0f, 60.0f});
+        this, static_cast<int>(HistorySize), 0, nullptr, 0.0f, std::max(33.0f, average * 2.0f),
+        ImVec2{-1.0f, ui::em(4.25f)});
   }
 
   ImGui::Text("%u draws, %u triangles", m_current.renderer.drawCount, m_current.renderer.triangleCount);
@@ -115,7 +116,7 @@ void StatisticsPanel::drawContents(bool compact) {
         heap.budget > 0 ? static_cast<float>(static_cast<double>(heap.usage) / static_cast<double>(heap.budget)) : 0.0f;
     const std::string label =
         std::format("{} {} / {}", heap.deviceLocal ? "GPU" : "host", megabytes(heap.usage), megabytes(heap.budget));
-    ImGui::ProgressBar(fraction, ImVec2{compact ? 220.0f : -1.0f, 0.0f}, label.c_str());
+    ImGui::ProgressBar(fraction, ImVec2{compact ? ui::em(15.5f) : -1.0f, 0.0f}, label.c_str());
   }
 }
 

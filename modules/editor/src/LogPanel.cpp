@@ -3,6 +3,7 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/editor/Fonts.h>
 #include <sonnet/ui/Theme.h>
+#include <sonnet/ui/Widgets.h>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -141,10 +142,10 @@ void LogPanel::draw(bool &open) {
   }
 
   constexpr const char *levels[] = {"trace", "debug", "info", "warn", "error", "critical"};
-  ImGui::SetNextItemWidth(90.0f);
+  ImGui::SetNextItemWidth(ui::em(6.5f));
   ImGui::Combo("##level", &m_minimumLevel, levels, IM_ARRAYSIZE(levels));
   ImGui::SameLine();
-  ImGui::SetNextItemWidth(-160.0f);
+  ImGui::SetNextItemWidth(-ui::em(11.5f));
   ImGui::InputTextWithHint("##filter", "filter", &m_filter);
   ImGui::SameLine();
   ImGui::Checkbox("scroll", &m_autoScroll);

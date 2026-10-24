@@ -18,6 +18,11 @@ namespace sonnet::ui {
 // multiplies the ones that live in ImGuiStyle), so a width that no ImGuiStyle field holds goes through here.
 [[nodiscard]] float scaled(float base);
 
+// `count` text heights at the current font size: the width of what holds text (a filter field, a combo, a column of
+// names), which follows the text whatever drives it. Geometry that does not hold text (a line's thickness, a pick
+// distance) goes through `scaled`. Call it inside a frame.
+[[nodiscard]] float em(float count);
+
 // -- Dialog buttons ----------------------------------------------------------------------------------------------
 
 enum class DialogButtonFlags : unsigned {

@@ -34,6 +34,10 @@ float scaled(float base) {
   return base * currentScale();
 }
 
+float em(float count) {
+  return count * ImGui::GetFontSize();
+}
+
 int dialogButtons(std::initializer_list<DialogButton> buttons) {
   const Theme &theme = currentTheme();
   int pressed = -1;

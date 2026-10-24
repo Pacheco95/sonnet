@@ -31,6 +31,7 @@ public:
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     ui::setCurrentTheme(theme);
     ui::applyTheme(ImGui::GetStyle(), theme, scale, false);
+    ImGui::GetStyle().FontScaleDpi = scale;
     ui::setCurrentScale(scale);
   }
   ~HeadlessImGui() {
@@ -122,6 +123,28 @@ TEST_CASE("scaled follows the display scale the layer set", "[ui][widgets]") {
     HeadlessImGui imgui{2.0f};
     CHECK(ui::scaled(120.0f) == Approx(240.0f));
   }
+}
+
+TEST_CASE("em is a count of text heights at the scale the text is drawn at", "[ui][widgets]") {
+  for (const float scale : {1.0f, 1.5f, 2.0f}) {
+    HeadlessImGui imgui{scale};
+    float fontSize = 0.0f;
+    float width = 0.0f;
+    HeadlessImGui::frame([&] {
+      fontSize = ImGui::GetFontSize();
+      width = ui::em(11.5f);
+    });
+    CAPTURE(scale);
+    CHECK(fontSize > 0.0f);
+    CHECK(width == Approx(11.5f * fontSize));
+  }
+  // The text zoom the editor's tests apply to the font alone moves a width that holds text, not a line's thickness.
+  HeadlessImGui imgui{1.0f};
+  ImGui::GetStyle().FontScaleMain = 2.0f;
+  float zoomed = 0.0f;
+  HeadlessImGui::frame([&] { zoomed = ui::em(2.0f); });
+  CHECK(zoomed == Approx(4.0f * 13.0f));
+  CHECK(ui::scaled(2.0f) == Approx(2.0f));
 }
 
 TEST_CASE("the width tokens default to what the editor drew before the theme had them", "[ui][widgets]") {

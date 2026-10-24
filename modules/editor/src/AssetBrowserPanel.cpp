@@ -580,13 +580,13 @@ void AssetBrowserPanel::draw(bool &open) {
   m_drawnFrame = ImGui::GetFrameCount();
   m_min = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y};
   m_max = m_min + glm::vec2{ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
-  ImGui::SetNextItemWidth(160.0f);
+  ImGui::SetNextItemWidth(ui::em(11.5f));
   if (ImGui::InputTextWithHint("##filter", "filter", &m_filter)) {
     m_selected.Clear();
     m_focused = 0;
   }
   ImGui::SameLine();
-  if (typeFilterCombo("##type", 130.0f, filterableAssetTypeNames(), m_types)) {
+  if (typeFilterCombo("##type", ui::em(9.25f), filterableAssetTypeNames(), m_types)) {
     m_selected.Clear();
     m_focused = 0;
   }
@@ -687,12 +687,12 @@ void AssetBrowserPanel::drawViewButtons() {
     ImGui::SetItemTooltip(grid ? "Grid view" : "List view");
     ImGui::PopID();
     if (!grid) {
-      ImGui::SameLine(0.0f, 2.0f);
+      ImGui::SameLine(0.0f, ui::scaled(2.0f));
     }
   }
   if (m_view.grid) {
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(80.0f);
+    ImGui::SetNextItemWidth(ui::em(5.5f));
     ImGui::SliderFloat("##tile", &m_view.tileSize, AssetsView::MinTileSize, AssetsView::MaxTileSize, "%.0f");
     ImGui::SetItemTooltip("Tile size");
     // The slider changes the view while it is dragged; the handler hears of it when it is let go.
@@ -827,7 +827,7 @@ void AssetBrowserPanel::drawTable(std::optional<std::filesystem::path> &destinat
   }
   ImGui::TableSetupScrollFreeze(0, 1);
   ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 2.0f);
-  ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+  ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, ui::em(6.5f));
   ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthStretch, 3.0f);
   ImGui::TableHeadersRow();
   if (ImGuiTableSortSpecs *specs = ImGui::TableGetSortSpecs(); specs != nullptr && specs->SpecsDirty) {
@@ -876,9 +876,10 @@ void AssetBrowserPanel::drawGrid(std::optional<std::filesystem::path> &destinati
   m_rows = rows();
   beginSelection();
   const ImGuiStyle &style = ImGui::GetStyle();
-  const float tile = m_view.tileSize;
+  // The preference keeps the tile in unscaled pixels, so a project opened on another display has the same tiles.
+  const float tile = ui::scaled(m_view.tileSize);
   const float labelHeight = ImGui::GetTextLineHeight();
-  const ImVec2 itemSize{tile, tile + labelHeight + 4.0f};
+  const ImVec2 itemSize{tile, tile + labelHeight + ui::scaled(4.0f)};
   const ImVec2 cell{itemSize.x + style.ItemSpacing.x, itemSize.y + style.ItemSpacing.y};
   const ImVec2 origin = ImGui::GetCursorScreenPos();
   const int columns = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cell.x));
@@ -918,9 +919,9 @@ void AssetBrowserPanel::drawGrid(std::optional<std::filesystem::path> &destinati
       picture = m_thumbnail(row.uuid);
     }
     const ImVec2 square{min.x + tile, min.y + tile};
-    list->AddRectFilled(min, square, ImGui::GetColorU32(ImGuiCol_FrameBg), style.FrameRounding + 2.0f);
+    list->AddRectFilled(min, square, ImGui::GetColorU32(ImGuiCol_FrameBg), style.FrameRounding + ui::scaled(2.0f));
     if (picture.texture != 0 && picture.size.x > 0 && picture.size.y > 0) {
-      const float fit = (tile - 8.0f) / static_cast<float>(std::max(picture.size.x, picture.size.y));
+      const float fit = (tile - ui::scaled(8.0f)) / static_cast<float>(std::max(picture.size.x, picture.size.y));
       const ImVec2 extent{static_cast<float>(picture.size.x) * fit, static_cast<float>(picture.size.y) * fit};
       const ImVec2 corner{min.x + (tile - extent.x) * 0.5f, min.y + (tile - extent.y) * 0.5f};
       list->AddImage(picture.texture, corner, {corner.x + extent.x, corner.y + extent.y});
@@ -936,7 +937,7 @@ void AssetBrowserPanel::drawGrid(std::optional<std::filesystem::path> &destinati
       // The name is centred when it fits and starts at the tile's edge when it does not, clipped there.
       const ImVec2 extent = ImGui::CalcTextSize(row.name.c_str());
       list->PushClipRect({min.x, square.y}, max, true);
-      list->AddText({extent.x < tile ? min.x + (tile - extent.x) * 0.5f : min.x, square.y + 2.0f},
+      list->AddText({extent.x < tile ? min.x + (tile - extent.x) * 0.5f : min.x, square.y + ui::scaled(2.0f)},
                     ImGui::GetColorU32(ImGuiCol_Text), row.name.c_str());
       list->PopClipRect();
     }
