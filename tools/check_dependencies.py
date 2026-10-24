@@ -6,6 +6,10 @@ rejects cycles, so a forward link that is not a cycle, and any forward `#include
 pass. The player, the cook tool and a project's game module (`apps/samples/*/native`, ADR-0027) also
 never reach the editor-only modules.
 
+Dear ImGui's `imgui_internal.h` is the API upstream changes most freely (ADR-0036), so it is included only where the
+decision allows it: `modules/ui/src`, the three editor files the ADR names for docking, settings and panel state, and
+tests. A widget built on the public API, in a panel or in `ui`'s headers, does not need it.
+
 With `--graphviz FILE.dot`, the edges of the configured CMake target graph (from
 `cmake --graphviz=FILE.dot <build dir>`) are checked against the same order too, which sees links
 made through variables and generator expressions that the source scan cannot.
@@ -22,6 +26,16 @@ SOURCE_SUFFIXES = {".h", ".hpp", ".cpp", ".mm", ".m", ".inl"}
 
 INCLUDE_RE = re.compile(r'^\s*#\s*include\s*[<"]sonnet/([a-z_]+)/', re.M)
 LINK_RE = re.compile(r"\bsonnet::([a-z_]+)\b")
+
+IMGUI_INTERNAL_RE = re.compile(r'^\s*#\s*include\s*[<"]imgui_internal\.h[>"]', re.M)
+# Where `#include <imgui_internal.h>` is allowed, as paths relative to the repository root: directories end in a slash.
+IMGUI_INTERNAL_ALLOWED = (
+    "modules/ui/src/",
+    "modules/editor/src/Editor.cpp",
+    "modules/editor/src/Layout.cpp",
+    "modules/editor/src/AssetBrowserPanel.cpp",
+)
+IMGUI_INTERNAL_ROOTS = ("modules", "apps", "tests")
 
 
 def module_order() -> list[str]:
@@ -80,6 +94,25 @@ def sources(base: Path):
             yield p
 
 
+def check_imgui_internal() -> list[str]:
+    problems: list[str] = []
+    for root in IMGUI_INTERNAL_ROOTS:
+        base = ROOT / root
+        if not base.is_dir():
+            continue
+        for src in sources(base):
+            rel = src.relative_to(ROOT).as_posix()
+            if "tests" in src.relative_to(ROOT).parts or rel.startswith(IMGUI_INTERNAL_ALLOWED):
+                continue
+            text = src.read_text(errors="replace")
+            for match in IMGUI_INTERNAL_RE.finditer(text):
+                problems.append(
+                    f"IMGUI  {rel}:{text.count(chr(10), 0, match.start()) + 1} includes `imgui_internal.h`; "
+                    "only modules/ui/src, Editor.cpp, Layout.cpp, AssetBrowserPanel.cpp and tests may (ADR-0036)"
+                )
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--graphviz", type=Path, help="also check a .dot file made by `cmake --graphviz`")
@@ -133,6 +166,8 @@ def main() -> int:
                     problems.append(
                         f"EDITOR {path.relative_to(ROOT)}:{line} apps/{app} reaches editor-only module `{dep}`"
                     )
+
+    problems += check_imgui_internal()
 
     if args.graphviz:
         problems += check_graph(args.graphviz, rank)
