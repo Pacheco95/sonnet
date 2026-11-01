@@ -9,6 +9,7 @@
 #include <sonnet/world/World.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -373,4 +374,38 @@ TEST_CASE("an environment dropped on the hierarchy becomes the scene's sky", "[e
   CHECK(entity.get<world::Environment>().intensity == 0.25f);
   REQUIRE(commands.undo(world));
   CHECK(world.find(world.uuidOf(entity)).get<world::Environment>().map == sky);
+}
+
+TEST_CASE("the filter row fits the hierarchy at the built-in layouts' widths", "[editor][hierarchy]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  world.createEntity("Box");
+  frame(panel);
+  const float fontSize = ImGui::GetFontSize();
+
+  // The Hierarchy is 18 % of a 1600-pixel window in the default layout (20.6 em at 14-pixel text) and
+  // 14 % (16 em) in Play.
+  const float panelEm = GENERATE(20.5f, 16.0f);
+  CAPTURE(panelEm);
+  ImGuiWindow *window = ImGui::FindWindowByName("Hierarchy");
+  REQUIRE(window != nullptr);
+  // The nav system records the focused item's rectangle, which is the only per-item rectangle Dear
+  // ImGui keeps after the frame.
+  const auto itemRect = [&](const char *id) {
+    ImGui::SetFocusID(window->GetID(id), window);
+    ImGui::NewFrame();
+    ImGui::SetNextWindowSize(ImVec2{panelEm * fontSize, 600.0f});
+    bool open = true;
+    panel.draw(open);
+    ImGui::Render();
+    return ImGui::WindowRectRelToAbs(window, window->NavRectRel[ImGuiNavLayer_Main]);
+  };
+  const ImRect filter = itemRect("##filter");
+  const ImRect kind = itemRect("##kind");
+  CHECK(filter.GetWidth() >= 3.0f * fontSize);
+  CHECK(kind.Max.x <= window->WorkRect.Max.x);
+  CHECK(kind.Min.x > filter.Max.x);
 }
