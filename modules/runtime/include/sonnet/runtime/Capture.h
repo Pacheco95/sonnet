@@ -43,6 +43,13 @@ struct CaptureOptions {
   // --transmission-downscale: RendererSettings::transmissionDownscale for the run; the player's only.
   std::optional<std::uint32_t> transmissionDownscale;
   bool grid{false}; // editor capture only; does not change preferences
+  // The next four are the editor's only and, like grid, are for the run: none changes the preferences or
+  // the layout. The editor checks their values when it begins, since the panels' names and the tile
+  // limits are its own.
+  std::optional<bool> assetsGrid;        // --assets: the Assets panel as a grid (true) or a list
+  std::optional<std::uint32_t> tileSize; // --tile-size: the grid's tile side, in unscaled pixels
+  std::string front;                     // --front: the panel brought in front of the ones it is tabbed with
+  std::string dialog;                    // --dialog: the dialog open for the capture
 };
 
 // An application's arguments: the content (the editor's project folder, the player's project

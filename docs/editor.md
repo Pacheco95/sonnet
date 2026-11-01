@@ -278,7 +278,7 @@ A texture, an environment, a material, a model or a prefab that is a file of its
 - `update`, once per frame, uploads at most eight finished pictures (`UploadsPerFrame`), so a first look at a big folder fills in over a few frames and no frame carries the whole upload.
 - A picture nobody asked for in 180 frames is released (`IdleFrames`), and at most 768 are resident (`MaxResident`), below the descriptor pool; past that a tile keeps its icon until others are released.
 - A source changed on disk is noticed by `AssetDatabase::pollChanges`, which drops the picture, and the next request makes it again. A picture dropped while its tile was drawn this frame is destroyed three frames later, since the frame's draw data still names it.
-- A capture waits for the pictures its tiles asked for (`busy`), so `--screenshot-window` of the grid shows them.
+- A capture waits for the pictures its tiles asked for (`busy`), so `--screenshot-window --assets grid` shows them, at the size `--tile-size` gives. Both are for the run only: the panel takes them through `AssetBrowserPanel::setView`, which does not call the view handler, so `preferences.json` keeps the project's own view.
 
 Measured on Lavapipe in a debug build with validation, a 2560 × 1440 window and 48 px tiles over 300 uncompressed 1024 × 1024 textures: 180 tiles were in view, filled in 22 frames, and the slowest `Editor::update` was 14 ms against a mean of 5.6 ms; with the cache warm the slowest was 8.6 ms.
 
@@ -505,6 +505,10 @@ sonnet_editor apps/samples/basic --scene scenes/playground.scene.json --play 3 -
 | `--scene FILE` | Opens this scene, relative to the project, instead of its start scene |
 | `--play SECONDS` | Plays for this many seconds, not steps, before the capture, and captures while playing: `--play 3` is 180 steps of 1/60 s |
 | `--grid on\|off` | Include the floor grid in the captured viewport and window; off by default |
+| `--assets list\|grid` | Shows the Assets panel as a list or a grid of tiles for the run, over the default list; the saved choice is not read or written ([Grid view](#grid-view)) |
+| `--tile-size PIXELS` | The grid's tile side, 48 to 128 unscaled pixels (96 by default); any other value fails the run |
+| `--front PANEL` | Brings `hierarchy`, `inspector`, `viewport`, `game`, `log`, `assets` or `statistics` in front of the panels it is tabbed with, showing it first if it was closed. In the default layout the Log is a tab behind Assets, so `--front log` is how a capture shows it |
+| `--dialog NAME` | Opens `new-project`, `open-project`, `save-scene-as`, `export` or `save-layout` for the capture, as its menu entry would. The quit, stop, close-tab and recover dialogs answer a state the run does not have and are not offered |
 | `--select PATH` | Selects the entity at this path of names, `Parent/Child`, so the outline and the gizmo show |
 | `--shading-term TERM` | One term of the forward shading instead of the final image: `final`, `albedo`, `normal`, `sun-direct`, `shadow-factor`, `ibl-diffuse`, `ibl-specular`, `brdf-lut` or `cascade`, the View > Shading term menu's names in any case |
 | `--settle-frames N` | Frames drawn after the assets have loaded, before playing or capturing; 10 by default |
