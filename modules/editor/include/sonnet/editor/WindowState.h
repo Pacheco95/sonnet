@@ -50,6 +50,12 @@ struct WindowPlacement {
   void applyTo(platform::WindowDesc &desc) const;
 };
 
+// The size the main window opens at when nothing is saved: 1600x900 logical pixels, which is what the built-in layouts
+// are drawn for, times the primary display's content scale (window units are pixels on X11 and Windows), clamped to
+// its usable area. 1600x900 when no display is known.
+inline constexpr glm::uvec2 DefaultWindowSize{1600, 900};
+[[nodiscard]] glm::uvec2 firstWindowSize(std::span<const platform::Display> displays);
+
 // `canPosition` is Platform::canPositionWindows: Wayland keeps the size and the maximized flag
 // and leaves the position to the compositor.
 [[nodiscard]] WindowPlacement placeWindow(const std::optional<WindowState> &saved,

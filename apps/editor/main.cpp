@@ -54,7 +54,7 @@ private:
 };
 
 // Where the main window opens (docs/editor.md, "The main window"). A capture run and a headless
-// platform keep the fixed size: they have nobody to remember a place for, and must not read or
+// platform open at the first size: they have nobody to remember a place for, and must not read or
 // write the user's files.
 struct MainWindow {
   std::unique_ptr<platform::IWindow> window;
@@ -64,7 +64,8 @@ struct MainWindow {
 
 MainWindow createMainWindow(platform::Platform &platform, const editor::CommandLine &line) {
   MainWindow main;
-  platform::WindowDesc desc{.title = "Sonnet Editor", .size = {1600, 900}};
+  // A capture run takes the first size too, so it sees the layout a first start at this scale gets.
+  platform::WindowDesc desc{.title = "Sonnet Editor", .size = editor::firstWindowSize(platform.displays())};
   if (!line.capture && !platform.isHeadless()) {
     main.stateFile = platform.prefPath("sonnet", "editor") / "window.json";
     main.placement = editor::placeWindow(editor::WindowState::load(main.stateFile), platform.displays(),

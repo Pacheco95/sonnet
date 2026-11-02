@@ -192,6 +192,45 @@ TEST_CASE("without a saved state the window opens centred on the primary, clampe
   REQUIRE(unknown.size == glm::uvec2{1600, 900});
 }
 
+TEST_CASE("without a saved state the window follows the primary's content scale", "[editor][window]") {
+  // A 4K primary at scale 2 holds 1600x900 logical pixels: the window is 3200x1800 window units.
+  Display large = monitor();
+  large.primary = true;
+  large.contentScale = 2.0f;
+  const std::vector<Display> displays{large, laptop()};
+  REQUIRE(editor::firstWindowSize(displays) == glm::uvec2{3200, 1800});
+  const editor::WindowPlacement placement = editor::placeWindow(std::nullopt, displays, true);
+  REQUIRE(placement.size == glm::uvec2{3200, 1800});
+  REQUIRE(placement.position == glm::ivec2{1920 + 320, 180});
+  // The compositor places it on Wayland, but the size is the same rule.
+  REQUIRE(editor::placeWindow(std::nullopt, displays, false).size == glm::uvec2{3200, 1800});
+
+  // A 2560x1440 primary at 2 cannot hold it: the usable area is the limit.
+  Display small{.id = 3,
+                .name = "Desk",
+                .position = {0, 0},
+                .size = {2560, 1440},
+                .usablePosition = {0, 32},
+                .usableSize = {2494, 1408},
+                .contentScale = 2.0f,
+                .primary = true};
+  const std::vector<Display> desk{small};
+  REQUIRE(editor::firstWindowSize(desk) == glm::uvec2{2494, 1408});
+  REQUIRE(editor::placeWindow(std::nullopt, desk, true).size == glm::uvec2{2494, 1408});
+
+  // Quarter steps round to whole window units.
+  small.contentScale = 1.25f;
+  REQUIRE(editor::firstWindowSize(std::vector<Display>{small}) == glm::uvec2{2000, 1125});
+
+  // A saved state keeps its size: it is in the units it was saved in.
+  std::vector<Display> withScale{laptop(), monitor()};
+  withScale[0].contentScale = 2.0f;
+  withScale[1].contentScale = 2.0f;
+  const editor::WindowPlacement restored = editor::placeWindow(onMonitor(), withScale, true);
+  REQUIRE(!restored.fallback);
+  REQUIRE(restored.size == glm::uvec2{1600, 900});
+}
+
 TEST_CASE("a fallback window left as it opened is the same state, and a moved one is not", "[editor][window]") {
   const std::vector<Display> displays{laptop()};
   const editor::WindowPlacement placement = editor::placeWindow(onMonitor(), displays, true);

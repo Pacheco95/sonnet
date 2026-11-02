@@ -24,6 +24,9 @@ struct Display {
   glm::uvec2 size{0, 0};
   glm::ivec2 usablePosition{0, 0}; // the bounds without the taskbar, the menu bar and the dock
   glm::uvec2 usableSize{0, 0};
+  // The desktop's content scale in window units (SDL_GetDisplayContentScale): the scale on X11 and Windows, where a
+  // window is sized in pixels, and 1 on macOS and Wayland, which size windows in points and scale them themselves.
+  float contentScale{1.0f};
   bool primary{false};
 };
 
