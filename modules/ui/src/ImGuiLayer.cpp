@@ -32,8 +32,10 @@ void checkVkResult(VkResult result) {
   }
 }
 
-// A display scale outside this is a misreport, not a monitor: it would make the editor unusable.
-constexpr float MinScale = 0.5f;
+// A display scale above the maximum is a misreport, not a monitor: it would make the editor unusable. None reports one
+// below 1 (Windows starts at 100 %, SDL ignores an X11 factor below 1, macOS and Wayland give 1), and Dear ImGui cannot
+// draw below it: its 1 px sizes truncate to 0, and `CloseButton` draws its cross `(int)_MainScale` thick.
+constexpr float MinScale = 1.0f;
 constexpr float MaxScale = 4.0f;
 
 // The scale of the window's content in the units of its own size. SDL's window display scale counts the window's pixel
@@ -180,7 +182,12 @@ void ImGuiLayer::beginFrame() {
 
 float ImGuiLayer::readDisplayScale() const {
   const float scale = m_displayScale();
-  return std::isfinite(scale) && scale > 0.0f ? std::clamp(scale, MinScale, MaxScale) : 0.0f;
+  if (!std::isfinite(scale) || !(scale > 0.0f)) {
+    return 0.0f;
+  }
+  // A desktop scale is a whole percentage. A fractional Wayland window's density comes from whole pixel sizes, so the
+  // quotient lands near it (0.99986 at 150 %) and moves with the window's size; rounding keeps one scale.
+  return std::clamp(std::round(scale * 100.0f) / 100.0f, MinScale, MaxScale);
 }
 
 void ImGuiLayer::applyDisplayScale(float scale, bool rescaleWindows) {
