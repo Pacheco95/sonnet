@@ -181,6 +181,13 @@ ImVec2 dockFraction(const char *name) {
   return {node->Size.x / root->Size.x, node->Size.y / root->Size.y};
 }
 
+// The splits builtinSplits gives `layout` in the main window as it is now.
+editor::BuiltinSplits splitsHere(editor::BuiltinLayout layout) {
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  return editor::builtinSplits(layout, {viewport->Size.x, viewport->Size.y},
+                               {viewport->WorkSize.x, viewport->WorkSize.y}, ImGui::GetFontSize());
+}
+
 void frames(Fixture &fixture, editor::Editor &editor, int count = 3) {
   for (int frame = 0; frame < count; ++frame) {
     fixture.frame(editor);
@@ -225,7 +232,8 @@ TEST_CASE("a saved layout restores the arrangement and the view, and the built-i
   CHECK(editor.viewState() == editor::builtinViewState(editor::BuiltinLayout::Play));
   CHECK(editor.viewState().colliders);
   CHECK(!editor.viewState().log);
-  CHECK(dockFraction("Hierarchy").x < 0.16f);
+  // The fixture's 800x600 window is below the size the layouts are drawn for, so the panels keep their em widths.
+  CHECK(dockFraction("Hierarchy").x == Catch::Approx(splitsHere(editor::BuiltinLayout::Play).left).margin(0.01));
 
   // Default is today's arrangement with colliders and gizmos off, and shares View > Reset layout.
   editor.applyLayout("Default");
@@ -233,7 +241,8 @@ TEST_CASE("a saved layout restores the arrangement and the view, and the built-i
   CHECK(dockOf("Assets") == dockOf("Log"));
   CHECK(editor.viewState() == editor::builtinViewState(editor::BuiltinLayout::Default));
   CHECK(!editor.viewState().colliders);
-  CHECK(dockFraction("Hierarchy").x > 0.16f);
+  CHECK(dockFraction("Hierarchy").x == Catch::Approx(splitsHere(editor::BuiltinLayout::Default).left).margin(0.01));
+  CHECK(dockFraction("Log").y == Catch::Approx(splitsHere(editor::BuiltinLayout::Default).bottom).margin(0.01));
 
   // Loading the saved preset brings both back.
   editor.applyLayout("My layout");
@@ -2122,8 +2131,9 @@ TEST_CASE("viewport view labels keep a contrasting backing at each font scale", 
 }
 
 TEST_CASE("the statistics overlay stops above the view label in a short viewport", "[editor][gpu][view-label]") {
-  // A short window: the overlay's rows are taller than the viewport.
-  Fixture fixture{{800, 360}};
+  // A short window: the overlay's rows are taller than the viewport. At scale 2 the Log and Assets keep their height
+  // in em, so the window has to leave the viewport some room.
+  Fixture fixture{{800, 540}};
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
     REQUIRE(editor.viewState().overlay);
@@ -2154,6 +2164,17 @@ TEST_CASE("the statistics overlay stops above the view label in a short viewport
       CHECK(overlay->Rect().Max.y <= labelTop);
       CHECK(overlay->Pos.y >= editor.viewport().input().origin.y);
     }
+    // At 4 there is no room for a row between the inset and the label: the overlay is left out rather than drawn
+    // over the label.
+    ImGui::GetStyle().FontScaleMain = 4.0f;
+    for (int frame = 0; frame < 4; ++frame) {
+      fixture.frame(editor);
+    }
+    const ImGuiWindow *viewport = ImGui::FindWindowByName("Viewport");
+    REQUIRE(viewport != nullptr);
+    CHECK(std::ranges::none_of(viewport->DC.ChildWindows, [](const ImGuiWindow *child) {
+      return std::string_view{child->Name}.find("statistics overlay") != std::string_view::npos;
+    }));
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

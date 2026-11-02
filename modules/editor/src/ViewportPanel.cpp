@@ -224,8 +224,13 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     // From the inset to an inset above the label: the overlay is drawn after the label, so it would cover it.
     const ImVec2 inset = ui::overlayInset();
     const ImVec2 min{origin.x + inset.x, origin.y + inset.y};
-    ImGui::SetCursorScreenPos(min);
-    statistics->drawOverlay(ImVec2{origin.x + available.x - inset.x - min.x, labelRect.min.y - inset.y - min.y});
+    const ImVec2 maxSize{origin.x + available.x - inset.x - min.x, labelRect.min.y - inset.y - min.y};
+    // A viewport too short for one row between the inset and the label has no overlay: its padding alone would reach
+    // over the label.
+    if (maxSize.y >= ImGui::GetTextLineHeightWithSpacing() + 2.0f * ImGui::GetStyle().WindowPadding.y) {
+      ImGui::SetCursorScreenPos(min);
+      statistics->drawOverlay(maxSize);
+    }
   }
   ImGui::End();
   return m_cameraActive;
