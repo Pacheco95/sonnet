@@ -216,14 +216,16 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
       std::string{m_view.camera.viewName()} +
       (m_view.camera.camera().projectionKind == renderer::ProjectionKind::Orthographic ? " Orthographic"
                                                                                        : " Perspective");
-  ui::overlayLabel(*ImGui::GetWindowDrawList(), origin, available, label.c_str());
+  const ui::ScreenRect labelRect = ui::overlayLabel(*ImGui::GetWindowDrawList(), origin, available, label.c_str());
   if (overlay) {
     overlay(m_input);
   }
   if (statistics != nullptr) {
+    // From the inset to an inset above the label: the overlay is drawn after the label, so it would cover it.
     const ImVec2 inset = ui::overlayInset();
-    ImGui::SetCursorScreenPos(ImVec2{origin.x + inset.x, origin.y + inset.y});
-    statistics->drawOverlay();
+    const ImVec2 min{origin.x + inset.x, origin.y + inset.y};
+    ImGui::SetCursorScreenPos(min);
+    statistics->drawOverlay(ImVec2{origin.x + available.x - inset.x - min.x, labelRect.min.y - inset.y - min.y});
   }
   ImGui::End();
   return m_cameraActive;

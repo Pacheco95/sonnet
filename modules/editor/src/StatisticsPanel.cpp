@@ -41,8 +41,8 @@ void StatisticsPanel::drawWindow(bool &open) {
   ImGui::End();
 }
 
-void StatisticsPanel::drawOverlay() {
-  if (ui::beginOverlay("statistics overlay")) {
+void StatisticsPanel::drawOverlay(ImVec2 maxSize) {
+  if (ui::beginOverlay("statistics overlay", maxSize)) {
     drawContents(true);
   }
   ui::endOverlay();
@@ -78,6 +78,9 @@ void StatisticsPanel::drawContents(bool compact) {
     ImGui::Text("%u skinned, %u vertices", m_current.renderer.skinnedInstanceCount,
                 m_current.renderer.skinnedVertexCount);
   }
+  if (compact) {
+    drawMemory(compact);
+  }
   if (m_current.graph != nullptr) {
     if (ImGui::BeginTable("passes", 3, ImGuiTableFlags_SizingStretchProp)) {
       ImGui::TableSetupColumn("pass");
@@ -106,7 +109,12 @@ void StatisticsPanel::drawContents(bool compact) {
                   m_current.graph->transientImageCount, megabytes(m_current.graph->transientImageBytes).c_str());
     }
   }
+  if (!compact) {
+    drawMemory(compact);
+  }
+}
 
+void StatisticsPanel::drawMemory(bool compact) {
   for (std::uint32_t i = 0; i < m_current.memory.heapCount; ++i) {
     const rhi::HeapBudget &heap = m_current.memory.heaps[i];
     if (compact && !heap.deviceLocal) {

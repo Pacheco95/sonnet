@@ -4,6 +4,8 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/Types.h>
 
+#include <imgui.h>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -30,13 +32,15 @@ public:
 
   void record(const FrameStatistics &statistics);
   void drawWindow(bool &open);
-  // Inside another window: an opaque box at the current cursor position.
-  void drawOverlay();
+  // Inside another window: an opaque box at the current cursor position, at most `maxSize`. The summary
+  // comes first, so what a short box cuts is the end of the pass table.
+  void drawOverlay(ImVec2 maxSize);
 
   [[nodiscard]] float averageFrameMilliseconds() const noexcept;
 
 private:
   void drawContents(bool compact);
+  void drawMemory(bool compact);
 
   FrameStatistics m_current;
   std::array<float, HistorySize> m_history{};

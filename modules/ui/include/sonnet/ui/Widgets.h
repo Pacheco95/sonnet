@@ -93,13 +93,21 @@ void endPropertyTable();
 // The distance from the corner of a view to an overlay drawn in it.
 [[nodiscard]] ImVec2 overlayInset();
 
+// A rectangle in screen space.
+struct ScreenRect {
+  ImVec2 min;
+  ImVec2 max;
+};
+
 // A child that fits its contents over the theme's `overlay` backdrop and takes no input, for text drawn over the
-// viewport. Like BeginChild, `endOverlay` is called whatever this returned.
-bool beginOverlay(const char *id);
+// viewport. It grows to at most `maxSize` and cuts what does not fit, with no scrollbar. Like BeginChild,
+// `endOverlay` is called whatever this returned.
+bool beginOverlay(const char *id, ImVec2 maxSize);
 void endOverlay();
 
 // A line of text on the theme's `label` backdrop in the bottom-left corner of the area of `areaSize` at `areaMin` (in
-// screen space), clipped to the area. Sizes follow the font.
-void overlayLabel(ImDrawList &drawList, ImVec2 areaMin, ImVec2 areaSize, const char *text);
+// screen space), clipped to the area. Sizes follow the font. Returns the backdrop's rectangle, so an overlay drawn
+// above it can stop short of it.
+ScreenRect overlayLabel(ImDrawList &drawList, ImVec2 areaMin, ImVec2 areaSize, const char *text);
 
 } // namespace sonnet::ui

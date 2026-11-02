@@ -426,7 +426,7 @@ TEST_CASE("an overlay is a child over the theme's backdrop that takes no input",
   bool open = false;
   float childBgAfter = -1.0f;
   const auto body = [&] {
-    open = ui::beginOverlay("overlay");
+    open = ui::beginOverlay("overlay", ImVec2{400.0f, 300.0f});
     if (open) {
       ImGui::TextUnformatted("12.34 ms");
     }
@@ -449,6 +449,32 @@ TEST_CASE("an overlay is a child over the theme's backdrop that takes no input",
   CHECK((child->Flags & ImGuiWindowFlags_NoInputs) != 0);
 }
 
+TEST_CASE("an overlay taller than its maximum size is cut there without a scrollbar", "[ui][widgets]") {
+  HeadlessImGui imgui;
+  const ImVec2 maxSize{300.0f, 100.0f};
+  const auto body = [&] {
+    if (ui::beginOverlay("overlay", maxSize)) {
+      for (int row = 0; row < 40; ++row) {
+        ImGui::Text("pass %d", row);
+      }
+    }
+    ui::endOverlay();
+  };
+  HeadlessImGui::frame(body);
+  HeadlessImGui::frame(body);
+  const ImGuiWindow *child = nullptr;
+  for (const ImGuiWindow *window : ImGui::GetCurrentContext()->Windows) {
+    if (window->ParentWindow != nullptr) {
+      child = window;
+    }
+  }
+  REQUIRE(child != nullptr);
+  CHECK(child->Size.y == Approx(maxSize.y));
+  // Still as wide as its widest row, not stretched to the maximum.
+  CHECK(child->Size.x < maxSize.x);
+  CHECK_FALSE(child->ScrollbarY);
+}
+
 TEST_CASE("the overlay inset is the theme's at the style's scale", "[ui][widgets]") {
   {
     HeadlessImGui imgui;
@@ -466,7 +492,8 @@ TEST_CASE("an overlay label sits in the bottom-left corner of its area on the la
   HeadlessImGui imgui{1.0f, theme};
   const ImVec2 areaMin{100.0f, 50.0f};
   const ImVec2 areaSize{400.0f, 300.0f};
-  HeadlessImGui::frame([&] { ui::overlayLabel(*ImGui::GetWindowDrawList(), areaMin, areaSize, "Perspective"); });
+  ui::ScreenRect rect;
+  HeadlessImGui::frame([&] { rect = ui::overlayLabel(*ImGui::GetWindowDrawList(), areaMin, areaSize, "Perspective"); });
   CHECK(drewColour(ui::toU32(theme.label)));
   CHECK(drewColour(ui::toU32(theme.labelText)));
 
@@ -486,4 +513,8 @@ TEST_CASE("an overlay label sits in the bottom-left corner of its area on the la
   }
   CHECK(left == Approx(areaMin.x + margin).margin(1.0));
   CHECK(bottom == Approx(areaMin.y + areaSize.y - margin).margin(1.0));
+  // The rectangle it returns is the backdrop's.
+  CHECK(rect.min.x == Approx(left).margin(1.0));
+  CHECK(rect.max.y == Approx(bottom).margin(1.0));
+  CHECK(rect.min.y < rect.max.y);
 }

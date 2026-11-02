@@ -13,6 +13,7 @@
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/runtime/Screenshot.h>
+#include <sonnet/ui/Theme.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/Scene.h>
 
@@ -2114,6 +2115,44 @@ TEST_CASE("viewport view labels keep a contrasting backing at each font scale", 
           REQUIRE_FALSE(editor.viewport().cameraActive());
         }
       }
+    }
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the statistics overlay stops above the view label in a short viewport", "[editor][gpu][view-label]") {
+  // A short window: the overlay's rows are taller than the viewport.
+  Fixture fixture{{800, 360}};
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.viewState().overlay);
+    for (const float scale : {1.0f, 2.0f}) {
+      CAPTURE(scale);
+      ImGui::GetStyle().FontScaleMain = scale;
+      for (int frame = 0; frame < 4; ++frame) {
+        fixture.frame(editor);
+      }
+      const ImGuiWindow *viewport = ImGui::FindWindowByName("Viewport");
+      REQUIRE(viewport != nullptr);
+      float labelTop = FLT_MAX;
+      for (const ImDrawVert &vertex : viewport->DrawList->VtxBuffer) {
+        if (vertex.col == ui::toU32(ui::currentTheme().label)) {
+          labelTop = std::min(labelTop, vertex.pos.y);
+        }
+      }
+      REQUIRE(labelTop < FLT_MAX);
+      const ImGuiWindow *overlay = nullptr;
+      for (const ImGuiWindow *child : viewport->DC.ChildWindows) {
+        if (std::string_view{child->Name}.find("statistics overlay") != std::string_view::npos) {
+          overlay = child;
+        }
+      }
+      REQUIRE(overlay != nullptr);
+      // Its rows did not fit, so it was cut, above the label.
+      CHECK(overlay->ContentSize.y + overlay->WindowPadding.y * 2.0f > overlay->Size.y);
+      CHECK(overlay->Rect().Max.y <= labelTop);
+      CHECK(overlay->Pos.y >= editor.viewport().input().origin.y);
     }
   }
   fixture.device->waitIdle();
