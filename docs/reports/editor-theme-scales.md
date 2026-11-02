@@ -1,6 +1,6 @@
 # The themed editor at each display scale
 
-[Issue 392](https://github.com/Pacheco95/sonnet/issues/392), the last check of [ADR-0036](../decisions/0036-dear-imgui-stays-the-editor-ui.md): the finished editor (the [Graphite](editor-theme.md) theme, the scale-derived style of #390, the first window and layouts of #410) at the scales it supports, on the platforms it ships on. Status: Linux checked on 2026-11-02 at `fea087e`, with the owner switching GNOME's scale for the Wayland runs; Windows and macOS are with device agents ([#418](https://github.com/Pacheco95/sonnet/issues/418), [#419](https://github.com/Pacheco95/sonnet/issues/419)) and **not checked** yet.
+[Issue 392](https://github.com/Pacheco95/sonnet/issues/392), the last check of [ADR-0036](../decisions/0036-dear-imgui-stays-the-editor-ui.md): the finished editor (the [Graphite](editor-theme.md) theme, the scale-derived style of #390, the first window and layouts of #410) at the scales it supports, on the platforms it ships on. Status: Linux checked on 2026-11-02 at `fea087e`, with the owner switching GNOME's scale for the Wayland runs; Windows and macOS were checked the same day by device agents ([#418](https://github.com/Pacheco95/sonnet/issues/418), [#419](https://github.com/Pacheco95/sonnet/issues/419)) at `b27beaf`, which carries the scale fix below; their reports are [windows/README.md](editor-theme-scales/windows/README.md) and [macos/README.md](editor-theme-scales/macos/README.md), and their captures sit beside them.
 
 How the scale is chosen and what follows it is in [editor.md](../editor.md#display-scale). In short, the editor's scale is SDL's display scale divided by the window's pixel density: the desktop scale on X11 and Windows, 1 on a Retina or Wayland window, which the compositor scales.
 
@@ -140,24 +140,54 @@ A fractional Wayland window's pixel density comes from whole pixel sizes, so SDL
 
 ## Not checked on Linux
 
-- **A change of scale while running on X11.** The scaling factor is fixed for the process. On native Wayland the switches above changed the density, not the editor's scale; `ui_tests` (the layer's scale read replaced) exercises a change of the scale itself.
+- **A change of scale while running on X11.** The scaling factor is fixed for the process. On native Wayland the switches above changed the density, not the editor's scale; `ui_tests` (the layer's scale read replaced) exercises a change of the scale itself, and the Windows run below changed it live on a real desktop.
 - **A panel undocked to a monitor of another scale.** One monitor.
 - **Wayland at 125 % and 175 %.**
 
 ## Windows
 
-**Not checked yet.** [#418](https://github.com/Pacheco95/sonnet/issues/418) asks the Windows agent for the same four captures at 100, 125, 150 and 200 %, a live change of the display scale, and a panel dragged to a monitor of another scale where there are two.
+Windows 11, RTX 4090, one 2560x1440 monitor, `windows-release`; the owner changed the display scale in Settings. The full report and all 20 captures: [windows/README.md](editor-theme-scales/windows/README.md).
+
+| Scale | Image | Result |
+|---|---|---|
+| 100 % | 1600x900 | Passed. Matches Linux at 1. |
+| 125 % | 2000x1125 | Passed. |
+| 150 % | 2400x1350 | Passed. |
+| 175 % | 2560x1356 | Passed; the window is the usable area. |
+| 200 % | 2560x1344 | Passed; the window is the usable area, and the panels show what Linux shows at 2. |
+| Live 100 → 150 → 200 → 100 % | | The UI followed each change on the next frame with nothing cut and every close button and outline present, and resizing at 150 % logged no new scale. **Defect:** after 200 → 100 %, a maximized window kept its 200 % frame, so its title bar is cut off at the top of the screen and a strip above the taskbar is not drawn. The editor does not size its window on a scale change, so this is SDL's or Windows' handling of a maximized window's DPI change. Filed as [#423](https://github.com/Pacheco95/sonnet/issues/423). |
+| A panel on a monitor of another scale | | **Not checked**: one monitor. |
+
+Every scale logged its exact value (`display scale 1 -> 1.25`, and so on), and the viewport's render target matched the panel's pixel size at every scale: Windows has a pixel density of 1, so [#422](https://github.com/Pacheco95/sonnet/issues/422) does not occur there.
+
+![Windows at 150 %, basic](editor-theme-scales/windows/windows-basic-150.jpg)
+
+![Windows at 200 %, showcase](editor-theme-scales/windows/windows-showcase-200.jpg)
 
 ## macOS
 
-**Not checked yet.** [#419](https://github.com/Pacheco95/sonnet/issues/419) asks the Mac agent for the four captures on a Retina display (the layout should not change, at twice the pixels) and a non-Retina one if available, the window moved between them, and a floating panel reopened. The pixel density division in `ImGuiLayer` has still not run on a Mac.
+14-inch MacBook Pro (M4 Max), macOS 27.2, the built-in Retina display only, `macos-release`. The full report and its captures: [macos/README.md](editor-theme-scales/macos/README.md).
+
+| Display | Image | Result |
+|---|---|---|
+| Retina, default resolution | 3024x1800 | Passed for the UI: the pixel density division in `ImGuiLayer` works on a Mac. The scale logged is 1, the layout has the same point sizes as Linux at 1 at twice the pixels, text and icons are sharp, and close buttons and outlines are there. The window is 1512x900 points, the display's width. **Defect:** the viewport renders at half resolution, 880x630 for a 1760x1260 pixel panel, as [#422](https://github.com/Pacheco95/sonnet/issues/422) predicted. |
+| Retina, one step towards More Space | 3200x1800 | Passed for the UI, the same as above with the full 1600x900 points; #422 as above. |
+| Non-Retina, and moving between displays | | **Not checked**: no external display. |
+| A floating Log reopened after Cmd+Q | | Passed (the owner saw it): same place and size, inside the window, below the menu bar. |
+
+![macOS Retina, basic](editor-theme-scales/macos/macos-basic-retina.jpg)
+
+The viewport at 1:1 on Retina, the scene stepped and the gizmo sharp:
+
+![macOS Retina, viewport](editor-theme-scales/macos/macos-viewport-retina.png)
 
 ## Defects
 
 | Found | Where | State |
 |---|---|---|
 | A `layout.ini` saved at one scale opens cramped at another | X11, 2 | Filed, [#420](https://github.com/Pacheco95/sonnet/issues/420) |
-| The viewport renders at half resolution at pixel density 2 | Wayland, 200 % (and expected on Retina) | Filed, [#422](https://github.com/Pacheco95/sonnet/issues/422) |
+| The viewport renders at half resolution at pixel density 2 | Wayland at 200 %, macOS Retina | Filed, [#422](https://github.com/Pacheco95/sonnet/issues/422) |
+| A maximized window keeps its old frame after a scale change | Windows, 200 → 100 % live | Filed, [#423](https://github.com/Pacheco95/sonnet/issues/423) |
 | Close buttons and outlines lost at a fractional scale (scale read as 0.99986) | Wayland, 150 % | Fixed in this PR: the scale is rounded and clamped to 1 to 4 |
 
 Nothing else was wrong at the scales checked.
