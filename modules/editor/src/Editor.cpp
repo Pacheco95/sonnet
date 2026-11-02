@@ -230,8 +230,10 @@ void Editor::setLayoutFile(const std::filesystem::path &file) {
   // placed inside it (NewFrame leaves settings that were loaded before it alone).
   if (!ImGui::GetCurrentContext()->SettingsLoaded) {
     if (const auto bytes = core::readFile(file)) {
-      const std::string placed =
-          placedForThisWindow(std::string_view{reinterpret_cast<const char *>(bytes->data()), bytes->size()}, m_window);
+      const std::string placed = placedForThisWindow(
+          rescaleLayoutIni(std::string_view{reinterpret_cast<const char *>(bytes->data()), bytes->size()},
+                           ui::currentScale()),
+          m_window);
       ImGui::LoadIniSettingsFromMemory(placed.c_str(), placed.size());
     }
   }
@@ -278,7 +280,10 @@ void Editor::applyPendingLayout() {
   const ImGuiDockNode *root =
       m_layoutSettings.dockspace() != 0 ? ImGui::DockBuilderGetNode(m_layoutSettings.dockspace()) : nullptr;
   const ImVec2 size = root != nullptr ? root->Size : ImGui::GetMainViewport()->WorkSize;
-  const std::string scaled = placedForThisWindow(scaleLayoutIni(text, size.x, size.y), m_window);
+  // Sizes at this display scale first, so a floating panel holds the text it held; then the docks as fractions of the
+  // root.
+  const std::string scaled =
+      placedForThisWindow(scaleLayoutIni(rescaleLayoutIni(text, ui::currentScale()), size.x, size.y), m_window);
   ImGui::LoadIniSettingsFromMemory(scaled.c_str(), scaled.size());
   ImGui::MarkIniSettingsDirty();
 }

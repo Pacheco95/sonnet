@@ -578,6 +578,7 @@ TEST_CASE("the layouts this editor saves pass the check at two window sizes and 
       INFO(ini);
       CHECK(!editor::layoutIniProblem(ini));
       CHECK(editor::isLayoutIni(ini));
+      CHECK(ini.find("\nScale=1\n") != std::string::npos);
       // What the editor does to a preset saved at another size.
       CHECK(!editor::layoutIniProblem(editor::scaleLayoutIni(ini, 1600.0f, 900.0f)));
     }
@@ -595,6 +596,49 @@ TEST_CASE("the layouts this editor saves pass the check at two window sizes and 
   CHECK(editor.viewState().colliders);
   CHECK(std::filesystem::exists(file));
   CHECK(!std::filesystem::exists(file.string() + ".rejected"));
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
+// layout.ini records the display scale it was saved at. Saved here at 1 and marked as saved at 2, it opens at this
+// editor's scale 1 with its panels at half their pixel sizes, so they hold the text they held at 2; marked 0.5, at
+// twice.
+TEST_CASE("a layout.ini saved at another display scale opens with the same text in its panels",
+          "[editor][gpu][layout]") {
+  Fixture fixture{{1600, 900}};
+  const std::filesystem::path file = scratch("layout_scale") / "layout.ini";
+  std::filesystem::create_directories(file.parent_path());
+  const auto sizeOf = [](const char *name) {
+    const ImGuiWindow *window = ImGui::FindWindowByName(name);
+    REQUIRE(window != nullptr);
+    return window->Size;
+  };
+  ImVec2 hierarchy;
+  ImVec2 log;
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(ui::currentScale() == 1.0f);
+    editor.setLayoutFile(file);
+    frames(fixture, editor);
+    hierarchy = sizeOf("Hierarchy");
+    log = sizeOf("Log");
+  }
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  const std::string saved(reinterpret_cast<const char *>(bytes->data()), bytes->size());
+  const std::size_t line = saved.find("\nScale=1\n");
+  REQUIRE(line != std::string::npos);
+  for (const auto &[recorded, ratio] : {std::pair{"2", 0.5f}, std::pair{"0.5", 2.0f}}) {
+    INFO("saved at " << recorded);
+    std::string ini = saved;
+    ini.replace(line, 9, std::format("\nScale={}\n", recorded));
+    REQUIRE(core::writeFile(file, ini).has_value());
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(file);
+    frames(fixture, editor);
+    CHECK(sizeOf("Hierarchy").x == Catch::Approx(hierarchy.x * ratio).margin(2.0));
+    CHECK(sizeOf("Log").y == Catch::Approx(log.y * ratio).margin(2.0));
+  }
   fixture.device->waitIdle();
   CHECK(fixture.device->validationMessageCount() == 0);
 }

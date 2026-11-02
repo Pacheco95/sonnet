@@ -88,6 +88,13 @@ struct BuiltinSplits {
 // unchanged when the preset recorded no size.
 [[nodiscard]] std::string scaleLayoutIni(std::string_view ini, float width, float height);
 
+// `ini`, saved at the display scale its view section records, for an editor at `scale`: every window's Pos and Size,
+// every dock node's Pos, Size and SizeRef and the recorded dock root size multiplied by `scale` over the recorded one,
+// so the panels keep the text they held. Dear ImGui's tables rescale their own columns. Returned unchanged when `ini`
+// recorded no scale (a file from before it was recorded) or the same one. Positions of second viewports are screen
+// positions and stay.
+[[nodiscard]] std::string rescaleLayoutIni(std::string_view ini, float scale);
+
 // `ini` with every window that is not docked moved, and shrunk when it must be, to lie entirely inside the rectangle
 // `x`, `y`, `width` x `height` (the main window less its menu bar), and the viewport the window was saved in dropped.
 // For an editor with no multi-viewport: Dear ImGui keeps such a window where a second display put it and then pulls
@@ -95,7 +102,8 @@ struct BuiltinSplits {
 [[nodiscard]] std::string keepFloatingWindowsInside(std::string_view ini, int x, int y, int width, int height);
 
 // Teaches the current ImGui context's ini to carry a ViewState, so layout.ini and the presets
-// restore it with the dock tree, and to record the dock root's size. Lives as long as the editor.
+// restore it with the dock tree, and to record the dock root's size and the display scale (`ui::currentScale`). Lives
+// as long as the editor.
 class LayoutSettings {
 public:
   explicit LayoutSettings(ViewState &view);
