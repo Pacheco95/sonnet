@@ -84,22 +84,55 @@ std::optional<std::pair<int, int>> parseSize(std::string_view text) noexcept {
   return std::pair{width, height};
 }
 
-std::optional<std::pair<int, int>> recordedDockSize(std::string_view ini) noexcept {
+// The value of `key` in the view section, up to the end of its line; nullopt when the section or the key is missing.
+std::optional<std::string_view> viewValue(std::string_view ini, std::string_view key) noexcept {
   const std::size_t section = ini.find(SectionHeader);
   if (section == std::string_view::npos) {
     return std::nullopt;
   }
-  constexpr std::string_view key = "\nDockSize=";
-  const std::size_t line = ini.find(key, section);
-  const std::size_t next = ini.find("\n[", section);
-  if (line == std::string_view::npos || line > next) {
-    return std::nullopt;
+  // The section's lines, after its header and up to the next section.
+  for (std::size_t position = ini.find('\n', section); position != std::string_view::npos;) {
+    const std::string_view rest = ini.substr(position + 1);
+    const std::string_view line = rest.substr(0, rest.find('\n'));
+    if (line.starts_with('[')) {
+      break;
+    }
+    if (line.size() > key.size() && line.starts_with(key) && line[key.size()] == '=') {
+      return line.substr(key.size() + 1);
+    }
+    position = ini.find('\n', position + 1);
   }
-  return parseSize(ini.substr(line + key.size()));
+  return std::nullopt;
 }
 
-// One dock line, "DockNode ID=0x1 Parent=0x2 SizeRef=360,300 Split=Y": the Size and SizeRef tokens scaled.
-std::string scaleSizes(std::string_view line, float scaleX, float scaleY) {
+std::optional<std::pair<int, int>> recordedDockSize(std::string_view ini) noexcept {
+  const auto value = viewValue(ini, "DockSize");
+  return value ? parseSize(*value) : std::nullopt;
+}
+
+// The whole of `text` as a display scale: a finite number above zero.
+std::optional<float> parseScale(std::string_view text) noexcept {
+  float value = 0.0f;
+  const char *begin = std::to_address(text.begin());
+  const char *end = std::to_address(text.end());
+  const auto [after, error] = std::from_chars(begin, end, value);
+  if (error != std::errc{} || after != end || !std::isfinite(value) || !(value > 0.0f)) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+// What a layout is checked against, from the limits of Dear ImGui's own ini reader (imgui.cpp, the docking
+// settings handler): it stores positions and sizes as 16-bit integers, and its tree walks assume a small tree.
+constexpr int MaxDockCoordinate = 32767;
+
+// One line, "DockNode ID=0x1 Parent=0x2 SizeRef=360,300 Split=Y" or "Pos=10,20": its "Key=X,Y" tokens whose key is one
+// of `keys` scaled, held within what Dear ImGui's reader stores.
+std::string scaleSizes(std::string_view line, std::span<const std::string_view> keys, float scaleX, float scaleY) {
+  const auto scaled = [](int value, float scale) {
+    return std::clamp(static_cast<int>(std::lround(static_cast<float>(value) * scale)), -MaxDockCoordinate,
+                      MaxDockCoordinate);
+  };
   std::string out;
   std::size_t position = 0;
   while (position <= line.size()) {
@@ -108,10 +141,11 @@ std::string scaleSizes(std::string_view line, float scaleX, float scaleY) {
     const std::string_view token = line.substr(position, end - position);
     const std::size_t equals = token.find('=');
     const std::string_view key = token.substr(0, equals);
-    const auto size = (key == "Size" || key == "SizeRef") ? parseSize(token.substr(equals + 1)) : std::nullopt;
+    const auto size = equals != std::string_view::npos && std::ranges::find(keys, key) != keys.end()
+                          ? parseSize(token.substr(equals + 1))
+                          : std::nullopt;
     if (size) {
-      out += std::format("{}={},{}", key, std::lround(static_cast<float>(size->first) * scaleX),
-                         std::lround(static_cast<float>(size->second) * scaleY));
+      out += std::format("{}={},{}", key, scaled(size->first, scaleX), scaled(size->second, scaleY));
     } else {
       out.append(token);
     }
@@ -124,9 +158,31 @@ std::string scaleSizes(std::string_view line, float scaleX, float scaleY) {
   return out;
 }
 
-// What a layout is checked against, from the limits of Dear ImGui's own ini reader (imgui.cpp, the docking
-// settings handler): it stores positions and sizes as 16-bit integers, and its tree walks assume a small tree.
-constexpr int MaxDockCoordinate = 32767;
+// `ini` with the `keys` scaled in the lines of each section whose header line `pick` accepts.
+template <class Pick>
+std::string scaleSections(std::string_view ini, Pick pick, std::span<const std::string_view> keys, float scaleX,
+                          float scaleY) {
+  std::string out;
+  out.reserve(ini.size());
+  bool inSection = false;
+  for (std::size_t position = 0; position < ini.size();) {
+    const std::size_t newline = ini.find('\n', position);
+    const std::size_t end = newline == std::string_view::npos ? ini.size() : newline;
+    const std::string_view line = ini.substr(position, end - position);
+    if (!line.empty() && line.front() == '[') {
+      inSection = pick(line);
+      out.append(line);
+    } else {
+      out += inSection ? scaleSizes(line, keys, scaleX, scaleY) : std::string{line};
+    }
+    if (newline != std::string_view::npos) {
+      out += '\n';
+    }
+    position = end + 1;
+  }
+  return out;
+}
+
 constexpr std::size_t MaxDockNodes = 1024;
 constexpr int MaxDockDepth = 64;
 
@@ -326,7 +382,8 @@ private:
   std::unordered_map<std::uint32_t, Node> m_nodes;
 };
 
-// A line of the view section: "Key=0" or "Key=1" for a flag, "DockSize=W,H" for the dock root's size. A key this
+// A line of the view section: "Key=0" or "Key=1" for a flag, "DockSize=W,H" for the dock root's size, "Scale=S" for
+// the display scale it was saved at. A key this
 // editor does not know is kept out of the check, as the reader skips it.
 std::string checkViewLine(std::string_view line) {
   const std::size_t equals = line.find('=');
@@ -337,6 +394,9 @@ std::string checkViewLine(std::string_view line) {
   const std::string_view value = line.substr(equals + 1);
   if (key == "DockSize") {
     return parseCoordinatePair(value) ? std::string{} : std::format("DockSize={} is not two numbers", value);
+  }
+  if (key == "Scale") {
+    return parseScale(value) ? std::string{} : std::format("Scale={} is not a number above zero", value);
   }
   const bool known = std::ranges::any_of(Flags, [&](const Flag &flag) { return key == flag.key; });
   return !known || value == "0" || value == "1" ? std::string{} : std::format("{}={} is not 0 or 1", key, value);
@@ -548,27 +608,26 @@ std::string scaleLayoutIni(std::string_view ini, float width, float height) {
   if (!saved || saved->first <= 0 || saved->second <= 0 || width <= 0.0f || height <= 0.0f) {
     return std::string{ini};
   }
-  const float scaleX = width / static_cast<float>(saved->first);
-  const float scaleY = height / static_cast<float>(saved->second);
-  std::string out;
-  out.reserve(ini.size());
-  bool inDock = false;
-  for (std::size_t position = 0; position < ini.size();) {
-    const std::size_t newline = ini.find('\n', position);
-    const std::size_t end = newline == std::string_view::npos ? ini.size() : newline;
-    const std::string_view line = ini.substr(position, end - position);
-    if (!line.empty() && line.front() == '[') {
-      inDock = line == DockHeader;
-      out.append(line);
-    } else {
-      out += inDock ? scaleSizes(line, scaleX, scaleY) : std::string{line};
-    }
-    if (newline != std::string_view::npos) {
-      out += '\n';
-    }
-    position = end + 1;
+  constexpr std::array<std::string_view, 2> keys{"Size", "SizeRef"};
+  return scaleSections(
+      ini, [](std::string_view header) { return header == DockHeader; }, keys, width / static_cast<float>(saved->first),
+      height / static_cast<float>(saved->second));
+}
+
+std::string rescaleLayoutIni(std::string_view ini, float scale) {
+  const auto value = viewValue(ini, "Scale");
+  const auto saved = value ? parseScale(*value) : std::nullopt;
+  if (!saved || !std::isfinite(scale) || !(scale > 0.0f) || *saved == scale) {
+    return std::string{ini};
   }
-  return out;
+  constexpr std::array<std::string_view, 4> keys{"Pos", "Size", "SizeRef", "DockSize"};
+  const float ratio = scale / *saved;
+  return scaleSections(
+      ini,
+      [](std::string_view header) {
+        return header == DockHeader || header == SectionHeader || header.starts_with("[Window][");
+      },
+      keys, ratio, ratio);
 }
 
 std::string keepFloatingWindowsInside(std::string_view ini, int x, int y, int width, int height) {
@@ -698,6 +757,7 @@ LayoutSettings::LayoutSettings(ViewState &view) : m_view(view) {
             settings->m_dockspace != 0 ? ImGui::DockBuilderGetNode(settings->m_dockspace) : nullptr) {
       out->appendf("DockSize=%d,%d\n", static_cast<int>(root->Size.x), static_cast<int>(root->Size.y));
     }
+    out->appendf("Scale=%g\n", static_cast<double>(ui::currentScale()));
     out->append("\n");
   };
   ImGui::RemoveSettingsHandler(SectionType);

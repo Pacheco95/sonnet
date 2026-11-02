@@ -167,6 +167,58 @@ TEST_CASE("scaling a layout multiplies the dock sizes and nothing else", "[edito
   CHECK(scaleLayoutIni(unrecorded, 1600.0f, 1200.0f) == unrecorded);
 }
 
+TEST_CASE("a layout saved at one display scale opens at another with the sizes of the same text", "[editor][layout]") {
+  const std::string atOne = "[Window][Log]\nPos=40,60\nSize=300,200\nViewportPos=1920,0\nCollapsed=0\n\n"
+                            "[Table][0x1,2]\nRefScale=13\nColumn 0  Width=94\n\n"
+                            "[SonnetView][View]\nViewport=1\nDockSize=800,600\nScale=1\n\n"
+                            "[Docking][Data]\n"
+                            "DockSpace ID=0x1 Window=0x2 Pos=0,19 Size=800,581 Split=X\n"
+                            "  DockNode ID=0x3 Parent=0x1 SizeRef=144,581 Selected=0x4\n"
+                            "  DockNode ID=0x5 Parent=0x1 SizeRef=656,581 Split=Y\n";
+  const std::string atTwo = rescaleLayoutIni(atOne, 2.0f);
+  // A floating window, the dock tree and the recorded root size double; flags, ids, a second viewport's screen
+  // position and a table (which Dear ImGui rescales by its RefScale) stay.
+  CHECK(atTwo == "[Window][Log]\nPos=80,120\nSize=600,400\nViewportPos=1920,0\nCollapsed=0\n\n"
+                 "[Table][0x1,2]\nRefScale=13\nColumn 0  Width=94\n\n"
+                 "[SonnetView][View]\nViewport=1\nDockSize=1600,1200\nScale=1\n\n"
+                 "[Docking][Data]\n"
+                 "DockSpace ID=0x1 Window=0x2 Pos=0,38 Size=1600,1162 Split=X\n"
+                 "  DockNode ID=0x3 Parent=0x1 SizeRef=288,1162 Selected=0x4\n"
+                 "  DockNode ID=0x5 Parent=0x1 SizeRef=1312,1162 Split=Y\n");
+
+  // The reverse: saved at 2, opened at 1.
+  std::string savedAtTwo = atTwo;
+  savedAtTwo.replace(savedAtTwo.find("\nScale=1"), 8, "\nScale=2");
+  std::string expected = atOne;
+  expected.replace(expected.find("\nScale=1"), 8, "\nScale=2");
+  CHECK(rescaleLayoutIni(savedAtTwo, 1.0f) == expected);
+
+  // A preset keeps its docks' fractions of the root whatever the scale; its floating window keeps its text.
+  const std::string preset = scaleLayoutIni(rescaleLayoutIni(atOne, 2.0f), 1000.0f, 500.0f);
+  for (const char *dock : {"Size=1000,484", "SizeRef=180,484", "SizeRef=820,484"}) {
+    CHECK(scaleLayoutIni(atOne, 1000.0f, 500.0f).find(dock) != std::string::npos);
+    CHECK(preset.find(dock) != std::string::npos);
+  }
+  CHECK(preset.find("Pos=80,120\nSize=600,400") != std::string::npos);
+
+  // A file from before the scale was recorded, or at the same scale, opens as it was.
+  CHECK(rescaleLayoutIni(SampleIni, 2.0f) == SampleIni);
+  CHECK(rescaleLayoutIni(atOne, 1.0f) == atOne);
+  // A size that would pass Dear ImGui's 16-bit fields is held at their limit.
+  const std::string huge = "[Window][Log]\nSize=20000,10\n\n[SonnetView][View]\nScale=1\n";
+  CHECK(rescaleLayoutIni(huge, 4.0f).find("Size=32767,40") != std::string::npos);
+}
+
+TEST_CASE("a layout's recorded display scale is a number above zero", "[editor][layout]") {
+  const std::string base = "[SonnetView][View]\nViewport=1\nScale=";
+  CHECK(!layoutIniProblem(base + "1.25\n"));
+  for (const char *bad : {"0", "-1", "two", "1.5x", "nan", "inf", ""}) {
+    INFO(bad);
+    CHECK(layoutIniProblem(base + bad + "\n"));
+    CHECK(rescaleLayoutIni(base + bad + "\n", 2.0f) == base + bad + "\n");
+  }
+}
+
 TEST_CASE("saved layouts are the ini files of a directory", "[editor][layout]") {
   const std::filesystem::path directory =
       std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "layout_list";
