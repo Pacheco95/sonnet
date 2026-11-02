@@ -90,8 +90,8 @@ std::vector<Pair> contrastPairs(const ui::Theme &theme) {
   const auto on = [&](ImGuiCol slot) { return over(c[slot], panel); };
   const ImVec4 text = c[ImGuiCol_Text];
   const ImVec4 hint = c[ImGuiCol_TextDisabled];
-  constexpr double Text = 4.5;
-  constexpr double Graphic = 3.0;
+  constexpr double textRatio = 4.5;
+  constexpr double graphicRatio = 3.0;
 
   std::vector<Pair> pairs;
   // Text on every surface it is drawn on, in every state.
@@ -117,21 +117,21 @@ std::vector<Pair> contrastPairs(const ui::Theme &theme) {
            {"table header", ImGuiCol_TableHeaderBg},
            {"alternate table row", ImGuiCol_TableRowBgAlt},
        }) {
-    pairs.push_back({what, text, on(slot), Text});
+    pairs.push_back({what, text, on(slot), textRatio});
   }
-  pairs.push_back({"popup", text, popup, Text});
-  pairs.push_back({"selected text in a field", text, over(c[ImGuiCol_TextSelectedBg], field), Text});
-  pairs.push_back({"component header", text, over(theme.sectionHeader, panel), Text});
-  pairs.push_back({"hovered component header", text, over(theme.sectionHeaderHovered, panel), Text});
-  pairs.push_back({"pressed component header", text, over(theme.sectionHeaderActive, panel), Text});
-  pairs.push_back({"Stop", text, over(theme.stop, on(ImGuiCol_MenuBarBg)), Text});
-  pairs.push_back({"Resume", text, over(theme.paused, on(ImGuiCol_MenuBarBg)), Text});
-  pairs.push_back({"destructive dialog button", text, over(theme.stop, popup), Text});
+  pairs.push_back({"popup", text, popup, textRatio});
+  pairs.push_back({"selected text in a field", text, over(c[ImGuiCol_TextSelectedBg], field), textRatio});
+  pairs.push_back({"component header", text, over(theme.sectionHeader, panel), textRatio});
+  pairs.push_back({"hovered component header", text, over(theme.sectionHeaderHovered, panel), textRatio});
+  pairs.push_back({"pressed component header", text, over(theme.sectionHeaderActive, panel), textRatio});
+  pairs.push_back({"Stop", text, over(theme.stop, on(ImGuiCol_MenuBarBg)), textRatio});
+  pairs.push_back({"Resume", text, over(theme.paused, on(ImGuiCol_MenuBarBg)), textRatio});
+  pairs.push_back({"destructive dialog button", text, over(theme.stop, popup), textRatio});
   // Disabled text carries information: input hints, the Assets Source column, disabled entities.
-  pairs.push_back({"disabled text on the panel", hint, panel, Text});
-  pairs.push_back({"disabled text in a popup", hint, popup, Text});
-  pairs.push_back({"disabled text in a field", hint, field, Text});
-  pairs.push_back({"disabled text on a selected row", hint, on(ImGuiCol_Header), Text});
+  pairs.push_back({"disabled text on the panel", hint, panel, textRatio});
+  pairs.push_back({"disabled text in a popup", hint, popup, textRatio});
+  pairs.push_back({"disabled text in a field", hint, field, textRatio});
+  pairs.push_back({"disabled text on a selected row", hint, on(ImGuiCol_Header), textRatio});
   // Coloured text.
   for (const auto &[what, colour] : std::initializer_list<std::pair<const char *, ImVec4>>{
            {"trace", theme.logTrace},
@@ -143,25 +143,28 @@ std::vector<Pair> contrastPairs(const ui::Theme &theme) {
            {"warning in the inspector", theme.warning},
            {"link", c[ImGuiCol_TextLink]},
        }) {
-    pairs.push_back({what, colour, panel, Text});
+    pairs.push_back({what, colour, panel, textRatio});
   }
-  pairs.push_back({"danger in a dialog", theme.danger, popup, Text});
+  pairs.push_back({"danger in a dialog", theme.danger, popup, textRatio});
   // Text in a disabled control: BeginDisabled multiplies every alpha, the control's too.
   const float disabled = style.DisabledAlpha;
   const ImVec4 disabledButton = over(faded(c[ImGuiCol_Button], disabled), panel);
   const ImVec4 disabledField = over(faded(c[ImGuiCol_FrameBg], disabled), panel);
-  pairs.push_back({"text in a disabled button", over(faded(text, disabled), disabledButton), disabledButton, Graphic});
-  pairs.push_back({"text in a disabled field", over(faded(text, disabled), disabledField), disabledField, Graphic});
+  pairs.push_back(
+      {"text in a disabled button", over(faded(text, disabled), disabledButton), disabledButton, graphicRatio});
+  pairs.push_back(
+      {"text in a disabled field", over(faded(text, disabled), disabledField), disabledField, graphicRatio});
   // What marks out a control against the panel: its border, or its fill when frames have none.
   const auto outline = [&](ImGuiCol fill) { return style.FrameBorderSize > 0.0f ? on(ImGuiCol_Border) : on(fill); };
-  pairs.push_back({"a field's outline", outline(ImGuiCol_FrameBg), panel, Graphic});
-  pairs.push_back({"a button's outline", outline(ImGuiCol_Button), panel, Graphic});
+  pairs.push_back({"a field's outline", outline(ImGuiCol_FrameBg), panel, graphicRatio});
+  pairs.push_back({"a button's outline", outline(ImGuiCol_Button), panel, graphicRatio});
   // The marks of state.
-  pairs.push_back({"checkmark", c[ImGuiCol_CheckMark], over(c[ImGuiCol_CheckboxSelectedBg], panel), Graphic});
-  pairs.push_back({"slider grab", c[ImGuiCol_SliderGrab], field, Graphic});
-  pairs.push_back({"focused tab line on its tab", c[ImGuiCol_TabSelectedOverline], on(ImGuiCol_TabSelected), Graphic});
-  pairs.push_back({"focused tab line on the tab bar", c[ImGuiCol_TabSelectedOverline], on(ImGuiCol_Tab), Graphic});
-  pairs.push_back({"nav cursor", c[ImGuiCol_NavCursor], panel, Graphic});
+  pairs.push_back({"checkmark", c[ImGuiCol_CheckMark], over(c[ImGuiCol_CheckboxSelectedBg], panel), graphicRatio});
+  pairs.push_back({"slider grab", c[ImGuiCol_SliderGrab], field, graphicRatio});
+  pairs.push_back(
+      {"focused tab line on its tab", c[ImGuiCol_TabSelectedOverline], on(ImGuiCol_TabSelected), graphicRatio});
+  pairs.push_back({"focused tab line on the tab bar", c[ImGuiCol_TabSelectedOverline], on(ImGuiCol_Tab), graphicRatio});
+  pairs.push_back({"nav cursor", c[ImGuiCol_NavCursor], panel, graphicRatio});
   return pairs;
 }
 
