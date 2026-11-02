@@ -1394,13 +1394,16 @@ void Editor::browseModalPath() {
 void Editor::buildLayout(unsigned dockspace, BuiltinLayout layout) {
   ImGui::DockBuilderRemoveNode(dockspace);
   ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
-  ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::DockBuilderSetNodeSize(dockspace, viewport->WorkSize);
+  const BuiltinSplits splits = builtinSplits(layout, {viewport->Size.x, viewport->Size.y},
+                                             {viewport->WorkSize.x, viewport->WorkSize.y}, ImGui::GetFontSize());
   ImGuiID centre = dockspace;
   if (layout == BuiltinLayout::Play) {
     // Viewport and game side by side between narrow hierarchy and inspector. The panels the layout
     // closes are docked beside those, where View brings them back as tabs.
-    const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.14f, nullptr, &centre);
-    const ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.16f, nullptr, &centre);
+    const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, splits.left, nullptr, &centre);
+    const ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, splits.right, nullptr, &centre);
     const ImGuiID game = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.5f, nullptr, &centre);
     ImGui::DockBuilderDockWindow("Viewport", centre);
     ImGui::DockBuilderDockWindow("Game", game);
@@ -1414,9 +1417,9 @@ void Editor::buildLayout(unsigned dockspace, BuiltinLayout layout) {
   }
   // Hierarchy on the left, viewport and game in the centre, inspector over statistics on the right, log
   // along the bottom.
-  const ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.22f, nullptr, &centre);
-  const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.18f, nullptr, &centre);
-  ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, nullptr, &centre);
+  const ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, splits.bottom, nullptr, &centre);
+  const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, splits.left, nullptr, &centre);
+  ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, splits.right, nullptr, &centre);
   const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.35f, nullptr, &right);
   ImGui::DockBuilderDockWindow("Viewport", centre);
   // A tab beside the Viewport, so the second view costs nothing until it is brought forward.
