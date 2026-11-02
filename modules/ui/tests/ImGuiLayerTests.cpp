@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <memory>
 
@@ -262,9 +263,31 @@ TEST_CASE("the style is derived again only when the display scale changes", "[ui
   scale = 40.0f; // clamped, not followed
   frame(layer);
   CHECK(ui::currentScale() == 4.0f);
-  scale = 0.01f;
+  scale = 0.75f; // below 1 Dear ImGui's 1 px sizes truncate to 0
   frame(layer);
-  CHECK(ui::currentScale() == 0.5f);
+  CHECK(ui::currentScale() == 1.0f);
+}
+
+TEST_CASE("a fractional Wayland reading rounds to the whole percentage", "[ui][gpu][scale]") {
+  Fixture fixture;
+  float scale = 1.0f;
+  ui::ImGuiLayerDesc desc = fixture.layerDesc();
+  desc.displayScale = [&scale] { return scale; };
+  ui::ImGuiLayer layer{desc};
+  frame(layer);
+
+  // What GNOME at 150 % gave a window as its size changed: the display scale over a density taken from whole pixels.
+  ImGui::GetStyle().ItemSpacing = ImVec2{99.0f, 99.0f};
+  for (const float reading : {0.99986035f, 1.0001154f}) {
+    scale = reading;
+    frame(layer);
+    CHECK(ui::currentScale() == 1.0f);
+    CHECK(ImGui::GetStyle().ItemSpacing.x == 99.0f); // the same scale: nothing rebuilt
+  }
+
+  scale = 1.2499f; // just under a step lands on it
+  frame(layer);
+  CHECK(ui::currentScale() == 1.25f);
 }
 
 TEST_CASE("a destroyed layer leaves the default theme and scale behind", "[ui][gpu][scale]") {
@@ -313,6 +336,6 @@ TEST_CASE("the layer reads the main window's scale when it is given no source", 
   frame(layer);
   const float windowScale = SDL_GetWindowDisplayScale(fixture.window->nativeHandle()) /
                             SDL_GetWindowPixelDensity(fixture.window->nativeHandle());
-  CHECK(ui::currentScale() == Catch::Approx(std::clamp(windowScale, 0.5f, 4.0f)));
+  CHECK(ui::currentScale() == Catch::Approx(std::clamp(std::round(windowScale * 100.0f) / 100.0f, 1.0f, 4.0f)));
   CHECK(ImGui::GetStyle().FontScaleDpi == Catch::Approx(ui::currentScale()));
 }
