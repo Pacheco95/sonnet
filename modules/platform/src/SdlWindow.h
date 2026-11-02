@@ -11,6 +11,15 @@
 
 namespace sonnet::platform {
 
+// SDL 3.4 on Windows leaves a maximized window with the frame of the old DPI when the display
+// scale changes (docs/platform.md, "Window"). True for the event that calls for re-maximizing the
+// window: a display scale change of a maximized window, neither minimized nor fullscreen, on
+// Windows. Always false elsewhere, where the frame is the compositor's.
+[[nodiscard]] bool needsMaximizedReframe(const SDL_Event &event, SDL_WindowFlags flags) noexcept;
+// Restores and maximizes again the event's window when needsMaximizedReframe says so, so Windows
+// lays it out at the new DPI. Called once SDL has handled the change, from the main event queue.
+void reframeMaximizedWindow(const SDL_Event &event);
+
 class SdlWindow final : public IWindow {
 public:
   explicit SdlWindow(const WindowDesc &desc);
