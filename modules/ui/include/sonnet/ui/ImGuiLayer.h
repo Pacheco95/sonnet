@@ -69,6 +69,12 @@ public:
   [[nodiscard]] ImTextureID registerImage(rhi::ImageHandle image);
   void unregisterImage(ImTextureID texture);
 
+  // Replaces the framebuffer scale the SDL3 backend reads from the window's pixel density, from the next frame on, so a
+  // test without a high-density display sees what one would (2 on a Retina display). 0 reads the window's again.
+  void setFramebufferScale(float scale) noexcept {
+    m_framebufferScale = scale;
+  }
+
   [[nodiscard]] bool wantsMouse() const;
   [[nodiscard]] bool wantsKeyboard() const;
 
@@ -90,6 +96,7 @@ private:
   Theme m_theme;
   std::function<float()> m_displayScale;
   float m_scale{1.0f};
+  float m_framebufferScale{0.0f};
   bool m_viewports{false};
   bool m_frameOpen{false};
   std::uint64_t m_frame{0};

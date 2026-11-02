@@ -421,6 +421,9 @@ public:
     // Playing, the stack holds only the play's own edits; what came before is m_dirtyBeforePlay.
     return (isPlaying() && m_dirtyBeforePlay) || !m_commands.isSaved();
   }
+  [[nodiscard]] ui::ImGuiLayer &imgui() noexcept {
+    return m_imgui;
+  }
   [[nodiscard]] Gizmo &gizmo() noexcept {
     return m_gizmo;
   }

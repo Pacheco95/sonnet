@@ -1,4 +1,5 @@
 #include <sonnet/editor/Editor.h>
+#include <sonnet/editor/Gizmo.h>
 #include <sonnet/editor/Preferences.h>
 
 #include <sonnet/core/Error.h>
@@ -224,6 +225,77 @@ TEST_CASE("the game UI is laid out against the Game panel and drawn into it, in 
     bar.add<world::Disabled>();
     fixture.frame(editor);
     REQUIRE(gui::findElement(editor.gui().elements(), bar.id()) == nullptr);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  std::filesystem::remove_all(directory);
+}
+
+// A Retina display, or Wayland at 200 %: Dear ImGui's window units are two pixels each (#422).
+TEST_CASE("at a pixel density of 2 the viewport and the Game view render at the panel's size in pixels",
+          "[editor][gpu][game-view][density]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "density";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.imgui().setFramebufferScale(2.0f);
+    for (int frame = 0; frame < 3; ++frame) {
+      fixture.frame(editor);
+    }
+    const editor::ViewportInput &input = editor.viewport().input();
+    REQUIRE(input.visible);
+    REQUIRE(input.size.x > 100.0f);
+    const glm::uvec2 target = editor.viewport().target().size();
+    REQUIRE(glm::vec2{target} == glm::round(input.size * 2.0f));
+
+    // The panel's centre is the id image's centre.
+    const glm::vec2 centre = input.origin + input.size * 0.5f;
+    const glm::uvec2 pixel = editor.viewport().targetPixel(centre);
+    CHECK(pixel.x == target.x / 2);
+    CHECK(pixel.y == target.y / 2);
+
+    // A click on the box, placed in window units, picks it from the id image in pixels.
+    const flecs::entity box = byName(editor.world(), "Box");
+    REQUIRE(box.is_valid());
+    const renderer::Camera &camera = editor.viewport().camera().camera();
+    const editor::GizmoView view{.view = camera.view(),
+                                 .projection =
+                                     camera.projection(static_cast<float>(target.x) / static_cast<float>(target.y)),
+                                 .cameraPosition = camera.position,
+                                 .origin = input.origin,
+                                 .size = input.size};
+    const auto onBox = editor::Gizmo::project(view, glm::vec3{box.get<world::WorldTransform>().matrix[3]});
+    REQUIRE(onBox.has_value());
+    ImGuiIO &io = ImGui::GetIO();
+    io.AddMousePosEvent(onBox->x, onBox->y);
+    fixture.frame(editor);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    fixture.frame(editor);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    for (int frame = 0; frame < 5; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(editor.selection().primary() == editor.world().uuidOf(box));
+
+    // The Game view's target too, and the game UI is laid out in its pixels, as in the player.
+    REQUIRE(editor.createProject(directory, "Density").has_value());
+    const flecs::entity canvas = editor.world().createEntity("Canvas");
+    canvas.set<gui::GuiCanvas>({});
+    const flecs::entity bar = editor.world().createEntity("Bar", canvas);
+    bar.set<gui::GuiRect>({.anchorMin = {0.0f, 0.0f},
+                           .anchorMax = {1.0f, 1.0f},
+                           .pivot = {0.5f, 0.5f},
+                           .offsetMin = {0.0f, 0.0f},
+                           .offsetMax = {0.0f, 0.0f}});
+    fixture.showGame(editor);
+    const editor::ViewportInput &game = editor.gamePanel().input();
+    REQUIRE(game.visible);
+    const glm::uvec2 gameTarget = editor.gamePanel().target().size();
+    REQUIRE(glm::vec2{gameTarget} == glm::round(game.size * 2.0f));
+    const gui::GuiElement *element = gui::findElement(editor.gui().elements(), bar.id());
+    REQUIRE(element != nullptr);
+    REQUIRE(element->rect.max == glm::vec2{gameTarget});
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);

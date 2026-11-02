@@ -176,6 +176,9 @@ void ImGuiLayer::beginFrame() {
   }
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplSDL3_NewFrame();
+  if (m_framebufferScale > 0.0f) {
+    ImGui::GetIO().DisplayFramebufferScale = {m_framebufferScale, m_framebufferScale};
+  }
   ImGui::NewFrame();
   m_frameOpen = true;
 }

@@ -572,8 +572,10 @@ void Editor::update(float dt) {
   // view, in edit mode too, so a layout is seen as it is made; with the panel closed there is
   // nothing to lay out for.
   m_gui.endFrame();
+  // As in the player: laid out in the target's pixels, and hit-tested in the window units the image is drawn at.
   const glm::uvec2 gameSize = m_gamePanel.target().size();
-  m_gui.update(glm::vec2{gameSize}, glm::vec2{gameSize}, {{0, 0}, gameSize});
+  const glm::vec2 gameImage = m_gamePanel.input().size;
+  m_gui.update(glm::vec2{gameSize}, gameImage, {{0, 0}, glm::uvec2{gameImage}});
   world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
   world::buildLightList(m_world, m_lights);
   world::buildParticleList(m_world, m_assets, m_particles);
@@ -656,17 +658,23 @@ void Editor::drawGameOverlay(const ViewportInput &input) {
   if (input.drawList == nullptr) {
     return;
   }
-  // The element, with its canvas or without one: whatever is selected and laid out is outlined.
+  // The element, with its canvas or without one: whatever is selected and laid out is outlined. The layout is in the
+  // target's pixels and the image in window units.
+  const glm::uvec2 target = m_gamePanel.target().size();
+  if (target.x == 0 || target.y == 0) {
+    return;
+  }
+  const glm::vec2 scale = input.size / glm::vec2{target};
   for (const core::Uuid &uuid : m_selection.items()) {
     const flecs::entity entity = m_world.find(uuid);
     const gui::GuiElement *element = entity ? gui::findElement(m_gui.elements(), entity.id()) : nullptr;
     if (element == nullptr) {
       continue;
     }
-    const ImVec2 min{input.origin.x + element->rect.min.x, input.origin.y + element->rect.min.y};
-    const ImVec2 max{input.origin.x + element->rect.max.x, input.origin.y + element->rect.max.y};
-    input.drawList->AddRect(min, max, ui::toU32(ui::currentTheme().selection), 0.0f, ImDrawFlags_None,
-                            ui::scaled(2.0f));
+    const glm::vec2 min = input.origin + element->rect.min * scale;
+    const glm::vec2 max = input.origin + element->rect.max * scale;
+    input.drawList->AddRect({min.x, min.y}, {max.x, max.y}, ui::toU32(ui::currentTheme().selection), 0.0f,
+                            ImDrawFlags_None, ui::scaled(2.0f));
   }
 }
 
