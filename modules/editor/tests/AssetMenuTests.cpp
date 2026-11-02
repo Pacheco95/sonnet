@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <set>
@@ -918,6 +919,37 @@ TEST_CASE("every icon is a glyph of the embedded font", "[editor][assets][imgui]
   }
   CHECK(icons.size() == 13);
   CHECK(std::string_view{iconForType("File")} == std::string_view{IconFile});
+}
+
+TEST_CASE("the List and Grid icons are centred in the line at every display scale", "[editor][imgui]") {
+  BrowserContext context;
+  ImGuiIO &io = ImGui::GetIO();
+  io.Fonts->Clear();
+  addFonts(io);
+  unsigned char *pixels = nullptr;
+  int width = 0, height = 0;
+  io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+  ImFont *font = io.Fonts->Fonts[0];
+  // How far the glyph's box is below the middle of a line of text `size` pixels high (a button's label).
+  const auto offCentre = [&](const char *icon, float size) {
+    unsigned int codepoint = 0;
+    REQUIRE(ImTextCharFromUtf8(&codepoint, icon, nullptr) > 0);
+    const ImFontGlyph *glyph = font->GetFontBaked(size)->FindGlyphNoFallback(static_cast<ImWchar>(codepoint));
+    REQUIRE(glyph != nullptr);
+    return (glyph->Y0 + glyph->Y1) * 0.5f - size * 0.5f;
+  };
+  for (const char *icon : {IconList, IconGrid}) {
+    // Scales 1 to 2 in quarter steps, at the sizes Dear ImGui rounds 14 * scale to.
+    for (const float size : {14.0f, 18.0f, 21.0f, 25.0f, 28.0f}) {
+      CAPTURE(size);
+      CHECK(std::abs(offCentre(icon, size)) <= 0.5f);
+    }
+    // Scales 0.5 to 4.
+    for (int size = 7; size <= 56; ++size) {
+      CAPTURE(size);
+      CHECK(std::abs(offCentre(icon, static_cast<float>(size))) <= 1.0f);
+    }
+  }
 }
 
 TEST_CASE("the text and the monospace font draw ASCII and the degree sign", "[editor][imgui]") {
