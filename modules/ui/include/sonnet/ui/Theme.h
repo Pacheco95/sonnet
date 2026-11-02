@@ -12,48 +12,53 @@ constexpr ImVec4 rgba8(int r, int g, int b, int a = 255) {
 
 // The editor's look as unscaled base tokens (docs/editor.md, "The ui module"; ADR-0036). `applyTheme` derives an
 // ImGuiStyle from them and a scale; the colours Dear ImGui has no slot for are read straight from `currentTheme()`.
-// The defaults are Dear ImGui's dark style and the colours the editor drew as literals before there were tokens.
+// The defaults are the Graphite look (#391): neutral greys, one accent from the icon's blues, recessed and outlined
+// fields, raised and outlined buttons.
 struct Theme {
-  // Surfaces and text. Each ImGuiCol slot takes one of these, with the alpha ImGui's dark style gives it.
-  ImVec4 text{1.00f, 1.00f, 1.00f, 1.00f};
-  ImVec4 textDisabled{0.50f, 0.50f, 0.50f, 1.00f};
-  ImVec4 window{0.06f, 0.06f, 0.06f, 0.94f};
-  ImVec4 popup{0.08f, 0.08f, 0.08f, 0.94f};
-  ImVec4 menuBar{0.14f, 0.14f, 0.14f, 1.00f};
-  ImVec4 title{0.04f, 0.04f, 0.04f, 1.00f};
-  ImVec4 titleActive{0.16f, 0.29f, 0.48f, 1.00f};
-  ImVec4 titleCollapsed{0.00f, 0.00f, 0.00f, 0.51f};
-  ImVec4 border{0.43f, 0.43f, 0.50f, 0.50f};
-  ImVec4 frame{0.16f, 0.29f, 0.48f, 0.54f};
-  ImVec4 dockEmpty{0.20f, 0.20f, 0.20f, 1.00f};
-  ImVec4 scrollbarTrack{0.02f, 0.02f, 0.02f, 0.53f};
-  ImVec4 scrollbarGrab{0.31f, 0.31f, 0.31f, 1.00f};
-  // The accent: buttons, headers, tabs, checkmarks and the like, in three strengths.
-  ImVec4 accent{0.26f, 0.59f, 0.98f, 1.00f};
-  ImVec4 accentPressed{0.06f, 0.53f, 0.98f, 1.00f};
-  ImVec4 accentGrab{0.24f, 0.52f, 0.88f, 1.00f};
-  ImVec4 accentDark{0.10f, 0.40f, 0.75f, 1.00f};
-  // Plots, tables and drag and drop.
-  ImVec4 plotLines{0.61f, 0.61f, 0.61f, 1.00f};
-  ImVec4 plotLinesHover{1.00f, 0.43f, 0.35f, 1.00f};
-  ImVec4 plotHistogram{0.90f, 0.70f, 0.00f, 1.00f};
-  ImVec4 plotHistogramHover{1.00f, 0.60f, 0.00f, 1.00f};
-  ImVec4 tableHeader{0.19f, 0.19f, 0.20f, 1.00f};
-  ImVec4 tableBorderStrong{0.31f, 0.31f, 0.35f, 1.00f};
-  ImVec4 tableBorderLight{0.23f, 0.23f, 0.25f, 1.00f};
-  ImVec4 dragDropTarget{1.00f, 1.00f, 0.00f, 0.90f};
-  // The grey that dims what a modal or the window switcher covers; the alpha is the style's.
-  ImVec4 dim{0.80f, 0.80f, 0.80f, 1.00f};
+  // Colours as roles. `applyTheme` gives each ImGuiCol slot one of them.
+  // Surfaces: the menu, tab and title bars; a panel; a popup, a menu or a modal.
+  ImVec4 chrome{rgba8(0x18, 0x18, 0x1b)};
+  ImVec4 window{rgba8(0x22, 0x22, 0x26)};
+  ImVec4 popup{rgba8(0x2a, 0x2a, 0x2f)};
+  // An input, a drag or a combo: recessed, darker than the panel.
+  ImVec4 field{rgba8(0x19, 0x19, 0x1c)};
+  ImVec4 fieldHovered{rgba8(0x1e, 0x1e, 0x22)};
+  ImVec4 fieldActive{rgba8(0x14, 0x14, 0x17)};
+  // A button: raised, lighter than the panel. Pressed is also a toggle button that is on.
+  ImVec4 control{rgba8(0x30, 0x30, 0x36)};
+  ImVec4 controlHovered{rgba8(0x3a, 0x3a, 0x41)};
+  ImVec4 controlActive{rgba8(0x00, 0x57, 0xb0)};
+  // The outline of fields, buttons and popups; the lines between rows, columns and panels.
+  ImVec4 border{rgba8(0x6c, 0x6c, 0x75)};
+  ImVec4 separator{rgba8(0x38, 0x38, 0x3e)};
+  ImVec4 text{rgba8(0xe4, 0xe4, 0xe7)};
+  ImVec4 textDisabled{rgba8(0xa6, 0xa6, 0xae)};
+  // The accent marks state only: the focused tab, the checkmark, the slider grab, links and the nav cursor.
+  ImVec4 accent{rgba8(0x3f, 0x9d, 0xe5)};
+  ImVec4 check{rgba8(0x3f, 0x9d, 0xe5)};
+  ImVec4 checkBox{rgba8(0x19, 0x19, 0x1c)};
+  // The selected row of a list, a tree, a combo or a menu, and its hovered and pressed states.
+  ImVec4 highlight{rgba8(0x11, 0x3c, 0x6b)};
+  ImVec4 highlightHovered{rgba8(0x18, 0x31, 0x4d)};
+  ImVec4 highlightActive{rgba8(0x00, 0x57, 0xb0)};
+  ImVec4 scrollbarGrab{rgba8(0x46, 0x46, 0x4e)};
+  // What a modal or the window switcher covers is dimmed with this.
+  ImVec4 dim{0.0f, 0.0f, 0.0f, 0.45f};
 
   // What ImGuiCol has no slot for. Upstream declined application-defined slots, so these live here.
-  ImVec4 danger{0.95f, 0.40f, 0.40f, 1.00f};  // an error shown in a dialog
-  ImVec4 warning{1.00f, 0.75f, 0.30f, 1.00f}; // a warning shown in a panel
-  ImVec4 stop{0.70f, 0.25f, 0.20f, 1.00f};    // the Stop button while playing
-  ImVec4 paused{0.75f, 0.55f, 0.15f, 1.00f};  // the Resume button while paused
+  ImVec4 danger{rgba8(0xf0, 0x7a, 0x72)};  // an error shown in a dialog
+  ImVec4 warning{rgba8(0xf0, 0xb4, 0x4c)}; // a warning shown in a panel
+  ImVec4 stop{rgba8(0xb3, 0x37, 0x2d)};    // the Stop button while playing, and a destructive dialog button
+  ImVec4 paused{rgba8(0x8a, 0x5a, 0x00)};  // the Resume button while paused
+  // The inspector's component headers: a flat grey band, which `InspectorPanel` pushes over the ImGuiCol_Header slots
+  // (the selected rows keep `highlight`).
+  ImVec4 sectionHeader{rgba8(0x2a, 0x2a, 0x2f)};
+  ImVec4 sectionHeaderHovered{rgba8(0x33, 0x33, 0x39)};
+  ImVec4 sectionHeaderActive{rgba8(0x3c, 0x3c, 0x43)};
   // What is selected: the 3D outline and the GUI element's rectangle.
   ImVec4 selection{1.00f, 0.60f, 0.10f, 1.00f};
   // A backdrop for text drawn over the viewport: the statistics overlay, and the view label's stronger one.
-  ImVec4 overlay{0.00f, 0.00f, 0.00f, 0.60f};
+  ImVec4 overlay{0.0f, 0.0f, 0.0f, 0.62f};
   ImVec4 label{rgba8(0, 0, 0, 200)};
   ImVec4 labelText{rgba8(240, 240, 240)};
   // The X, Y and Z axes, shared by the gizmo and the viewport's axis widget, and each one's highlight.
@@ -69,36 +74,37 @@ struct Theme {
   ImVec4 widgetDiscActive{rgba8(25, 28, 35, 190)};
   ImVec4 widgetLabel{rgba8(15, 18, 25)};
   ImVec4 widgetNegative{rgba8(35, 38, 45)};
-  // The log panel's level colours.
-  ImVec4 logTrace{0.55f, 0.55f, 0.55f, 1.0f};
-  ImVec4 logDebug{0.60f, 0.75f, 0.95f, 1.0f};
-  ImVec4 logInfo{0.90f, 0.90f, 0.90f, 1.0f};
-  ImVec4 logWarn{0.95f, 0.80f, 0.30f, 1.0f};
-  ImVec4 logError{0.95f, 0.40f, 0.40f, 1.0f};
-  ImVec4 logCritical{1.00f, 0.30f, 0.80f, 1.0f};
+  // The log panel's level colours. Trace, info, warn and error start as `textDisabled`, `text`, `warning` and `danger`.
+  ImVec4 logTrace{textDisabled};
+  ImVec4 logDebug{rgba8(0x8a, 0xb4, 0xf8)};
+  ImVec4 logInfo{text};
+  ImVec4 logWarn{warning};
+  ImVec4 logError{danger};
+  ImVec4 logCritical{rgba8(0xff, 0x6a, 0xd5)};
 
   // Sizes in unscaled pixels. `applyTheme` multiplies them by the scale.
   float textSize{14.0f}; // the text font; the monospace and icon fonts follow it
   ImVec2 windowPadding{8.0f, 8.0f};
-  ImVec2 framePadding{4.0f, 3.0f};
+  ImVec2 framePadding{8.0f, 4.0f};
   ImVec2 itemSpacing{8.0f, 4.0f};
   ImVec2 itemInnerSpacing{4.0f, 4.0f};
   ImVec2 cellPadding{4.0f, 2.0f};
-  float indentSpacing{21.0f};
-  float scrollbarSize{14.0f};
+  float indentSpacing{20.0f};
+  float scrollbarSize{12.0f};
   float grabMinSize{12.0f};
   float windowRounding{0.0f};
-  float childRounding{0.0f};
-  float frameRounding{0.0f};
-  float popupRounding{0.0f};
-  float scrollbarRounding{9.0f};
-  float grabRounding{0.0f};
-  float tabRounding{5.0f};
-  float windowBorderSize{1.0f};
+  float childRounding{2.0f};
+  float frameRounding{2.0f};
+  float popupRounding{2.0f};
+  float scrollbarRounding{12.0f}; // a pill: at least half the bar's width
+  float grabRounding{2.0f};
+  float tabRounding{2.0f};
+  float windowBorderSize{0.0f};
   float childBorderSize{1.0f};
   float popupBorderSize{1.0f};
-  float frameBorderSize{0.0f};
+  float frameBorderSize{1.0f};
   float tabBorderSize{0.0f};
+  float tabBarOverlineSize{2.0f}; // the line over the focused tab
 
   // Widths and distances the widgets of Widgets.h draw with. They are in no ImGuiStyle field, so the widgets multiply
   // them by the display scale themselves (`ui::scaled`, which reads `currentScale()`).

@@ -9,6 +9,7 @@
 
 #include <sonnet/core/Log.h>
 #include <sonnet/scripting/Components.h>
+#include <sonnet/ui/Theme.h>
 #include <sonnet/ui/Widgets.h>
 
 #include <imgui.h>
@@ -622,8 +623,16 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
   ImGui::PushID(info.name.c_str());
   // The transform is structural: every scene entity has one and it cannot be removed.
   bool keep = true;
+  // A flat grey band: ImGuiCol_Header is also the selected rows' colour, which stays the theme's highlight.
+  const ui::Theme &theme = ui::currentTheme();
+  ImGui::PushStyleColor(ImGuiCol_Header, theme.sectionHeader);
+  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme.sectionHeaderHovered);
+  ImGui::PushStyleColor(ImGuiCol_HeaderActive, theme.sectionHeaderActive);
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
   const bool opened = ImGui::CollapsingHeader(label.c_str(), info.name == "Transform" ? nullptr : &keep,
                                               ImGuiTreeNodeFlags_DefaultOpen);
+  ImGui::PopStyleVar();
+  ImGui::PopStyleColor(3);
   if (!keep) {
     const nlohmann::json before = info.tag ? nlohmann::json{} : m_world.componentToJson(entity, info.id);
     m_commands.push(componentCommand(uuid, info.name, std::make_optional(before), std::nullopt,

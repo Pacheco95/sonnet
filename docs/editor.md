@@ -21,27 +21,52 @@ Per frame, in this order:
 
 ### Theme
 
-`Theme` is the editor's look as unscaled base tokens ([ADR-0036](decisions/0036-dear-imgui-stays-the-editor-ui.md)). `ImGuiLayerDesc::theme` carries it, and the layer derives the style from it at the display scale, where it used to call `StyleColorsDark` at scale 1. Its first values reproduce Dear ImGui 1.92.9's dark style and the colours the panels drew as literals, so the editor looks as before. Dear ImGui 1.93.0 changed `StyleColorsDark` (a greyer window and darker frames, among ten slots), which the theme does not follow: `ThemeTests` holds the 1.92.9 values as constants, and the look changes only when the theme's tokens do.
+`Theme` is the editor's look as unscaled base tokens ([ADR-0036](decisions/0036-dear-imgui-stays-the-editor-ui.md)). `ImGuiLayerDesc::theme` carries it, and the layer derives the style from it at the display scale. The default is the **Graphite** look the owner chose in [#391](https://github.com/Pacheco95/sonnet/issues/391): neutral greys, one accent from the icon's blues (`assets/branding`), fields recessed below the panel and buttons raised above it, both outlined. Every slot comes from the theme's roles and none from `StyleColorsDark`, so a Dear ImGui update does not move the look. Before and after captures: [editor-theme.md](reports/editor-theme.md).
 
-- **Style tokens.** Surfaces and text (`text`, `window`, `popup`, `menuBar`, `title`, `border`, `frame` and the like), the accent in four strengths (`accent`, `accentPressed`, `accentGrab`, `accentDark`), plots, tables, drag and drop, and the `dim` of a modal. `applyTheme(style, theme, scale, viewports)` gives each of the 63 `ImGuiCol` slots its token with the alpha and the blends of Dear ImGui's dark style; a `static_assert` on `ImGuiCol_COUNT` stops the build when an update adds a slot without a token.
-- **Sizes.** `textSize` (the font size `addFonts` loads), paddings, spacing, rounding and border sizes. `applyTheme` rebuilds the whole `ImGuiStyle` from these base values each time and then multiplies every size by the scale (`ScaleAllSizes`, once, over the fresh style), so going from scale 2 to 1 gives exactly the scale-1 style; repeated scaling of a scaled style loses precision ([#5452](https://github.com/ocornut/imgui/issues/5452)). The font scales (`FontSizeBase`, `FontScaleMain`, `FontScaleDpi`) are kept; the layer sets `FontScaleDpi` itself ([Display scale](#display-scale)).
+- **Colour roles.** `applyTheme(style, theme, scale, viewports)` gives each of the 63 `ImGuiCol` slots one role, without the alpha blends of Dear ImGui's dark style; a `static_assert` on `ImGuiCol_COUNT` stops the build when an update adds a slot without one. Only the hovered and pressed grabs (brightened) and a few tints (the resize grip, the docking preview, a hovered separator, the alternating table row, selected text, the window switcher's dim) derive from theirs.
+
+  | Role | Graphite | Slots |
+  |---|---|---|
+  | `chrome` | #18181b | The menu, title and tab bars, an unselected tab, the empty dock space |
+  | `window` | #222226 | A panel, and the selected tab, which joins its panel |
+  | `popup` | #2a2a2f | Popups, menus and modals |
+  | `field`, `fieldHovered`, `fieldActive` | #19191c, #1e1e22, #141417 | Inputs, drags and combos (`FrameBg`) |
+  | `control`, `controlHovered`, `controlActive` | #303036, #3a3a41, #0057b0 | Buttons and table headers; a hovered tab; pressed is also a toggle button that is on |
+  | `border` | #6c6c75 | The outline of fields, buttons, popups and children |
+  | `separator` | #38383e | Separators, table borders and tree lines |
+  | `text`, `textDisabled` | #e4e4e7, #a6a6ae | Text; hints, notes and what is disabled |
+  | `accent` | #3f9de5 | Marks of state only: the focused tab's line, the slider grab, links, the nav cursor, a dragged separator, the docking preview, a drop target, plots |
+  | `check`, `checkBox` | #3f9de5 on #19191c | A ticked checkbox |
+  | `highlight`, `highlightHovered`, `highlightActive` | #113c6b, #18314d, #0057b0 | The selected row of a list, a tree, a combo or a menu (`Header`); hovered is a weaker tint, so the selection stays blue under the pointer |
+  | `scrollbarGrab` | #46464e | The scrollbar's grab, lighter when hovered or pressed, on a clear track |
+  | `dim` | black at 45 % | What a modal covers |
+
+- **Sizes.** `textSize` (14, the font size `addFonts` loads; the icon offset and the layouts' em floors were measured at it), paddings, spacing, rounding and border sizes. Spacing is on a 4 px grid (`framePadding` 8, 4; `itemSpacing` 8, 4; `itemInnerSpacing` 4, 4; `windowPadding` 8, 8; `cellPadding` 4, 2; `indentSpacing` 20), radii are 2 px for frames, grabs, popups, tabs and children and 0 for windows, with a pill scrollbar (`scrollbarSize` 12), and borders are 1 px on frames, popups and children and none on windows and tabs. `tabBarOverlineSize` (2) is the focused tab's line. Controls are 22 px tall at scale 1. `applyTheme` rebuilds the whole `ImGuiStyle` from these base values each time and then multiplies every size by the scale (`ScaleAllSizes`, once, over the fresh style), so going from scale 2 to 1 gives exactly the scale-1 style; repeated scaling of a scaled style loses precision ([#5452](https://github.com/ocornut/imgui/issues/5452)). The font scales (`FontSizeBase`, `FontScaleMain`, `FontScaleDpi`) are kept; the layer sets `FontScaleDpi` itself ([Display scale](#display-scale)).
 - **Viewports.** With multi-viewport on, platform windows have no transparency: `applyTheme` forces square window corners and an opaque window background, whatever the tokens say.
 - **Colours with no `ImGuiCol` slot** (upstream declined application-defined slots, [#8588](https://github.com/ocornut/imgui/issues/8588)) are read from `ui::currentTheme()`, which needs no reference to the layer and is the default `Theme` where there is no layer, as in the panel tests. `ui::toU32` packs one for `ImDrawList`.
 
-| Token | Read by |
-|---|---|
-| `danger` | `ui::statusText` with `Status::Error`: the error text of the project dialogs (`Editor.cpp`) |
-| `warning` | `ui::statusText` with `Status::Warning`: the inspector's missing-font warning |
-| `stop`, `paused` | `ui::stateButton`: the Stop button while playing, the Resume button while paused (`Editor.cpp`); `stop` is also the colour of a destructive dialog button |
-| `selection` | The 3D outline, passed to `Renderer::addOutlinePass`, and the GUI selection rectangle (`Editor.cpp`) |
-| `overlay` | `ui::beginOverlay`: the statistics overlay's backdrop |
-| `label`, `labelText` | `ui::overlayLabel`: the viewport's view label |
-| `axisX`, `axisY`, `axisZ` and their `...Highlight` | The gizmo's handles and planes, and the axis widget's ends, so both show one set of axis colours |
-| `gizmoOrigin` | The gizmo's centre dot |
-| `widgetDisc`, `widgetDiscActive`, `widgetNegative`, `widgetLabel` | The axis widget's disc (idle, and hovered or dragged), its outlined negative ends and its end labels |
-| `logTrace`, `logDebug`, `logInfo`, `logWarn`, `logError`, `logCritical` | The log panel's rows by level |
+| Token | Graphite | Read by |
+|---|---|---|
+| `danger` | #f07a72 | `ui::statusText` with `Status::Error`: the error text of the project dialogs (`Editor.cpp`) |
+| `warning` | #f0b44c | `ui::statusText` with `Status::Warning`: the inspector's missing-font warning |
+| `stop`, `paused` | #b3372d, #8a5a00 | `ui::stateButton`: the Stop button while playing, the Resume button while paused (`Editor.cpp`); `stop` is also the colour of a destructive dialog button |
+| `sectionHeader`, `sectionHeaderHovered`, `sectionHeaderActive` | #2a2a2f, #333339, #3c3c43 | The inspector's component headers, a flat grey band: `InspectorPanel` pushes them over `ImGuiCol_Header*` (which the selected rows keep) and draws the header without a frame border |
+| `selection` | as before | The 3D outline, passed to `Renderer::addOutlinePass`, and the GUI selection rectangle (`Editor.cpp`) |
+| `overlay` | black at 62 % | `ui::beginOverlay`: the statistics overlay's backdrop |
+| `label`, `labelText` | as before | `ui::overlayLabel`: the viewport's view label |
+| `axisX`, `axisY`, `axisZ` and their `...Highlight` | as before | The gizmo's handles and planes, and the axis widget's ends, so both show one set of axis colours |
+| `gizmoOrigin` | as before | The gizmo's centre dot |
+| `widgetDisc`, `widgetDiscActive`, `widgetNegative`, `widgetLabel` | as before | The axis widget's disc (idle, and hovered or dragged), its outlined negative ends and its end labels |
+| `logTrace`, `logDebug`, `logInfo`, `logWarn`, `logError`, `logCritical` | `textDisabled`, #8ab4f8, `text`, `warning`, `danger`, #ff6ad5 | The log panel's rows by level |
 
 The 3D debug lines (camera, light and collider outlines) keep their own colours.
+
+**Contrast.** Dear ImGui gives screen readers nothing, so legibility is what the editor can offer. `ThemeTests` measures each pair below with WCAG 2's ratio on the style `applyTheme` derives, a colour with alpha blended over the surface under it in sRGB with straight alpha, as the editor's ImGui pass does (a capture of a translucent slot lands on the predicted bytes). A capture has no pointer, so the test is what covers the hovered and pressed states.
+
+- **4.5:1** for `text` on every surface it is drawn on, in every state: the bars and tabs, the panel, a popup, a field, a button, a selected row, a table header and row, selected text, the component headers, Stop, Resume and a destructive dialog button. For `textDisabled` on the panel, a popup, a field and a selected row, since it carries information (input hints, the Assets Source column, disabled entities, the inspector's "(not loaded)"). For the log levels and `warning` on the panel, `danger` in a dialog, and links.
+- **3:1** for text in a disabled control (`DisabledAlpha` over the control and its text); for what marks out a field or a button against the panel (its border, or its fill when frames have no border); and for the marks of state (the checkmark on its box, the slider grab on its field, the focused tab's line on its tab and on the bar, the nav cursor).
+
+Graphite's tightest pairs are the control outlines (3.05:1), disabled text on a selected row (4.61:1), Resume (4.67:1) and Stop (4.73:1).
 
 The widths the widgets draw with are tokens too: `dialogButtonWidth` (120) and `dialogButtonWideWidth` (200), `propertyLabelWidth` (90), `propertyRevertWidth` (50) and `overlayInset` (8). No `ImGuiStyle` field holds them, so a widget multiplies one by the display scale with `ui::scaled`, which reads `ui::currentScale()`, the ui module's own copy of the scale beside `currentTheme()` (not `ImGuiStyle::_MainScale`, a field Dear ImGui marks as not for use). Both are process-wide: `ImGuiLayer` sets them for its lifetime and puts the default theme and scale 1 back when it is destroyed, so nothing created after it inherits them.
 
@@ -63,14 +88,14 @@ A size in a panel is one of three things. What holds text is in font units, `ui:
 |---|---|---|
 | `dialogButtons` | The buttons of a modal, on one line. Each is `dialogButtonWidth` wide (`Wide`: `dialogButtonWideWidth`); `Default` is also pressed by Enter and `Cancel` by Escape; `Destructive` (Discard) is drawn in `stop`; a disabled one ignores clicks and keys. It returns the index pressed, or -1 | `ImGui::Button` with a fixed `ImVec2` and a key check of its own |
 | `toggleButton` | One of a few buttons of which one is selected, such as the Assets panel's List and Grid | `ImGui::Button` between a push and a pop of `ImGuiCol_ButtonActive` |
-| `stateButton` | A small button on the menu bar that shows a state: Stop while playing, Resume while paused | `ImGui::SmallButton` between a push and a pop of a colour |
+| `stateButton` | A button on the menu bar that shows a state: Play and Stop, Pause and Resume, in `stop` while playing and `paused` while paused. It has a button's frame padding, so it is as tall as the bar, like "Add component" | `ImGui::Button` between a push and a pop of a colour |
 | `statusText` | A message about what went wrong or what to look out for, in `danger` or `warning`, wrapped unless asked not to | `ImGui::TextWrapped` or `TextColored` with a colour read from the theme |
 | `beginPropertyTable`, `endPropertyTable` | The inspector's name and value table of a component member or a script property (with a revert column). The value column keeps an explicit stretch weight: without one, `SizingStretchProp` weighs it by its content's auto width, which a table's first frame has not measured, and the weight came out as 0/0, so the values drew a few pixels wide on the frame after every selection | `ImGui::BeginTable` and `TableSetupColumn` with pixel widths |
 | `beginOverlay`, `endOverlay`, `overlayInset`, `overlayLabel` | Text drawn over the viewport: the statistics overlay on its backdrop, placed `overlayInset` from the corner, and the camera label. `overlayLabel` returns the label's rectangle and `beginOverlay` takes a maximum size, cutting rows that do not fit (no scrollbar, as the overlay takes no input): the viewport gives the overlay the space down to an inset above the label, so the overlay stops above it at any scale or viewport size, and a viewport without room for one row there shows no overlay. The overlay shows its GPU memory bar before the pass table, so a short viewport cuts passes rather than the summary; the Statistics panel lists every pass | A child with a colour of its own, or a rectangle and text drawn by hand |
 
-Anything else (an input, a drag, a combo, a tree node, a picker, a table that is not a property table) stays a call to `ImGui::`. A pattern joins this file when a second place draws it; the widget reads its colours and sizes from the theme and does not choose new ones (the look is [#391](https://github.com/Pacheco95/sonnet/issues/391)). `tools/check_dependencies.py` rejects `imgui_internal.h` outside `modules/ui/src`, `Editor.cpp`, `Layout.cpp`, `AssetBrowserPanel.cpp` (the docking, settings and panel state ADR-0036 names) and tests.
+Anything else (an input, a drag, a combo, a tree node, a picker, a table that is not a property table) stays a call to `ImGui::`. A pattern joins this file when a second place draws it; the widget reads its colours and sizes from the theme and does not choose new ones. `tools/check_dependencies.py` rejects `imgui_internal.h` outside `modules/ui/src`, `Editor.cpp`, `Layout.cpp`, `AssetBrowserPanel.cpp` (the docking, settings and panel state ADR-0036 names) and tests.
 
-`ui_tests` checks, without a GPU, that each widget draws and answers as above in a headless ImGui context, that the default theme gives Dear ImGui's dark style, that every slot comes from a token, that a scale of 2 and then 1 gives exactly the scale-1 style, that `em` and `scaled` follow the font and the display scale, and that viewports keep the corners square and the background opaque.
+`ui_tests` checks, without a GPU, that each widget draws and answers as above in a headless ImGui context, that the default theme meets the contrast above and keeps its sizes on the grid, that the check finds a pair below its threshold, that every slot comes from a token, that a scale of 2 and then 1 gives exactly the scale-1 style, that `em` and `scaled` follow the font and the display scale, and that viewports keep the corners square and the background opaque.
 
 ## The editor module
 

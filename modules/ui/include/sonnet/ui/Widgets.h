@@ -66,7 +66,8 @@ enum class ButtonState {
   Paused, // the Resume button while paused: the theme's `paused`
 };
 
-// A small button for a bar, in the colour of the state it shows. Returns whether it was clicked.
+// A button for the menu bar, in the colour of the state it shows. It has a button's frame padding, so it is as tall as
+// the bar. Returns whether it was clicked.
 [[nodiscard]] bool stateButton(const char *label, ButtonState state);
 
 // -- Status text -------------------------------------------------------------------------------------------------

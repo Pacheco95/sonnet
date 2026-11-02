@@ -5,7 +5,12 @@
 
 #include <imgui.h>
 
-#include <iterator>
+#include <algorithm>
+#include <cmath>
+#include <initializer_list>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 using namespace sonnet;
 using Catch::Approx;
@@ -14,11 +19,6 @@ namespace {
 
 bool same(const ImVec4 &a, const ImVec4 &b) {
   return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
-}
-
-bool near(const ImVec4 &a, const ImVec4 &b) {
-  return a.x == Approx(b.x).margin(1e-6) && a.y == Approx(b.y).margin(1e-6) && a.z == Approx(b.z).margin(1e-6) &&
-         a.w == Approx(b.w).margin(1e-6);
 }
 
 // The sizes a theme sets, which are what a scale has to carry.
@@ -30,8 +30,9 @@ bool sameSizes(const ImGuiStyle &a, const ImGuiStyle &b) {
          a.ScrollbarSize == b.ScrollbarSize && a.GrabMinSize == b.GrabMinSize && a.WindowRounding == b.WindowRounding &&
          a.FrameRounding == b.FrameRounding && a.ScrollbarRounding == b.ScrollbarRounding &&
          a.TabRounding == b.TabRounding && a.WindowBorderSize == b.WindowBorderSize &&
-         a.FrameBorderSize == b.FrameBorderSize && a.DockingSeparatorSize == b.DockingSeparatorSize &&
-         a.WindowMinSize.x == b.WindowMinSize.x && a._MainScale == b._MainScale;
+         a.FrameBorderSize == b.FrameBorderSize && a.TabBarOverlineSize == b.TabBarOverlineSize &&
+         a.DockingSeparatorSize == b.DockingSeparatorSize && a.WindowMinSize.x == b.WindowMinSize.x &&
+         a._MainScale == b._MainScale;
 }
 
 bool sameColours(const ImGuiStyle &a, const ImGuiStyle &b) {
@@ -43,105 +44,184 @@ bool sameColours(const ImGuiStyle &a, const ImGuiStyle &b) {
   return true;
 }
 
-} // namespace
+// WCAG 2's relative luminance of an sRGB colour.
+double luminance(const ImVec4 &colour) {
+  const auto linear = [](float channel) {
+    const double v = static_cast<double>(channel);
+    return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * linear(colour.x) + 0.7152 * linear(colour.y) + 0.0722 * linear(colour.z);
+}
 
-// The 63 colours and the sizes of `ImGuiStyle`'s default (`StyleColorsDark`) in Dear ImGui 1.92.9, the style the editor
-// had before the theme and the look the default theme reproduces. They are fixed here on purpose: 1.93.0 changed the
-// dark style (a greyer window, darker frames, a darker docking background and lighter table headers), and the editor's
-// look moves only when its own theme does. Generated once from the 1.92.9b-docking sources.
-constexpr ImVec4 Dark1929Colours[] = {
-    {1.0f, 1.0f, 1.0f, 1.0f},                                    // Text
-    {0.5f, 0.5f, 0.5f, 1.0f},                                    // TextDisabled
-    {0.0599999987f, 0.0599999987f, 0.0599999987f, 0.939999998f}, // WindowBg
-    {0.0f, 0.0f, 0.0f, 0.0f},                                    // ChildBg
-    {0.0799999982f, 0.0799999982f, 0.0799999982f, 0.939999998f}, // PopupBg
-    {0.430000007f, 0.430000007f, 0.5f, 0.5f},                    // Border
-    {0.0f, 0.0f, 0.0f, 0.0f},                                    // BorderShadow
-    {0.159999996f, 0.289999992f, 0.479999989f, 0.540000021f},    // FrameBg
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.400000006f},     // FrameBgHovered
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.670000017f},     // FrameBgActive
-    {0.0399999991f, 0.0399999991f, 0.0399999991f, 1.0f},         // TitleBg
-    {0.159999996f, 0.289999992f, 0.479999989f, 1.0f},            // TitleBgActive
-    {0.0f, 0.0f, 0.0f, 0.50999999f},                             // TitleBgCollapsed
-    {0.140000001f, 0.140000001f, 0.140000001f, 1.0f},            // MenuBarBg
-    {0.0199999996f, 0.0199999996f, 0.0199999996f, 0.529999971f}, // ScrollbarBg
-    {0.310000002f, 0.310000002f, 0.310000002f, 1.0f},            // ScrollbarGrab
-    {0.409999996f, 0.409999996f, 0.409999996f, 1.0f},            // ScrollbarGrabHovered
-    {0.50999999f, 0.50999999f, 0.50999999f, 1.0f},               // ScrollbarGrabActive
-    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // CheckMark
-    {0.224999994f, 0.484999955f, 0.804999948f, 0.449000001f},    // CheckboxSelectedBg
-    {0.239999995f, 0.519999981f, 0.879999995f, 1.0f},            // SliderGrab
-    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // SliderGrabActive
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.400000006f},     // Button
-    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // ButtonHovered
-    {0.0599999987f, 0.529999971f, 0.980000019f, 1.0f},           // ButtonActive
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.310000002f},     // Header
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.800000012f},     // HeaderHovered
-    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // HeaderActive
-    {0.430000007f, 0.430000007f, 0.5f, 0.5f},                    // Separator
-    {0.100000001f, 0.400000006f, 0.75f, 0.779999971f},           // SeparatorHovered
-    {0.100000001f, 0.400000006f, 0.75f, 1.0f},                   // SeparatorActive
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.200000003f},     // ResizeGrip
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.670000017f},     // ResizeGripHovered
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.949999988f},     // ResizeGripActive
-    {1.0f, 1.0f, 1.0f, 1.0f},                                    // InputTextCursor
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.800000012f},     // TabHovered
-    {0.179999992f, 0.349999964f, 0.580000043f, 0.861999989f},    // Tab
-    {0.199999988f, 0.409999967f, 0.680000007f, 1.0f},            // TabSelected
-    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // TabSelectedOverline
-    {0.0680000037f, 0.101999983f, 0.148000032f, 0.97240001f},    // TabDimmed
-    {0.135999978f, 0.261999965f, 0.423999995f, 1.0f},            // TabDimmedSelected
-    {0.5f, 0.5f, 0.5f, 0.0f},                                    // TabDimmedSelectedOverline
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.699999988f},     // DockingPreview
-    {0.200000003f, 0.200000003f, 0.200000003f, 1.0f},            // DockingEmptyBg
-    {0.610000014f, 0.610000014f, 0.610000014f, 1.0f},            // PlotLines
-    {1.0f, 0.430000007f, 0.349999994f, 1.0f},                    // PlotLinesHovered
-    {0.899999976f, 0.699999988f, 0.0f, 1.0f},                    // PlotHistogram
-    {1.0f, 0.600000024f, 0.0f, 1.0f},                            // PlotHistogramHovered
-    {0.189999998f, 0.189999998f, 0.200000003f, 1.0f},            // TableHeaderBg
-    {0.310000002f, 0.310000002f, 0.349999994f, 1.0f},            // TableBorderStrong
-    {0.230000004f, 0.230000004f, 0.25f, 1.0f},                   // TableBorderLight
-    {0.0f, 0.0f, 0.0f, 0.0f},                                    // TableRowBg
-    {1.0f, 1.0f, 1.0f, 0.0599999987f},                           // TableRowBgAlt
-    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // TextLink
-    {0.25999999f, 0.589999974f, 0.980000019f, 0.349999994f},     // TextSelectedBg
-    {0.430000007f, 0.430000007f, 0.5f, 0.5f},                    // TreeLines
-    {1.0f, 1.0f, 0.0f, 0.899999976f},                            // DragDropTarget
-    {0.0f, 0.0f, 0.0f, 0.0f},                                    // DragDropTargetBg
-    {1.0f, 1.0f, 1.0f, 1.0f},                                    // UnsavedMarker
-    {0.25999999f, 0.589999974f, 0.980000019f, 1.0f},             // NavCursor
-    {1.0f, 1.0f, 1.0f, 0.699999988f},                            // NavWindowingHighlight
-    {0.800000012f, 0.800000012f, 0.800000012f, 0.200000003f},    // NavWindowingDimBg
-    {0.800000012f, 0.800000012f, 0.800000012f, 0.349999994f},    // ModalWindowDimBg
+double contrast(const ImVec4 &a, const ImVec4 &b) {
+  const double la = luminance(a);
+  const double lb = luminance(b);
+  return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+// `top` drawn over the opaque `under`, blended per channel in sRGB with straight alpha, as the editor's ImGui pass
+// does (a capture of a translucent slot lands on these bytes). The result is opaque.
+ImVec4 over(const ImVec4 &top, const ImVec4 &under) {
+  const float a = top.w;
+  return ImVec4{top.x * a + under.x * (1.0f - a), top.y * a + under.y * (1.0f - a), top.z * a + under.z * (1.0f - a),
+                1.0f};
+}
+
+ImVec4 faded(const ImVec4 &colour, float alpha) {
+  return ImVec4{colour.x, colour.y, colour.z, colour.w * alpha};
+}
+
+struct Pair {
+  const char *what;
+  ImVec4 foreground;
+  ImVec4 background;
+  double minimum;
 };
 
-static_assert(std::size(Dark1929Colours) == ImGuiCol_COUNT,
-              "a slot was added or removed: write its 1.92.9 value, or none");
+// Every pair docs/editor.md ("Theme") holds the look to, on the style `applyTheme` derives from `theme`.
+std::vector<Pair> contrastPairs(const ui::Theme &theme) {
+  ImGuiStyle style;
+  ui::applyTheme(style, theme, 1.0f, false);
+  const ImVec4(&c)[ImGuiCol_COUNT] = style.Colors;
+  // The window clears to black, so even a translucent panel is measured over something opaque.
+  const ImVec4 panel = over(c[ImGuiCol_WindowBg], ImVec4{0.0f, 0.0f, 0.0f, 1.0f});
+  const ImVec4 popup = over(c[ImGuiCol_PopupBg], panel);
+  const ImVec4 field = over(c[ImGuiCol_FrameBg], panel);
+  const auto on = [&](ImGuiCol slot) { return over(c[slot], panel); };
+  const ImVec4 text = c[ImGuiCol_Text];
+  const ImVec4 hint = c[ImGuiCol_TextDisabled];
+  constexpr double textRatio = 4.5;
+  constexpr double graphicRatio = 3.0;
 
-TEST_CASE("the default theme at scale 1 is Dear ImGui 1.92.9's dark style", "[ui][theme]") {
-  ImGuiStyle derived;
-  ui::applyTheme(derived, ui::Theme{}, 1.0f, false);
-
-  for (int i = 0; i < ImGuiCol_COUNT; ++i) {
-    INFO("ImGuiCol " << i << " " << ImGui::GetStyleColorName(i));
-    CHECK(near(derived.Colors[i], Dark1929Colours[i]));
+  std::vector<Pair> pairs;
+  // Text on every surface it is drawn on, in every state.
+  for (const auto &[what, slot] : std::initializer_list<std::pair<const char *, ImGuiCol>>{
+           {"menu bar", ImGuiCol_MenuBarBg},
+           {"title bar", ImGuiCol_TitleBg},
+           {"focused title bar", ImGuiCol_TitleBgActive},
+           {"tab", ImGuiCol_Tab},
+           {"hovered tab", ImGuiCol_TabHovered},
+           {"selected tab", ImGuiCol_TabSelected},
+           {"unfocused tab", ImGuiCol_TabDimmed},
+           {"unfocused selected tab", ImGuiCol_TabDimmedSelected},
+           {"panel", ImGuiCol_WindowBg},
+           {"field", ImGuiCol_FrameBg},
+           {"hovered field", ImGuiCol_FrameBgHovered},
+           {"pressed field", ImGuiCol_FrameBgActive},
+           {"button", ImGuiCol_Button},
+           {"hovered button", ImGuiCol_ButtonHovered},
+           {"pressed or toggled button", ImGuiCol_ButtonActive},
+           {"selected row", ImGuiCol_Header},
+           {"hovered selected row", ImGuiCol_HeaderHovered},
+           {"pressed row", ImGuiCol_HeaderActive},
+           {"table header", ImGuiCol_TableHeaderBg},
+           {"alternate table row", ImGuiCol_TableRowBgAlt},
+       }) {
+    pairs.push_back({what, text, on(slot), textRatio});
   }
+  pairs.push_back({"popup", text, popup, textRatio});
+  pairs.push_back({"selected text in a field", text, over(c[ImGuiCol_TextSelectedBg], field), textRatio});
+  pairs.push_back({"component header", text, over(theme.sectionHeader, panel), textRatio});
+  pairs.push_back({"hovered component header", text, over(theme.sectionHeaderHovered, panel), textRatio});
+  pairs.push_back({"pressed component header", text, over(theme.sectionHeaderActive, panel), textRatio});
+  pairs.push_back({"Stop", text, over(theme.stop, on(ImGuiCol_MenuBarBg)), textRatio});
+  pairs.push_back({"Resume", text, over(theme.paused, on(ImGuiCol_MenuBarBg)), textRatio});
+  pairs.push_back({"destructive dialog button", text, over(theme.stop, popup), textRatio});
+  // Disabled text carries information: input hints, the Assets Source column, disabled entities.
+  pairs.push_back({"disabled text on the panel", hint, panel, textRatio});
+  pairs.push_back({"disabled text in a popup", hint, popup, textRatio});
+  pairs.push_back({"disabled text in a field", hint, field, textRatio});
+  pairs.push_back({"disabled text on a selected row", hint, on(ImGuiCol_Header), textRatio});
+  // Coloured text.
+  for (const auto &[what, colour] : std::initializer_list<std::pair<const char *, ImVec4>>{
+           {"trace", theme.logTrace},
+           {"debug", theme.logDebug},
+           {"info", theme.logInfo},
+           {"warn", theme.logWarn},
+           {"error", theme.logError},
+           {"critical", theme.logCritical},
+           {"warning in the inspector", theme.warning},
+           {"link", c[ImGuiCol_TextLink]},
+       }) {
+    pairs.push_back({what, colour, panel, textRatio});
+  }
+  pairs.push_back({"danger in a dialog", theme.danger, popup, textRatio});
+  // Text in a disabled control: BeginDisabled multiplies every alpha, the control's too.
+  const float disabled = style.DisabledAlpha;
+  const ImVec4 disabledButton = over(faded(c[ImGuiCol_Button], disabled), panel);
+  const ImVec4 disabledField = over(faded(c[ImGuiCol_FrameBg], disabled), panel);
+  pairs.push_back(
+      {"text in a disabled button", over(faded(text, disabled), disabledButton), disabledButton, graphicRatio});
+  pairs.push_back(
+      {"text in a disabled field", over(faded(text, disabled), disabledField), disabledField, graphicRatio});
+  // What marks out a control against the panel: its border, or its fill when frames have none.
+  const auto outline = [&](ImGuiCol fill) { return style.FrameBorderSize > 0.0f ? on(ImGuiCol_Border) : on(fill); };
+  pairs.push_back({"a field's outline", outline(ImGuiCol_FrameBg), panel, graphicRatio});
+  pairs.push_back({"a button's outline", outline(ImGuiCol_Button), panel, graphicRatio});
+  // The marks of state.
+  pairs.push_back({"checkmark", c[ImGuiCol_CheckMark], over(c[ImGuiCol_CheckboxSelectedBg], panel), graphicRatio});
+  pairs.push_back({"slider grab", c[ImGuiCol_SliderGrab], field, graphicRatio});
+  pairs.push_back(
+      {"focused tab line on its tab", c[ImGuiCol_TabSelectedOverline], on(ImGuiCol_TabSelected), graphicRatio});
+  pairs.push_back({"focused tab line on the tab bar", c[ImGuiCol_TabSelectedOverline], on(ImGuiCol_Tab), graphicRatio});
+  pairs.push_back({"nav cursor", c[ImGuiCol_NavCursor], panel, graphicRatio});
+  return pairs;
+}
 
-  const auto sizeIs = [](ImVec2 value, float x, float y) { return value.x == x && value.y == y; };
-  CHECK(sizeIs(derived.WindowPadding, 8.0f, 8.0f));
-  CHECK(sizeIs(derived.FramePadding, 4.0f, 3.0f));
-  CHECK(sizeIs(derived.ItemSpacing, 8.0f, 4.0f));
-  CHECK(sizeIs(derived.ItemInnerSpacing, 4.0f, 4.0f));
-  CHECK(sizeIs(derived.CellPadding, 4.0f, 2.0f));
-  CHECK(derived.IndentSpacing == 21.0f);
-  CHECK(derived.ScrollbarSize == 14.0f);
-  CHECK(derived.GrabMinSize == 12.0f);
-  CHECK(derived.WindowRounding == 0.0f);
-  CHECK(derived.FrameRounding == 0.0f);
-  CHECK(derived.ScrollbarRounding == 9.0f);
-  CHECK(derived.TabRounding == 5.0f);
-  CHECK(derived.WindowBorderSize == 1.0f);
-  CHECK(derived.FrameBorderSize == 0.0f);
+} // namespace
+
+TEST_CASE("the default theme meets the contrast it is held to", "[ui][theme]") {
+  for (const Pair &pair : contrastPairs(ui::Theme{})) {
+    INFO(pair.what << ": " << contrast(pair.foreground, pair.background) << ":1, at least " << pair.minimum);
+    CHECK(contrast(pair.foreground, pair.background) >= pair.minimum);
+  }
+}
+
+TEST_CASE("the contrast check finds a pair below its threshold", "[ui][theme]") {
+  // Dark grey hints on the panel and a border close to it are what the check exists to catch.
+  ui::Theme theme;
+  theme.textDisabled = theme.window;
+  theme.border = theme.window;
+  std::vector<std::string_view> failed;
+  for (const Pair &pair : contrastPairs(theme)) {
+    if (contrast(pair.foreground, pair.background) < pair.minimum) {
+      failed.push_back(pair.what);
+    }
+  }
+  CHECK(std::ranges::find(failed, "disabled text on the panel") != failed.end());
+  CHECK(std::ranges::find(failed, "a field's outline") != failed.end());
+  CHECK(std::ranges::find(failed, "button") == failed.end());
+  // WCAG's own extremes: black on white is 21:1, and a colour on itself 1:1.
+  CHECK(contrast({0.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}) == Approx(21.0));
+  CHECK(contrast(theme.window, theme.window) == Approx(1.0));
+}
+
+TEST_CASE("the default theme's sizes are on the 4 px grid", "[ui][theme]") {
+  const ui::Theme theme;
+  const auto onGrid = [](float value) { return std::fmod(value, 4.0f) == 0.0f || value == 2.0f; };
+  for (const float spacing :
+       {theme.windowPadding.x, theme.windowPadding.y, theme.framePadding.x, theme.framePadding.y, theme.itemSpacing.x,
+        theme.itemSpacing.y, theme.itemInnerSpacing.x, theme.itemInnerSpacing.y, theme.cellPadding.x,
+        theme.cellPadding.y, theme.indentSpacing}) {
+    CHECK(onGrid(spacing));
+  }
+  for (const float radius : {theme.windowRounding, theme.childRounding, theme.frameRounding, theme.popupRounding,
+                             theme.grabRounding, theme.tabRounding}) {
+    CHECK((radius == 0.0f || radius == 2.0f || radius == 4.0f));
+  }
+  CHECK(theme.scrollbarRounding >= theme.scrollbarSize * 0.5f); // a pill
+  for (const float border : {theme.windowBorderSize, theme.childBorderSize, theme.popupBorderSize,
+                             theme.frameBorderSize, theme.tabBorderSize, theme.tabBarOverlineSize}) {
+    CHECK((border == 0.0f || border == 1.0f || border == 2.0f));
+  }
+  // The icon offset and the layouts' em floors were measured at 14 px.
+  CHECK(theme.textSize == 14.0f);
+
+  ImGuiStyle derived;
+  ui::applyTheme(derived, theme, 1.0f, false);
+  CHECK(derived.FramePadding.y == 4.0f);
+  CHECK(derived.TabBarOverlineSize == 2.0f);
+  // What the theme leaves alone keeps Dear ImGui's default.
   CHECK(derived.DockingSeparatorSize == 2.0f);
   CHECK(derived.WindowMinSize.x == 32.0f);
 }
@@ -150,6 +230,7 @@ TEST_CASE("the style takes its colours and sizes from the tokens", "[ui][theme]"
   ui::Theme theme;
   theme.text = {0.9f, 0.8f, 0.7f, 1.0f};
   theme.accent = {0.1f, 0.7f, 0.2f, 1.0f};
+  theme.control = {0.4f, 0.3f, 0.2f, 1.0f};
   theme.window = {0.2f, 0.2f, 0.3f, 0.5f};
   theme.framePadding = {6.0f, 5.0f};
   theme.frameRounding = 3.0f;
@@ -161,9 +242,15 @@ TEST_CASE("the style takes its colours and sizes from the tokens", "[ui][theme]"
   CHECK(same(style.Colors[ImGuiCol_Text], theme.text));
   CHECK(same(style.Colors[ImGuiCol_InputTextCursor], theme.text));
   CHECK(same(style.Colors[ImGuiCol_WindowBg], theme.window));
-  CHECK(same(style.Colors[ImGuiCol_ButtonHovered], theme.accent));
-  CHECK(style.Colors[ImGuiCol_Button].y == theme.accent.y);
-  CHECK(style.Colors[ImGuiCol_Button].w == Approx(0.40f));
+  CHECK(same(style.Colors[ImGuiCol_TabSelected], theme.window));
+  CHECK(same(style.Colors[ImGuiCol_Button], theme.control));
+  CHECK(same(style.Colors[ImGuiCol_TableHeaderBg], theme.control));
+  for (const ImGuiCol slot : {ImGuiCol_SliderGrab, ImGuiCol_TabSelectedOverline, ImGuiCol_TextLink, ImGuiCol_NavCursor,
+                              ImGuiCol_SeparatorActive}) {
+    CHECK(same(style.Colors[slot], theme.accent));
+  }
+  CHECK(style.Colors[ImGuiCol_DockingPreview].y == theme.accent.y);
+  CHECK(style.Colors[ImGuiCol_DockingPreview].w == Approx(0.40f));
   CHECK(style.FramePadding.x == 6.0f);
   CHECK(style.FramePadding.y == 5.0f);
   CHECK(style.FrameRounding == 3.0f);
@@ -174,32 +261,12 @@ TEST_CASE("every colour slot is derived from a token", "[ui][theme]") {
   // With every colour token magenta, a slot that still has the dark style's value is one no token reaches.
   const ImVec4 magenta{1.0f, 0.0f, 1.0f, 1.0f};
   ui::Theme theme;
-  for (ImVec4 *token : {&theme.text,
-                        &theme.textDisabled,
-                        &theme.window,
-                        &theme.popup,
-                        &theme.menuBar,
-                        &theme.title,
-                        &theme.titleActive,
-                        &theme.titleCollapsed,
-                        &theme.border,
-                        &theme.frame,
-                        &theme.dockEmpty,
-                        &theme.scrollbarTrack,
-                        &theme.scrollbarGrab,
-                        &theme.accent,
-                        &theme.accentPressed,
-                        &theme.accentGrab,
-                        &theme.accentDark,
-                        &theme.plotLines,
-                        &theme.plotLinesHover,
-                        &theme.plotHistogram,
-                        &theme.plotHistogramHover,
-                        &theme.tableHeader,
-                        &theme.tableBorderStrong,
-                        &theme.tableBorderLight,
-                        &theme.dragDropTarget,
-                        &theme.dim}) {
+  for (ImVec4 *token : {&theme.chrome,        &theme.window,           &theme.popup,           &theme.field,
+                        &theme.fieldHovered,  &theme.fieldActive,      &theme.control,         &theme.controlHovered,
+                        &theme.controlActive, &theme.border,           &theme.separator,       &theme.text,
+                        &theme.textDisabled,  &theme.accent,           &theme.check,           &theme.checkBox,
+                        &theme.highlight,     &theme.highlightHovered, &theme.highlightActive, &theme.scrollbarGrab,
+                        &theme.dim,           &theme.warning}) {
     *token = magenta;
   }
 
@@ -209,8 +276,9 @@ TEST_CASE("every colour slot is derived from a token", "[ui][theme]") {
     INFO("ImGuiCol " << i << " " << ImGui::GetStyleColorName(i));
     const ImVec4 &colour = style.Colors[i];
     const bool clear = colour.x == 0.0f && colour.y == 0.0f && colour.z == 0.0f && colour.w == 0.0f;
-    // The hovered and active scrollbar grabs brighten their token, so they are lighter than pure magenta.
-    const bool brightened = i == ImGuiCol_ScrollbarGrabHovered || i == ImGuiCol_ScrollbarGrabActive;
+    // The pressed and hovered grabs brighten their token, so they are lighter than pure magenta.
+    const bool brightened =
+        i == ImGuiCol_ScrollbarGrabHovered || i == ImGuiCol_ScrollbarGrabActive || i == ImGuiCol_SliderGrabActive;
     const bool magentaTint = colour.x == Approx(1.0f) && colour.y == Approx(0.0f) && colour.z == Approx(1.0f);
     CHECK((clear || brightened || magentaTint));
   }
@@ -230,7 +298,7 @@ TEST_CASE("a style at scale 2 and then at 1 is exactly the style at scale 1", "[
   CHECK(style.FramePadding.x == 10.0f);
   CHECK(style.ItemSpacing.y == 10.0f);
   CHECK(style.IndentSpacing == 42.0f);
-  CHECK(style.WindowBorderSize == 2.0f);
+  CHECK(style.FrameBorderSize == 2.0f);
   CHECK(!sameSizes(style, reference));
   // Colours are not sizes: a scale leaves them alone.
   CHECK(sameColours(style, reference));

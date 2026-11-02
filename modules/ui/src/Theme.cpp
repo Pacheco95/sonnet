@@ -14,17 +14,13 @@ ImVec4 withAlpha(const ImVec4 &colour, float alpha) {
   return ImVec4{colour.x, colour.y, colour.z, alpha};
 }
 
-// ImLerp for colours, which every channel takes, alpha included, as Dear ImGui's own styles do.
-ImVec4 lerp(const ImVec4 &a, const ImVec4 &b, float t) {
-  return ImVec4{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t};
-}
-
 ImVec4 brighten(const ImVec4 &colour, float amount) {
   const auto up = [amount](float channel) { return channel + amount > 1.0f ? 1.0f : channel + amount; };
   return ImVec4{up(colour.x), up(colour.y), up(colour.z), colour.w};
 }
 
-// The colours, with the alphas and the lerps of Dear ImGui's dark style.
+// Each slot takes one role. Only the drag and resize feedback, the scrollbar's and the slider's pressed states and a
+// few tints derive from theirs, never from another slot.
 void applyColours(ImVec4 (&c)[ImGuiCol_COUNT], const Theme &t) {
   const ImVec4 clear{0.0f, 0.0f, 0.0f, 0.0f};
   c[ImGuiCol_Text] = t.text;
@@ -34,62 +30,62 @@ void applyColours(ImVec4 (&c)[ImGuiCol_COUNT], const Theme &t) {
   c[ImGuiCol_PopupBg] = t.popup;
   c[ImGuiCol_Border] = t.border;
   c[ImGuiCol_BorderShadow] = clear;
-  c[ImGuiCol_FrameBg] = t.frame;
-  c[ImGuiCol_FrameBgHovered] = withAlpha(t.accent, 0.40f);
-  c[ImGuiCol_FrameBgActive] = withAlpha(t.accent, 0.67f);
-  c[ImGuiCol_TitleBg] = t.title;
-  c[ImGuiCol_TitleBgActive] = t.titleActive;
-  c[ImGuiCol_TitleBgCollapsed] = t.titleCollapsed;
-  c[ImGuiCol_MenuBarBg] = t.menuBar;
-  c[ImGuiCol_ScrollbarBg] = t.scrollbarTrack;
+  c[ImGuiCol_FrameBg] = t.field;
+  c[ImGuiCol_FrameBgHovered] = t.fieldHovered;
+  c[ImGuiCol_FrameBgActive] = t.fieldActive;
+  c[ImGuiCol_TitleBg] = t.chrome;
+  c[ImGuiCol_TitleBgActive] = t.chrome;
+  c[ImGuiCol_TitleBgCollapsed] = t.chrome;
+  c[ImGuiCol_MenuBarBg] = t.chrome;
+  c[ImGuiCol_ScrollbarBg] = clear;
   c[ImGuiCol_ScrollbarGrab] = t.scrollbarGrab;
-  c[ImGuiCol_ScrollbarGrabHovered] = brighten(t.scrollbarGrab, 0.10f);
-  c[ImGuiCol_ScrollbarGrabActive] = brighten(t.scrollbarGrab, 0.20f);
-  c[ImGuiCol_CheckMark] = t.accent;
-  c[ImGuiCol_CheckboxSelectedBg] = lerp(c[ImGuiCol_FrameBg], c[ImGuiCol_FrameBgHovered], 0.65f);
-  c[ImGuiCol_SliderGrab] = t.accentGrab;
-  c[ImGuiCol_SliderGrabActive] = t.accent;
-  c[ImGuiCol_Button] = withAlpha(t.accent, 0.40f);
-  c[ImGuiCol_ButtonHovered] = t.accent;
-  c[ImGuiCol_ButtonActive] = t.accentPressed;
-  c[ImGuiCol_Header] = withAlpha(t.accent, 0.31f);
-  c[ImGuiCol_HeaderHovered] = withAlpha(t.accent, 0.80f);
-  c[ImGuiCol_HeaderActive] = t.accent;
-  c[ImGuiCol_Separator] = t.border;
-  c[ImGuiCol_SeparatorHovered] = withAlpha(t.accentDark, 0.78f);
-  c[ImGuiCol_SeparatorActive] = t.accentDark;
-  c[ImGuiCol_ResizeGrip] = withAlpha(t.accent, 0.20f);
-  c[ImGuiCol_ResizeGripHovered] = withAlpha(t.accent, 0.67f);
-  c[ImGuiCol_ResizeGripActive] = withAlpha(t.accent, 0.95f);
+  c[ImGuiCol_ScrollbarGrabHovered] = brighten(t.scrollbarGrab, 0.08f);
+  c[ImGuiCol_ScrollbarGrabActive] = brighten(t.scrollbarGrab, 0.16f);
+  c[ImGuiCol_CheckMark] = t.check;
+  c[ImGuiCol_CheckboxSelectedBg] = t.checkBox;
+  c[ImGuiCol_SliderGrab] = t.accent;
+  c[ImGuiCol_SliderGrabActive] = brighten(t.accent, 0.10f);
+  c[ImGuiCol_Button] = t.control;
+  c[ImGuiCol_ButtonHovered] = t.controlHovered;
+  c[ImGuiCol_ButtonActive] = t.controlActive;
+  c[ImGuiCol_Header] = t.highlight;
+  c[ImGuiCol_HeaderHovered] = t.highlightHovered;
+  c[ImGuiCol_HeaderActive] = t.highlightActive;
+  c[ImGuiCol_Separator] = t.separator;
+  c[ImGuiCol_SeparatorHovered] = withAlpha(t.accent, 0.60f);
+  c[ImGuiCol_SeparatorActive] = t.accent;
+  c[ImGuiCol_ResizeGrip] = clear;
+  c[ImGuiCol_ResizeGripHovered] = withAlpha(t.accent, 0.60f);
+  c[ImGuiCol_ResizeGripActive] = t.accent;
   c[ImGuiCol_InputTextCursor] = t.text;
-  c[ImGuiCol_TabHovered] = c[ImGuiCol_HeaderHovered];
-  c[ImGuiCol_Tab] = lerp(c[ImGuiCol_Header], c[ImGuiCol_TitleBgActive], 0.80f);
-  c[ImGuiCol_TabSelected] = lerp(c[ImGuiCol_HeaderActive], c[ImGuiCol_TitleBgActive], 0.60f);
-  c[ImGuiCol_TabSelectedOverline] = c[ImGuiCol_HeaderActive];
-  c[ImGuiCol_TabDimmed] = lerp(c[ImGuiCol_Tab], c[ImGuiCol_TitleBg], 0.80f);
-  c[ImGuiCol_TabDimmedSelected] = lerp(c[ImGuiCol_TabSelected], c[ImGuiCol_TitleBg], 0.40f);
-  c[ImGuiCol_TabDimmedSelectedOverline] = withAlpha(t.textDisabled, 0.0f);
-  c[ImGuiCol_DockingPreview] = withAlpha(c[ImGuiCol_HeaderActive], c[ImGuiCol_HeaderActive].w * 0.7f);
-  c[ImGuiCol_DockingEmptyBg] = t.dockEmpty;
-  c[ImGuiCol_PlotLines] = t.plotLines;
-  c[ImGuiCol_PlotLinesHovered] = t.plotLinesHover;
-  c[ImGuiCol_PlotHistogram] = t.plotHistogram;
-  c[ImGuiCol_PlotHistogramHovered] = t.plotHistogramHover;
-  c[ImGuiCol_TableHeaderBg] = t.tableHeader;
-  c[ImGuiCol_TableBorderStrong] = t.tableBorderStrong;
-  c[ImGuiCol_TableBorderLight] = t.tableBorderLight;
+  c[ImGuiCol_TabHovered] = t.controlHovered;
+  c[ImGuiCol_Tab] = t.chrome;
+  c[ImGuiCol_TabSelected] = t.window;
+  c[ImGuiCol_TabSelectedOverline] = t.accent;
+  c[ImGuiCol_TabDimmed] = t.chrome;
+  c[ImGuiCol_TabDimmedSelected] = t.window;
+  c[ImGuiCol_TabDimmedSelectedOverline] = clear;
+  c[ImGuiCol_DockingPreview] = withAlpha(t.accent, 0.40f);
+  c[ImGuiCol_DockingEmptyBg] = t.chrome;
+  c[ImGuiCol_PlotLines] = t.accent;
+  c[ImGuiCol_PlotLinesHovered] = t.warning;
+  c[ImGuiCol_PlotHistogram] = t.accent;
+  c[ImGuiCol_PlotHistogramHovered] = t.warning;
+  c[ImGuiCol_TableHeaderBg] = t.control;
+  c[ImGuiCol_TableBorderStrong] = t.separator;
+  c[ImGuiCol_TableBorderLight] = t.separator;
   c[ImGuiCol_TableRowBg] = clear;
-  c[ImGuiCol_TableRowBgAlt] = withAlpha(t.text, 0.06f);
-  c[ImGuiCol_TextLink] = c[ImGuiCol_HeaderActive];
+  c[ImGuiCol_TableRowBgAlt] = withAlpha(t.text, 0.03f);
+  c[ImGuiCol_TextLink] = t.accent;
   c[ImGuiCol_TextSelectedBg] = withAlpha(t.accent, 0.35f);
-  c[ImGuiCol_TreeLines] = c[ImGuiCol_Border];
-  c[ImGuiCol_DragDropTarget] = t.dragDropTarget;
+  c[ImGuiCol_TreeLines] = t.separator;
+  c[ImGuiCol_DragDropTarget] = t.accent;
   c[ImGuiCol_DragDropTargetBg] = clear;
   c[ImGuiCol_UnsavedMarker] = t.text;
   c[ImGuiCol_NavCursor] = t.accent;
   c[ImGuiCol_NavWindowingHighlight] = withAlpha(t.text, 0.70f);
-  c[ImGuiCol_NavWindowingDimBg] = withAlpha(t.dim, 0.20f);
-  c[ImGuiCol_ModalWindowDimBg] = withAlpha(t.dim, 0.35f);
+  c[ImGuiCol_NavWindowingDimBg] = withAlpha(t.dim, t.dim.w * 0.6f);
+  c[ImGuiCol_ModalWindowDimBg] = t.dim;
 }
 
 Theme g_theme;
@@ -124,6 +120,7 @@ void applyTheme(ImGuiStyle &style, const Theme &theme, float scale, bool viewpor
   style.PopupBorderSize = theme.popupBorderSize;
   style.FrameBorderSize = theme.frameBorderSize;
   style.TabBorderSize = theme.tabBorderSize;
+  style.TabBarOverlineSize = theme.tabBarOverlineSize;
   applyColours(style.Colors, theme);
   if (viewports) {
     // Platform windows have no transparency: an opaque background and square corners.
