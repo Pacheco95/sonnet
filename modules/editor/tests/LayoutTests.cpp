@@ -2,6 +2,7 @@
 
 #include <sonnet/core/File.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
@@ -176,4 +177,52 @@ TEST_CASE("saved layouts are the ini files of a directory", "[editor][layout]") 
   std::ofstream{directory / "Alpha.ini"} << "x";
   std::ofstream{directory / "notes.txt"} << "x";
   CHECK(listLayouts(directory) == std::vector<std::string>{"Alpha", "zeta"});
+}
+
+TEST_CASE("the built-in layouts keep their panels' widths in em below the size they are drawn for",
+          "[editor][layout]") {
+  using Catch::Approx;
+  constexpr float menuBar = 20.0f; // 14-pixel text and 3-pixel frame padding at scale 1
+  const auto splitsAt = [&](BuiltinLayout layout, glm::vec2 window, float scale) {
+    return builtinSplits(layout, window, window - glm::vec2{0.0f, menuBar * scale}, 14.0f * scale);
+  };
+
+  // At 1600x900 the fractions are the ones the layouts were drawn with, at any scale.
+  for (const float scale : {1.0f, 2.0f}) {
+    const BuiltinSplits reference = splitsAt(BuiltinLayout::Default, glm::vec2{1600.0f, 900.0f} * scale, scale);
+    CHECK(reference.bottom == Approx(0.22f));
+    CHECK(reference.left == Approx(0.18f));
+    CHECK(reference.right == Approx(0.26f));
+    const BuiltinSplits play = splitsAt(BuiltinLayout::Play, glm::vec2{1600.0f, 900.0f} * scale, scale);
+    CHECK(play.bottom == 0.0f);
+    CHECK(play.left == Approx(0.14f));
+    CHECK(play.right == Approx(0.16f));
+  }
+  // Larger windows keep them too.
+  const BuiltinSplits large = splitsAt(BuiltinLayout::Default, {2560.0f, 1400.0f}, 1.0f);
+  CHECK(large.left == Approx(0.18f));
+  CHECK(large.right == Approx(0.26f));
+  CHECK(large.bottom == Approx(0.22f));
+
+  // 1247x704 (a 2560x1440 display's usable area at scale 2): the Hierarchy and the Inspector keep their widths in em.
+  const glm::vec2 small{1247.0f, 704.0f};
+  const BuiltinSplits clamped = splitsAt(BuiltinLayout::Default, small, 1.0f);
+  const float hierarchyEm = clamped.left * small.x / 14.0f;
+  const float inspectorEm = clamped.right * (1.0f - clamped.left) * small.x / 14.0f;
+  CHECK(hierarchyEm >= Approx(0.18f * 1600.0f / 14.0f));
+  CHECK(inspectorEm >= Approx(0.26f * 0.82f * 1600.0f / 14.0f));
+  CHECK(clamped.bottom * (small.y - menuBar) / 14.0f >= Approx(0.22f * (900.0f - menuBar) / 14.0f));
+  // The same in window units at scale 2 (a window twice the size with text twice the size).
+  const BuiltinSplits doubled = splitsAt(BuiltinLayout::Default, small * 2.0f, 2.0f);
+  CHECK(doubled.left == Approx(clamped.left));
+  CHECK(doubled.right == Approx(clamped.right));
+  CHECK(doubled.bottom == Approx(clamped.bottom));
+
+  // A window too small for both keeps 40 % of each axis for the centre.
+  const glm::vec2 tiny{640.0f, 300.0f};
+  const BuiltinSplits squeezed = splitsAt(BuiltinLayout::Default, tiny, 1.0f);
+  CHECK(squeezed.left + squeezed.right * (1.0f - squeezed.left) == Approx(0.6f));
+  CHECK(squeezed.bottom == Approx(0.6f));
+  // A minimized window has no work area: the fractions are kept.
+  CHECK(builtinSplits(BuiltinLayout::Default, {0.0f, 0.0f}, {0.0f, 0.0f}, 14.0f).left == Approx(0.18f));
 }

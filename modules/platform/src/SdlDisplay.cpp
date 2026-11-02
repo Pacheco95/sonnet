@@ -12,12 +12,14 @@ std::optional<Display> displayFromSdl(SDL_DisplayID id) {
     usable = bounds;
   }
   const char *name = SDL_GetDisplayName(id);
+  const float scale = SDL_GetDisplayContentScale(id); // 0 when SDL cannot tell
   return Display{.id = id,
                  .name = name != nullptr ? name : "",
                  .position = {bounds.x, bounds.y},
                  .size = {static_cast<unsigned>(bounds.w), static_cast<unsigned>(bounds.h)},
                  .usablePosition = {usable.x, usable.y},
                  .usableSize = {static_cast<unsigned>(usable.w), static_cast<unsigned>(usable.h)},
+                 .contentScale = scale > 0.0f ? scale : 1.0f,
                  .primary = id == SDL_GetPrimaryDisplay()};
 }
 

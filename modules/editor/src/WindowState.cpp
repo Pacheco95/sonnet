@@ -147,12 +147,23 @@ void WindowPlacement::applyTo(platform::WindowDesc &desc) const {
   desc.maximized = maximized;
 }
 
+glm::uvec2 firstWindowSize(std::span<const platform::Display> displays) {
+  if (displays.empty()) {
+    return DefaultWindowSize;
+  }
+  const platform::Display &primary = primaryOf(displays);
+  const glm::vec2 scaled = glm::round(glm::vec2{DefaultWindowSize} * primary.contentScale);
+  return clampTo(glm::uvec2{glm::max(scaled, glm::vec2{static_cast<float>(MinSize)})}, primary);
+}
+
 WindowPlacement placeWindow(const std::optional<WindowState> &saved, std::span<const platform::Display> displays,
                             bool canPosition) {
   WindowPlacement placement;
   if (saved) {
-    placement.size = saved->size;
+    placement.size = saved->size; // in the units it was saved in: a saved size is not rescaled
     placement.maximized = saved->maximized;
+  } else {
+    placement.size = firstWindowSize(displays);
   }
   if (displays.empty()) {
     return placement; // nothing to clamp to or centre on

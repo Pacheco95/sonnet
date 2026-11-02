@@ -7,8 +7,11 @@ namespace sonnet::editor {
 void addFonts(ImGuiIO &io) {
   // A glyph offset needs a reference size to scale from, so both fonts name theirs.
   const float textSize = ui::currentTheme().textSize;
-  // Lucide's glyphs sit above Inter's baseline: this centres them on the text (measured on a button at textSize).
-  constexpr float iconOffsetY = 2.0f;
+  // Lucide's glyphs sit above Inter's baseline: this centres them on the text. Dear ImGui scales it by the baked size
+  // over textSize and rounds it to whole pixels, and the glyph boxes move in whole-pixel steps that are not linear in
+  // the size, so no whole number centres every size (2 leaves the icons a pixel high from scale 1.5). 2.45 centres
+  // every quarter step of the display scale from 1 to 2 and is within a pixel from 0.5 to 4 (docs/editor.md, Fonts).
+  constexpr float iconOffsetY = 2.45f;
 
   ImFontConfig text;
   text.FontDataOwnedByAtlas = false;

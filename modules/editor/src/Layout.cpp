@@ -16,6 +16,8 @@
 
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
+#include <sonnet/editor/WindowState.h>
+#include <sonnet/ui/Theme.h>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -513,6 +515,32 @@ bool setAsideBadLayout(const std::filesystem::path &file) {
   SONNET_LOG_WARN("{} is not a usable layout ({}); the default layout is used and the file is kept as {}",
                   file.filename().string(), *problem, kept.filename().string());
   return true;
+}
+
+BuiltinSplits builtinSplits(BuiltinLayout layout, glm::vec2 window, glm::vec2 work, float fontSize) {
+  const BuiltinSplits fractions = layout == BuiltinLayout::Play
+                                      ? BuiltinSplits{.bottom = 0.0f, .left = 0.14f, .right = 0.16f}
+                                      : BuiltinSplits{.bottom = 0.22f, .left = 0.18f, .right = 0.26f};
+  if (!(work.x > 0.0f) || !(work.y > 0.0f) || !(fontSize > 0.0f)) {
+    return fractions; // a minimized window: nothing to measure
+  }
+  // The work area the layout is drawn for, in em: the reference window less what this window has above its work area
+  // (the menu bar), which is text and scales with it.
+  const glm::vec2 workEm = work / fontSize;
+  const glm::vec2 referenceEm = glm::vec2{DefaultWindowSize} / ui::Theme{}.textSize - (window - work) / fontSize;
+  constexpr float maxPanels = 0.6f; // the centre keeps at least 40 % of each axis
+
+  // Shares of the work area's width and height, each at least what it is at the reference size.
+  const float bottom = std::min(std::max(fractions.bottom, fractions.bottom * referenceEm.y / workEm.y), maxPanels);
+  float left = std::max(fractions.left, fractions.left * referenceEm.x / workEm.x);
+  const float rightShare = fractions.right * (1.0f - fractions.left); // of the whole width
+  float right = std::max(rightShare, rightShare * referenceEm.x / workEm.x);
+  if (left + right > maxPanels) {
+    const float fit = maxPanels / (left + right);
+    left *= fit;
+    right *= fit;
+  }
+  return {.bottom = bottom, .left = left, .right = right / (1.0f - left)};
 }
 
 std::string scaleLayoutIni(std::string_view ini, float width, float height) {

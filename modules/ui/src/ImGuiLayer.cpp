@@ -155,6 +155,9 @@ ImGuiLayer::~ImGuiLayer() {
   if (m_backend->context != nullptr) {
     ImGui::DestroyContext(m_backend->context);
   }
+  // The theme and the scale are the process's, set for this layer's lifetime: what comes after starts from defaults.
+  setCurrentTheme(Theme{});
+  setCurrentScale(1.0f);
 }
 
 void ImGuiLayer::processEvent(const SDL_Event &event) {

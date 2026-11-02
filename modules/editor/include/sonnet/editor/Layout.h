@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sonnet/core/Math.h>
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -38,6 +40,21 @@ enum class BuiltinLayout : std::uint8_t {
 // case-insensitive file system).
 [[nodiscard]] std::optional<BuiltinLayout> builtinLayout(std::string_view name) noexcept;
 [[nodiscard]] ViewState builtinViewState(BuiltinLayout layout) noexcept;
+
+// Where a built-in layout splits its dock tree, as the fractions DockBuilderSplitNode takes: the bottom panel's share
+// of the work area's height (0 when the layout has none), the left panel's share of its width and the right panel's
+// share of what the left one leaves.
+struct BuiltinSplits {
+  float bottom{0.0f};
+  float left{0.0f};
+  float right{0.0f};
+};
+
+// The splits of `layout` in a main window of `window` pixels whose work area (the window less its menu bar) is `work`,
+// with text of `fontSize` pixels. The layouts are drawn for DefaultWindowSize at the theme's text size: from there up
+// they are fixed fractions; below it each side panel keeps the width it has there, and the bottom panel its height, in
+// font units, and the centre gives up the difference down to 40 % of each axis.
+[[nodiscard]] BuiltinSplits builtinSplits(BuiltinLayout layout, glm::vec2 window, glm::vec2 work, float fontSize);
 
 // A preset name as a file name: letters, digits, space, '-' and '_' are kept, anything else
 // becomes '_', and the edges are trimmed. Empty when nothing usable is left.
