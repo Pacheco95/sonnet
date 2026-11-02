@@ -78,7 +78,7 @@ bool stateButton(const char *label, ButtonState state) {
                          : state == ButtonState::Paused ? &theme.paused
                                                         : nullptr;
   const ButtonColour pushed{colour};
-  return ImGui::SmallButton(label);
+  return ImGui::Button(label);
 }
 
 void statusText(Status status, std::string_view message, bool wrap) {

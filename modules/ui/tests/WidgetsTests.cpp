@@ -293,16 +293,17 @@ TEST_CASE("state buttons take the colour of their state from the theme", "[ui][w
   CHECK(drewColour(ui::toU32(theme.stop)));
   HeadlessImGui::frame([] { (void)ui::stateButton("  Resume  ", ui::ButtonState::Paused); });
   CHECK(drewColour(ui::toU32(theme.paused)));
-  // A state button is a small one: no vertical frame padding, so it is shorter than a button.
-  float small = 0.0f;
+  // A state button has a button's frame padding, so it is as tall as a button, and as the menu bar it sits on.
+  float state = 0.0f;
   float normal = 0.0f;
   HeadlessImGui::frame([&] {
     (void)ui::stateButton("Pause", ui::ButtonState::Normal);
-    small = ImGui::GetItemRectSize().y;
+    state = ImGui::GetItemRectSize().y;
     ImGui::Button("Button");
     normal = ImGui::GetItemRectSize().y;
   });
-  CHECK(small < normal);
+  CHECK(state == normal);
+  CHECK(state == ImGui::GetFontSize() + 2.0f * ImGui::GetStyle().FramePadding.y);
 }
 
 TEST_CASE("status text is drawn in the colour of its status", "[ui][widgets]") {
