@@ -1,5 +1,7 @@
 #include <sonnet/ui/Widgets.h>
 
+#include <algorithm>
+
 namespace sonnet::ui {
 
 namespace {
@@ -117,12 +119,13 @@ ImVec2 overlayInset() {
   return ImVec2{inset, inset};
 }
 
-bool beginOverlay(const char *id) {
+bool beginOverlay(const char *id, ImVec2 maxSize) {
   ImGui::PushStyleColor(ImGuiCol_ChildBg, currentTheme().overlay);
+  ImGui::SetNextWindowSizeConstraints(ImVec2{0.0f, 0.0f}, ImVec2{std::max(maxSize.x, 0.0f), std::max(maxSize.y, 0.0f)});
   return ImGui::BeginChild(id, ImVec2{0.0f, 0.0f},
                            ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY |
                                ImGuiChildFlags_AlwaysUseWindowPadding,
-                           ImGuiWindowFlags_NoInputs);
+                           ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoScrollbar);
 }
 
 void endOverlay() {
@@ -130,7 +133,7 @@ void endOverlay() {
   ImGui::PopStyleColor();
 }
 
-void overlayLabel(ImDrawList &drawList, ImVec2 areaMin, ImVec2 areaSize, const char *text) {
+ScreenRect overlayLabel(ImDrawList &drawList, ImVec2 areaMin, ImVec2 areaSize, const char *text) {
   const Theme &theme = currentTheme();
   const float fontSize = ImGui::GetFontSize();
   const ImVec2 textSize = ImGui::CalcTextSize(text);
@@ -142,6 +145,7 @@ void overlayLabel(ImDrawList &drawList, ImVec2 areaMin, ImVec2 areaSize, const c
   drawList.AddRectFilled(min, max, toU32(theme.label), fontSize * 0.2f);
   drawList.AddText(ImVec2{min.x + padding.x, min.y + padding.y}, toU32(theme.labelText), text);
   drawList.PopClipRect();
+  return ScreenRect{min, max};
 }
 
 } // namespace sonnet::ui
