@@ -138,16 +138,22 @@ struct Fixture {
   }
 };
 
+// Where the captures below write their relative outputs. The player resolves them under its
+// preferences directory; the tests use the per-process temporary directory instead, so a run leaves
+// the user's data directory alone and two runs at once do not share files (issue #405).
+[[nodiscard]] std::filesystem::path captureDirectory() {
+  return std::filesystem::temp_directory_path() / "runtime_tests";
+}
+
 // The player's capture flags, parsed as the player parses them, with the output resolved as it
-// resolves it: under the preferences directory.
-[[nodiscard]] runtime::CaptureOptions playerCapture(platform::Platform &platform,
-                                                    std::initializer_list<std::string_view> flags) {
+// resolves it, under captureDirectory() rather than the preferences directory.
+[[nodiscard]] runtime::CaptureOptions playerCapture(std::initializer_list<std::string_view> flags) {
   const std::vector<std::string_view> args{flags};
   const auto line = runtime::parseCommandLine(args, runtime::CaptureApplication::Player);
   REQUIRE(line.has_value());
   REQUIRE(line->capture.has_value());
   runtime::CaptureOptions options = *line->capture;
-  runtime::resolveOutputs(options, platform.prefPath("sonnet", "runtime_tests"));
+  runtime::resolveOutputs(options, captureDirectory());
   return options;
 }
 
@@ -200,7 +206,7 @@ TEST_CASE("the game UI is drawn over the scene and in the screenshot", "[runtime
                          .offsetMax = {100.0f, 100.0f}});
   box.set<gui::GuiImage>({.tint = {1.0f, 0.0f, 0.0f, 1.0f}});
 
-  const std::filesystem::path written = fixture.platform.prefPath("sonnet", "runtime_tests") / "shots" / "gui.png";
+  const std::filesystem::path written = captureDirectory() / "shots" / "gui.png";
   std::filesystem::remove(written);
   game.requestScreenshot(written);
   fixture.frame(game);
@@ -447,10 +453,9 @@ TEST_CASE("a player's capture run writes the scene under the preferences directo
   if (project.empty()) {
     SKIP("the basic sample was not found in a checkout above the test binary");
   }
-  const runtime::CaptureOptions options =
-      playerCapture(fixture.platform, {"--play", "0.25", "--shading-term", "albedo", "--settle-frames", "2",
-                                       "--screenshot", "shots/albedo.png"});
-  const std::filesystem::path written = fixture.platform.prefPath("sonnet", "runtime_tests") / "shots" / "albedo.png";
+  const runtime::CaptureOptions options = playerCapture(
+      {"--play", "0.25", "--shading-term", "albedo", "--settle-frames", "2", "--screenshot", "shots/albedo.png"});
+  const std::filesystem::path written = captureDirectory() / "shots" / "albedo.png";
   REQUIRE(options.viewport == written);
   std::filesystem::remove(written);
 
@@ -488,10 +493,10 @@ TEST_CASE("a capture with --render-size draws and writes at that size, not the w
   if (project.empty()) {
     SKIP("the basic sample was not found in a checkout above the test binary");
   }
-  const runtime::CaptureOptions options = playerCapture(
-      fixture.platform, {"--settle-frames", "2", "--render-size", "96x64", "--screenshot", "shots/sized.png"});
+  const runtime::CaptureOptions options =
+      playerCapture({"--settle-frames", "2", "--render-size", "96x64", "--screenshot", "shots/sized.png"});
   REQUIRE(options.renderSize == glm::uvec2{96, 64});
-  const std::filesystem::path written = fixture.platform.prefPath("sonnet", "runtime_tests") / "shots" / "sized.png";
+  const std::filesystem::path written = captureDirectory() / "shots" / "sized.png";
   std::filesystem::remove(written);
   {
     runtime::GameDesc desc = fixture.desc();
@@ -538,8 +543,8 @@ TEST_CASE("--scene opens another of a bundle's scenes for the capture", "[runtim
       });
     };
     REQUIRE_FALSE(hasBall()); // the start scene is the main one
-    runtime::CaptureRun run{playerCapture(fixture.platform, {"--scene", "scenes/playground.scene.json",
-                                                             "--settle-frames", "1", "--screenshot", shot.string()})};
+    runtime::CaptureRun run{playerCapture(
+        {"--scene", "scenes/playground.scene.json", "--settle-frames", "1", "--screenshot", shot.string()})};
     REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
     REQUIRE(hasBall());
     REQUIRE_FALSE(game.world().isPlaying()); // no --play: the scene as it loads, as in the editor
@@ -550,8 +555,8 @@ TEST_CASE("--scene opens another of a bundle's scenes for the capture", "[runtim
   {
     runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
     REQUIRE(game.open(out / "game.sbundle").has_value());
-    runtime::CaptureRun run{playerCapture(
-        fixture.platform, {"--scene", "scenes/nowhere.scene.json", "--screenshot", (out / "no.png").string()})};
+    runtime::CaptureRun run{
+        playerCapture({"--scene", "scenes/nowhere.scene.json", "--screenshot", (out / "no.png").string()})};
     REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Failed);
   }
   REQUIRE_FALSE(std::filesystem::exists(out / "no.png"));
@@ -892,8 +897,8 @@ struct ErrorImage {
   desc.renderer.antialiasing = mode;
   desc.renderer.bloom = true;
   desc.renderer.bloomLevels = 3;
-  const runtime::CaptureOptions options = playerCapture(
-      fixture.platform, {"--play", "1", "--settle-frames", "12", "--screenshot", std::format("golden/{}.png", name)});
+  const runtime::CaptureOptions options =
+      playerCapture({"--play", "1", "--settle-frames", "12", "--screenshot", std::format("golden/{}.png", name)});
   std::filesystem::remove(options.viewport);
   {
     runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
@@ -1171,8 +1176,7 @@ TEST_CASE("the basic sample's menu resolves to its golden image", "[runtime][cap
     SKIP("the basic sample and its golden images were not found in a checkout above the test binary");
   }
   const std::filesystem::path golden = directory / "menu.png";
-  const runtime::CaptureOptions options =
-      playerCapture(fixture.platform, {"--settle-frames", "6", "--screenshot", "golden/menu.png"});
+  const runtime::CaptureOptions options = playerCapture({"--settle-frames", "6", "--screenshot", "golden/menu.png"});
   std::filesystem::remove(options.viewport);
   runtime::GameDesc desc = fixture.desc();
   desc.renderer.antialiasing = renderer::AntiAliasing::None;
@@ -1274,8 +1278,7 @@ TEST_CASE("a script that sets a label's text changes the next captured frame", "
   REQUIRE(game.open(root).has_value());
 
   const auto shot = [&](std::string_view name) {
-    const runtime::CaptureOptions options =
-        playerCapture(fixture.platform, {"--settle-frames", "1", "--screenshot", name});
+    const runtime::CaptureOptions options = playerCapture({"--settle-frames", "1", "--screenshot", name});
     runtime::CaptureRun run{options};
     REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
     return readPng(options.viewport);
