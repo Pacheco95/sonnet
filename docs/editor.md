@@ -43,7 +43,7 @@ Per frame, in this order:
 
 The 3D debug lines (camera, light and collider outlines) keep their own colours.
 
-The widths the widgets draw with are tokens too: `dialogButtonWidth` (120) and `dialogButtonWideWidth` (200), `propertyLabelWidth` (90), `propertyRevertWidth` (50) and `overlayInset` (8). No `ImGuiStyle` field holds them, so a widget multiplies one by the display scale with `ui::scaled`, which reads `ui::currentScale()`, the ui module's own copy of the scale beside `currentTheme()` (not `ImGuiStyle::_MainScale`, a field Dear ImGui marks as not for use).
+The widths the widgets draw with are tokens too: `dialogButtonWidth` (120) and `dialogButtonWideWidth` (200), `propertyLabelWidth` (90), `propertyRevertWidth` (50) and `overlayInset` (8). No `ImGuiStyle` field holds them, so a widget multiplies one by the display scale with `ui::scaled`, which reads `ui::currentScale()`, the ui module's own copy of the scale beside `currentTheme()` (not `ImGuiStyle::_MainScale`, a field Dear ImGui marks as not for use). Both are process-wide: `ImGuiLayer` sets them for its lifetime and puts the default theme and scale 1 back when it is destroyed, so nothing created after it inherits them.
 
 ### Display scale
 

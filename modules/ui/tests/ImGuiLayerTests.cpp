@@ -267,6 +267,21 @@ TEST_CASE("the style is derived again only when the display scale changes", "[ui
   CHECK(ui::currentScale() == 0.5f);
 }
 
+TEST_CASE("a destroyed layer leaves the default theme and scale behind", "[ui][gpu][scale]") {
+  Fixture fixture;
+  {
+    ui::ImGuiLayerDesc desc = fixture.layerDesc();
+    desc.displayScale = [] { return 2.0f; };
+    desc.theme.danger = {1.0f, 0.0f, 0.0f, 1.0f};
+    ui::ImGuiLayer layer{desc};
+    frame(layer);
+    REQUIRE(ui::currentScale() == 2.0f);
+    REQUIRE(ui::currentTheme().danger.y == 0.0f);
+  }
+  CHECK(ui::currentScale() == 1.0f);
+  CHECK(ui::currentTheme().danger.y == ui::Theme{}.danger.y);
+}
+
 TEST_CASE("a change of the display scale resizes the windows by the ratio", "[ui][gpu][scale]") {
   Fixture fixture;
   float scale = 1.0f;
