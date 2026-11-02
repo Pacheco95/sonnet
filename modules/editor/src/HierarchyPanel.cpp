@@ -132,10 +132,14 @@ void HierarchyPanel::draw(bool &open) {
     drawBackgroundMenu();
     ImGui::EndPopup();
   }
-  ImGui::SetNextItemWidth(ui::em(11.5f));
+  // The name filter takes what the type combo leaves of the row, so the combo stays whole at the built-in
+  // layouts' widths; a panel narrowed below that cuts the combo rather than the filter's last few em.
+  const float kindWidth = ui::em(9.25f);
+  const float rowWidth = ImGui::GetContentRegionAvail().x;
+  ImGui::SetNextItemWidth(std::max(rowWidth - kindWidth - ImGui::GetStyle().ItemSpacing.x, ui::em(3.0f)));
   ImGui::InputTextWithHint("##filter", "filter", &m_filter);
   ImGui::SameLine();
-  typeFilterCombo("##kind", ui::em(9.25f), kindNames(), m_kinds);
+  typeFilterCombo("##kind", kindWidth, kindNames(), m_kinds);
   for (const flecs::entity root : m_world.roots()) {
     if (!root.has<world::EditorOnly>() && (!filtering() || subtreeMatches(root))) {
       drawNode(root);
