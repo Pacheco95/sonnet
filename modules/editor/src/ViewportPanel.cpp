@@ -17,6 +17,12 @@ constexpr float MinFocusPitch = glm::radians(-15.0f);
 
 } // namespace
 
+glm::uvec2 imagePixelSize(ImVec2 size) {
+  const ImVec2 scale = ImGui::GetWindowViewport()->FramebufferScale;
+  return {static_cast<unsigned>(std::lround(std::max(size.x * scale.x, 0.0f))),
+          static_cast<unsigned>(std::lround(std::max(size.y * scale.y, 0.0f)))};
+}
+
 ViewportPanel::ViewportPanel(rhi::IDevice &device, ui::ImGuiLayer &imgui)
     : m_imgui(imgui), m_target(device, "viewport") {
 }
@@ -58,9 +64,7 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
     header();
   }
   const ImVec2 available = ImGui::GetContentRegionAvail();
-  const glm::uvec2 size{static_cast<unsigned>(std::max(available.x, 0.0f)),
-                        static_cast<unsigned>(std::max(available.y, 0.0f))};
-  resizeTarget(size);
+  resizeTarget(imagePixelSize(available));
 
   const ImVec2 origin = ImGui::GetCursorScreenPos();
   if (m_target.isValid()) {

@@ -186,7 +186,7 @@ The viewport at 1:1 on Retina, the scene stepped and the gizmo sharp:
 | Found | Where | State |
 |---|---|---|
 | A `layout.ini` saved at one scale opens cramped at another | X11, 2 | Filed, [#420](https://github.com/Pacheco95/sonnet/issues/420) |
-| The viewport renders at half resolution at pixel density 2 | Wayland at 200 %, macOS Retina | Filed, [#422](https://github.com/Pacheco95/sonnet/issues/422) |
+| The viewport renders at half resolution at pixel density 2 | Wayland at 200 %, macOS Retina | Fixed, [#422](https://github.com/Pacheco95/sonnet/issues/422) |
 | A maximized window keeps its old frame after a scale change | Windows, 200 → 100 % live | Filed, [#423](https://github.com/Pacheco95/sonnet/issues/423) |
 | Close buttons and outlines lost at a fractional scale (scale read as 0.99986) | Wayland, 150 % | Fixed in this PR: the scale is rounded and clamped to 1 to 4 |
 

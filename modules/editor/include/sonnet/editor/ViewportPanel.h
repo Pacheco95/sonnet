@@ -14,7 +14,8 @@
 
 namespace sonnet::editor {
 
-// What happened over the viewport image this frame, in screen pixels, for the gizmo and picking.
+// What happened over the viewport image this frame, in Dear ImGui's window units, for the gizmo and picking. The render
+// target behind the image is in pixels: imagePixelSize of `size`.
 struct ViewportInput {
   bool visible{false};
   bool hovered{false};
@@ -34,6 +35,12 @@ struct ViewportInput {
 // plane; Alt with the left button orbits the camera around the pivot: the point the last focus framed, or else a point
 // in front of the camera at the distance that focus used. The pivot is kept until the next focus or until WASD moves
 // the camera.
+// The pixels an image of `size` window units covers in the current Dear ImGui window: the size times its viewport's
+// framebuffer scale, which the SDL3 backend sets from the window's pixel density (2 on a Retina display or a 200 %
+// Wayland one, 1 on X11 and Windows). The viewport and the Game view size their targets with it, so the scene is
+// rendered at the panel's full resolution and drawn at its size in window units.
+[[nodiscard]] glm::uvec2 imagePixelSize(ImVec2 size);
+
 class ViewportPanel {
 public:
   // Everything about where the viewport looks from; a scene tab keeps its own.
@@ -83,7 +90,7 @@ public:
   void oppositeView();
   void toggleProjection();
   void drawViewMenu();
-  // The pixel of the render target under a screen position.
+  // The pixel of the render target under a screen position, in window units.
   [[nodiscard]] glm::uvec2 targetPixel(glm::vec2 screen) const;
 
   [[nodiscard]] renderer::RenderTarget &target() noexcept {

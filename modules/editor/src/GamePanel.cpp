@@ -1,7 +1,5 @@
 #include <sonnet/editor/GamePanel.h>
 
-#include <algorithm>
-
 namespace sonnet::editor {
 
 GamePanel::GamePanel(rhi::IDevice &device, ui::ImGuiLayer &imgui) : m_imgui(imgui), m_target(device, "game view") {
@@ -40,8 +38,7 @@ void GamePanel::draw(bool &open, const std::function<void(const ViewportInput &)
   }
 
   const ImVec2 available = ImGui::GetContentRegionAvail();
-  resizeTarget(
-      {static_cast<unsigned>(std::max(available.x, 0.0f)), static_cast<unsigned>(std::max(available.y, 0.0f))});
+  resizeTarget(imagePixelSize(available));
   const ImVec2 origin = ImGui::GetCursorScreenPos();
   if (m_target.isValid()) {
     ImGui::Image(m_texture, available);
