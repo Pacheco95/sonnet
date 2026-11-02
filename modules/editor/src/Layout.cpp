@@ -90,13 +90,19 @@ std::optional<std::string_view> viewValue(std::string_view ini, std::string_view
   if (section == std::string_view::npos) {
     return std::nullopt;
   }
-  const std::string line = std::format("\n{}=", key);
-  const std::size_t found = ini.find(line, section);
-  if (found == std::string_view::npos || found > ini.find("\n[", section)) {
-    return std::nullopt;
+  // The section's lines, after its header and up to the next section.
+  for (std::size_t position = ini.find('\n', section); position != std::string_view::npos;) {
+    const std::string_view rest = ini.substr(position + 1);
+    const std::string_view line = rest.substr(0, rest.find('\n'));
+    if (line.starts_with('[')) {
+      break;
+    }
+    if (line.size() > key.size() && line.starts_with(key) && line[key.size()] == '=') {
+      return line.substr(key.size() + 1);
+    }
+    position = ini.find('\n', position + 1);
   }
-  const std::string_view value = ini.substr(found + line.size());
-  return value.substr(0, value.find('\n'));
+  return std::nullopt;
 }
 
 std::optional<std::pair<int, int>> recordedDockSize(std::string_view ini) noexcept {
