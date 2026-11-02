@@ -1,6 +1,6 @@
 # The themed editor at each display scale
 
-[Issue 392](https://github.com/Pacheco95/sonnet/issues/392), the last check of [ADR-0036](../decisions/0036-dear-imgui-stays-the-editor-ui.md): the finished editor (the [Graphite](editor-theme.md) theme, the scale-derived style of #390, the first window and layouts of #410) at the scales it supports, on the platforms it ships on. Status: Linux checked on 2026-11-02 at `fea087e`; Windows and macOS are with device agents ([#418](https://github.com/Pacheco95/sonnet/issues/418), [#419](https://github.com/Pacheco95/sonnet/issues/419)) and **not checked** yet.
+[Issue 392](https://github.com/Pacheco95/sonnet/issues/392), the last check of [ADR-0036](../decisions/0036-dear-imgui-stays-the-editor-ui.md): the finished editor (the [Graphite](editor-theme.md) theme, the scale-derived style of #390, the first window and layouts of #410) at the scales it supports, on the platforms it ships on. Status: Linux checked on 2026-11-02 at `fea087e`, with the owner switching GNOME's scale for the Wayland runs; Windows and macOS are with device agents ([#418](https://github.com/Pacheco95/sonnet/issues/418), [#419](https://github.com/Pacheco95/sonnet/issues/419)) and **not checked** yet.
 
 How the scale is chosen and what follows it is in [editor.md](../editor.md#display-scale). In short, the editor's scale is SDL's display scale divided by the window's pixel density: the desktop scale on X11 and Windows, 1 on a Retina or Wayland window, which the compositor scales.
 
@@ -90,19 +90,59 @@ The dialog and the grid at 1 are [the #391 captures](editor-theme.md#details-at-
 
 ## Linux, native Wayland
 
-`SDL_VIDEODRIVER=wayland`, the same captures' `basic` run. GNOME's monitor scale is 100 % here.
+`SDL_VIDEODRIVER=wayland`. The owner set GNOME's monitor scale (Settings > Displays) to 100 %, then 200 %, then 150 % with fractional scaling on. One editor stayed open across both switches (on a scratch copy of the basic sample, screenshots through the desktop portal), and the four captures ran as fresh processes at 200 % and 150 %. Wayland reports the monitor scale as pixel density, so the editor's scale should stay 1 and the layout should keep its logical size, drawn with more pixels. The only warning in every run is the window icon (`xdg_toplevel_icon_v1` is not supported by GNOME 46), which is unrelated.
 
-| Scale | Image | Result |
+| Monitor scale | Image | Result |
 |---|---|---|
-| 1 (monitor at 100 %) | 1600x900 | Passed. The scale logged is 1 and the capture matches X11 at 1. The only warning is the window icon (`xdg_toplevel_icon_v1` is not supported by GNOME 46), which is unrelated. |
-| Monitor at 125 % to 200 % | | **Not checked.** It needs the desktop's own scale changed, and a nested or headless `gnome-shell` would compete with the running session's shell. The expected result is the same layout as at 100 %, drawn at the monitor's density. |
+| 100 % | 1600x900 | Passed. Scale 1, matches X11 at 1. |
+| 200 %, switched live | 2428x1376 | Passed for the UI. With no restart, the swapchain was rebuilt at twice the density, the scale stayed 1 and the editor redrew sharp with the same layout; GNOME shrank the window to fit the 1280x720 logical desktop. |
+| 200 %, fresh captures | 2428x1376 | Passed for the UI: basic, dialog, grid and showcase laid out as at 1 in a window of about 1214x688 logical, text and icons sharp. **Defect:** the viewport's scene is rendered at half resolution and stretched (below). |
+| 150 %, switched live | 2394x1347 | **Defect, fixed in this PR:** the editor's scale became 0.99986, not 1, and every close button and 1 px outline disappeared (below). |
+| 150 %, fresh captures | 2455x1389 | Passed, by luck: the scale read 0.99986 and then 1.00012 as the window settled, and at 1.00012 nothing truncates. |
+
+At 100 %:
 
 ![Wayland at 100 %](editor-theme-scales/wayland-basic-100.jpg)
 
+At 200 %, the running editor after the switch, and the fresh captures:
+
+![Wayland, switched live to 200 %](editor-theme-scales/wayland-live-200.jpg)
+
+![Wayland at 200 %, basic](editor-theme-scales/wayland-basic-200.jpg)
+
+![Wayland at 200 %, save-layout dialog](editor-theme-scales/wayland-basic-dialog-200.jpg)
+
+![Wayland at 200 %, Assets grid](editor-theme-scales/wayland-basic-grid-200.jpg)
+
+![Wayland at 200 %, showcase](editor-theme-scales/wayland-showcase-200.jpg)
+
+At 150 %, a fresh capture:
+
+![Wayland at 150 %, basic](editor-theme-scales/wayland-basic-150.jpg)
+
+### The viewport at half resolution (filed, #422)
+
+The viewport's render target is the panel's size in Dear ImGui's units, not in pixels: at 200 % the panel is about 1164x836 pixels and the log says `render target "viewport" 582x418`. The scene and the selection outline are blocky, while the gizmo and the UI, which Dear ImGui draws at the framebuffer's density, are sharp. On X11 at 2 (density 1) the target matches the panel and the view is sharp. Every Retina Mac is expected to show the same. Filed as [#422](https://github.com/Pacheco95/sonnet/issues/422). The viewport at 1:1, Wayland at 200 % and X11 at 2:
+
+![Viewport, Wayland at 200 %](editor-theme-scales/wayland-viewport-200.png)
+
+![Viewport, X11 at 2](editor-theme-scales/x11-viewport-200.png)
+
+### Close buttons and outlines lost at 150 % (fixed)
+
+A fractional Wayland window's pixel density comes from whole pixel sizes, so SDL's display scale over it lands near 1 instead of on it: 0.99986, then 1.00012 as the window's size changed. Below 1, `ScaleAllSizes` truncates every 1 px border to 0, and Dear ImGui's `CloseButton` draws its cross `(int)_MainScale` pixels thick, which is 0. The running editor lost every close button and every field and button outline, and its paddings shrank by a pixel. The menu bar and first row, live at 0.99986 and from a fresh capture at 1.00012:
+
+![Live at 0.99986: no close buttons or outlines](editor-theme-scales/wayland-live-150-top.png)
+
+![Capture at 1.00012](editor-theme-scales/wayland-capture-150-top.png)
+
+`ImGuiLayer` now rounds the reading to a whole percentage, so both readings are 1 and a resize no longer rebuilds the style, and clamps the scale to 1 to 4 instead of 0.5 to 4: no desktop reports a scale below 1, and Dear ImGui cannot draw the theme there ([Display scale](../editor.md#display-scale)). `ui_tests` checks both readings and a value below 1. The fix was not run live at 150 % again.
+
 ## Not checked on Linux
 
-- **A change of scale while running.** The machine has one monitor, and on X11 the scaling factor is fixed for the process. Only `ui_tests` (the layer's scale read replaced) exercises a change of scale while running.
+- **A change of scale while running on X11.** The scaling factor is fixed for the process. On native Wayland the switches above changed the density, not the editor's scale; `ui_tests` (the layer's scale read replaced) exercises a change of the scale itself.
 - **A panel undocked to a monitor of another scale.** One monitor.
+- **Wayland at 125 % and 175 %.**
 
 ## Windows
 
@@ -117,5 +157,7 @@ The dialog and the grid at 1 are [the #391 captures](editor-theme.md#details-at-
 | Found | Where | State |
 |---|---|---|
 | A `layout.ini` saved at one scale opens cramped at another | X11, 2 | Filed, [#420](https://github.com/Pacheco95/sonnet/issues/420) |
+| The viewport renders at half resolution at pixel density 2 | Wayland, 200 % (and expected on Retina) | Filed, [#422](https://github.com/Pacheco95/sonnet/issues/422) |
+| Close buttons and outlines lost at a fractional scale (scale read as 0.99986) | Wayland, 150 % | Fixed in this PR: the scale is rounded and clamped to 1 to 4 |
 
 Nothing else was wrong at the scales checked.
