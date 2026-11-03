@@ -1,0 +1,18 @@
+SDL 3.4.16, mode placement
+[start] dpi 96 scale 1.00 sdl-maximized 1 zoomed 1 pixels 2560x1369
+    window (-8,-8)-(2568,1400)  expected (-8,-8)-(2568,1400)  OK
+[scale changed] dpi 144 scale 1.50 sdl-maximized 1 zoomed 1 pixels 2560x1334
+    window (-11,-11)-(2571,1379)  expected (-11,-11)-(2571,1379)  OK
+[placement] dpi 144 scale 1.50 sdl-maximized 1 zoomed 1 pixels 2560x1334
+    window (-11,-11)-(2571,1379)  expected (-11,-11)-(2571,1379)  OK
+[scale changed] dpi 192 scale 2.00 sdl-maximized 1 zoomed 1 pixels 2560x1299
+    window (-13,-13)-(2573,1357)  expected (-13,-13)-(2573,1357)  OK
+[placement] dpi 192 scale 2.00 sdl-maximized 1 zoomed 1 pixels 2560x1299
+    window (-13,-13)-(2573,1357)  expected (-13,-13)-(2573,1357)  OK
+[scale changed] dpi 96 scale 1.00 sdl-maximized 1 zoomed 1 pixels 2560x1347
+    window (-13,-13)-(2563,1373)  expected (-8,-8)-(2568,1400)  STALE
+[placement] dpi 96 scale 1.00 sdl-maximized 1 zoomed 1 pixels 2560x1347
+    window (-13,-13)-(2563,1373)  expected (-8,-8)-(2568,1400)  STALE
+[end] dpi 96 scale 1.00 sdl-maximized 1 zoomed 1 pixels 2560x1347
+    window (-13,-13)-(2563,1373)  expected (-8,-8)-(2568,1400)  STALE
+5 of 8 checks matched
