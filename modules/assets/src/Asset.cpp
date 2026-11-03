@@ -168,11 +168,52 @@ ModelSettings ModelSettings::fromJson(const json &object) {
       settings.lightScale = scale;
     }
   }
+  // {"Walk": [{"time": 0.4, "name": "footstep", "argument": "left"}]}: an event without a finite,
+  // non-negative time or a name is skipped, as the glTF's are.
+  if (object.is_object() && object.contains("animationEvents") && object["animationEvents"].is_object()) {
+    for (const auto &[clip, events] : object["animationEvents"].items()) {
+      if (!events.is_array()) {
+        continue;
+      }
+      for (const json &event : events) {
+        if (!event.is_object() || !event.contains("time") || !event["time"].is_number() || !event.contains("name") ||
+            !event["name"].is_string()) {
+          continue;
+        }
+        const auto time = event["time"].get<float>();
+        if (!std::isfinite(time) || time < 0.0f) {
+          continue;
+        }
+        const json *argument = event.contains("argument") ? &event["argument"] : nullptr;
+        settings.animationEvents[clip].push_back(
+            {.time = time,
+             .name = event["name"].get<std::string>(),
+             .argument = argument != nullptr && argument->is_string() ? argument->get<std::string>() : std::string{}});
+      }
+    }
+  }
   return settings;
 }
 
 json ModelSettings::toJson() const {
-  return json{{"lightScale", lightScale}};
+  json out{{"lightScale", lightScale}};
+  // Left out when empty, so a sidecar without events is written as it was before the field.
+  if (!animationEvents.empty()) {
+    json clips = json::object();
+    for (const auto &[clip, events] : animationEvents) {
+      json list = json::array();
+      for (const AnimationEvent &event : events) {
+        json entry{{"time", event.time}, {"name", event.name}};
+        if (!event.argument.empty()) {
+          entry["argument"] = event.argument;
+        }
+        list.push_back(std::move(entry));
+      }
+      clips[clip] = std::move(list);
+    }
+    out["animationEvents"] = std::move(clips);
+  }
+  return out;
 }
 
 FontSettings FontSettings::fromJson(const json &object) {

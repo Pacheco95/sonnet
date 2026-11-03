@@ -952,12 +952,33 @@ core::Result<GltfImport> importGltf(const std::filesystem::path &path, const Mod
     }
     if (const auto events = animationEvents.find(a); events != animationEvents.end()) {
       out.clip.events = events->second;
-      std::ranges::stable_sort(out.clip.events, {}, &AnimationEvent::time);
-      for (const AnimationEvent &event : out.clip.events) {
-        out.clip.duration = std::max(out.clip.duration, event.time);
+    }
+    // The sidecar's events: one with the same time and name as a glTF event replaces it, so its
+    // argument can change; the others are added (docs/assets.md, "Skins and animations").
+    if (const auto extra = settings.animationEvents.find(out.name); extra != settings.animationEvents.end()) {
+      for (const AnimationEvent &event : extra->second) {
+        const auto same = std::ranges::find_if(out.clip.events, [&](const AnimationEvent &existing) {
+          return existing.time == event.time && existing.name == event.name;
+        });
+        if (same != out.clip.events.end()) {
+          *same = event;
+        } else {
+          out.clip.events.push_back(event);
+        }
       }
     }
+    std::ranges::stable_sort(out.clip.events, {}, &AnimationEvent::time);
+    for (const AnimationEvent &event : out.clip.events) {
+      out.clip.duration = std::max(out.clip.duration, event.time);
+    }
     import.animations.push_back(std::move(out));
+  }
+  for (const auto &[clip, events] : settings.animationEvents) {
+    if (std::ranges::none_of(import.animations,
+                             [&](const GltfAnimation &animation) { return animation.name == clip; })) {
+      SONNET_LOG_WARN("{}: the sidecar has events for \"{}\", which is not an animation of the file", path.string(),
+                      clip);
+    }
   }
   SONNET_LOG_DEBUG("{}: {} meshes, {} materials, {} images, {} nodes, {} skins, {} animations", path.string(),
                    import.meshes.size(), import.materials.size(), import.images.size(), import.model.nodes.size(),

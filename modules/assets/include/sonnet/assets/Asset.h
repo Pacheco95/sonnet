@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sonnet/assets/Animation.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/Math.h>
 #include <sonnet/core/Uuid.h>
@@ -11,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -68,10 +70,12 @@ struct TextureSettings {
 // The import settings of a glTF file, kept in its sidecar. Every KHR_lights_punctual intensity is
 // multiplied by `lightScale` before anything else (docs/assets.md, "Skins and animations"). The
 // default undoes the 683 lm/W that Blender's exporter always applies, so its lights look as they
-// did in Blender; a file authored in true photometric units sets 1.
+// did in Blender; a file authored in true photometric units sets 1. `animationEvents` adds events to
+// the clips named by its keys, merged with the glTF's (docs/assets.md, "Skins and animations").
 struct ModelSettings {
   static constexpr float BlenderLightScale = 1.0f / 683.0f;
   float lightScale{BlenderLightScale};
+  std::map<std::string, std::vector<AnimationEvent>, std::less<>> animationEvents;
 
   [[nodiscard]] static ModelSettings fromJson(const nlohmann::json &json);
   [[nodiscard]] nlohmann::json toJson() const;
