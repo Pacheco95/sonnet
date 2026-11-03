@@ -367,7 +367,7 @@ TEST_CASE("every re-import of a model is reported once, loaded or not", "[assets
   REQUIRE(database.takeReimportedModels() == std::vector<core::Uuid>{uuid});
   REQUIRE(database.takeReimportedModels().empty());
 
-  REQUIRE(database.setModelSettings(uuid, ModelSettings{.lightScale = 0.5f}).has_value());
+  REQUIRE(database.setModelSettings(uuid, ModelSettings{.lightScale = 0.5f, .animationEvents = {}}).has_value());
   REQUIRE(database.takeReimportedModels() == std::vector<core::Uuid>{uuid});
 }
 
@@ -670,7 +670,7 @@ TEST_CASE("a model's light scale lives in its sidecar, and changing it re-import
   REQUIRE(lamp->nodes[0].light->range == Approx(89.2f).epsilon(0.001));
 
   // Setting the scale rewrites the sidecar and re-imports the hierarchy with the new lights.
-  REQUIRE(database.setModelSettings(lampUuid, ModelSettings{.lightScale = 1.0f}).has_value());
+  REQUIRE(database.setModelSettings(lampUuid, ModelSettings{.lightScale = 1.0f, .animationEvents = {}}).has_value());
   REQUIRE(sidecar()["settings"]["lightScale"].get<float>() == 1.0f);
   REQUIRE(database.modelSettings(lampUuid).lightScale == 1.0f);
   lamp = database.model(lampUuid);
@@ -680,6 +680,31 @@ TEST_CASE("a model's light scale lives in its sidecar, and changing it re-import
   // Only a model has these settings.
   const core::Uuid woodUuid = database.findByPath(fixture.root / "assets" / "wood.png")->uuid;
   REQUIRE_FALSE(database.setModelSettings(woodUuid, ModelSettings{}).has_value());
+}
+
+TEST_CASE("changing a model's sidecar events re-imports its clips with them", "[assets][database]") {
+  Fixture fixture;
+  test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
+  AssetDatabase database{fixture.renderer, fixture.jobs};
+  database.open(fixture.root, fixture.roots);
+  const core::Uuid rigUuid = byName(database, "rig", AssetType::Model)->uuid;
+  const core::Uuid bendUuid = byName(database, "Bend", AssetType::Animation)->uuid;
+  static_cast<void>(database.requestAnimation(bendUuid));
+  database.waitForLoads();
+  const AnimationClip *clip = database.animation(bendUuid);
+  REQUIRE(clip != nullptr);
+  REQUIRE(clip->events.empty());
+  const std::uint64_t revision = clip->revision;
+
+  ModelSettings settings = database.modelSettings(rigUuid);
+  settings.animationEvents["Bend"] = {{.time = 0.5f, .name = "creak", .argument = "low"}};
+  REQUIRE(database.setModelSettings(rigUuid, settings).has_value());
+  REQUIRE(database.modelSettings(rigUuid) == settings);
+  database.waitForLoads();
+  clip = database.animation(bendUuid);
+  REQUIRE(clip != nullptr);
+  REQUIRE(clip->revision != revision);
+  REQUIRE(clip->events == std::vector<AnimationEvent>{{.time = 0.5f, .name = "creak", .argument = "low"}});
 }
 
 TEST_CASE("a requested skin or clip brings its whole file with it", "[assets][database]") {

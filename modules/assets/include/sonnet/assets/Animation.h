@@ -56,6 +56,8 @@ struct AnimationEvent {
   float time{0.0f}; // seconds
   std::string name;
   std::string argument;
+
+  bool operator==(const AnimationEvent &) const = default;
 };
 
 struct AnimationClip {

@@ -797,7 +797,7 @@ TEST_CASE("a glTF node's punctual light imports with its colour, intensity, rang
   const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
   core::Log::addSink(sink);
   // In true photometric units: the file's intensities as they are.
-  const ModelSettings photometric{.lightScale = 1.0f};
+  const ModelSettings photometric{.lightScale = 1.0f, .animationEvents = {}};
   const auto imported = importGltf(directory / "lights.gltf", photometric);
   core::Log::removeSink(sink);
   REQUIRE(imported.has_value());
@@ -860,7 +860,7 @@ TEST_CASE("a glTF node's punctual light imports with its colour, intensity, rang
   }
 
   // Any other scale multiplies the same way.
-  const auto doubled = importGltf(directory / "lights.gltf", ModelSettings{.lightScale = 2.0f});
+  const auto doubled = importGltf(directory / "lights.gltf", ModelSettings{.lightScale = 2.0f, .animationEvents = {}});
   REQUIRE(doubled.has_value());
   REQUIRE(doubled->model.nodes[0].light->intensity == Approx(6.0f));
   REQUIRE(doubled->model.nodes[2].light->intensity == Approx(32.0f));
@@ -872,10 +872,68 @@ TEST_CASE("a model's light scale defaults to Blender's, read from the sidecar's 
   REQUIRE(ModelSettings{}.lightScale == Approx(1.0f / 683.0f));
   REQUIRE(ModelSettings::fromJson(nlohmann::json::object()) == ModelSettings{});
   REQUIRE(ModelSettings::fromJson(nlohmann::json{{"lightScale", 1}}).lightScale == 1.0f);
-  REQUIRE(ModelSettings::fromJson(ModelSettings{.lightScale = 0.25f}.toJson()).lightScale == 0.25f);
+  REQUIRE(ModelSettings::fromJson(ModelSettings{.lightScale = 0.25f, .animationEvents = {}}.toJson()).lightScale ==
+          0.25f);
   // Nothing that would invert or blow up every light.
   REQUIRE(ModelSettings::fromJson(nlohmann::json{{"lightScale", -1.0}}) == ModelSettings{});
   REQUIRE(ModelSettings::fromJson(nlohmann::json{{"lightScale", "bright"}}) == ModelSettings{});
+}
+
+TEST_CASE("a model's sidecar adds animation events, replacing a glTF event at the same time and name",
+          "[assets][gltf]") {
+  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_sidecar_events");
+  const std::filesystem::path file = directory / "rig.gltf";
+  test::writeSkinnedGltf(file);
+  // The file's own clip "Bend" gets two events in its extras.
+  auto document = nlohmann::json::parse(core::readFile(file).value());
+  document["animations"][0]["extras"]["events"] = nlohmann::json::array(
+      {{{"time", 0.5}, {"name", "step"}, {"argument", "left"}}, {{"time", 0.25}, {"name", "breath"}}});
+  REQUIRE(core::writeFile(file, document.dump()).has_value());
+
+  ModelSettings settings;
+  settings.animationEvents["Bend"] = {{.time = 0.5f, .name = "step", .argument = "right"}, // replaces the glTF's
+                                      {.time = 0.5f, .name = "creak", .argument = {}},     // same time, kept
+                                      {.time = 2.0f, .name = "end", .argument = "x"}};     // past the last key
+  settings.animationEvents["Missing"] = {{.time = 0.1f, .name = "lost", .argument = {}}};  // no such clip: ignored
+  const auto imported = importGltf(file, settings);
+  REQUIRE(imported.has_value());
+  const AnimationClip &clip = imported->animations[0].clip;
+  REQUIRE(clip.events == std::vector<AnimationEvent>{{.time = 0.25f, .name = "breath", .argument = {}},
+                                                     {.time = 0.5f, .name = "step", .argument = "right"},
+                                                     {.time = 0.5f, .name = "creak", .argument = {}},
+                                                     {.time = 2.0f, .name = "end", .argument = "x"}});
+  REQUIRE(clip.duration == Approx(2.0f)); // an event lengthens the clip as a glTF one does
+
+  // Without the sidecar's events the glTF's stay as they were.
+  const auto plain = importGltf(file);
+  REQUIRE(plain.has_value());
+  REQUIRE(plain->animations[0].clip.events ==
+          std::vector<AnimationEvent>{{.time = 0.25f, .name = "breath", .argument = {}},
+                                      {.time = 0.5f, .name = "step", .argument = "left"}});
+  std::filesystem::remove_all(directory);
+}
+
+TEST_CASE("a model's sidecar events read and write as JSON, and a sidecar without them is unchanged",
+          "[assets][gltf]") {
+  // A sidecar from before the field reads as the defaults and writes back the same JSON.
+  const nlohmann::json old{{"lightScale", 1.0}};
+  REQUIRE(ModelSettings::fromJson(old).animationEvents.empty());
+  REQUIRE(ModelSettings::fromJson(old).toJson() == old);
+
+  ModelSettings settings;
+  settings.animationEvents["Walk"] = {{.time = 0.4f, .name = "footstep", .argument = "left"},
+                                      {.time = 0.9f, .name = "footstep", .argument = {}}};
+  const nlohmann::json written = settings.toJson();
+  REQUIRE(written["animationEvents"]["Walk"][1] == nlohmann::json{{"time", 0.9f}, {"name", "footstep"}});
+  REQUIRE(ModelSettings::fromJson(written) == settings);
+
+  // An event without a usable time or name is skipped; a non-string argument is empty.
+  const auto read = ModelSettings::fromJson(nlohmann::json::parse(R"({"animationEvents": {
+      "Walk": [{"time": 0.1, "name": "ok", "argument": 3}, {"time": -1, "name": "early"}, {"time": "soon", "name": "x"},
+               {"time": 0.2}, 7],
+      "Run": "not a list"}})"));
+  REQUIRE(read.animationEvents.size() == 1);
+  REQUIRE(read.animationEvents.at("Walk") == std::vector<AnimationEvent>{{.time = 0.1f, .name = "ok", .argument = {}}});
 }
 
 namespace {

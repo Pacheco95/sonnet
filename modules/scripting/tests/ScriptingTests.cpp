@@ -947,6 +947,34 @@ TEST_CASE("an animation event reaches the scripts of its entity as onAnimationEv
   REQUIRE(std::ranges::count(fixture.trace(), "event Drum beat half") == 2); // the next lap
 }
 
+TEST_CASE("an animation event from the model's sidecar reaches the scripts like a glTF one", "[scripting][events]") {
+  // The same model without events in its extras; its sidecar names one instead.
+  std::string model = BeatModel;
+  const std::string extras = R"("extras":{"events":[{"time":0.5,"name":"beat","argument":"half"}]},)";
+  model.erase(model.find(extras), extras.size());
+  const std::string sidecar =
+      nlohmann::json{
+          {"uuid", core::Uuid::generate().toString()},
+          {"settings", {{"animationEvents", {{"Beat", {{{"time", 0.5}, {"name", "beat"}, {"argument", "meta"}}}}}}}}}
+          .dump();
+  Fixture fixture{{"beat.gltf", model}, {"beat.gltf.meta", sidecar}, {"beat.lua", BeatListener}};
+  const auto models = fixture.assets.assets(assets::AssetType::Model);
+  REQUIRE(models.size() == 1);
+  const assets::Model *loaded = fixture.assets.model(models[0]->uuid);
+  REQUIRE(loaded != nullptr);
+  const flecs::entity prefab = world::loadModelPrefab(fixture.world, *loaded, models[0]->uuid, "Beat");
+  static_cast<void>(fixture.assets.requestAnimation(prefab.get<world::Animator>().clip));
+  fixture.assets.waitForLoads();
+  const flecs::entity instance = fixture.world.instantiate(prefab, "Drum");
+  instance.set<scripting::Scripts>({.slots = {{.script = fixture.script("beat.lua")}}});
+
+  fixture.world.setPlaying(true);
+  fixture.run(20); // a third of a second: before the event
+  REQUIRE(std::ranges::none_of(fixture.trace(), [](const std::string &line) { return line.starts_with("event"); }));
+  fixture.run(20); // across half a second
+  REQUIRE(std::ranges::count(fixture.trace(), "event Drum beat meta") == 1);
+}
+
 namespace {
 
 constexpr const char *ButtonListener = R"lua(
