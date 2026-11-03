@@ -6,6 +6,8 @@
 #include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -138,9 +140,10 @@ void writeBasisuBoxGltf(const std::filesystem::path &gltf, const std::string &kt
 } // namespace sonnet::assets::test
 
 TEST_CASE("a glTF file imports its meshes, materials, images and node hierarchy", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf");
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(directory / "crate.gltf", "wood.png");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(directory / "crate.gltf", "wood.png");
 
   const auto imported = importGltf(directory / "crate.gltf");
   REQUIRE(imported.has_value());
@@ -179,14 +182,16 @@ TEST_CASE("a glTF file imports its meshes, materials, images and node hierarchy"
   REQUIRE(imported->meshIndices == std::vector<std::int32_t>{0});
 
   REQUIRE(!importGltf(directory / "missing.gltf").has_value());
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a transmissive glTF material imports its transmission and keeps its alpha", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_transmission");
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  REQUIRE(core::writeFile(directory / "mask.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(directory / "glass.gltf", "wood.png");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_transmission");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  REQUIRE(
+      core::writeFile(directory / "mask.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(directory / "glass.gltf", "wood.png");
   const auto bytes = core::readFile(directory / "glass.gltf");
   REQUIRE(bytes.has_value());
   nlohmann::json document =
@@ -257,13 +262,14 @@ TEST_CASE("a transmissive glTF material imports its transmission and keeps its a
   REQUIRE(opaque->materials[0].source.baseColor.a == Approx(0.8f));
   REQUIRE(opaque->materials[0].source.transmission == 0.0f);
   REQUIRE(opaque->materials[0].transmissionImage == -1);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF material's KHR_materials_emissive_strength scales its emissive", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_emissive_strength");
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(directory / "lamp.gltf", "wood.png");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_emissive_strength");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(directory / "lamp.gltf", "wood.png");
   const auto bytes = core::readFile(directory / "lamp.gltf");
   REQUIRE(bytes.has_value());
   nlohmann::json document =
@@ -280,13 +286,14 @@ TEST_CASE("a glTF material's KHR_materials_emissive_strength scales its emissive
   REQUIRE(emissive.r == Approx(4.0f));
   REQUIRE(emissive.g == Approx(2.0f));
   REQUIRE(emissive.b == Approx(0.0f));
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF material with KHR_materials_unlit imports unlit", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_unlit");
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(directory / "flat.gltf", "wood.png");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_unlit");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(directory / "flat.gltf", "wood.png");
   const auto bytes = core::readFile(directory / "flat.gltf");
   REQUIRE(bytes.has_value());
   nlohmann::json document =
@@ -310,13 +317,14 @@ TEST_CASE("a glTF material with KHR_materials_unlit imports unlit", "[assets][gl
   const auto lit = importGltf(directory / "flat.gltf");
   REQUIRE(lit.has_value());
   REQUIRE(!lit->materials[0].source.unlit);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF material's KHR_texture_transform imports per texture slot", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_texture_transform");
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(directory / "tiled.gltf", "wood.png");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_texture_transform");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(directory / "tiled.gltf", "wood.png");
   const auto bytes = core::readFile(directory / "tiled.gltf");
   REQUIRE(bytes.has_value());
   nlohmann::json document =
@@ -340,19 +348,20 @@ TEST_CASE("a glTF material's KHR_texture_transform imports per texture slot", "[
   REQUIRE(source.metallicRoughnessTransform == renderer::TextureTransform{});
   REQUIRE(source.occlusionTransform == renderer::TextureTransform{});
   REQUIRE(source.emissiveTransform == renderer::TextureTransform{});
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF texture's KHR_texture_basisu image imports as KTX2 in the slot's colour space", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_basisu");
-  const std::vector<std::byte> ktx2 = test::encodeBasisKtx2(); // linear
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_basisu");
+  const std::vector<std::byte> ktx2 = assets::test::encodeBasisKtx2(); // linear
   REQUIRE(core::writeFile(directory / "wood.ktx2", ktx2).has_value());
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
   rhi::DeviceInfo device;
   device.blockCompressionSupported = true;
 
   SECTION("the KTX2 image alone, which the file requires") {
-    test::writeBasisuBoxGltf(directory / "crate.gltf", "wood.ktx2", "");
+    assets::test::writeBasisuBoxGltf(directory / "crate.gltf", "wood.ktx2", "");
     const auto imported = importGltf(directory / "crate.gltf");
     REQUIRE(imported.has_value());
     REQUIRE(imported->materials[0].baseColorImage == 0);
@@ -381,7 +390,7 @@ TEST_CASE("a glTF texture's KHR_texture_basisu image imports as KTX2 in the slot
   }
 
   SECTION("the KTX2 image before the texture's own PNG, its fallback") {
-    test::writeBasisuBoxGltf(directory / "crate.gltf", "wood.ktx2", "wood.png");
+    assets::test::writeBasisuBoxGltf(directory / "crate.gltf", "wood.ktx2", "wood.png");
     const auto imported = importGltf(directory / "crate.gltf");
     REQUIRE(imported.has_value());
     REQUIRE(imported->materials[0].baseColorImage == 1);
@@ -393,19 +402,20 @@ TEST_CASE("a glTF texture's KHR_texture_basisu image imports as KTX2 in the slot
   }
 
   // Only Basis Universal is marked: an uncompressed KTX2 file names its colour space in its format.
-  const auto texture = importImage(test::encodePng({2, 2}, test::quadPixels()), TextureSettings{});
+  const auto texture = importImage(assets::test::encodePng({2, 2}, assets::test::quadPixels()), TextureSettings{});
   REQUIRE(texture.has_value());
   const auto uncompressed = cookKtx2(*texture, false);
   REQUIRE(uncompressed.has_value());
   REQUIRE(!markKtx2(*uncompressed, false).has_value());
-  REQUIRE(!markKtx2(test::encodePng({2, 2}, test::quadPixels()), true).has_value());
-  std::filesystem::remove_all(directory);
+  REQUIRE(!markKtx2(assets::test::encodePng({2, 2}, assets::test::quadPixels()), true).has_value());
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF primitive's TEXCOORD_1 imports, and each slot reads the set it names", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_second_uv_set");
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(directory / "baked.gltf", "wood.png");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_second_uv_set");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(directory / "baked.gltf", "wood.png");
   const auto bytes = core::readFile(directory / "baked.gltf");
   REQUIRE(bytes.has_value());
   nlohmann::json document =
@@ -449,19 +459,20 @@ TEST_CASE("a glTF primitive's TEXCOORD_1 imports, and each slot reads the set it
   REQUIRE(source.normalTransform.texCoord == 0);
 
   // Without the attribute, the second set is zeros.
-  test::writeBoxGltf(directory / "plain.gltf", "wood.png");
+  assets::test::writeBoxGltf(directory / "plain.gltf", "wood.png");
   const auto plain = importGltf(directory / "plain.gltf");
   REQUIRE(plain.has_value());
   for (const renderer::Vertex &vertex : plain->meshes[0].data.vertices) {
     REQUIRE(vertex.uv1 == glm::vec2{0.0f, 0.0f});
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF primitive's COLOR_0 imports as linear RGBA8, white where absent", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_vertex_colour");
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(directory / "plain.gltf", "wood.png");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_vertex_colour");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(directory / "plain.gltf", "wood.png");
   const auto bytes = core::readFile(directory / "plain.gltf");
   REQUIRE(bytes.has_value());
   const nlohmann::json base =
@@ -525,12 +536,12 @@ TEST_CASE("a glTF primitive's COLOR_0 imports as linear RGBA8, white where absen
       REQUIRE(vertex.color == 0xFFFFFFFFu);
     }
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF primitive quantized by KHR_mesh_quantization imports within quantization error", "[assets][gltf]") {
   using nlohmann::json;
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_quantized");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_quantized");
   // A tilted quad in floats, quantized the way gltfpack does: positions as int16 in a grid whose
   // scale and offset go to the node, normals and tangents as normalized int8, UVs as normalized
   // uint16. Each element is padded to four bytes, as the specification asks of vertex attributes.
@@ -632,13 +643,14 @@ TEST_CASE("a glTF primitive quantized by KHR_mesh_quantization imports within qu
     REQUIRE(glm::all(glm::lessThanEqual(glm::abs(vertices[i].tangent - tangent), glm::vec4{0.5f / 127.0f + 1e-6f})));
     REQUIRE(glm::all(glm::lessThanEqual(glm::abs(vertices[i].uv - uvs[i]), glm::vec2{0.5f / 65535.0f + 1e-6f})));
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF file names the extensions it uses that the importer does not read", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_extensions");
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(directory / "coated.gltf", "wood.png");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_extensions");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(directory / "coated.gltf", "wood.png");
   const auto bytes = core::readFile(directory / "coated.gltf");
   REQUIRE(bytes.has_value());
   nlohmann::json document =
@@ -681,12 +693,12 @@ TEST_CASE("a glTF file names the extensions it uses that the importer does not r
   const auto refusedGlb = importGltfStructure(directory / "coated.glb");
   REQUIRE(!refusedGlb.has_value());
   REQUIRE(refusedGlb.error().message.find("requires KHR_materials_clearcoat") != std::string::npos);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF file imports its skins, joint weights and animation clips by node path", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_skin");
-  test::writeSkinnedGltf(directory / "rig.gltf");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_skin");
+  assets::test::writeSkinnedGltf(directory / "rig.gltf");
   const auto imported = importGltf(directory / "rig.gltf");
   REQUIRE(imported.has_value());
 
@@ -718,11 +730,11 @@ TEST_CASE("a glTF file imports its skins, joint weights and animation clips by n
   REQUIRE(clip.channels[2].interpolation == Interpolation::CubicSpline);
   REQUIRE(clip.channels[2].values.size() ==
           6 * static_cast<std::size_t>(width(clip.channels[2]))); // three values for each of two keys
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF node's perspective camera imports with its FOV and near plane", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_camera");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_camera");
   const nlohmann::json document{
       {"asset", {{"version", "2.0"}}},
       {"scene", 0},
@@ -767,11 +779,11 @@ TEST_CASE("a glTF node's perspective camera imports with its FOV and near plane"
   REQUIRE(decoded->nodes[0].camera == nodes[0].camera);
   REQUIRE(decoded->nodes[1].camera == nodes[1].camera);
   REQUIRE(structure->model.nodes[1].camera == nodes[1].camera);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a glTF node's punctual light imports with its colour, intensity, range and cone", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_lights");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_lights");
   const nlohmann::json document{
       {"asset", {{"version", "2.0"}}},
       {"extensionsUsed", {"KHR_lights_punctual"}},
@@ -865,7 +877,7 @@ TEST_CASE("a glTF node's punctual light imports with its colour, intensity, rang
   REQUIRE(doubled->model.nodes[0].light->intensity == Approx(6.0f));
   REQUIRE(doubled->model.nodes[2].light->intensity == Approx(32.0f));
   REQUIRE(doubled->model.nodes[2].light->range == Approx(10.0f * std::sqrt(32.0f)));
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a model's light scale defaults to Blender's, read from the sidecar's settings", "[assets][gltf]") {
@@ -881,9 +893,9 @@ TEST_CASE("a model's light scale defaults to Blender's, read from the sidecar's 
 
 TEST_CASE("a model's sidecar adds animation events, replacing a glTF event at the same time and name",
           "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_sidecar_events");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_sidecar_events");
   const std::filesystem::path file = directory / "rig.gltf";
-  test::writeSkinnedGltf(file);
+  assets::test::writeSkinnedGltf(file);
   // The file's own clip "Bend" gets two events in its extras.
   auto document = nlohmann::json::parse(core::readFile(file).value());
   document["animations"][0]["extras"]["events"] = nlohmann::json::array(
@@ -910,7 +922,7 @@ TEST_CASE("a model's sidecar adds animation events, replacing a glTF event at th
   REQUIRE(plain->animations[0].clip.events ==
           std::vector<AnimationEvent>{{.time = 0.25f, .name = "breath", .argument = {}},
                                       {.time = 0.5f, .name = "step", .argument = "left"}});
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a model's sidecar events read and write as JSON, and a sidecar without them is unchanged",
@@ -946,7 +958,7 @@ constexpr const char *MorphModel =
 } // namespace
 
 TEST_CASE("a glTF file imports morph targets, their default weights and weight channels", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_morph");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_morph");
   REQUIRE(core::writeFile(directory / "face.gltf", std::as_bytes(std::span{MorphModel, std::strlen(MorphModel)}))
               .has_value());
   const auto imported = importGltf(directory / "face.gltf");
@@ -979,7 +991,7 @@ TEST_CASE("a glTF file imports morph targets, their default weights and weight c
   REQUIRE(decoded.has_value());
   REQUIRE(decoded->morphTargetCount == 1);
   REQUIRE(decoded->morphDeltas.size() == cooked.morphDeltas.size());
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 namespace {
@@ -1108,7 +1120,7 @@ void writeQuadGltf(const std::filesystem::path &gltf, IndexCompression indexMode
 } // namespace
 
 TEST_CASE("a glTF file's EXT_meshopt_compression geometry imports as its uncompressed source", "[assets][gltf]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_gltf_meshopt");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_gltf_meshopt");
   writeQuadGltf(directory / "plain.gltf", IndexCompression::None);
   const auto plain = importGltf(directory / "plain.gltf");
   REQUIRE(plain.has_value());
@@ -1149,14 +1161,15 @@ TEST_CASE("a glTF file's EXT_meshopt_compression geometry imports as its uncompr
   REQUIRE(!corrupt.has_value());
   REQUIRE(corrupt.error().message.find("buffer view 0: EXT_meshopt_compression data does not decode") !=
           std::string::npos);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("glTF imports each texture slot's wraps and all filter enums", "[assets][gltf][sampler]") {
-  const auto directory = test::freshDirectory("sonnet_gltf_samplers");
+  const auto directory = assets::test::freshDirectory("sonnet_gltf_samplers");
   const auto path = directory / "samplers.gltf";
-  REQUIRE(core::writeFile(directory / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-  test::writeBoxGltf(path, "wood.png");
+  REQUIRE(
+      core::writeFile(directory / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
+  assets::test::writeBoxGltf(path, "wood.png");
   const auto bytes = core::readFile(path).value();
   auto document = nlohmann::json::parse(reinterpret_cast<const char *>(bytes.data()),
                                         reinterpret_cast<const char *>(bytes.data() + bytes.size()));

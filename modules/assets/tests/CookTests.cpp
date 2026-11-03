@@ -10,6 +10,8 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -208,18 +210,20 @@ struct ProjectFixture {
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
   core::JobSystem jobs{{.workerCount = 2}};
-  std::filesystem::path root = test::freshDirectory("sonnet_assets_cook");
+  std::filesystem::path root = assets::test::freshDirectory("sonnet_assets_cook");
   Project project;
 
   ProjectFixture() {
     std::filesystem::create_directories(root / "assets" / "models");
     std::filesystem::create_directories(root / "scripts");
     std::filesystem::create_directories(root / "scenes");
-    REQUIRE(core::writeFile(root / "assets" / "models" / "wood.png", test::encodePng({2, 2}, test::quadPixels()))
+    REQUIRE(core::writeFile(root / "assets" / "models" / "wood.png",
+                            assets::test::encodePng({2, 2}, assets::test::quadPixels()))
                 .has_value());
-    test::writeBoxGltf(root / "assets" / "models" / "crate.gltf", "wood.png");
-    test::writeSkinnedGltf(root / "assets" / "models" / "reed.gltf");
-    REQUIRE(core::writeFile(root / "assets" / "sky.hdr", test::encodeHdr({4, 2}, std::vector<float>(4uz * 2 * 3, 0.5f)))
+    assets::test::writeBoxGltf(root / "assets" / "models" / "crate.gltf", "wood.png");
+    assets::test::writeSkinnedGltf(root / "assets" / "models" / "reed.gltf");
+    REQUIRE(core::writeFile(root / "assets" / "sky.hdr",
+                            assets::test::encodeHdr({4, 2}, std::vector<float>(4uz * 2 * 3, 0.5f)))
                 .has_value());
     MaterialSource painted;
     painted.baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
@@ -239,7 +243,7 @@ struct ProjectFixture {
     REQUIRE(project.save().has_value());
   }
   ~ProjectFixture() {
-    std::filesystem::remove_all(root);
+    sonnet::test::removeScratch(root);
   }
 };
 
@@ -369,7 +373,8 @@ TEST_CASE("a transmissive material cooks with its transmission slot and resolves
   ProjectFixture fixture;
   const std::filesystem::path out = fixture.root / "export";
   REQUIRE(
-      core::writeFile(fixture.root / "assets" / "mask.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+      core::writeFile(fixture.root / "assets" / "mask.png", assets::test::encodePng({2, 2}, assets::test::quadPixels()))
+          .has_value());
   const renderer::TextureTransform transform{
       .offset = {0.5f, 0.25f}, .rotation = 0.5f, .scale = {2.0f, 1.0f}, .texCoord = 1};
   const renderer::TextureSampler sampler{.wrapS = renderer::TextureWrap::ClampToEdge,
@@ -476,7 +481,7 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {
   platform::Platform platform{{.headless = true}};
-  const std::filesystem::path sample = test::findInSource(platform.basePath(), "apps/samples/basic");
+  const std::filesystem::path sample = assets::test::findInSource(platform.basePath(), "apps/samples/basic");
   REQUIRE_FALSE(sample.empty());
   const auto project = Project::open(sample);
   REQUIRE(project.has_value());
@@ -485,7 +490,7 @@ TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][coo
   core::JobSystem jobs{{.workerCount = 0}};
   AssetDatabase database{renderer, jobs};
   database.open(project->root, project->assetRoots);
-  const auto out = test::freshDirectory("sonnet_playground_cook");
+  const auto out = assets::test::freshDirectory("sonnet_playground_cook");
   const auto report = cook(database, *project, {.outputDirectory = out, .scene = "scenes/playground.scene.json"});
   REQUIRE(report.has_value());
   REQUIRE(report->assetCount ==
@@ -530,7 +535,7 @@ namespace {
 
 TEST_CASE("a mobile cook of the basic sample has ASTC textures and names its platform", "[assets][cook][astc]") {
   platform::Platform platform{{.headless = true}};
-  const std::filesystem::path sample = test::findInSource(platform.basePath(), "apps/samples/basic");
+  const std::filesystem::path sample = assets::test::findInSource(platform.basePath(), "apps/samples/basic");
   REQUIRE_FALSE(sample.empty());
   const auto project = Project::open(sample);
   REQUIRE(project.has_value());
@@ -539,7 +544,7 @@ TEST_CASE("a mobile cook of the basic sample has ASTC textures and names its pla
   core::JobSystem jobs{{.workerCount = 0}};
   AssetDatabase database{renderer, jobs};
   database.open(project->root, project->assetRoots);
-  const auto out = test::freshDirectory("sonnet_android_cook");
+  const auto out = assets::test::freshDirectory("sonnet_android_cook");
   const auto report = cook(database, *project, {.outputDirectory = out, .platform = CookPlatform::Android});
   REQUIRE(report.has_value());
   REQUIRE(report->warnings.empty());
@@ -619,9 +624,9 @@ TEST_CASE("a second mobile cook takes its ASTC from the cache", "[assets][cook][
 
 TEST_CASE("a glTF file's KHR_texture_basisu image cooks as its own KTX2 payload", "[assets][cook]") {
   ProjectFixture fixture;
-  const std::vector<std::byte> ktx2 = test::encodeBasisKtx2();
+  const std::vector<std::byte> ktx2 = assets::test::encodeBasisKtx2();
   REQUIRE(core::writeFile(fixture.root / "assets" / "models" / "wood.ktx2", ktx2).has_value());
-  test::writeBasisuBoxGltf(fixture.root / "assets" / "models" / "basis.gltf", "wood.ktx2", "");
+  assets::test::writeBasisuBoxGltf(fixture.root / "assets" / "models" / "basis.gltf", "wood.ktx2", "");
   const auto expected = markKtx2(ktx2, true); // the base colour reads it
   REQUIRE(expected.has_value());
 

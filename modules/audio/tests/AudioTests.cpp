@@ -9,6 +9,8 @@
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
@@ -93,7 +95,8 @@ struct Fixture {
   }
   ~Fixture() {
     audio.reset();
-    std::filesystem::remove_all(root);
+    assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+    sonnet::test::removeScratch(root);
   }
 
   core::Uuid byName(std::string_view name) const {

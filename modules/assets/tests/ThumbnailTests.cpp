@@ -7,6 +7,8 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
@@ -22,7 +24,7 @@ struct Fixture {
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
   core::JobSystem jobs{{.workerCount = 0}};
-  std::filesystem::path root = test::freshDirectory("sonnet_assets_thumbnails");
+  std::filesystem::path root = assets::test::freshDirectory("sonnet_assets_thumbnails");
   std::vector<std::string> roots{"assets"};
   AssetDatabase database{renderer, jobs};
 
@@ -36,16 +38,18 @@ struct Fixture {
                                             : std::initializer_list<std::uint8_t>{0, 0, 255, 255});
       }
     }
-    REQUIRE(core::writeFile(root / "assets" / "wide.png", test::encodePng({300, 200}, pixels)).has_value());
-    REQUIRE(core::writeFile(root / "assets" / "tiny.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-    REQUIRE(core::writeFile(root / "assets" / "sky.hdr",
-                            test::encodeHdr({512, 256}, std::vector<float>(std::size_t{512} * 256 * 3, 1.0f)))
+    REQUIRE(core::writeFile(root / "assets" / "wide.png", assets::test::encodePng({300, 200}, pixels)).has_value());
+    REQUIRE(core::writeFile(root / "assets" / "tiny.png", assets::test::encodePng({2, 2}, assets::test::quadPixels()))
                 .has_value());
-    test::writeBoxGltf(root / "assets" / "crate.gltf", "tiny.png");
+    REQUIRE(core::writeFile(root / "assets" / "sky.hdr",
+                            assets::test::encodeHdr({512, 256}, std::vector<float>(std::size_t{512} * 256 * 3, 1.0f)))
+                .has_value());
+    assets::test::writeBoxGltf(root / "assets" / "crate.gltf", "tiny.png");
     database.open(root, roots);
   }
   ~Fixture() {
-    std::filesystem::remove_all(root);
+    database.close();
+    sonnet::test::removeScratch(root);
   }
 
   [[nodiscard]] core::Uuid uuidOf(const char *file) const {
@@ -97,7 +101,7 @@ TEST_CASE("a thumbnail comes back from the cache until the source or the sidecar
   // A source written after the entry makes it stale, and the thumbnail is made again from the new one.
   const auto entry = thumbnailFile(fixture.database.cacheDirectory(), wide);
   const auto entryTime = std::filesystem::last_write_time(entry);
-  const auto newer = test::encodePng({64, 32}, std::vector<std::uint8_t>(std::size_t{64} * 32 * 4, 200));
+  const auto newer = assets::test::encodePng({64, 32}, std::vector<std::uint8_t>(std::size_t{64} * 32 * 4, 200));
   for (int attempt = 0; attempt < 50; ++attempt) {
     REQUIRE(core::writeFile(source, newer).has_value());
     if (std::filesystem::last_write_time(source) > entryTime) {
