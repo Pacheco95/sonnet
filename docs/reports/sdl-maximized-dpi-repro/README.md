@@ -70,4 +70,10 @@ The same steps with `sonnet_editor` (Debug, this branch), its window read from o
 The maximized window fills the work area with its title bar on screen at every step, and the restored window keeps its
 place and its client size.
 
-No upstream report has been filed yet.
+## SDL main
+
+The same program built against SDL `main` at 940188b2 (3.5.0, 2026-11-02), which includes the later
+`WM_DPICHANGED` change of [libsdl-org/SDL#16516](https://github.com/libsdl-org/SDL/pull/16516), gave the same rectangles
+in all four modes: stale after 200 → 100 % except with `restore`.
+
+Reported upstream as [libsdl-org/SDL#16641](https://github.com/libsdl-org/SDL/issues/16641).
