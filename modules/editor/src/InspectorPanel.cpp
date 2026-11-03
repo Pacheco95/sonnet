@@ -963,11 +963,14 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
       }
       ImGui::EndPopup();
     }
-  } else if ((changedBefore || overridden) && ImGui::SmallButton("revert")) {
-    revertTo = overridden;
-  }
-  if (overridden && ImGui::IsItemHovered() && !changedBefore) {
-    ImGui::SetTooltip("Revert to the prefab's value");
+  } else if (changedBefore || overridden) {
+    if (ImGui::SmallButton("revert")) {
+      revertTo = overridden;
+    }
+    // One target: say which, since a property can differ from the default and follow the prefab.
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(overridden ? "Revert to the prefab's value" : "Revert to the script's default");
+    }
   }
   if (revertTo) {
     slot = *revertTo ? revertPropertyToPrefab(std::move(slot), *prefab, property)
