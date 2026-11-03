@@ -831,17 +831,17 @@ nlohmann::json patchObject(const ComponentInfo &info, const nlohmann::json &valu
   nlohmann::json patch = nlohmann::json::object();
   for (const auto &[key, member] : value.items()) {
     const auto it = source.find(key);
-    if (it == source.end()) {
-      patch[key] = member;
-    } else if (member == *it) {
+    const bool inSource = it != source.end();
+    if (inSource && member == *it) {
       continue;
-    } else if (!leaves && member.is_object() && it->is_object()) {
+    }
+    const MatchedMember *matched = leaves ? nullptr : matchedMember(info, key);
+    if (inSource && !leaves && member.is_object() && it->is_object()) {
       patch[key] = patchObject(info, member, *it, isJsonMember(info, key));
-    } else if (const MatchedMember *matched = matchedMember(info, key);
-               !leaves && matched != nullptr && member.is_array() && it->is_array()) {
+    } else if (inSource && matched != nullptr && member.is_array() && it->is_array()) {
       patch[key] = patchMatched(info, member, *it, matched->key);
     } else {
-      patch[key] = member;
+      patch[key] = member; // a leaf, or a member the source lacks: whole
     }
   }
   nlohmann::json removed = nlohmann::json::array();
