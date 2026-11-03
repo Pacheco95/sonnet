@@ -33,6 +33,18 @@ namespace sonnet::editor {
 [[nodiscard]] scripting::ScriptSlot setProperty(scripting::ScriptSlot slot, const scripting::PropertyDecl &property,
                                                 const nlohmann::json &value);
 [[nodiscard]] scripting::ScriptSlot revertProperty(scripting::ScriptSlot slot, const scripting::PropertyDecl &property);
+// The prefab's slot that an instance's slot `index` follows (ADR-0037): the one at the same index
+// when both lists run the same scripts in the same order, none when the instance reshaped its list.
+[[nodiscard]] const scripting::ScriptSlot *prefabSlot(const scripting::Scripts &instance,
+                                                      const scripting::Scripts &prefab, std::size_t index);
+// Whether the slot stores another value for the property than the prefab's slot, where leaving it
+// out (the class's default) is a value too.
+[[nodiscard]] bool propertyDiffersFromPrefab(const scripting::ScriptSlot &slot, const scripting::ScriptSlot &prefab,
+                                             const scripting::PropertyDecl &property);
+// The slot with the property as the prefab's slot stores it.
+[[nodiscard]] scripting::ScriptSlot revertPropertyToPrefab(scripting::ScriptSlot slot,
+                                                           const scripting::ScriptSlot &prefab,
+                                                           const scripting::PropertyDecl &property);
 // The names in the slot's JSON that the declarations do not include, kept in the scene.
 [[nodiscard]] std::vector<std::string> undeclaredProperties(const scripting::ScriptSlot &slot,
                                                             const std::vector<scripting::PropertyDecl> &properties);

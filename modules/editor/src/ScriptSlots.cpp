@@ -81,6 +81,38 @@ scripting::ScriptSlot revertProperty(scripting::ScriptSlot slot, const scripting
   return slot;
 }
 
+const scripting::ScriptSlot *prefabSlot(const scripting::Scripts &instance, const scripting::Scripts &prefab,
+                                        std::size_t index) {
+  const bool sameScripts = std::ranges::equal(instance.slots, prefab.slots, {}, &scripting::ScriptSlot::script,
+                                              &scripting::ScriptSlot::script);
+  return sameScripts && index < prefab.slots.size() ? &prefab.slots[index] : nullptr;
+}
+
+bool propertyDiffersFromPrefab(const scripting::ScriptSlot &slot, const scripting::ScriptSlot &prefab,
+                               const scripting::PropertyDecl &property) {
+  const nlohmann::json values = parse(slot.properties);
+  const nlohmann::json prefabValues = parse(prefab.properties);
+  const auto found = values.find(property.name);
+  const auto prefabFound = prefabValues.find(property.name);
+  if ((found == values.end()) != (prefabFound == prefabValues.end())) {
+    return true;
+  }
+  return found != values.end() && *found != *prefabFound;
+}
+
+scripting::ScriptSlot revertPropertyToPrefab(scripting::ScriptSlot slot, const scripting::ScriptSlot &prefab,
+                                             const scripting::PropertyDecl &property) {
+  nlohmann::json values = parse(slot.properties);
+  const nlohmann::json prefabValues = parse(prefab.properties);
+  if (const auto found = prefabValues.find(property.name); found != prefabValues.end()) {
+    values[property.name] = *found;
+  } else {
+    values.erase(property.name);
+  }
+  slot.properties = serialize(values);
+  return slot;
+}
+
 std::vector<std::string> undeclaredProperties(const scripting::ScriptSlot &slot,
                                               const std::vector<scripting::PropertyDecl> &properties) {
   std::vector<std::string> names;

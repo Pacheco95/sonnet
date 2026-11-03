@@ -770,11 +770,86 @@ TEST_CASE("script slots draw in the inspector and edits reach the running game",
   sonnet::test::removeScratch(directory);
 }
 
+TEST_CASE("an instance that changes one script property keeps only that change through the editor's round trips",
+          "[editor][gpu][prefab][overrides]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "overrides";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Overrides").has_value());
+    world::World &world = editor.world();
+    const auto mover = editor.assets().createScript(directory / "scripts" / "mover.lua", R"lua(
+      return { properties = { speed = { type = "number", default = 1 }, range = { type = "number", default = 1 } } }
+    )lua");
+    const auto shooter = editor.assets().createScript(directory / "scripts" / "shooter.lua", "return {}");
+    REQUIRE(mover.has_value());
+    REQUIRE(shooter.has_value());
+    // A prefab running two scripts, placed again by Save as prefab.
+    const flecs::entity turret = world.createEntity("Turret");
+    turret.set<scripting::Scripts>(
+        {.slots = {{.script = *mover, .properties = R"({"range":5,"speed":2})"}, {.script = *shooter}}});
+    REQUIRE(editor.saveAsPrefab(world.uuidOf(turret)).has_value());
+    fixture.frame(editor);
+    const core::Uuid uuid = world.uuidOf(byName(world, "Turret"));
+    REQUIRE(world.isInstance(world.find(uuid)));
+
+    // The inspector's edit of one property: a whole value before and after.
+    const world::ComponentInfo *info = world.findComponent("Scripts");
+    const nlohmann::json before = world.componentToJson(world.find(uuid), info->id);
+    scripting::Scripts edited = world.find(uuid).get<scripting::Scripts>();
+    edited.slots[0].properties = R"({"range":5,"speed":6})";
+    editor.commands().push(editor::componentCommand(uuid, "Scripts", std::make_optional(before),
+                                                    std::make_optional(world.valueToJson(info->id, &edited)),
+                                                    "edit Scripts"),
+                           world);
+    // What a scene stores of it: the one property, so the rest keeps following the prefab.
+    const nlohmann::json patch = {{"slots", {{mover->toString(), {{{"properties", {{"speed", 6}}}}}}}}};
+    const auto stored = [&](const core::Uuid &entity) {
+      const nlohmann::json scene = world::saveScene(world);
+      for (const nlohmann::json &entry : scene["entities"]) {
+        if (entry["uuid"] == entity.toString()) {
+          return entry["components"]["Scripts"];
+        }
+      }
+      FAIL("no entry for " << entity.toString());
+      return nlohmann::json{};
+    };
+    REQUIRE(stored(uuid) == patch);
+
+    editor.newScene();
+    fixture.frame(editor);
+    editor.switchToTab(0);
+    fixture.frame(editor);
+    REQUIRE(stored(uuid) == patch);
+
+    editor.play();
+    fixture.frame(editor);
+    editor.stop();
+    fixture.frame(editor);
+    REQUIRE(stored(uuid) == patch);
+
+    editor.commands().push(editor::deleteEntityCommand(uuid), world);
+    REQUIRE(editor.commands().undo(world));
+    REQUIRE(stored(uuid) == patch);
+
+    const core::Uuid copy = core::Uuid::generate();
+    editor.commands().push(editor::duplicateEntityCommand(uuid, copy), world);
+    REQUIRE(stored(copy) == patch);
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  sonnet::test::removeScratch(directory);
+}
+
 namespace {
 
 // A glTF file with a point light on each of the named nodes under a root called "Set", and
-// `intensities[i]` for node i; a name with an intensity of 0 gets no light.
-void writeLamps(const std::filesystem::path &file, const std::vector<std::pair<std::string, float>> &nodes) {
+// `intensities[i]` for node i; a name with an intensity of 0 gets no light. A `range` above 0 is
+// every light's; otherwise the importer derives one from the intensity.
+void writeLamps(const std::filesystem::path &file, const std::vector<std::pair<std::string, float>> &nodes,
+                float range = 0.0f) {
   nlohmann::json lights = nlohmann::json::array();
   nlohmann::json glNodes = nlohmann::json::array();
   nlohmann::json children = nlohmann::json::array();
@@ -784,6 +859,9 @@ void writeLamps(const std::filesystem::path &file, const std::vector<std::pair<s
     if (intensity > 0.0f) {
       node["extensions"] = {{"KHR_lights_punctual", {{"light", lights.size()}}}};
       lights.push_back({{"type", "point"}, {"intensity", intensity}});
+      if (range > 0.0f) {
+        lights.back()["range"] = range;
+      }
     }
     glNodes[0]["children"].push_back(glNodes.size());
     glNodes.push_back(node);
@@ -828,12 +906,14 @@ TEST_CASE("a re-imported model rebuilds its prefab and instances, keeping overri
       return node.get<world::PointLight>().intensity;
     };
     REQUIRE(intensity("A") == imported(10.0f));
-    world.findByPath(world.find(instanceUuid), "Set/B")
-        .set<world::PointLight>({.color = {1, 1, 1}, .intensity = 99.0f, .range = 5.0f, .castsShadows = false});
+    const flecs::entity lampB = world.findByPath(world.find(instanceUuid), "Set/B");
+    lampB.ensure<world::PointLight>().intensity = 99.0f;
+    lampB.modified<world::PointLight>();
 
-    // A re-export that changes A and inserts a node ahead of B, re-imported while playing: the
-    // running scene keeps what it has, and stop brings the refreshed prefab.
-    writeLamps(file, {{"A", 4.0f}, {"New", 7.0f}, {"B", 10.0f}});
+    // A re-export that changes A, inserts a node ahead of B and gives every light a range,
+    // re-imported while playing: the running scene keeps what it has, and stop brings the
+    // refreshed prefab.
+    writeLamps(file, {{"A", 4.0f}, {"New", 7.0f}, {"B", 10.0f}}, 12.0f);
     editor.commands().markSaved();
     editor.play();
     REQUIRE(editor.assets().reimport(modelUuid).has_value());
@@ -845,6 +925,8 @@ TEST_CASE("a re-imported model rebuilds its prefab and instances, keeping overri
     REQUIRE(intensity("A") == imported(4.0f));
     REQUIRE(intensity("New") == imported(7.0f));
     REQUIRE(intensity("B") == 99.0f); // the override stayed on B, not on the node inserted before it
+    // B changed only its intensity, so its range follows the model (ADR-0037).
+    REQUIRE(world.findByPath(world.find(instanceUuid), "Set/B").get<world::PointLight>().range == 12.0f);
     REQUIRE(!editor.isDirty());
 
     // Edit mode refreshes in the frame after the re-import, and the rest of the scene is untouched.
