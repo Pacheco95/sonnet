@@ -10,6 +10,8 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -145,7 +147,8 @@ struct Fixture {
   }
   ~Fixture() {
     world.clearScene();
-    std::filesystem::remove_all(root);
+    assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+    sonnet::test::removeScratch(root);
   }
 
   // The instance's node at a path under it.
@@ -452,5 +455,6 @@ TEST_CASE("a clip animates a mesh's morph weights, and the draw list hands them 
     REQUIRE(draws[0].jointCount == 0);
   }
   world.clearScene();
-  std::filesystem::remove_all(root);
+  database.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+  sonnet::test::removeScratch(root);
 }

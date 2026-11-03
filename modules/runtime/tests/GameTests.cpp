@@ -17,6 +17,8 @@
 #include <sonnet/world/DrawList.h>
 #include <sonnet/world/Scene.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -374,7 +376,7 @@ TEST_CASE("the player runs the same project cooked into a bundle", "[runtime][gp
   // a bundle that released nothing would show up here as the renderer's leak warnings.
   REQUIRE(sink->problems.empty());
   core::Log::removeSink(sink);
-  std::filesystem::remove_all(out);
+  sonnet::test::removeScratch(out);
 }
 
 TEST_CASE("a scene without a camera is drawn from the fallback view", "[runtime][gpu]") {
@@ -396,7 +398,7 @@ TEST_CASE("a scene without a camera is drawn from the fallback view", "[runtime]
   // The fallback looks at the origin from up and to the side, so it is not the identity.
   REQUIRE(game.camera().position.y > 0.0f);
   fixture.frame(game); // warned once, not every frame
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 // What the player does on WillEnterBackground and DidEnterForeground (docs/player.md, "The
@@ -560,7 +562,7 @@ TEST_CASE("--scene opens another of a bundle's scenes for the capture", "[runtim
     REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Failed);
   }
   REQUIRE_FALSE(std::filesystem::exists(out / "no.png"));
-  std::filesystem::remove_all(out);
+  sonnet::test::removeScratch(out);
 }
 
 TEST_CASE("a path that is neither a project nor a bundle is an error", "[runtime][gpu]") {
@@ -619,7 +621,7 @@ TEST_CASE("a bundle cooked for a phone is refused on a device without ASTC", "[r
     REQUIRE(game.open(root / "export" / "linux" / "game.sbundle").has_value());
     REQUIRE(game.name() == "Phone");
   } // closes the bundle before the cleanup removes it; Windows refuses to delete an open file
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 // M11's criterion: the playground's trigger-driven pickup plays the same from the project folder
@@ -678,7 +680,7 @@ TEST_CASE("the playground's pickup is collected the same from a project and from
   };
   REQUIRE(picked(play(project)) == 1);
   REQUIRE(picked(play(out / "game.sbundle")) == 1);
-  std::filesystem::remove_all(out);
+  sonnet::test::removeScratch(out);
 }
 
 // M16's criterion (ADR-0028): the playground places a pallet, a prefab holding three instances of
@@ -751,7 +753,7 @@ TEST_CASE("the playground's pallet of crates keeps its changes from a project an
   REQUIRE(changed(authored).size() == 3);
   check(project);
   check(out / "game.sbundle");
-  std::filesystem::remove_all(out);
+  sonnet::test::removeScratch(out);
 }
 
 // M12's criterion: the start scene's walker crossfades from idle to walk and hears its footsteps,
@@ -837,7 +839,7 @@ TEST_CASE("the start scene's walker, jelly and sparks play the same from a proje
   REQUIRE(fromProject.size() == 2);
   REQUIRE(fromProject.front() == "Walker: left footstep 1");
   REQUIRE(fromBundle == fromProject);
-  std::filesystem::remove_all(out);
+  sonnet::test::removeScratch(out);
 }
 
 // ---- Golden images (ADR-0024) ----
@@ -1304,7 +1306,7 @@ TEST_CASE("a script that sets a label's text changes the next captured frame", "
   REQUIRE(glyphQuads(game) == 7);
   const auto after = shot("shots/label_after.png");
   REQUIRE(compare(before, after, 32).fractionOver > 0.001); // the pixels changed
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("the HUD stress scene builds two hundred elements of which a third are labels",

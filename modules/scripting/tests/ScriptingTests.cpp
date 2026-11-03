@@ -14,6 +14,8 @@
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -107,7 +109,8 @@ struct Fixture {
     scripts.reset();
     physics.reset();
     world.clearScene();
-    std::filesystem::remove_all(root);
+    assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+    sonnet::test::removeScratch(root);
   }
   Fixture(const Fixture &) = delete;
   Fixture &operator=(const Fixture &) = delete;

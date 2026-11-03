@@ -5,6 +5,8 @@
 #include <sonnet/assets/Cook.h>
 #include <sonnet/renderer/Primitives.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -171,7 +173,7 @@ TEST_CASE("an empty array and an empty string read back without touching memcpy"
 }
 
 TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundle]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_bundle");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_bundle");
   const std::filesystem::path file = directory / "game.sbundle";
 
   const core::Uuid meshId = core::Uuid::generate();
@@ -255,11 +257,11 @@ TEST_CASE("a bundle round-trips its manifest, assets and files", "[assets][bundl
     REQUIRE(!bundle->read(core::Uuid::generate()).has_value());
     REQUIRE(!bundle->read("scenes/nowhere.scene.json").has_value());
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
-  const std::filesystem::path directory = test::freshDirectory("sonnet_assets_bundle_bad");
+  const std::filesystem::path directory = assets::test::freshDirectory("sonnet_assets_bundle_bad");
   REQUIRE(!Bundle::open(directory / "nothing.sbundle").has_value());
 
   const std::filesystem::path wrong = directory / "wrong.sbundle";
@@ -288,5 +290,5 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   const auto old = Bundle::open(future);
   REQUIRE(!old.has_value());
   REQUIRE(old.error().message.find("bundle version 12 is not version 19") != std::string::npos);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }

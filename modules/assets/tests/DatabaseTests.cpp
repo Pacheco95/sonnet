@@ -8,6 +8,8 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/rhi/NullDevice.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -28,17 +30,19 @@ struct Fixture {
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
   core::JobSystem jobs{{.workerCount = 2}};
-  std::filesystem::path root = test::freshDirectory("sonnet_assets_db");
+  std::filesystem::path root = assets::test::freshDirectory("sonnet_assets_db");
   std::vector<std::string> roots{"assets"};
 
   Fixture() {
     std::filesystem::create_directories(root / "assets" / "models");
-    REQUIRE(core::writeFile(root / "assets" / "wood.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
-    REQUIRE(core::writeFile(root / "assets" / "models" / "wood.png", test::encodePng({2, 2}, test::quadPixels()))
+    REQUIRE(core::writeFile(root / "assets" / "wood.png", assets::test::encodePng({2, 2}, assets::test::quadPixels()))
                 .has_value());
-    test::writeBoxGltf(root / "assets" / "models" / "crate.gltf", "wood.png");
+    REQUIRE(core::writeFile(root / "assets" / "models" / "wood.png",
+                            assets::test::encodePng({2, 2}, assets::test::quadPixels()))
+                .has_value());
+    assets::test::writeBoxGltf(root / "assets" / "models" / "crate.gltf", "wood.png");
     REQUIRE(core::writeFile(root / "assets" / "sky.hdr",
-                            test::encodeHdr({4, 2}, std::vector<float>(std::size_t{4} * 2 * 3, 0.5f)))
+                            assets::test::encodeHdr({4, 2}, std::vector<float>(std::size_t{4} * 2 * 3, 0.5f)))
                 .has_value());
     MaterialSource painted;
     painted.baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
@@ -46,7 +50,7 @@ struct Fixture {
     REQUIRE(core::writeFile(root / "assets" / "painted.material.json", saveMaterial(painted).dump(2)).has_value());
   }
   ~Fixture() {
-    std::filesystem::remove_all(root);
+    sonnet::test::removeScratch(root);
   }
 
   // Modification times have a coarse resolution on some file systems; a change has to land in a
@@ -217,7 +221,7 @@ TEST_CASE("a changed source is re-imported by polling and materials follow their
   // A larger image replaces the file: the texture is re-imported under the same identity, the
   // old handle is gone and the material now reads the new one.
   Fixture::touchLater(fixture.root / "assets" / "wood.png",
-                      test::encodePng({4, 4}, std::vector<std::uint8_t>(std::size_t{4} * 4 * 4, 90)));
+                      assets::test::encodePng({4, 4}, std::vector<std::uint8_t>(std::size_t{4} * 4 * 4, 90)));
   std::this_thread::sleep_for(std::chrono::milliseconds{600});
   const std::vector<core::Uuid> changed = database.pollChanges();
   REQUIRE(changed == std::vector<core::Uuid>{woodUuid});
@@ -313,7 +317,7 @@ TEST_CASE("a sound is read on first use and again, with a new revision, when it 
 
 TEST_CASE("a glTF file's skins and clips are sub-assets, reloaded with the file", "[assets][database]") {
   Fixture fixture;
-  test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
+  assets::test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
   // A sidecar from before skins were sub-assets lists none and is rebuilt.
   const core::Uuid rigUuid = core::Uuid::generate();
   const nlohmann::json old{{"version", 1},
@@ -588,7 +592,7 @@ TEST_CASE("a requested glTF mesh brings its whole file with it", "[assets][datab
 // hierarchy. Reading it must not import the file: that was the stall roadmap.md recorded.
 TEST_CASE("a model's hierarchy is read without importing its meshes or images", "[assets][database]") {
   Fixture fixture;
-  test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
+  assets::test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
   AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   const std::size_t buffersBefore = fixture.device->bufferCount();
@@ -684,7 +688,7 @@ TEST_CASE("a model's light scale lives in its sidecar, and changing it re-import
 
 TEST_CASE("changing a model's sidecar events re-imports its clips with them", "[assets][database]") {
   Fixture fixture;
-  test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
+  assets::test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
   AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   const core::Uuid rigUuid = byName(database, "rig", AssetType::Model)->uuid;
@@ -709,7 +713,7 @@ TEST_CASE("changing a model's sidecar events re-imports its clips with them", "[
 
 TEST_CASE("a requested skin or clip brings its whole file with it", "[assets][database]") {
   Fixture fixture;
-  test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
+  assets::test::writeSkinnedGltf(fixture.root / "assets" / "models" / "rig.gltf");
   AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   const core::Uuid rigUuid = byName(database, "rig", AssetType::Model)->uuid;
@@ -867,7 +871,7 @@ TEST_CASE("a material's transmission texture loads asynchronously and follows ho
 
   // A new image in the file: re-imported, and the material reads it and is reported changed.
   Fixture::touchLater(fixture.root / "assets" / "wood.png",
-                      test::encodePng({4, 4}, std::vector<std::uint8_t>(std::size_t{4} * 4 * 4, 90)));
+                      assets::test::encodePng({4, 4}, std::vector<std::uint8_t>(std::size_t{4} * 4 * 4, 90)));
   std::this_thread::sleep_for(std::chrono::milliseconds{600});
   REQUIRE(database.pollChanges() == std::vector<core::Uuid>{woodUuid});
   database.waitForLoads();
@@ -924,7 +928,7 @@ TEST_CASE("placing the basic sample's models reads hierarchies, not files", "[.]
   if (sample.empty()) {
     SKIP("the sample was not found above " << platform.basePath().string());
   }
-  const std::filesystem::path root = test::freshDirectory("sonnet_assets_benchmark");
+  const std::filesystem::path root = assets::test::freshDirectory("sonnet_assets_benchmark");
   std::filesystem::copy(sample, root, std::filesystem::copy_options::recursive);
   const auto device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
@@ -968,7 +972,7 @@ TEST_CASE("placing the basic sample's models reads hierarchies, not files", "[.]
   }
   WARN(std::format("{} models: hierarchy {:.3f} ms, full import {:.3f} ms warm and {:.3f} ms cold", models, hierarchy,
                    imported, cold));
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("a glTF file's dependencies are the files its URIs name, inside its folder", "[assets][gltf]") {
@@ -996,7 +1000,8 @@ TEST_CASE("a file added under a root is registered, and unregistering forgets wh
   Fixture fixture;
   std::filesystem::create_directories(fixture.root / "other");
   REQUIRE(
-      core::writeFile(fixture.root / "other" / "stone.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+      core::writeFile(fixture.root / "other" / "stone.png", assets::test::encodePng({2, 2}, assets::test::quadPixels()))
+          .has_value());
   AssetDatabase database{fixture.renderer, fixture.jobs};
   database.open(fixture.root, fixture.roots);
   REQUIRE(AssetDatabase::sourceType("crate.GLTF") == AssetType::Model);
@@ -1242,7 +1247,8 @@ TEST_CASE("rescan registers added files, unregisters removed ones and follows mo
   CHECK(database.rescan().empty());
 
   SECTION("a file that appeared is registered") {
-    REQUIRE(core::writeFile(assets / "added.png", test::encodePng({2, 2}, test::quadPixels())).has_value());
+    REQUIRE(
+        core::writeFile(assets / "added.png", assets::test::encodePng({2, 2}, assets::test::quadPixels())).has_value());
     const auto result = database.rescan();
     REQUIRE(result.added.size() == 1);
     CHECK(result.removed.empty());

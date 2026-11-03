@@ -3,6 +3,8 @@
 #include <sonnet/assets/Json.h>
 #include <sonnet/assets/Project.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
@@ -13,7 +15,7 @@ using namespace sonnet;
 using namespace sonnet::assets;
 
 TEST_CASE("a project file round-trips and resolves paths relative to its folder", "[assets][project]") {
-  const std::filesystem::path root = test::freshDirectory("sonnet_assets_project");
+  const std::filesystem::path root = assets::test::freshDirectory("sonnet_assets_project");
   std::filesystem::create_directories(root / "scenes");
 
   Project written;
@@ -43,20 +45,20 @@ TEST_CASE("a project file round-trips and resolves paths relative to its folder"
   REQUIRE(opened->files(".prefab.json").size() == 1);
   REQUIRE(opened->files(".material.json").empty());
 
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("an unreadable or malformed project file is an error, not an exception", "[assets][project]") {
-  const std::filesystem::path root = test::freshDirectory("sonnet_assets_project_bad");
+  const std::filesystem::path root = assets::test::freshDirectory("sonnet_assets_project_bad");
   REQUIRE(!Project::open(root / "nowhere").has_value());
   REQUIRE(core::writeFile(root / "project.json", std::string_view{"not json at all"}).has_value());
   REQUIRE(!Project::open(root).has_value());
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("a project file carries a schema version, a missing one is 1 and a newer one is refused",
           "[assets][project]") {
-  const std::filesystem::path root = test::freshDirectory("sonnet_assets_project_version");
+  const std::filesystem::path root = assets::test::freshDirectory("sonnet_assets_project_version");
   Project written;
   written.root = root;
   written.name = "Versioned";
@@ -86,11 +88,11 @@ TEST_CASE("a project file carries a schema version, a missing one is 1 and a new
     REQUIRE(core::writeFile(root / "project.json", std::string_view{invalid}).has_value());
     REQUIRE(!Project::open(root).has_value());
   }
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("project file discovery skips internal trash and cache", "[assets][project]") {
-  const auto root = test::freshDirectory("sonnet_project_trash");
+  const auto root = assets::test::freshDirectory("sonnet_project_trash");
   std::filesystem::create_directories(root / ".sonnet/trash/1");
   std::filesystem::create_directories(root / "prefabs");
   REQUIRE(core::writeFile(root / ".sonnet/trash/1/hidden.prefab.json", "{}"));
@@ -98,5 +100,5 @@ TEST_CASE("project file discovery skips internal trash and cache", "[assets][pro
   Project project;
   project.root = root;
   CHECK(project.files(".prefab.json") == std::vector<std::filesystem::path>{root / "prefabs/visible.prefab.json"});
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }

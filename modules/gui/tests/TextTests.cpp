@@ -14,6 +14,8 @@
 #include <sonnet/rhi/NullDevice.h>
 #include <sonnet/world/World.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -310,7 +312,8 @@ struct FontFixture {
     font = uuid;
   }
   ~FontFixture() {
-    std::filesystem::remove_all(root);
+    assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+    sonnet::test::removeScratch(root);
   }
 
   flecs::entity canvas() {
