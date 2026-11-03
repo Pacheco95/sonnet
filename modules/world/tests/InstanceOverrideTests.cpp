@@ -88,8 +88,6 @@ const json &componentsOf(const json &scene, const core::Uuid &uuid) {
     }
   }
   FAIL("no entry for " << uuid.toString());
-  static const json none;
-  return none;
 }
 
 } // namespace

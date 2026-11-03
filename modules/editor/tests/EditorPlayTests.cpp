@@ -813,7 +813,6 @@ TEST_CASE("an instance that changes one script property keeps only that change t
         }
       }
       FAIL("no entry for " << entity.toString());
-      return nlohmann::json{};
     };
     REQUIRE(stored(uuid) == patch);
 
