@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <format>
 #include <fstream>
 #include <functional>
@@ -48,6 +49,24 @@ json childOrder(const World &world, flecs::entity node, bool prefab) {
   return order;
 }
 
+// A component of an instance or of a copy in one, as the file stores it: what differs from the
+// value of its `source`, or the whole value when the source has none (ADR-0037).
+json changedComponent(const World &world, flecs::entity entity, flecs::entity source, const ComponentInfo &component) {
+  if (component.tag) {
+    return nullptr;
+  }
+  json value = world.componentToJson(entity, component.id);
+  if (!source.has(component.id)) {
+    return value;
+  }
+  return componentPatch(component, value, world.componentToJson(source, component.id));
+}
+
+// An instance root's transform places it, so it is its own and stays whole.
+bool isPlacement(bool instance, const ComponentInfo &component) {
+  return instance && component.name == "Transform";
+}
+
 json saveEntity(const World &world, flecs::entity entity, flecs::entity parent, bool prefab) {
   json entry;
   entry["uuid"] = world.uuidOf(entity).toString();
@@ -65,7 +84,10 @@ json saveEntity(const World &world, flecs::entity entity, flecs::entity parent, 
     if (!entity.has(component.id) || (instance && !entity.owns(component.id))) {
       continue; // an instance stores only what it overrides
     }
-    components[component.name] = component.tag ? json{} : world.componentToJson(entity, component.id);
+    const bool patched = instance && !isPlacement(instance, component);
+    components[component.name] = patched         ? changedComponent(world, entity, world.prefabOf(entity), component)
+                                 : component.tag ? json{}
+                                                 : world.componentToJson(entity, component.id);
   }
   entry["components"] = std::move(components);
   if (instance) {
@@ -86,7 +108,7 @@ json saveInstanced(const World &world, flecs::entity entity, flecs::entity sourc
   json removed = json::array();
   for (const ComponentInfo &component : world.components()) {
     if (world.differs(entity, source, component)) {
-      components[component.name] = component.tag ? json{} : world.componentToJson(entity, component.id);
+      components[component.name] = changedComponent(world, entity, source, component);
     } else if (!entity.has(component.id) && source.has(component.id)) {
       removed.push_back(component.name);
     }
@@ -272,12 +294,23 @@ core::Result<json> migrate(const json &input, std::string_view source) {
     SONNET_LOG_INFO("{}: migrated scene version {} to 7", source, version < 6 ? 6 : version);
   }
   // Version 8 adds "order" to instance entries: a file without it keeps the default order.
+  // Version 9 stores an instance's changed components as patches; an older file's whole values
+  // replace instead (setComponents, ADR-0037).
   document["version"] = SceneVersion;
   return document;
 }
 
-// `version` is the file's own, before migration: one older than 5 holds vectors as objects.
-void setComponents(World &world, flecs::entity entity, const json &entry, const core::Uuid &uuid, int version) {
+// How setComponents treats a stored value.
+enum class Stored : std::uint8_t {
+  Whole,    // an ordinary entity's component, assigned as it is
+  Instance, // an instance root's: a patch onto the prefab's value, except its transform
+  Copy,     // a descendant of an instance: a patch onto its source's value
+};
+
+// `version` is the file's own, before migration: one older than 5 holds vectors as objects, and
+// one older than 9 stores an instance's components whole, which replace (ADR-0037).
+void setComponents(World &world, flecs::entity entity, const json &entry, const core::Uuid &uuid, int version,
+                   Stored stored) {
   if (!entry.contains("components") || !entry["components"].is_object()) {
     return;
   }
@@ -287,7 +320,16 @@ void setComponents(World &world, flecs::entity entity, const json &entry, const 
       SONNET_LOG_WARN("entity {}: unknown component \"{}\" ignored", uuid.toString(), componentName);
       continue;
     }
-    world.componentFromJson(entity, info->id, value, version < 5);
+    const bool patch = version >= 9 && stored != Stored::Whole && !info->tag && value.is_object() &&
+                       entity.has(info->id) && !isPlacement(stored == Stored::Instance, *info);
+    if (patch) {
+      // Merged here rather than by flecs' assignment, which pairs list elements by position
+      // and replaces embedded JSON whole.
+      world.componentFromJson(entity, info->id,
+                              mergePatch(*info, world.componentToJson(entity, info->id), value, uuid.toString()));
+    } else {
+      world.componentFromJson(entity, info->id, value, version < 5);
+    }
   }
 }
 
@@ -366,7 +408,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
       if (entry.contains("name") && entry["name"].is_string()) {
         target.set<Name>({entry["name"].get<std::string>()});
       }
-      setComponents(world, target, entry, *uuid, version);
+      setComponents(world, target, entry, *uuid, version, Stored::Copy);
       if (entry.contains("removed") && entry["removed"].is_array()) {
         for (const json &componentName : entry["removed"]) {
           const ComponentInfo *info =
@@ -398,7 +440,7 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
       entity = world.createEntity(name, {}, *uuid);
     }
     loaded.push_back(entity);
-    setComponents(world, entity, entry, *uuid, version);
+    setComponents(world, entity, entry, *uuid, version, entry.contains("prefab") ? Stored::Instance : Stored::Whole);
     if (entry.contains("order")) {
       orders.emplace_back(entity, &entry["order"]);
     }

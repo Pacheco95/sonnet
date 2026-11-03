@@ -728,7 +728,15 @@ TEST_CASE("the playground's pallet of crates keeps its changes from a project an
     REQUIRE(world.findByPath(pallet, "Crate B/Lantern"));
     REQUIRE(world.findByPath(pallet, "Crate C").has<world::Disabled>());
     REQUIRE(!world.findByPath(pallet, "Crate A").has<world::Disabled>());
-    REQUIRE(changed(world::saveScene(world)) == changed(authored));
+    const nlohmann::json saved = world::saveScene(world);
+    REQUIRE(changed(saved) == changed(authored));
+    // A lid stores its colour alone, so its other members follow the crate prefab (ADR-0037).
+    for (const nlohmann::json &entry : saved["entities"]) {
+      if (entry.value("instanced", false) && entry["components"].contains("MeshRenderer")) {
+        REQUIRE(entry["components"]["MeshRenderer"].size() == 1);
+        REQUIRE(entry["components"]["MeshRenderer"].contains("color"));
+      }
+    }
     game.update(1.0f / 60.0f);
     // Hiding Crate C hides its lid too, which only the crate's own tag says.
     std::vector<renderer::DrawItem> draws;

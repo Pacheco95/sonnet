@@ -8,6 +8,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -748,6 +751,190 @@ void World::embedJson(std::string_view component, std::string_view member) {
   const auto it = std::ranges::find(m_components, component, &ComponentInfo::name);
   SONNET_ASSERT(it != m_components.end(), "component {} is not registered", component);
   it->jsonMembers.emplace_back(member);
+}
+
+void World::matchBy(std::string_view component, std::string_view member, std::string_view key) {
+  const auto it = std::ranges::find(m_components, component, &ComponentInfo::name);
+  SONNET_ASSERT(it != m_components.end(), "component {} is not registered", component);
+  it->matchedMembers.push_back({std::string{member}, std::string{key}});
+}
+
+namespace {
+
+// The members of an object that a value lacks and its source has (ADR-0037). No C++ member or
+// script property name starts with '$', so the key cannot be one of them.
+constexpr const char *RemovedKey = "$removed";
+
+const MatchedMember *matchedMember(const ComponentInfo &info, const std::string &key) {
+  const auto it = std::ranges::find(info.matchedMembers, key, &MatchedMember::member);
+  return it != info.matchedMembers.end() ? &*it : nullptr;
+}
+
+// The key an element of a matched member is paired by, as the patch's object key; nothing when
+// the element is not an object holding it.
+std::optional<std::string> matchKey(const nlohmann::json &element, const std::string &key) {
+  if (!element.is_object()) {
+    return std::nullopt;
+  }
+  const auto it = element.find(key);
+  if (it == element.end()) {
+    return std::nullopt;
+  }
+  return it->is_string() ? it->get<std::string>() : it->dump();
+}
+
+std::optional<std::vector<std::string>> matchKeys(const nlohmann::json &array, const std::string &key) {
+  std::vector<std::string> keys;
+  for (const nlohmann::json &element : array) {
+    auto found = matchKey(element, key);
+    if (!found) {
+      return std::nullopt;
+    }
+    keys.push_back(std::move(*found));
+  }
+  return keys;
+}
+
+// `leaves`: the object is embedded JSON, whose values are each written whole.
+nlohmann::json patchObject(const ComponentInfo &info, const nlohmann::json &value, const nlohmann::json &source,
+                           bool leaves);
+
+// A matched member whose elements carry the same keys in the same order: an object keyed by the
+// key, each holding one patch per element with it, in order, with {} for an unchanged element
+// ahead of a changed one. Otherwise the instance reshaped the list, and it is written whole.
+nlohmann::json patchMatched(const ComponentInfo &info, const nlohmann::json &value, const nlohmann::json &source,
+                            const std::string &key) {
+  const auto keys = matchKeys(value, key);
+  if (!keys || keys != matchKeys(source, key)) {
+    return value;
+  }
+  nlohmann::json patch = nlohmann::json::object();
+  for (std::size_t i = 0; i < keys->size(); ++i) {
+    nlohmann::json &patches = patch[(*keys)[i]];
+    if (patches.is_null()) {
+      patches = nlohmann::json::array();
+    }
+    patches.push_back(value[i] == source[i] ? nlohmann::json::object() : patchObject(info, value[i], source[i], false));
+  }
+  for (auto it = patch.begin(); it != patch.end();) {
+    nlohmann::json &patches = it.value();
+    while (!patches.empty() && patches.back().empty()) {
+      patches.erase(patches.size() - 1);
+    }
+    it = patches.empty() ? patch.erase(it) : std::next(it);
+  }
+  return patch;
+}
+
+nlohmann::json patchObject(const ComponentInfo &info, const nlohmann::json &value, const nlohmann::json &source,
+                           bool leaves) {
+  nlohmann::json patch = nlohmann::json::object();
+  for (const auto &[key, member] : value.items()) {
+    const auto it = source.find(key);
+    if (it == source.end()) {
+      patch[key] = member;
+    } else if (member == *it) {
+      continue;
+    } else if (!leaves && member.is_object() && it->is_object()) {
+      patch[key] = patchObject(info, member, *it, isJsonMember(info, key));
+    } else if (const MatchedMember *matched = matchedMember(info, key);
+               !leaves && matched != nullptr && member.is_array() && it->is_array()) {
+      patch[key] = patchMatched(info, member, *it, matched->key);
+    } else {
+      patch[key] = member;
+    }
+  }
+  nlohmann::json removed = nlohmann::json::array();
+  for (const auto &[key, member] : source.items()) {
+    if (!value.contains(key)) {
+      removed.push_back(key);
+    }
+  }
+  if (!removed.empty()) {
+    patch[RemovedKey] = std::move(removed);
+  }
+  return patch;
+}
+
+void mergeObject(const ComponentInfo &info, nlohmann::json &target, const nlohmann::json &patch, bool leaves,
+                 std::string_view entity);
+
+// Applies the n-th patch under a key to the n-th element of `target` with that key; one whose
+// element the target no longer has is skipped.
+void mergeMatched(const ComponentInfo &info, nlohmann::json &target, const nlohmann::json &patch,
+                  const MatchedMember &matched, std::string_view entity) {
+  for (const auto &[key, patches] : patch.items()) {
+    if (!patches.is_array()) {
+      SONNET_LOG_WARN("entity {}: {} of {} under {} is not a list of changes, skipped", entity, info.name,
+                      matched.member, key);
+      continue;
+    }
+    std::size_t next = 0; // where the search for the next element with this key starts
+    for (const nlohmann::json &change : patches) {
+      while (next < target.size() && matchKey(target[next], matched.key) != key) {
+        ++next;
+      }
+      if (next == target.size()) {
+        if (!change.empty()) {
+          SONNET_LOG_WARN("entity {}: a change to {} {} with {} {} skipped, the prefab no longer has it", entity,
+                          info.name, matched.member, matched.key, key);
+        }
+        continue;
+      }
+      if (change.is_object() && target[next].is_object()) {
+        mergeObject(info, target[next], change, false, entity);
+      }
+      ++next;
+    }
+  }
+}
+
+void mergeObject(const ComponentInfo &info, nlohmann::json &target, const nlohmann::json &patch, bool leaves,
+                 std::string_view entity) {
+  for (const auto &[key, member] : patch.items()) {
+    if (key == RemovedKey) {
+      if (member.is_array()) {
+        for (const nlohmann::json &name : member) {
+          if (name.is_string()) {
+            target.erase(name.get_ref<const std::string &>());
+          }
+        }
+      }
+      continue;
+    }
+    const auto it = target.find(key);
+    const MatchedMember *matched = leaves ? nullptr : matchedMember(info, key);
+    if (matched != nullptr && member.is_object()) {
+      if (it != target.end() && it->is_array()) {
+        mergeMatched(info, *it, member, *matched, entity);
+      } else {
+        SONNET_LOG_WARN("entity {}: changes to {} {} skipped, the prefab has no list to apply them to", entity,
+                        info.name, key);
+      }
+    } else if (!leaves && it != target.end() && member.is_object() && it->is_object()) {
+      mergeObject(info, *it, member, isJsonMember(info, key), entity);
+    } else {
+      target[key] = member;
+    }
+  }
+}
+
+} // namespace
+
+nlohmann::json componentPatch(const ComponentInfo &info, const nlohmann::json &value, const nlohmann::json &source) {
+  if (!value.is_object() || !source.is_object()) {
+    return value == source ? nlohmann::json::object() : value;
+  }
+  return patchObject(info, value, source, false);
+}
+
+nlohmann::json mergePatch(const ComponentInfo &info, nlohmann::json target, const nlohmann::json &patch,
+                          std::string_view entity) {
+  if (!patch.is_object() || !target.is_object()) {
+    return patch;
+  }
+  mergeObject(info, target, patch, false, entity);
+  return target;
 }
 
 nlohmann::json World::valueToJson(flecs::entity_t component, const void *value) const {
