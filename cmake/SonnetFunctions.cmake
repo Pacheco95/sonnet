@@ -47,8 +47,9 @@ endfunction()
 # sonnet_add_module_test(<name> SOURCES ... DEPENDS ... [TIMEOUT <seconds>])
 #
 # Creates <name>_tests linked against sonnet::<name> and Catch2, registers it with CTest under the
-# label <name>, and allows including the module's src/ for white-box tests. TIMEOUT (default 300)
-# is the suite's limit; only a suite measured to need more passes it, with the numbers beside it.
+# label <name>, and allows including the module's src/ for white-box tests and tests/support for the
+# shared helpers in TestSupport.h. TIMEOUT (default 300) is the suite's limit; only a suite measured
+# to need more passes it, with the numbers beside it.
 function(sonnet_add_module_test NAME)
   if(NOT SONNET_BUILD_TESTS)
     return()
@@ -63,7 +64,7 @@ function(sonnet_add_module_test NAME)
   # TestSupport.cpp is compiled in rather than linked from a library so its static initialiser
   # cannot be dropped by the linker.
   add_executable(${target} ${ARG_SOURCES} "${CMAKE_SOURCE_DIR}/tests/support/TestSupport.cpp")
-  target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/tests/support")
   target_compile_definitions(${target} PRIVATE SONNET_MODULE="${target}")
   target_link_libraries(${target} PRIVATE sonnet::${NAME} sonnet::warnings Catch2::Catch2WithMain ${ARG_DEPENDS})
   set_target_properties(${target} PROPERTIES FOLDER "Tests" COMPILE_WARNING_AS_ERROR ON)

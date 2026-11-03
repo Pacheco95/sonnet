@@ -5,6 +5,8 @@
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
@@ -51,7 +53,7 @@ TEST_CASE("a project is created with a start scene and reopened from its folder"
   REQUIRE(world::sceneLight(world).has_value());
 
   REQUIRE(!assets::Project::open(scratch("missing")).has_value());
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("preferences round-trip and format the external editor command", "[editor][project]") {
@@ -179,7 +181,7 @@ TEST_CASE("a repository-relative source path is found upwards from the binary's 
   // An explicit root wins and is not searched around.
   REQUIRE(editor::locateSource("modules/core/src/Log.cpp", root, basePath).has_value());
   REQUIRE(!editor::locateSource("modules/core/src/Log.cpp", root / "build", basePath).has_value());
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("floor grid preference defaults on and survives both toggle states", "[editor][project][grid]") {

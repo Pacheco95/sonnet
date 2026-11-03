@@ -10,6 +10,8 @@
 #include <sonnet/scripting/Components.h>
 #include <sonnet/world/Components.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <imgui.h>
@@ -243,7 +245,7 @@ TEST_CASE("a capture writes the viewport and the whole window as PNG on a GPU", 
     REQUIRE(std::ranges::unique(colours).begin() - colours.begin() > 10);
   }
   REQUIRE(fixture.device->validationMessageCount() == 0); // the copies out of the swapchain too
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 // A script that puts the box somewhere random when play starts: the playground's spawner in
@@ -289,7 +291,7 @@ TEST_CASE("two captures of a scene that plays random numbers write the same imag
   const std::vector<std::byte> first = capture(directory / "first.png", 1000);
   const std::vector<std::byte> second = capture(directory / "second.png", 2000);
   REQUIRE(first == second);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a capture of an entity that is not there fails without writing", "[editor][capture][gpu]") {
@@ -308,7 +310,7 @@ TEST_CASE("a capture of an entity that is not there fails without writing", "[ed
     REQUIRE(fixture.run(editor, capture) == editor::CaptureRun::Status::Failed);
     REQUIRE(!std::filesystem::exists(directory / "shots" / "viewport.png"));
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("the editor refuses --render-size, which is the player's", "[editor][capture][gpu]") {
@@ -327,7 +329,7 @@ TEST_CASE("the editor refuses --render-size, which is the player's", "[editor][c
     REQUIRE(fixture.run(editor, capture) == editor::CaptureRun::Status::Failed);
     REQUIRE(!std::filesystem::exists(directory / "shots" / "viewport.png"));
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("capture grid is opt-in and accepts only on or off", "[editor][capture][grid]") {
@@ -375,7 +377,7 @@ TEST_CASE("captures omit the saved grid unless explicitly requested", "[editor][
     REQUIRE(readPng(options.viewport).rgba == noGrid.rgba);
   }
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("the view flags are parsed, and refused by the player", "[editor][capture][view]") {
@@ -435,7 +437,7 @@ TEST_CASE("a capture shows the Assets grid, a panel in front and a dialog withou
     REQUIRE(editor::Preferences::load(directory / "preferences.json").assetsView.empty());
   }
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a capture refuses a view it cannot show", "[editor][capture][gpu][view]") {
@@ -461,5 +463,5 @@ TEST_CASE("a capture refuses a view it cannot show", "[editor][capture][gpu][vie
     REQUIRE(fails([](editor::CaptureOptions &o) { o.dialog = "quit"; }));
     REQUIRE_FALSE(std::filesystem::exists(options.viewport));
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }

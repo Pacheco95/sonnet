@@ -46,6 +46,7 @@ sonnet_add_module_test(core
     tests/HandleTests.cpp
     tests/JobSystemTests.cpp
     tests/LogTests.cpp
+    tests/TestSupportTests.cpp
     tests/UuidTests.cpp
     tests/VersionTests.cpp
 )

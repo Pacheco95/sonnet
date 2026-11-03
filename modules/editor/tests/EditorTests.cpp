@@ -17,6 +17,8 @@
 #include <sonnet/world/Components.h>
 #include <sonnet/world/Scene.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -1770,7 +1772,7 @@ TEST_CASE("the editor opens a project, edits, plays, stops and saves", "[editor]
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("selecting a parent outlines its whole subtree", "[editor][gpu]") {
@@ -2269,7 +2271,7 @@ TEST_CASE("capture viewport label contrast over the Basic sample", "[.view-label
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("orthographic picking and translate drag select and move the box", "[editor][gpu][orthographic]") {
@@ -2416,7 +2418,7 @@ TEST_CASE("the asset browser lists a project's assets and the inspector edits a 
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("the editor recompiles the engine shaders from the checkout's sources", "[editor][gpu]") {
@@ -2513,14 +2515,14 @@ TEST_CASE("exporting a project writes a bundle and what runs it", "[editor][gpu]
     const auto mobileBundle = assets::Bundle::open(mobile->cook.bundle);
     REQUIRE(mobileBundle.has_value());
     REQUIRE(mobileBundle->manifest().platform == assets::CookPlatform::Android);
-    std::filesystem::remove_all(players);
+    sonnet::test::removeScratch(players);
 
     fixture.frame(editor);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
-  std::filesystem::remove_all(out);
+  sonnet::test::removeScratch(directory);
+  sonnet::test::removeScratch(out);
 }
 
 namespace {
@@ -2805,7 +2807,7 @@ TEST_CASE("save as prefab writes a prefab file the reopened project places again
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("the editor saves and restores its floor grid toggle", "[editor][gpu][grid]") {
@@ -3011,7 +3013,7 @@ TEST_CASE("capture the orthographic showcase for visual review", "[.orthographic
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("delete reference counts include inherited assets in every open scene", "[editor][assets][gpu]") {
@@ -3068,7 +3070,7 @@ TEST_CASE("delete reference counts include inherited assets in every open scene"
   }
   fixture.device->waitIdle();
   CHECK(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("viewport axis widget snaps, toggles projection and consumes drags", "[editor][gpu][axis-widget]") {
@@ -3199,7 +3201,7 @@ TEST_CASE("capture the viewport axis widget", "[.axis-widget-captures][editor][g
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("viewport smooth views are immediate headless and cancellable with input", "[editor][gpu][smooth-view]") {
@@ -3308,5 +3310,5 @@ TEST_CASE("record smooth viewport transitions", "[editor][gpu][.smooth-view-capt
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }

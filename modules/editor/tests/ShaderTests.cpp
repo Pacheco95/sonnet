@@ -2,6 +2,8 @@
 
 #include <sonnet/core/File.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstring>
@@ -51,5 +53,5 @@ TEST_CASE("a broken shader reports its file, line and column", "[editor][shader]
   REQUIRE(core::writeFile(file, std::string_view{"module broken;\n"}).has_value());
   REQUIRE(!compiler.compile(file, true).has_value());
   REQUIRE(compiler.compile(directory / "missing.slang", true).error().category == core::ErrorCategory::Io);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }

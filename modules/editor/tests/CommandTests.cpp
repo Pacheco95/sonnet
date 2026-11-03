@@ -16,6 +16,8 @@
 #include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -423,7 +425,7 @@ TEST_CASE("material and texture settings commands act on the database and undo",
   REQUIRE(assets.textureSettings(noise->uuid) == linear);
   REQUIRE(commands.undo(world));
   REQUIRE(assets.textureSettings(noise->uuid) == defaults);
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("an import copies files and a glTF file's dependencies in, numbers clashes and undoes as one step",
@@ -523,8 +525,8 @@ TEST_CASE("an import copies files and a glTF file's dependencies in, numbers cla
   const std::vector<std::filesystem::path> nothing{source / "notes.txt"};
   REQUIRE_FALSE(editor::importAssets(assets, world, nothing).has_value());
   assets.close();
-  std::filesystem::remove_all(root);
-  std::filesystem::remove_all(source);
+  sonnet::test::removeScratch(root);
+  sonnet::test::removeScratch(source);
 }
 
 TEST_CASE("duplicate copies a glTF file with its dependencies into a numbered folder and undoes as one step",
@@ -583,7 +585,7 @@ TEST_CASE("duplicate copies a glTF file with its dependencies into a numbered fo
   CHECK_FALSE(editor::duplicateAssets(assets, world, nothing).has_value());
   commands.clear();
   assets.close();
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("reapply reads what undo restores from the restored scene and reports missing entities",
@@ -784,7 +786,7 @@ TEST_CASE("file commands preserve identities through rename and trash undo", "[e
     database.close();
     std::filesystem::remove(alias);
   }
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("moving prefab and scene files follows project paths", "[editor][commands][assets]") {
@@ -844,7 +846,7 @@ TEST_CASE("moving prefab and scene files follows project paths", "[editor][comma
   (*movedScene)->revert(world);
   CHECK(tab == scene);
   CHECK(assets::Project::open(root)->startScene == project.startScene);
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("a failed delete undo never overwrites a replacement or the trashed source", "[editor][commands][assets]") {
@@ -877,5 +879,5 @@ TEST_CASE("a failed delete undo never overwrites a replacement or the trashed so
   REQUIRE(database.find(*id));
   CHECK(database.script(*id)->code == "return {original = true}");
   deleted->reset();
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }

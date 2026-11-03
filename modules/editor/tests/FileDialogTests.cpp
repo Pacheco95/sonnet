@@ -7,6 +7,8 @@
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <imgui.h>
@@ -267,7 +269,7 @@ TEST_CASE("a scene saved under a name without .scene.json gets the suffix", "[ed
   // A folder stays a folder, so the save fails instead of writing beside it.
   CHECK_FALSE(editor.saveSceneAs(directory));
   CHECK(editor.scenePath().filename() == "glass.scene.json");
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("Open scene... loads the picked file like the asset browser does", "[editor][filedialog][gpu]") {
@@ -380,5 +382,5 @@ TEST_CASE("Import copies every file picked, and a drop of files imports only on 
   REQUIRE(editor.commands().undo(editor.world()));
   CHECK_FALSE(std::filesystem::exists(project / "assets" / "d.png"));
   CHECK(editor.assets().findByPath(project / "assets" / "a.png") != nullptr);
-  std::filesystem::remove_all(source);
+  sonnet::test::removeScratch(source);
 }

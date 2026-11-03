@@ -11,6 +11,8 @@
 #include <sonnet/world/Components.h>
 #include <sonnet/world/DrawList.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -180,7 +182,7 @@ TEST_CASE("the Game view draws through the scene camera beside the Scene view", 
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("the game UI is laid out against the Game panel and drawn into it, in edit mode too",
@@ -228,7 +230,7 @@ TEST_CASE("the game UI is laid out against the Game panel and drawn into it, in 
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 // A Retina display, or Wayland at 200 %: Dear ImGui's window units are two pixels each (#422).
@@ -299,7 +301,7 @@ TEST_CASE("at a pixel density of 2 the viewport and the Game view render at the 
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 // The mode View > Anti-aliasing sets.
@@ -329,7 +331,7 @@ TEST_CASE("the anti-aliasing mode can be switched while the editor runs", "[edit
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a scene without a camera shows the fallback view in the Game panel, with one warning",
@@ -363,7 +365,7 @@ TEST_CASE("a scene without a camera shows the fallback view in the Game panel, w
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("an emitter previews while it is selected and always plays in play mode", "[editor][gpu][particles]") {
@@ -406,7 +408,7 @@ TEST_CASE("an emitter previews while it is selected and always plays in play mod
     }
     REQUIRE(emitters() == 0);
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("the orthographic sample plays through the Game camera", "[editor][gpu][game-view][orthographic]") {
@@ -443,5 +445,5 @@ TEST_CASE("the orthographic sample plays through the Game camera", "[editor][gpu
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }

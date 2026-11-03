@@ -10,6 +10,8 @@
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/NullDevice.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
@@ -232,7 +234,7 @@ TEST_CASE("the asset browser renames with F2 and confirms Delete", "[editor][ass
   REQUIRE(commands.undo(world));
   CHECK(database.find(*id) != nullptr);
   commands.clear();
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("the folder browser lists disk files and navigates with history and breadcrumbs", "[editor][assets][imgui]") {
@@ -366,7 +368,7 @@ TEST_CASE("the folder browser lists disk files and navigates with history and br
     CHECK(restored.currentFolder() == root / "assets/models");
     database.close();
   }
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("folder creation rename deletion and import keep one undo step", "[editor][assets][imgui]") {
@@ -569,7 +571,7 @@ TEST_CASE("folder creation rename deletion and import keep one undo step", "[edi
                             [&](const auto *info) { return info->source == root / "assets/Renamed/source.lua"; }));
   commands.clear();
   database.close();
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("F2 renames a project-level folder and keeps undo", "[editor][assets][imgui][folder-rename]") {
@@ -649,7 +651,7 @@ TEST_CASE("F2 renames a project-level folder and keeps undo", "[editor][assets][
   CHECK(std::filesystem::is_directory(root / "Renamed folder"));
   commands.clear();
   database.close();
-  std::filesystem::remove_all(root);
+  sonnet::test::removeScratch(root);
 }
 
 namespace {
@@ -696,7 +698,7 @@ struct MoveFixture {
   ~MoveFixture() {
     commands.clear();
     database.close();
-    std::filesystem::remove_all(root);
+    sonnet::test::removeScratch(root);
   }
 
   void frame() {
@@ -1003,7 +1005,7 @@ struct GridFixture {
   }
   ~GridFixture() {
     panel.reset();
-    std::filesystem::remove_all(root);
+    sonnet::test::removeScratch(root);
   }
 
   static std::vector<std::byte> tgaBytes(const std::vector<std::uint8_t> &rgba) {
