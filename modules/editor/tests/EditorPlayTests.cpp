@@ -16,6 +16,8 @@
 #include <sonnet/world/Components.h>
 #include <sonnet/world/Scene.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -165,7 +167,7 @@ TEST_CASE("play mode runs physics and scripts and stop puts everything back", "[
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a script's game.quit stops play and leaves the editor open", "[editor][gpu]") {
@@ -191,7 +193,7 @@ TEST_CASE("a script's game.quit stops play and leaves the editor open", "[editor
     fixture.frame(editor);
   }
   fixture.device->waitIdle();
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a script's game.loadScene replaces the running scene until stop", "[editor][gpu]") {
@@ -242,7 +244,7 @@ TEST_CASE("a script's game.loadScene replaces the running scene until stop", "[e
     fixture.frame(editor);
   }
   fixture.device->waitIdle();
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("an edit made before play can be undone after stop, and the play's own edits are gone", "[editor][gpu]") {
@@ -425,7 +427,7 @@ TEST_CASE("Save as writes the edited scene and leaves the open scene unchanged",
     REQUIRE(byName(editor.world(), "Box").get<world::Transform>().position == glm::vec3{1.0f, 2.0f, 3.0f});
   }
   fixture.device->waitIdle();
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("an edit to an entity the play spawned is skipped and does not fail the stop", "[editor][gpu][changes]") {
@@ -558,7 +560,7 @@ TEST_CASE("pause freezes play mode, edits land on the frozen scene, stop from pa
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("the generic editor refuses a project that needs a game module", "[editor][gpu][module]") {
@@ -640,7 +642,7 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("the basic sample's start scene plays its animations and sounds", "[editor][gpu][samples]") {
@@ -698,7 +700,7 @@ TEST_CASE("the basic sample's start scene plays its animations and sounds", "[ed
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("script slots draw in the inspector and edits reach the running game", "[editor][gpu][scripts]") {
@@ -765,7 +767,7 @@ TEST_CASE("script slots draw in the inspector and edits reach the running game",
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 namespace {
@@ -854,7 +856,7 @@ TEST_CASE("a re-imported model rebuilds its prefab and instances, keeping overri
     REQUIRE(intensity("B") == 99.0f);
     REQUIRE(!editor.isDirty());
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("a prefab file nesting a re-imported model is rebuilt too", "[editor][gpu][refresh]") {
@@ -898,7 +900,7 @@ TEST_CASE("a prefab file nesting a re-imported model is rebuilt too", "[editor][
             Catch::Approx(4.0f * assets::ModelSettings::BlenderLightScale)); // rebuilding only the model's prefab would
                                                                              // leave the holder's copy at 10
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }
 
 TEST_CASE("an import settings change makes no scene unsaved and its undo entry survives play",
@@ -935,5 +937,5 @@ TEST_CASE("an import settings change makes no scene unsaved and its undo entry s
     REQUIRE(editor.commands().undo(editor.world()));
     REQUIRE(editor.assets().modelSettings(modelUuid).lightScale == 0.5f);
   }
-  std::filesystem::remove_all(directory);
+  sonnet::test::removeScratch(directory);
 }

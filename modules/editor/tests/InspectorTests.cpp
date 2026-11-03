@@ -10,6 +10,8 @@
 #include <sonnet/rhi/NullDevice.h>
 #include <sonnet/world/World.h>
 
+#include <TestSupport.h>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -245,7 +247,8 @@ TEST_CASE("the material view edits a texture slot's UV transform and set, with u
     assets.open(root, roots);
     REQUIRE(assets.materialSource(*material)->baseColorTransform == edited);
   }
-  std::filesystem::remove_all(root);
+  assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("the material view edits emissive as a colour and a strength, each edit one command",
@@ -310,7 +313,8 @@ TEST_CASE("the material view edits emissive as a colour and a strength, each edi
     REQUIRE(commands.redo(world));
     REQUIRE(emissive() == scaled);
   }
-  std::filesystem::remove_all(root);
+  assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+  sonnet::test::removeScratch(root);
 }
 
 TEST_CASE("the model view edits the light scale, rewriting the sidecar and the lights, with undo",
@@ -418,5 +422,6 @@ TEST_CASE("the model view edits the light scale, rewriting the sidecar and the l
     REQUIRE(sidecarScale() == Catch::Approx(1.0f / 683.0f));
     REQUIRE(intensity() == Catch::Approx(1.0f));
   }
-  std::filesystem::remove_all(root);
+  assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+  sonnet::test::removeScratch(root);
 }
