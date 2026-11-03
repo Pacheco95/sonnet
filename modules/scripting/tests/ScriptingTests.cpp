@@ -830,7 +830,7 @@ TEST_CASE("a class declares properties and a slot's values overlay the defaults"
 TEST_CASE("a malformed properties declaration is reported and skipped", "[scripting][properties]") {
   Fixture fixture{{"bad.lua", R"lua(
     return { properties = { good = { type = "number" }, nameless = {}, weird = { type = "matrix" },
-                            clash = { type = "integer", default = 1.5 } } }
+                            clash = { type = "integer", default = 1.5 }, ["$removed"] = { type = "number" } } }
   )lua"}};
   const auto declared = fixture.scripts->properties(fixture.script("bad.lua"));
   REQUIRE(declared.has_value());
@@ -839,6 +839,8 @@ TEST_CASE("a malformed properties declaration is reported and skipped", "[script
   REQUIRE(fixture.sink->find("property \"nameless\" needs a type") != nullptr);
   REQUIRE(fixture.sink->find("property \"weird\" needs a type") != nullptr);
   REQUIRE(fixture.sink->find("the default of property \"clash\" is not a integer") != nullptr);
+  // Scene files use "$removed" for a property reset to its default (ADR-0037).
+  REQUIRE(fixture.sink->find("property \"$removed\": a property name cannot start with $") != nullptr);
 }
 
 TEST_CASE("require loads a script file once, shares it and reloads its users when it changes", "[scripting][require]") {

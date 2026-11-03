@@ -28,6 +28,13 @@ enum class Phase : std::uint8_t {
   PreRender,
 };
 
+// A repeated member of structs whose elements a patch pairs by the value of one of their members
+// (`key`), rather than by position.
+struct MatchedMember {
+  std::string member;
+  std::string key;
+};
+
 // A component the inspector and the serializer know about: everything registered with
 // reflection in World, by the name used in scene files.
 struct ComponentInfo {
@@ -36,7 +43,23 @@ struct ComponentInfo {
   bool tag{false}; // no data: serialized as null
   // String members holding JSON text, which files show as the JSON itself (World::embedJson).
   std::vector<std::string> jsonMembers;
+  // Repeated members whose elements a patch pairs by one of their members (World::matchBy).
+  std::vector<MatchedMember> matchedMembers;
 };
+
+// What a scene or prefab file stores of an instance's component that differs from its source
+// (ADR-0037): an object with only the members that differ, recursing into nested objects, and
+// "$removed" listing the members of an embedded JSON object the value lacks. Leaves are written
+// whole: numbers, strings, booleans, null, arrays and the values inside embedded JSON. A matched
+// member (World::matchBy) whose elements pair up is an object keyed by the matching member, one
+// patch per element in order. Empty when the two are equal.
+[[nodiscard]] nlohmann::json componentPatch(const ComponentInfo &info, const nlohmann::json &value,
+                                            const nlohmann::json &source);
+// `target` with `patch` applied, the inverse of componentPatch: what the patch leaves out keeps
+// the target's value. A patch for a matched element the target no longer has is skipped with a
+// warning naming `entity`.
+[[nodiscard]] nlohmann::json mergePatch(const ComponentInfo &info, nlohmann::json target, const nlohmann::json &patch,
+                                        std::string_view entity);
 
 struct WorldDesc {
   // Serves the flecs explorer on its default port; Debug builds of the editor turn it on.
@@ -148,7 +171,7 @@ public:
   template <typename T> flecs::component<T> registerComponent(const char *name, bool tag = false) {
     flecs::component<T> component = m_world.component<T>(name);
     component.add(flecs::OnInstantiate, flecs::Inherit);
-    m_components.push_back({name, component.id(), tag, {}});
+    m_components.push_back({name, component.id(), tag, {}, {}});
     return component;
   }
   // Teaches reflection std::vector<Elem> as a member type, through flecs' opaque collections, so
@@ -178,6 +201,9 @@ public:
   // A string member of a registered component that holds JSON text (a script slot's properties).
   // Files and undo copies show it as the JSON value itself rather than as an escaped string.
   void embedJson(std::string_view component, std::string_view member);
+  // A repeated member whose elements a patch pairs by their `key` member, the n-th element with
+  // a key to the n-th with the same key (a script slot by its script, ADR-0037).
+  void matchBy(std::string_view component, std::string_view member, std::string_view key);
   // Marks a system as simulation: it runs in play mode only.
   void addToSimulation(flecs::entity system);
 

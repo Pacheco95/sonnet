@@ -617,6 +617,14 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
   const bool changed = source ? m_world.differs(entity, source, info)
                               : prefab && !inherited && prefab.has(info.id) && info.name != "Transform" &&
                                     m_world.differs(entity, prefab, info);
+  // The value the component follows, and the members that differ from it, marked one by one.
+  const flecs::entity followed = source ? source : prefab;
+  nlohmann::json followedValue;
+  nlohmann::json overrides;
+  if (changed && !info.tag && followed.has(info.id)) {
+    followedValue = m_world.componentToJson(followed, info.id);
+    overrides = world::componentPatch(info, m_world.componentToJson(entity, info.id), followedValue);
+  }
   const std::string label = inherited ? std::format("{} (inherited)", info.name)
                             : changed ? std::format("{} (changed)", info.name)
                                       : info.name;
@@ -660,7 +668,9 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
     const flecs::entity type{m_world.ecs(), info.id};
     if (info.name == "Scripts") {
       // A list of structs, which is not plain data: drawn by hand, on a typed copy.
-      drawScripts(entity);
+      const scripting::Scripts *prefabScripts =
+          followed && !inherited ? followed.try_get<scripting::Scripts>() : nullptr;
+      drawScripts(entity, prefabScripts);
       acceptScriptDrop(entity);
     } else {
       // An inherited value is edited on a copy and becomes the instance's own only when a widget
@@ -676,7 +686,22 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
       } else {
         data = entity.ensure(info.id);
       }
+      m_overrides = overrides.is_object() && !overrides.empty() ? &overrides : nullptr;
+      m_memberPath = nlohmann::json::json_pointer{};
+      m_revertMember.reset();
       drawStruct(type, data);
+      m_overrides = nullptr;
+      if (m_revertMember) {
+        const nlohmann::json current = m_world.componentToJson(entity, info.id);
+        m_commands.push(
+            componentCommand(uuid, info.name, std::make_optional(current),
+                             std::make_optional(revertMember(info, current, followedValue, *m_revertMember)),
+                             std::format("revert {}{}", info.name, m_revertMember->to_string())),
+            m_world);
+        m_revertMember.reset();
+        ImGui::PopID();
+        return;
+      }
       if (info.name == "ParticleEmitter" && m_particleReset && ImGui::Button("Restart")) {
         m_particleReset(entity);
       }
@@ -761,7 +786,7 @@ void InspectorPanel::acceptScriptDrop(flecs::entity entity) {
   ImGui::EndDragDropTarget();
 }
 
-void InspectorPanel::drawScripts(flecs::entity entity) {
+void InspectorPanel::drawScripts(flecs::entity entity, const scripting::Scripts *prefab) {
   const scripting::Scripts *current = entity.try_get<scripting::Scripts>();
   if (current == nullptr) {
     return;
@@ -801,7 +826,7 @@ void InspectorPanel::drawScripts(flecs::entity entity) {
       } else {
         for (const scripting::PropertyDecl &property : *declared) {
           ImGui::PushID(property.name.c_str());
-          drawProperty(slot, property);
+          drawProperty(slot, property, prefab != nullptr ? prefabSlot(*current, *prefab, i) : nullptr);
           ImGui::PopID();
         }
         for (const std::string &name : undeclaredProperties(slot, *declared)) {
@@ -828,10 +853,12 @@ void InspectorPanel::drawScripts(flecs::entity entity) {
   }
 }
 
-void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property) {
+void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property,
+                                  const scripting::ScriptSlot *prefab) {
   using scripting::PropertyType;
   nlohmann::json value = propertyValue(slot, property);
   const bool changedBefore = propertyChanged(slot, property);
+  const bool overridden = prefab != nullptr && propertyDiffersFromPrefab(slot, *prefab, property);
   bool edited = false;
   bool immediate = false; // a pick is one edit in itself
   if (!ui::beginPropertyTable("property", true)) {
@@ -840,7 +867,7 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
   ImGui::TableNextRow();
   ImGui::TableNextColumn();
   ImGui::AlignTextToFramePadding();
-  ImGui::TextUnformatted(property.name.c_str());
+  drawMemberLabel(property.name.c_str(), overridden);
   ImGui::TableNextColumn();
   ImGui::SetNextItemWidth(-1.0f);
   switch (property.type) {
@@ -921,8 +948,33 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
   }
   }
   ImGui::TableNextColumn();
-  if (changedBefore && ImGui::SmallButton("revert")) {
-    slot = revertProperty(std::move(slot), property);
+  // To the script's default, or to the prefab slot's value; a menu when both apply.
+  std::optional<bool> revertTo; // true: the prefab's value
+  if (changedBefore && overridden) {
+    if (ImGui::SmallButton("revert")) {
+      ImGui::OpenPopup("revert to");
+    }
+    if (ImGui::BeginPopup("revert to")) {
+      if (ImGui::MenuItem("Prefab's value")) {
+        revertTo = true;
+      }
+      if (ImGui::MenuItem("Script's default")) {
+        revertTo = false;
+      }
+      ImGui::EndPopup();
+    }
+  } else if (changedBefore || overridden) {
+    if (ImGui::SmallButton("revert")) {
+      revertTo = overridden;
+    }
+    // One target: say which, since a property can differ from the default and follow the prefab.
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(overridden ? "Revert to the prefab's value" : "Revert to the script's default");
+    }
+  }
+  if (revertTo) {
+    slot = *revertTo ? revertPropertyToPrefab(std::move(slot), *prefab, property)
+                     : revertProperty(std::move(slot), property);
     immediate = true;
     edited = false;
   }
@@ -1036,14 +1088,18 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
   const flecs::entity type{m_world.ecs(), member.type};
   void *field = static_cast<std::byte *>(data) + member.offset;
   const std::string_view name = member.name;
+  // What differs from the prefab here (ADR-0037): this member, or members inside it.
+  const nlohmann::json *const level = m_overrides;
+  const auto found = level != nullptr ? level->find(member.name) : nlohmann::json::const_iterator{};
+  const nlohmann::json *overridden = level != nullptr && found != level->end() ? &*found : nullptr;
   ImGui::SetNextItemWidth(-1.0f);
-  if (!ui::beginPropertyTable("member")) {
+  if (!ui::beginPropertyTable("member", level != nullptr)) {
     return;
   }
   ImGui::TableNextRow();
   ImGui::TableNextColumn();
   ImGui::AlignTextToFramePadding();
-  ImGui::TextUnformatted(member.name);
+  drawMemberLabel(member.name, overridden != nullptr);
   ImGui::TableNextColumn();
   ImGui::SetNextItemWidth(-1.0f);
 
@@ -1131,11 +1187,40 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
     ImGui::TableNextColumn();
+    // The members inside are marked and reverted one by one.
+    m_overrides = overridden != nullptr && overridden->is_object() ? overridden : nullptr;
+    m_memberPath.push_back(member.name);
     drawStruct(type, field);
+    m_memberPath.pop_back();
+    m_overrides = level;
+    overridden = nullptr;
   } else {
     ImGui::TextDisabled("(unsupported)");
   }
+  if (level != nullptr) {
+    ImGui::TableNextColumn();
+    if (overridden != nullptr && ImGui::SmallButton("revert")) {
+      m_revertMember = m_memberPath / member.name;
+    }
+    if (overridden != nullptr && ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Revert to the prefab's value");
+    }
+  }
   ui::endPropertyTable();
+}
+
+void InspectorPanel::drawMemberLabel(const char *name, bool overridden) {
+  if (!overridden) {
+    ImGui::TextUnformatted(name);
+    return;
+  }
+  // The accent marks state: this value is the instance's own, not the prefab's.
+  ImGui::PushStyleColor(ImGuiCol_Text, ui::currentTheme().accent);
+  ImGui::TextUnformatted(name);
+  ImGui::PopStyleColor();
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Differs from the prefab");
+  }
 }
 
 } // namespace sonnet::editor

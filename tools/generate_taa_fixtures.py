@@ -257,7 +257,7 @@ class Scene:
 
     def write(self, file: str):
         (PROJECT / "scenes").mkdir(parents=True, exist_ok=True)
-        (PROJECT / "scenes" / file).write_text(json.dumps({"version": 6, "entities": self.entities}, indent=1) + "\n")
+        (PROJECT / "scenes" / file).write_text(json.dumps({"version": 9, "entities": self.entities}, indent=1) + "\n")
 
 
 def slide(velocity, stop_at=0.0):

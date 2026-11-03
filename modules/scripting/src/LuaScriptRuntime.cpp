@@ -658,6 +658,11 @@ private:
         continue;
       }
       const std::string name = key.as<std::string>();
+      if (name.starts_with('$')) {
+        // Scene files use "$removed" for a property reset to its default (ADR-0037).
+        SONNET_LOG_ERROR("{}: property \"{}\": a property name cannot start with $", path, name);
+        continue;
+      }
       const sol::table entry = value.as<sol::table>();
       const sol::object typeName = entry.get<sol::object>("type");
       std::optional<PropertyType> type;

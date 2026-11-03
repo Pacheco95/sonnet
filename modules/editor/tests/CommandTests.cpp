@@ -664,6 +664,17 @@ TEST_CASE("an instance's duplicate keeps what its descendants changed, under ide
   REQUIRE(!world.find(copy));
 }
 
+TEST_CASE("reverting one member of an instance's component keeps its other changes", "[editor][commands][prefab]") {
+  world::World world;
+  const world::ComponentInfo &light = *world.findComponent("PointLight");
+  const nlohmann::json source = {{"color", {1.0, 1.0, 1.0}}, {"intensity", 10.0}, {"range", 10.0}};
+  const nlohmann::json value = {{"color", {1.0, 0.0, 0.0}}, {"intensity", 4.0}, {"range", 10.0}};
+  const nlohmann::json reverted = editor::revertMember(light, value, source, "/intensity"_json_pointer);
+  REQUIRE(reverted == nlohmann::json{{"color", {1.0, 0.0, 0.0}}, {"intensity", 10.0}, {"range", 10.0}});
+  // A member equal to the prefab's has nothing to revert.
+  REQUIRE(editor::revertMember(light, value, source, "/range"_json_pointer) == value);
+}
+
 TEST_CASE("deleting part of an instance hides it, and make local is undone whole", "[editor][commands][prefab]") {
   world::World world;
   editor::CommandStack commands;

@@ -24,7 +24,8 @@ namespace sonnet::world {
 // Version 6 moves exposure from Environment to Camera and adds Camera bloom strength.
 // Version 7 adds camera projection kind, orthographic height and far plane.
 // Version 8 adds "order" to an instance's entries: the order of its children (ADR-0032).
-constexpr int SceneVersion = 8;
+// Version 9 stores only the members an instance changed in a component (ADR-0037).
+constexpr int SceneVersion = 9;
 
 // Every scene entity, parents before children, prefab instances as their overrides and what
 // their descendants changed.

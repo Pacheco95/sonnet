@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 9,
   "entities": [
     {
       "uuid": "2c7f0d4e-0002-4a5b-8c9d-000000000001",
@@ -942,10 +942,7 @@
       "instanced": true,
       "components": {
         "MeshRenderer": {
-          "mesh": "bb8714b8-63f4-81c4-86ef-ad99a6ff9d40",
-          "material": "00000000-0000-0000-0000-000000000000",
-          "color": [0.9, 0.2, 0.15, 1.0],
-          "visible": true
+          "color": [0.9, 0.2, 0.15, 1.0]
         }
       }
     },

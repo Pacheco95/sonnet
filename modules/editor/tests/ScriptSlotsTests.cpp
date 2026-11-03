@@ -119,3 +119,26 @@ TEST_CASE("dropping a script on an entity is one undoable step", "[editor][scrip
   REQUIRE(commands.redo(world));
   REQUIRE(entity.get<scripting::Scripts>().slots[0].script == first);
 }
+
+TEST_CASE("a slot of an instance follows the prefab's slot and reverts a property to it", "[editor][scripts][prefab]") {
+  const core::Uuid a = core::Uuid::generate();
+  const core::Uuid b = core::Uuid::generate();
+  const scripting::Scripts prefab{.slots = {{.script = a, .properties = R"({"speed":4})"}, {.script = b}}};
+  scripting::Scripts instance = prefab;
+  // Paired by index while both run the same scripts in the same order (ADR-0037).
+  REQUIRE(editor::prefabSlot(instance, prefab, 1) == &prefab.slots[1]);
+  REQUIRE(editor::prefabSlot(instance, prefab, 2) == nullptr);
+  REQUIRE(editor::prefabSlot(editor::moveSlot(instance, 0, 1), prefab, 0) == nullptr);
+
+  REQUIRE(!editor::propertyDiffersFromPrefab(instance.slots[0], prefab.slots[0], Speed));
+  // Set to the script's default: no value of its own, which differs from the prefab's 4.
+  instance.slots[0] = editor::setProperty(instance.slots[0], Speed, 2.0);
+  REQUIRE(instance.slots[0].properties.empty());
+  REQUIRE(editor::propertyDiffersFromPrefab(instance.slots[0], prefab.slots[0], Speed));
+  REQUIRE(editor::revertPropertyToPrefab(instance.slots[0], prefab.slots[0], Speed).properties == R"({"speed":4})");
+  // A value the prefab leaves at the default goes back to having none.
+  instance.slots[1] = editor::setProperty(instance.slots[1], Target, nullptr);
+  instance.slots[1] = editor::setProperty(instance.slots[1], Speed, 7.0);
+  REQUIRE(editor::propertyDiffersFromPrefab(instance.slots[1], prefab.slots[1], Speed));
+  REQUIRE(editor::revertPropertyToPrefab(instance.slots[1], prefab.slots[1], Speed).properties.empty());
+}

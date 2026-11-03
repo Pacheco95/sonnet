@@ -27,18 +27,20 @@ struct Prefabs {
   core::Uuid axle = core::Uuid::generate();
   float hubGrey = 0.5f;
   float hubHeight = 0.0f;
+  bool hubVisible = true;
   bool bodySpins = false;
   bool withHub = true;
 
   json wheelFile() const {
     json entities = {{{"uuid", wheel.toString()}, {"name", "Wheel"}, {"components", json::object()}}};
     if (withHub) {
-      entities.push_back({{"uuid", hub.toString()},
-                          {"name", "Hub"},
-                          {"parent", wheel.toString()},
-                          {"components",
-                           {{"MeshRenderer", {{"color", json::array({hubGrey, hubGrey, hubGrey, 1.0})}}},
-                            {"Transform", {{"position", json::array({0.0, hubHeight, 0.0})}}}}}});
+      entities.push_back(
+          {{"uuid", hub.toString()},
+           {"name", "Hub"},
+           {"parent", wheel.toString()},
+           {"components",
+            {{"MeshRenderer", {{"color", json::array({hubGrey, hubGrey, hubGrey, 1.0})}, {"visible", hubVisible}}},
+             {"Transform", {{"position", json::array({0.0, hubHeight, 0.0})}}}}}});
     }
     return {{"version", world::SceneVersion}, {"entities", entities}};
   }
@@ -182,14 +184,15 @@ TEST_CASE("a scene keeps the changes inside an instance and takes the prefab's o
         REQUIRE(entry["removed"] == json::array({"Static"}));
       }
       if (entry["uuid"] == hubUuid.toString()) {
-        REQUIRE(entry["components"].size() == 1);
-        REQUIRE(entry["components"].contains("MeshRenderer"));
+        // Only the member that changed (ADR-0037).
+        REQUIRE(entry["components"] == json{{"MeshRenderer", {{"color", {1.0, 0.5, 0.5, 1.0}}}}});
       }
     }
   }
   // The prefabs change after the scene was saved.
   files.hubGrey = 0.8f;
   files.hubHeight = 2.0f;
+  files.hubVisible = false;
   files.bodySpins = true;
   {
     world::World world;
@@ -202,10 +205,11 @@ TEST_CASE("a scene keeps the changes inside an instance and takes the prefab's o
     REQUIRE(axle);
     const flecs::entity hub = world.find(hubUuid);
     REQUIRE(hub.parent() == axle);
-    // The changed component is the scene's, whole: red from the scene, green as it was saved,
-    // not the prefab's new grey.
+    // The changed member is the scene's, whole since it is a vector: red from the scene, green as
+    // it was saved, not the prefab's new grey. The component's other members follow the prefab.
     REQUIRE(hub.get<world::MeshRenderer>().color.r == Approx(1.0f));
     REQUIRE(hub.get<world::MeshRenderer>().color.g == Approx(0.5f));
+    REQUIRE(!hub.get<world::MeshRenderer>().visible);
     // A component the instance did not change follows the prefab.
     REQUIRE(hub.get<world::Transform>().position.y == Approx(2.0f));
     REQUIRE(body.has<world::Disabled>());

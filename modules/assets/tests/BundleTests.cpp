@@ -289,6 +289,6 @@ TEST_CASE("a file that is not a bundle is refused", "[assets][bundle]") {
   REQUIRE(core::writeFile(future, *bytes).has_value());
   const auto old = Bundle::open(future);
   REQUIRE(!old.has_value());
-  REQUIRE(old.error().message.find("bundle version 12 is not version 19") != std::string::npos);
+  REQUIRE(old.error().message.find("bundle version 12 is not version 20") != std::string::npos);
   sonnet::test::removeScratch(directory);
 }

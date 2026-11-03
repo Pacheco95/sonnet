@@ -41,7 +41,7 @@ def entity(name, position, components, rotation=None, scene="stress"):
 
 def write(name, entities):
     out = SCENES / f"{name}.scene.json"
-    out.write_text(scene_json.dumps({"version": 6, "entities": entities}) + "\n")
+    out.write_text(scene_json.dumps({"version": 9, "entities": entities}) + "\n")
     print(f"wrote {out.relative_to(ROOT)}: {len(entities)} entities")
 
 

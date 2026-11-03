@@ -511,6 +511,17 @@ json prefabFromSubtree(const world::World &world, core::Uuid entity) {
   return withFreshIdentities(world, world::saveSubtree(world, world.find(entity)), {});
 }
 
+nlohmann::json revertMember(const world::ComponentInfo &info, const nlohmann::json &value, const nlohmann::json &source,
+                            const nlohmann::json::json_pointer &member) {
+  // The patch without that member, merged back onto the source.
+  nlohmann::json patch = world::componentPatch(info, value, source);
+  if (member.empty() || !patch.contains(member)) {
+    return value;
+  }
+  patch.at(member.parent_pointer()).erase(member.back());
+  return world::mergePatch(info, source, patch, "revert");
+}
+
 std::unique_ptr<ICommand> replaceWithInstanceCommand(const world::World &world, core::Uuid entity, core::Uuid prefab) {
   const flecs::entity original = world.find(entity);
   const std::string name = original.get<world::Name>().value;

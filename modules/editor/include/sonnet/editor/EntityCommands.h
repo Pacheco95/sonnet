@@ -3,6 +3,7 @@
 #include <sonnet/editor/CommandStack.h>
 
 #include <sonnet/core/Uuid.h>
+#include <sonnet/world/World.h>
 
 #include <nlohmann/json.hpp>
 
@@ -41,6 +42,11 @@ namespace sonnet::editor {
 [[nodiscard]] std::unique_ptr<ICommand> componentCommand(core::Uuid entity, std::string component,
                                                          std::optional<nlohmann::json> before,
                                                          std::optional<nlohmann::json> after, std::string description);
+// The value of an instance's component, or of a part of an instance, with the member at `member`
+// set back to the `source`'s and every other member kept (ADR-0037): what the inspector's revert
+// of one member pushes as the command's after value.
+[[nodiscard]] nlohmann::json revertMember(const world::ComponentInfo &info, const nlohmann::json &value,
+                                          const nlohmann::json &source, const nlohmann::json::json_pointer &member);
 // An instance of the prefab with that identity, under `parent`, with `uuid` or a fresh identity.
 [[nodiscard]] std::unique_ptr<ICommand> instantiatePrefabCommand(core::Uuid prefab, std::string name, core::Uuid parent,
                                                                  core::Uuid uuid = {});

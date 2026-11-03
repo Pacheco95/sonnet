@@ -12,6 +12,9 @@ void registerComponents(world::World &world) {
   world.registerVector<ScriptSlot>();
   world.registerComponent<Scripts>("Scripts").member<std::vector<ScriptSlot>>("slots");
   world.embedJson("Scripts", "properties");
+  // An instance's changes to a slot follow the slot when the prefab reorders its scripts
+  // (ADR-0037).
+  world.matchBy("Scripts", "slots", "script");
 }
 
 } // namespace sonnet::scripting

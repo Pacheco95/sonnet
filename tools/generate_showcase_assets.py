@@ -1121,7 +1121,7 @@ def write_scene():
         entity(name, position, rotation, scale, refl, **components)
 
     # Parents come first in the file: the loader resolves them in order.
-    (PROJECT / "scenes" / "main.scene.json").write_text(scene_json.dumps({"version": 6, "entities": entities}) + "\n")
+    (PROJECT / "scenes" / "main.scene.json").write_text(scene_json.dumps({"version": 9, "entities": entities}) + "\n")
     lights = sum(1 for e in entities if "PointLight" in e["components"] or "SpotLight" in e["components"])
     print(f"main.scene.json: {len(entities)} entities, {lights} lights")
 

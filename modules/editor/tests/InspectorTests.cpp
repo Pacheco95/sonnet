@@ -425,3 +425,38 @@ TEST_CASE("the model view edits the light scale, rewriting the sidecar and the l
   assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
   sonnet::test::removeScratch(root);
 }
+
+TEST_CASE("the inspector draws the members an instance changed without changing anything",
+          "[editor][inspector][prefab]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const flecs::entity prefab = world.createEntity("Lamp");
+  prefab.set<world::PointLight>({});
+  world.createEntity("Bulb", prefab).set<world::MeshRenderer>({});
+  world.makePrefab(prefab);
+  const flecs::entity lamp = world.instantiate(prefab, "Lamp 1");
+  lamp.ensure<world::PointLight>().intensity = 4.0f;
+  const flecs::entity bulb = world.children(lamp)[0];
+  bulb.ensure<world::MeshRenderer>().color.r = 0.25f;
+  const nlohmann::json lampBefore = world.componentToJson(lamp, world.findComponent("PointLight")->id);
+  const nlohmann::json bulbBefore = world.componentToJson(bulb, world.findComponent("MeshRenderer")->id);
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  const InspectorDriver driver{panel, {}};
+  for (const flecs::entity entity : {lamp, bulb}) {
+    selection.select(world.uuidOf(entity));
+    for (int frame = 0; frame < 3; ++frame) {
+      driver.frame();
+    }
+  }
+  REQUIRE(!commands.canUndo());
+  REQUIRE(world.componentToJson(lamp, world.findComponent("PointLight")->id) == lampBefore);
+  REQUIRE(world.componentToJson(bulb, world.findComponent("MeshRenderer")->id) == bulbBefore);
+  REQUIRE(!world.find(world.uuidOf(lamp)).owns<world::MeshRenderer>());
+}

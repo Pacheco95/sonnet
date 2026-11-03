@@ -95,8 +95,11 @@ private:
   void drawRemovedComponents(flecs::entity entity, flecs::entity source);
   void drawAddComponent(flecs::entity entity);
   // The `Scripts` component: the slot list with its buttons and one widget per declared property.
-  void drawScripts(flecs::entity entity);
-  void drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property);
+  // `prefab` is the value the entity's slots follow, when it is part of an instance.
+  void drawScripts(flecs::entity entity, const scripting::Scripts *prefab);
+  // `prefab` is the prefab's slot this one follows (ADR-0037), null when it has none.
+  void drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property,
+                    const scripting::ScriptSlot *prefab);
   // A drop target on the last widget for a script asset from the browser: one more slot.
   void acceptScriptDrop(flecs::entity entity);
   // A button naming the entity that opens a list of the scene's, and a drop target for the
@@ -104,6 +107,8 @@ private:
   bool drawEntityPicker(core::Uuid &value);
   void drawStruct(flecs::entity type, void *data);
   void drawMember(const ecs_member_t &member, void *data);
+  // A member's or a script property's name, marked when it differs from the prefab.
+  void drawMemberLabel(const char *name, bool overridden);
   bool drawEnum(flecs::entity type, void *data);
   // A button naming the asset that opens a filtered list of the type, and a drop target for the
   // browser's rows; returns true when the value changed.
@@ -123,6 +128,12 @@ private:
   Selection &m_selection;
   CommandStack &m_commands;
   std::optional<Edit> m_edit;
+  // While a component of an instance is drawn: the members that differ from the prefab at the
+  // level drawn (ADR-0037), null for none, the path down to that level, and the member whose
+  // revert was pressed.
+  const nlohmann::json *m_overrides{nullptr};
+  nlohmann::json::json_pointer m_memberPath;
+  std::optional<nlohmann::json::json_pointer> m_revertMember;
   std::optional<MaterialEdit> m_materialEdit;
   std::optional<EmissiveView> m_emissive;
   core::Uuid m_shownAsset; // the asset of the last frame, to bring its tab forward when it changes
