@@ -202,7 +202,7 @@ Done (version 0.20.0, [PR #218](https://github.com/Pacheco95/sonnet/pull/218)). 
 
 - **Evidence:** desktops (`runtime_tests`, `world_tests`, `editor_tests`) and both phones, the Galaxy S25 Ultra ([#221](https://github.com/Pacheco95/sonnet/issues/221)) and the iPad ([#222](https://github.com/Pacheco95/sonnet/issues/222)), are in [the report](reports/roadmap-closed-work.md#m16-what-was-checked). The phones found a disabled crate's lid still drawing; the draw list now leaves out a disabled entity's subtree.
 
-CI is green on every job. Prefabs are not listed in the asset browser yet ([#219](https://github.com/Pacheco95/sonnet/issues/219)). Per-field overrides, starting with script properties, are [ADR-0028](decisions/0028-nested-scene-instances.md)'s first follow-up.
+CI is green on every job. Prefabs are not listed in the asset browser yet ([#219](https://github.com/Pacheco95/sonnet/issues/219)). Per-field overrides are [ADR-0028](decisions/0028-nested-scene-instances.md)'s first follow-up, decided in [ADR-0037](decisions/0037-per-field-instance-overrides.md) and implemented in [#380](https://github.com/Pacheco95/sonnet/issues/380).
 
 Not in the first version: per-field overrides, which come next, starting with script properties; placing a scene file; live updates of instances when a prefab changes; reordering or deleting an instance's source children; creating a prefab variant from the editor; applying an instance's changes back to its prefab.
 

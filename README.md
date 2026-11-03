@@ -201,7 +201,7 @@ ctest --preset linux-debug
 | [0025](docs/decisions/0025-shadow-levels-of-detail.md) | A coarser index range for the far shadow cascades | Accepted |
 | [0026](docs/decisions/0026-game-ui.md) | Game UI is scene entities drawn by a `gui` module | Accepted |
 | [0027](docs/decisions/0027-game-modules.md) | A game module is a static library the engine build links into a player and an editor | Accepted |
-| [0028](docs/decisions/0028-nested-scene-instances.md) | Nested scene instances are prefab instances whose children are addressed by derived identities | Accepted |
+| [0028](docs/decisions/0028-nested-scene-instances.md) | Nested scene instances are prefab instances whose children are addressed by derived identities | Accepted, whole-component overrides amended by 0037 |
 | [0029](docs/decisions/0029-compact-scene-files.md) | Scene files write vectors as arrays | Accepted |
 | [0030](docs/decisions/0030-model-node-identities.md) | A model prefab's nodes are identified by their name path | Accepted |
 | [0031](docs/decisions/0031-vertex-colours.md) | Vertex colour is a packed RGBA8 in Vertex | Accepted |
@@ -210,6 +210,7 @@ ctest --preset linux-debug
 | [0034](docs/decisions/0034-taa-glass-gate.md) | Glass under TAA is judged against what its content allows | Accepted |
 | [0035](docs/decisions/0035-moltenvk-stays-pinned.md) | MoltenVK is deprecated upstream and stays pinned | Accepted |
 | [0036](docs/decisions/0036-dear-imgui-stays-the-editor-ui.md) | Dear ImGui stays the editor's UI library | Accepted |
+| [0037](docs/decisions/0037-per-field-instance-overrides.md) | An instance stores the fields it changed, and the rest follow the prefab | Accepted |
 
 ## License
 
