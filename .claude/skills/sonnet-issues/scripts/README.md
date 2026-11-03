@@ -120,12 +120,12 @@ Updates should complete in under 30 seconds for 10 issues.
 Puts the priorities at the top of the board. Run it after `update_project.py`.
 
 ```bash
-python3 .claude/skills/sonnet-issues/scripts/reorder_project.py --project-owner USERNAME --project-number 1 [--dry-run]
+python3 .claude/skills/sonnet-issues/scripts/reorder_project.py --project-owner USERNAME --project-number 1 --repo REPO_NAME [--dry-run]
 ```
 
-Order, top to bottom: open items by Priority Tier (Quick Win, Medium Fit, Deferred, no tier), smaller Effort (hours) first within a tier, then the lower issue number; Blocked items after the other open ones. Done items are not moved, so they keep the order they reached Done in, newest first, below the open ones. `--dry-run` prints the order without moving anything.
+Order, top to bottom: the open issues' cards by Priority Tier (Quick Win, Medium Fit, Deferred, no tier), smaller Effort (hours) first within a tier, then the lower issue number; Blocked cards after the other open ones. Done cards are not moved, so they keep the order they reached Done in, newest first, below the open ones. A closed issue's card is not moved either, whatever its Status. `--dry-run` prints the order without moving anything. `--repo` is the repository name only, as for `update_project.py`.
 
-Items added to the board a moment earlier can be missing from the first listing, so add new issues first and run this afterwards. If the board's Table view sorts by a field, clear that sort to see the manual order.
+The cards are found from the issue side: each open issue's card on this board, archived cards left out. The board's own listing (`gh project item-list`, and the GraphQL items connection it reads) can leave out cards that are on the board, for hours, so a script that reads it would leave those cards below the open ones. An open issue with no card on the board is named at the end of the output: add it and run this again. If the board's Table view sorts by a field, clear that sort to see the manual order.
 
 ## dependencies.py
 
