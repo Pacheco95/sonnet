@@ -16,6 +16,7 @@
 #include <sonnet/editor/Selection.h>
 #include <sonnet/editor/ShaderCompiler.h>
 #include <sonnet/editor/StatisticsPanel.h>
+#include <sonnet/editor/ViewportDrop.h>
 #include <sonnet/editor/ViewportPanel.h>
 #include <sonnet/editor/WindowOrigins.h>
 
@@ -454,7 +455,8 @@ public:
   [[nodiscard]] bool quitRequested() const noexcept {
     return m_quitRequested;
   }
-  // The pick ids the last update queued for the outline: the selection and its descendants.
+  // The pick ids the last update queued for the outline: the selection and its descendants, or the object a material
+  // or a script held over the viewport would go to, alone.
   [[nodiscard]] std::span<const std::uint32_t> outlineIds() const noexcept {
     return m_outlineIds;
   }
@@ -536,6 +538,9 @@ private:
   void startFileDialog(DialogTarget target, const FileDialogRequest &request);
   void pollFileDialog();
   void drawViewportOverlay(const ViewportInput &input);
+  // An asset from the Assets panel held over the viewport's image (docs/editor.md, "Dropping assets on the
+  // viewport"): fills m_drop with what the drop would do, and does it when the asset is let go.
+  void dragOverViewport(const ViewportInput &input, const GizmoView &view);
   // The outline of each selected UI element over the Game view's image.
   void drawGameOverlay(const ViewportInput &input);
   void buildLayout(unsigned dockspace, BuiltinLayout layout);
@@ -607,6 +612,24 @@ private:
   bool m_warnedAboutCamera{false};
   bool m_cutHistory{false}; // the next frame's views start their temporal history over
   std::vector<std::uint32_t> m_outlineIds;
+  // What an asset held over the viewport would do this frame: rebuilt by dragOverViewport, read by update and
+  // render, reset every frame before the panels draw. Nothing of it is in the world.
+  struct DropPreview {
+    DropAction action{DropAction::None};
+    core::Uuid asset{};
+    flecs::entity target;               // Material, Script: the object under the cursor
+    std::optional<glm::mat4> placement; // Instance, Mesh: where the object would stand
+    // Instance, Mesh: the object's draws, joints and morph weights, relative to its origin.
+    std::vector<renderer::DrawItem> draws;
+    std::vector<glm::mat4> joints;
+    std::vector<float> morphWeights;
+  };
+  DropPreview m_drop;
+  std::optional<glm::mat4> m_lastPlacement; // last frame's, for the preview's motion vectors (ADR-0024)
+  // The viewport's own lists while a preview changes them; the Game view keeps m_draws and the rest.
+  std::vector<renderer::DrawItem> m_viewportDraws;
+  std::vector<glm::mat4> m_viewportJoints;
+  std::vector<float> m_viewportMorphWeights;
   std::optional<std::pair<std::filesystem::path, std::filesystem::path>> m_screenshotRequest; // viewport, window
   runtime::Screenshots m_screenshots;
   std::optional<core::Result<void>> m_screenshotResult;
