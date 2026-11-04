@@ -23,13 +23,16 @@ The controls and their hit regions follow the font size.
 ## Reproduce
 
 ```sh
-VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
+SONNET_KEEP_TEST_TMPDIR=1 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
   ./build/linux-debug/modules/editor/editor_tests '[.axis-widget-captures]'
 ```
 
-Images land in `/tmp/sonnet-axis-widget-captures`. The `[axis-widget]` headless
-ImGui test clicks all six ends, flips each current axis to its opposite and back,
-toggles projection, and drags across and outside the widget while checking the
-pivot distance and selection. Pointer presses and holds are withheld from the
+The test process points the temporary directory at one of its own and removes it
+on exit ([Build](../build.md)). `SONNET_KEEP_TEST_TMPDIR=1` keeps it, and the
+last line on stderr names it, so the images are in
+`/tmp/sonnet-editor_tests-<pid>/sonnet-axis-widget-captures`. The
+`[axis-widget]` headless ImGui test clicks all six ends, flips each current axis
+to its opposite and back, toggles projection, and drags across and outside the
+widget while checking the pivot distance and selection. Pointer presses and holds are withheld from the
 viewport's picking and gizmo input. This verification does not cover other desktop
 platforms or a physical mouse run.
