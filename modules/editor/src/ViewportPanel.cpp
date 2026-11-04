@@ -1,11 +1,13 @@
 #include <sonnet/editor/ViewportPanel.h>
 
+#include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/ui/Theme.h>
 #include <sonnet/ui/Widgets.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <string>
 
 namespace sonnet::editor {
@@ -84,6 +86,21 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
                           .leftDoubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left),
                           .leftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left),
                           .drawList = ImGui::GetWindowDrawList()};
+  // An asset from the Assets panel held over the image, while the image is still the last item. The preview is the
+  // highlight, so no rectangle is drawn. The image is not hovered during the drag, since the drag source is the active
+  // item, so the gizmo, picking, the camera and W/E/R/F stay idle.
+  if (ImGui::BeginDragDropTarget()) {
+    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(
+            AssetDragPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+      core::Uuid::Bytes bytes{};
+      if (payload->DataSize == static_cast<int>(bytes.size())) {
+        std::copy_n(static_cast<const std::uint8_t *>(payload->Data), bytes.size(), bytes.begin());
+        m_input.draggedAsset = core::Uuid{bytes};
+        m_input.assetDropped = payload->IsDelivery();
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
 
   if (drawAxisWidget(origin, available)) {
     hovered = false;

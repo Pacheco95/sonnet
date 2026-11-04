@@ -4,6 +4,7 @@
 #include <sonnet/editor/StatisticsPanel.h>
 
 #include <sonnet/core/Math.h>
+#include <sonnet/core/Uuid.h>
 #include <sonnet/renderer/RenderTarget.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/ui/ImGuiLayer.h>
@@ -26,6 +27,10 @@ struct ViewportInput {
   bool leftClicked{false};
   bool leftDoubleClicked{false};
   bool leftDown{false};
+  // The asset of an AssetDragPayload held over the image this frame, nil otherwise; `assetDropped` when it was let
+  // go over the image this frame.
+  core::Uuid draggedAsset{};
+  bool assetDropped{false};
   ImDrawList *drawList{nullptr}; // the window's, valid inside the overlay callback
 };
 
