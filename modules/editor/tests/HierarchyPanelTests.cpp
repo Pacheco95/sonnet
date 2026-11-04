@@ -181,6 +181,28 @@ TEST_CASE("every built-in shape can be created, saved and loaded again", "[edito
   std::filesystem::remove(path);
 }
 
+TEST_CASE("a mesh entity created at a position stands there, with the mesh, selected", "[editor][hierarchy]") {
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const assets::builtin::Entry &box = assets::builtin::all()[0];
+  const glm::vec3 place{1.5f, 0.5f, -2.0f};
+  panel.createMeshEntity(box.name, box.uuid(), {}, place);
+
+  const std::vector<flecs::entity> roots = world.roots();
+  REQUIRE(roots.size() == 1);
+  const flecs::entity entity = roots[0];
+  REQUIRE(entity.get<world::MeshRenderer>().mesh == box.uuid());
+  const world::Transform &transform = entity.get<world::Transform>();
+  REQUIRE(transform.position == place);
+  REQUIRE(transform.rotation == glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
+  REQUIRE(transform.scale == glm::vec3{1.0f});
+  REQUIRE(selection.contains(world.uuidOf(entity)));
+  REQUIRE(commands.undo(world));
+  REQUIRE(world.roots().empty());
+}
+
 // Regression: "Save as prefab" from the row's context menu destroyed the entity and its children
 // while the tree was still drawing them, and the next read of a child asserted in flecs.
 TEST_CASE("the context menu's save as prefab runs after the tree is drawn", "[editor][hierarchy][prefab]") {

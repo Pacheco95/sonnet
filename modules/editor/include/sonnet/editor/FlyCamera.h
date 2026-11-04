@@ -63,6 +63,11 @@ public:
     return m_axisView;
   }
   [[nodiscard]] const char *viewName() const noexcept;
+  // The normal of the plane the floor grid shows, through the origin: +Z in an orthographic Front
+  // or Back view, +X in an orthographic Right or Left view, and +Y otherwise (perspective, Top,
+  // Bottom and a user orthographic view, which draws no grid). A viewport drop that hits no mesh
+  // lands on the same plane.
+  [[nodiscard]] glm::vec3 gridNormal() const noexcept;
 
   void update(float dt, const Input &input);
   // Places the camera so that it looks at `target` from `position`.

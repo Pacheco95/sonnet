@@ -20,6 +20,8 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/trigonometric.hpp>
 
 #include <memory>
 #include <optional>
@@ -334,6 +336,39 @@ TEST_CASE("reparent and component commands restore exactly what they changed", "
   commands.undo(world);
   REQUIRE(!world.find(instance).is_valid());
   REQUIRE(world.find(uuid).is_valid());
+}
+
+TEST_CASE("a positioned instance stands there with the prefab's rotation and scale, through undo and redo",
+          "[editor][commands][prefab]") {
+  world::World world;
+  editor::CommandStack commands;
+  const flecs::entity prefab = world.createEntity("Crate");
+  const glm::quat turned = glm::angleAxis(glm::radians(30.0f), glm::vec3{0.0f, 1.0f, 0.0f});
+  prefab.set<world::Transform>({.position = {1.0f, 2.0f, 3.0f}, .rotation = turned, .scale = {2.0f, 0.5f, 3.0f}});
+  prefab.set<world::MeshRenderer>({});
+  world.makePrefab(prefab);
+
+  const core::Uuid uuid = core::Uuid::generate();
+  const glm::vec3 place{4.0f, 0.25f, -6.0f};
+  commands.push(editor::instantiatePrefabCommand(world.uuidOf(prefab), "Crate 1", {}, uuid, place), world);
+  const auto standsThere = [&] {
+    const flecs::entity instance = world.find(uuid);
+    REQUIRE(instance);
+    REQUIRE(world.isInstance(instance));
+    REQUIRE(!world.parentOf(instance));
+    const world::Transform &transform = instance.get<world::Transform>();
+    REQUIRE(transform.position == place);
+    REQUIRE(transform.rotation == turned);
+    REQUIRE(transform.scale == glm::vec3{2.0f, 0.5f, 3.0f});
+  };
+  standsThere();
+  // The prefab itself does not move.
+  REQUIRE(prefab.get<world::Transform>().position == glm::vec3{1.0f, 2.0f, 3.0f});
+
+  REQUIRE(commands.undo(world));
+  REQUIRE(!world.find(uuid));
+  REQUIRE(commands.redo(world));
+  standsThere();
 }
 
 TEST_CASE("a move to a sibling index reorders, crosses parents and undoes to the old place", "[editor][commands]") {

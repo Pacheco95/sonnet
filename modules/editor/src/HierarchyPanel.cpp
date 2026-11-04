@@ -457,13 +457,18 @@ void HierarchyPanel::createEntity(std::string_view name, core::Uuid parent, nloh
   m_selection.select(uuid);
 }
 
-void HierarchyPanel::createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent) {
-  createEntity(name, parent, {{"MeshRenderer", {{"mesh", mesh.toString()}}}});
+void HierarchyPanel::createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent,
+                                      std::optional<glm::vec3> position) {
+  nlohmann::json components = {{"MeshRenderer", {{"mesh", mesh.toString()}}}};
+  if (position) {
+    components["Transform"] = {{"position", {position->x, position->y, position->z}}};
+  }
+  createEntity(name, parent, std::move(components));
 }
 
-void HierarchyPanel::instantiatePrefab(flecs::entity prefab, core::Uuid parent) {
+void HierarchyPanel::instantiatePrefab(flecs::entity prefab, core::Uuid parent, std::optional<glm::vec3> position) {
   const core::Uuid uuid = core::Uuid::generate();
-  m_commands.push(instantiatePrefabCommand(m_world.uuidOf(prefab), nameOf(prefab), parent, uuid), m_world);
+  m_commands.push(instantiatePrefabCommand(m_world.uuidOf(prefab), nameOf(prefab), parent, uuid, position), m_world);
   m_selection.select(uuid);
 }
 

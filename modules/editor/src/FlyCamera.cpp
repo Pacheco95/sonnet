@@ -273,6 +273,25 @@ const char *FlyCamera::viewName() const noexcept {
   return "User";
 }
 
+glm::vec3 FlyCamera::gridNormal() const noexcept {
+  if (m_camera.projectionKind == renderer::ProjectionKind::Perspective) {
+    return {0.0f, 1.0f, 0.0f};
+  }
+  switch (m_axisView) {
+  case AxisView::Front:
+  case AxisView::Back:
+    return {0.0f, 0.0f, 1.0f};
+  case AxisView::Right:
+  case AxisView::Left:
+    return {1.0f, 0.0f, 0.0f};
+  case AxisView::Top:
+  case AxisView::Bottom:
+  case AxisView::User:
+    break;
+  }
+  return {0.0f, 1.0f, 0.0f};
+}
+
 void FlyCamera::scaleSpeed(float factor) {
   cancelTransition();
   m_speed = std::clamp(m_speed * factor, 0.1f, 200.0f);

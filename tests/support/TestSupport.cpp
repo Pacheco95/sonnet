@@ -5,9 +5,12 @@
 // two worktrees, deleted each other's files (issue #398). Each process points the temporary
 // directory at one of its own, named after the suite and the process id, and removes it on a
 // normal exit; a crash or a ctest timeout leaves it behind in the system temporary directory.
+// SONNET_KEEP_TEST_TMPDIR=1 keeps it on a normal exit too and names it on stderr, for the hidden
+// capture cases whose images land under it.
 //
 // Windows: a crash, an abort or a debug-CRT assertion opens a dialog by default, which blocks
 // forever on a CI runner; route all of them to stderr and a non-zero exit instead.
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -77,10 +80,23 @@ public:
   }
 
   ~ProcessTempDirectory() {
-    if (!m_path.empty()) {
-      std::error_code error;
-      std::filesystem::remove_all(m_path, error);
+    if (m_path.empty()) {
+      return;
     }
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is the standard call; _dupenv_s is MSVC-only
+#endif
+    const char *keep = std::getenv("SONNET_KEEP_TEST_TMPDIR"); // NOLINT(concurrency-mt-unsafe)
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+    if (keep != nullptr && *keep != '\0') {
+      std::fprintf(stderr, "kept the temporary directory %s\n", m_path.string().c_str());
+      return;
+    }
+    std::error_code error;
+    std::filesystem::remove_all(m_path, error);
   }
 
   ProcessTempDirectory(const ProcessTempDirectory &) = delete;
