@@ -6,6 +6,7 @@
 #include <sonnet/editor/Fonts.h>
 #include <sonnet/editor/Icons.h>
 #include <sonnet/editor/LightLines.h>
+#include <sonnet/editor/ScriptSlots.h>
 
 #include <sonnet/assets/Json.h>
 #include <sonnet/core/File.h>
@@ -457,6 +458,14 @@ void Editor::update(float dt) {
   handleShortcuts();
   drawModal();
 
+  // The viewport's overlay fills it again while an asset is held over the image.
+  m_drop.action = DropAction::None;
+  m_drop.asset = {};
+  m_drop.target = {};
+  m_drop.placement.reset();
+  m_drop.draws.clear();
+  m_drop.joints.clear();
+  m_drop.morphWeights.clear();
   if (m_viewState.hierarchy) {
     m_hierarchyPanel.draw(m_viewState.hierarchy);
   }
@@ -577,6 +586,42 @@ void Editor::update(float dt) {
   const glm::vec2 gameImage = m_gamePanel.input().size;
   m_gui.update(glm::vec2{gameSize}, gameImage, {{0, 0}, glm::uvec2{gameImage}});
   world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
+  // A drop's preview is the viewport's alone: its lists are copies of the scene's with the held object added, or
+  // with the object under the cursor drawn with the held material. The Game view keeps the scene's.
+  if (m_drop.target && !m_drop.target.is_alive()) {
+    m_drop.target = {};
+  }
+  const bool placing = m_drop.placement.has_value();
+  const bool dressing = m_drop.action == DropAction::Material && m_drop.target;
+  if (placing || dressing) {
+    m_viewportDraws = m_draws;
+    m_viewportJoints = m_joints;
+    m_viewportMorphWeights = m_morphWeights;
+  }
+  if (placing) {
+    const auto firstJoint = static_cast<std::uint32_t>(m_joints.size());
+    const auto firstMorphWeight = static_cast<std::uint32_t>(m_morphWeights.size());
+    for (renderer::DrawItem item : m_drop.draws) {
+      const glm::mat4 local = item.transform;
+      item.transform = *m_drop.placement * local;
+      item.previousTransform = m_lastPlacement ? std::make_optional(*m_lastPlacement * local) : std::nullopt;
+      item.id = 0; // neither picked nor outlined
+      item.firstJoint += firstJoint;
+      item.firstMorphWeight += firstMorphWeight;
+      m_viewportDraws.push_back(item);
+    }
+    std::ranges::copy(m_drop.joints, std::back_inserter(m_viewportJoints));
+    std::ranges::copy(m_drop.morphWeights, std::back_inserter(m_viewportMorphWeights));
+  } else if (dressing) {
+    const renderer::MaterialHandle material = m_assets.material(m_drop.asset);
+    const std::uint32_t id = world::World::pickId(m_drop.target);
+    for (renderer::DrawItem &item : m_viewportDraws) {
+      if (item.id == id) {
+        item.material = material;
+      }
+    }
+  }
+  m_lastPlacement = m_drop.placement;
   world::buildLightList(m_world, m_lights);
   world::buildParticleList(m_world, m_assets, m_particles);
   if (!m_world.isPlaying()) {
@@ -599,9 +644,15 @@ void Editor::update(float dt) {
   const FlyCamera::RenderView viewportView = m_viewportPanel.camera().renderView();
   m_view.camera = viewportView.camera;
   m_view.dollyDepthOffset = viewportView.depthOffset;
-  m_view.draws = m_draws;
-  m_view.joints = m_joints;
-  m_view.morphWeights = m_morphWeights;
+  if (placing || dressing) {
+    m_view.draws = m_viewportDraws;
+    m_view.joints = m_viewportJoints;
+    m_view.morphWeights = m_viewportMorphWeights;
+  } else {
+    m_view.draws = m_draws;
+    m_view.joints = m_joints;
+    m_view.morphWeights = m_morphWeights;
+  }
   m_view.particles = m_particles;
   m_view.deltaTime = dt * m_world.timeScale(); // particles keep game time
   m_view.lights = m_lights;
@@ -622,6 +673,13 @@ void Editor::update(float dt) {
   m_gameView.exposure = gameCamera.exposure;
   m_gameView.bloomStrength = gameCamera.bloomStrength;
   m_gameView.debugLines = {};
+  m_gameView.draws = m_draws;
+  m_gameView.joints = m_joints;
+  m_gameView.morphWeights = m_morphWeights;
+  // An environment held over the viewport is its sky alone, at the scene's intensity.
+  if (m_drop.action == DropAction::Environment) {
+    m_view.environment = m_assets.environment(m_drop.asset);
+  }
   m_debugLines.clear();
   if (m_viewState.colliders) {
     m_physics->debugLines(m_debugLines);
@@ -650,6 +708,10 @@ void Editor::update(float dt) {
     pending.pop_back();
     m_outlineIds.push_back(world::World::pickId(entity));
     std::ranges::copy(m_world.children(entity), std::back_inserter(pending));
+  }
+  // The object a held material or script would go to is outlined alone, in the drop target's colour (render).
+  if (m_drop.target) {
+    m_outlineIds.assign(1, world::World::pickId(m_drop.target));
   }
   updateTitle();
 }
@@ -715,6 +777,101 @@ void Editor::drawViewportOverlay(const ViewportInput &input) {
     m_pendingPickMode = io.KeyCtrl    ? Selection::Mode::Toggle
                         : io.KeyShift ? Selection::Mode::Add
                                       : Selection::Mode::Replace;
+  }
+  dragOverViewport(input, view);
+}
+
+void Editor::dragOverViewport(const ViewportInput &input, const GizmoView &view) {
+  const core::Uuid asset = input.draggedAsset;
+  if (asset.isNil() || input.size.x <= 0.0f || input.size.y <= 0.0f) {
+    return;
+  }
+  // A model is placed through its prefab, which opening the project or importing the model loads; one that is not
+  // in the world yet is loaded as they would, so it can be dropped.
+  if (const assets::AssetInfo *info = m_assets.find(asset);
+      info != nullptr && info->type == assets::AssetType::Model && !m_world.find(asset)) {
+    if (const assets::Model *model = m_assets.model(asset)) {
+      static_cast<void>(world::loadModelPrefab(m_world, *model, asset, info->name));
+    }
+  }
+  const DropAction action = dropAction(m_world, m_assets, asset);
+  if (action == DropAction::None) {
+    return;
+  }
+  m_drop.action = action;
+  m_drop.asset = asset;
+  bool dropped = false;
+  if (action == DropAction::Environment) {
+    if (input.assetDropped) {
+      m_hierarchyPanel.useEnvironment(asset, m_assets.find(asset)->name);
+      dropped = true;
+    }
+  } else {
+    // The drawn camera's ray, which in an orthographic view starts at the pulled-back eye.
+    const glm::uvec2 targetSize = m_viewportPanel.target().size();
+    const float aspect = targetSize.y > 0 ? static_cast<float>(targetSize.x) / static_cast<float>(targetSize.y) : 1.0f;
+    const renderer::Ray ray =
+        m_viewportPanel.camera().renderView().camera.ray((input.mouse - input.origin) / input.size, aspect);
+    const std::optional<SceneHit> hit = raycastScene(m_world, m_assets, ray);
+    if (action == DropAction::Material || action == DropAction::Script) {
+      const core::Uuid target = hit ? m_world.uuidOf(hit->entity) : core::Uuid{};
+      if (target.isNil()) {
+        return;
+      }
+      m_drop.target = hit->entity;
+      if (input.assetDropped) {
+        if (action == DropAction::Material) {
+          const world::ComponentInfo *info = m_world.findComponent("MeshRenderer");
+          const nlohmann::json before = m_world.componentToJson(hit->entity, info->id);
+          nlohmann::json after = before;
+          after["material"] = asset.toString();
+          if (after != before) {
+            m_commands.push(componentCommand(target, info->name, std::make_optional(before), std::make_optional(after),
+                                             std::format("set material of {}", nameOf(hit->entity))),
+                            m_world);
+          }
+        } else if (auto command = appendScriptCommand(m_world, target, asset)) {
+          m_commands.push(std::move(command), m_world);
+        }
+        m_selection.select(target);
+        dropped = true;
+      }
+    } else {
+      // The object as it would be made: a prefab's rooted list, which instantiates nothing, keeping the root's
+      // rotation and scale, or the mesh with the MeshRenderer's defaults.
+      const flecs::entity prefab = action == DropAction::Instance ? m_world.find(asset) : flecs::entity{};
+      world::Transform pose;
+      if (prefab) {
+        world::buildDrawList(m_world, m_assets, prefab, m_drop.draws, m_drop.joints, m_drop.morphWeights);
+        if (const auto *transform = prefab.try_get<world::Transform>()) {
+          pose = *transform;
+          pose.position = glm::vec3{0.0f};
+        }
+      } else {
+        world::buildDrawList(m_assets, asset, m_drop.draws);
+        for (renderer::DrawItem &item : m_drop.draws) {
+          item.color = world::MeshRenderer{}.color;
+        }
+      }
+      const std::optional<float> step = view.snap ? std::make_optional(m_gizmo.snap().translate) : std::nullopt;
+      const Landing landing =
+          land(ray, hit, m_viewportPanel.camera().gridNormal(), m_viewportPanel.view().focusDistance, step);
+      pose.position = restingPosition(landing, m_renderer, m_drop.draws, pose.matrix());
+      m_drop.placement = pose.matrix();
+      if (input.assetDropped) {
+        if (prefab) {
+          m_hierarchyPanel.instantiatePrefab(prefab, {}, pose.position);
+        } else {
+          m_hierarchyPanel.createMeshEntity(m_assets.find(asset)->name, asset, {}, pose.position);
+        }
+        dropped = true;
+      }
+    }
+  }
+  if (dropped) {
+    // What was made or changed is in the scene now; the viewport takes the keys, so Delete, Ctrl+D and F act on it.
+    m_drop = {};
+    ImGui::SetWindowFocus();
   }
 }
 
@@ -1478,8 +1635,9 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     m_renderer.addDebugLinePass(m_graph, m_view, sceneColor, depth);
     m_renderer.addIdPass(m_graph, m_view, ids, depth);
     m_renderer.addSelectionMaskPass(m_graph, m_view, mask, m_outlineIds);
-    const ImVec4 &selection = ui::currentTheme().selection;
-    m_renderer.addOutlinePass(m_graph, sceneColor, mask, glm::vec4{selection.x, selection.y, selection.z, selection.w});
+    // The selection's colour, or the accent around the object a held material or script would go to.
+    const ImVec4 &outline = m_drop.target ? ui::currentTheme().accent : ui::currentTheme().selection;
+    m_renderer.addOutlinePass(m_graph, sceneColor, mask, glm::vec4{outline.x, outline.y, outline.z, outline.w});
     m_picker.addPass(m_graph, ids, target.size());
   }
   // The Game view: the scene's camera into a target of its own, with none of the editor's
