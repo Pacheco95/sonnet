@@ -33,10 +33,12 @@ The renderer's `[grid]` GPU tests compare images across the eight TAA jitter pha
 ## Orthographic axis views
 
 The six axis views of the showcase, captured on Linux with Lavapipe by
-`editor_tests "[.orthographic-showcase]"`. Each uses its view plane through the
-origin, with X red, Y green and Z blue. The courtyard floor hides the Top grid;
-from Bottom the origin plane is in front of the floor. Front/Back use XY and
-Right/Left use YZ. Scene geometry in front of the plane occludes it.
+`SONNET_KEEP_TEST_TMPDIR=1 editor_tests "[.orthographic-showcase]"`, which leaves
+them in `/tmp/sonnet-editor_tests-<pid>/sonnet-orthographic-captures` and names
+that temporary directory on stderr at exit ([Build](../build.md)). Each uses its
+view plane through the origin, with X red, Y green and Z blue. The courtyard
+floor hides the Top grid; from Bottom the origin plane is in front of the floor.
+Front/Back use XY and Right/Left use YZ. Scene geometry in front of the plane occludes it.
 
 ![Six orthographic grids](viewport-grid/orthographic.png)
 
