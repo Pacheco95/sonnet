@@ -172,9 +172,13 @@ jobs:
       # time while one rolls out, and their compilers and SDKs give the ports different ABI hashes. The
       # runner sets `ImageVersion` as an environment variable, which expressions cannot read, so it goes
       # through GITHUB_ENV first.
+      # SCCACHE_GROUP names the job's compiler cache: one per preset and compiler, since each job builds
+      # with its own flags and objects never carry over between them.
       - name: Note the runner image
         shell: bash
-        run: echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+        run: |
+          echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+          echo "SCCACHE_GROUP=sccache-${{ matrix.preset }}-${CC:-default}" >> "$GITHUB_ENV"
 
       - name: Restore the vcpkg binary cache
         uses: actions/cache/restore@v4
@@ -192,8 +196,52 @@ jobs:
           touch "$RUNNER_TEMP/vcpkg-cache.marker"
           echo "VCPKG_BINARY_SOURCES=clear;files,$RUNNER_TEMP/vcpkg-cache,readwrite" >> "$GITHUB_ENV"
 
+      # Compiler cache (docs/build.md, "Compiler cache"): sccache's local disk cache in a folder restored
+      # from the newest entry of the job's group, which pull requests read from main. Each of these steps
+      # may fail without failing the job: Configure only gets the compiler launcher once sccache started.
+      - name: Install sccache
+        id: sccache-install
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: v0.18.0
+
+      - name: Restore the compiler cache
+        if: steps.sccache-install.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sccache
+          key: ${{ env.SCCACHE_GROUP }}-${{ env.RUNNER_IMAGE }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ env.SCCACHE_GROUP }}-${{ env.RUNNER_IMAGE }}-
+            ${{ env.SCCACHE_GROUP }}-
+
+      # No idle timeout, so the server outlives a long vcpkg install between Configure and Build, and an
+      # I/O error with the server makes the client compile without it. MSVC's /Zi writes a shared PDB
+      # sccache cannot cache, so Windows embeds the debug information in each object (/Z7) instead.
+      - name: Start sccache
+        id: sccache
+        if: steps.sccache-install.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/sccache"
+          touch "$RUNNER_TEMP/sccache.marker"
+          for setting in "SCCACHE_DIR=$RUNNER_TEMP/sccache" SCCACHE_CACHE_SIZE=2G SCCACHE_IDLE_TIMEOUT=0 \
+            SCCACHE_IGNORE_SERVER_IO_ERROR=1; do
+            export "$setting"
+            echo "$setting" >> "$GITHUB_ENV"
+          done
+          sccache --start-server
+          args="-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            args="$args -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded"
+          fi
+          echo "cmake-args=$args" >> "$GITHUB_OUTPUT"
+
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }} ${{ matrix.build-type && format('-DCMAKE_BUILD_TYPE={0}', matrix.build-type) || '' }} ${{ matrix.game && format('-DSONNET_GAME={0}', matrix.game) || '' }}
+        run: cmake --preset ${{ matrix.preset }} ${{ matrix.build-type && format('-DCMAKE_BUILD_TYPE={0}', matrix.build-type) || '' }} ${{ matrix.game && format('-DSONNET_GAME={0}', matrix.game) || '' }} ${{ steps.sccache.outputs.cmake-args }}
 
       # Saved right after the configure that installs the ports, so a failing build or test still saves it,
       # and only from main, so pull requests cannot evict main's entries. Pruned to the archives this
@@ -237,6 +285,66 @@ jobs:
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
+
+      # The statistics also go to the run's summary page. Stopping the server flushes the cache folder.
+      - name: Stop sccache
+        id: sccache-stats
+        if: ${{ !cancelled() && steps.sccache.outputs.cmake-args }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          sccache --show-stats --stats-format json > "$RUNNER_TEMP/sccache-stats.json"
+          { echo "### sccache, ${{ matrix.name }}"; echo '```'; sccache --show-stats; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats
+          sccache --stop-server
+          echo "writes=$(jq '.stats.cache_writes' "$RUNNER_TEMP/sccache-stats.json")" >> "$GITHUB_OUTPUT"
+
+      # Saved only from main, as the vcpkg cache is, and only if the build wrote objects. A hit sets the
+      # object's modification time, so every file older than the marker went unused by this build and is
+      # deleted first; the entry then holds one build's objects.
+      - name: Prune the compiler cache
+        id: sccache-cache
+        if: >-
+          steps.sccache-stats.outputs.writes != '' && steps.sccache-stats.outputs.writes != '0'
+          && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          python3 - "$RUNNER_TEMP/sccache" "$RUNNER_TEMP/sccache.marker" <<'EOF'
+          import sys
+          from pathlib import Path
+          since = Path(sys.argv[2]).stat().st_mtime
+          files = [f for f in Path(sys.argv[1]).rglob("*") if f.is_file()]
+          unused = [f for f in files if f.stat().st_mtime <= since]
+          for f in unused:
+              f.unlink()
+          size = sum(f.stat().st_size for f in files if f not in unused) / 2**20
+          print(f"kept {len(files) - len(unused)} files ({size:.0f} MiB), removed {len(unused)} unused")
+          EOF
+          echo "save=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save the compiler cache
+        if: steps.sccache-cache.outputs.save == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sccache
+          key: ${{ env.SCCACHE_GROUP }}-${{ env.RUNNER_IMAGE }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Delete the older compiler caches
+        if: steps.sccache-cache.outputs.save == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ env.SCCACHE_GROUP }}-${{ env.RUNNER_IMAGE }}-${{ github.run_id }}-${{ github.run_attempt }}
+          PREFIX: ${{ env.SCCACHE_GROUP }}-${{ env.RUNNER_IMAGE }}-
+        run: |
+          caches=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$PREFIX" --limit 100 --json id,key)
+          # Only once the new entry is there, so a save that failed does not leave the group empty.
+          if jq -e --arg key "$KEY" 'any(.key == $key)' <<< "$caches" > /dev/null; then
+            jq -r --arg key "$KEY" '.[] | select(.key != $key) | .id' <<< "$caches" \
+              | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY"
+          else
+            echo "::warning::$KEY is not in the cache list; keeping the older entries"
+          fi
 
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --timeout 300
