@@ -8,6 +8,8 @@
 #include <sonnet/world/Components.h>
 #include <sonnet/world/World.h>
 
+#include <glm/vec3.hpp>
+
 #include <cstddef>
 #include <functional>
 #include <optional>
@@ -46,11 +48,15 @@ public:
 
   void draw(bool &open);
 
-  // The context menu's creations, also used by the Edit menu. `parent` nil creates a root.
+  // The context menu's creations, also used by the Edit menu and the viewport's drops. `parent`
+  // nil creates a root. A `position`, in the parent's space, is where the new entity stands; the
+  // command holds it, so undo and redo put the entity back there.
   void createEntity(std::string_view name, core::Uuid parent, nlohmann::json components = nlohmann::json::object());
   // An entity with a MeshRenderer of the given mesh asset, named after it.
-  void createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent);
-  void instantiatePrefab(flecs::entity prefab, core::Uuid parent);
+  void createMeshEntity(std::string_view name, core::Uuid mesh, core::Uuid parent,
+                        std::optional<glm::vec3> position = std::nullopt);
+  // An instance of the prefab with the prefab root's rotation and scale.
+  void instantiatePrefab(flecs::entity prefab, core::Uuid parent, std::optional<glm::vec3> position = std::nullopt);
   // What a dropped environment asset does, wherever it lands: it becomes the scene's sky, the map of
   // the Environment that lights the scene, or of a new root named `name` when there is none.
   void useEnvironment(core::Uuid map, std::string_view name);
