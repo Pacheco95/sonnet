@@ -550,3 +550,114 @@ TEST_CASE("capture drops on the viewport for visual review", "[.drop-captures][e
   REQUIRE(fixture.device->validationMessageCount() == 0);
   sonnet::test::removeScratch(directory);
 }
+
+// Issue #461: window and viewport captures, under TAA, of the wooden crate model on the frame its preview first
+// appears and while it is swept fast across the ground, and of the Reed model, which is skinned, held beside the
+// scene's own Reed and then dropped there.
+TEST_CASE("capture moving and skinned drop previews for visual review", "[.drop-captures][editor][gpu]") {
+  Fixture fixture;
+  const auto manifest = editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
+  REQUIRE(manifest);
+  const auto directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "drop_captures_motion";
+  const auto output = std::filesystem::temp_directory_path() / "sonnet-drop-captures";
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory.parent_path()); // copy makes only the last directory
+  std::filesystem::create_directories(output);
+  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  // The Reed in a folder of its own, so its tile is on the Assets panel's first row with its sub-assets.
+  const auto models = directory / "assets" / "models";
+  std::filesystem::create_directories(models / "reed");
+  for (const char *file : {"reed.glb", "reed.glb.meta"}) {
+    std::filesystem::rename(models / file, models / "reed" / file);
+  }
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.openProject(directory));
+    REQUIRE(editor.openScene(directory / "scenes/main.scene.json"));
+    REQUIRE(editor.renderer().settings().antialiasing == renderer::AntiAliasing::Taa);
+    ImGui::LoadIniSettingsFromMemory("[SonnetView][View]\nOverlay=0\n");
+    editor.assetBrowser().setView({.grid = true, .tileSize = editor::AssetsView::MinTileSize});
+    editor.viewport().camera().lookAt({-6.4f, 2.8f, 3.8f}, {-3.8f, 1.0f, -1.4f});
+    editor.selection().clear();
+    fixture.settle(editor);
+    ImGuiIO &io = ImGui::GetIO();
+    // Both pictures of the next frame: `name` of the window, and `name` prefixed "viewport-" of the scene image.
+    const auto capture = [&](const std::string &name) {
+      editor.requestScreenshots(output / ("viewport-" + name), output / name);
+      std::optional<core::Result<void>> result;
+      for (int i = 0; i < 5 && !result; ++i) {
+        fixture.frame(editor);
+        result = editor.takeScreenshotResult();
+      }
+      REQUIRE(result);
+      REQUIRE(*result);
+    };
+    capture("scene-before.png");
+
+    // The wooden crate: picked up, then moved onto the viewport, the frame the preview first appears captured.
+    editor.assetBrowser().navigate(models);
+    fixture.frames(editor, 2);
+    const assets::AssetInfo *crate = editor.assets().findByPath(models / "crate.glb");
+    REQUIRE(crate != nullptr);
+    const editor::ScreenRect tile = tileOf(editor, crate->uuid);
+    const glm::vec2 from = (tile.min + tile.max) * 0.5f;
+    io.AddMousePosEvent(from.x, from.y);
+    fixture.frame(editor);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    fixture.frame(editor);
+    io.AddMousePosEvent(from.x + 12.0f, from.y);
+    fixture.frame(editor);
+    const glm::vec2 left = screenOf(editor, {-5.0f, 0.0f, 0.6f});
+    const glm::vec2 right = screenOf(editor, {-2.6f, 0.0f, 0.6f});
+    io.AddMousePosEvent(left.x, left.y);
+    capture("crate-first-frame.png");
+    // Swept to the right and back, a large step each frame; captured halfway on the way back.
+    constexpr int steps = 8;
+    for (int i = 1; i <= steps; ++i) {
+      const glm::vec2 at = glm::floor(left + (right - left) * (static_cast<float>(i) / steps));
+      io.AddMousePosEvent(at.x, at.y);
+      fixture.frame(editor);
+    }
+    for (int i = steps - 1; i >= steps / 2; --i) {
+      const glm::vec2 at = glm::floor(left + (right - left) * (static_cast<float>(i) / steps));
+      io.AddMousePosEvent(at.x, at.y);
+      if (i == steps / 2) {
+        capture("crate-moving.png");
+      } else {
+        fixture.frame(editor);
+      }
+      // Resolved against the previous frame, so the preview's motion vectors were used.
+      REQUIRE(editor.renderer().statistics(0).temporalHistoryUsed);
+    }
+    // Held still at the same point, for comparison.
+    fixture.frames(editor, 30);
+    capture("crate-still.png");
+    fixture.release(editor);
+    REQUIRE(editor.commands().undoDescription().starts_with("instantiate "));
+    REQUIRE(editor.commands().undo(editor.world()));
+    editor.selection().clear();
+
+    // The Reed model, skinned, held beside the scene's Reed, then dropped there: the preview's bind pose and the
+    // new instance's pose at rest are compared at the same point.
+    editor.assetBrowser().navigate(models / "reed");
+    fixture.frames(editor, 2);
+    const assets::AssetInfo *reed = editor.assets().findByPath(models / "reed" / "reed.glb");
+    REQUIRE(reed != nullptr);
+    const std::uint32_t skinned = editor.renderer().statistics(0).skinnedInstanceCount;
+    REQUIRE(skinned > 0); // the scene's own Reed among them
+    fixture.hold(editor, tileOf(editor, reed->uuid), screenOf(editor, {-4.6f, 0.0f, -2.2f}));
+    fixture.settle(editor);
+    capture("reed-preview.png");
+    // The preview is drawn as its mesh is, in its bind pose, so the skinning pass deforms the scene's alone.
+    CHECK(editor.renderer().statistics(0).skinnedInstanceCount == skinned);
+    fixture.release(editor);
+    REQUIRE(editor.commands().undoDescription().starts_with("instantiate "));
+    editor.selection().clear();
+    fixture.settle(editor);
+    capture("reed-dropped.png");
+    CHECK(editor.renderer().statistics(0).skinnedInstanceCount == skinned + 1);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  sonnet::test::removeScratch(directory);
+}
