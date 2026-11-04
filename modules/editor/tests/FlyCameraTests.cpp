@@ -340,3 +340,28 @@ TEST_CASE("a snap after interrupted dolly zoom restores a usable orthographic de
   REQUIRE(camera.camera().orthoHeight ==
           Approx(2.0f * glm::distance(interrupted.position, pivot) * std::tan(interrupted.fovY * 0.5f)).epsilon(1e-4f));
 }
+
+TEST_CASE("the grid's normal follows the projection and the axis view", "[editor][camera][orthographic][grid]") {
+  const glm::vec3 pivot{1, 2, 3};
+  FlyCamera camera;
+  camera.lookAt(pivot + glm::vec3{4, 5, 10}, pivot);
+  requireClose(camera.gridNormal(), {0, 1, 0});
+  camera.toggleProjection(pivot);
+  REQUIRE(camera.camera().projectionKind == sonnet::renderer::ProjectionKind::Orthographic);
+  REQUIRE(camera.axisView() == AxisView::User);
+  requireClose(camera.gridNormal(), {0, 1, 0});
+
+  const AxisView views[] = {AxisView::Front, AxisView::Back, AxisView::Right,
+                            AxisView::Left,  AxisView::Top,  AxisView::Bottom};
+  const glm::vec3 normals[] = {{0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 1, 0}};
+  for (int i = 0; i < 6; ++i) {
+    FlyCamera axis;
+    axis.lookAt(pivot + glm::vec3{0, 0, 10}, pivot);
+    axis.snap(views[i], pivot);
+    requireClose(axis.gridNormal(), normals[i]);
+    // Back to perspective, still facing the axis: the floor again.
+    axis.toggleProjection(pivot);
+    REQUIRE(axis.camera().projectionKind == sonnet::renderer::ProjectionKind::Perspective);
+    requireClose(axis.gridNormal(), {0, 1, 0});
+  }
+}
