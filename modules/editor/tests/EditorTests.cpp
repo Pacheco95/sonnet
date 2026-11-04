@@ -1806,8 +1806,9 @@ TEST_CASE("opening another project asks about unsaved scenes first", "[editor][g
     REQUIRE(!editor.unsavedPromptOpen());
     REQUIRE(editor.project()->root == other);
     {
-      std::ifstream stream{scene};
-      const std::string text{std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{}};
+      const auto bytes = core::readFile(scene);
+      REQUIRE(bytes.has_value());
+      const std::string text{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
       REQUIRE(text.find("saved before switching") != std::string::npos);
     }
     fixture.frame(editor);
