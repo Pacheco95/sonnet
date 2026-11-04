@@ -55,7 +55,7 @@ template <typename Settings, core::Result<void> (assets::AssetDatabase::*Set)(co
 class SettingsCommand final : public ICommand {
 public:
   SettingsCommand(assets::AssetDatabase &assets, core::Uuid file, Settings before, Settings after)
-      : m_assets(assets), m_file(file), m_before(before), m_after(after) {
+      : m_assets(assets), m_file(file), m_before(std::move(before)), m_after(std::move(after)) {
     const assets::AssetInfo *info = m_assets.find(file);
     m_description = std::format("import settings of {}", info != nullptr ? info->name : file.toString());
   }
@@ -734,7 +734,7 @@ std::unique_ptr<ICommand> textureSettingsCommand(assets::AssetDatabase &assets, 
 
 std::unique_ptr<ICommand> modelSettingsCommand(assets::AssetDatabase &assets, core::Uuid model,
                                                assets::ModelSettings before, assets::ModelSettings after) {
-  return std::make_unique<ModelSettingsCommand>(assets, model, before, after);
+  return std::make_unique<ModelSettingsCommand>(assets, model, std::move(before), std::move(after));
 }
 
 } // namespace sonnet::editor

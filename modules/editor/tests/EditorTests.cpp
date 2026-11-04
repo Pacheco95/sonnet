@@ -910,9 +910,9 @@ void writeLampPrefab(const std::filesystem::path &file, core::Uuid uuid, float i
   REQUIRE(
       core::writeFile(file, world::sceneText({{"version", world::SceneVersion}, {"entities", entities}})).has_value());
   // A write time apart from the last one, which a coarse file system clock could repeat.
-  static auto next = std::filesystem::file_time_type::clock::now();
-  next += std::chrono::seconds{2};
-  std::filesystem::last_write_time(file, next);
+  static auto s_next = std::filesystem::file_time_type::clock::now();
+  s_next += std::chrono::seconds{2};
+  std::filesystem::last_write_time(file, s_next);
 }
 
 } // namespace
