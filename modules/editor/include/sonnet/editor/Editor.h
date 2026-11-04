@@ -224,21 +224,28 @@ public:
   void switchToTab(std::size_t index);
   void closeTab(std::size_t index);
 
-  // Quitting (docs/editor.md, "Quitting"). Every quit path asks here: with nothing unsaved the
-  // editor quits at once, otherwise a dialog lists the dirty scenes and waits. A request while the
-  // dialog is open changes nothing. The dialog's three buttons are the calls below.
+  // Leaving the open scenes (docs/editor.md, "Quitting and switching projects"). Quitting and
+  // opening or creating another project ask here: the stop dialog first when play holds edits,
+  // then, with nothing unsaved, the editor goes on at once, otherwise a dialog lists the dirty
+  // scenes and waits. A request while either dialog is open changes nothing. The unsaved dialog's
+  // three buttons are the calls below.
   void requestQuit();
-  [[nodiscard]] bool quitPromptOpen() const noexcept {
-    return m_modal == Modal::Quit;
+  // File > Recent projects and the New and Open project dialogs. A project that fails to open
+  // afterwards is reported to the log and leaves the current one open.
+  void requestOpenProject(const std::filesystem::path &directory);
+  void requestCreateProject(const std::filesystem::path &directory, std::string name);
+  [[nodiscard]] bool unsavedPromptOpen() const noexcept {
+    return m_modal == Modal::Unsaved;
   }
   // The tabs with unsaved changes, in tab order.
   [[nodiscard]] std::vector<std::size_t> dirtyTabs() const;
-  // Saves every dirty scene, then quits. A scene that cannot be saved (a failed write, or none has
-  // a file yet) stops it: the editor stays open, the reason is shown, and the tab the user was in
-  // is active again unless the failing scene has no file, which stays in front.
-  void saveAllAndQuit();
-  void discardAndQuit();
-  void cancelQuit();
+  // Saves every dirty scene, then quits or switches. A scene that cannot be saved (a failed write,
+  // or none has a file yet) stops it: the editor stays where it was, the reason is shown, and the
+  // tab the user was in is active again unless the failing scene has no file, which stays in front.
+  void saveAllUnsaved();
+  void discardUnsaved();
+  // Cancel: the tabs, their changes and the recovery session stay as they are.
+  void cancelUnsaved();
 
   // Crash recovery (docs/editor.md, "Crash recovery"). `root` is the per-user recovery directory,
   // under which each project has a folder of its own. Setting it starts the session for the open
@@ -469,7 +476,7 @@ private:
     SaveSceneAs,
     Export,
     CloseTab,
-    Quit,
+    Unsaved,
     Stop,
     Recover,
     SaveLayout,
@@ -498,7 +505,7 @@ private:
   void drawMenuBar();
   void drawModal();
   void drawCloseTabModal();
-  void drawQuitModal();
+  void drawUnsavedModal();
   void drawStopModal();
   void drawRecoverModal();
   void beginRecovery();
@@ -511,6 +518,15 @@ private:
   void stashActiveTab();
   // Runs `action` now, or once the stop dialog has been answered when play holds edits to decide on.
   void afterStopPrompt(std::function<void()> action);
+  // What leaving the open scenes is for, which the unsaved dialog words its question after.
+  enum class Leave : std::uint8_t {
+    Quit,
+    SwitchProject,
+  };
+  // Runs `action` after the stop dialog and then the unsaved dialog, each only when there is something
+  // to ask about; the shared path of quitting and switching projects.
+  void afterUnsavedPrompt(Leave leave, std::function<void()> action);
+  void runAfterUnsaved();
   [[nodiscard]] bool hasPlayChanges() const;
   // A script's `game.loadScene` while playing (docs/editor.md, "Play mode").
   void loadPlayScene(const std::string &scene);
@@ -654,7 +670,9 @@ private:
   std::uint64_t m_nextTabId{1};
   bool m_selectActiveTab{false}; // the tab bar follows a change the editor made, not the user's click
   nlohmann::json m_snapshot;
-  std::function<void()> m_afterStop; // what the stop dialog was asked on behalf of
+  std::function<void()> m_afterStop;    // what the stop dialog was asked on behalf of
+  std::function<void()> m_afterUnsaved; // what the unsaved dialog was asked on behalf of
+  Leave m_leave{Leave::Quit};
   std::size_t m_skippedChanges{0};
   bool m_stopAnswered{false}; // the dialog stays to report skipped edits after the answer
   bool m_prefabsStale{
