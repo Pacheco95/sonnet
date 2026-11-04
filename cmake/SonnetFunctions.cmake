@@ -59,17 +59,20 @@ function(sonnet_add_catch2_test NAME TARGET)
            --reporter console --reporter "junit::out=${dir}/${NAME}.xml" ${ARGN})
 endfunction()
 
-# sonnet_add_module_test(<name> SOURCES ... DEPENDS ... [TIMEOUT <seconds>])
+# sonnet_add_module_test(<name> SOURCES ... DEPENDS ... [TIMEOUT <seconds>] [COST <seconds>])
 #
 # Creates <name>_tests linked against sonnet::<name> and Catch2, registers it with CTest under the
 # label <name>, and allows including the module's src/ for white-box tests and tests/support for the
 # shared helpers in TestSupport.h. TIMEOUT (default 300) is the suite's limit; only a suite measured
-# to need more passes it, with the numbers beside it.
+# to need more passes it, with the numbers beside it. COST is CTest's COST property: `ctest
+# --parallel` starts the costliest suites first when it has no timings of its own from an earlier
+# run, which a CI build directory never has, so a suite that takes most of the run passes its
+# measured seconds and does not start last (docs/build.md, "Continuous integration").
 function(sonnet_add_module_test NAME)
   if(NOT SONNET_BUILD_TESTS)
     return()
   endif()
-  cmake_parse_arguments(ARG "" "TIMEOUT" "SOURCES;DEPENDS" ${ARGN})
+  cmake_parse_arguments(ARG "" "TIMEOUT;COST" "SOURCES;DEPENDS" ${ARGN})
   set(target ${NAME}_tests)
   if(NOT ARG_TIMEOUT)
     set(ARG_TIMEOUT 300)
@@ -89,6 +92,9 @@ function(sonnet_add_module_test NAME)
   # A suite takes seconds to minutes; a hang (a blocked dialog on Windows, a driver wait) must fail with output.
   # The property wins over `ctest --timeout`, which is only the default for a test without one.
   set_tests_properties(${target} PROPERTIES LABELS "${NAME}" TIMEOUT ${ARG_TIMEOUT})
+  if(ARG_COST)
+    set_tests_properties(${target} PROPERTIES COST ${ARG_COST})
+  endif()
 endfunction()
 
 # sonnet_add_executable(<name> SOURCES ... DEPENDS ...)

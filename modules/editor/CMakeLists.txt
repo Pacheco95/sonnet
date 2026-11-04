@@ -54,8 +54,11 @@ endif()
 
 # The Linux ASan job runs this suite about 2.4 times slower than a local machine: 124 s here, ~300 s in CI on
 # 2026-10-23, which grew from 200 s over three merges. 600 s is twice that, so a failure still means a hang.
+# COST: the longest suite by far, about 240 s of the Linux GCC and ASan jobs' 410 s of suites in CI run 41915804872,
+# so `ctest --parallel` starts it first rather than after the fourteen tests registered before it (issue #468).
 sonnet_add_module_test(editor
   TIMEOUT 600
+  COST 240
   SOURCES
     tests/AssetMenuTests.cpp
     tests/CameraLinesTests.cpp
