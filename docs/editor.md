@@ -106,12 +106,12 @@ Anything else (an input, a drag, a combo, a tree node, a picker, a table that is
 | Header | Contents |
 |---|---|
 | `Editor.h` | `Editor`: the world being edited with its physics world, script runtime, animation systems and audio device, the panels, the undo history, play mode and the project; `nativeEvent`, `event`, `update`, `render`, `afterPresent` in that order per frame |
-| `ViewportPanel.h` | The dockable scene view: a `renderer::RenderTarget` sized to the panel, displayed with `ImGui::Image`, the fly camera while the right mouse button is held over it, a pan while the middle button is, an orbit around the pivot while Alt + left is, and `ViewportInput`, what the mouse did over the image this frame, for the gizmo and picking |
+| `ViewportPanel.h` | The dockable scene view: a `renderer::RenderTarget` sized to the panel, displayed with `ImGui::Image`, the fly camera while the right mouse button is held over it, a pan while the middle button is, an orbit around the pivot while Alt + left is, and `ViewportInput`, what the mouse did over the image this frame, for the gizmo and picking, and the asset held over or let go on the image (`draggedAsset`, `assetDropped`): the image is the drop target for the Assets panel's rows ([Dropping assets on the viewport](#dropping-assets-on-the-viewport)) |
 | `WindowOrigins.h` | Each OS window's origin in ImGui's screen space, to map a pointer event's position to the panel's image whichever window it arrived in |
-| `FlyCamera.h` | Mouse look, W/A/S/D on the camera's plane, Q/E along the world's up, Shift for four times the speed, the wheel to scale it, `dolly` for the wheel's step with the right button up, `pan` for the middle button's drag, `orbit` for the Alt + left drag around a pivot |
+| `FlyCamera.h` | Mouse look, W/A/S/D on the camera's plane, Q/E along the world's up, Shift for four times the speed, the wheel to scale it, `dolly` for the wheel's step with the right button up, `pan` for the middle button's drag, `orbit` for the Alt + left drag around a pivot, `gridNormal` for the plane the floor grid shows, which both the grid pass and a drop on the viewport use |
 | `HierarchyPanel.h` | The scene tree with selection, drag-and-drop reparenting and reordering ([below](#reordering)), Expand all and Collapse all for a subtree or the whole tree, a name filter and a multi-select kind filter (below), a drop target for models and environments from the asset browser, and the context menu that focuses, creates (empty, the twelve primitive shapes, a camera, the lights, prefab instances), makes an instance local, saves a subtree as a prefab, duplicates and deletes (hides, for part of an instance) |
 | `InspectorPanel.h` | The primary selection's name and components, with widgets generated from reflection; with nothing selected, the asset the browser inspects |
-| `AssetBrowserPanel.h` | The project's assets by type and name, drag sources for the inspector's pickers and the hierarchy, and the buttons that create a material or a script |
+| `AssetBrowserPanel.h` | The project's assets by type and name, drag sources for the inspector's pickers, the hierarchy and the viewport, and the buttons that create a material or a script |
 | `ThumbnailCache.h` | The Assets panel's thumbnails on the GPU: made on the job system, uploaded a few per frame, released when unused ([Thumbnails](#thumbnails)) |
 | `ThumbnailRenderer.h` | Renders a material on a sphere, a mesh, and a model or prefab framed on its bounds into a small target of the editor's graph and reads it back ([Thumbnails](#thumbnails)) |
 | `Fonts.h` | The embedded text and monospace fonts, `addFonts`, which builds the atlas, and `ScopedMono` ([Fonts](#fonts)) |
@@ -119,6 +119,7 @@ Anything else (an input, a drag, a combo, a tree node, a picker, a table that is
 | `AssetCommands.h` | The material edit and the texture and model import settings commands |
 | `GamePanel.h` | The dockable game view: a `renderer::RenderTarget` of its own, sized to the panel and displayed with `ImGui::Image`, drawn through the scene's `Camera` entity; it has no camera, gizmo or picking, and its `ViewportInput` is the game's input while playing. The target exists only while the panel is on screen |
 | `Gizmo.h` | Translate, rotate and scale handles drawn over the viewport |
+| `ViewportDrop.h` | The pure parts of a drop on the viewport, testable without Dear ImGui or a GPU: what a dragged asset does (`dropAction`), the nearest triangle under a ray among the shown meshes (`raycastScene`), the landing point with snapping (`land`) and where the object rests on it (`restingPosition`) ([Dropping assets on the viewport](#dropping-assets-on-the-viewport)) |
 | `Selection.h` | The selected entities by identity; the last one is primary |
 | `CommandStack.h`, `EntityCommands.h` | `ICommand`, the undo history, and the commands every edit goes through |
 | `Project.h`, `Preferences.h` | Creating a project with its starter scene, and the per-user settings; the project file itself is `assets::Project` |
@@ -168,9 +169,42 @@ Dragging a row onto the middle of another makes it that row's last child, and on
 
 ## Gizmos
 
-W, E and R over the viewport choose translate, rotate and scale (the same keys fly the camera while the right button is held). Translation and rotation work along the world axes, scale along the entity's own. A drag starts on the handle under the cursor and resolves every mouse position against the axis line or the rotation plane from the drag's fixed start position, never from the object's current one, so the maths never chases what it moves; the handles themselves are drawn at the object's current position, taken from its local transform in the same frame, so they follow it as it moves. The live edit writes the local transform directly; when the button is released, one command with the transform before and after goes on the stack. In translate mode the three squares between the axes are plane handles: dragging one moves the entity in that plane, resolving the mouse ray against the plane from the drag's start point, and the axis handles win where they overlap. Snapping rounds a drag to a grid: translation to a world-space step per moved axis, rotation to a step in the angle, scale to a step in the factor (1 m, 15° and 0.1 by default, editable in the Edit menu). The Edit menu's Snap to grid toggles it and holding Ctrl during a drag inverts it; `GizmoView::snap` carries the decision so the tests need no Dear ImGui. The maths (`project`, `rayDirection`, `axisRayParam`, `planeRayHit`) is public for the tests, which drive drags through `GizmoView` without Dear ImGui.
+W, E and R over the viewport choose translate, rotate and scale (the same keys fly the camera while the right button is held). Translation and rotation work along the world axes, scale along the entity's own. A drag starts on the handle under the cursor and resolves every mouse position against the axis line or the rotation plane from the drag's fixed start position, never from the object's current one, so the maths never chases what it moves; the handles themselves are drawn at the object's current position, taken from its local transform in the same frame, so they follow it as it moves. The live edit writes the local transform directly; when the button is released, one command with the transform before and after goes on the stack. In translate mode the three squares between the axes are plane handles: dragging one moves the entity in that plane, resolving the mouse ray against the plane from the drag's start point, and the axis handles win where they overlap. Snapping rounds a drag to a grid: translation to a world-space step per moved axis, rotation to a step in the angle, scale to a step in the factor (1 m, 15° and 0.1 by default, editable in the Edit menu). The Edit menu's Snap to grid toggles it and holding Ctrl during a drag inverts it; `GizmoView::snap` carries the decision so the tests need no Dear ImGui, and a drop on the viewport snaps from the same decision ([Dropping assets on the viewport](#dropping-assets-on-the-viewport)). The maths (`project`, `rayDirection`, `axisRayParam`, `planeRayHit`) is public for the tests, which drive drags through `GizmoView` without Dear ImGui.
 
 The orthographic picking and snapped translation integration test runs with both Dear ImGui shortcut modes: Ctrl on Windows/Linux and Cmd on macOS. It sends the corresponding physical modifier so macOS Ctrl-click emulation does not turn the gizmo's left press into a right-click, and checks selection, drag start, snapped movement and the undo command.
+
+## Dropping assets on the viewport
+
+An asset row or tile dragged from the Assets panel can be let go on the viewport's image. While it is held there the viewport previews what the drop will do, and the release does it as one undo step:
+
+| Kind | Preview while held | On release |
+|---|---|---|
+| Model, prefab | Its meshes, drawn where it would stand | An instance there (`instantiate X`) |
+| Mesh (built-in or glTF) | The mesh, drawn there with `MeshRenderer` defaults | An entity with that `MeshRenderer` there (`create X`) |
+| Material | The object under the cursor drawn with it, outlined in the accent colour | That object's `MeshRenderer.material` |
+| Script | The object under the cursor, outlined in the accent colour | One more `Scripts` slot on it (`appendScriptCommand`) |
+| Environment | The viewport's sky shows it | The scene's sky, as a drop on the hierarchy does (`useEnvironment`) |
+| Anything else (textures, sounds, ...) | Nothing | Nothing |
+
+Nothing touches the world, the hierarchy or the history before the release. Leaving the viewport removes the preview, and letting go elsewhere does nothing. The Game view never shows the preview. A drop that does something selects what it made or changed and gives the viewport the keyboard focus, so Delete, Ctrl+D and F act on it rather than on the Assets panel's rows. During the drag the gizmo, picking, the camera and W/E/R/F stay idle, because the dragged row is Dear ImGui's active item and the image is not hovered.
+
+A model, a prefab or a mesh is placed in three steps:
+
+1. **Landing.** The cursor's ray is the drawn camera's (`FlyCamera::renderView`), so in an orthographic view it starts at the pulled-back eye and meets whatever the image shows. It lands on the nearest triangle among the scene's shown meshes; else where it meets the plane the floor grid shows (`FlyCamera::gridNormal`: y = 0, the axis view's plane in an orthographic Front, Back, Right or Left view, the floor in a user orthographic view); else `focusDistance` (10 m by default) along the ray.
+2. **Snapping.** While Snap to grid is on, the landing point is rounded to the Move step along the grid plane's two axes, and its height along the third stays where the ray met the surface, so a crate snaps across a table top and stays on it. The decision is the gizmo's (`GizmoView::snap`): the Edit menu's toggle, inverted while Ctrl (Cmd on macOS) is held. It is read every frame, so pressing or releasing Ctrl mid-drag switches it at once.
+3. **Resting.** The object keeps its prefab root's rotation and scale (the identity for a mesh) and is pushed out along the landed-on surface's normal, the side facing the camera, until its meshes' bounds touch the surface. A centred cube, the sample crate prefab and a model all stand on the floor or a table rather than sinking into it. In the air, or before any of its meshes has loaded, its origin is the landing point.
+
+The position is part of the creation command, so undo, redo and keeping the play's edits ([below](#keeping-the-plays-edits)) put the entity back in the same place.
+
+Limits:
+
+- An object is not turned to the surface's normal.
+- Skinned meshes are hit and previewed in their bind pose, and morph targets are not ray cast.
+- Lights, emitters and cameras inside a prefab are not previewed, as in thumbnails ([Thumbnails](#thumbnails)).
+- A drag of several selected rows places the grabbed row only, as on the hierarchy.
+- The first hover of an environment imports it synchronously, as a drop on the hierarchy does.
+- The ray tests every triangle of each mesh whose bounds it crosses.
+- The hierarchy accepts the same kinds as before: models, prefabs and environments, and scripts on a row.
 
 ## Inspector
 
@@ -211,8 +245,9 @@ ignoring case; Source distinguishes equal names. Without text it lists only imme
 children. The type combo has a checkbox for each asset type, Prefabs, Scenes and Files;
 nothing checked means All and Clear unchecks everything. Folders remain available for navigation.
 Clicking an imported asset inspects it without touching the entity selection or gizmo.
-Asset and prefab rows remain drag sources for inspector pickers and the hierarchy;
-a model or prefab dropped there becomes an instance, and an environment sets the scene's sky.
+Asset and prefab rows remain drag sources for inspector pickers, the hierarchy and the viewport;
+a model or prefab dropped on the hierarchy becomes an instance, and an environment sets the scene's sky.
+What a drop on the viewport does is in [Dropping assets on the viewport](#dropping-assets-on-the-viewport).
 
 Ctrl-click (Command-click on macOS) toggles rows and Shift-click selects a range using ImGui multi-select.
 The New asset menu's New folder entry and the background menu create an empty folder in
@@ -240,7 +275,7 @@ into the current folder. Both are `moveFilesCommand`s, one composite undo step f
 selection; a row dropped on the folder it is in, on itself or into its own subfolder is
 skipped, and a move the database refuses (the project folder is no asset root, a name is
 taken) shows its error above the table and changes nothing. An asset row keeps the
-`SONNET_ASSET` payload the inspector's pickers and the hierarchy accept, and the browser
+`SONNET_ASSET` payload the inspector's pickers, the hierarchy and the viewport accept, and the browser
 adds the paths of the rows to move from its own state; a folder, scene or plain file row
 carries the `SONNET_ASSET_PATHS` payload, which only the browser accepts. Duplicate
 (Ctrl+D while the panel has focus, so the hierarchy's Ctrl+D is not also triggered) copies
@@ -526,7 +561,7 @@ Orthographic grids use parallel view rays and linear reversed-Z depth. Their lev
 
 The grid has 1 m lines, 10 m major lines and a 100 m coarse level. Each level fades out as its projected spacing becomes too small, and the whole grid fades with distance and at grazing angles. It is drawn after temporal anti-aliasing with unjittered rays and pixel-width filtering, depth-tested without writing depth; scene surfaces, including a coplanar floor, hide it. [Verification images and tests](reports/viewport-grid.md) show both the visible grid and a lit ground.
 
-Snap to grid uses the Edit menu's Move step, 1 m by default. It remains fixed while zooming: changing a camera must not change where a drag snaps, and both perspective and orthographic images can show several grid levels at once. Orthographic zoom fades dense levels but keeps the 1 m world lattice; it does not change Move step. A custom Move step can therefore subdivide or skip visible lines. Translation snaps the moved axes to multiples of Move step in world space, so a cube snaps onto the 1 m lines even if its drag starts between them.
+Snap to grid uses the Edit menu's Move step, 1 m by default. It remains fixed while zooming: changing a camera must not change where a drag snaps, and both perspective and orthographic images can show several grid levels at once. Orthographic zoom fades dense levels but keeps the 1 m world lattice; it does not change Move step. A custom Move step can therefore subdivide or skip visible lines. Translation snaps the moved axes to multiples of Move step in world space, so a cube snaps onto the 1 m lines even if its drag starts between them. An asset dropped on the viewport snaps its landing point to the same step along the grid's plane ([Dropping assets on the viewport](#dropping-assets-on-the-viewport)).
 
 ## Screenshots
 
