@@ -36,6 +36,7 @@ sonnet_add_module(editor
     src/StatisticsPanel.cpp
     src/ThumbnailCache.cpp
     src/TypeFilter.cpp
+    src/ViewportDrop.cpp
     src/ViewportPanel.cpp
     src/WindowState.cpp
   PUBLIC_DEPENDS
@@ -76,6 +77,7 @@ sonnet_add_module_test(editor
     tests/ScriptSlotsTests.cpp
     tests/ShaderTests.cpp
     tests/TypeFilterTests.cpp
+    tests/ViewportDropTests.cpp
     tests/WindowOriginsTests.cpp
     tests/WindowStateTests.cpp
 )
