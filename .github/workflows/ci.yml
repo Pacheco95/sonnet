@@ -306,7 +306,7 @@ jobs:
         id: sccache-cache
         if: >-
           steps.sccache-stats.outputs.writes != '' && steps.sccache-stats.outputs.writes != '0'
-          && github.event_name == 'push' && github.ref == 'refs/heads/main'
+          && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.head_ref == 'ci/cache-compilation')
         shell: bash
         run: |
           python3 - "$RUNNER_TEMP/sccache" "$RUNNER_TEMP/sccache.marker" <<'EOF'
@@ -348,6 +348,18 @@ jobs:
 
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --timeout 300
+
+      - name: TEMPORARY sccache probe (#466)
+        if: steps.sccache.outputs.cmake-args
+        shell: bash
+        run: |
+          case "${{ matrix.name }}" in
+            "Linux Clang"|"Windows MSVC") phases="warm header flags toolchain" ;;
+            "Linux ASan"|"Windows MSVC Release") phases="warm" ;;
+            *) exit 0 ;;
+          esac
+          sccache --start-server
+          python3 tools/sccache_probe.py ${{ matrix.preset }} $phases
 
       - name: clang-tidy on changed files
         if: matrix.name == 'Linux Clang' && github.event_name == 'pull_request'
