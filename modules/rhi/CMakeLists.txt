@@ -46,6 +46,13 @@ target_compile_definitions(sonnet_rhi PUBLIC
 )
 # Vulkan-HPP is the bulk of every rhi translation unit's parse time.
 target_precompile_headers(sonnet_rhi PRIVATE <vulkan/vulkan_raii.hpp>)
+# Clang writes the headers' modification times into the PCH, and vcpkg reinstalls them with new ones on
+# every CI run, so sccache, which keys a Clang PCH on its bytes, missed it every time (#474). Without the
+# timestamps Clang checks only the headers' sizes when it loads the PCH; Ninja still rebuilds it when one
+# changes.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
+  target_compile_options(sonnet_rhi PRIVATE "SHELL:-Xclang -fno-pch-timestamp")
+endif()
 
 sonnet_add_module_test(rhi
   SOURCES
