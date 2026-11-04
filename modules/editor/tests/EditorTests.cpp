@@ -1672,24 +1672,24 @@ TEST_CASE("quitting asks about unsaved scenes before it exits", "[editor][gpu]")
     editor.requestQuit();
     editor.requestQuit();
     REQUIRE(!editor.quitRequested());
-    REQUIRE(editor.quitPromptOpen());
+    REQUIRE(editor.unsavedPromptOpen());
     fixture.frame(editor);
-    editor.cancelQuit();
-    REQUIRE(!editor.quitPromptOpen());
+    editor.cancelUnsaved();
+    REQUIRE(!editor.unsavedPromptOpen());
     REQUIRE(!editor.quitRequested());
     REQUIRE(editor.activeTab() == 1);
     fixture.frame(editor);
 
     // Save All stops at the untitled scene, which stays in front, and reports it.
     editor.requestQuit();
-    editor.saveAllAndQuit();
+    editor.saveAllUnsaved();
     REQUIRE(!editor.quitRequested());
-    REQUIRE(editor.quitPromptOpen());
+    REQUIRE(editor.unsavedPromptOpen());
     REQUIRE(editor.activeTab() == 2);
     REQUIRE(!editor.tabDirty(0));
     REQUIRE(!editor.tabDirty(1));
     fixture.frame(editor);
-    editor.cancelQuit();
+    editor.cancelUnsaved();
 
     // With the untitled scene given a file, Save All saves the rest and quits.
     REQUIRE(editor.saveSceneAs(directory / "again" / "scenes" / "third.scene.json").has_value());
@@ -1698,7 +1698,7 @@ TEST_CASE("quitting asks about unsaved scenes before it exits", "[editor][gpu]")
     rename("again");
     REQUIRE(editor.dirtyTabs() == std::vector<std::size_t>{0, 2});
     editor.requestQuit();
-    editor.saveAllAndQuit();
+    editor.saveAllUnsaved();
     REQUIRE(editor.quitRequested());
     REQUIRE(editor.dirtyTabs().empty());
     fixture.frame(editor);
@@ -1711,10 +1711,130 @@ TEST_CASE("quitting asks about unsaved scenes before it exits", "[editor][gpu]")
     world::World &world = editor.world();
     editor.commands().push(editor::renameCommand(world.uuidOf(world.roots().front()), "a", "b"), world);
     editor.requestQuit();
-    REQUIRE(editor.quitPromptOpen());
-    editor.discardAndQuit();
+    REQUIRE(editor.unsavedPromptOpen());
+    editor.discardUnsaved();
     REQUIRE(editor.quitRequested());
     REQUIRE(editor.isDirty());
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+}
+
+TEST_CASE("opening another project asks about unsaved scenes first", "[editor][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("switch_project");
+  const std::filesystem::path recoveryRoot = scratch("switch_project_recovery");
+  const auto recoveryFileCount = [](const std::filesystem::path &folder) {
+    std::size_t count = 0;
+    for (const auto &entry : std::filesystem::directory_iterator(folder)) {
+      count += entry.path().filename().string().ends_with(".recovery.scene.json") ? 1u : 0u;
+    }
+    return count;
+  };
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory / "other", "Other").has_value());
+    const std::filesystem::path other = editor.project()->root;
+    REQUIRE(editor.createProject(directory / "current", "Current").has_value());
+    const std::filesystem::path current = editor.project()->root;
+    editor.setRecoveryDirectory(recoveryRoot);
+    world::World &world = editor.world();
+    const auto rename = [&](std::string after) {
+      const core::Uuid root = world.uuidOf(world.roots().front());
+      const std::string before = world.roots().front().get<world::Name>().value;
+      editor.commands().push(editor::renameCommand(root, before, std::move(after)), world);
+    };
+
+    // Nothing unsaved: the project opens at once, with no prompt.
+    editor.requestOpenProject(other);
+    REQUIRE(!editor.unsavedPromptOpen());
+    REQUIRE(editor.project()->root == other);
+    editor.requestOpenProject(current);
+    REQUIRE(editor.project()->root == current);
+    fixture.frame(editor);
+
+    // Dirty: the prompt opens and the project stays until it is answered; Cancel keeps the tabs and the session.
+    rename("edited");
+    editor.autosaveNow();
+    const editor::Recovery *session = editor.recovery();
+    REQUIRE(session != nullptr);
+    REQUIRE(recoveryFileCount(session->directory()) == 1);
+    editor.requestOpenProject(other);
+    editor.requestOpenProject(other);
+    REQUIRE(editor.unsavedPromptOpen());
+    REQUIRE(editor.project()->root == current);
+    fixture.frame(editor);
+    editor.cancelUnsaved();
+    REQUIRE(!editor.unsavedPromptOpen());
+    REQUIRE(editor.project()->root == current);
+    REQUIRE(editor.tabDirty(0));
+    REQUIRE(editor.recovery() == session);
+    REQUIRE(recoveryFileCount(session->directory()) == 1);
+    fixture.frame(editor);
+
+    // Reopening the open project asks the same way, and so does New project.
+    editor.requestOpenProject(current);
+    REQUIRE(editor.unsavedPromptOpen());
+    editor.cancelUnsaved();
+    editor.requestCreateProject(directory / "created", "Created");
+    REQUIRE(editor.unsavedPromptOpen());
+    editor.cancelUnsaved();
+    REQUIRE(!std::filesystem::exists(directory / "created"));
+    REQUIRE(editor.tabDirty(0));
+
+    // An untitled scene stops Save All: the project stays open and the dialog says why.
+    editor.newScene();
+    rename("untitled edit");
+    editor.requestOpenProject(other);
+    editor.saveAllUnsaved();
+    REQUIRE(editor.unsavedPromptOpen());
+    REQUIRE(!editor.modalError().empty());
+    REQUIRE(editor.project()->root == current);
+    REQUIRE(editor.activeTab() == 1);
+    REQUIRE(!editor.tabDirty(0)); // saved on the way
+    fixture.frame(editor);
+    editor.cancelUnsaved();
+    editor.closeTab(1);
+    fixture.frame(editor);
+
+    // Save All writes the edit, then the other project opens.
+    rename("saved before switching");
+    const std::filesystem::path scene = editor.scenePath();
+    editor.requestOpenProject(other);
+    editor.saveAllUnsaved();
+    REQUIRE(!editor.unsavedPromptOpen());
+    REQUIRE(editor.project()->root == other);
+    {
+      const auto bytes = core::readFile(scene);
+      REQUIRE(bytes.has_value());
+      const std::string text{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
+      REQUIRE(text.find("saved before switching") != std::string::npos);
+    }
+    fixture.frame(editor);
+
+    // Discard opens the project and drops the edit.
+    rename("dropped");
+    editor.requestOpenProject(current);
+    REQUIRE(editor.unsavedPromptOpen());
+    editor.discardUnsaved();
+    REQUIRE(editor.project()->root == current);
+    REQUIRE(editor.dirtyTabs().empty());
+    fixture.frame(editor);
+
+    // Play's edits are asked about first; after Discard there the unsaved scene from before play is asked about.
+    rename("before play");
+    editor.play();
+    rename("while playing");
+    editor.requestOpenProject(other);
+    REQUIRE(editor.stopPromptOpen());
+    REQUIRE(!editor.unsavedPromptOpen());
+    editor.discardPlayChanges();
+    REQUIRE(!editor.isPlaying());
+    REQUIRE(editor.unsavedPromptOpen());
+    REQUIRE(editor.project()->root == current);
+    editor.discardUnsaved();
+    REQUIRE(editor.project()->root == other);
     fixture.frame(editor);
   }
   fixture.device->waitIdle();
@@ -2815,8 +2935,8 @@ TEST_CASE("saving or closing a tab, and quitting, remove its recovery file", "[e
     editor.autosaveNow();
     REQUIRE(recoveryFiles(recoveryDirectory) == 1);
     editor.requestQuit();
-    REQUIRE(editor.quitPromptOpen());
-    editor.discardAndQuit();
+    REQUIRE(editor.unsavedPromptOpen());
+    editor.discardUnsaved();
     REQUIRE(editor.quitRequested());
   }
   const std::filesystem::path key = std::filesystem::directory_iterator(root)->path();

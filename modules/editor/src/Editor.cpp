@@ -952,11 +952,7 @@ void Editor::drawMenuBar() {
       const std::vector<std::filesystem::path> recents = m_preferences.recentProjects;
       for (const std::filesystem::path &recent : recents) {
         if (ImGui::MenuItem(recent.generic_string().c_str())) {
-          afterStopPrompt([this, recent] {
-            if (const auto opened = openProject(recent); !opened) {
-              SONNET_LOG_ERROR("{}", opened.error().toString());
-            }
-          });
+          requestOpenProject(recent);
         }
       }
       ImGui::EndMenu();
@@ -1204,8 +1200,8 @@ void Editor::drawModal() {
     ImGui::EndPopup();
     return;
   }
-  if (m_modal == Modal::Quit) {
-    drawQuitModal();
+  if (m_modal == Modal::Unsaved) {
+    drawUnsavedModal();
     ImGui::EndPopup();
     return;
   }
@@ -1295,13 +1291,19 @@ void Editor::drawModal() {
   const bool confirmed = answer == 0;
   const bool cancelled = answer == 1;
   if (confirmed && !m_modalPath.empty() && (m_modal == Modal::NewProject || m_modal == Modal::OpenProject) &&
-      hasPlayChanges()) {
-    // Opening a project ends play: the stop dialog comes first, then the project opens.
-    afterStopPrompt([this, create = m_modal == Modal::NewProject, path = m_modalPath, name = m_modalName] {
-      if (const auto opened = create ? createProject(path, name) : openProject(path); !opened) {
-        SONNET_LOG_ERROR("{}", opened.error().toString());
+      (hasPlayChanges() || !dirtyTabs().empty())) {
+    // Opening a project ends play and closes the tabs: the stop and unsaved dialogs come first, then the project
+    // opens. A folder that is no project is said here, before anything is asked or saved for it.
+    if (m_modal == Modal::OpenProject) {
+      if (const auto project = assets::Project::open(m_modalPath); !project) {
+        m_modalError = project.error().message;
+        ImGui::EndPopup();
+        return;
       }
-    });
+      requestOpenProject(m_modalPath);
+    } else {
+      requestCreateProject(m_modalPath, m_modalName);
+    }
     ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
     return;
@@ -1338,7 +1340,7 @@ void Editor::drawModal() {
       break;
     }
     case Modal::CloseTab:
-    case Modal::Quit:
+    case Modal::Unsaved:
     case Modal::Stop:
     case Modal::Recover:
     case Modal::SaveLayout:
@@ -1801,7 +1803,8 @@ core::Result<void> Editor::openProject(const std::filesystem::path &directory) {
     stop();
   }
   recordOpenScenes();
-  // The old project's session ends with its scenes, which are dropped below, unsaved changes with them.
+  // The old project's session ends with its scenes, which are dropped below, unsaved changes with them: the UI
+  // routes ask about those first (requestOpenProject).
   endRecovery();
   m_project = std::move(*project);
   m_assetBrowserPanel.inspect({});
@@ -2482,23 +2485,56 @@ std::vector<std::size_t> Editor::dirtyTabs() const {
   return dirty;
 }
 
-void Editor::requestQuit() {
-  if (m_modal == Modal::Quit || m_modal == Modal::Stop) {
+void Editor::afterUnsavedPrompt(Leave leave, std::function<void()> action) {
+  if (m_modal == Modal::Unsaved || m_modal == Modal::Stop) {
     return;
   }
   if (hasPlayChanges()) {
-    afterStopPrompt([this] { requestQuit(); });
+    // Keep leaves the scene unsaved, so the unsaved dialog is asked again after it.
+    afterStopPrompt([this, leave, action] { afterUnsavedPrompt(leave, action); });
     return;
   }
   if (dirtyTabs().empty()) {
-    m_quitRequested = true;
+    action();
     return;
   }
   m_modalError.clear();
-  m_modal = Modal::Quit;
+  m_leave = leave;
+  m_afterUnsaved = std::move(action);
+  m_modal = Modal::Unsaved;
 }
 
-void Editor::saveAllAndQuit() {
+void Editor::requestQuit() {
+  afterUnsavedPrompt(Leave::Quit, [this] { m_quitRequested = true; });
+}
+
+void Editor::requestOpenProject(const std::filesystem::path &directory) {
+  afterUnsavedPrompt(Leave::SwitchProject, [this, directory] {
+    if (const auto opened = openProject(directory); !opened) {
+      SONNET_LOG_ERROR("{}", opened.error().toString());
+    }
+  });
+}
+
+void Editor::requestCreateProject(const std::filesystem::path &directory, std::string name) {
+  afterUnsavedPrompt(Leave::SwitchProject, [this, directory, name = std::move(name)] {
+    if (const auto created = createProject(directory, name); !created) {
+      SONNET_LOG_ERROR("{}", created.error().toString());
+    }
+  });
+}
+
+void Editor::runAfterUnsaved() {
+  m_modal = Modal::None;
+  if (std::function<void()> then = std::exchange(m_afterUnsaved, {})) {
+    then();
+  }
+}
+
+void Editor::saveAllUnsaved() {
+  if (m_modal != Modal::Unsaved) {
+    return;
+  }
   const std::size_t original = m_activeTab;
   for (const std::size_t index : dirtyTabs()) {
     switchToTab(index);
@@ -2510,18 +2546,19 @@ void Editor::saveAllAndQuit() {
       return;
     }
   }
-  m_modal = Modal::None;
-  m_quitRequested = true;
+  runAfterUnsaved();
 }
 
-void Editor::discardAndQuit() {
-  m_modal = Modal::None;
-  m_quitRequested = true;
+void Editor::discardUnsaved() {
+  if (m_modal == Modal::Unsaved) {
+    runAfterUnsaved();
+  }
 }
 
-void Editor::cancelQuit() {
-  if (m_modal == Modal::Quit) {
+void Editor::cancelUnsaved() {
+  if (m_modal == Modal::Unsaved) {
     m_modal = Modal::None;
+    m_afterUnsaved = {};
   }
 }
 
@@ -2589,8 +2626,10 @@ void Editor::drawStopModal() {
   }
 }
 
-void Editor::drawQuitModal() {
-  ImGui::TextUnformatted("These scenes have unsaved changes:");
+void Editor::drawUnsavedModal() {
+  ImGui::TextUnformatted(m_leave == Leave::SwitchProject
+                             ? "Opening another project closes these scenes, which have unsaved changes:"
+                             : "These scenes have unsaved changes:");
   for (const std::size_t index : dirtyTabs()) {
     const std::string name = tabTitle(index);
     ImGui::BulletText("%s", name.c_str());
@@ -2601,11 +2640,11 @@ void Editor::drawQuitModal() {
   const bool discard = answer == 1;
   const bool cancel = answer == 2;
   if (save) {
-    saveAllAndQuit();
+    saveAllUnsaved();
   } else if (discard) {
-    discardAndQuit();
+    discardUnsaved();
   } else if (cancel) {
-    cancelQuit();
+    cancelUnsaved();
   }
   if (m_modal == Modal::None) {
     ImGui::CloseCurrentPopup();

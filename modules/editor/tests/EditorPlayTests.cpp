@@ -485,7 +485,7 @@ TEST_CASE("Keep before a quit leaves the unsaved scene for the quit dialog", "[e
   editor.requestQuit();
   editor.keepPlayChanges();
   REQUIRE_FALSE(editor.stopPromptOpen());
-  REQUIRE(editor.quitPromptOpen());
+  REQUIRE(editor.unsavedPromptOpen());
   REQUIRE_FALSE(editor.quitRequested());
 }
 
