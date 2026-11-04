@@ -60,6 +60,15 @@ include(SonnetCoverage)
 include(SonnetShaders)
 
 enable_testing()
+if(SONNET_BUILD_TESTS)
+  # The build's side of the context tools/test_timings.py prints beside the Catch2 reports.
+  set(sonnet_build_json "{}")
+  foreach(field IN ITEMS CMAKE_CXX_COMPILER_ID CMAKE_CXX_COMPILER_VERSION CMAKE_BUILD_TYPE CMAKE_SYSTEM_NAME
+                         CMAKE_SYSTEM_PROCESSOR SONNET_SANITIZERS SONNET_THREAD_SANITIZER SONNET_COVERAGE SONNET_GAME)
+    string(JSON sonnet_build_json SET "${sonnet_build_json}" "${field}" "\"${${field}}\"")
+  endforeach()
+  file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/test-results/build.json" CONTENT "${sonnet_build_json}\n")
+endif()
 
 add_subdirectory(modules)
 include(SonnetGame)

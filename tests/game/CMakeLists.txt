@@ -11,5 +11,5 @@ set_target_properties(game_module_tests PROPERTIES FOLDER "Tests" COMPILE_WARNIN
 sonnet_copy_tracy_client(game_module_tests)
 sonnet_add_engine_shaders(game_module_tests)
 sonnet_copy_slang_runtime(game_module_tests)
-add_test(NAME game_module_tests COMMAND game_module_tests --allow-running-no-tests)
+sonnet_add_catch2_test(game_module_tests game_module_tests)
 set_tests_properties(game_module_tests PROPERTIES LABELS "game" TIMEOUT 300)
