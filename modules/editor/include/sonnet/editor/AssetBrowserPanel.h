@@ -27,8 +27,8 @@
 
 namespace sonnet::editor {
 
-// The drag-and-drop payload of an asset: its 16 identity bytes. The inspector's pickers and the
-// hierarchy accept it.
+// The drag-and-drop payload of an asset: its 16 identity bytes. The inspector's pickers, the
+// hierarchy and the viewport image accept it.
 constexpr const char *AssetDragPayload = "SONNET_ASSET";
 // The payload of a row that has a file but no identity (a folder, a scene, a plain file). Only the browser
 // accepts it, on a folder row or a breadcrumb, where the dragged rows (the whole selection when the grabbed row is
