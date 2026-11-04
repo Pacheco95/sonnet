@@ -593,7 +593,7 @@ TEST_CASE("the basic sample's playground plays its scripts and physics and reset
   const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "basic";
   std::filesystem::remove_all(directory);
   std::filesystem::create_directories(directory.parent_path());
-  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  sonnet::test::copySample(manifest->parent_path(), directory);
   const auto sink = std::make_shared<ProblemSink>();
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
@@ -655,7 +655,7 @@ TEST_CASE("the basic sample's start scene plays its animations and sounds", "[ed
   const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "animated";
   std::filesystem::remove_all(directory);
   std::filesystem::create_directories(directory.parent_path());
-  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  sonnet::test::copySample(manifest->parent_path(), directory);
   const auto sink = std::make_shared<ProblemSink>();
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};

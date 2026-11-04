@@ -929,7 +929,7 @@ TEST_CASE("placing the basic sample's models reads hierarchies, not files", "[.]
     SKIP("the sample was not found above " << platform.basePath().string());
   }
   const std::filesystem::path root = assets::test::freshDirectory("sonnet_assets_benchmark");
-  std::filesystem::copy(sample, root, std::filesystem::copy_options::recursive);
+  sonnet::test::copySample(sample, root);
   const auto device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
   core::JobSystem jobs{{.workerCount = 0}};

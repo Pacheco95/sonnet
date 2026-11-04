@@ -2490,7 +2490,7 @@ TEST_CASE("capture viewport label contrast over the Basic sample", "[.view-label
   const auto manifest = editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
   REQUIRE(manifest.has_value());
   const auto directory = scratch("view-label-basic");
-  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  sonnet::test::copySample(manifest->parent_path(), directory);
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
     REQUIRE(editor.openProject(directory).has_value());
@@ -3214,7 +3214,7 @@ TEST_CASE("capture the orthographic showcase for visual review", "[.orthographic
   const auto manifest = editor::locateSource("apps/samples/showcase/project.json", {}, fixture.platform.basePath());
   REQUIRE(manifest.has_value());
   const auto directory = scratch("orthographic-showcase");
-  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  sonnet::test::copySample(manifest->parent_path(), directory);
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
     REQUIRE(editor.openProject(directory).has_value());
@@ -3424,7 +3424,7 @@ TEST_CASE("capture the viewport axis widget", "[.axis-widget-captures][editor][g
   const auto manifest = editor::locateSource("apps/samples/basic/project.json", {}, fixture.platform.basePath());
   REQUIRE(manifest.has_value());
   const auto directory = scratch("axis-widget-basic");
-  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  sonnet::test::copySample(manifest->parent_path(), directory);
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
     REQUIRE(editor.openProject(directory).has_value());

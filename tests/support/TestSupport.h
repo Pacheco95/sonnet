@@ -36,4 +36,21 @@ inline bool removeScratch(const std::filesystem::path &path) noexcept {
   return false;
 }
 
+// Copies a sample project of the checkout (apps/samples/<name>) to `to`, which must not exist yet,
+// without the machine state beside its files: `.sonnet`, the asset cache and the trash a database
+// writes, and `export`. A suite that opens a sample writes that cache, so it opens a copy of its
+// own: the checkout's sample is then only read, and suites that run at once (ctest --parallel, CI;
+// issue #468) neither write the same cache entries nor copy one another's half-written ones. The
+// copy starts with no cache, as a fresh clone does, whatever an earlier run left in the checkout.
+inline void copySample(const std::filesystem::path &from, const std::filesystem::path &to) {
+  std::filesystem::create_directories(to);
+  for (const std::filesystem::directory_entry &entry : std::filesystem::directory_iterator{from}) {
+    const std::filesystem::path name = entry.path().filename();
+    if (name == ".sonnet" || name == "export") {
+      continue;
+    }
+    std::filesystem::copy(entry.path(), to / name, std::filesystem::copy_options::recursive);
+  }
+}
+
 } // namespace sonnet::test
