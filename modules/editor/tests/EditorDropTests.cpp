@@ -612,16 +612,16 @@ TEST_CASE("capture moving and skinned drop previews for visual review", "[.drop-
     io.AddMousePosEvent(left.x, left.y);
     capture("crate-first-frame.png");
     // Swept to the right and back, a large step each frame; captured halfway on the way back.
-    constexpr int Steps = 8;
-    for (int i = 1; i <= Steps; ++i) {
-      const glm::vec2 at = glm::floor(left + (right - left) * (static_cast<float>(i) / Steps));
+    constexpr int steps = 8;
+    for (int i = 1; i <= steps; ++i) {
+      const glm::vec2 at = glm::floor(left + (right - left) * (static_cast<float>(i) / steps));
       io.AddMousePosEvent(at.x, at.y);
       fixture.frame(editor);
     }
-    for (int i = Steps - 1; i >= Steps / 2; --i) {
-      const glm::vec2 at = glm::floor(left + (right - left) * (static_cast<float>(i) / Steps));
+    for (int i = steps - 1; i >= steps / 2; --i) {
+      const glm::vec2 at = glm::floor(left + (right - left) * (static_cast<float>(i) / steps));
       io.AddMousePosEvent(at.x, at.y);
-      if (i == Steps / 2) {
+      if (i == steps / 2) {
         capture("crate-moving.png");
       } else {
         fixture.frame(editor);
