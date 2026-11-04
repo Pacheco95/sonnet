@@ -1,6 +1,7 @@
 #include <sonnet/editor/EntityCommands.h>
 
 #include <sonnet/core/Log.h>
+#include <sonnet/world/Components.h>
 #include <sonnet/world/Scene.h>
 
 #include <format>
@@ -395,9 +396,11 @@ private:
 
 class InstantiatePrefabCommand final : public ICommand {
 public:
-  InstantiatePrefabCommand(core::Uuid prefab, std::string name, core::Uuid parent, core::Uuid uuid)
+  InstantiatePrefabCommand(core::Uuid prefab, std::string name, core::Uuid parent, core::Uuid uuid,
+                           std::optional<glm::vec3> position)
       : m_prefab(prefab), m_name(std::move(name)), m_parent(parent),
-        m_uuid(uuid.isNil() ? core::Uuid::generate() : uuid), m_description(std::format("instantiate {}", m_name)) {
+        m_uuid(uuid.isNil() ? core::Uuid::generate() : uuid), m_position(position),
+        m_description(std::format("instantiate {}", m_name)) {
   }
 
   void apply(world::World &world) override {
@@ -405,7 +408,13 @@ public:
     if (!prefab || !prefab.has(flecs::Prefab)) {
       return;
     }
-    world.instantiate(prefab, m_name, world.find(m_parent), m_uuid);
+    const flecs::entity instance = world.instantiate(prefab, m_name, world.find(m_parent), m_uuid);
+    // The root owns its Transform, a copy of the prefab root's (ADR-0037), as a gizmo move sets it.
+    if (instance && m_position) {
+      world::Transform transform = instance.get<world::Transform>();
+      transform.position = *m_position;
+      instance.set<world::Transform>(transform);
+    }
   }
   bool reapply(world::World &world) override {
     const flecs::entity prefab = world.find(m_prefab);
@@ -427,6 +436,7 @@ private:
   std::string m_name;
   core::Uuid m_parent;
   core::Uuid m_uuid;
+  std::optional<glm::vec3> m_position;
   std::string m_description;
 };
 
@@ -499,8 +509,8 @@ std::unique_ptr<ICommand> componentCommand(core::Uuid entity, std::string compon
 }
 
 std::unique_ptr<ICommand> instantiatePrefabCommand(core::Uuid prefab, std::string name, core::Uuid parent,
-                                                   core::Uuid uuid) {
-  return std::make_unique<InstantiatePrefabCommand>(prefab, std::move(name), parent, uuid);
+                                                   core::Uuid uuid, std::optional<glm::vec3> position) {
+  return std::make_unique<InstantiatePrefabCommand>(prefab, std::move(name), parent, uuid, position);
 }
 
 std::unique_ptr<ICommand> makeLocalCommand(core::Uuid instance) {

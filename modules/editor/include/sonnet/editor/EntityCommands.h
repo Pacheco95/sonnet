@@ -5,6 +5,7 @@
 #include <sonnet/core/Uuid.h>
 #include <sonnet/world/World.h>
 
+#include <glm/vec3.hpp>
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
@@ -48,8 +49,11 @@ namespace sonnet::editor {
 [[nodiscard]] nlohmann::json revertMember(const world::ComponentInfo &info, const nlohmann::json &value,
                                           const nlohmann::json &source, const nlohmann::json::json_pointer &member);
 // An instance of the prefab with that identity, under `parent`, with `uuid` or a fresh identity.
+// With a `position`, in the parent's space, the instance's Transform stands there, keeping the
+// prefab root's rotation and scale; every apply, redo included, puts it back there.
 [[nodiscard]] std::unique_ptr<ICommand> instantiatePrefabCommand(core::Uuid prefab, std::string name, core::Uuid parent,
-                                                                 core::Uuid uuid = {});
+                                                                 core::Uuid uuid = {},
+                                                                 std::optional<glm::vec3> position = std::nullopt);
 // "Make local" on a prefab instance (ADR-0028): its entities become ordinary ones with the same
 // identities (World::makeLocal); undo brings the instance back.
 [[nodiscard]] std::unique_ptr<ICommand> makeLocalCommand(core::Uuid instance);
