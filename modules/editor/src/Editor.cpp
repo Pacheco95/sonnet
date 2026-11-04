@@ -1467,19 +1467,11 @@ void Editor::render(rhi::ICommandList &commands, const std::optional<rhi::Swapch
     m_renderer.addScenePasses(m_graph, m_view, sceneColor, depth);
     if (m_screenshotRequest ? m_captureGrid : floorGrid()) {
       const bool perspective = m_view.camera.projectionKind == renderer::ProjectionKind::Perspective;
-      const AxisView axis = m_viewportPanel.camera().axisView();
-      if (perspective || axis != AxisView::User) {
-        glm::vec4 plane{0, 1, 0, 0};
-        glm::vec3 axisU{1, 0, 0};
-        if (!perspective) {
-          if (axis == AxisView::Front || axis == AxisView::Back) {
-            plane = {0, 0, 1, 0};
-          } else if (axis == AxisView::Right || axis == AxisView::Left) {
-            plane = {1, 0, 0, 0};
-            axisU = {0, 0, 1};
-          }
-        }
-        m_renderer.addGridPass(m_graph, m_view, sceneColor, depth, plane, axisU);
+      const FlyCamera &camera = m_viewportPanel.camera();
+      if (perspective || camera.axisView() != AxisView::User) {
+        const glm::vec3 normal = camera.gridNormal();
+        const glm::vec3 axisU = normal.x != 0.0f ? glm::vec3{0, 0, 1} : glm::vec3{1, 0, 0};
+        m_renderer.addGridPass(m_graph, m_view, sceneColor, depth, glm::vec4{normal, 0.0f}, axisU);
       }
     }
     // Before the id pass, which leaves the depth undefined.
