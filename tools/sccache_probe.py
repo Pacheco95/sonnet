@@ -73,10 +73,12 @@ if "header" in phases:
 if "flags" in phases:
     cache = (build / "CMakeCache.txt").read_text()
     flags = re.search(r"^CMAKE_CXX_FLAGS:STRING=(.*)$", cache, re.M).group(1)
-    probe = "/DSONNET_SCCACHE_PROBE" if os.name == "nt" else "-DSONNET_SCCACHE_PROBE"
+    # sccache leaves MSVC's preprocessor flags out of the hash (the preprocessed source reflects them),
+    # so an unused define hits there; /GS- changes code generation instead.
+    probe = "/GS-" if os.name == "nt" else "-DSONNET_SCCACHE_PROBE"
     run("cmake", str(build), f"-DCMAKE_CXX_FLAGS={flags} {probe}")
     run("cmake", "--build", str(build), "--target", "clean")
-    phase("extra define in CMAKE_CXX_FLAGS", "all C++ misses", "cmake", "--build", "--preset", preset)
+    phase(f"{probe} added to CMAKE_CXX_FLAGS", "all C++ misses", "cmake", "--build", "--preset", preset)
     run("cmake", str(build), f"-DCMAKE_CXX_FLAGS={flags}")
 
 if "toolchain" in phases:
