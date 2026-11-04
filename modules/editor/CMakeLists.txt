@@ -78,6 +78,7 @@ sonnet_add_module_test(editor
     tests/ShaderTests.cpp
     tests/TypeFilterTests.cpp
     tests/ViewportDropTests.cpp
+    tests/EditorDropTests.cpp
     tests/WindowOriginsTests.cpp
     tests/WindowStateTests.cpp
 )
