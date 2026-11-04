@@ -50,6 +50,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -543,7 +544,9 @@ private:
   void applyPick(std::uint32_t id);
   void markSaved();
   void updateTitle();
-  void loadPrefabs();
+  // Loads the models' prefabs and the project's prefab files. A file that is refused loads from its
+  // document in `previous`, when it has one, so a broken edit keeps the prefab it replaced.
+  void loadPrefabs(const std::map<std::filesystem::path, nlohmann::json> &previous = {});
   // Looks for assets and prefab files changed outside the editor (AssetDatabase::rescan): when the window gains
   // the focus, and when the Assets panel is shown. What it finds is applied at once, and the prefabs are rebuilt
   // as after a re-import when a model or a prefab file came, went or moved.
@@ -630,11 +633,13 @@ private:
   nlohmann::json m_snapshot;
   std::function<void()> m_afterStop; // what the stop dialog was asked on behalf of
   std::size_t m_skippedChanges{0};
-  bool m_stopAnswered{false};    // the dialog stays to report skipped edits after the answer
-  bool m_prefabsStale{false};    // a model was re-imported; the prefabs are rebuilt when not playing
+  bool m_stopAnswered{false}; // the dialog stays to report skipped edits after the answer
+  bool m_prefabsStale{
+      false}; // a model was re-imported or a prefab file changed; the prefabs are rebuilt when not playing
   bool m_rescanRequested{false}; // the window gained the focus; the project is rescanned at the end of the frame
-  std::set<std::filesystem::path>
-      m_brokenPrefabs;           // prefab files the last load refused; a rescan does not count them as new
+  // Prefab files the last load refused with nothing to keep in their place, and their write time
+  // then: a rescan counts them as changed only once they are written again.
+  std::map<std::filesystem::path, std::filesystem::file_time_type> m_brokenPrefabs;
   bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
   bool m_playLeftScene{false};   // a script loaded another scene: the play's edits are not the snapshot's
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;

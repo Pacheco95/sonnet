@@ -257,11 +257,17 @@ and when the Assets panel is shown after being hidden, the editor calls
 whose source is gone are unregistered (logged), and a file moved in the system's file manager
 together with its `.meta` keeps its identity, with its open scene tab and the project's start
 scene following it. A file moved without its sidecar is a new asset with a new identity, as
-when the project is opened. Prefab files are compared with the prefabs loaded: one that came,
-went or moved, like a model that came, went or moved, rebuilds the prefabs the way a model
-re-import does ([Model re-import](#model-re-import)), which keeps the history cut that rebuild
-makes and waits for stop during play. A prefab file that failed to load is not counted as new
-again on every focus. Nothing runs on a timer, so an editor that keeps the focus costs nothing.
+when the project is opened. Prefab files are read when the project is opened and again at
+each of these rescans, if one of them changed: each prefab keeps its file's write time from
+when it was read (`world::PrefabFile`), and a file that came, went, moved or was written
+since, like a model that came, went or moved, rebuilds the prefabs the way a model re-import
+does ([Model re-import](#model-re-import)). Instances take the new values of every member they
+do not override, instances nested in other prefabs included, and the rebuild waits for stop
+during play. A file the editor wrote itself, Save as prefab's, is read as it is written and
+does not rebuild again. An edit that no longer loads (invalid JSON, a missing prefab, a prefab
+containing itself) is logged once and the prefab stays as it was before; a prefab placing it
+keeps its previous version too until the broken file loads again. The next write of the file
+is read again. Nothing runs on a timer, so an editor that keeps the focus costs nothing.
 
 Delete's confirmation lists the selected files and folders and counts references in open
 scenes, materials and prefab instances, including assets inside selected folders. Scenes
@@ -325,7 +331,7 @@ The picture reaches the cache the way the picking id does ([Picker](rendering.md
 2. Without a usable entry the subject is queued for the renderer, at most `Backlog` (8) at a time, so a folder of hundreds of models imports its meshes a few at a time and the uploads that follow stay small; the tiles in view wait for a place. Queueing asks the database for the meshes and materials the subject draws, and rendering waits until no asset is loading, so a picture is made after what it draws has arrived and not with fallbacks; a folder fills in as the project finishes loading.
 3. The picture is uploaded as every other one is, and a job writes it to the cache (`assets::storeThumbnail`), except when the material has edits that are not saved: the file would not match the picture, so it is shown and not kept. A prefab that draws such a material is not kept either.
 
-`AssetDatabase::takeChangedMaterials` names the materials whose look changed since the last call (edited through `setMaterialSource`, saved, or reading a texture that was published or re-imported), and the editor invalidates their thumbnails each frame, which also deletes the cache entry, since an edit made in the editor does not touch the file the entry's age is compared with. Invalidating an asset also drops what is made from the same file or lists it as a dependency: a re-imported model takes its meshes' and the prefabs' that draw them along, and a changed material the prefabs that use it. When the prefabs are built again (a model was re-imported, or a prefab file appeared, went or moved) the resident models' and prefabs' pictures are dropped with their cache entries (`invalidatePrefabs`), since what they were drawn from may be older than what they show; a prefab file that changed on disk is also stale by its age, for a picture that is not resident. A picture rendered for a request that was invalidated since is dropped (each request carries a ticket the answer must return). Dragging a value in the inspector therefore shows the new picture when the drag stops, and a restart shows the saved material. Unregistering the asset removes the entry with the others of its identity.
+`AssetDatabase::takeChangedMaterials` names the materials whose look changed since the last call (edited through `setMaterialSource`, saved, or reading a texture that was published or re-imported), and the editor invalidates their thumbnails each frame, which also deletes the cache entry, since an edit made in the editor does not touch the file the entry's age is compared with. Invalidating an asset also drops what is made from the same file or lists it as a dependency: a re-imported model takes its meshes' and the prefabs' that draw them along, and a changed material the prefabs that use it. When the prefabs are built again (a model was re-imported, or a prefab file appeared, went, moved or changed) the resident models' and prefabs' pictures are dropped with their cache entries (`invalidatePrefabs`), since what they were drawn from may be older than what they show; a prefab file that changed on disk is also stale by its age, for a picture that is not resident. A picture rendered for a request that was invalidated since is dropped (each request carries a ticket the answer must return). Dragging a value in the inspector therefore shows the new picture when the drag stops, and a restart shows the saved material. Unregistering the asset removes the entry with the others of its identity.
 
 Measured on Lavapipe in a debug build with validation, an 800 × 600 window and 300 copies of five sample models (`editor_tests "[.thumbnail-budget]"`), all asked for in one frame, the worst case for the scheduling: the 307 pictures took 225 frames, a mean of 39 ms, a median of 37 ms and a 95th percentile of 50 ms against a mean of 37 ms, a median of 31 ms and a 95th percentile of 61 ms for frames with nothing to make (the slowest, 136 ms against 95 ms, is the first frames after opening); the next run read all of them from the cache in 38 frames at 33 ms, as an idle frame takes. The cost of a frame that renders is the four views, not the number of models.
 

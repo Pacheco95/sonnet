@@ -618,17 +618,27 @@ core::Result<void> savePrefabFile(const World &world, flecs::entity root, const 
   return writeJson(savePrefab(world, root), path);
 }
 
-core::Result<flecs::entity> loadPrefabFile(World &world, const std::filesystem::path &path) {
-  const auto document = readJson(path);
+core::Result<PrefabDocument> readPrefabDocument(const std::filesystem::path &path) {
+  std::error_code error;
+  const std::filesystem::file_time_type time = std::filesystem::last_write_time(path, error);
+  auto document = readJson(path);
   if (!document) {
     return std::unexpected(document.error());
   }
-  auto root = loadPrefabFrom(world, *document, path.string());
+  return PrefabDocument{.source = path.string(), .document = std::move(*document), .file = path, .time = time};
+}
+
+core::Result<flecs::entity> loadPrefabFile(World &world, const std::filesystem::path &path) {
+  const auto document = readPrefabDocument(path);
+  if (!document) {
+    return std::unexpected(document.error());
+  }
+  auto root = loadPrefabFrom(world, document->document, path.string());
   if (!root) {
     return std::unexpected(core::Error{std::format("{}: {}", path.string(), root.error().message),
                                        core::ErrorCategory::Io, root.error().location});
   }
-  root->set<PrefabFile>({path});
+  root->set<PrefabFile>({path, document->time});
   SONNET_LOG_INFO("loaded prefab {} from {}", world.uuidOf(*root).toString(), path.string());
   return root;
 }
@@ -716,7 +726,7 @@ std::vector<core::Error> loadPrefabs(World &world, std::vector<PrefabDocument> d
       errors.push_back(core::Error{std::format("{}: {}", documents[index].source, root.error().message),
                                    core::ErrorCategory::Io, root.error().location});
     } else if (!documents[index].file.empty()) {
-      root->set<PrefabFile>({documents[index].file});
+      root->set<PrefabFile>({documents[index].file, documents[index].time});
     }
   };
   for (std::size_t i = 0; i < documents.size(); ++i) {
@@ -729,12 +739,12 @@ std::vector<core::Error> loadPrefabFiles(World &world, std::span<const std::file
   std::vector<PrefabDocument> documents;
   std::vector<core::Error> errors;
   for (const std::filesystem::path &path : paths) {
-    auto document = readJson(path);
+    auto document = readPrefabDocument(path);
     if (!document) {
       errors.push_back(document.error());
       continue;
     }
-    documents.push_back({path.string(), std::move(*document), path});
+    documents.push_back(std::move(*document));
   }
   std::vector<core::Error> refused = loadPrefabs(world, std::move(documents));
   errors.insert(errors.end(), std::make_move_iterator(refused.begin()), std::make_move_iterator(refused.end()));
