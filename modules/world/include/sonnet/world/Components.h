@@ -34,9 +34,11 @@ struct PrefabSource {
 
 // The file a prefab was loaded from, on its root: what the asset browser lists and shows as the
 // Source. Set by loading a prefab file; a model's prefab and one loaded from memory have none.
-// Instances do not inherit it, and it is not serialized.
+// `time` is the file's last write time when it was read, which the editor compares with the
+// file's to notice an edit. Instances do not inherit it, and it is not serialized.
 struct PrefabFile {
   std::filesystem::path path;
+  std::filesystem::file_time_type time{};
 };
 
 // Position among the siblings, from a counter in World: creation order, so a scene loaded in

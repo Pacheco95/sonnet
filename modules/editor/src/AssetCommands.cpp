@@ -133,7 +133,8 @@ public:
     }
     for (auto prefab : world.prefabs()) {
       if (const auto *file = prefab.try_get<world::PrefabFile>(); file != nullptr && underPath(file->path, from)) {
-        prefab.set<world::PrefabFile>({file->path == from ? to : to / file->path.lexically_relative(from)});
+        // A move keeps the write time, so the next rescan does not take it for an edit.
+        prefab.set<world::PrefabFile>({file->path == from ? to : to / file->path.lexically_relative(from), file->time});
       }
     }
     if (m_moved) {

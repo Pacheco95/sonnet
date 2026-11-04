@@ -1971,24 +1971,65 @@ std::set<std::filesystem::path> loadedPrefabFiles(const world::World &world) {
 }
 } // namespace
 
-void Editor::loadPrefabs() {
+void Editor::loadPrefabs(const std::map<std::filesystem::path, nlohmann::json> &previous) {
   if (!m_project) {
     return;
   }
-  // Every glTF file is a prefab too, under the model's identity, so scenes and prefabs can place
-  // it; models reference nothing, so they come first.
-  for (const assets::AssetInfo *info : m_assets.assets(assets::AssetType::Model)) {
-    if (const assets::Model *model = m_assets.model(info->uuid)) {
-      static_cast<void>(world::loadModelPrefab(m_world, *model, info->uuid, info->name));
+  std::vector<world::PrefabDocument> documents;
+  std::vector<core::Error> errors;
+  std::map<std::filesystem::path, std::filesystem::file_time_type> unread;
+  for (const std::filesystem::path &file : m_project->files(".prefab.json")) {
+    if (auto document = world::readPrefabDocument(file)) {
+      documents.push_back(std::move(*document));
+    } else {
+      errors.push_back(document.error());
+      std::error_code error;
+      unread.emplace(file, std::filesystem::last_write_time(file, error));
     }
   }
-  const std::vector<std::filesystem::path> files = m_project->files(".prefab.json");
-  for (const core::Error &error : world::loadPrefabFiles(m_world, files)) {
+  // Every glTF file is a prefab too, under the model's identity, so scenes and prefabs can place
+  // it; models reference nothing, so they come first.
+  const auto load = [&](std::vector<world::PrefabDocument> files) {
+    for (const assets::AssetInfo *info : m_assets.assets(assets::AssetType::Model)) {
+      if (const assets::Model *model = m_assets.model(info->uuid)) {
+        static_cast<void>(world::loadModelPrefab(m_world, *model, info->uuid, info->name));
+      }
+    }
+    return world::loadPrefabs(m_world, std::move(files));
+  };
+  std::ranges::move(load(documents), std::back_inserter(errors));
+  for (const core::Error &error : errors) {
     SONNET_LOG_ERROR("{}", error.toString());
   }
-  const std::set<std::filesystem::path> loaded = loadedPrefabFiles(m_world);
-  m_brokenPrefabs.clear();
-  std::ranges::set_difference(files, loaded, std::inserter(m_brokenPrefabs, m_brokenPrefabs.end()));
+  // A file refused that loaded before is loaded again as it was: the prefabs are all made again,
+  // since the ones placing it were refused for want of it. Its time stays the file's, so the
+  // rescan waits for the next edit.
+  const auto refused = [&] {
+    std::map<std::filesystem::path, std::filesystem::file_time_type> files = unread;
+    const std::set<std::filesystem::path> loaded = loadedPrefabFiles(m_world);
+    for (const world::PrefabDocument &document : documents) {
+      if (!loaded.contains(document.file)) {
+        files.emplace(document.file, document.time);
+      }
+    }
+    return files;
+  };
+  m_brokenPrefabs = refused();
+  bool kept = false;
+  for (const auto &[file, time] : m_brokenPrefabs) {
+    if (const auto it = previous.find(file); it != previous.end()) {
+      std::erase_if(documents, [&](const world::PrefabDocument &document) { return document.file == file; });
+      documents.push_back({.source = file.string(), .document = it->second, .file = file, .time = time});
+      SONNET_LOG_WARN("{}: keeping the prefab as it was before the file changed", file.string());
+      kept = true;
+    }
+  }
+  if (kept) {
+    m_world.clearPrefabs();
+    // The reasons were logged above; a refusal left now is one of them.
+    static_cast<void>(load(std::move(documents)));
+    m_brokenPrefabs = refused();
+  }
 }
 
 void Editor::rescanProject() {
@@ -2002,15 +2043,22 @@ void Editor::rescanProject() {
   const auto isModel = [](const assets::RescanChange &change) { return change.type == assets::AssetType::Model; };
   bool stale = std::ranges::any_of(changes.added, isModel) || std::ranges::any_of(changes.removed, isModel) ||
                std::ranges::any_of(changes.moved, isModel);
-  // A prefab file is not an asset of the database; the files on disk are compared with the prefabs loaded.
-  // Moving a file keeps the identity in it, so it counts as one that went and one that came.
+  // A prefab file is not an asset of the database; the files on disk are compared with the ones
+  // read, loaded or refused. One added, gone or written since it was read makes the prefabs stale;
+  // a moved file counts as one that went and one that came, since the identity is in it.
   const auto disk = m_project->files(".prefab.json");
-  const std::set<std::filesystem::path> loaded = loadedPrefabFiles(m_world);
-  std::erase_if(m_brokenPrefabs, [&](const auto &file) { return !std::ranges::contains(disk, file); });
-  stale = stale ||
-          std::ranges::any_of(
-              disk, [&](const auto &file) { return !loaded.contains(file) && !m_brokenPrefabs.contains(file); }) ||
-          std::ranges::any_of(loaded, [&](const auto &file) { return !std::ranges::contains(disk, file); });
+  std::erase_if(m_brokenPrefabs, [&](const auto &entry) { return !std::ranges::contains(disk, entry.first); });
+  std::map<std::filesystem::path, std::filesystem::file_time_type> read = m_brokenPrefabs;
+  for (const flecs::entity prefab : m_world.prefabs()) {
+    if (const auto *file = prefab.try_get<world::PrefabFile>()) {
+      read.emplace(file->path, file->time);
+    }
+  }
+  stale = stale || read.size() != disk.size() || std::ranges::any_of(disk, [&](const std::filesystem::path &file) {
+            const auto it = read.find(file);
+            std::error_code error;
+            return it == read.end() || std::filesystem::last_write_time(file, error) != it->second;
+          });
   m_prefabsStale = m_prefabsStale || stale;
 }
 
@@ -2029,13 +2077,20 @@ void Editor::refreshModelPrefabs() {
   // overrides by identity (ADR-0030). Every prefab is rebuilt, not only the models', because a
   // prefab file that nests a model holds a copy of the old tree.
   const nlohmann::json scene = world::saveScene(m_world);
+  // What each prefab file holds now, to keep in place of a file edited into one that does not load.
+  std::map<std::filesystem::path, nlohmann::json> previous;
+  for (const flecs::entity prefab : m_world.prefabs()) {
+    if (const auto *file = prefab.try_get<world::PrefabFile>()) {
+      previous.emplace(file->path, world::savePrefab(m_world, prefab));
+    }
+  }
   m_world.clearScene();
   m_world.clearPrefabs();
-  loadPrefabs();
+  loadPrefabs(previous);
   m_thumbnails.invalidatePrefabs();
   m_cutHistory = true;
   if (const auto restored = world::loadScene(m_world, scene); !restored) {
-    SONNET_LOG_ERROR("refreshing the scene after a re-import: {}", restored.error().toString());
+    SONNET_LOG_ERROR("refreshing the scene after a prefab change: {}", restored.error().toString());
   }
   m_selection.prune(m_world);
 }

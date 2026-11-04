@@ -53,12 +53,16 @@ constexpr int SceneVersion = 9;
 [[nodiscard]] core::Result<flecs::entity> loadPrefabFile(World &world, const std::filesystem::path &path);
 
 // A prefab document to load with others, and where it came from, for messages. `file`, when not
-// empty, is the file it was read from and becomes the root's PrefabFile.
+// empty, is the file it was read from and becomes the root's PrefabFile, with `time`.
 struct PrefabDocument {
   std::string source;
   nlohmann::json document;
   std::filesystem::path file;
+  std::filesystem::file_time_type time{};
 };
+// Reads a prefab file as a document for loadPrefabs, with the file's write time taken before the
+// read, so an edit made while it is read still counts as newer.
+[[nodiscard]] core::Result<PrefabDocument> readPrefabDocument(const std::filesystem::path &path);
 // Loads prefab documents in dependency order, so a prefab may place instances of the others
 // whatever the order they come in. Prefabs referenced from outside the set, the models', must be
 // loaded first. A document that fails to load, or that contains itself through others, is

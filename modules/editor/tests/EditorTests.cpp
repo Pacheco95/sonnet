@@ -890,6 +890,145 @@ TEST_CASE("regaining the focus picks up assets and prefab files changed outside 
   CHECK(editor.commands().size() == before);
 }
 
+namespace {
+
+// A prefab file with one root holding a point light of that intensity and range, and, when
+// `nested` is not nil, a child instance of that prefab.
+void writeLampPrefab(const std::filesystem::path &file, core::Uuid uuid, float intensity, float range,
+                     core::Uuid nested = {}) {
+  nlohmann::json entities = nlohmann::json::array();
+  entities.push_back({{"uuid", uuid.toString()},
+                      {"name", "Lamp"},
+                      {"components", {{"PointLight", {{"intensity", intensity}, {"range", range}}}}}});
+  if (!nested.isNil()) {
+    entities.push_back({{"uuid", core::Uuid::derive(uuid, "inner").toString()},
+                        {"name", "Inner"},
+                        {"parent", uuid.toString()},
+                        {"prefab", nested.toString()},
+                        {"components", nlohmann::json::object()}});
+  }
+  REQUIRE(
+      core::writeFile(file, world::sceneText({{"version", world::SceneVersion}, {"entities", entities}})).has_value());
+  // A write time apart from the last one, which a coarse file system clock could repeat.
+  static auto next = std::filesystem::file_time_type::clock::now();
+  next += std::chrono::seconds{2};
+  std::filesystem::last_write_time(file, next);
+}
+
+} // namespace
+
+TEST_CASE("regaining the focus picks up a prefab file edited outside the editor", "[editor][gpu][prefab][rescan]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("prefab-content-on-focus");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const core::Uuid lamp = core::Uuid::generate();
+  const core::Uuid holder = core::Uuid::generate();
+  const std::filesystem::path lampFile = directory / "prefabs" / "lamp.prefab.json";
+  const std::filesystem::path holderFile = directory / "prefabs" / "holder.prefab.json";
+  std::filesystem::create_directories(lampFile.parent_path());
+  writeLampPrefab(lampFile, lamp, 5.0f, 10.0f);
+  writeLampPrefab(holderFile, holder, 1.0f, 1.0f, lamp);
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid single = core::Uuid::generate();
+  const core::Uuid outer = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(lamp, "Lamp", {}, single), world);
+  editor.commands().push(editor::instantiatePrefabCommand(holder, "Holder", {}, outer), world);
+  // The instance overrides the range and leaves the intensity to the prefab.
+  const auto pointLight = world.findComponent("PointLight")->id;
+  const nlohmann::json before = world.componentToJson(world.find(single), pointLight);
+  nlohmann::json after = before;
+  after["range"] = 20.0f;
+  editor.commands().push(
+      editor::componentCommand(single, "PointLight", std::optional{before}, std::optional{after}, "Range"), world);
+  REQUIRE(editor.saveScene().has_value());
+  fixture.frame(editor);
+  const auto light = [&](flecs::entity entity) { return entity.get<world::PointLight>(); };
+  const auto inner = [&] { return world.findByPath(world.find(outer), "Inner"); };
+  REQUIRE(light(inner()).intensity == 5.0f);
+
+  // An edit of a prefab other prefabs place: nothing changes until the window is focused, then the
+  // instance takes the new intensity and keeps its range, and the one nested in the holder follows.
+  writeLampPrefab(lampFile, lamp, 7.0f, 30.0f);
+  fixture.frame(editor);
+  CHECK(light(world.find(single)).intensity == 5.0f);
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  CHECK(light(world.find(single)).intensity == 7.0f);
+  CHECK(light(world.find(single)).range == 20.0f);
+  CHECK(light(inner()).intensity == 7.0f);
+  CHECK(light(inner()).range == 30.0f);
+  // The rebuild leaves the scene as saved.
+  CHECK(!editor.isDirty());
+
+  // Focusing again with no edit rebuilds nothing: the instance is the same entity.
+  const flecs::entity_t built = world.find(single).id();
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  CHECK(world.find(single).id() == built);
+
+  // An edit that does not load is reported, and the prefab stays as it was; focusing again does
+  // not try it again. Fixing the file applies it.
+  REQUIRE(core::writeFile(lampFile, std::string_view{"{ not json"}).has_value());
+  std::filesystem::last_write_time(lampFile, std::filesystem::last_write_time(lampFile) + std::chrono::seconds{60});
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  REQUIRE(world.isInstance(world.find(single)));
+  CHECK(light(world.find(single)).intensity == 7.0f);
+  CHECK(light(world.find(single)).range == 20.0f);
+  CHECK(light(inner()).intensity == 7.0f);
+  const flecs::entity_t kept = world.find(single).id();
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  CHECK(world.find(single).id() == kept);
+  writeLampPrefab(lampFile, lamp, 9.0f, 30.0f);
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  CHECK(light(world.find(single)).intensity == 9.0f);
+  CHECK(light(inner()).intensity == 9.0f);
+
+  // A prefab containing itself through another is refused the same way.
+  writeLampPrefab(lampFile, lamp, 3.0f, 30.0f, holder);
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  CHECK(light(world.find(single)).intensity == 9.0f);
+  CHECK(light(inner()).intensity == 9.0f);
+
+  // An edit during play waits for stop.
+  writeLampPrefab(lampFile, lamp, 4.0f, 30.0f);
+  editor.play();
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  CHECK(light(world.find(single)).intensity == 9.0f);
+  editor.stop();
+  fixture.frame(editor);
+  CHECK(light(world.find(single)).intensity == 4.0f);
+  CHECK(light(world.find(single)).range == 20.0f);
+}
+
+TEST_CASE("save as prefab does not make the next focus rebuild the prefabs", "[editor][gpu][prefab][rescan]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("save-as-prefab-no-rebuild");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  world::World &world = editor.world();
+  core::Uuid box;
+  for (const flecs::entity root : world.roots()) {
+    if (root.get<world::Name>().value == "Box") {
+      box = world.uuidOf(root);
+    }
+  }
+  REQUIRE(!box.isNil());
+  REQUIRE(editor.saveAsPrefab(box).has_value());
+  fixture.frame(editor);
+  // A rebuild would make the instance again, as a new entity.
+  const flecs::entity_t instance = world.find(box).id();
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  CHECK(world.find(box).id() == instance);
+}
+
 TEST_CASE("scenes open in tabs that keep their own edits, undo history and selection", "[editor][gpu]") {
   Fixture fixture;
   const std::filesystem::path directory = scratch("tabs");
