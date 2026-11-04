@@ -74,7 +74,7 @@ if(TARGET rhi_tests)
     tests/shaders/texture.slang tests/shaders/fill.slang tests/shaders/indirect.slang)
   # ADR-0019: the suite again with every device treated as Vulkan 1.3, so the four 1.4 features
   # come as extensions and the validation layer fails any 1.4 command used without its extension.
-  add_test(NAME rhi_tests_vulkan_1_3 COMMAND rhi_tests --allow-running-no-tests)
+  sonnet_add_catch2_test(rhi_tests_vulkan_1_3 rhi_tests)
   set_tests_properties(rhi_tests_vulkan_1_3 PROPERTIES LABELS rhi TIMEOUT 300
                        ENVIRONMENT SONNET_TEST_API_VERSION_CAP=1.3)
 endif()

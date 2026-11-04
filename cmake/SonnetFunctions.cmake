@@ -44,6 +44,21 @@ function(sonnet_copy_tracy_client TARGET)
     COMMAND_EXPAND_LISTS VERBATIM)
 endfunction()
 
+# sonnet_add_catch2_test(<test name> <target> [<argument>...])
+#
+# Registers the Catch2 executable <target> with CTest as <test name>. Next to the console output,
+# each run writes a JUnit report with every case's duration to test-results/catch2/<test name>.xml
+# in the build tree, which CI uploads (docs/build.md, "Test timings"). The report is named after the
+# CTest test, not the binary, so two registrations of one binary (rhi_tests_vulkan_1_3) keep their
+# own. No test spec is passed, so Catch2 still runs every case not hidden with [.].
+function(sonnet_add_catch2_test NAME TARGET)
+  set(dir "${CMAKE_BINARY_DIR}/test-results/catch2")
+  file(MAKE_DIRECTORY "${dir}")
+  # A binary whose every case skipped (rhi_tests without a Vulkan device) is a pass, not Catch2's exit code 4.
+  add_test(NAME ${NAME} COMMAND ${TARGET} --allow-running-no-tests
+           --reporter console --reporter "junit::out=${dir}/${NAME}.xml" ${ARGN})
+endfunction()
+
 # sonnet_add_module_test(<name> SOURCES ... DEPENDS ... [TIMEOUT <seconds>])
 #
 # Creates <name>_tests linked against sonnet::<name> and Catch2, registers it with CTest under the
@@ -70,8 +85,7 @@ function(sonnet_add_module_test NAME)
   set_target_properties(${target} PROPERTIES FOLDER "Tests" COMPILE_WARNING_AS_ERROR ON)
   sonnet_copy_tracy_client(${target})
 
-  # A binary whose every case skipped (rhi_tests without a Vulkan device) is a pass, not Catch2's exit code 4.
-  add_test(NAME ${target} COMMAND ${target} --allow-running-no-tests)
+  sonnet_add_catch2_test(${target} ${target})
   # A suite takes seconds to minutes; a hang (a blocked dialog on Windows, a driver wait) must fail with output.
   # The property wins over `ctest --timeout`, which is only the default for a test without one.
   set_tests_properties(${target} PROPERTIES LABELS "${NAME}" TIMEOUT ${ARG_TIMEOUT})

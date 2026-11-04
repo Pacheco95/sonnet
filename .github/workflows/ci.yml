@@ -346,8 +346,36 @@ jobs:
             echo "::warning::$KEY is not in the cache list; keeping the older entries"
           fi
 
+      # Each Catch2 suite also writes a JUnit report of its cases' durations to build/<preset>/test-results/catch2
+      # (cmake/SonnetFunctions.cmake), and CTest one of each suite's result, timeouts included, beside it.
       - name: Test
-        run: ctest --preset ${{ matrix.preset }} --timeout 300
+        id: test
+        run: ctest --preset ${{ matrix.preset }} --timeout 300 --output-junit test-results/ctest.xml
+
+      # Test timings (docs/build.md): after a failed or timed-out Test step too, and neither step changes the
+      # job's result. The summary goes to the run's summary page and into the artifact with the reports and
+      # CTest's full log.
+      - name: Summarise the test timings
+        if: always() && steps.test.outcome != 'skipped'
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 tools/test_timings.py "build/${{ matrix.preset }}/test-results" \
+            --context "job=${{ matrix.name }}" --context "preset=${{ matrix.preset }}" \
+            --context "revision=${{ github.event.pull_request.head.sha || github.sha }}" \
+            --context "run=${{ github.run_id }}-${{ github.run_attempt }}" --context "runner=${{ env.RUNNER_IMAGE }}" \
+            | tee "build/${{ matrix.preset }}/test-results/summary.md" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the test results
+        if: always() && steps.test.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.preset }}-${{ matrix.cc || 'default' }}
+          path: |
+            build/${{ matrix.preset }}/test-results
+            build/${{ matrix.preset }}/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
 
       - name: clang-tidy on changed files
         if: matrix.name == 'Linux Clang' && github.event_name == 'pull_request'
