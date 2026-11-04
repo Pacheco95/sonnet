@@ -206,6 +206,8 @@ Limits:
 - The ray tests every triangle of each mesh whose bounds it crosses.
 - The hierarchy accepts the same kinds as before: models, prefabs and environments, and scripts on a row.
 
+Captures of a snapped crate prefab and of a material held over the sphere, taken mid-drag on Lavapipe, are in [the viewport asset drop report](reports/viewport-asset-drop.md).
+
 ## Inspector
 
 The inspector walks the selected entity's registered components ([world.md](world.md#components)) and generates a widget per reflected member: drag fields for floats and integers, degrees for members with the radians unit and for the rotation quaternion, colour pickers for `vec3` and `vec4` members named `color`, a combo for enums, a checkbox for booleans, nested structs recursively. A component header has a close button that removes it, except `Transform`; "Add component" lists what the entity lacks. A prefab instance shows the component as inherited until a widget touches it, which gives the instance its own copy ([world.md](world.md#prefabs)).
