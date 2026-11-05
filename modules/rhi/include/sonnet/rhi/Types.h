@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
 namespace sonnet::rhi {
@@ -548,6 +549,9 @@ struct ComputePipelineDesc {
   std::string entry{"computeMain"};
   std::string debugName;
 };
+
+// Either kind, for IDevice::createPipelines.
+using PipelineDesc = std::variant<GraphicsPipelineDesc, ComputePipelineDesc>;
 
 // A slice of the frame's host-visible linear allocator, valid until the frame slot is reused.
 struct TransientAllocation {

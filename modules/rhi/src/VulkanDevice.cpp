@@ -7,6 +7,7 @@
 
 #include <sonnet/core/Assert.h>
 #include <sonnet/core/Error.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 
@@ -17,8 +18,11 @@
 #include <cstring>
 #include <format>
 #include <limits>
+#include <memory>
+#include <span>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace sonnet::rhi {
@@ -950,94 +954,190 @@ void VulkanDevice::destroyShader(ShaderHandle handle) {
   shader.reset();
 }
 
+namespace {
+
+// The front face is dynamic so a mirrored draw can flip it without a pipeline of its own; the
+// rasterization state's value is ignored and bindPipeline sets counter-clockwise.
+constexpr std::array PipelineDynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor,
+                                           vk::DynamicState::eFrontFace};
+
+// One pipeline's create info and everything it points at, on the heap so the pointers stay put,
+// and what the driver returned for it.
+struct PipelineBuild {
+  std::string debugName;
+  std::string shaderName;
+  bool compute{false};
+  std::vector<vk::PipelineShaderStageCreateInfo> stages;
+  // No vertex input: vertex data is pulled from buffers by index (docs/rendering.md).
+  vk::PipelineVertexInputStateCreateInfo vertexInput{};
+  vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
+  vk::PipelineViewportStateCreateInfo viewport{{}, 1, nullptr, 1, nullptr};
+  vk::PipelineRasterizationStateCreateInfo rasterization{};
+  vk::PipelineMultisampleStateCreateInfo multisample{{}, vk::SampleCountFlagBits::e1};
+  vk::PipelineDepthStencilStateCreateInfo depthStencil{};
+  std::vector<vk::PipelineColorBlendAttachmentState> blendAttachments;
+  vk::PipelineColorBlendStateCreateInfo colorBlend{};
+  vk::PipelineDynamicStateCreateInfo dynamicState{{}, PipelineDynamicStates};
+  std::vector<vk::Format> colorFormats;
+  vk::PipelineRenderingCreateInfo rendering{};
+  vk::GraphicsPipelineCreateInfo graphicsInfo{};
+  vk::ComputePipelineCreateInfo computeInfo{};
+  VkPipeline pipeline{VK_NULL_HANDLE};
+  VkResult result{VK_NOT_READY};
+};
+
+} // namespace
+
 PipelineHandle VulkanDevice::createGraphicsPipeline(const GraphicsPipelineDesc &desc) {
   assertOwnerThread("createGraphicsPipeline");
-  const VulkanShader *shader = m_shaders.find(desc.shader);
-  if (shader == nullptr) {
-    throw core::Exception{std::format("pipeline \"{}\": stale shader handle", desc.debugName),
-                          core::ErrorCategory::Graphics};
-  }
-  std::vector<vk::PipelineShaderStageCreateInfo> stages;
-  stages.emplace_back(vk::PipelineShaderStageCreateFlags{}, vk::ShaderStageFlagBits::eVertex, *shader->module,
-                      desc.vertexEntry.c_str());
-  if (!desc.fragmentEntry.empty()) {
-    stages.emplace_back(vk::PipelineShaderStageCreateFlags{}, vk::ShaderStageFlagBits::eFragment, *shader->module,
-                        desc.fragmentEntry.c_str());
-  }
-  // No vertex input: vertex data is pulled from buffers by index (docs/rendering.md).
-  const vk::PipelineVertexInputStateCreateInfo vertexInput{};
-  const vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
-      {},
-      desc.topology == Topology::LineList ? vk::PrimitiveTopology::eLineList : vk::PrimitiveTopology::eTriangleList,
-      VK_FALSE};
-  const vk::PipelineViewportStateCreateInfo viewport{{}, 1, nullptr, 1, nullptr};
-  vk::CullModeFlags cull = vk::CullModeFlagBits::eNone;
-  switch (desc.cullMode) {
-  case CullMode::None:
-    break;
-  case CullMode::Back:
-    cull = vk::CullModeFlagBits::eBack;
-    break;
-  case CullMode::Front:
-    cull = vk::CullModeFlagBits::eFront;
-    break;
-  }
-  const vk::PipelineRasterizationStateCreateInfo rasterization{
-      {},   VK_FALSE, VK_FALSE, vk::PolygonMode::eFill, cull, vk::FrontFace::eCounterClockwise, VK_FALSE, 0.0f,
-      0.0f, 0.0f,     1.0f};
-  const vk::PipelineMultisampleStateCreateInfo multisample{{}, vk::SampleCountFlagBits::e1};
-  const vk::PipelineDepthStencilStateCreateInfo depthStencil{
-      {}, desc.depth.test ? VK_TRUE : VK_FALSE, desc.depth.write ? VK_TRUE : VK_FALSE, toVk(desc.depth.compare)};
-  const std::vector<vk::PipelineColorBlendAttachmentState> blendAttachments(desc.colorFormats.size(), toVk(desc.blend));
-  const vk::PipelineColorBlendStateCreateInfo colorBlend{{}, VK_FALSE, vk::LogicOp::eCopy, blendAttachments};
-  // The front face is dynamic so a mirrored draw can flip it without a pipeline of its own; the
-  // rasterization state's value is ignored and bindPipeline sets counter-clockwise.
-  const std::array dynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor, vk::DynamicState::eFrontFace};
-  const vk::PipelineDynamicStateCreateInfo dynamicState{{}, dynamicStates};
-  std::vector<vk::Format> colorFormats;
-  colorFormats.reserve(desc.colorFormats.size());
-  for (const Format format : desc.colorFormats) {
-    colorFormats.push_back(toVk(format));
-  }
-  const vk::PipelineRenderingCreateInfo rendering{0, colorFormats, toVk(desc.depthFormat)};
-
-  const vk::GraphicsPipelineCreateInfo info{{},
-                                            stages,
-                                            &vertexInput,
-                                            &inputAssembly,
-                                            nullptr,
-                                            &viewport,
-                                            &rasterization,
-                                            &multisample,
-                                            &depthStencil,
-                                            &colorBlend,
-                                            &dynamicState,
-                                            *m_pipelineLayout,
-                                            nullptr,
-                                            0,
-                                            nullptr,
-                                            0,
-                                            &rendering};
-  vk::raii::Pipeline pipeline{m_device, nullptr, info};
-  setDebugName(vk::ObjectType::ePipeline, objectHandle(*pipeline), desc.debugName);
-  SONNET_LOG_DEBUG("pipeline \"{}\" from shader \"{}\"", desc.debugName, shader->debugName);
-  return m_pipelines.emplace(VulkanPipeline{desc.debugName, std::move(pipeline), false});
+  const std::array<PipelineDesc, 1> descs{desc};
+  return createPipelines(descs, nullptr).front();
 }
 
 PipelineHandle VulkanDevice::createComputePipeline(const ComputePipelineDesc &desc) {
   assertOwnerThread("createComputePipeline");
-  const VulkanShader *shader = m_shaders.find(desc.shader);
-  if (shader == nullptr) {
-    throw core::Exception{std::format("compute pipeline \"{}\": stale shader handle", desc.debugName),
-                          core::ErrorCategory::Graphics};
+  const std::array<PipelineDesc, 1> descs{desc};
+  return createPipelines(descs, nullptr).front();
+}
+
+std::vector<PipelineHandle> VulkanDevice::createPipelines(std::span<const PipelineDesc> descs, core::JobSystem *jobs) {
+  assertOwnerThread("createPipelines");
+  std::vector<std::unique_ptr<PipelineBuild>> builds;
+  builds.reserve(descs.size());
+  for (const PipelineDesc &desc : descs) {
+    auto build = std::make_unique<PipelineBuild>();
+    if (const auto *graphics = std::get_if<GraphicsPipelineDesc>(&desc)) {
+      const VulkanShader *shader = m_shaders.find(graphics->shader);
+      if (shader == nullptr) {
+        throw core::Exception{std::format("pipeline \"{}\": stale shader handle", graphics->debugName),
+                              core::ErrorCategory::Graphics};
+      }
+      PipelineBuild &b = *build;
+      b.debugName = graphics->debugName;
+      b.shaderName = shader->debugName;
+      b.stages.emplace_back(vk::PipelineShaderStageCreateFlags{}, vk::ShaderStageFlagBits::eVertex, *shader->module,
+                            graphics->vertexEntry.c_str());
+      if (!graphics->fragmentEntry.empty()) {
+        b.stages.emplace_back(vk::PipelineShaderStageCreateFlags{}, vk::ShaderStageFlagBits::eFragment, *shader->module,
+                              graphics->fragmentEntry.c_str());
+      }
+      b.inputAssembly = vk::PipelineInputAssemblyStateCreateInfo{{},
+                                                                 graphics->topology == Topology::LineList
+                                                                     ? vk::PrimitiveTopology::eLineList
+                                                                     : vk::PrimitiveTopology::eTriangleList,
+                                                                 VK_FALSE};
+      vk::CullModeFlags cull = vk::CullModeFlagBits::eNone;
+      switch (graphics->cullMode) {
+      case CullMode::None:
+        break;
+      case CullMode::Back:
+        cull = vk::CullModeFlagBits::eBack;
+        break;
+      case CullMode::Front:
+        cull = vk::CullModeFlagBits::eFront;
+        break;
+      }
+      b.rasterization = vk::PipelineRasterizationStateCreateInfo{
+          {},   VK_FALSE, VK_FALSE, vk::PolygonMode::eFill, cull, vk::FrontFace::eCounterClockwise, VK_FALSE, 0.0f,
+          0.0f, 0.0f,     1.0f};
+      b.depthStencil = vk::PipelineDepthStencilStateCreateInfo{{},
+                                                               graphics->depth.test ? VK_TRUE : VK_FALSE,
+                                                               graphics->depth.write ? VK_TRUE : VK_FALSE,
+                                                               toVk(graphics->depth.compare)};
+      b.blendAttachments.assign(graphics->colorFormats.size(), toVk(graphics->blend));
+      b.colorBlend = vk::PipelineColorBlendStateCreateInfo{{}, VK_FALSE, vk::LogicOp::eCopy, b.blendAttachments};
+      b.colorFormats.reserve(graphics->colorFormats.size());
+      for (const Format format : graphics->colorFormats) {
+        b.colorFormats.push_back(toVk(format));
+      }
+      b.rendering = vk::PipelineRenderingCreateInfo{0, b.colorFormats, toVk(graphics->depthFormat)};
+      b.graphicsInfo = vk::GraphicsPipelineCreateInfo{{},
+                                                      b.stages,
+                                                      &b.vertexInput,
+                                                      &b.inputAssembly,
+                                                      nullptr,
+                                                      &b.viewport,
+                                                      &b.rasterization,
+                                                      &b.multisample,
+                                                      &b.depthStencil,
+                                                      &b.colorBlend,
+                                                      &b.dynamicState,
+                                                      *m_pipelineLayout,
+                                                      nullptr,
+                                                      0,
+                                                      nullptr,
+                                                      0,
+                                                      &b.rendering};
+    } else {
+      const auto &compute = std::get<ComputePipelineDesc>(desc);
+      const VulkanShader *shader = m_shaders.find(compute.shader);
+      if (shader == nullptr) {
+        throw core::Exception{std::format("compute pipeline \"{}\": stale shader handle", compute.debugName),
+                              core::ErrorCategory::Graphics};
+      }
+      PipelineBuild &b = *build;
+      b.debugName = compute.debugName;
+      b.shaderName = shader->debugName;
+      b.compute = true;
+      b.stages.emplace_back(vk::PipelineShaderStageCreateFlags{}, vk::ShaderStageFlagBits::eCompute, *shader->module,
+                            compute.entry.c_str());
+      b.computeInfo = vk::ComputePipelineCreateInfo{{}, b.stages.front(), *m_pipelineLayout};
+    }
+    builds.push_back(std::move(build));
   }
-  const vk::PipelineShaderStageCreateInfo stage{
-      {}, vk::ShaderStageFlagBits::eCompute, *shader->module, desc.entry.c_str()};
-  const vk::ComputePipelineCreateInfo info{{}, stage, *m_pipelineLayout};
-  vk::raii::Pipeline pipeline{m_device, nullptr, info};
-  setDebugName(vk::ObjectType::ePipeline, objectHandle(*pipeline), desc.debugName);
-  SONNET_LOG_DEBUG("compute pipeline \"{}\" from shader \"{}\"", desc.debugName, shader->debugName);
-  return m_pipelines.emplace(VulkanPipeline{desc.debugName, std::move(pipeline), true});
+
+  // Only the driver is called off this thread: each job builds one pipeline into its own entry and
+  // touches nothing of the device's, and the wait below joins them all before anything is read.
+  const auto &dispatcher = *m_device.getDispatcher();
+  const VkDevice device = *m_device;
+  const auto buildOne = [&dispatcher, device](PipelineBuild &b) {
+    SONNET_ZONE_NAMED("create pipeline");
+    b.result = b.compute
+                   ? dispatcher.vkCreateComputePipelines(
+                         device, VK_NULL_HANDLE, 1,
+                         reinterpret_cast<const VkComputePipelineCreateInfo *>(&b.computeInfo), nullptr, &b.pipeline)
+                   : dispatcher.vkCreateGraphicsPipelines(
+                         device, VK_NULL_HANDLE, 1,
+                         reinterpret_cast<const VkGraphicsPipelineCreateInfo *>(&b.graphicsInfo), nullptr, &b.pipeline);
+  };
+  if (jobs != nullptr && builds.size() > 1) {
+    std::vector<core::JobHandle> handles;
+    handles.reserve(builds.size());
+    for (const std::unique_ptr<PipelineBuild> &build : builds) {
+      handles.push_back(jobs->schedule("create pipeline", [&buildOne, &build] { buildOne(*build); }));
+    }
+    jobs->wait(handles);
+  } else {
+    for (const std::unique_ptr<PipelineBuild> &build : builds) {
+      buildOne(*build);
+    }
+  }
+
+  // Every pipeline the driver made is owned before a failure is reported, so a rejected one
+  // destroys the rest on the way out.
+  std::vector<vk::raii::Pipeline> pipelines;
+  pipelines.reserve(builds.size());
+  for (const std::unique_ptr<PipelineBuild> &build : builds) {
+    pipelines.emplace_back(m_device, build->pipeline);
+  }
+  for (const std::unique_ptr<PipelineBuild> &build : builds) {
+    if (build->result != VK_SUCCESS) {
+      throw core::Exception{std::format("{}pipeline \"{}\" from shader \"{}\": {}", build->compute ? "compute " : "",
+                                        build->debugName, build->shaderName,
+                                        vk::to_string(static_cast<vk::Result>(build->result))),
+                            core::ErrorCategory::Graphics};
+    }
+  }
+  std::vector<PipelineHandle> handles;
+  handles.reserve(builds.size());
+  for (std::size_t i = 0; i < builds.size(); ++i) {
+    const PipelineBuild &build = *builds[i];
+    setDebugName(vk::ObjectType::ePipeline, objectHandle(*pipelines[i]), build.debugName);
+    SONNET_LOG_DEBUG("{}pipeline \"{}\" from shader \"{}\"", build.compute ? "compute " : "", build.debugName,
+                     build.shaderName);
+    handles.push_back(m_pipelines.emplace(VulkanPipeline{build.debugName, std::move(pipelines[i]), build.compute}));
+  }
+  return handles;
 }
 
 void VulkanDevice::destroyPipeline(PipelineHandle handle) {

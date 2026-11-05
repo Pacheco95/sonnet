@@ -9,6 +9,8 @@
 #include <format>
 #include <optional>
 #include <string_view>
+#include <type_traits>
+#include <variant>
 
 namespace sonnet::rhi {
 
@@ -455,6 +457,24 @@ PipelineHandle NullDevice::createComputePipeline(const ComputePipelineDesc &desc
   assertOwnerThread("createComputePipeline");
   SONNET_ASSERT(m_shaders.contains(desc.shader), "compute pipeline \"{}\": stale shader handle", desc.debugName);
   return m_pipelines.emplace(Pipeline{desc.debugName, true});
+}
+
+std::vector<PipelineHandle> NullDevice::createPipelines(std::span<const PipelineDesc> descs, core::JobSystem *) {
+  assertOwnerThread("createPipelines");
+  std::vector<PipelineHandle> handles;
+  handles.reserve(descs.size());
+  for (const PipelineDesc &desc : descs) {
+    handles.push_back(std::visit(
+        [this](const auto &kind) {
+          if constexpr (std::is_same_v<std::decay_t<decltype(kind)>, GraphicsPipelineDesc>) {
+            return createGraphicsPipeline(kind);
+          } else {
+            return createComputePipeline(kind);
+          }
+        },
+        desc));
+  }
+  return handles;
 }
 
 void NullDevice::destroyPipeline(PipelineHandle handle) {
