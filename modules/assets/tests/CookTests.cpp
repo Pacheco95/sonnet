@@ -37,6 +37,21 @@ using renderer::Vertex;
 
 namespace {
 
+// The basic sample of the checkout, copied once per run into the process's temporary directory
+// (sonnet::test::copySample), so the cooks write their cache into the copy rather than the checkout,
+// where another suite running at once reads it (issue #468); empty when no checkout holds it.
+[[nodiscard]] std::filesystem::path basicSample(const platform::Platform &platform) {
+  const std::filesystem::path sample = assets::test::findInSource(platform.basePath(), "apps/samples/basic");
+  if (sample.empty()) {
+    return {};
+  }
+  const std::filesystem::path copy = std::filesystem::temp_directory_path() / "samples" / "basic";
+  if (!std::filesystem::exists(copy)) {
+    sonnet::test::copySample(sample, copy);
+  }
+  return copy;
+}
+
 // A grid of quads whose triangles each carry their own three vertices, emitted column by column
 // so the index buffer reuses almost nothing: what an exporter that never welded would produce.
 [[nodiscard]] MeshData unweldedGrid(std::uint32_t columns, std::uint32_t rows) {
@@ -481,7 +496,7 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {
   platform::Platform platform{{.headless = true}};
-  const std::filesystem::path sample = assets::test::findInSource(platform.basePath(), "apps/samples/basic");
+  const std::filesystem::path sample = basicSample(platform);
   REQUIRE_FALSE(sample.empty());
   const auto project = Project::open(sample);
   REQUIRE(project.has_value());
@@ -535,7 +550,7 @@ namespace {
 
 TEST_CASE("a mobile cook of the basic sample has ASTC textures and names its platform", "[assets][cook][astc]") {
   platform::Platform platform{{.headless = true}};
-  const std::filesystem::path sample = assets::test::findInSource(platform.basePath(), "apps/samples/basic");
+  const std::filesystem::path sample = basicSample(platform);
   REQUIRE_FALSE(sample.empty());
   const auto project = Project::open(sample);
   REQUIRE(project.has_value());

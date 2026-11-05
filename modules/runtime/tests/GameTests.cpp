@@ -43,14 +43,21 @@ namespace {
 
 // The sample the editor's play-mode tests use too: a real project with models, a skin, a clip,
 // sounds, scripts and physics. Found in the checkout a build directory lives in, the way the
-// log panel's source links are (docs/editor.md, "Projects and scenes").
+// log panel's source links are (docs/editor.md, "Projects and scenes"), and copied once per run
+// into the process's temporary directory, whose asset cache the suite's cases then share, so the
+// checkout's sample is never written and another suite running at once never reads this one's
+// cache (issue #468). Empty when no checkout holds the sample.
 [[nodiscard]] std::filesystem::path sampleProject(platform::Platform &platform, std::string_view name = "basic") {
   std::error_code error;
   for (std::filesystem::path base = std::filesystem::absolute(platform.basePath(), error); !base.empty();
        base = base.parent_path()) {
     const std::filesystem::path candidate = base / "apps" / "samples" / name;
     if (std::filesystem::is_regular_file(candidate / "project.json", error)) {
-      return candidate.lexically_normal();
+      const std::filesystem::path copy = std::filesystem::temp_directory_path() / "samples" / name;
+      if (!std::filesystem::exists(copy)) {
+        sonnet::test::copySample(candidate, copy);
+      }
+      return copy;
     }
     if (base == base.root_path()) {
       break;

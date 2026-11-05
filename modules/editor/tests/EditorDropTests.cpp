@@ -497,7 +497,7 @@ TEST_CASE("capture drops on the viewport for visual review", "[.drop-captures][e
   std::filesystem::remove_all(directory);
   std::filesystem::create_directories(directory.parent_path()); // copy makes only the last directory
   std::filesystem::create_directories(output);
-  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  sonnet::test::copySample(manifest->parent_path(), directory);
   {
     editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
     REQUIRE(editor.openProject(directory));
@@ -563,7 +563,7 @@ TEST_CASE("capture moving and skinned drop previews for visual review", "[.drop-
   std::filesystem::remove_all(directory);
   std::filesystem::create_directories(directory.parent_path()); // copy makes only the last directory
   std::filesystem::create_directories(output);
-  std::filesystem::copy(manifest->parent_path(), directory, std::filesystem::copy_options::recursive);
+  sonnet::test::copySample(manifest->parent_path(), directory);
   // The Reed in a folder of its own, so its tile is on the Assets panel's first row with its sub-assets.
   const auto models = directory / "assets" / "models";
   std::filesystem::create_directories(models / "reed");
