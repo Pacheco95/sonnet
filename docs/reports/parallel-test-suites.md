@@ -64,4 +64,31 @@ From the jobs' timing artifacts (`tools/test_timings.py --baseline`):
 - **Windows MSVC** is the one job that got slower: side by side its suites took two to five times as long (`assets_tests` 19 to 49 s, `physics_tests` 3 to 14 s, `editor_tests` 6 to 25 s), 17 s more in all. The Windows Release jobs still gained. This is left as it is: the loss is small next to the Linux jobs' gains, and one run cannot separate contention from runner variance.
 - Every suite passed with the same entries as the baseline (321 in `editor_tests`, 58 in `runtime_tests`). Peak memory on the runners was not measured.
 
-Splitting `editor_tests` ([#469](https://github.com/Pacheco95/sonnet/issues/469)) is what would shorten the run further.
+Splitting `editor_tests` ([#469](https://github.com/Pacheco95/sonnet/issues/469)) looked like what would shorten the run further. It was tried and not adopted ([Editor shards](#editor-shards)).
+
+## Editor shards
+
+Tried for [issue #469](https://github.com/Pacheco95/sonnet/issues/469) on 2026-11-04 and 05 ([PR #478](https://github.com/Pacheco95/sonnet/pull/478), closed without merging). With two suites at once, `editor_tests` was the whole Test step in CI: 363 s of Linux Clang's 364 s and 360 s of ASan's 361 s, while the other lane finished the remaining suites in about two thirds of that and waited.
+
+**The split.** One binary, registered as two CTest tests that select cases by source file through Catch2's file-name tags (`--filenames-as-tags` and a test spec): `editor_tests_1` ran `EditorTests.cpp`, `GameViewTests.cpp` and `CaptureTests.cpp` (205 s of the suite's 345 s of cases on Linux Clang in run 41930016334), `editor_tests_2` every other file. Both specs came from one list, so a case was in exactly one shard: in both builds the shards listed 89 and 188 of the 277 cases, none twice and none of the hidden ones, and every run's two reports held the same 321 entries as the unsharded one. `runtime_tests` got a `COST` as well, since CTest otherwise starts it late and every split then ends later than none. Catch2's `--shard-count` was not used: it slices the case order, which is random with a new seed in each process, so the shards would overlap unless every one got the same `--rng-seed`, and it balances by number of cases, not time.
+
+**Locally** (4 CPUs of the desktop under `taskset -c 0-3`, Lavapipe, `ctest --parallel 2`, 3 runs each), the shards were 7% shorter in a GCC 14 Debug build (123.6 to 115.3 s) and 16% shorter in a Clang 20 ASan build (247 to 208.5 s), with no more memory (peak cgroup 1.21 to 1.26 GiB Debug, 3.66 to 3.58 GiB ASan).
+
+**In CI** the gain did not hold. Test step, in seconds, against run 41930016334:
+
+| Job | Unsharded | Sharded, run 41956763747 | Re-run of that job | Sharded with `LP_NUM_THREADS=2`, run 42035809498 | Mean sharded |
+|---|--:|--:|--:|--:|--:|
+| Linux Clang | 364 | 182 | 359 | 187 | 243 |
+| Linux ASan | 361 | 406 | 279 | 316 | 334 |
+| Linux GCC | 196 | 238 | 318 | 236 | 264 |
+
+Windows MSVC took 43 and 56 s against 59 s, and macOS Clang 49 and 65 s against 37 s; neither uses Lavapipe.
+
+From the jobs' timing artifacts (`tools/test_timings.py --baseline`):
+
+- **The scheduling worked.** In every sharded job the Test step was within about 10% of half the sum of all case times, the shortest two lanes allow; no suite held the step up on its own.
+- **The editor cases slowed each other down.** Runner speed moved the whole job by up to 40% between runs, so each job's editor cases are compared with its `runtime_tests`, `renderer_tests` and `assets_tests`, against the same suites in the unsharded run. In all nine sharded jobs the editor cases grew more, by 14 to 50 points (mean about 30). For example the GCC re-run: editor cases 189 to 401 s (+112%), the other three 119 to 201 s (+69%); the Clang re-run: editor cases 345 to 472 s (+37%) while the other three got 13% faster. Locally the same cases beside the other shard were also slower than on their own, but by less.
+- **Lavapipe's threads are not the cause.** Lavapipe starts a raster thread per CPU in each process (16 on a 16-CPU machine, 2 with `LP_NUM_THREADS=2`), so two editor processes oversubscribe a 4-CPU runner. Capping each shard at 2 left the gap at 21 to 37 points (mean 27, against 31 without the cap). What the two editor processes contend for was not found.
+- **The net is within the noise.** The three Linux Test steps averaged 840 s sharded against 921 s unsharded (−9%), but the unsharded side is one run, and Linux GCC was slower in all three sharded runs. That does not pay for two more test registrations, `COST` values that drift as the suites grow, and a suite that no longer runs as one CTest test.
+
+The measurement logs are in `~/sonnet-measurements/469-editor-shards/` on the measuring machine. Shortening `editor_tests` itself, or finding what its two processes contend for, would come before trying the split again.
