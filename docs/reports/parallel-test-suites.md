@@ -39,8 +39,29 @@ Memory is the largest of the runs in the row. Every run passed, with the 15 test
 - **`COST`** on `editor_tests` makes it start first. Without it CTest starts the suites in registration order, so `editor_tests` began 27 s in, after the fourteen tests registered before it had run through two lanes, and the run took 150 s instead of 124 s.
 - **Memory** grows from 3.4 GiB to at most 6 GiB under ASan, counted generously, on a runner with 16 GiB.
 
-## What CI should show
+## Measured in CI
 
-These are four local CPUs, which ran the suites about twice as fast as a runner does. The CI baseline is [run 41915804872](https://github.com/Pacheco95/sonnet/actions/runs/41915804872), in which `editor_tests` took 241 s of 416 s of suites on Linux GCC, 244 of 421 on Linux Clang, 239 of 421 on Linux ASan, 221 of 365 on Linux GCC Release and 143 of 221 on Linux Clang Release. With two suites at once a Linux job's Test step can be no shorter than its `editor_tests`, and the local runs suggest about 20% more than that suite's serial time: roughly 290 s for the Debug and ASan jobs where the Test step took about 420 s. Those are estimates; the pull request's run has the measured ones. The ASan job's `editor_tests` keeps a 600 s timeout, and `runtime_tests`, the next longest at 107 s, its 300 s. The Windows, macOS and TSan jobs spend 40 to 90 s in tests and gain less.
+The baseline is [run 41915804872](https://github.com/Pacheco95/sonnet/actions/runs/41915804872), suites one after another; the pull request's [run 41930016334](https://github.com/Pacheco95/sonnet/actions/runs/41930016334) ran two at once. One run each, on hosted runners whose hardware varies from run to run. Test step durations:
+
+| Job | One at a time, s | Two at once, s | Change |
+|---|--:|--:|--:|
+| Linux GCC | 417 | 196 | −53% |
+| Linux Clang | 422 | 364 | −14% |
+| Linux ASan | 422 | 361 | −14% |
+| Linux GCC Release | 365 | 308 | −16% |
+| Linux Clang Release | 221 | 211 | −5% |
+| Linux TSan | 57 | 49 | −14% |
+| macOS Clang | 92 | 37 | −60% |
+| macOS Clang Release | 12 | 8 | −33% |
+| Windows MSVC | 42 | 59 | +40% |
+| Windows MSVC Release | 18 | 15 | −17% |
+| Windows clang-cl Release | 20 | 16 | −20% |
+
+From the jobs' timing artifacts (`tools/test_timings.py --baseline`):
+
+- **Linux Clang and ASan** gained less than the local runs suggested. Beside `runtime_tests`, `editor_tests` slowed by about half, not a fifth: 244 to 363 s on Clang, 239 to 360 s under ASan, with `runtime_tests` 106 to 160 s and 91 to 130 s. The Test step is now `editor_tests`, so each job saved about 60 s, not the 130 s estimated. ASan's `editor_tests` stays well inside its 600 s timeout.
+- **Linux GCC** overstates the gain: its `editor_tests` got faster despite the second suite, 241 to 195 s, and `runtime_tests` 107 to 81 s, so that run most likely had a faster runner as well.
+- **Windows MSVC** is the one job that got slower: side by side its suites took two to five times as long (`assets_tests` 19 to 49 s, `physics_tests` 3 to 14 s, `editor_tests` 6 to 25 s), 17 s more in all. The Windows Release jobs still gained. This is left as it is: the loss is small next to the Linux jobs' gains, and one run cannot separate contention from runner variance.
+- Every suite passed with the same entries as the baseline (321 in `editor_tests`, 58 in `runtime_tests`). Peak memory on the runners was not measured.
 
 Splitting `editor_tests` ([#469](https://github.com/Pacheco95/sonnet/issues/469)) is what would shorten the run further.
