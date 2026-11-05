@@ -135,7 +135,19 @@ print(f"Slowest {len(slowest)} cases (a case with sections is one row per sectio
 print()
 print("| Seconds | Suite | Case | Result |")
 print("|--:|---|---|---|")
+
+
+def base_case(suite, case):
+    """The case in the baseline's suite of that name, or else in the one baseline suite that has it, so a suite
+    split into shards (editor_tests into editor_tests_1 and _2), or merged back, still compares its cases."""
+    found = (base_suites.get(suite, {}).get("cases") or {}).get(case)
+    if found is None:
+        matches = [data["cases"][case] for data in base_suites.values() if case in (data["cases"] or {})]
+        found = matches[0] if len(matches) == 1 else None
+    return found
+
+
 for time, suite, case, result in slowest:
-    base = (base_suites.get(suite, {}).get("cases") or {}).get(case)
+    base = base_case(suite, case)
     name = case.replace("|", "\\|")
     print(f"| {seconds(time, base[1] if base else None)} | {suite} | {name} | {result} |")

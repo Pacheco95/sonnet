@@ -297,7 +297,7 @@ gh run download <older run id> -n test-results-linux-debug-clang-20 -D /tmp/old
 python3 tools/test_timings.py /tmp/new/test-results --baseline /tmp/old/test-results --top 30
 ```
 
-With `--baseline`, every time also shows its change from the other run. Compare a job with the same job: the runners differ between operating systems, and the sanitizer jobs run several times slower. Locally, `ctest --preset linux-debug --output-junit test-results/ctest.xml` followed by `python3 tools/test_timings.py build/linux-debug/test-results` prints the same table; a suite left out of a later run keeps its earlier report, which the table shows without a CTest result.
+With `--baseline`, every time also shows its change from the other run. A case is compared with the baseline suite of the same name, or else with the one baseline suite that has a case of that name, so a run of the `editor_tests` shards still compares its cases with a run from before them. Compare a job with the same job: the runners differ between operating systems, and the sanitizer jobs run several times slower. Locally, `ctest --preset linux-debug --output-junit test-results/ctest.xml` followed by `python3 tools/test_timings.py build/linux-debug/test-results` prints the same table; a suite left out of a later run keeps its earlier report, which the table shows without a CTest result.
 
 ## Coverage
 
