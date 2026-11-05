@@ -349,7 +349,8 @@ jobs:
       # Each Catch2 suite also writes a JUnit report of its cases' durations to build/<preset>/test-results/catch2
       # (cmake/SonnetFunctions.cmake), and CTest one of each suite's result, timeouts included, beside it.
       # Two suites at a time (docs/build.md, "Continuous integration"): each already runs Lavapipe's and the job
-      # system's threads, so on four vCPUs a third one measured no faster. editor_tests starts first (its COST).
+      # system's threads, so on four vCPUs a third one measured no faster. The two editor_tests shards and
+      # runtime_tests start first (their COST).
       - name: Test
         id: test
         run: ctest --preset ${{ matrix.preset }} --parallel 2 --timeout 300 --output-junit test-results/ctest.xml
