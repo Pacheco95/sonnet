@@ -50,7 +50,8 @@ endfunction()
 # each run writes a JUnit report with every case's duration to test-results/catch2/<test name>.xml
 # in the build tree, which CI uploads (docs/build.md, "Test timings"). The report is named after the
 # CTest test, not the binary, so two registrations of one binary (rhi_tests_vulkan_1_3) keep their
-# own. No test spec is passed, so Catch2 still runs every case not hidden with [.].
+# own. The arguments go to the binary after the reporters. Without a test spec among them Catch2 runs
+# every case not hidden with [.]; a shard of a suite passes one (modules/editor).
 function(sonnet_add_catch2_test NAME TARGET)
   set(dir "${CMAKE_BINARY_DIR}/test-results/catch2")
   file(MAKE_DIRECTORY "${dir}")
@@ -59,7 +60,7 @@ function(sonnet_add_catch2_test NAME TARGET)
            --reporter console --reporter "junit::out=${dir}/${NAME}.xml" ${ARGN})
 endfunction()
 
-# sonnet_add_module_test(<name> SOURCES ... DEPENDS ... [TIMEOUT <seconds>] [COST <seconds>])
+# sonnet_add_module_test(<name> SOURCES ... DEPENDS ... [TIMEOUT <seconds>] [COST <seconds>] [SHARDED])
 #
 # Creates <name>_tests linked against sonnet::<name> and Catch2, registers it with CTest under the
 # label <name>, and allows including the module's src/ for white-box tests and tests/support for the
@@ -67,12 +68,14 @@ endfunction()
 # to need more passes it, with the numbers beside it. COST is CTest's COST property: `ctest
 # --parallel` starts the costliest suites first when it has no timings of its own from an earlier
 # run, which a CI build directory never has, so a suite that takes most of the run passes its
-# measured seconds and does not start last (docs/build.md, "Continuous integration").
+# measured seconds and does not start last (docs/build.md, "Continuous integration"). SHARDED builds
+# the binary but registers no CTest test for it: the module registers its shards itself with
+# sonnet_add_catch2_test, each with its own test spec, TIMEOUT and COST (modules/editor).
 function(sonnet_add_module_test NAME)
   if(NOT SONNET_BUILD_TESTS)
     return()
   endif()
-  cmake_parse_arguments(ARG "" "TIMEOUT;COST" "SOURCES;DEPENDS" ${ARGN})
+  cmake_parse_arguments(ARG "SHARDED" "TIMEOUT;COST" "SOURCES;DEPENDS" ${ARGN})
   set(target ${NAME}_tests)
   if(NOT ARG_TIMEOUT)
     set(ARG_TIMEOUT 300)
@@ -88,6 +91,9 @@ function(sonnet_add_module_test NAME)
   set_target_properties(${target} PROPERTIES FOLDER "Tests" COMPILE_WARNING_AS_ERROR ON)
   sonnet_copy_tracy_client(${target})
 
+  if(ARG_SHARDED)
+    return()
+  endif()
   sonnet_add_catch2_test(${target} ${target})
   # A suite takes seconds to minutes; a hang (a blocked dialog on Windows, a driver wait) must fail with output.
   # The property wins over `ctest --timeout`, which is only the default for a test without one.
