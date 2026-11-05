@@ -26,7 +26,7 @@ Other prerequisites:
 
 ### Linux setup
 
-vcpkg builds the libraries, but SDL3, the Vulkan loader and miniaudio compile against the system's window and audio headers, so a Linux machine needs them installed. On Ubuntu 24.04 the list is the one the CI workflow installs:
+vcpkg builds the libraries, but SDL3, the Vulkan loader and miniaudio compile against the system's window and audio headers, so a Linux machine needs them installed. On Ubuntu 24.04 the list is everything the CI jobs install between them (each job installs only its part, [Linux packages](#linux-packages)), with `llvm.sh`'s debugger, linker and language server on top:
 
 ```bash
 wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
@@ -252,11 +252,29 @@ GitHub Actions, one workflow with a matrix:
 - Every desktop job uploads its test reports as an artifact and puts a timing summary on the run's page, after a failed run too ([Test timings](#test-timings)).
 - vcpkg binary caching through the GitHub Actions cache so dependency builds are not repeated ([vcpkg binary cache](#vcpkg-binary-cache)), and sccache for Sonnet's own objects in the desktop build matrix ([Compiler cache](#compiler-cache)).
 - Draft pull requests run no jobs; marking one ready for review starts them. A lint job runs first, and every build matrix job waits for it to pass; a lint failure skips the entire build matrix. It runs `clang-format --dry-run` on every tracked source (`.clang-format` lists only the differences from LLVM style, so it parses with clang-format 18 and newer; CI uses 20), `tools/check_docs.py`, `tools/check_dependencies.py` (the one-way module rule), `tools/check_version.py` (the manifest mirrors the CMake version) and, on pull requests, `tools/check_commit_msg.py` over the new commits. `clang-tidy` runs on the changed sources of a pull request in the Linux Clang job using the build's `compile_commands.json`.
-- Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Tests run with `VK_DRIVER_FILES` pointing at Lavapipe. CI takes the first `lvp_icd*.json` it finds, which is right on its runners because they have only the 64-bit Mesa. On a machine that also has the 32-bit one, `lvp_icd.i686.json` sorts first and a 64-bit test process finds no device, so `tools/check_setup.py` picks the manifest named for the host's architecture instead. Tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.
+- Linux runners install Mesa from the kisak PPA so Lavapipe exposes Vulkan 1.4, and the system libraries SDL3's X11 and Wayland features need, including the headers of the X11 extensions the `sdl3` overlay port enables (XInput2, Xcursor, Xfixes, XRandR, XScrnSaver); SDL's configure fails, naming the package, when an enabled extension's header is missing, so a developer machine needs the same packages. Which job installs what is in [Linux packages](#linux-packages). Tests run with `VK_DRIVER_FILES` pointing at Lavapipe, and the job stops before building if Lavapipe gives no Vulkan 1.4 device, rather than pass with its GPU cases skipped. CI takes the first `lvp_icd*.json` it finds, which is right on its runners because they have only the 64-bit Mesa. On a machine that also has the 32-bit one, `lvp_icd.i686.json` sorts first and a 64-bit test process finds no device, so `tools/check_setup.py` picks the manifest named for the host's architecture instead. Tests that need a window ask `platform` for a headless instance, which uses SDL's offscreen video driver.
 
 Tests that need a Vulkan device skip themselves when none is present, which is the case on the Windows and macOS runners.
 
 `tools/install_hooks.sh` installs two hooks: `commit-msg` runs the same commit-message check locally, and `pre-commit` runs `tools/check_dependencies.py` when a commit touches `modules/`, `apps/` or CMake files.
+
+### Linux packages
+
+Each Linux job installs only the tools it runs ([#471](https://github.com/Pacheco95/sonnet/issues/471)). Before, every build job ran apt.llvm.org's `llvm.sh`, which installs `clang-20`, `lldb-20`, `lld-20` and `clangd-20` with their recommends (`llvm-20-dev`, `clang-tools-20` and more: 158 MB, 765 MB unpacked), then `clang-20` and `clang-tidy-20` again, in the GCC jobs too, and lint ran `llvm.sh` for `clang-format-20` alone. Now apt.llvm.org's source is added only where an LLVM package is installed, the LLVM packages go in without recommends, and apt reads its indexes once per job instead of three times (`add-apt-repository --no-update`):
+
+| Job | Mesa (kisak PPA) and `vulkan-tools` | From apt.llvm.org | Why |
+|---|---|---|---|
+| Lint | no | `clang-format-20` | the formatting check |
+| Linux GCC, Linux GCC Release | yes | nothing | GCC 14 builds; the Vulkan tests run on Lavapipe |
+| Linux Clang | yes | `clang-20`, `llvm-20`, and `clang-tidy-20` on pull requests | the clang-tidy step runs only on pull requests |
+| Linux Clang Release | yes | `clang-20`, `llvm-20` | |
+| Linux ASan | yes | `clang-20`, `llvm-20`, `libclang-rt-20-dev` | the sanitizer runtimes |
+| Linux TSan | no | `clang-20`, `llvm-20`, `libclang-rt-20-dev` | its test preset sets `VK_DRIVER_FILES=/dev/null`, so it never loads a driver |
+| Android | no | nothing | GCC 14 for the host `sonnet_cook`; its own step, unchanged |
+
+Every build job also installs `ninja-build`, `gcc-14` and `g++-14` (the GCC jobs' compiler, and the libstdc++ 14 that Clang 20 selects on its own, [Toolchains](#toolchains)) and the X11, Wayland, EGL, DRM, ALSA, PulseAudio, udev, D-Bus and IBus headers listed in [Linux setup](#linux-setup). `llvm-20` is in every Clang job: it holds `llvm-ar-20` and `llvm-ranlib-20`, which CMake chooses for Clang when they are there, as they were before, and `llvm-symbolizer-20`, which the sanitizer runtimes run by that path to name a report's frames; `tools/tsan.supp` matches those names. `libclang-rt-20-dev` is only a recommendation of `clang-20`'s, so the sanitizer jobs name it. The matrix carries the choice in its `llvm`, `tidy` and `lavapipe` fields.
+
+The step "Select Lavapipe and print the tool versions" prints Ninja's and the compilers' versions, the GCC installation Clang selected, clang-tidy's version, the installed version of each LLVM package and of Mesa's Vulkan drivers, and Lavapipe's `vulkaninfo --summary` lines; lint prints `clang-format-20 --version`. Installing takes its own steps (add the sources, the system packages, LLVM 20), so each one's time shows on the run's page. Most of that time is the download from the kisak PPA, about 72 of the 82 MB the system packages fetch, whose speed ranged from 0.35 to 8.9 MB/s between jobs of one run ([the measurements](reports/linux-ci-packages.md)).
 
 ### vcpkg binary cache
 
