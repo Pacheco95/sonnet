@@ -193,6 +193,8 @@ ctest --preset linux-debug -L editor          # both shards, one after the other
 ./build/linux-debug/modules/editor/editor_tests   # the binary: every case, in one process
 ```
 
+On four CPUs, with two suites at a time, the shards took 7% off a Debug run and 16% off an ASan run, without more memory ([the measurements](reports/parallel-test-suites.md#editor-shards)). The first shard's three files are chosen so that the second shard and `runtime_tests`, the next longest suite, take about as long together as the first shard does in CI.
+
 ## Android
 
 `cmake/SonnetAndroid.cmake` packages the player into an APK without Gradle ([ADR-0018](decisions/0018-mobile-export.md#packaging)). It is adapted from SDL's `SdlAndroidFunctions.cmake`, whose zlib licence it carries. `apps/player/CMakeLists.txt` calls `sonnet_add_apk(sonnet_player_app ...)` on Android only, which adds the target `sonnet_player_apk`, part of the default build, producing `build/android-*/apps/player/sonnet_player.apk`. The player library still builds alone as `sonnet_player_app`. The steps:

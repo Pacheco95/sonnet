@@ -65,3 +65,35 @@ From the jobs' timing artifacts (`tools/test_timings.py --baseline`):
 - Every suite passed with the same entries as the baseline (321 in `editor_tests`, 58 in `runtime_tests`). Peak memory on the runners was not measured.
 
 Splitting `editor_tests` ([#469](https://github.com/Pacheco95/sonnet/issues/469)) is what would shorten the run further.
+
+## Editor shards
+
+Measured for [issue #469](https://github.com/Pacheco95/sonnet/issues/469), on 2026-11-04. With two suites at once, `editor_tests` was the whole run: in CI it took 363 s of Linux Clang's 364 s Test step and 360 s of ASan's 361 s, while the other lane ran the remaining suites in about two thirds of that and then waited. Splitting it can save at most the difference between that and half of all the work. Each lane also slows the other, so the half is of the work done side by side, which is more than the suites take one after another.
+
+**The split.** Two shards by source file, through Catch2's file-name tags ([build.md](../build.md#editor-shards)): `editor_tests_1` runs `EditorTests.cpp`, `GameViewTests.cpp` and `CaptureTests.cpp`, and `editor_tests_2` every other file. In CI run 41930016334 the first group took 205 s of the suite's 345 s of cases on Linux Clang and 229 s of 344 s under ASan. `EditorTests.cpp` alone was 176 s and 199 s, and one file cannot be split by tag, so a third shard would have had to cut through it. A 2-lane schedule of that run's suite times put two shards at 321 s on Clang and 318 s under ASan, against a floor of half the work, 321 s and 315 s, and gave a third shard nothing to gain. Splitting off `EditorTests.cpp` alone would end at 347 s on Clang, because `runtime_tests`, at 160 s, would then follow the shorter shard. `runtime_tests` gets a `COST` too: without one CTest starts it after the ten suites registered before it, and in the same schedule every split tried then ended later than the unsharded run (396 to 400 s on Clang).
+
+**Catch2's `--shard-count`** splits test cases, not sections, into contiguous slices of the order the cases run in. That order is random by default, and every process draws its own seed, so two shards would overlap and miss cases unless every shard got the same `--rng-seed`. Catch2's own `CatchShardTests.cmake` does that with a seed drawn when `ctest` reads its test files. The slices would also be equal in number of cases, not in time, and one case is 41 to 59 s in CI. Groups by file balance by time, keep each process's random order, and need nothing from Catch2 but a test spec.
+
+**The union.** In both builds, `editor_tests --list-tests` lists 277 cases. The two shards' specs list 89 and 188, with none in both, and their union is exactly those 277. None of the 7 hidden cases is in either. Without its `~[.]` the first shard's spec would have picked up 5 of them. In every run below, the two shards' JUnit reports held the same 321 entries (cases and section paths) as the unsharded report, each once. With a failing case added to one file of each shard (a throwaway build, not committed), both shards failed, each with only that case, and `ctest` exited 8.
+
+### Method
+
+The same as above: 4 CPUs of the desktop (`taskset -c 0-3`), Lavapipe, `ctest --parallel 2 --timeout 300` with the presets' `--output-on-failure`, a systemd scope for memory, and no `CTestCostData.txt`. A Debug build with GCC 14 and an ASan build with Clang 20 of the branch, in their own build directories. The unsharded runs reconfigure the same build directory with `main`'s `cmake/SonnetFunctions.cmake`, `modules/editor/CMakeLists.txt` and `modules/runtime/CMakeLists.txt` and run the same binaries, alternating with the sharded runs: one `editor_tests` with `COST 240`, and no `COST` on `runtime_tests`.
+
+### Results
+
+| Build | Registration | Runs | Wall time, s | `editor_tests_1`, s | `editor_tests_2`, s | Peak memory, GiB (cgroup / summed RSS) |
+|---|---|--:|---|---|---|---|
+| Debug | unsharded | 3 | 123.9, 123.3, 123.6 | `editor_tests` is the whole run | | 1.21 / 1.44 |
+| Debug | two shards | 3 | 115.8, 115.7, 114.4 | 95.0, 95.8, 93.7 | 46.7, 45.4, 45.2 | 1.26 / 1.39 |
+| ASan | unsharded | 3 | 242.2, 247.1, 252.9 | `editor_tests` is the whole run | | 3.66 / 4.12 |
+| ASan | two shards | 3 | 203.6, 210.7, 211.3 | 175.1, 184.2, 181.1 | 74.2, 76.2, 75.8 | 3.58 / 3.89 |
+
+Memory is the largest of the runs in the row. Every run passed, with 321 editor entries.
+
+- **Debug** is 7% shorter (about 123.6 s down to 115.3 s). Here `EditorTests.cpp` is a larger share of the suite than in CI, 58% of its cases' time, so `editor_tests_1` (94 to 96 s) is the run's longest lane. Then come `renderer_tests` and the lane of `editor_tests_2`, `runtime_tests` and the small suites. Both lanes end within a few seconds of each other.
+- **ASan** is 16% shorter (about 247 s down to 208.5 s).
+- Running beside the other shard, `editor_tests_1` is slower than the same cases run on their own (about 64 s of cases in Debug). Two Lavapipe processes share four CPUs, as two suites did before. The gain is therefore the lane balance, not the work, which stays about the same.
+- **Memory** did not grow. Two editor processes run together now, but the second lane held a suite before as well. The largest peaks were 1.26 / 1.39 GiB in Debug and 3.58 / 3.89 GiB under ASan, against 1.21 / 1.44 and 3.66 / 4.12 GiB unsharded.
+
+As in [#468](https://github.com/Pacheco95/sonnet/issues/468), CI runners slowed the suites more than this machine does, so these gains are a local measure. For CI, compare each Linux job's Test step and its suite rows with [run 41930016334](https://github.com/Pacheco95/sonnet/actions/runs/41930016334), using `tools/test_timings.py --baseline`. That run's Test steps took 364 s on Clang, 361 s under ASan and 196 s on GCC.
