@@ -15,7 +15,11 @@ sonnet_add_module(runtime
 # stb_image_write for the screenshots (docs/player.md, "Capture runs").
 target_include_directories(sonnet_runtime SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 
+# COST: the second-longest suite, 160 s of the Linux Clang job's suites and 130 s under ASan in CI run 41930016334,
+# so `ctest --parallel` starts it right after the editor suite rather than after the ten suites registered
+# before it (issue #469).
 sonnet_add_module_test(runtime
+  COST 130
   SOURCES
     tests/CaptureTests.cpp
     tests/GameTests.cpp
