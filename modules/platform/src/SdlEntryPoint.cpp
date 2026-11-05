@@ -1,7 +1,6 @@
 #include <sonnet/platform/Application.h>
 
 #include "SdlEvents.h"
-#include "SdlWindow.h"
 
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
@@ -92,7 +91,6 @@ SDL_AppResult appIterate(void *state) {
 
 SDL_AppResult appEvent(void *state, SDL_Event *event) {
   auto *appState = static_cast<AppState *>(state);
-  reframeMaximizedWindow(*event);
   appState->app->nativeEvent(*event);
   const std::optional<Event> translated = translateEvent(*event);
   if (!translated) {

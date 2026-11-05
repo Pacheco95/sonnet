@@ -48,35 +48,6 @@ void setWindowIcon(SDL_Window *window) {
 
 } // namespace
 
-bool needsMaximizedReframe(const SDL_Event &event, SDL_WindowFlags flags) noexcept {
-#if defined(_WIN32)
-  // SDL's WM_DPICHANGED handler moves the window to the corner Windows suggests with a frame sized
-  // for the client area, maximized or not, and after a step down that is the old DPI's frame.
-  // SDL_MaximizeWindow alone does nothing to a window Windows already has maximized. Fullscreen is
-  // left alone: a restore would end it.
-  return event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED && (flags & SDL_WINDOW_MAXIMIZED) != 0 &&
-         (flags & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_FULLSCREEN)) == 0;
-#else
-  static_cast<void>(event);
-  static_cast<void>(flags);
-  return false;
-#endif
-}
-
-void reframeMaximizedWindow(const SDL_Event &event) {
-  if (event.type != SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
-    return;
-  }
-  SDL_Window *window = SDL_GetWindowFromID(event.window.windowID);
-  if (window == nullptr || !needsMaximizedReframe(event, SDL_GetWindowFlags(window))) {
-    return;
-  }
-  SONNET_LOG_DEBUG("display scale changed: maximizing the window again for the new frame");
-  if (!SDL_RestoreWindow(window) || !SDL_MaximizeWindow(window)) {
-    SONNET_LOG_WARN("re-maximizing the window failed: {}", SDL_GetError());
-  }
-}
-
 SdlWindow::SdlWindow(const WindowDesc &desc)
     : m_restored(WindowRect{desc.position.value_or(glm::ivec2{0, 0}), desc.size}), m_title(desc.title),
       m_frameRate(desc.frameRate) {

@@ -28,7 +28,7 @@ On `SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED` of the maximized window, the program
 | `placement` ([output](run-placement.txt)) | `SetWindowPlacement` with its own placement, `SW_SHOWMAXIMIZED` | stale |
 | `restore` ([output](run-restore.txt)) | `SDL_RestoreWindow`, then `SDL_MaximizeWindow` | correct |
 
-The engine does what `restore` does ([platform.md](../../platform.md#window)).
+The engine did what `restore` does until SDL 3.4.20 fixed the handler ([platform.md](../../platform.md#window), [issue 428](https://github.com/Pacheco95/sonnet/issues/428)).
 
 ## Cause
 
