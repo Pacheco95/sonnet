@@ -6,6 +6,16 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# A new revision of a pull request cancels that pull request's older run, queued or in progress, so its
+# jobs stop holding runners; each pull request has its own group. A push to main is keyed by its run id,
+# a group of its own, so it is never cancelled, never waits behind another run and always saves its
+# caches (docs/build.md, "Superseded runs").
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'pull_request'
+    && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Lint
