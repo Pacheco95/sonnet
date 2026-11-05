@@ -73,13 +73,25 @@ The complete suites also passed with the validation layer and its synchronizatio
 
 ## In CI
 
-The baseline is [run 41930016334](https://github.com/Pacheco95/sonnet/actions/runs/41930016334): Linux Clang's `editor_tests` took 363 s with `runtime_tests` beside it at 160 s, Linux ASan's 360 s and 130 s. CI's runners use a newer Mesa (26.2.6 with LLVM 21.1.8, from the kisak PPA) than the measuring machine, so the shares above are an estimate there. What to compare, with `tools/test_timings.py <new>/test-results --baseline <run 41930016334>/test-results` on the `test-results-linux-debug-clang-20`, `test-results-linux-debug-gcc-14` and `test-results-linux-asan-clang-20` artifacts ([Test timings](../build.md#test-timings)):
+Measured on 2026-11-05 in [run 42065940685](https://github.com/Pacheco95/sonnet/actions/runs/42065940685) (attempt 2, then each Linux job re-run once), against [run 41930016334](https://github.com/Pacheco95/sonnet/actions/runs/41930016334). CI's runners use a newer Mesa (26.2.6 with LLVM 21.1.8, from the kisak PPA) than the measuring machine. Runner speed moves a whole job by up to 40% between runs, so the comparison is per case: for each suite, the median over its cases of the new time divided by the baseline time, from the jobs' timing artifacts ([Test timings](../build.md#test-timings)), with `renderer_tests` and `assets_tests`, which this change does not touch, as the control.
 
-- `editor_tests` and `runtime_tests` should drop against `renderer_tests` and `assets_tests` of the same job, which do not change: about 8 to 13% in the Debug jobs and 13 to 18% under ASan, by the local numbers. Runner speed moves a whole job by up to 40% between runs, so compare suites within a job rather than jobs across runs.
-- The Linux Test steps should shorten by about as much as `editor_tests` does, since it is still the whole step.
-- Every case should pass with the same entries as the baseline (321 in `editor_tests`, 58 in `runtime_tests`). The Windows and macOS runners have no Vulkan device for these suites, so they change nothing there.
+| Job | Run | Test step, s (baseline) | `editor_tests` | `runtime_tests` | `renderer_tests` | `assets_tests` | `editor_tests` against the controls |
+|---|---|--:|--:|--:|--:|--:|--:|
+| Linux Clang | first | 368 (364) | 0.91 | 0.88 | 1.01 | 0.97 | 0.92 |
+| Linux Clang | re-run | 338 (364) | 0.90 | 1.00 | 0.97 | 1.00 | 0.91 |
+| Linux ASan | first | 319 (361) | 0.84 | 0.80 | 1.02 | 0.96 | 0.85 |
+| Linux ASan | re-run | 258 (361) | 0.72 | 0.61 | 0.81 | 0.75 | 0.92 |
+| Linux GCC | first | 253 (196) | 1.01 | 1.32 | 1.32 | 1.00 | 0.87 |
+| Linux GCC | re-run | 327 (196) | 1.27 | 1.55 | 1.80 | 1.44 | 0.78 |
 
-The measurement logs, the timer patch and the scripts are in `~/sonnet-measurements/470-renderer-init/` on the measuring machine.
+The last column is `editor_tests`' median divided by the mean of the two controls' medians.
+
+- **`editor_tests`** was 8 to 22% faster than the controls in all six jobs, in line with the local 8 to 18%.
+- **`runtime_tests`** was faster than the controls in four of the six jobs (Clang 0.89 and 1.02, ASan 0.81 and 0.78, GCC 1.14 and 0.96 against the controls). Its gain is close to the noise.
+- **The Test steps** mostly follow the runner: the controls alone ranged from 0.75 to 1.80. The GCC baseline (196 s) was already a fast runner in [#468](parallel-test-suites.md#measured-in-ci), so GCC can be read only against its own controls. In Linux Clang's first run, a few long cases that mostly draw frames moved by 14 to 20 s each in both directions (68 s gained, 73 s lost), which kept that suite's total flat while its typical case was 9% faster.
+- Every job passed with the same entries as the baseline: 321 in `editor_tests`, 58 in `runtime_tests`. Windows MSVC took 58 s against 59 s. The Windows and macOS runners have no Vulkan device for these suites.
+
+The measurement logs, the timer patch and the scripts are in `~/sonnet-measurements/470-renderer-init/` on the measuring machine, with the CI comparison in its `ci-42065940685/` folder.
 
 ## What is left
 
