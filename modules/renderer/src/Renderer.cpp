@@ -758,40 +758,55 @@ void Renderer::defineCompute(rhi::PipelineHandle &target, std::string shader, co
       PipelineSlot{std::move(shader), rhi::ComputePipelineDesc{.entry = entry, .debugName = name}, &target});
 }
 
-rhi::PipelineHandle Renderer::createPipeline(const PipelineSlot &slot, rhi::ShaderHandle shader) {
-  return std::visit(
-      [&](auto desc) {
-        desc.shader = shader;
-        if constexpr (std::is_same_v<decltype(desc), rhi::GraphicsPipelineDesc>) {
-          return m_device.createGraphicsPipeline(desc);
-        } else {
-          return m_device.createComputePipeline(desc);
-        }
-      },
-      slot.desc);
+rhi::PipelineDesc Renderer::pipelineDesc(const PipelineSlot &slot, rhi::ShaderHandle shader) {
+  rhi::PipelineDesc desc = slot.desc;
+  std::visit([shader](auto &kind) { kind.shader = shader; }, desc);
+  return desc;
 }
 
 void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
-  for (const std::string_view name : shaderNames()) {
-    // Through the platform's content, so a relative shaderDir is read from the APK on Android.
-    auto stream = platform::Platform::openContent(shaderDir / std::format("{}.spv", name));
-    const auto spirv = stream ? stream->readAll() : std::unexpected(stream.error());
-    if (!spirv) {
-      throw core::Exception{spirv.error()};
+  // Every module first, then every pipeline in one call, so the device can build them side by side
+  // on the job system: built one after another they were most of a renderer's start-up on Lavapipe,
+  // the four forward variants alone half of it (docs/reports/renderer-init-in-tests.md).
+  std::vector<rhi::ShaderHandle> shaders;
+  const auto destroyShaders = [&] {
+    for (const rhi::ShaderHandle shader : shaders) {
+      m_device.destroyShader(shader);
     }
-    // Logged before each creation, so the last line names the module or pipeline a driver crashed in.
-    SONNET_LOG_DEBUG("shader module {}: {} bytes", name, spirv->size());
-    const rhi::ShaderHandle shader = m_device.createShader({.spirv = *spirv, .debugName = std::string{name}});
-    for (const PipelineSlot &slot : m_pipelineSlots) {
-      if (slot.shader == name) {
-        SONNET_LOG_DEBUG("pipeline \"{}\" from {}",
-                         std::visit([](const auto &desc) -> const std::string & { return desc.debugName; }, slot.desc),
-                         name);
-        *slot.target = createPipeline(slot, shader);
+  };
+  std::vector<rhi::PipelineDesc> descs;
+  std::vector<rhi::PipelineHandle *> targets;
+  try {
+    for (const std::string_view name : shaderNames()) {
+      // Through the platform's content, so a relative shaderDir is read from the APK on Android.
+      auto stream = platform::Platform::openContent(shaderDir / std::format("{}.spv", name));
+      const auto spirv = stream ? stream->readAll() : std::unexpected(stream.error());
+      if (!spirv) {
+        throw core::Exception{spirv.error()};
+      }
+      // Logged before each creation, so the last line names the module a driver crashed in, and
+      // the pipelines that were then being built together.
+      SONNET_LOG_DEBUG("shader module {}: {} bytes", name, spirv->size());
+      shaders.push_back(m_device.createShader({.spirv = *spirv, .debugName = std::string{name}}));
+      for (const PipelineSlot &slot : m_pipelineSlots) {
+        if (slot.shader == name) {
+          SONNET_LOG_DEBUG(
+              "pipeline \"{}\" from {}",
+              std::visit([](const auto &desc) -> const std::string & { return desc.debugName; }, slot.desc), name);
+          descs.push_back(pipelineDesc(slot, shaders.back()));
+          targets.push_back(slot.target);
+        }
       }
     }
-    m_device.destroyShader(shader);
+    const std::vector<rhi::PipelineHandle> pipelines = m_device.createPipelines(descs, m_settings.jobs);
+    for (std::size_t i = 0; i < pipelines.size(); ++i) {
+      *targets[i] = pipelines[i];
+    }
+  } catch (...) {
+    destroyShaders();
+    throw;
   }
+  destroyShaders();
 }
 
 core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const std::byte> spirv) {
@@ -800,28 +815,30 @@ core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const
   }
   // Everything new is built before anything old goes, so a rejected module or pipeline changes
   // nothing; the old pipelines are destroyed deferred, past the frames that still bind them.
-  std::vector<std::pair<PipelineSlot *, rhi::PipelineHandle>> rebuilt;
+  std::vector<PipelineSlot *> slots;
+  std::vector<rhi::PipelineHandle> rebuilt;
   rhi::ShaderHandle shader;
   try {
     shader = m_device.createShader({.spirv = spirv, .debugName = std::string{name}});
+    std::vector<rhi::PipelineDesc> descs;
     for (PipelineSlot &slot : m_pipelineSlots) {
       if (slot.shader == name) {
-        rebuilt.emplace_back(&slot, createPipeline(slot, shader));
+        slots.push_back(&slot);
+        descs.push_back(pipelineDesc(slot, shader));
       }
     }
+    // All or nothing: a pipeline the driver rejects leaves none of the others behind.
+    rebuilt = m_device.createPipelines(descs, m_settings.jobs);
   } catch (const core::Exception &exception) {
-    for (const auto &[slot, pipeline] : rebuilt) {
-      m_device.destroyPipeline(pipeline);
-    }
     if (shader) {
       m_device.destroyShader(shader);
     }
     return std::unexpected(exception.error());
   }
   m_device.destroyShader(shader);
-  for (const auto &[slot, pipeline] : rebuilt) {
-    m_device.destroyPipeline(*slot->target);
-    *slot->target = pipeline;
+  for (std::size_t i = 0; i < slots.size(); ++i) {
+    m_device.destroyPipeline(*slots[i]->target);
+    *slots[i]->target = rebuilt[i];
   }
   SONNET_LOG_INFO("reloaded shader {}: {} pipelines rebuilt", name, rebuilt.size());
   return {};

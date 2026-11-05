@@ -12,6 +12,11 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
+
+namespace sonnet::core {
+class JobSystem;
+} // namespace sonnet::core
 
 namespace sonnet::rhi {
 
@@ -114,9 +119,16 @@ public:
   [[nodiscard]] virtual ShaderHandle createShader(const ShaderDesc &desc) = 0;
   virtual void destroyShader(ShaderHandle handle) = 0;
 
-  // The shader may be destroyed once the pipeline exists.
+  // The shader may be destroyed once the pipeline exists. A pipeline the driver rejects throws
+  // core::Exception.
   [[nodiscard]] virtual PipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc &desc) = 0;
   [[nodiscard]] virtual PipelineHandle createComputePipeline(const ComputePipelineDesc &desc) = 0;
+  // Several pipelines at once, their handles in the order of the descriptions. With a job system
+  // the driver builds them on its workers and the calling thread, one job a pipeline, and the call
+  // returns when all are built; the device itself is still only called on its own thread. All or
+  // nothing: when one is rejected, the others are destroyed and core::Exception is thrown.
+  [[nodiscard]] virtual std::vector<PipelineHandle> createPipelines(std::span<const PipelineDesc> descs,
+                                                                    core::JobSystem *jobs) = 0;
   virtual void destroyPipeline(PipelineHandle handle) = 0;
 
   [[nodiscard]] virtual bool isValid(BufferHandle handle) const = 0;

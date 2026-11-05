@@ -3,6 +3,7 @@
 #include "Spirv.h"
 
 #include <sonnet/core/File.h>
+#include <sonnet/core/JobSystem.h>
 #include <sonnet/rhi/Device.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -153,6 +154,82 @@ TEST_CASE("the tint push constant scales the triangle colour", "[rhi][pipeline][
   device->destroyBuffer(readback);
   device->destroyImage(target);
   device->destroyPipeline(pipeline);
+  device->destroyShader(shader);
+}
+
+TEST_CASE("pipelines built together on a job system come back in order and draw", "[rhi][pipeline][gpu]") {
+  test::TestDevice device;
+  constexpr glm::uvec2 size{16, 16};
+  constexpr std::size_t byteCount = std::size_t{size.x} * size.y * 4;
+  const std::vector<std::byte> spirv = loadTriangleShader(device);
+  const ShaderHandle shader = device->createShader({.spirv = spirv, .debugName = "triangle"});
+  const auto fillSpirv = sonnet::core::readFile(device.platform.basePath() / "shaders" / "fill.spv");
+  REQUIRE(fillSpirv.has_value());
+  const ShaderHandle fillShader = device->createShader({.spirv = *fillSpirv, .debugName = "fill"});
+  const std::vector<PipelineDesc> descs{
+      GraphicsPipelineDesc{.shader = shader, .colorFormats = {Format::R8G8B8A8Unorm}, .debugName = "back"},
+      ComputePipelineDesc{.shader = fillShader, .debugName = "fill"},
+      GraphicsPipelineDesc{
+          .shader = shader, .colorFormats = {Format::R8G8B8A8Unorm}, .cullMode = CullMode::None, .debugName = "none"},
+      GraphicsPipelineDesc{.shader = shader,
+                           .colorFormats = {Format::R8G8B8A8Unorm},
+                           .cullMode = CullMode::None,
+                           .blend = BlendMode::Alpha,
+                           .debugName = "alpha"},
+  };
+  sonnet::core::JobSystem jobs{{.workerCount = 3}};
+  const std::vector<PipelineHandle> pipelines = device->createPipelines(descs, &jobs);
+  // Without a job system they are built on this thread, the same way.
+  const std::vector<PipelineHandle> serial = device->createPipelines(descs, nullptr);
+  device->destroyShader(fillShader);
+  REQUIRE(pipelines.size() == descs.size());
+  REQUIRE(serial.size() == descs.size());
+  for (std::size_t i = 0; i < pipelines.size(); ++i) {
+    REQUIRE(device->isValid(pipelines[i]));
+    REQUIRE(device->isValid(serial[i]));
+    for (std::size_t j = 0; j < i; ++j) {
+      REQUIRE(pipelines[i] != pipelines[j]);
+    }
+  }
+
+  const ImageHandle target = device->createImage({.size = size,
+                                                  .format = Format::R8G8B8A8Unorm,
+                                                  .usage = ImageUsage::ColorAttachment | ImageUsage::TransferSrc,
+                                                  .debugName = "batch target"});
+  const BufferHandle readback = device->createBuffer(
+      {.size = byteCount, .usage = BufferUsage::TransferDst, .memory = MemoryUsage::GpuToCpu, .debugName = "readback"});
+  // Each graphics pipeline, at its place in the batch, draws the triangle over the centre.
+  for (const std::size_t index : {std::size_t{0}, std::size_t{2}, std::size_t{3}}) {
+    ICommandList &commands = device->beginFrame();
+    test::transition(commands, test::toColorAttachment(target));
+    const ColorAttachment attachment{.image = target, .clearColor = {0.0f, 0.0f, 0.0f, 1.0f}};
+    commands.beginRendering({.colors = {&attachment, 1}});
+    commands.bindPipeline(pipelines[index]);
+    const glm::vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
+    commands.pushConstants(std::as_bytes(std::span{&tint, 1}));
+    commands.draw(3);
+    commands.endRendering();
+    test::transition(commands, test::colorToTransferSrc(target));
+    commands.copyImageToBuffer(target, readback);
+    device->endFrame();
+    device->waitIdle();
+    const Pixel centre = pixelAt(device->mappedRange(readback), size, size.x / 2, size.y / 2);
+    CAPTURE(index);
+    REQUIRE(centre.r + centre.g + centre.b > 200);
+    const Pixel corner = pixelAt(device->mappedRange(readback), size, 0, 0);
+    REQUIRE(corner.r + corner.g + corner.b == 0);
+  }
+
+  // A stale shader anywhere in the batch is refused before anything is built.
+  const std::vector<PipelineDesc> stale{descs[0], descs[1]};
+  REQUIRE_THROWS_AS(device->createPipelines(stale, &jobs), sonnet::core::Exception);
+
+  device->destroyBuffer(readback);
+  device->destroyImage(target);
+  for (std::size_t i = 0; i < pipelines.size(); ++i) {
+    device->destroyPipeline(pipelines[i]);
+    device->destroyPipeline(serial[i]);
+  }
   device->destroyShader(shader);
 }
 

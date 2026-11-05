@@ -604,13 +604,13 @@ private:
   // Every pipeline is recorded with the module it comes from, so a reload rebuilds it.
   struct PipelineSlot {
     std::string shader;
-    std::variant<rhi::GraphicsPipelineDesc, rhi::ComputePipelineDesc> desc;
+    rhi::PipelineDesc desc;
     rhi::PipelineHandle *target;
   };
 
   void defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc);
   void defineCompute(rhi::PipelineHandle &target, std::string shader, const char *entry, const char *name);
-  [[nodiscard]] rhi::PipelineHandle createPipeline(const PipelineSlot &slot, rhi::ShaderHandle shader);
+  [[nodiscard]] static rhi::PipelineDesc pipelineDesc(const PipelineSlot &slot, rhi::ShaderHandle shader);
   void createPipelines(const std::filesystem::path &shaderDir);
   void createDefaults();
   std::uint32_t materialSampler(const TextureSampler &desc);

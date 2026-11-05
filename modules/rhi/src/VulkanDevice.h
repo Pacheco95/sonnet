@@ -59,6 +59,7 @@ public:
   void destroyShader(ShaderHandle handle) override;
   PipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc &desc) override;
   PipelineHandle createComputePipeline(const ComputePipelineDesc &desc) override;
+  std::vector<PipelineHandle> createPipelines(std::span<const PipelineDesc> descs, core::JobSystem *jobs) override;
   void destroyPipeline(PipelineHandle handle) override;
 
   bool isValid(BufferHandle handle) const override;
