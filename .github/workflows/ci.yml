@@ -22,11 +22,19 @@ jobs:
         run: python3 tools/check_dependencies.py
       - name: Check that vcpkg.json mirrors the CMake project version
         run: python3 tools/check_version.py
-      - name: Check formatting
+      # clang-format 20 alone from apt.llvm.org, without recommends (docs/build.md, "Linux packages").
+      - name: Install clang-format 20
         run: |
-          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
-          sudo apt-get install -y clang-format-20
-          git ls-files '*.h' '*.cpp' | xargs clang-format-20 --dry-run --Werror
+          sudo install -d -m 0755 /etc/apt/keyrings
+          sudo wget -qO /etc/apt/keyrings/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.gpg.key
+          codename=$(lsb_release -cs)
+          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-20 main" \
+            | sudo tee /etc/apt/sources.list.d/apt.llvm.org.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-format-20
+          clang-format-20 --version
+      - name: Check formatting
+        run: git ls-files '*.h' '*.cpp' | xargs clang-format-20 --dry-run --Werror
       - name: Check commit messages
         if: github.event_name == 'pull_request'
         run: |
@@ -47,6 +55,8 @@ jobs:
         # `cache` names the job's vcpkg binary cache group. vcpkg builds every port in Debug and Release
         # whatever CMAKE_BUILD_TYPE is, and the sanitizer flags do not reach the ports, so the jobs that
         # share a triplet and a compiler share a group.
+        # `llvm` lists the LLVM 20 packages a Linux job installs from apt.llvm.org, `tidy` adds clang-tidy 20
+        # on pull requests, and `lavapipe: false` leaves Mesa out (docs/build.md, "Linux packages").
         include:
           - name: Linux GCC
             cache: linux-gcc
@@ -60,18 +70,23 @@ jobs:
             preset: linux-debug
             cc: clang-20
             cxx: clang++-20
+            llvm: clang-20 llvm-20
+            tidy: true
           - name: Linux ASan
             cache: linux-clang
             os: ubuntu-24.04
             preset: linux-asan
             cc: clang-20
             cxx: clang++-20
+            llvm: clang-20 llvm-20 libclang-rt-20-dev
           - name: Linux TSan
             cache: linux-tsan
             os: ubuntu-24.04
             preset: linux-tsan
             cc: clang-20
             cxx: clang++-20
+            llvm: clang-20 llvm-20 libclang-rt-20-dev
+            lavapipe: false
           - name: Windows MSVC
             cache: windows-msvc
             os: windows-latest
@@ -100,6 +115,7 @@ jobs:
             build-type: Release
             cc: clang-20
             cxx: clang++-20
+            llvm: clang-20 llvm-20
           - name: Windows MSVC Release
             cache: windows-msvc
             os: windows-latest
@@ -125,21 +141,95 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Linux packages
+      # Linux packages (docs/build.md, "Linux packages"): each job installs what it uses, in steps of their own
+      # so each one's time shows. Mesa comes from the kisak PPA, recent enough for Lavapipe to expose Vulkan
+      # 1.4, in every job but TSan, whose test preset runs with no Vulkan driver. Only the Clang jobs add
+      # apt.llvm.org, because Clang 18 with libstdc++ hides std::expected (docs/build.md, "Toolchains"). The
+      # sources are added without an index update of their own, so apt reads the indexes once.
+      - name: Add the Linux package sources
         if: runner.os == 'Linux'
+        env:
+          LAVAPIPE: ${{ matrix.lavapipe }}
+          LLVM: ${{ matrix.llvm }}
         run: |
-          # kisak-mesa carries a Mesa recent enough for Lavapipe to expose Vulkan 1.4. Clang comes from
-          # apt.llvm.org because Clang 18 with libstdc++ hides std::expected (docs/build.md, "Toolchains").
-          sudo add-apt-repository -y ppa:kisak/kisak-mesa
-          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
+          if [ "$LAVAPIPE" != false ]; then
+            sudo add-apt-repository -y --no-update ppa:kisak/kisak-mesa
+          fi
+          if [ -n "$LLVM" ]; then
+            sudo install -d -m 0755 /etc/apt/keyrings
+            sudo wget -qO /etc/apt/keyrings/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.gpg.key
+            codename=$(lsb_release -cs)
+            echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-20 main" \
+              | sudo tee /etc/apt/sources.list.d/apt.llvm.org.list
+          fi
           sudo apt-get update
-          sudo apt-get install -y ninja-build gcc-14 g++-14 clang-20 clang-tidy-20 libvulkan1 mesa-vulkan-drivers vulkan-tools \
+
+      # GCC 14 is the GCC jobs' compiler and the libstdc++ 14 Clang picks up on its own. SDL3 and miniaudio
+      # compile against the system's window and audio headers.
+      - name: Install the Linux packages
+        if: runner.os == 'Linux'
+        env:
+          LAVAPIPE: ${{ matrix.lavapipe }}
+        run: |
+          mesa=
+          if [ "$LAVAPIPE" != false ]; then
+            mesa="mesa-vulkan-drivers vulkan-tools"
+          fi
+          sudo apt-get install -y ninja-build gcc-14 g++-14 libvulkan1 $mesa \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
             libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl-dev libdrm-dev libgbm-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
-          # Vulkan tests run on Lavapipe; tests that need a window use SDL's offscreen driver.
-          echo "VK_DRIVER_FILES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)" >> "$GITHUB_ENV"
-          VK_DRIVER_FILES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1) vulkaninfo --summary | grep -E 'apiVersion|deviceName' || true
+
+      # Without recommends, which for clang-20 are llvm-20-dev and clang-tools-20, used by no job. llvm-20
+      # holds the llvm-ar-20 and llvm-ranlib-20 CMake picks for Clang, and the llvm-symbolizer-20 the
+      # sanitizer runtimes run to name a report's frames, which tools/tsan.supp matches. The sanitizer jobs
+      # add libclang-rt-20-dev, the runtimes, which clang-20 only recommends; the clang-tidy step's job adds
+      # clang-tidy 20 on pull requests, the only time that step runs.
+      - name: Install LLVM 20
+        if: matrix.llvm
+        env:
+          LLVM: ${{ matrix.llvm }}
+          TIDY: ${{ matrix.tidy && github.event_name == 'pull_request' }}
+        run: |
+          packages="$LLVM"
+          if [ "$TIDY" = true ]; then
+            packages="$packages clang-tidy-20"
+          fi
+          sudo apt-get install -y --no-install-recommends $packages
+
+      # Vulkan tests run on Lavapipe; tests that need a window use SDL's offscreen driver. A Vulkan test
+      # skips itself without a device, so the job stops here if Lavapipe is missing or below 1.4 rather
+      # than pass with the GPU cases skipped.
+      - name: Select Lavapipe and print the tool versions
+        if: runner.os == 'Linux'
+        env:
+          LAVAPIPE: ${{ matrix.lavapipe }}
+          LLVM: ${{ matrix.llvm }}
+        run: |
+          echo "ninja $(ninja --version)"
+          "$CC" --version | head -1
+          if [ "$CC" != gcc-14 ]; then
+            gcc-14 --version | head -1
+            "$CXX" -v -E -x c++ /dev/null 2>&1 | grep 'Selected GCC installation' || true
+          fi
+          if command -v clang-tidy-20 > /dev/null; then
+            clang-tidy-20 --version | grep version
+          fi
+          dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' \
+            $LLVM clang-tidy-20 libllvm20 mesa-vulkan-drivers 2> /dev/null | grep '^ii' || true
+          if [ "$LAVAPIPE" = false ]; then
+            echo "No Lavapipe: the ${{ matrix.preset }} test preset runs with no Vulkan driver"
+            exit 0
+          fi
+          icd=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
+          summary=$(VK_DRIVER_FILES="$icd" vulkaninfo --summary 2>&1) || true
+          grep -E 'apiVersion|driverInfo|deviceName' <<< "$summary" || true
+          if ! grep -qE 'deviceName += llvmpipe' <<< "$summary" || ! grep -qE 'apiVersion += 1\.4\.' <<< "$summary"; then
+            echo "::error::Lavapipe ($icd) gives no Vulkan 1.4 device"
+            echo "$summary"
+            exit 1
+          fi
 
       - name: Install macOS packages
         if: runner.os == 'macOS'
@@ -380,7 +470,7 @@ jobs:
           if-no-files-found: warn
 
       - name: clang-tidy on changed files
-        if: matrix.name == 'Linux Clang' && github.event_name == 'pull_request'
+        if: matrix.tidy && github.event_name == 'pull_request'
         run: |
           git fetch origin "${{ github.event.pull_request.base.sha }}"
           files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD -- '*.cpp' | grep -E '^(modules|apps)/' || true)
