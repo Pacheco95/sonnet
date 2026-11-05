@@ -116,6 +116,9 @@ if(TARGET editor_tests)
     set_tests_properties(editor_tests_1 editor_tests_2 PROPERTIES
       ENVIRONMENT_MODIFICATION "LD_LIBRARY_PATH=unset:;SDL_VULKAN_LIBRARY=unset:")
   endif()
+  # Lavapipe, the CPU Vulkan driver CI renders with, starts a raster thread per CPU in each process, so the two
+  # shards side by side oversubscribe a 4-CPU runner. Two threads each fills it without the contention.
+  set_property(TEST editor_tests_1 editor_tests_2 APPEND PROPERTY ENVIRONMENT_MODIFICATION "LP_NUM_THREADS=set:2")
   sonnet_add_engine_shaders(editor_tests)
   sonnet_copy_slang_runtime(editor_tests)
   target_compile_definitions(editor_tests PRIVATE SONNET_ENGINE_SHADER_DIR="${SONNET_ENGINE_SHADER_DIR}")
