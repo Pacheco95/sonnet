@@ -142,10 +142,14 @@ void LogPanel::draw(bool &open) {
   }
 
   constexpr const char *levels[] = {"trace", "debug", "info", "warn", "error", "critical"};
-  ImGui::SetNextItemWidth(ui::em(6.5f));
+  ui::setNextFieldWidth(ui::FieldWidth::Standard);
   ImGui::Combo("##level", &m_minimumLevel, levels, IM_ARRAYSIZE(levels));
   ImGui::SameLine();
-  ImGui::SetNextItemWidth(-ui::em(11.5f));
+  // The filter fills the row up to the scroll checkbox and the clear button after it.
+  const ImGuiStyle &style = ImGui::GetStyle();
+  const float trailing = ImGui::GetFrameHeight() + style.ItemInnerSpacing.x + ImGui::CalcTextSize("scroll").x +
+                         ImGui::CalcTextSize("clear").x + 2.0f * style.FramePadding.x + 2.0f * style.ItemSpacing.x;
+  ImGui::SetNextItemWidth(-trailing);
   ImGui::InputTextWithHint("##filter", "filter", &m_filter);
   ImGui::SameLine();
   ImGui::Checkbox("scroll", &m_autoScroll);
@@ -200,7 +204,7 @@ void LogPanel::draw(bool &open) {
         }
         ImGui::PushStyleColor(ImGuiCol_Text, levelColor(entry.level));
       } else {
-        ImGui::TextDisabled("%s", location.c_str());
+        ui::mutedText("%s", location.c_str());
       }
       ImGui::SameLine();
       ImGui::TextUnformatted(entry.message.c_str());

@@ -80,6 +80,65 @@ enum class Status {
 // A message in the colour of its status, wrapped at the right edge of the space it is drawn in unless `wrap` is off.
 void statusText(Status status, std::string_view message, bool wrap = true);
 
+// -- Text roles --------------------------------------------------------------------------------------------------
+
+// A hint, a caption or a read-only value, in the theme's `textDisabled`. Formatted as ImGui::Text.
+void mutedText(const char *format, ...) IM_FMTARGS(1);
+
+// Text in the theme's `accent`, which marks state: a value that differs from the prefab.
+void markedText(std::string_view text);
+
+enum class TreeRow {
+  Normal,
+  // In the theme's `textDisabled`: a row shown only for what is below it, such as an ancestor of a filter's match.
+  Dimmed,
+};
+
+// ImGui::TreeNodeEx with `id` as the item's ID and `label` as its text, drawn in the colour of `row`. Returns whether
+// the node is open; the caller pops it as for TreeNodeEx.
+[[nodiscard]] bool treeNode(const char *id, ImGuiTreeNodeFlags flags, const char *label, TreeRow row = TreeRow::Normal);
+
+// -- Section header ----------------------------------------------------------------------------------------------
+
+// A collapsible section's header (a component, a clip): a flat band in the theme's `sectionHeader` colours, with no
+// frame outline. ImGuiCol_Header is also the selected rows' colour, which stays `highlight` outside the header.
+// Arguments and result as ImGui::CollapsingHeader's.
+[[nodiscard]] bool sectionHeader(const char *label, bool *open = nullptr, ImGuiTreeNodeFlags flags = 0);
+
+// -- Row action button -------------------------------------------------------------------------------------------
+
+// A small button for an action on the row it is drawn in: add, remove, revert, reorder, apply a preset. Its label is
+// a verb or a name in sentence case ("Add", "Remove", "Revert", "Up", "Down", "Revert to prefab"). Returns whether it
+// was clicked.
+[[nodiscard]] bool rowButton(const char *label);
+
+// -- Field widths ------------------------------------------------------------------------------------------------
+
+enum class FieldWidth {
+  Narrow,   // a short number: a time, a tile size (`narrowFieldWidth`)
+  Standard, // a number, a name, a combo of short choices (`fieldWidth`)
+  Wide,     // a filter or a longer text (`wideFieldWidth`)
+};
+
+// The width of the next item, from the theme's tokens in text heights (`ui::em`), so it follows the font and the
+// display scale. A field that fills the row keeps ImGui::SetNextItemWidth(-1).
+void setNextFieldWidth(FieldWidth width);
+
+// -- Spacing -----------------------------------------------------------------------------------------------------
+
+// The break between two sections of a panel: a separator with the theme's `sectionGap` above and below it. A menu's
+// separator stays ImGui::Separator.
+void sectionBreak();
+
+// The theme's `groupGap` above a group that closes a section, such as its row of buttons.
+void groupBreak();
+
+// -- Full-bleed window -------------------------------------------------------------------------------------------
+
+// ImGui::Begin for a window filled by an image (the Viewport and Game panels): no padding, and no scrolling, so the
+// wheel is the view's. Like Begin, ImGui::End is called whatever this returned.
+bool beginFullBleedWindow(const char *name, bool *open);
+
 // -- Property table ----------------------------------------------------------------------------------------------
 
 // A table of one property: its name in a column of `propertyLabelWidth`, its value stretching over the rest and, with

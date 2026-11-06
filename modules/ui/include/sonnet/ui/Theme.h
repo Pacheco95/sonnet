@@ -50,8 +50,8 @@ struct Theme {
   ImVec4 warning{rgba8(0xf0, 0xb4, 0x4c)}; // a warning shown in a panel
   ImVec4 stop{rgba8(0xb3, 0x37, 0x2d)};    // the Stop button while playing, and a destructive dialog button
   ImVec4 paused{rgba8(0x8a, 0x5a, 0x00)};  // the Resume button while paused
-  // The inspector's component headers: a flat grey band, which `InspectorPanel` pushes over the ImGuiCol_Header slots
-  // (the selected rows keep `highlight`).
+  // A collapsible section's header (`ui::sectionHeader`): a flat grey band pushed over the ImGuiCol_Header slots (the
+  // selected rows keep `highlight`).
   ImVec4 sectionHeader{rgba8(0x2a, 0x2a, 0x2f)};
   ImVec4 sectionHeaderHovered{rgba8(0x33, 0x33, 0x39)};
   ImVec4 sectionHeaderActive{rgba8(0x3c, 0x3c, 0x43)};
@@ -113,6 +113,13 @@ struct Theme {
   float propertyLabelWidth{90.0f};     // the name column of the inspector's property tables
   float propertyRevertWidth{50.0f};    // the revert column of a script property
   float overlayInset{8.0f};            // from the corner of a view to an overlay drawn in it
+  float sectionGap{4.0f};              // above and below the separator between two sections (`ui::sectionBreak`)
+  float groupGap{4.0f};                // above a group that closes a section (`ui::groupBreak`)
+
+  // Field widths in text heights (`ui::em`, which follows the font and so the display scale); `ui::setNextFieldWidth`.
+  float narrowFieldWidth{5.5f}; // a short number: a time, a tile size
+  float fieldWidth{8.5f};       // a number, a name, a combo of short choices
+  float wideFieldWidth{11.5f};  // a filter or a longer text
 };
 
 // Overwrites `style` with the theme's, from the base values every time, so a change of scale never compounds the

@@ -33,20 +33,6 @@ namespace sonnet::editor {
 
 namespace {
 
-// An inspector section's collapsing header, a flat grey band: ImGuiCol_Header is also the selected
-// rows' colour, which stays the theme's highlight.
-bool sectionHeader(const char *label, bool *open = nullptr, ImGuiTreeNodeFlags flags = 0) {
-  const ui::Theme &theme = ui::currentTheme();
-  ImGui::PushStyleColor(ImGuiCol_Header, theme.sectionHeader);
-  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme.sectionHeaderHovered);
-  ImGui::PushStyleColor(ImGuiCol_HeaderActive, theme.sectionHeaderActive);
-  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-  const bool opened = ImGui::CollapsingHeader(label, open, flags);
-  ImGui::PopStyleVar();
-  ImGui::PopStyleColor(3);
-  return opened;
-}
-
 constexpr float DragSpeed = 0.01f;
 constexpr float AngleDragSpeed = 0.5f; // degrees
 
@@ -161,12 +147,12 @@ InspectorPanel::ScalarWidget InspectorPanel::scalarWidget(const flecs::world &wo
 void InspectorPanel::drawScript(const assets::AssetInfo &info) {
   const assets::ScriptSource *source = m_assets.script(info.uuid);
   if (source == nullptr) {
-    ImGui::TextDisabled("(unreadable)");
+    ui::mutedText("(unreadable)");
     return;
   }
   const auto lines = std::ranges::count(source->code, '\n');
   ImGui::Text("Lua, %td lines", lines);
-  ImGui::TextDisabled("Changes reload into the running game.");
+  ui::mutedText("Changes reload into the running game.");
   if (m_open && ImGui::Button("Edit")) {
     m_open(info.source.string(), 1);
   }
@@ -212,15 +198,15 @@ void InspectorPanel::draw(bool &open, core::Uuid asset) {
 void InspectorPanel::drawSelection(flecs::entity entity) {
   if (entity) {
     if (m_selection.items().size() > 1) {
-      ImGui::TextDisabled("%zu selected, showing the last", m_selection.items().size());
+      ui::mutedText("%zu selected, showing the last", m_selection.items().size());
     }
     m_materialEdit.reset();
     drawEntity(entity);
   } else if (!m_selection.empty()) {
-    ImGui::TextDisabled("The selection no longer exists");
+    ui::mutedText("The selection no longer exists");
     m_edit.reset();
   } else {
-    ImGui::TextDisabled("Nothing selected");
+    ui::mutedText("Nothing selected");
     m_edit.reset();
     m_materialEdit.reset();
   }
@@ -247,7 +233,7 @@ bool InspectorPanel::drawAssetPicker(core::Uuid &value, std::optional<assets::As
     ImGui::EndDragDropTarget();
   }
   if (ImGui::BeginPopup("pick asset")) {
-    ImGui::SetNextItemWidth(ui::em(15.5f));
+    ui::setNextFieldWidth(ui::FieldWidth::Wide);
     ImGui::InputTextWithHint("##filter", "filter", &m_pickerFilter);
     if (ImGui::Selectable("(none)", value.isNil()) && !value.isNil()) {
       value = {};
@@ -272,27 +258,27 @@ bool InspectorPanel::drawAssetPicker(core::Uuid &value, std::optional<assets::As
 void InspectorPanel::drawAsset(core::Uuid uuid) {
   const assets::AssetInfo *info = m_assets.find(uuid);
   if (info == nullptr) {
-    ImGui::TextDisabled("The asset no longer exists");
+    ui::mutedText("The asset no longer exists");
     m_materialEdit.reset();
     return;
   }
   ImGui::Text("%s", info->name.c_str());
   const std::string_view type = assets::toString(info->type);
-  ImGui::TextDisabled("%.*s", static_cast<int>(type.size()), type.data());
+  ui::mutedText("%.*s", static_cast<int>(type.size()), type.data());
   const std::string source = info->source == "builtin"
                                  ? std::string{"built-in"}
                                  : info->source.lexically_relative(m_assets.projectRoot()).generic_string();
   {
     const ScopedMono mono;
-    ImGui::TextDisabled("%s", source.c_str());
-    ImGui::TextDisabled("%s", uuid.toString().c_str());
+    ui::mutedText("%s", source.c_str());
+    ui::mutedText("%s", uuid.toString().c_str());
   }
   if (info->source != "builtin" && ImGui::Button("Reimport")) {
     if (const auto result = m_assets.reimport(uuid); !result) {
       SONNET_LOG_ERROR("{}", result.error().toString());
     }
   }
-  ImGui::Separator();
+  ui::sectionBreak();
   switch (info->type) {
   case assets::AssetType::Material:
     drawMaterial(*info);
@@ -313,7 +299,7 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
         ImGui::TextUnformatted(label.c_str());
       }
     } else {
-      ImGui::TextDisabled("(not loaded)");
+      ui::mutedText("(not loaded)");
     }
     break;
   }
@@ -327,7 +313,7 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
     }
     break;
   case assets::AssetType::Environment:
-    ImGui::TextDisabled(m_assets.environment(uuid) ? "loaded" : "not loaded");
+    ui::mutedText(m_assets.environment(uuid) ? "loaded" : "not loaded");
     break;
   case assets::AssetType::Sound:
     drawSound(*info);
@@ -339,17 +325,17 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
     if (const assets::Skin *skin = m_assets.skin(uuid)) {
       ImGui::Text("%zu joints", skin->joints.size());
       for (const std::string &joint : skin->joints) {
-        ImGui::TextDisabled("%s", joint.c_str());
+        ui::mutedText("%s", joint.c_str());
       }
     } else {
-      ImGui::TextDisabled("(not loaded)");
+      ui::mutedText("(not loaded)");
     }
     break;
   case assets::AssetType::Animation:
     if (const assets::AnimationClip *clip = m_assets.animation(uuid)) {
       ImGui::Text("%.2f s, %zu channels", static_cast<double>(clip->duration), clip->channels.size());
     } else {
-      ImGui::TextDisabled("(not loaded)");
+      ui::mutedText("(not loaded)");
     }
     break;
   }
@@ -358,17 +344,17 @@ void InspectorPanel::drawAsset(core::Uuid uuid) {
 void InspectorPanel::drawFont(const assets::AssetInfo &info) {
   const assets::FontSource *font = m_assets.font(info.uuid);
   if (font == nullptr) {
-    ImGui::TextDisabled("(cannot be read)");
+    ui::mutedText("(cannot be read)");
     return;
   }
   ImGui::Text("%zu bytes", font->bytes.size());
   // The sidecar's list, rasterised when the font loads; it is edited in the .meta file.
   ImGui::TextUnformatted("Preloaded codepoints");
   for (const assets::GlyphRange &range : font->preload) {
-    ImGui::TextDisabled("U+%04X to U+%04X", range.first, range.last);
+    ui::mutedText("U+%04X to U+%04X", range.first, range.last);
   }
   if (font->preload.empty()) {
-    ImGui::TextDisabled("none: every glyph is rasterised when first drawn");
+    ui::mutedText("none: every glyph is rasterised when first drawn");
   }
 }
 
@@ -378,7 +364,7 @@ void InspectorPanel::drawSound(const assets::AssetInfo &info) {
   }
   const std::optional<audio::SoundInfo> sound = m_audio->soundInfo(info.uuid);
   if (!sound) {
-    ImGui::TextDisabled("(cannot be decoded)");
+    ui::mutedText("(cannot be decoded)");
     return;
   }
   ImGui::Text("%.2f s, %u channels, %u Hz", static_cast<double>(sound->duration), sound->channels, sound->sampleRate);
@@ -394,7 +380,7 @@ void InspectorPanel::drawSound(const assets::AssetInfo &info) {
 void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   const assets::MaterialSource *current = m_assets.materialSource(info.uuid);
   if (current == nullptr) {
-    ImGui::TextDisabled("(failed to load)");
+    ui::mutedText("(failed to load)");
     return;
   }
   if (m_materialEdit && m_materialEdit->material != info.uuid) {
@@ -523,7 +509,7 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
       }
     }
   }
-  ImGui::Separator();
+  ui::groupBreak();
   if (info.parent.isNil()) {
     if (ImGui::Button("Save")) {
       if (const auto saved = m_assets.saveMaterial(info.uuid); !saved) {
@@ -531,13 +517,13 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
       }
     }
   } else {
-    ImGui::TextDisabled("A glTF material: edits are not written back to the file");
+    ui::mutedText("A glTF material: edits are not written back to the file");
   }
 }
 
 void InspectorPanel::drawTexture(const assets::AssetInfo &info) {
   if (!info.parent.isNil()) {
-    ImGui::TextDisabled("An image inside a glTF file: its colour space follows the materials");
+    ui::mutedText("An image inside a glTF file: its colour space follows the materials");
     return;
   }
   const assets::TextureSettings before = m_assets.textureSettings(info.uuid);
@@ -567,7 +553,7 @@ void InspectorPanel::drawModel(const assets::AssetInfo &info) {
     }
     ImGui::EndTabBar();
   }
-  ImGui::Separator();
+  ui::sectionBreak();
 }
 
 void InspectorPanel::drawModelLights(const assets::AssetInfo &info) {
@@ -575,7 +561,7 @@ void InspectorPanel::drawModelLights(const assets::AssetInfo &info) {
   assets::ModelSettings settings = before;
   // Typed, so one command per edit rather than a re-import for every step of a drag. A scale the
   // sidecar would not accept (negative, not finite) is dropped, as reading it back would.
-  ImGui::SetNextItemWidth(ui::em(8.5f));
+  ui::setNextFieldWidth(ui::FieldWidth::Standard);
   ImGui::InputFloat("Light scale", &settings.lightScale, 0.0f, 0.0f, "%.6g");
   if (ImGui::IsItemDeactivatedAfterEdit() && settings != before) {
     if (std::isfinite(settings.lightScale) && settings.lightScale >= 0.0f) {
@@ -584,13 +570,13 @@ void InspectorPanel::drawModelLights(const assets::AssetInfo &info) {
   }
   for (const auto &[label, scale] :
        {std::pair{"Blender", assets::ModelSettings::BlenderLightScale}, std::pair{"Photometric", 1.0f}}) {
-    if (ImGui::SmallButton(label) && scale != before.lightScale) {
+    if (ui::rowButton(label) && scale != before.lightScale) {
       settings.lightScale = scale;
       m_commands.push(modelSettingsCommand(m_assets, info.uuid, before, settings), m_world);
     }
     ImGui::SameLine();
   }
-  ImGui::TextDisabled("scales the lights' intensities");
+  ui::mutedText("scales the lights' intensities");
 }
 
 const std::vector<assets::GltfAnimationInfo> &InspectorPanel::modelAnimations(const assets::AssetInfo &info) {
@@ -610,20 +596,20 @@ const std::vector<assets::GltfAnimationInfo> &InspectorPanel::modelAnimations(co
 void InspectorPanel::drawModelAnimations(const assets::AssetInfo &info) {
   const std::vector<assets::GltfAnimationInfo> &animations = modelAnimations(info);
   if (animations.empty()) {
-    ImGui::TextDisabled("no animations");
+    ui::mutedText("no animations");
     return;
   }
   const assets::ModelSettings before = m_assets.modelSettings(info.uuid);
   for (std::size_t a = 0; a < animations.size(); ++a) {
     const assets::GltfAnimationInfo &animation = animations[a];
     ImGui::PushID(static_cast<int>(a));
-    if (sectionHeader(animation.name.c_str())) {
+    if (ui::sectionHeader(animation.name.c_str())) {
       // The duration is the loaded clip's, which counts the sidecar's events too.
       const core::Uuid clip = core::Uuid::derive(info.uuid, std::format("animation/{}", a));
       if (const assets::AnimationClip *loaded = m_assets.requestAnimation(clip)) {
-        ImGui::TextDisabled("%.3g s", static_cast<double>(loaded->duration));
+        ui::mutedText("%.3g s", static_cast<double>(loaded->duration));
       } else {
-        ImGui::TextDisabled("loading");
+        ui::mutedText("loading");
       }
 
       // The sidecar's events, edited in place: one command per field left, kept sorted by time.
@@ -641,24 +627,24 @@ void InspectorPanel::drawModelAnimations(const assets::AssetInfo &info) {
       for (std::size_t e = 0; e < events.size(); ++e) {
         assets::AnimationEvent &event = events[e];
         ImGui::PushID(static_cast<int>(e));
-        ImGui::SetNextItemWidth(ui::em(5.0f));
+        ui::setNextFieldWidth(ui::FieldWidth::Narrow);
         ImGui::InputFloat("##time", &event.time, 0.0f, 0.0f, "%.3g");
         changed = ImGui::IsItemDeactivatedAfterEdit() || changed;
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(ui::em(8.0f));
+        ui::setNextFieldWidth(ui::FieldWidth::Standard);
         ImGui::InputTextWithHint("##name", "name", &event.name);
         changed = ImGui::IsItemDeactivatedAfterEdit() || changed;
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(ui::em(8.0f));
+        ui::setNextFieldWidth(ui::FieldWidth::Standard);
         ImGui::InputTextWithHint("##argument", "argument", &event.argument);
         changed = ImGui::IsItemDeactivatedAfterEdit() || changed;
         ImGui::SameLine();
-        if (ImGui::SmallButton("remove")) {
+        if (ui::rowButton("Remove")) {
           removed = e;
         }
         ImGui::PopID();
       }
-      if (ImGui::SmallButton("add")) {
+      if (ui::rowButton("Add")) {
         // After the last event, so the list stays in order; a name, so the sidecar keeps it.
         events.push_back({.time = events.empty() ? 0.0f : events.back().time, .name = "event", .argument = {}});
         changed = true;
@@ -691,7 +677,7 @@ void InspectorPanel::drawModelAnimations(const assets::AssetInfo &info) {
           });
           const std::string line =
               std::format("{:.3g}  {}  {}{}", event.time, event.name, event.argument, replaced ? "  (replaced)" : "");
-          ImGui::TextDisabled("%s", line.c_str());
+          ui::mutedText("%s", line.c_str());
         }
       }
     }
@@ -707,16 +693,16 @@ void InspectorPanel::drawEntity(flecs::entity entity) {
   drawName(entity);
   const flecs::entity source = m_world.sourceOf(entity);
   if (const flecs::entity instance = m_world.instanceOf(entity)) {
-    ImGui::TextDisabled("Part of %s", instance.get<world::Name>().value.c_str());
+    ui::mutedText("Part of %s", instance.get<world::Name>().value.c_str());
   } else if (const flecs::entity prefab = m_world.prefabOf(entity)) {
     const world::Name *name = prefab.try_get<world::Name>();
-    ImGui::TextDisabled("Instance of %s", name != nullptr ? name->value.c_str() : "prefab");
+    ui::mutedText("Instance of %s", name != nullptr ? name->value.c_str() : "prefab");
   }
   {
     const ScopedMono mono;
-    ImGui::TextDisabled("%s", uuid.toString().c_str());
+    ui::mutedText("%s", uuid.toString().c_str());
   }
-  ImGui::Separator();
+  ui::sectionBreak();
   for (const world::ComponentInfo &info : m_world.components()) {
     if (entity.has(info.id)) {
       drawComponent(entity, source, info);
@@ -725,7 +711,7 @@ void InspectorPanel::drawEntity(flecs::entity entity) {
   if (source) {
     drawRemovedComponents(entity, source);
   }
-  ImGui::Spacing();
+  ui::groupBreak();
   drawAddComponent(entity);
 }
 
@@ -770,7 +756,7 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
   // The transform is structural: every scene entity has one and it cannot be removed.
   bool keep = true;
   const bool opened =
-      sectionHeader(label.c_str(), info.name == "Transform" ? nullptr : &keep, ImGuiTreeNodeFlags_DefaultOpen);
+      ui::sectionHeader(label.c_str(), info.name == "Transform" ? nullptr : &keep, ImGuiTreeNodeFlags_DefaultOpen);
   if (!keep) {
     const nlohmann::json before = info.tag ? nlohmann::json{} : m_world.componentToJson(entity, info.id);
     m_commands.push(componentCommand(uuid, info.name, std::make_optional(before), std::nullopt,
@@ -779,7 +765,7 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
     ImGui::PopID();
     return;
   }
-  if (opened && changed && ImGui::SmallButton("Revert to prefab")) {
+  if (opened && changed && ui::rowButton("Revert to prefab")) {
     const nlohmann::json before = info.tag ? nlohmann::json{} : m_world.componentToJson(entity, info.id);
     std::optional<nlohmann::json> after;
     if (source && source.has(info.id)) {
@@ -864,9 +850,9 @@ void InspectorPanel::drawRemovedComponents(flecs::entity entity, flecs::entity s
       continue;
     }
     ImGui::PushID(info.name.c_str());
-    ImGui::TextDisabled("%s (removed)", info.name.c_str());
+    ui::mutedText("%s (removed)", info.name.c_str());
     ImGui::SameLine();
-    if (ImGui::SmallButton("Restore")) {
+    if (ui::rowButton("Restore")) {
       m_commands.push(
           componentCommand(m_world.uuidOf(entity), info.name, std::nullopt,
                            std::make_optional(info.tag ? nlohmann::json{} : m_world.componentToJson(source, info.id)),
@@ -929,19 +915,19 @@ void InspectorPanel::drawScripts(flecs::entity entity, const scripting::Scripts 
   for (std::size_t i = 0; i < edited.slots.size(); ++i) {
     scripting::ScriptSlot &slot = edited.slots[i];
     ImGui::PushID(static_cast<int>(i));
-    ImGui::Separator();
+    ui::sectionBreak();
     ImGui::AlignTextToFramePadding();
     ImGui::Text("%zu", i + 1);
     ImGui::SameLine();
-    if (ImGui::SmallButton("up") && i > 0) {
+    if (ui::rowButton("Up") && i > 0) {
       moved = {i, i - 1};
     }
     ImGui::SameLine();
-    if (ImGui::SmallButton("down") && i + 1 < edited.slots.size()) {
+    if (ui::rowButton("Down") && i + 1 < edited.slots.size()) {
       moved = {i, i + 1};
     }
     ImGui::SameLine();
-    if (ImGui::SmallButton("remove")) {
+    if (ui::rowButton("Remove")) {
       removed = i;
     }
     if (drawAssetPicker(slot.script, assets::AssetType::Script)) {
@@ -952,7 +938,7 @@ void InspectorPanel::drawScripts(flecs::entity entity, const scripting::Scripts 
     if (!slot.script.isNil() && m_scripts != nullptr) {
       const auto declared = m_scripts->properties(slot.script);
       if (!declared) {
-        ImGui::TextDisabled("%s", declared.error().message.c_str());
+        ui::mutedText("%s", declared.error().message.c_str());
       } else {
         for (const scripting::PropertyDecl &property : *declared) {
           ImGui::PushID(property.name.c_str());
@@ -960,7 +946,7 @@ void InspectorPanel::drawScripts(flecs::entity entity, const scripting::Scripts 
           ImGui::PopID();
         }
         for (const std::string &name : undeclaredProperties(slot, *declared)) {
-          ImGui::TextDisabled("%s: kept, the script does not declare it", name.c_str());
+          ui::mutedText("%s: kept, the script does not declare it", name.c_str());
         }
       }
     }
@@ -973,7 +959,7 @@ void InspectorPanel::drawScripts(flecs::entity entity, const scripting::Scripts 
     edited = moveSlot(std::move(edited), moved->first, moved->second);
     m_activated = m_deactivatedAfterEdit = true;
   }
-  ImGui::Separator();
+  ui::groupBreak();
   if (ImGui::Button("Add script", ImVec2{-1.0f, 0.0f})) {
     edited = appendSlot(std::move(edited), core::Uuid{});
     m_activated = m_deactivatedAfterEdit = true;
@@ -1081,7 +1067,7 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
   // To the script's default, or to the prefab slot's value; a menu when both apply.
   std::optional<bool> revertTo; // true: the prefab's value
   if (changedBefore && overridden) {
-    if (ImGui::SmallButton("revert")) {
+    if (ui::rowButton("Revert")) {
       ImGui::OpenPopup("revert to");
     }
     if (ImGui::BeginPopup("revert to")) {
@@ -1094,7 +1080,7 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
       ImGui::EndPopup();
     }
   } else if (changedBefore || overridden) {
-    if (ImGui::SmallButton("revert")) {
+    if (ui::rowButton("Revert")) {
       revertTo = overridden;
     }
     // One target: say which, since a property can differ from the default and follow the prefab.
@@ -1140,7 +1126,7 @@ bool InspectorPanel::drawEntityPicker(core::Uuid &value) {
     ImGui::EndDragDropTarget();
   }
   if (ImGui::BeginPopup("pick entity")) {
-    ImGui::SetNextItemWidth(ui::em(15.5f));
+    ui::setNextFieldWidth(ui::FieldWidth::Wide);
     ImGui::InputTextWithHint("##filter", "filter", &m_pickerFilter);
     if (ImGui::Selectable("(none)", value.isNil()) && !value.isNil()) {
       value = {};
@@ -1169,7 +1155,7 @@ bool InspectorPanel::drawEntityPicker(core::Uuid &value) {
 void InspectorPanel::drawStruct(flecs::entity type, void *data) {
   const flecs::Struct *layout = type.try_get<flecs::Struct>();
   if (layout == nullptr) {
-    ImGui::TextDisabled("(no reflection data)");
+    ui::mutedText("(no reflection data)");
     return;
   }
   const auto *members = ecs_vec_first_t(&layout->members, ecs_member_t);
@@ -1302,11 +1288,11 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
       break;
     case ScalarWidget::Entity: {
       const flecs::entity referenced{ecs, at<flecs::entity_t>(field, 0)};
-      ImGui::TextDisabled("%s", referenced.is_valid() ? referenced.name().c_str() : "(none)");
+      ui::mutedText("%s", referenced.is_valid() ? referenced.name().c_str() : "(none)");
       break;
     }
     case ScalarWidget::Unsupported:
-      ImGui::TextDisabled("(unsupported)");
+      ui::mutedText("(unsupported)");
       break;
     }
     track();
@@ -1325,11 +1311,11 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     m_overrides = level;
     overridden = nullptr;
   } else {
-    ImGui::TextDisabled("(unsupported)");
+    ui::mutedText("(unsupported)");
   }
   if (level != nullptr) {
     ImGui::TableNextColumn();
-    if (overridden != nullptr && ImGui::SmallButton("revert")) {
+    if (overridden != nullptr && ui::rowButton("Revert")) {
       m_revertMember = m_memberPath / member.name;
     }
     if (overridden != nullptr && ImGui::IsItemHovered()) {
@@ -1345,9 +1331,7 @@ void InspectorPanel::drawMemberLabel(const char *name, bool overridden) {
     return;
   }
   // The accent marks state: this value is the instance's own, not the prefab's.
-  ImGui::PushStyleColor(ImGuiCol_Text, ui::currentTheme().accent);
-  ImGui::TextUnformatted(name);
-  ImGui::PopStyleColor();
+  ui::markedText(name);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Differs from the prefab");
   }

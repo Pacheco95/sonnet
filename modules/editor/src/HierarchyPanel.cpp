@@ -233,13 +233,8 @@ void HierarchyPanel::drawNode(flecs::entity entity) {
   if (filtered && !children.empty()) {
     ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   }
-  if (ancestorOnly) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-  }
-  const bool opened = ImGui::TreeNodeEx("node", flags, "%s", label.c_str());
-  if (ancestorOnly) {
-    ImGui::PopStyleColor();
-  }
+  const bool opened =
+      ui::treeNode("node", flags, label.c_str(), ancestorOnly ? ui::TreeRow::Dimmed : ui::TreeRow::Normal);
   if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
     selectClicked(entity);
   }

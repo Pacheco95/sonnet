@@ -50,11 +50,8 @@ bool ViewportPanel::draw(bool &open, float dt, glm::vec2 lookDelta, StatisticsPa
                          const std::function<void()> &header) {
   m_view.camera.advanceTransition(dt);
   m_input = {};
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0.0f, 0.0f});
   // The image fills the window, so the wheel must not scroll it: it dollies the camera.
-  const bool visible =
-      ImGui::Begin("Viewport", &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-  ImGui::PopStyleVar();
+  const bool visible = ui::beginFullBleedWindow("Viewport", &open);
   if (!visible) {
     ImGui::End();
     resizeTarget({0, 0});

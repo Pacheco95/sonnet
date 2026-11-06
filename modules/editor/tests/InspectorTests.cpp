@@ -520,12 +520,12 @@ TEST_CASE("the model view's Animations tab edits a clip's sidecar events, with u
     REQUIRE(driver.hover(window, InspectorDriver::modelWidget("Model", "Light scale")));
     REQUIRE(driver.hover(window, InspectorDriver::modelTab("Animations"), 100.0f));
     driver.click();
-    REQUIRE_FALSE(driver.hover(window, InspectorDriver::clipWidget(0, "add"), 20.0f));
+    REQUIRE_FALSE(driver.hover(window, InspectorDriver::clipWidget(0, "Add"), 20.0f));
     REQUIRE(driver.hover(window, InspectorDriver::clipHeader(0, "Walk")));
     driver.click();
 
     // Adding an event is one command, written to the sidecar and merged into the clip.
-    REQUIRE(driver.hover(window, InspectorDriver::clipWidget(0, "add"), 20.0f));
+    REQUIRE(driver.hover(window, InspectorDriver::clipWidget(0, "Add"), 20.0f));
     driver.click();
     REQUIRE(commands.size() == 1);
     REQUIRE(sidecarEvents() == Events{{.time = 0.0f, .name = "event", .argument = {}}});
@@ -554,7 +554,7 @@ TEST_CASE("the model view's Animations tab edits a clip's sidecar events, with u
     REQUIRE(commands.size() == 4);
 
     // A second event goes after the first, and the list stays sorted when a time moves it ahead.
-    REQUIRE(driver.hover(window, InspectorDriver::clipWidget(0, "add"), 20.0f));
+    REQUIRE(driver.hover(window, InspectorDriver::clipWidget(0, "Add"), 20.0f));
     driver.click();
     REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 1, "##time"), 20.0f));
     driver.click();
@@ -564,7 +564,7 @@ TEST_CASE("the model view's Animations tab edits a clip's sidecar events, with u
 
     // Removing both leaves the sidecar without the clip, and the glTF's event comes back.
     for (int i = 0; i < 2; ++i) {
-      REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 0, "remove"), 320.0f));
+      REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 0, "Remove"), 350.0f));
       driver.click();
     }
     REQUIRE(commands.size() == 8);

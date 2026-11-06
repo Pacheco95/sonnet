@@ -1,5 +1,7 @@
 #include <sonnet/editor/GamePanel.h>
 
+#include <sonnet/ui/Widgets.h>
+
 namespace sonnet::editor {
 
 GamePanel::GamePanel(rhi::IDevice &device, ui::ImGuiLayer &imgui) : m_imgui(imgui), m_target(device, "game view") {
@@ -28,9 +30,7 @@ void GamePanel::hide() {
 
 void GamePanel::draw(bool &open, const std::function<void(const ViewportInput &)> &overlay) {
   m_input = {};
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0.0f, 0.0f});
-  const bool visible = ImGui::Begin("Game", &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-  ImGui::PopStyleVar();
+  const bool visible = ui::beginFullBleedWindow("Game", &open);
   if (!visible) {
     ImGui::End();
     resizeTarget({0, 0});
