@@ -10,6 +10,9 @@ Dear ImGui's `imgui_internal.h` is the API upstream changes most freely (ADR-003
 decision allows it: `modules/ui/src`, the three editor files the ADR names for docking, settings and panel state, and
 tests. A widget built on the public API, in a panel or in `ui`'s headers, does not need it.
 
+The editor's panels take their look from `ui`'s widgets (docs/editor.md, "The ui module"), so `PushStyleColor`,
+`PushStyleVar` and `CollapsingHeader` appear in `modules/editor/src` only where UI_STYLE_ALLOWED lists them.
+
 With `--graphviz FILE.dot`, the edges of the configured CMake target graph (from
 `cmake --graphviz=FILE.dot <build dir>`) are checked against the same order too, which sees links
 made through variables and generator expressions that the source scan cannot.
@@ -36,6 +39,14 @@ IMGUI_INTERNAL_ALLOWED = (
     "modules/editor/src/AssetBrowserPanel.cpp",
 )
 IMGUI_INTERNAL_ROOTS = ("modules", "apps", "tests")
+
+UI_STYLE_ROOT = "modules/editor/src"
+UI_STYLE_RE = re.compile(r"\bImGui::(PushStyleColor|PushStyleVar|CollapsingHeader)\b")
+# The calls a file in UI_STYLE_ROOT may still make itself, as paths relative to the repository root, with the reason.
+UI_STYLE_ALLOWED = {
+    # Each entry's text in its level's colour, which the theme's log tokens give.
+    "modules/editor/src/LogPanel.cpp": {"PushStyleColor"},
+}
 
 
 def module_order() -> list[str]:
@@ -113,6 +124,21 @@ def check_imgui_internal() -> list[str]:
     return problems
 
 
+def check_ui_style() -> list[str]:
+    problems: list[str] = []
+    for src in sources(ROOT / UI_STYLE_ROOT):
+        rel = src.relative_to(ROOT).as_posix()
+        allowed = UI_STYLE_ALLOWED.get(rel, set())
+        text = src.read_text(errors="replace")
+        for match in UI_STYLE_RE.finditer(text):
+            if match.group(1) not in allowed:
+                problems.append(
+                    f"STYLE  {rel}:{text.count(chr(10), 0, match.start()) + 1} calls `ImGui::{match.group(1)}`; "
+                    "use a widget from sonnet/ui/Widgets.h, or add it to UI_STYLE_ALLOWED with the reason (ADR-0036)"
+                )
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--graphviz", type=Path, help="also check a .dot file made by `cmake --graphviz`")
@@ -168,6 +194,7 @@ def main() -> int:
                     )
 
     problems += check_imgui_internal()
+    problems += check_ui_style()
 
     if args.graphviz:
         problems += check_graph(args.graphviz, rank)
