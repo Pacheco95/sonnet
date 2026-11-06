@@ -568,7 +568,7 @@ void AssetBrowserPanel::draw(bool &open) {
     return;
   }
   if (!m_assets.isOpen()) {
-    ImGui::TextDisabled("No project open");
+    ui::mutedText("No project open");
     ImGui::End();
     return;
   }
@@ -580,7 +580,7 @@ void AssetBrowserPanel::draw(bool &open) {
   m_drawnFrame = ImGui::GetFrameCount();
   m_min = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y};
   m_max = m_min + glm::vec2{ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
-  ImGui::SetNextItemWidth(ui::em(11.5f));
+  ui::setNextFieldWidth(ui::FieldWidth::Wide);
   if (ImGui::InputTextWithHint("##filter", "filter", &m_filter)) {
     m_selected.Clear();
     m_focused = 0;
@@ -617,7 +617,7 @@ void AssetBrowserPanel::draw(bool &open) {
   drawViewButtons();
 
   if (!m_fileError.empty()) {
-    ImGui::TextWrapped("%s", m_fileError.c_str());
+    ui::statusText(ui::Status::Error, m_fileError);
   }
   std::optional<std::filesystem::path> destination;
   const bool keyboard = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput;
@@ -692,7 +692,7 @@ void AssetBrowserPanel::drawViewButtons() {
   }
   if (m_view.grid) {
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(ui::em(5.5f));
+    ui::setNextFieldWidth(ui::FieldWidth::Narrow);
     ImGui::SliderFloat("##tile", &m_view.tileSize, AssetsView::MinTileSize, AssetsView::MaxTileSize, "%.0f");
     ImGui::SetItemTooltip("Tile size");
     // The slider changes the view while it is dragged; the handler hears of it when it is let go.
@@ -860,7 +860,7 @@ void AssetBrowserPanel::drawTable(std::optional<std::filesystem::path> &destinat
     ImGui::TableNextColumn();
     ImGui::TextUnformatted(row.type.data(), row.type.data() + row.type.size());
     ImGui::TableNextColumn();
-    ImGui::TextDisabled("%s", row.source.c_str());
+    ui::mutedText("%s", row.source.c_str());
     ImGui::PopID();
   }
   endSelection(keyboard);
@@ -1018,9 +1018,10 @@ void AssetBrowserPanel::drawRenameModal() {
     ImGui::PopID();
   }
   if (!m_fileError.empty()) {
-    ImGui::TextWrapped("%s", m_fileError.c_str());
+    ui::statusText(ui::Status::Error, m_fileError);
   }
-  if (ImGui::Button("Rename")) {
+  const int pressed = ui::dialogButtons({{"Rename"}, {"Cancel", ui::DialogButtonFlags::Cancel}});
+  if (pressed == 0) {
     m_fileError.clear();
     std::vector<std::pair<std::filesystem::path, std::filesystem::path>> moves;
     for (std::size_t i = 0; i < m_renameRows.size(); ++i) {
@@ -1043,8 +1044,7 @@ void AssetBrowserPanel::drawRenameModal() {
       }
     }
   }
-  ImGui::SameLine();
-  if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+  if (pressed == 1) {
     m_fileError.clear();
     ImGui::CloseCurrentPopup();
   }
@@ -1134,9 +1134,11 @@ void AssetBrowserPanel::drawDeleteModal() {
   ImGui::Text("Materials using these textures: %zu.", m_deleteReferences.materials);
   ImGui::TextUnformatted("This can be undone. Scenes that are not open are not counted.");
   if (!m_fileError.empty()) {
-    ImGui::TextWrapped("%s", m_fileError.c_str());
+    ui::statusText(ui::Status::Error, m_fileError);
   }
-  if (ImGui::Button("Delete")) {
+  const int pressed =
+      ui::dialogButtons({{"Delete", ui::DialogButtonFlags::Destructive}, {"Cancel", ui::DialogButtonFlags::Cancel}});
+  if (pressed == 0) {
     if (const auto result = m_remove(m_deleteFiles); !result) {
       m_fileError = result.error().message;
     } else {
@@ -1145,8 +1147,7 @@ void AssetBrowserPanel::drawDeleteModal() {
       ImGui::CloseCurrentPopup();
     }
   }
-  ImGui::SameLine();
-  if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+  if (pressed == 1) {
     m_fileError.clear();
     ImGui::CloseCurrentPopup();
   }

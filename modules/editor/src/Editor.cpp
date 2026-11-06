@@ -1025,11 +1025,11 @@ void Editor::drawMenuBar() {
     ImGui::MenuItem("Snap to grid", "hold Ctrl", &m_snapEnabled);
     GizmoSnap snap = m_gizmo.snap();
     float degrees = glm::degrees(snap.rotate);
-    ImGui::SetNextItemWidth(ui::em(8.5f));
+    ui::setNextFieldWidth(ui::FieldWidth::Standard);
     bool changed = ImGui::DragFloat("Move step", &snap.translate, 0.05f, 0.01f, 100.0f, "%.2f m");
-    ImGui::SetNextItemWidth(ui::em(8.5f));
+    ui::setNextFieldWidth(ui::FieldWidth::Standard);
     changed = ImGui::DragFloat("Rotate step", &degrees, 0.5f, 1.0f, 180.0f, "%.1f deg") || changed;
-    ImGui::SetNextItemWidth(ui::em(8.5f));
+    ui::setNextFieldWidth(ui::FieldWidth::Standard);
     changed = ImGui::DragFloat("Scale step", &snap.scale, 0.01f, 0.01f, 10.0f, "%.2f") || changed;
     if (changed) {
       snap.rotate = glm::radians(degrees);
@@ -1056,7 +1056,7 @@ void Editor::drawMenuBar() {
   }
   if (ImGui::BeginMenu("View")) {
     m_viewportPanel.drawViewMenu();
-    ImGui::SetNextItemWidth(ui::em(8.5f));
+    ui::setNextFieldWidth(ui::FieldWidth::Standard);
     if (ImGui::DragFloat("Smooth view duration", &m_preferences.smoothViewDuration, 0.01f, 0.0f, 2.0f, "%.2f s",
                          ImGuiSliderFlags_AlwaysClamp)) {
       m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
