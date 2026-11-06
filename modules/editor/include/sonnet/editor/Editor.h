@@ -659,6 +659,9 @@ private:
   Preferences m_preferences;
   bool m_captureGrid{false};
   std::string m_frontPanel; // the title of the window to focus once the panels have drawn; empty for none
+  // At startup and after a preset is loaded: once the panels have drawn, the focus each took on appearing is dropped,
+  // so the tab the layout file selected in each dock node stays in front.
+  bool m_keepSavedTabs{true};
   bool m_rememberOpenScenes{false};
   std::optional<assets::Project> m_project;
   std::filesystem::path m_scenePath;

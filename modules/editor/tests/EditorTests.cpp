@@ -261,6 +261,41 @@ TEST_CASE("a saved layout restores the arrangement and the view, and the built-i
   CHECK(fixture.device->validationMessageCount() == 0);
 }
 
+TEST_CASE("the selected tab of a dock node is kept across sessions", "[editor][gpu][layout]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("selected-tab");
+  std::filesystem::create_directories(directory);
+  const auto selectedIn = [](const char *name) { return ImGui::DockBuilderGetNode(dockOf(name))->SelectedTabId; };
+  const auto tabOf = [](const char *name) { return ImGui::FindWindowByName(name)->TabId; };
+  const std::filesystem::path file = directory / "layout.ini";
+  {
+    // The Play layout docks the statistics as a closed tab beside the inspector, which is selected.
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(file);
+    editor.applyLayout("Play");
+    frames(fixture, editor);
+    REQUIRE(selectedIn("Inspector") == tabOf("Inspector"));
+  }
+  // Statistics, the panel drawn last, open again as the second tab of the inspector's node, with the inspector still
+  // in front.
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes);
+  const std::string ini{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
+  const std::string shown = std::regex_replace(ini, std::regex{R"(\nStatistics=0\n)"}, "\nStatistics=1\n");
+  REQUIRE(shown != ini);
+  REQUIRE(core::writeFile(file, shown));
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setLayoutFile(file);
+    frames(fixture, editor);
+    REQUIRE(dockOf("Statistics") == dockOf("Inspector"));
+    // Panels appearing on the first frame each take the focus, and the tab bar follows the focused window.
+    CHECK(selectedIn("Inspector") == tabOf("Inspector"));
+  }
+  fixture.device->waitIdle();
+  CHECK(fixture.device->validationMessageCount() == 0);
+}
+
 TEST_CASE("saving a layout refuses reserved and existing names", "[editor][gpu][layout]") {
   Fixture fixture;
   const std::filesystem::path directory = scratch("preset_names");

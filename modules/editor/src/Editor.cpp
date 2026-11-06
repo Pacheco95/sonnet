@@ -287,6 +287,7 @@ void Editor::applyPendingLayout() {
       placedForThisWindow(scaleLayoutIni(rescaleLayoutIni(text, ui::currentScale()), size.x, size.y), m_window);
   ImGui::LoadIniSettingsFromMemory(scaled.c_str(), scaled.size());
   ImGui::MarkIniSettingsDirty();
+  m_keepSavedTabs = true;
 }
 
 core::Result<void> Editor::saveLayout(std::string_view name, bool overwrite) {
@@ -514,6 +515,12 @@ void Editor::update(float dt) {
   }
   if (m_viewState.statistics) {
     m_statisticsPanel.drawWindow(m_viewState.statistics);
+  }
+  if (m_keepSavedTabs) {
+    // Dear ImGui focuses every window on the frame it appears, and from the next frame a dock node's tab bar follows
+    // the focused window: the panel drawn last (Statistics) would take the front of its node from the saved tab.
+    ImGui::SetWindowFocus(nullptr);
+    m_keepSavedTabs = false;
   }
   if (!m_frontPanel.empty()) {
     ImGui::SetWindowFocus(m_frontPanel.c_str());
