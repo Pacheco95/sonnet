@@ -994,6 +994,9 @@ core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &pat
   }
   // No external buffers and no images: everything a hierarchy needs is in the JSON.
   fastgltf::Parser parser{ReadExtensions};
+  std::map<std::size_t, std::vector<AnimationEvent>> animationEvents;
+  parser.setExtrasParseCallback(readAnimationEvents);
+  parser.setUserPointer(&animationEvents);
   auto loaded = parser.loadGltf(buffer.get(), path.parent_path(), fastgltf::Options::DecomposeNodeMatrices);
   if (loaded.error() != fastgltf::Error::None) {
     return std::unexpected(parseError(path, loaded.error()));
@@ -1001,7 +1004,14 @@ core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &pat
   const fastgltf::Asset &asset = loaded.get();
   GltfStructure structure;
   static_cast<void>(walkNodes(asset, settings, structure.model, structure.meshIndices, structure.skinIndices));
-  structure.animationCount = asset.animations.size();
+  for (std::size_t a = 0; a < asset.animations.size(); ++a) {
+    GltfAnimationInfo &info = structure.animations.emplace_back();
+    info.name = nameOr(asset.animations[a].name, "animation", a);
+    if (const auto events = animationEvents.find(a); events != animationEvents.end()) {
+      info.events = std::move(events->second);
+      std::ranges::stable_sort(info.events, {}, &AnimationEvent::time);
+    }
+  }
   return structure;
 }
 

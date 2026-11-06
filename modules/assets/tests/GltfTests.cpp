@@ -922,6 +922,13 @@ TEST_CASE("a model's sidecar adds animation events, replacing a glTF event at th
   REQUIRE(plain->animations[0].clip.events ==
           std::vector<AnimationEvent>{{.time = 0.25f, .name = "breath", .argument = {}},
                                       {.time = 0.5f, .name = "step", .argument = "left"}});
+
+  // The structure reads the glTF's own events, whatever the sidecar says, for the inspector to show.
+  const auto structure = importGltfStructure(file, settings);
+  REQUIRE(structure.has_value());
+  REQUIRE(structure->animations.size() == 1);
+  REQUIRE(structure->animations[0].name == "Bend");
+  REQUIRE(structure->animations[0].events == plain->animations[0].clip.events);
   sonnet::test::removeScratch(directory);
 }
 

@@ -100,13 +100,21 @@ struct GltfImport {
 [[nodiscard]] core::Result<GltfImport> importGltf(const std::filesystem::path &path,
                                                   const ModelSettings &settings = {});
 
+// An animation of a glTF file as the JSON names it, with the events of its own extras only: what
+// the clip holds before the sidecar's events are merged in.
+struct GltfAnimationInfo {
+  std::string name;
+  std::vector<AnimationEvent> events; // by time
+};
+
 // A glTF file's node hierarchy without its payloads: what a prefab of the model needs, read from
-// the JSON without loading a buffer or an image. The nodes are importGltf's, index for index.
+// the JSON without loading a buffer or an image. The nodes are importGltf's, index for index, and
+// so are the animations.
 struct GltfStructure {
   Model model;                           // mesh and skin identities and the clips left empty
   std::vector<std::int32_t> meshIndices; // per model node, -1 for none
   std::vector<std::int32_t> skinIndices; // per model node, -1 for none
-  std::size_t animationCount{0};
+  std::vector<GltfAnimationInfo> animations;
 };
 
 [[nodiscard]] core::Result<GltfStructure> importGltfStructure(const std::filesystem::path &path,

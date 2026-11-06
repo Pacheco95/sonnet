@@ -1315,7 +1315,7 @@ const Model *AssetDatabase::model(const core::Uuid &uuid) {
     return nullptr;
   }
   Model model = std::move(structure->model);
-  assignModelIdentities(uuid, model, structure->meshIndices, structure->skinIndices, structure->animationCount);
+  assignModelIdentities(uuid, model, structure->meshIndices, structure->skinIndices, structure->animations.size());
   m_models[uuid] = std::move(model);
   return &m_models[uuid];
 }
