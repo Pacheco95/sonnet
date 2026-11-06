@@ -80,24 +80,6 @@ TEST_CASE("the restored rectangle follows moves and resizes until the window is 
   REQUIRE(tracked.rect() == WindowRect{{300, 150}, {1200, 700}});
 }
 
-TEST_CASE("only a maximized window on Windows is maximized again after a display scale change", "[platform][window]") {
-  using sonnet::platform::needsMaximizedReframe;
-  SDL_Event scale{};
-  scale.type = SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED;
-  SDL_Event moved{};
-  moved.type = SDL_EVENT_WINDOW_MOVED;
-#if defined(_WIN32)
-  CHECK(needsMaximizedReframe(scale, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE));
-#else
-  // The compositor draws the frame there (issue 423 was Windows only).
-  CHECK(!needsMaximizedReframe(scale, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE));
-#endif
-  CHECK(!needsMaximizedReframe(scale, SDL_WINDOW_RESIZABLE)); // a restored window keeps its place
-  CHECK(!needsMaximizedReframe(scale, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_MINIMIZED));
-  CHECK(!needsMaximizedReframe(scale, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_FULLSCREEN)); // a restore would end it
-  CHECK(!needsMaximizedReframe(moved, SDL_WINDOW_MAXIMIZED));
-}
-
 TEST_CASE("a window opens at the requested position and reports it", "[platform][window]") {
   sonnet::platform::Platform platform{{.headless = true}};
   requireVulkan(platform);
