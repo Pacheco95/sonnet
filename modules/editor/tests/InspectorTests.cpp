@@ -20,8 +20,10 @@
 #include <imgui_internal.h>
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -86,6 +88,10 @@ struct InspectorDriver {
   [[nodiscard]] bool hover(const ImGuiWindow *window, ImGuiID id, float x = 60.0f) const {
     const ImVec2 pos = window->Pos;
     const ImVec2 size = window->Size;
+    // One frame at the top first: the hovered id read below is the previous frame's, which would
+    // otherwise still be the item under the mouse's last position.
+    ImGui::GetIO().AddMousePosEvent(pos.x + x, pos.y);
+    frame();
     for (float y = pos.y; y < pos.y + size.y; y += 2.0f) {
       ImGui::GetIO().AddMousePosEvent(pos.x + x, y);
       frame();
@@ -115,6 +121,24 @@ struct InspectorDriver {
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     frame();
   }
+  // Selects the text of the active field, types `text` over it and presses Enter.
+  void retype(std::string_view text) const {
+    ImGuiIO &io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(ImGuiKey_A, true);
+    frame();
+    io.AddKeyEvent(ImGuiKey_A, false);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    frame();
+    for (const char character : text) {
+      io.AddInputCharacter(static_cast<unsigned int>(character));
+      frame();
+    }
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    frame();
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    frame();
+  }
   [[nodiscard]] static ImGuiWindow *inspector() {
     ImGuiWindow *window = ImGui::FindWindowByName("Inspector");
     REQUIRE(window != nullptr);
@@ -133,6 +157,26 @@ struct InspectorDriver {
   }
   [[nodiscard]] static ImGuiID uvWidget(const char *slot, const char *label) {
     return ImHashStr(label, 0, uvNode(slot));
+  }
+  // The id of a tab of a model's import settings, and of a widget inside it.
+  [[nodiscard]] static ImGuiID modelTab(const char *tab) {
+    return ImHashStr(tab, 0, ImHashStr("##model", 0, inspector()->ID));
+  }
+  [[nodiscard]] static ImGuiID modelWidget(const char *tab, const char *label) {
+    return ImHashStr(label, 0, modelTab(tab));
+  }
+  // The id of clip `clip`'s header in the Animations tab, and of event `event`'s field `label` in it.
+  [[nodiscard]] static ImGuiID clipId(int clip) {
+    return ImHashData(&clip, sizeof(clip), modelTab("Animations"));
+  }
+  [[nodiscard]] static ImGuiID clipHeader(int clip, const char *name) {
+    return ImHashStr(name, 0, clipId(clip));
+  }
+  [[nodiscard]] static ImGuiID clipWidget(int clip, const char *label) {
+    return ImHashStr(label, 0, clipId(clip));
+  }
+  [[nodiscard]] static ImGuiID eventField(int clip, int event, const char *label) {
+    return ImHashStr(label, 0, ImHashData(&event, sizeof(event), clipId(clip)));
   }
 };
 
@@ -360,56 +404,29 @@ TEST_CASE("the model view edits the light scale, rewriting the sidecar and the l
     const InspectorDriver driver{panel, uuid};
     driver.frame();
     const ImGuiWindow *window = InspectorDriver::inspector();
-    ImGuiIO &io = ImGui::GetIO();
 
     // Typing a number into the field and leaving it is one command.
-    REQUIRE(driver.hover(window, InspectorDriver::widget("Light scale")));
+    REQUIRE(driver.hover(window, InspectorDriver::modelWidget("Model", "Light scale")));
     driver.click();
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
-    io.AddKeyEvent(ImGuiKey_A, true);
-    driver.frame();
-    io.AddKeyEvent(ImGuiKey_A, false);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
-    driver.frame();
-    for (const char digit : std::string_view{"0.5"}) {
-      io.AddInputCharacter(static_cast<unsigned int>(digit));
-      driver.frame();
-    }
-    io.AddKeyEvent(ImGuiKey_Enter, true);
-    driver.frame();
-    io.AddKeyEvent(ImGuiKey_Enter, false);
-    driver.frame();
+    driver.retype("0.5");
     REQUIRE(commands.size() == 1);
     REQUIRE(sidecarScale() == Catch::Approx(0.5f));
     REQUIRE(intensity() == Catch::Approx(341.5f));
 
     // A negative number is refused: nothing is pushed and the sidecar keeps the last value.
-    REQUIRE(driver.hover(window, InspectorDriver::widget("Light scale")));
+    REQUIRE(driver.hover(window, InspectorDriver::modelWidget("Model", "Light scale")));
     driver.click();
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
-    io.AddKeyEvent(ImGuiKey_A, true);
-    driver.frame();
-    io.AddKeyEvent(ImGuiKey_A, false);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
-    driver.frame();
-    for (const char character : std::string_view{"-2"}) {
-      io.AddInputCharacter(static_cast<unsigned int>(character));
-      driver.frame();
-    }
-    io.AddKeyEvent(ImGuiKey_Enter, true);
-    driver.frame();
-    io.AddKeyEvent(ImGuiKey_Enter, false);
-    driver.frame();
+    driver.retype("-2");
     REQUIRE(commands.size() == 1);
     REQUIRE(sidecarScale() == Catch::Approx(0.5f));
 
     // The quick choices set the two known conventions.
-    REQUIRE(driver.hover(window, InspectorDriver::widget("Photometric"), 120.0f));
+    REQUIRE(driver.hover(window, InspectorDriver::modelWidget("Model", "Photometric"), 120.0f));
     driver.click();
     REQUIRE(commands.size() == 2);
     REQUIRE(sidecarScale() == 1.0f);
     REQUIRE(intensity() == Catch::Approx(683.0f));
-    REQUIRE(driver.hover(window, InspectorDriver::widget("Blender")));
+    REQUIRE(driver.hover(window, InspectorDriver::modelWidget("Model", "Blender")));
     driver.click();
     REQUIRE(commands.size() == 3);
     REQUIRE(intensity() == Catch::Approx(1.0f));
@@ -421,6 +438,144 @@ TEST_CASE("the model view edits the light scale, rewriting the sidecar and the l
     REQUIRE(commands.undo(world));
     REQUIRE(sidecarScale() == Catch::Approx(1.0f / 683.0f));
     REQUIRE(intensity() == Catch::Approx(1.0f));
+  }
+  assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+  sonnet::test::removeScratch(root);
+}
+
+TEST_CASE("the model view's Animations tab edits a clip's sidecar events, with undo", "[editor][inspector][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_animation_events";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  // One node moved over a second by the clip "Walk", whose extras carry one event.
+  const std::vector<float> keys{0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+  REQUIRE(core::writeFile(root / "assets" / "walk.bin",
+                          std::span{reinterpret_cast<const std::byte *>(keys.data()), keys.size() * sizeof(float)})
+              .has_value());
+  using nlohmann::json;
+  const json document{
+      {"asset", {{"version", "2.0"}}},
+      {"scene", 0},
+      {"scenes", json::array({{{"nodes", {0}}}})},
+      {"nodes", json::array({{{"name", "Body"}}})},
+      {"buffers", json::array({{{"uri", "walk.bin"}, {"byteLength", 32}}})},
+      {"bufferViews",
+       json::array({{{"buffer", 0}, {"byteLength", 8}}, {{"buffer", 0}, {"byteOffset", 8}, {"byteLength", 24}}})},
+      {"accessors", json::array({{{"bufferView", 0},
+                                  {"componentType", 5126},
+                                  {"count", 2},
+                                  {"type", "SCALAR"},
+                                  {"min", {0.0}},
+                                  {"max", {1.0}}},
+                                 {{"bufferView", 1}, {"componentType", 5126}, {"count", 2}, {"type", "VEC3"}}})},
+      {"animations",
+       json::array(
+           {{{"name", "Walk"},
+             {"samplers", json::array({{{"input", 0}, {"output", 1}}})},
+             {"channels", json::array({{{"sampler", 0}, {"target", {{"node", 0}, {"path", "translation"}}}}})},
+             {"extras", {{"events", json::array({{{"time", 0.25}, {"name", "step"}, {"argument", "left"}}})}}}}})},
+  };
+  const std::filesystem::path file = root / "assets" / "walker.gltf";
+  REQUIRE(core::writeFile(file, document.dump()).has_value());
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  const assets::AssetInfo *walker = assets.findByPath(file);
+  REQUIRE(walker != nullptr);
+  const core::Uuid uuid = walker->uuid;
+  const core::Uuid clip = core::Uuid::derive(uuid, "animation/0");
+  using Events = std::vector<assets::AnimationEvent>;
+  const Events own{{.time = 0.25f, .name = "step", .argument = "left"}};
+  // The clip's events once loaded, and the sidecar's list for it.
+  const auto clipEvents = [&] {
+    static_cast<void>(assets.requestAnimation(clip));
+    assets.waitForLoads();
+    const assets::AnimationClip *loaded = assets.animation(clip);
+    REQUIRE(loaded != nullptr);
+    return loaded->events;
+  };
+  const auto sidecarEvents = [&] {
+    const auto settings = assets.modelSettings(uuid);
+    const auto found = settings.animationEvents.find("Walk");
+    return found != settings.animationEvents.end() ? found->second : Events{};
+  };
+  REQUIRE(clipEvents() == own);
+
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  {
+    const InspectorDriver driver{panel, uuid};
+    driver.frame();
+    const ImGuiWindow *window = InspectorDriver::inspector();
+
+    // The Model tab is the first; the Animations tab lists the clip under a closed header.
+    REQUIRE(driver.hover(window, InspectorDriver::modelWidget("Model", "Light scale")));
+    REQUIRE(driver.hover(window, InspectorDriver::modelTab("Animations"), 100.0f));
+    driver.click();
+    REQUIRE_FALSE(driver.hover(window, InspectorDriver::clipWidget(0, "add"), 20.0f));
+    REQUIRE(driver.hover(window, InspectorDriver::clipHeader(0, "Walk")));
+    driver.click();
+
+    // Adding an event is one command, written to the sidecar and merged into the clip.
+    REQUIRE(driver.hover(window, InspectorDriver::clipWidget(0, "add"), 20.0f));
+    driver.click();
+    REQUIRE(commands.size() == 1);
+    REQUIRE(sidecarEvents() == Events{{.time = 0.0f, .name = "event", .argument = {}}});
+    REQUIRE(clipEvents() == Events{{.time = 0.0f, .name = "event", .argument = {}}, own[0]});
+
+    // Each field left is one command; with the glTF's time and name the event replaces the glTF's.
+    REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 0, "##argument"), 240.0f));
+    driver.click();
+    driver.retype("right");
+    REQUIRE(commands.size() == 2);
+    REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 0, "##name"), 120.0f));
+    driver.click();
+    driver.retype("step");
+    REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 0, "##time"), 20.0f));
+    driver.click();
+    driver.retype("0.25");
+    REQUIRE(commands.size() == 4);
+    const Events replaced{{.time = 0.25f, .name = "step", .argument = "right"}};
+    REQUIRE(sidecarEvents() == replaced);
+    REQUIRE(clipEvents() == replaced);
+
+    // A negative time or an empty name would not survive the sidecar, so nothing is pushed.
+    REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 0, "##time"), 20.0f));
+    driver.click();
+    driver.retype("-1");
+    REQUIRE(commands.size() == 4);
+
+    // A second event goes after the first, and the list stays sorted when a time moves it ahead.
+    REQUIRE(driver.hover(window, InspectorDriver::clipWidget(0, "add"), 20.0f));
+    driver.click();
+    REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 1, "##time"), 20.0f));
+    driver.click();
+    driver.retype("0.1");
+    REQUIRE(commands.size() == 6);
+    REQUIRE(sidecarEvents() == Events{{.time = 0.1f, .name = "event", .argument = {}}, replaced[0]});
+
+    // Removing both leaves the sidecar without the clip, and the glTF's event comes back.
+    for (int i = 0; i < 2; ++i) {
+      REQUIRE(driver.hover(window, InspectorDriver::eventField(0, 0, "remove"), 320.0f));
+      driver.click();
+    }
+    REQUIRE(commands.size() == 8);
+    REQUIRE(assets.modelSettings(uuid).animationEvents.empty());
+    REQUIRE(clipEvents() == own);
+
+    // Undo and redo restore the list and the clip.
+    REQUIRE(commands.undo(world));
+    REQUIRE(commands.undo(world));
+    REQUIRE(sidecarEvents() == Events{{.time = 0.1f, .name = "event", .argument = {}}, replaced[0]});
+    REQUIRE(clipEvents() == Events{{.time = 0.1f, .name = "event", .argument = {}}, replaced[0]});
+    REQUIRE(commands.redo(world));
+    REQUIRE(sidecarEvents() == replaced);
   }
   assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
   sonnet::test::removeScratch(root);

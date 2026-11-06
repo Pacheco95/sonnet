@@ -22,7 +22,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <format>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -538,6 +540,23 @@ void InspectorPanel::drawModel(const assets::AssetInfo &info) {
   if (!info.parent.isNil()) {
     return;
   }
+  // The import settings split as Unity's Model Importer does; the Animations tab has room for the
+  // other clip settings when they come.
+  if (ImGui::BeginTabBar("##model")) {
+    if (ImGui::BeginTabItem("Model")) {
+      drawModelLights(info);
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Animations")) {
+      drawModelAnimations(info);
+      ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
+  }
+  ImGui::Separator();
+}
+
+void InspectorPanel::drawModelLights(const assets::AssetInfo &info) {
   const assets::ModelSettings before = m_assets.modelSettings(info.uuid);
   assets::ModelSettings settings = before;
   // Typed, so one command per edit rather than a re-import for every step of a drag. A scale the
@@ -558,7 +577,112 @@ void InspectorPanel::drawModel(const assets::AssetInfo &info) {
     ImGui::SameLine();
   }
   ImGui::TextDisabled("scales the lights' intensities");
-  ImGui::Separator();
+}
+
+const std::vector<assets::GltfAnimationInfo> &InspectorPanel::modelAnimations(const assets::AssetInfo &info) {
+  std::error_code error;
+  const std::filesystem::file_time_type written = std::filesystem::last_write_time(info.source, error);
+  if (!m_modelAnimations || m_modelAnimations->model != info.uuid || m_modelAnimations->written != written) {
+    m_modelAnimations = ModelAnimations{.model = info.uuid, .written = written, .animations = {}};
+    if (auto structure = assets::importGltfStructure(info.source)) {
+      m_modelAnimations->animations = std::move(structure->animations);
+    } else {
+      SONNET_LOG_ERROR("{}", structure.error().toString());
+    }
+  }
+  return m_modelAnimations->animations;
+}
+
+void InspectorPanel::drawModelAnimations(const assets::AssetInfo &info) {
+  const std::vector<assets::GltfAnimationInfo> &animations = modelAnimations(info);
+  if (animations.empty()) {
+    ImGui::TextDisabled("no animations");
+    return;
+  }
+  const assets::ModelSettings before = m_assets.modelSettings(info.uuid);
+  for (std::size_t a = 0; a < animations.size(); ++a) {
+    const assets::GltfAnimationInfo &animation = animations[a];
+    ImGui::PushID(static_cast<int>(a));
+    if (ImGui::CollapsingHeader(animation.name.c_str())) {
+      // The duration is the loaded clip's, which counts the sidecar's events too.
+      const core::Uuid clip = core::Uuid::derive(info.uuid, std::format("animation/{}", a));
+      if (const assets::AnimationClip *loaded = m_assets.requestAnimation(clip)) {
+        ImGui::TextDisabled("%.3g s", static_cast<double>(loaded->duration));
+      } else {
+        ImGui::TextDisabled("loading");
+      }
+
+      // The sidecar's events, edited in place: one command per field left, kept sorted by time.
+      // An edit the sidecar would not read back (a negative or non-finite time, an empty name) is
+      // dropped, as the light scale's is.
+      const auto found = before.animationEvents.find(animation.name);
+      const std::vector<assets::AnimationEvent> current =
+          found != before.animationEvents.end() ? found->second : std::vector<assets::AnimationEvent>{};
+      // A hand-written sidecar may list them in any order; they are shown and written back by time.
+      std::vector<assets::AnimationEvent> events = current;
+      std::ranges::stable_sort(events, {}, &assets::AnimationEvent::time);
+      bool changed = false;
+      std::optional<std::size_t> removed;
+      ImGui::TextUnformatted("Events");
+      for (std::size_t e = 0; e < events.size(); ++e) {
+        assets::AnimationEvent &event = events[e];
+        ImGui::PushID(static_cast<int>(e));
+        ImGui::SetNextItemWidth(ui::em(5.0f));
+        ImGui::InputFloat("##time", &event.time, 0.0f, 0.0f, "%.3g");
+        changed = ImGui::IsItemDeactivatedAfterEdit() || changed;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ui::em(8.0f));
+        ImGui::InputTextWithHint("##name", "name", &event.name);
+        changed = ImGui::IsItemDeactivatedAfterEdit() || changed;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ui::em(8.0f));
+        ImGui::InputTextWithHint("##argument", "argument", &event.argument);
+        changed = ImGui::IsItemDeactivatedAfterEdit() || changed;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("remove")) {
+          removed = e;
+        }
+        ImGui::PopID();
+      }
+      if (ImGui::SmallButton("add")) {
+        // After the last event, so the list stays in order; a name, so the sidecar keeps it.
+        events.push_back({.time = events.empty() ? 0.0f : events.back().time, .name = "event", .argument = {}});
+        changed = true;
+      }
+      if (removed) {
+        events.erase(events.begin() + static_cast<std::ptrdiff_t>(*removed));
+        changed = true;
+      }
+      const bool valid = std::ranges::all_of(events, [](const assets::AnimationEvent &event) {
+        return std::isfinite(event.time) && event.time >= 0.0f && !event.name.empty();
+      });
+      std::ranges::stable_sort(events, {}, &assets::AnimationEvent::time);
+      if (changed && valid && events != current) {
+        assets::ModelSettings settings = before;
+        if (events.empty()) {
+          settings.animationEvents.erase(animation.name); // the sidecar leaves the field out when it is empty
+        } else {
+          settings.animationEvents[animation.name] = std::move(events);
+        }
+        m_commands.push(modelSettingsCommand(m_assets, info.uuid, before, settings), m_world);
+      }
+
+      // The glTF's own events cannot be edited here, only replaced by a sidecar event with the same
+      // time and name (docs/assets.md, "Skins and animations").
+      if (!animation.events.empty()) {
+        ImGui::TextUnformatted("From the file");
+        for (const assets::AnimationEvent &event : animation.events) {
+          const bool replaced = std::ranges::any_of(current, [&](const assets::AnimationEvent &own) {
+            return own.time == event.time && own.name == event.name;
+          });
+          const std::string line =
+              std::format("{:.3g}  {}  {}{}", event.time, event.name, event.argument, replaced ? "  (replaced)" : "");
+          ImGui::TextDisabled("%s", line.c_str());
+        }
+      }
+    }
+    ImGui::PopID();
+  }
 }
 
 void InspectorPanel::drawEntity(flecs::entity entity) {

@@ -4,6 +4,7 @@
 #include <sonnet/editor/Selection.h>
 
 #include <sonnet/assets/AssetDatabase.h>
+#include <sonnet/assets/Importers.h>
 #include <sonnet/audio/AudioDevice.h>
 #include <sonnet/scripting/ScriptRuntime.h>
 #include <sonnet/world/World.h>
@@ -12,11 +13,13 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace sonnet::editor {
 
@@ -86,6 +89,13 @@ private:
     glm::vec3 colour{0.0f};
     float strength{0.0f};
   };
+  // A model's animations as its glTF file has them, without the sidecar's events: read from the
+  // JSON once per model and again when the file changes.
+  struct ModelAnimations {
+    core::Uuid model;
+    std::filesystem::file_time_type written;
+    std::vector<assets::GltfAnimationInfo> animations;
+  };
 
   void drawSelection(flecs::entity entity);
   void drawEntity(flecs::entity entity);
@@ -117,6 +127,9 @@ private:
   void drawMaterial(const assets::AssetInfo &info);
   void drawTexture(const assets::AssetInfo &info);
   void drawModel(const assets::AssetInfo &info);
+  void drawModelLights(const assets::AssetInfo &info);
+  void drawModelAnimations(const assets::AssetInfo &info);
+  const std::vector<assets::GltfAnimationInfo> &modelAnimations(const assets::AssetInfo &info);
   void drawScript(const assets::AssetInfo &info);
   void drawFont(const assets::AssetInfo &info);
   void drawSound(const assets::AssetInfo &info);
@@ -136,6 +149,7 @@ private:
   std::optional<nlohmann::json::json_pointer> m_revertMember;
   std::optional<MaterialEdit> m_materialEdit;
   std::optional<EmissiveView> m_emissive;
+  std::optional<ModelAnimations> m_modelAnimations;
   core::Uuid m_shownAsset; // the asset of the last frame, to bring its tab forward when it changes
   bool m_activated{false};
   bool m_deactivatedAfterEdit{false};
