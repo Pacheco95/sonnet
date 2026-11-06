@@ -50,7 +50,7 @@ Per frame, in this order:
 | `danger` | #f07a72 | `ui::statusText` with `Status::Error`: the error text of the project dialogs (`Editor.cpp`) |
 | `warning` | #f0b44c | `ui::statusText` with `Status::Warning`: the inspector's missing-font warning |
 | `stop`, `paused` | #b3372d, #8a5a00 | `ui::stateButton`: the Stop button while playing, the Resume button while paused (`Editor.cpp`); `stop` is also the colour of a destructive dialog button |
-| `sectionHeader`, `sectionHeaderHovered`, `sectionHeaderActive` | #2a2a2f, #333339, #3c3c43 | The inspector's component headers, a flat grey band: `InspectorPanel` pushes them over `ImGuiCol_Header*` (which the selected rows keep) and draws the header without a frame border |
+| `sectionHeader`, `sectionHeaderHovered`, `sectionHeaderActive` | #2a2a2f, #333339, #3c3c43 | The inspector's section headers (the components and a model's clips), a flat grey band: `InspectorPanel` pushes them over `ImGuiCol_Header*` (which the selected rows keep) and draws the header without a frame border |
 | `selection` | as before | The 3D outline, passed to `Renderer::addOutlinePass`, and the GUI selection rectangle (`Editor.cpp`) |
 | `overlay` | black at 62 % | `ui::beginOverlay`: the statistics overlay's backdrop |
 | `label`, `labelText` | as before | `ui::overlayLabel`: the viewport's view label |

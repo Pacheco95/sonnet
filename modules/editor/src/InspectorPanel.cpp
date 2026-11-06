@@ -33,6 +33,20 @@ namespace sonnet::editor {
 
 namespace {
 
+// An inspector section's collapsing header, a flat grey band: ImGuiCol_Header is also the selected
+// rows' colour, which stays the theme's highlight.
+bool sectionHeader(const char *label, bool *open = nullptr, ImGuiTreeNodeFlags flags = 0) {
+  const ui::Theme &theme = ui::currentTheme();
+  ImGui::PushStyleColor(ImGuiCol_Header, theme.sectionHeader);
+  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme.sectionHeaderHovered);
+  ImGui::PushStyleColor(ImGuiCol_HeaderActive, theme.sectionHeaderActive);
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+  const bool opened = ImGui::CollapsingHeader(label, open, flags);
+  ImGui::PopStyleVar();
+  ImGui::PopStyleColor(3);
+  return opened;
+}
+
 constexpr float DragSpeed = 0.01f;
 constexpr float AngleDragSpeed = 0.5f; // degrees
 
@@ -603,7 +617,7 @@ void InspectorPanel::drawModelAnimations(const assets::AssetInfo &info) {
   for (std::size_t a = 0; a < animations.size(); ++a) {
     const assets::GltfAnimationInfo &animation = animations[a];
     ImGui::PushID(static_cast<int>(a));
-    if (ImGui::CollapsingHeader(animation.name.c_str())) {
+    if (sectionHeader(animation.name.c_str())) {
       // The duration is the loaded clip's, which counts the sidecar's events too.
       const core::Uuid clip = core::Uuid::derive(info.uuid, std::format("animation/{}", a));
       if (const assets::AnimationClip *loaded = m_assets.requestAnimation(clip)) {
@@ -755,16 +769,8 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
   ImGui::PushID(info.name.c_str());
   // The transform is structural: every scene entity has one and it cannot be removed.
   bool keep = true;
-  // A flat grey band: ImGuiCol_Header is also the selected rows' colour, which stays the theme's highlight.
-  const ui::Theme &theme = ui::currentTheme();
-  ImGui::PushStyleColor(ImGuiCol_Header, theme.sectionHeader);
-  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme.sectionHeaderHovered);
-  ImGui::PushStyleColor(ImGuiCol_HeaderActive, theme.sectionHeaderActive);
-  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-  const bool opened = ImGui::CollapsingHeader(label.c_str(), info.name == "Transform" ? nullptr : &keep,
-                                              ImGuiTreeNodeFlags_DefaultOpen);
-  ImGui::PopStyleVar();
-  ImGui::PopStyleColor(3);
+  const bool opened =
+      sectionHeader(label.c_str(), info.name == "Transform" ? nullptr : &keep, ImGuiTreeNodeFlags_DefaultOpen);
   if (!keep) {
     const nlohmann::json before = info.tag ? nlohmann::json{} : m_world.componentToJson(entity, info.id);
     m_commands.push(componentCommand(uuid, info.name, std::make_optional(before), std::nullopt,
