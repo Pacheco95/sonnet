@@ -1,6 +1,7 @@
 #include <sonnet/ui/Widgets.h>
 
 #include <algorithm>
+#include <cstdarg>
 
 namespace sonnet::ui {
 
@@ -92,6 +93,73 @@ void statusText(Status status, std::string_view message, bool wrap) {
     ImGui::PopTextWrapPos();
   }
   ImGui::PopStyleColor();
+}
+
+void mutedText(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  ImGui::TextDisabledV(format, args);
+  va_end(args);
+}
+
+void markedText(std::string_view text) {
+  ImGui::PushStyleColor(ImGuiCol_Text, currentTheme().accent);
+  ImGui::TextUnformatted(text.data(), text.data() + text.size());
+  ImGui::PopStyleColor();
+}
+
+bool treeNode(const char *id, ImGuiTreeNodeFlags flags, const char *label, TreeRow row) {
+  const bool dimmed = row == TreeRow::Dimmed;
+  if (dimmed) {
+    ImGui::PushStyleColor(ImGuiCol_Text, currentTheme().textDisabled);
+  }
+  const bool opened = ImGui::TreeNodeEx(id, flags, "%s", label);
+  if (dimmed) {
+    ImGui::PopStyleColor();
+  }
+  return opened;
+}
+
+bool sectionHeader(const char *label, bool *open, ImGuiTreeNodeFlags flags) {
+  const Theme &theme = currentTheme();
+  ImGui::PushStyleColor(ImGuiCol_Header, theme.sectionHeader);
+  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme.sectionHeaderHovered);
+  ImGui::PushStyleColor(ImGuiCol_HeaderActive, theme.sectionHeaderActive);
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+  const bool opened = ImGui::CollapsingHeader(label, open, flags);
+  ImGui::PopStyleVar();
+  ImGui::PopStyleColor(3);
+  return opened;
+}
+
+bool rowButton(const char *label) {
+  return ImGui::SmallButton(label);
+}
+
+void setNextFieldWidth(FieldWidth width) {
+  const Theme &theme = currentTheme();
+  const float count = width == FieldWidth::Narrow ? theme.narrowFieldWidth
+                      : width == FieldWidth::Wide ? theme.wideFieldWidth
+                                                  : theme.fieldWidth;
+  ImGui::SetNextItemWidth(em(count));
+}
+
+void sectionBreak() {
+  const float gap = scaled(currentTheme().sectionGap);
+  ImGui::Dummy(ImVec2{0.0f, gap});
+  ImGui::Separator();
+  ImGui::Dummy(ImVec2{0.0f, gap});
+}
+
+void groupBreak() {
+  ImGui::Dummy(ImVec2{0.0f, scaled(currentTheme().groupGap)});
+}
+
+bool beginFullBleedWindow(const char *name, bool *open) {
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0.0f, 0.0f});
+  const bool visible = ImGui::Begin(name, open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGui::PopStyleVar();
+  return visible;
 }
 
 bool beginPropertyTable(const char *id, bool revertColumn) {

@@ -421,6 +421,203 @@ TEST_CASE("a property table adds no ID of its own", "[ui][widgets]") {
   CHECK(widget == plain);
 }
 
+TEST_CASE("muted text is drawn in the theme's textDisabled and formats as ImGui::Text", "[ui][widgets]") {
+  ui::Theme theme = loudTheme();
+  theme.textDisabled = {0.6f, 0.2f, 0.4f, 1.0f};
+  HeadlessImGui imgui{1.0f, theme};
+  float width = 0.0f;
+  HeadlessImGui::frame([&] {
+    ui::mutedText("%d items", 12);
+    width = ImGui::GetItemRectSize().x;
+  });
+  CHECK(drewColour(ui::toU32(theme.textDisabled)));
+  CHECK(width == Approx(ImGui::CalcTextSize("12 items").x));
+}
+
+TEST_CASE("marked text is drawn in the theme's accent and is never a format string", "[ui][widgets]") {
+  ui::Theme theme = loudTheme();
+  theme.accent = {0.7f, 0.1f, 0.3f, 1.0f};
+  HeadlessImGui imgui{1.0f, theme};
+  float width = 0.0f;
+  HeadlessImGui::frame([&] {
+    ui::markedText("speed%d");
+    width = ImGui::GetItemRectSize().x;
+  });
+  CHECK(drewColour(ui::toU32(theme.accent)));
+  CHECK(width == Approx(ImGui::CalcTextSize("speed%d").x));
+  // The colour is popped: what follows is drawn in the text colour again.
+  HeadlessImGui::frame([] {
+    ui::markedText("speed");
+    ImGui::TextUnformatted("after");
+  });
+  CHECK(ImGui::GetStyle().Colors[ImGuiCol_Text].x == Approx(theme.text.x));
+}
+
+TEST_CASE("a dimmed tree row is drawn in the theme's textDisabled and keeps its ID", "[ui][widgets]") {
+  ui::Theme theme = loudTheme();
+  theme.textDisabled = {0.6f, 0.2f, 0.4f, 1.0f};
+  HeadlessImGui imgui{1.0f, theme};
+  ImGuiID widget = 0;
+  ImGuiID plain = 0;
+  HeadlessImGui::frame([&] {
+    ImGui::PushID("entity");
+    if (ui::treeNode("node", ImGuiTreeNodeFlags_Leaf, "Cube")) {
+      ImGui::TreePop();
+    }
+    widget = ImGui::GetItemID();
+    plain = ImGui::GetID("node");
+    ImGui::PopID();
+  });
+  CHECK(widget == plain);
+  CHECK(!drewColour(ui::toU32(theme.textDisabled)));
+  bool opened = false;
+  HeadlessImGui::frame([&] {
+    opened = ui::treeNode("node", ImGuiTreeNodeFlags_Leaf, "Cube", ui::TreeRow::Dimmed);
+    if (opened) {
+      ImGui::TreePop();
+    }
+  });
+  CHECK(opened);
+  CHECK(drewColour(ui::toU32(theme.textDisabled)));
+}
+
+TEST_CASE("a section header is a band in the theme's sectionHeader colours with its label as ID", "[ui][widgets]") {
+  ui::Theme theme = loudTheme();
+  theme.sectionHeader = {0.8f, 0.3f, 0.1f, 1.0f};
+  HeadlessImGui imgui{1.0f, theme};
+  ImGuiID widget = 0;
+  ImGuiID plain = 0;
+  HeadlessImGui::frame([&] {
+    ImGui::PushID("component");
+    (void)ui::sectionHeader("Transform", nullptr, ImGuiTreeNodeFlags_DefaultOpen);
+    widget = ImGui::GetItemID();
+    plain = ImGui::GetID("Transform");
+    ImGui::PopID();
+  });
+  CHECK(widget == plain);
+  CHECK(drewColour(ui::toU32(theme.sectionHeader)));
+  // The colours and the border size are popped again.
+  CHECK(ImGui::GetStyle().Colors[ImGuiCol_Header].x != Approx(theme.sectionHeader.x));
+  CHECK(ImGui::GetStyle().FrameBorderSize == Approx(theme.frameBorderSize));
+
+  // A click on the band toggles it.
+  bool opened = true;
+  const auto body = [&] { opened = ui::sectionHeader("Transform"); };
+  HeadlessImGui::frame(body);
+  CHECK_FALSE(opened);
+  const ImGuiStyle &style = ImGui::GetStyle();
+  HeadlessImGui::click({100.0f, style.WindowPadding.y + ImGui::GetFrameHeight() * 0.5f}, body);
+  CHECK(opened);
+}
+
+TEST_CASE("a row button is a small button with its label as ID that reports clicks", "[ui][widgets]") {
+  HeadlessImGui imgui;
+  ImGuiID widget = 0;
+  ImGuiID plain = 0;
+  float height = 0.0f;
+  int clicks = 0;
+  const auto body = [&] {
+    ImGui::PushID("slot");
+    if (ui::rowButton("Remove")) {
+      ++clicks;
+    }
+    widget = ImGui::GetItemID();
+    height = ImGui::GetItemRectSize().y;
+    plain = ImGui::GetID("Remove");
+    ImGui::PopID();
+  };
+  HeadlessImGui::frame(body);
+  CHECK(widget == plain);
+  // Small: no vertical frame padding, so it fits on a row of text.
+  CHECK(height == Approx(ImGui::GetFontSize()));
+  const ImGuiStyle &style = ImGui::GetStyle();
+  HeadlessImGui::click({style.WindowPadding.x + 4.0f, style.WindowPadding.y + ImGui::GetFontSize() * 0.5f}, body);
+  CHECK(clicks == 1);
+}
+
+TEST_CASE("field widths are the theme's counts of text heights and follow the scale", "[ui][widgets]") {
+  const ui::Theme defaults;
+  CHECK(defaults.narrowFieldWidth == 5.5f);
+  CHECK(defaults.fieldWidth == 8.5f);
+  CHECK(defaults.wideFieldWidth == 11.5f);
+  for (const float scale : {1.0f, 2.0f}) {
+    ui::Theme theme;
+    theme.narrowFieldWidth = 3.0f;
+    theme.fieldWidth = 6.0f;
+    theme.wideFieldWidth = 12.0f;
+    HeadlessImGui imgui{scale, theme};
+    float narrow = 0.0f;
+    float standard = 0.0f;
+    float wide = 0.0f;
+    float font = 0.0f;
+    HeadlessImGui::frame([&] {
+      float value = 0.0f;
+      ui::setNextFieldWidth(ui::FieldWidth::Narrow);
+      ImGui::InputFloat("##narrow", &value);
+      narrow = ImGui::GetItemRectSize().x;
+      ui::setNextFieldWidth(ui::FieldWidth::Standard);
+      ImGui::InputFloat("##standard", &value);
+      standard = ImGui::GetItemRectSize().x;
+      ui::setNextFieldWidth(ui::FieldWidth::Wide);
+      ImGui::InputFloat("##wide", &value);
+      wide = ImGui::GetItemRectSize().x;
+      font = ImGui::GetFontSize();
+    });
+    INFO("scale " << scale);
+    CHECK(narrow == Approx(3.0f * font));
+    CHECK(standard == Approx(6.0f * font));
+    CHECK(wide == Approx(12.0f * font));
+  }
+}
+
+TEST_CASE("a section break and a group break add the theme's gaps at the display scale", "[ui][widgets]") {
+  const ui::Theme defaults;
+  CHECK(defaults.sectionGap == 4.0f);
+  CHECK(defaults.groupGap == 4.0f);
+  // How far each moves the cursor down, with no gap and with one.
+  const auto advance = [](float scale, float gap, const std::function<void()> &spacing) {
+    ui::Theme theme;
+    theme.sectionGap = gap;
+    theme.groupGap = gap;
+    HeadlessImGui imgui{scale, theme};
+    float before = 0.0f;
+    float after = 0.0f;
+    HeadlessImGui::frame([&] {
+      before = ImGui::GetCursorPosY();
+      spacing();
+      after = ImGui::GetCursorPosY();
+    });
+    return after - before;
+  };
+  for (const float scale : {1.0f, 2.0f}) {
+    INFO("scale " << scale);
+    CHECK(advance(scale, 10.0f, ui::sectionBreak) - advance(scale, 0.0f, ui::sectionBreak) == Approx(20.0f * scale));
+    CHECK(advance(scale, 10.0f, ui::groupBreak) - advance(scale, 0.0f, ui::groupBreak) == Approx(10.0f * scale));
+  }
+}
+
+TEST_CASE("a full-bleed window has no padding and does not scroll, and restores the style", "[ui][widgets]") {
+  HeadlessImGui imgui;
+  const ImVec2 padding = ImGui::GetStyle().WindowPadding;
+  ImVec2 inner{-1.0f, -1.0f};
+  ImGuiWindowFlags flags = 0;
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2{0.0f, 0.0f});
+  ImGui::SetNextWindowSize(ImVec2{300.0f, 200.0f});
+  if (ui::beginFullBleedWindow("Viewport", nullptr)) {
+    inner = ImGui::GetCurrentWindow()->WindowPadding;
+    flags = ImGui::GetCurrentWindow()->Flags;
+  }
+  ImGui::End();
+  ImGui::Render();
+  CHECK(inner.x == 0.0f);
+  CHECK(inner.y == 0.0f);
+  CHECK((flags & ImGuiWindowFlags_NoScrollbar) != 0);
+  CHECK((flags & ImGuiWindowFlags_NoScrollWithMouse) != 0);
+  CHECK(ImGui::GetStyle().WindowPadding.x == padding.x);
+  CHECK(ImGui::GetStyle().WindowPadding.y == padding.y);
+}
+
 TEST_CASE("an overlay is a child over the theme's backdrop that takes no input", "[ui][widgets]") {
   const ui::Theme theme = loudTheme();
   HeadlessImGui imgui{1.0f, theme};
