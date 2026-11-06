@@ -64,6 +64,8 @@ struct InspectorDriver {
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2{800.0f, 600.0f};
     io.IniFilename = nullptr;
+    // On macOS Dear ImGui swaps Ctrl and Cmd, so the Ctrl+A of retype would not select the text.
+    io.ConfigMacOSXBehaviors = false;
     unsigned char *pixels = nullptr;
     int width = 0;
     int height = 0;
