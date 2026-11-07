@@ -13,9 +13,11 @@
 #include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
@@ -252,6 +254,229 @@ TEST_CASE("a raycast reports the nearest body with its point, normal and distanc
   REQUIRE(below->entity == ground);
   REQUIRE(below->distance == Approx(2.0f).margin(1e-3f));
   REQUIRE(!fixture.physics->raycast({0.0f, 10.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 5.0f).has_value());
+}
+
+namespace {
+
+// A static box, the sphere casts' obstacle.
+flecs::entity block(Fixture &fixture, const char *name, glm::vec3 position, glm::vec3 halfExtents) {
+  const flecs::entity entity = fixture.world.createEntity(name);
+  entity.set<world::Transform>({.position = position});
+  entity.set<physics::BoxCollider>({.halfExtents = halfExtents});
+  return entity;
+}
+
+void requireUnit(glm::vec3 v) {
+  REQUIRE(glm::length(v) == Approx(1.0f).margin(1e-3f));
+}
+
+// Jolt resolves a cast to its collision tolerance, and rounds a box's edges by the convex
+// radius (5 cm), so positions are compared to a centimetre and edges to more.
+constexpr float CastMargin = 1e-2f;
+
+} // namespace
+
+TEST_CASE("a sphere cast misses in open space and stops at a wall", "[physics][spherecast]") {
+  Fixture fixture;
+  fixture.ground();
+  // A wall whose near face is at x = 4.5.
+  const flecs::entity wall = block(fixture, "Wall", {5.0f, 2.0f, 0.0f}, {0.5f, 2.0f, 2.0f});
+  REQUIRE(!fixture.physics->sphereCast({0.0f, 1.0f, 0.0f}, 0.5f, {1.0f, 0.0f, 0.0f}, 10.0f).has_value());
+  fixture.world.setPlaying(true);
+  fixture.world.progress(Step);
+
+  // Above the ground and short of the wall there is nothing to hit.
+  REQUIRE(!fixture.physics->sphereCast({0.0f, 1.0f, 0.0f}, 0.5f, {-1.0f, 0.0f, 0.0f}, 5.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast({0.0f, 1.0f, 0.0f}, 0.5f, {1.0f, 0.0f, 0.0f}, 3.9f).has_value());
+
+  // The direction need not be normalised; the distance is the centre's travel.
+  const auto hit = fixture.physics->sphereCast({0.0f, 1.0f, 0.0f}, 0.5f, {2.0f, 0.0f, 0.0f}, 10.0f);
+  REQUIRE(hit.has_value());
+  REQUIRE(hit->entity == wall);
+  REQUIRE(hit->distance == Approx(4.0f).margin(CastMargin));
+  REQUIRE(hit->point.x == Approx(4.5f).margin(CastMargin));
+  REQUIRE(hit->point.y == Approx(1.0f).margin(CastMargin));
+  requireUnit(hit->normal);
+  REQUIRE(hit->normal.x == Approx(-1.0f).margin(1e-3f));
+
+  // A bigger sphere stops sooner.
+  const auto big = fixture.physics->sphereCast({0.0f, 1.5f, 0.0f}, 1.0f, {1.0f, 0.0f, 0.0f}, 10.0f);
+  REQUIRE(big.has_value());
+  REQUIRE(big->distance == Approx(3.5f).margin(CastMargin));
+}
+
+TEST_CASE("a sphere cast does not pass through a thin wall", "[physics][spherecast]") {
+  Fixture fixture;
+  // Two centimetres thick, centred at x = 5.
+  const flecs::entity wall = block(fixture, "Thin", {5.0f, 0.0f, 0.0f}, {0.01f, 2.0f, 2.0f});
+  fixture.world.setPlaying(true);
+  fixture.world.progress(Step);
+
+  const auto forward = fixture.physics->sphereCast({0.0f, 0.0f, 0.0f}, 0.5f, {1.0f, 0.0f, 0.0f}, 100.0f);
+  REQUIRE(forward.has_value());
+  REQUIRE(forward->entity == wall);
+  REQUIRE(forward->distance == Approx(4.49f).margin(CastMargin));
+  REQUIRE(forward->normal.x == Approx(-1.0f).margin(1e-3f));
+  const auto back = fixture.physics->sphereCast({10.0f, 0.0f, 0.0f}, 0.5f, {-1.0f, 0.0f, 0.0f}, 100.0f);
+  REQUIRE(back.has_value());
+  REQUIRE(back->distance == Approx(4.49f).margin(CastMargin));
+  REQUIRE(back->normal.x == Approx(1.0f).margin(1e-3f));
+  // A cast is not a sphere stepping: a small sphere sent a long way still meets the wall.
+  const auto small = fixture.physics->sphereCast({-500.0f, 0.0f, 0.0f}, 0.05f, {1.0f, 0.0f, 0.0f}, 1000.0f);
+  REQUIRE(small.has_value());
+  REQUIRE(small->distance == Approx(504.94f).margin(0.05f));
+}
+
+TEST_CASE("a sphere cast hits edges and corners with a normal towards the sphere", "[physics][spherecast]") {
+  Fixture fixture;
+  // A 2 m cube centred at (5, 5, 0): its top edge facing the casts is at x = 4, y = 6, and a
+  // corner at (4, 6, 1).
+  const flecs::entity cube = block(fixture, "Cube", {5.0f, 5.0f, 0.0f}, {1.0f, 1.0f, 1.0f});
+  fixture.world.setPlaying(true);
+  fixture.world.progress(Step);
+
+  const auto check = [&](glm::vec3 origin, glm::vec3 corner) {
+    const auto hit = fixture.physics->sphereCast(origin, 0.5f, {1.0f, 0.0f, 0.0f}, 10.0f);
+    REQUIRE(hit.has_value());
+    REQUIRE(hit->entity == cube);
+    // Near the sharp edge, within the rounding.
+    REQUIRE(glm::distance(hit->point, corner) < 0.1f);
+    requireUnit(hit->normal);
+    // The centre at the hit is a radius away from the point, along the normal.
+    const glm::vec3 centre = origin + glm::vec3{hit->distance, 0.0f, 0.0f};
+    REQUIRE(glm::distance(centre, hit->point) == Approx(0.5f).margin(CastMargin));
+    REQUIRE(glm::dot(hit->normal, glm::normalize(centre - hit->point)) > 0.999f);
+    return *hit;
+  };
+
+  // Past the top edge, 0.3 m above it: a sharp edge would stop the centre at x = 3.6, the
+  // rounded one stops it a little sooner.
+  const physics::SphereCastHit edge = check({0.0f, 6.3f, 0.0f}, {4.0f, 6.0f, 0.0f});
+  REQUIRE(edge.distance == Approx(3.6f).margin(0.1f));
+  REQUIRE(edge.normal.x < 0.0f);
+  REQUIRE(edge.normal.y > 0.0f);
+  REQUIRE(edge.normal.z == Approx(0.0f).margin(1e-3f));
+
+  // Past the corner, 0.3 m above and beside it.
+  const physics::SphereCastHit corner = check({0.0f, 6.3f, 1.3f}, {4.0f, 6.0f, 1.0f});
+  REQUIRE(corner.distance == Approx(3.735f).margin(0.1f));
+  REQUIRE(corner.normal.x < 0.0f);
+  REQUIRE(corner.normal.y > 0.0f);
+  REQUIRE(corner.normal.z > 0.0f);
+
+  // Clear of the edge by a centimetre more than the radius: no hit.
+  REQUIRE(!fixture.physics->sphereCast({0.0f, 6.51f, 0.0f}, 0.5f, {1.0f, 0.0f, 0.0f}, 10.0f).has_value());
+}
+
+TEST_CASE("a sphere cast that starts overlapping hits at distance zero", "[physics][spherecast]") {
+  Fixture fixture;
+  const flecs::entity ground = fixture.ground();
+  const flecs::entity cube = block(fixture, "Cube", {5.0f, 5.0f, 0.0f}, {1.0f, 1.0f, 1.0f});
+  fixture.world.setPlaying(true);
+  fixture.world.progress(Step);
+
+  // Sunk 0.2 m into the ground: the hit is at once, whichever way the sphere moves, and the
+  // normal pushes it up and out.
+  for (const glm::vec3 direction :
+       {glm::vec3{1.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 1.0f, 0.0f}, glm::vec3{0.0f, -1.0f, 0.0f}}) {
+    const auto hit = fixture.physics->sphereCast({3.0f, 0.3f, 0.0f}, 0.5f, direction, 5.0f);
+    REQUIRE(hit.has_value());
+    REQUIRE(hit->entity == ground);
+    REQUIRE(hit->distance == 0.0f);
+    requireUnit(hit->normal);
+    REQUIRE(hit->normal.y == Approx(1.0f).margin(1e-2f));
+    REQUIRE(hit->point.y == Approx(0.0f).margin(0.05f));
+  }
+
+  // Wholly inside the cube, nearer its +x face: still a hit, with a normal out of that face.
+  const auto inside = fixture.physics->sphereCast({5.5f, 5.0f, 0.0f}, 0.25f, {-1.0f, 0.0f, 0.0f}, 3.0f);
+  REQUIRE(inside.has_value());
+  REQUIRE(inside->entity == cube);
+  REQUIRE(inside->distance == 0.0f);
+  requireUnit(inside->normal);
+  REQUIRE(inside->normal.x == Approx(1.0f).margin(1e-2f));
+
+  // A zero-length move tests the overlap where the sphere stands.
+  const auto still = fixture.physics->sphereCast({3.0f, 0.3f, 0.0f}, 0.5f, {0.0f, 0.0f, 0.0f}, 5.0f);
+  REQUIRE(still.has_value());
+  REQUIRE(still->entity == ground);
+  REQUIRE(still->distance == 0.0f);
+  REQUIRE(still->normal.y == Approx(1.0f).margin(1e-2f));
+  const auto zero = fixture.physics->sphereCast({3.0f, 0.3f, 0.0f}, 0.5f, {1.0f, 0.0f, 0.0f}, 0.0f);
+  REQUIRE(zero.has_value());
+  REQUIRE(zero->entity == ground);
+  REQUIRE(!fixture.physics->sphereCast({3.0f, 2.0f, 0.0f}, 0.5f, {0.0f, 0.0f, 0.0f}, 5.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast({3.0f, 2.0f, 0.0f}, 0.5f, {1.0f, 0.0f, 0.0f}, 0.0f).has_value());
+}
+
+TEST_CASE("a sphere cast skips ignored entities and triggers", "[physics][spherecast]") {
+  Fixture fixture;
+  // A compound body: an empty static root with a box child, its face at x = 2.5.
+  const flecs::entity near = fixture.world.createEntity("Near");
+  near.set<world::Transform>({.position = {3.0f, 0.0f, 0.0f}});
+  near.set<physics::RigidBody>({.type = physics::BodyType::Static});
+  const flecs::entity part = fixture.world.createEntity("Part", near);
+  part.set<world::Transform>({});
+  part.set<physics::BoxCollider>({.halfExtents = {0.5f, 2.0f, 2.0f}});
+  const flecs::entity far = block(fixture, "Far", {8.0f, 0.0f, 0.0f}, {0.5f, 2.0f, 2.0f});
+  // A trigger between the start and the near wall.
+  const flecs::entity sensor = block(fixture, "Sensor", {1.0f, 0.0f, 0.0f}, {0.5f, 2.0f, 2.0f});
+  sensor.add<physics::Trigger>();
+  const flecs::entity loose = fixture.world.createEntity("Loose");
+  fixture.world.setPlaying(true);
+  fixture.world.progress(Step);
+
+  const glm::vec3 origin{-2.0f, 0.0f, 0.0f};
+  const glm::vec3 right{1.0f, 0.0f, 0.0f};
+  // The trigger is passed through; the compound body is reported by its root.
+  const auto first = fixture.physics->sphereCast(origin, 0.5f, right, 20.0f);
+  REQUIRE(first.has_value());
+  REQUIRE(first->entity == near);
+  REQUIRE(first->distance == Approx(4.0f).margin(CastMargin));
+  // Starting inside the trigger is no overlap either.
+  REQUIRE(fixture.physics->sphereCast({1.0f, 0.0f, 0.0f}, 0.5f, right, 20.0f)->entity == near);
+  REQUIRE(!fixture.physics->sphereCast({1.0f, 0.0f, 0.0f}, 0.5f, {0.0f, 0.0f, 0.0f}, 0.0f).has_value());
+
+  // Ignoring the folded-in child ignores its whole body; an entity with no body changes nothing.
+  const std::array<flecs::entity, 2> byPart{part, loose};
+  const auto second = fixture.physics->sphereCast(origin, 0.5f, right, 20.0f, byPart);
+  REQUIRE(second.has_value());
+  REQUIRE(second->entity == far);
+  REQUIRE(second->distance == Approx(9.0f).margin(CastMargin));
+  const std::array<flecs::entity, 1> byRoot{near};
+  REQUIRE(fixture.physics->sphereCast(origin, 0.5f, right, 20.0f, byRoot)->entity == far);
+  // A cast from inside an ignored body, as a camera inside its character, sees past it.
+  const auto fromInside = fixture.physics->sphereCast({3.0f, 0.0f, 0.0f}, 0.25f, right, 20.0f, byRoot);
+  REQUIRE(fromInside.has_value());
+  REQUIRE(fromInside->entity == far);
+  REQUIRE(fromInside->distance == Approx(4.25f).margin(CastMargin));
+  const std::array<flecs::entity, 2> both{near, far};
+  REQUIRE(!fixture.physics->sphereCast(origin, 0.5f, right, 20.0f, both).has_value());
+}
+
+TEST_CASE("a sphere cast rejects invalid input", "[physics][spherecast]") {
+  Fixture fixture;
+  block(fixture, "Wall", {5.0f, 0.0f, 0.0f}, {0.5f, 2.0f, 2.0f});
+  fixture.world.setPlaying(true);
+  fixture.world.progress(Step);
+
+  const glm::vec3 origin{0.0f, 0.0f, 0.0f};
+  const glm::vec3 right{1.0f, 0.0f, 0.0f};
+  REQUIRE(fixture.physics->sphereCast(origin, 0.5f, right, 10.0f).has_value());
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const float inf = std::numeric_limits<float>::infinity();
+  REQUIRE(!fixture.physics->sphereCast(origin, 0.0f, right, 10.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast(origin, -0.5f, right, 10.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast(origin, nan, right, 10.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast(origin, inf, right, 10.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast({nan, 0.0f, 0.0f}, 0.5f, right, 10.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast(origin, 0.5f, {1.0f, nan, 0.0f}, 10.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast(origin, 0.5f, {inf, 0.0f, 0.0f}, 10.0f).has_value());
+  // Finite, but too long to measure.
+  REQUIRE(!fixture.physics->sphereCast(origin, 0.5f, {3e38f, 3e38f, 0.0f}, 10.0f).has_value());
+  REQUIRE(!fixture.physics->sphereCast(origin, 0.5f, right, nan).has_value());
+  REQUIRE(!fixture.physics->sphereCast(origin, 0.5f, right, inf).has_value());
+  REQUIRE(!fixture.physics->sphereCast(origin, 0.5f, right, -1.0f).has_value());
 }
 
 TEST_CASE("impulses and velocities act on dynamic bodies only", "[physics]") {

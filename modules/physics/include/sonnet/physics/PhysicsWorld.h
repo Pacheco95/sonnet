@@ -39,6 +39,17 @@ struct RaycastHit {
   float distance{0.0f};
 };
 
+// What a sphere cast hit first. `point` is on the hit body's surface, `normal` the unit direction
+// from it towards the sphere's centre at the hit (the push that would separate them), and
+// `distance` how far the centre travelled along the normalised direction, 0 when the sphere
+// started out overlapping the body.
+struct SphereCastHit {
+  flecs::entity entity;
+  glm::vec3 point{0.0f};
+  glm::vec3 normal{0.0f, 1.0f, 0.0f};
+  float distance{0.0f};
+};
+
 enum class ContactEventKind : std::uint8_t {
   ContactBegin, // two solid bodies started touching
   ContactEnd,   // ... stopped touching
@@ -74,6 +85,16 @@ public:
   // normalised.
   [[nodiscard]] virtual std::optional<RaycastHit> raycast(glm::vec3 origin, glm::vec3 direction, float maxDistance,
                                                           flecs::entity ignore = {}) = 0;
+  // The first solid body a sphere of `radius` touches while its centre moves from `origin` along
+  // `direction` (which need not be normalised) for up to `maxDistance`. Triggers are not hit, and
+  // neither is the body of any entity in `ignore` (a collider folded into a compound body ignores
+  // that whole body). A sphere that starts out overlapping a body hits it at distance 0, the
+  // deepest overlap first, with the normal that pushes the sphere out; a zero direction or a zero
+  // maxDistance tests only that overlap. A non-positive radius, a negative maxDistance or any
+  // value that is not finite hits nothing.
+  [[nodiscard]] virtual std::optional<SphereCastHit> sphereCast(glm::vec3 origin, float radius, glm::vec3 direction,
+                                                                float maxDistance,
+                                                                std::span<const flecs::entity> ignore = {}) = 0;
   // Dynamic bodies only; an impulse changes the velocity at once, a force acts over the next step.
   virtual void addImpulse(flecs::entity entity, glm::vec3 impulse) = 0;
   virtual void addForce(flecs::entity entity, glm::vec3 force) = 0;
