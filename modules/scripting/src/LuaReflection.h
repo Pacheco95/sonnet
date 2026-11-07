@@ -21,14 +21,18 @@ struct LuaTypes {
 
 // A reflected value as Lua sees it (docs/scripting.md, "Components"): numbers and booleans as
 // themselves, strings as strings, enums as their constant's name, asset identities as their canonical string or nil,
-// structs as tables of their members, vec3 and quat with their metatables. Unsupported types
-// are nil.
+// structs as tables of their members, vec3 and quat with their metatables, collections from
+// World::registerVector as arrays of their elements. Unsupported types are nil.
 [[nodiscard]] sol::object toLua(sol::state_view lua, const flecs::world &world, const LuaTypes &types,
                                 flecs::entity_t type, const void *data);
 
-// Assigns the fields present in `value` to the reflected value at `data`, leaving the others; a
-// value of the wrong shape is an error naming the member, and what was assigned before it stays.
-[[nodiscard]] std::optional<std::string> fromLua(const sol::object &value, const flecs::world &world,
-                                                 const LuaTypes &types, flecs::entity_t type, void *data);
+// Assigns the fields present in `value` to `target`'s `component`, leaving the others and adding
+// the component when absent; an array replaces a collection, its elements starting from their
+// defaults. A value of the wrong shape is an error naming its path (`layers[2].weight`), and
+// leaves the component as it was: the fields are assigned to a copy that replaces the component
+// only when every one converted.
+[[nodiscard]] std::optional<std::string> setFromLua(const sol::object &value, const flecs::world &world,
+                                                    const LuaTypes &types, flecs::entity target,
+                                                    flecs::entity_t component);
 
 } // namespace sonnet::scripting
