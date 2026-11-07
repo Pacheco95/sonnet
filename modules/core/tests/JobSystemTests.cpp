@@ -45,16 +45,16 @@ TEST_CASE("a default handle is not valid and waiting on it returns", "[core][job
 
 TEST_CASE("every scheduled job runs exactly once", "[core][jobs]") {
   JobSystem jobs{workers(4)};
-  constexpr int Count = 500;
-  std::vector<std::atomic<int>> ran(Count);
+  constexpr int count = 500;
+  std::vector<std::atomic<int>> ran(count);
   std::vector<JobHandle> handles;
-  handles.reserve(Count);
-  for (int i = 0; i < Count; ++i) {
+  handles.reserve(count);
+  for (int i = 0; i < count; ++i) {
     handles.push_back(jobs.schedule("many", [&ran, i] { ran[static_cast<std::size_t>(i)].fetch_add(1); }));
   }
   jobs.wait(handles);
-  for (const std::atomic<int> &count : ran) {
-    CHECK(count.load() == 1);
+  for (const std::atomic<int> &runs : ran) {
+    CHECK(runs.load() == 1);
   }
 }
 
@@ -115,14 +115,14 @@ TEST_CASE("a job may wait on the jobs it schedules", "[core][jobs]") {
 
 TEST_CASE("parallelFor covers the range exactly once", "[core][jobs]") {
   JobSystem jobs{workers(4)};
-  constexpr std::size_t Count = 10000;
-  std::vector<int> touched(Count, 0);
-  jobs.parallelFor("touch", Count, 64, [&touched](std::size_t begin, std::size_t end) {
+  constexpr std::size_t count = 10000;
+  std::vector<int> touched(count, 0);
+  jobs.parallelFor("touch", count, 64, [&touched](std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; ++i) {
       touched[i] += 1;
     }
   });
-  CHECK(std::accumulate(touched.begin(), touched.end(), 0) == static_cast<int>(Count));
+  CHECK(std::accumulate(touched.begin(), touched.end(), 0) == static_cast<int>(count));
   CHECK(std::ranges::all_of(touched, [](int value) { return value == 1; }));
 }
 

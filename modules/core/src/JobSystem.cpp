@@ -36,7 +36,7 @@ namespace {
 
 // Whether this thread is a worker of some job system. There is one system in a running engine;
 // a test with two sees every worker of both, which is what callers of onWorker() mean by it.
-thread_local bool t_onWorker = false;
+thread_local bool g_onWorker = false;
 
 } // namespace
 
@@ -69,7 +69,7 @@ JobSystem::JobSystem(const JobSystemDesc &desc) : m_state(std::make_unique<State
   m_state->workers.reserve(workers);
   for (std::uint32_t i = 0; i < workers; ++i) {
     m_state->workers.emplace_back([this, i, name = std::string{desc.workerName}] {
-      t_onWorker = true;
+      g_onWorker = true;
       const std::string label = name + " " + std::to_string(i);
       SONNET_SET_THREAD_NAME(label.c_str());
       workerLoop();
@@ -93,7 +93,7 @@ JobSystem::~JobSystem() {
 }
 
 bool JobSystem::onWorker() noexcept {
-  return t_onWorker;
+  return g_onWorker;
 }
 
 JobHandle JobSystem::schedule(const char *name, std::function<void()> function,
