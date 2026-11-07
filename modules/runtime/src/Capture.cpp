@@ -377,14 +377,14 @@ std::vector<std::string> pendingAssetNames(const assets::AssetDatabase &assets) 
 }
 
 std::string describeWaiting(std::span<const std::string> waiting) {
-  constexpr std::size_t Shown = 8;
+  constexpr std::size_t shown = 8;
   std::string text;
-  for (std::size_t i = 0; i < std::min(waiting.size(), Shown); ++i) {
+  for (std::size_t i = 0; i < std::min(waiting.size(), shown); ++i) {
     text += i == 0 ? "" : ", ";
     text += waiting[i];
   }
-  if (waiting.size() > Shown) {
-    text += std::format(" and {} more", waiting.size() - Shown);
+  if (waiting.size() > shown) {
+    text += std::format(" and {} more", waiting.size() - shown);
   }
   return text;
 }

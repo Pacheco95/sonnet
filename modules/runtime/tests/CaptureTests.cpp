@@ -88,6 +88,7 @@ TEST_CASE("a capture that gives up names what it waited for", "[runtime][capture
   REQUIRE(runtime::describeWaiting(std::vector<std::string>{"the first frame", "assets/sky.hdr"}) ==
           "the first frame, assets/sky.hdr");
   std::vector<std::string> many;
+  many.reserve(11);
   for (int i = 0; i < 11; ++i) {
     many.push_back(std::format("t{}.png", i));
   }
