@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "Character",
+  "engineVersion": "0.23.0",
+  "startScene": "scenes/main.scene.json",
+  "assetRoots": [
+    "assets",
+    "scripts"
+  ]
+}

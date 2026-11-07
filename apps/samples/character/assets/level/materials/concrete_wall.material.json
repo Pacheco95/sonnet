@@ -1,0 +1,55 @@
+{
+  "version": 6,
+  "baseColor": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "emissive": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "metallic": 1.0,
+  "roughness": 1.0,
+  "normalScale": 1.0,
+  "occlusionStrength": 1.0,
+  "alphaCutoff": 0.5,
+  "transmission": 0.0,
+  "alphaMode": "Opaque",
+  "doubleSided": false,
+  "unlit": false,
+  "textures": {
+    "baseColor": "5bdfabe4-ad68-8e46-b2c5-bef05848442c",
+    "metallicRoughness": "d40e5498-30a6-875a-bd00-f945c28d16ba",
+    "normal": "6a4a94be-ef31-84fb-8da1-127e6d6d6708",
+    "occlusion": "d40e5498-30a6-875a-bd00-f945c28d16ba"
+  },
+  "transforms": {
+    "baseColor": {
+      "scale": [
+        0.5,
+        0.5
+      ]
+    },
+    "metallicRoughness": {
+      "scale": [
+        0.5,
+        0.5
+      ]
+    },
+    "normal": {
+      "scale": [
+        0.5,
+        0.5
+      ]
+    },
+    "occlusion": {
+      "scale": [
+        0.5,
+        0.5
+      ]
+    }
+  }
+}
