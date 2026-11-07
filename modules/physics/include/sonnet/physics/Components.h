@@ -4,6 +4,7 @@
 #include <sonnet/core/Uuid.h>
 
 #include <cstdint>
+#include <numbers>
 
 namespace sonnet::world {
 class World;
@@ -61,6 +62,24 @@ struct MeshCollider {
 // RigidBody it still moves by that body's type; on a collider-only child of a compound body it is
 // ignored, since the body as a whole is either a sensor or not.
 struct Trigger {};
+
+// A character moved by intent rather than by forces (ADR-0038, docs/physics.md#characters): an
+// upright capsule along world +Y whose bottom is at the entity's origin plus `offset`, so the
+// origin is the character's feet. It climbs steps up to `stepHeight`, stays on descents and
+// small drops up to `groundSnap`, stands on slopes up to `maxSlope`, rides what it stands on and
+// pushes dynamic bodies with up to `pushStrength` newtons. A value out of range, a RigidBody,
+// collider or Trigger on the entity, a CharacterController or RigidBody above it, an enabled
+// collider below it, a tilt or a scale reject it until the problem is gone.
+struct CharacterController {
+  float radius{0.3f};                                         // metres, > 0
+  float halfHeight{0.6f};                                     // of the cylinder, metres, >= 0
+  glm::vec3 offset{0.0f, 0.0f, 0.0f};                         // entity space
+  float maxSlope{50.0f * std::numbers::pi_v<float> / 180.0f}; // radians, in (0, 90 degrees)
+  float stepHeight{0.3f};                                     // metres, 0 to halfHeight + radius
+  float groundSnap{0.3f};                                     // metres, 0 to halfHeight + radius
+  float mass{70.0f};                                          // kilograms, > 0
+  float pushStrength{100.0f};                                 // newtons, >= 0
+};
 
 // Registers the components above with the world's reflection under their scene-file names. Done
 // by createPhysicsWorld; separate for tools that read scenes without simulating them. Idempotent.

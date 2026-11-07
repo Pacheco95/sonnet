@@ -26,6 +26,15 @@ void registerComponents(world::World &world) {
       .member<glm::vec3>("offset");
   world.registerComponent<MeshCollider>("MeshCollider").member<core::Uuid>("mesh");
   world.registerComponent<Trigger>("Trigger", true);
+  world.registerComponent<CharacterController>("CharacterController")
+      .member<float>("radius")
+      .member<float>("halfHeight")
+      .member<glm::vec3>("offset")
+      .member<float, flecs::units::angle::Radians>("maxSlope")
+      .member<float>("stepHeight")
+      .member<float>("groundSnap")
+      .member<float>("mass")
+      .member<float>("pushStrength");
 }
 
 } // namespace sonnet::physics

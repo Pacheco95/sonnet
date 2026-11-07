@@ -42,7 +42,30 @@ constexpr glm::vec3 Z{0.0f, 0.0f, 1.0f};
 constexpr float Tau = 2.0f * std::numbers::pi_v<float>;
 constexpr float Pi = std::numbers::pi_v<float>;
 
+// Rings at the ends of the cylinder, four side lines and the caps as half circles in the two
+// vertical planes, about `centre` along Y.
+void capsuleLines(const LineSink &sink, glm::vec3 centre, float r, float halfHeight) {
+  const glm::vec3 top = centre + Y * halfHeight;
+  const glm::vec3 bottom = centre - Y * halfHeight;
+  sink.arc(top, Z, X, r, 0.0f, Tau, CircleSegments);
+  sink.arc(bottom, Z, X, r, 0.0f, Tau, CircleSegments);
+  for (const glm::vec3 side : {X, -X, Z, -Z}) {
+    sink.add(bottom + side * r, top + side * r);
+  }
+  sink.arc(top, X, Y, r, 0.0f, Pi, CircleSegments / 2);
+  sink.arc(top, Z, Y, r, 0.0f, Pi, CircleSegments / 2);
+  sink.arc(bottom, X, Y, r, Pi, Pi, CircleSegments / 2);
+  sink.arc(bottom, Z, Y, r, Pi, Pi, CircleSegments / 2);
+}
+
 } // namespace
+
+void appendCharacterLines(const CharacterController &controller, const glm::mat4 &world, glm::vec4 color,
+                          std::vector<renderer::DebugLine> &lines) {
+  const LineSink sink{world, color, lines};
+  capsuleLines(sink, controller.offset + Y * (controller.halfHeight + controller.radius), controller.radius,
+               controller.halfHeight);
+}
 
 void appendColliderLines(flecs::entity entity, const glm::mat4 &world, const renderer::MeshData *mesh, glm::vec4 color,
                          std::vector<renderer::DebugLine> &lines) {
@@ -69,19 +92,7 @@ void appendColliderLines(flecs::entity entity, const glm::mat4 &world, const ren
     sink.arc(sphere->offset, Z, X, sphere->radius, 0.0f, Tau, CircleSegments);
   }
   if (const CapsuleCollider *capsule = entity.try_get<CapsuleCollider>()) {
-    const float r = capsule->radius;
-    const glm::vec3 top = capsule->offset + Y * capsule->halfHeight;
-    const glm::vec3 bottom = capsule->offset - Y * capsule->halfHeight;
-    sink.arc(top, Z, X, r, 0.0f, Tau, CircleSegments);
-    sink.arc(bottom, Z, X, r, 0.0f, Tau, CircleSegments);
-    for (const glm::vec3 side : {X, -X, Z, -Z}) {
-      sink.add(bottom + side * r, top + side * r);
-    }
-    // The caps as half circles in the two vertical planes.
-    sink.arc(top, X, Y, r, 0.0f, Pi, CircleSegments / 2);
-    sink.arc(top, Z, Y, r, 0.0f, Pi, CircleSegments / 2);
-    sink.arc(bottom, X, Y, r, Pi, Pi, CircleSegments / 2);
-    sink.arc(bottom, Z, Y, r, Pi, Pi, CircleSegments / 2);
+    capsuleLines(sink, capsule->offset, capsule->radius, capsule->halfHeight);
   }
   if (mesh != nullptr && entity.has<MeshCollider>()) {
     for (std::size_t i = 0; i + 2 < mesh->indices.size(); i += 3) {

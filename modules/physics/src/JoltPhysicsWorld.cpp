@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
@@ -42,6 +43,8 @@
 #include <cstdio>
 #include <format>
 #include <mutex>
+#include <numbers>
+#include <optional>
 #include <span>
 #include <string>
 #include <tuple>
@@ -191,6 +194,26 @@ constexpr glm::vec4 StaticColor{0.6f, 0.6f, 0.6f, 1.0f};
 constexpr glm::vec4 KinematicColor{0.3f, 0.6f, 1.0f, 1.0f};
 constexpr glm::vec4 DynamicColor{0.3f, 1.0f, 0.4f, 1.0f};
 constexpr glm::vec4 SleepingColor{0.15f, 0.5f, 0.2f, 1.0f};
+constexpr glm::vec4 CharacterColor{1.0f, 0.6f, 0.15f, 1.0f};
+
+constexpr glm::vec3 Up{0.0f, 1.0f, 0.0f};
+// The inner body, the character's presence in queries and triggers, is a little thinner than the
+// capsule the character sweeps with, so the character's own contacts come first.
+constexpr float InnerBodyScale = 0.9f;
+
+bool finite(glm::vec3 v) {
+  return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
+glm::quat yawRotation(float yaw) {
+  return glm::angleAxis(yaw, Up);
+}
+
+// The yaw of a rotation about +Y, read from where it turns the forward axis.
+float yawOf(glm::quat rotation) {
+  const glm::vec3 forward = rotation * glm::vec3{0.0f, 0.0f, 1.0f};
+  return std::atan2(forward.x, forward.z);
+}
 
 constexpr JPH::uint MaxBodyPairs = 65536;
 constexpr JPH::uint MaxContactConstraints = 10240;
@@ -252,6 +275,7 @@ bool nearlyEqual(const glm::mat4 &a, const glm::mat4 &b) {
 struct BodyInfo {
   flecs::entity_t entity{0};
   bool sensor{false};
+  bool inner{false}; // a character's inner body, whose solid contacts are the character's own
 };
 
 // One change in the number of touching shape pairs between two entities, as Jolt reported it.
@@ -303,12 +327,18 @@ public:
     return std::exchange(m_records, {});
   }
 
-private:
+  // One change in the touching shape pairs of two registered bodies. A character's inner body
+  // reports only its trigger overlaps here; its solid contacts come from the character itself
+  // (`fromCharacter`), so neither is counted twice.
   void record(JPH::BodyID firstId, JPH::BodyID secondId, std::uint32_t firstShape, std::uint32_t secondShape, int delta,
-              glm::vec3 point, glm::vec3 normal) {
+              glm::vec3 point, glm::vec3 normal, bool fromCharacter = false) {
     const auto first = m_bodies.find(firstId.GetIndexAndSequenceNumber());
     const auto second = m_bodies.find(secondId.GetIndexAndSequenceNumber());
     if (first == m_bodies.end() || second == m_bodies.end()) {
+      return;
+    }
+    const bool sensor = first->second.sensor || second->second.sensor;
+    if (fromCharacter ? sensor : !sensor && (first->second.inner || second->second.inner)) {
       return;
     }
     RawContact contact{.first = first->second.entity,
@@ -318,7 +348,7 @@ private:
                        .firstShape = firstShape,
                        .secondShape = secondShape,
                        .delta = delta,
-                       .sensor = first->second.sensor || second->second.sensor,
+                       .sensor = sensor,
                        .point = point,
                        .normal = normal};
     // The pair is ordered by entity id, not by Jolt's body ids, which follow creation order.
@@ -337,10 +367,35 @@ private:
   std::vector<RawContact> m_records;
 };
 
+// A character's solid contacts, which Jolt reports on the thread running ExtendedUpdate (the
+// stepping thread, before the rigid-body step), as records of the character's inner body. Its
+// sensor contacts are left to the inner body's, which the rigid-body listener reports.
+class CharacterContactRecorder final : public JPH::CharacterContactListener {
+public:
+  explicit CharacterContactRecorder(ContactRecorder &recorder) : m_recorder(recorder) {
+  }
+
+  void OnContactAdded(const JPH::CharacterVirtual *character, const JPH::CharacterContact &contact,
+                      JPH::CharacterContactSettings &) override {
+    // The contact normal points towards the character, the event's from first to second.
+    m_recorder.record(character->GetInnerBodyID(), contact.mBodyB, 0, contact.mSubShapeIDB.GetValue(), +1,
+                      fromJolt(JPH::Vec3{contact.mPosition}), -fromJolt(contact.mContactNormal), true);
+  }
+
+  void OnContactRemoved(const JPH::CharacterVirtual *character, const JPH::BodyID &body,
+                        const JPH::SubShapeID &shape) override {
+    m_recorder.record(character->GetInnerBodyID(), body, 0, shape.GetValue(), -1, glm::vec3{0.0f}, glm::vec3{0.0f},
+                      true);
+  }
+
+private:
+  ContactRecorder &m_recorder;
+};
+
 class JoltPhysicsWorld final : public IPhysicsWorld {
 public:
   JoltPhysicsWorld(world::World &world, assets::AssetDatabase &assets, core::JobSystem &jobs, const PhysicsDesc &desc)
-      : m_world(world), m_assets(assets), m_recorder(m_bodyInfo) {
+      : m_world(world), m_assets(assets), m_recorder(m_bodyInfo), m_characterRecorder(m_recorder) {
     acquireJolt();
     registerComponents(world);
     m_temp = std::make_unique<JPH::TempAllocatorImpl>(TempAllocatorBytes);
@@ -365,6 +420,12 @@ public:
                       .self()
                       .up(flecs::ChildOf)
                       .build();
+    m_controllers = ecs.query_builder<>("PhysicsCharacters")
+                        .with<CharacterController>()
+                        .without<world::Disabled>()
+                        .self()
+                        .up(flecs::ChildOf)
+                        .build();
     m_stepSystem = ecs.system("PhysicsStep").kind(world.phase(world::Phase::FixedUpdate)).run([this](flecs::iter &it) {
       step(it.delta_time());
     });
@@ -380,6 +441,7 @@ public:
     observeChanges<SphereCollider>();
     observeChanges<CapsuleCollider>();
     observeChanges<MeshCollider>();
+    observeChanges<CharacterController>();
     // Disabling an entity removes the bodies in its subtree at once, not at the next step, so a
     // raycast in between does not hit them; enabling it again lets the step build them anew.
     m_observers.push_back(
@@ -393,6 +455,15 @@ public:
           }
           for (const flecs::entity_t id : below) {
             destroyBody(id);
+          }
+          below.clear();
+          for (const auto &[id, character] : m_characters) {
+            if (m_world.ecs().is_alive(id) && m_world.isDescendant(flecs::entity{m_world.ecs(), id}, entity)) {
+              below.push_back(id);
+            }
+          }
+          for (const flecs::entity_t id : below) {
+            destroyCharacter(id);
           }
         }));
     m_observers.push_back(ecs.observer("PhysicsTrigger")
@@ -410,6 +481,9 @@ public:
     m_stepSystem.destruct();
     m_interpolateSystem.destruct();
     m_colliders.destruct();
+    m_controllers.destruct();
+    // A character's destructor removes its inner body from the system.
+    m_characters.clear();
     while (!m_bodies.empty()) {
       destroyBody(m_bodies.begin()->first);
     }
@@ -430,8 +504,16 @@ public:
     }
     const JPH::RRayCast ray{toJolt(origin), toJolt(direction / length * maxDistance)};
     JPH::RayCastResult hit;
-    const auto ignored = ignore ? m_bodies.find(ignore.id()) : m_bodies.end();
-    const JPH::IgnoreSingleBodyFilter filter{ignored != m_bodies.end() ? ignored->second.id : JPH::BodyID{}};
+    JPH::BodyID ignoredId;
+    if (ignore) {
+      if (const auto body = m_bodies.find(ignore.id()); body != m_bodies.end()) {
+        ignoredId = body->second.id;
+      } else if (const auto character = m_characters.find(ignore.id());
+                 character != m_characters.end() && character->second.jolt != nullptr) {
+        ignoredId = character->second.jolt->GetInnerBodyID();
+      }
+    }
+    const JPH::IgnoreSingleBodyFilter filter{ignoredId};
     if (!m_system->GetNarrowPhaseQuery().CastRay(ray, hit, {}, {}, filter)) {
       return std::nullopt;
     }
@@ -449,7 +531,6 @@ public:
 
   std::optional<SphereCastHit> sphereCast(glm::vec3 origin, float radius, glm::vec3 direction, float maxDistance,
                                           std::span<const flecs::entity> ignore) override {
-    const auto finite = [](glm::vec3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
     if (!finite(origin) || !finite(direction) || !std::isfinite(radius) || !std::isfinite(maxDistance) ||
         radius <= 0.0f || maxDistance < 0.0f) {
       return std::nullopt;
@@ -460,6 +541,10 @@ public:
         if (const auto it = m_bodies.find(bodyRootOf(entity).id());
             it != m_bodies.end() && !it->second.id.IsInvalid()) {
           ignored.push_back(it->second.id);
+        }
+        // A character is in the broad phase only through its inner body.
+        if (const auto it = m_characters.find(entity.id()); it != m_characters.end() && it->second.jolt != nullptr) {
+          ignored.push_back(it->second.jolt->GetInnerBodyID());
         }
       }
     }
@@ -556,6 +641,47 @@ public:
     }
   }
 
+  bool setCharacterMove(flecs::entity entity, glm::vec3 horizontalVelocity) override {
+    if (!finite(horizontalVelocity) || std::abs(horizontalVelocity.y) > 1e-4f) {
+      return false;
+    }
+    Character *character = characterOf(entity);
+    if (character == nullptr) {
+      return false;
+    }
+    character->move = {horizontalVelocity.x, 0.0f, horizontalVelocity.z};
+    return true;
+  }
+
+  bool jumpCharacter(flecs::entity entity, float verticalSpeed) override {
+    if (!std::isfinite(verticalSpeed) || verticalSpeed <= 0.0f) {
+      return false;
+    }
+    Character *character = characterOf(entity);
+    if (character == nullptr) {
+      return false;
+    }
+    character->jump = verticalSpeed;
+    return true;
+  }
+
+  bool teleportCharacter(flecs::entity entity, glm::vec3 position, float yaw) override {
+    if (!finite(position) || !std::isfinite(yaw)) {
+      return false;
+    }
+    Character *character = characterOf(entity);
+    if (character == nullptr) {
+      return false;
+    }
+    teleport(entity, *character, position, yaw);
+    return true;
+  }
+
+  std::optional<CharacterState> character(flecs::entity entity) override {
+    const Character *character = characterOf(entity);
+    return character != nullptr ? std::optional{character->state} : std::nullopt;
+  }
+
   std::span<const ContactEvent> events() const override {
     return m_events;
   }
@@ -587,6 +713,12 @@ public:
       }
       appendColliderLines(entity, transform->matrix, colliderMesh(entity), color, lines);
     });
+    m_controllers.each([&](flecs::entity entity) {
+      const world::WorldTransform *transform = entity.try_get<world::WorldTransform>();
+      if (transform != nullptr) {
+        appendCharacterLines(entity.get<CharacterController>(), transform->matrix, CharacterColor, lines);
+      }
+    });
   }
 
 private:
@@ -602,6 +734,21 @@ private:
     world::Transform written;
     // Colliders of descendants folded into this body, by id, with the pose they were built at.
     std::vector<Contributor> contributors;
+  };
+
+  // A CharacterController's character (ADR-0038). Its entry stays without a Jolt character while
+  // the controller is rejected, so the reason is logged once.
+  struct Character {
+    JPH::Ref<JPH::CharacterVirtual> jolt;
+    std::string rejected;
+    glm::vec3 move{0.0f};      // horizontal intent, held until changed
+    std::optional<float> jump; // one-shot, consumed by the next step
+    glm::vec3 inherited{0.0f}; // horizontal support velocity, kept in the air
+    float vertical{0.0f};      // vertical velocity carried into the next step
+    Pose previous;             // world poses after the last two steps
+    Pose current;
+    world::Transform written; // the local transform physics last wrote
+    CharacterState state;
   };
 
   // The state of a pair of entities between steps: how many of their shape pairs touch.
@@ -639,6 +786,7 @@ private:
   // A changed collider, body or tag drops the body it belongs to, whose shape the next step
   // builds again: the entity's own, and the compound body it is folded into.
   void invalidate(flecs::entity entity) {
+    destroyCharacter(entity.id());
     destroyBody(entity.id());
     if (const flecs::entity root = bodyRootOf(entity); root != entity) {
       destroyBody(root.id());
@@ -949,13 +1097,323 @@ private:
     return result;
   }
 
-  void writePose(flecs::entity entity, Body &body, const Pose &pose) {
+  static void writePose(flecs::entity entity, world::Transform &written, const Pose &pose) {
     world::Transform *local = entity.try_get_mut<world::Transform>();
     if (local == nullptr) {
       return;
     }
     *local = localTransform(entity, *local, pose);
-    body.written = *local;
+    written = *local;
+  }
+
+  // Whether the entity's local transform is no longer the one physics wrote: someone moved it.
+  static bool movedFromOutside(flecs::entity entity, const world::Transform &written) {
+    const world::Transform *local = entity.try_get<world::Transform>();
+    return local != nullptr && (local->position != written.position || local->rotation != written.rotation);
+  }
+
+  // ---- Characters ----
+
+  // Whether an enabled collider is below `entity`, which would be a body moving with the character
+  // and blocking it.
+  [[nodiscard]] bool colliderBelow(flecs::entity entity) const {
+    for (const flecs::entity child : m_world.children(entity)) {
+      if (child.has<world::Disabled>() || child.has(flecs::Prefab)) {
+        continue;
+      }
+      if (hasCollider(child) || colliderBelow(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Why the entity's controller cannot be simulated, or nothing when it can. Values are checked,
+  // not clamped, so what the inspector shows is what is simulated.
+  [[nodiscard]] std::string characterProblem(flecs::entity entity) const {
+    const CharacterController &c = entity.get<CharacterController>();
+    const float tall = c.halfHeight + c.radius;
+    if (!std::isfinite(c.radius) || c.radius <= 0.0f) {
+      return "radius must be positive";
+    }
+    if (!std::isfinite(c.halfHeight) || c.halfHeight < 0.0f) {
+      return "halfHeight must not be negative";
+    }
+    if (!finite(c.offset)) {
+      return "offset must be finite";
+    }
+    if (!(c.maxSlope > 0.0f && c.maxSlope < 0.5f * std::numbers::pi_v<float>)) {
+      return "maxSlope must be between 0 and 90 degrees";
+    }
+    if (!(c.stepHeight >= 0.0f && c.stepHeight <= tall)) {
+      return std::format("stepHeight must be between 0 and {} (halfHeight + radius)", tall);
+    }
+    if (!(c.groundSnap >= 0.0f && c.groundSnap <= tall)) {
+      return std::format("groundSnap must be between 0 and {} (halfHeight + radius)", tall);
+    }
+    if (!std::isfinite(c.mass) || c.mass <= 0.0f) {
+      return "mass must be positive";
+    }
+    if (!std::isfinite(c.pushStrength) || c.pushStrength < 0.0f) {
+      return "pushStrength must not be negative";
+    }
+    if (entity.has<RigidBody>() || hasCollider(entity) || entity.has<Trigger>()) {
+      return "the entity also has a RigidBody, a collider or a Trigger";
+    }
+    for (flecs::entity parent = entity.parent(); parent; parent = parent.parent()) {
+      if (parent.has<CharacterController>() || parent.has<RigidBody>()) {
+        return std::format("its ancestor {} has a CharacterController or a RigidBody", describe(parent));
+      }
+    }
+    if (colliderBelow(entity)) {
+      return "an enabled collider is below it";
+    }
+    const world::Transform placed = world::Transform::fromMatrix(world::World::worldMatrix(entity));
+    if (!glm::all(glm::lessThanEqual(glm::abs(placed.scale - glm::vec3{1.0f}), glm::vec3{1e-3f}))) {
+      return "its world scale is not 1";
+    }
+    if (glm::length(placed.rotation * Up - Up) > 1e-3f) {
+      return "its world rotation is not a yaw about +Y";
+    }
+    return {};
+  }
+
+  // The capsule standing on the origin plus `offset`, of `radius`.
+  static JPH::ShapeRefC characterShape(const CharacterController &controller, float radius) {
+    const JPH::ShapeRefC core = controller.halfHeight > 0.0f
+                                    ? JPH::CapsuleShapeSettings{controller.halfHeight, radius}.Create().Get()
+                                    : JPH::SphereShapeSettings{radius}.Create().Get();
+    return JPH::RotatedTranslatedShapeSettings{toJolt(controller.offset + Up * (controller.halfHeight + radius)),
+                                               JPH::Quat::sIdentity(), core}
+        .Create()
+        .Get();
+  }
+
+  // The entry stays, without a character, so the reason is logged once.
+  void rejectCharacter(flecs::entity entity, std::string reason) {
+    Character &character = m_characters[entity.id()];
+    releaseCharacter(character);
+    if (character.rejected != reason) {
+      SONNET_LOG_ERROR("{}: no character: {}", describe(entity), reason);
+      character.rejected = std::move(reason);
+    }
+    character.state = {};
+  }
+
+  void createCharacter(flecs::entity entity) {
+    if (std::string problem = characterProblem(entity); !problem.empty()) {
+      rejectCharacter(entity, std::move(problem));
+      return;
+    }
+    const CharacterController &controller = entity.get<CharacterController>();
+    const world::Transform placed = world::Transform::fromMatrix(world::World::worldMatrix(entity));
+    const Pose pose{placed.position, yawRotation(yawOf(placed.rotation))};
+
+    JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings;
+    settings->mShape = characterShape(controller, controller.radius);
+    settings->mInnerBodyShape = characterShape(controller, controller.radius * InnerBodyScale);
+    settings->mInnerBodyLayer = layers::Moving;
+    settings->mMaxSlopeAngle = controller.maxSlope;
+    settings->mMass = controller.mass;
+    settings->mMaxStrength = controller.pushStrength;
+    // Contacts below the centre of the lower half sphere support the character; higher ones only
+    // collide.
+    settings->mSupportingVolume = JPH::Plane{JPH::Vec3::sAxisY(), -(controller.offset.y + controller.radius)};
+    // The inner body (kinematic, never sleeping, so static sensors see it) carries the entity's id.
+    JPH::Ref<JPH::CharacterVirtual> jolt = new JPH::CharacterVirtual{
+        settings, JPH::RVec3{toJolt(pose.position)}, toJolt(pose.rotation), entity.id(), m_system.get()};
+    if (jolt->GetInnerBodyID().IsInvalid()) {
+      rejectCharacter(entity, std::format("the world's {} bodies are in use", m_system->GetMaxBodies()));
+      return;
+    }
+    jolt->SetListener(&m_characterRecorder);
+    m_bodyInfo[jolt->GetInnerBodyID().GetIndexAndSequenceNumber()] = {.entity = entity.id(), .inner = true};
+
+    Character &character = m_characters[entity.id()];
+    character = {};
+    character.jolt = std::move(jolt);
+    character.previous = pose;
+    character.current = pose;
+    if (const world::Transform *local = entity.try_get<world::Transform>()) {
+      character.written = *local;
+    }
+  }
+
+  // Drops the Jolt character: its solid contacts end with it, and its inner body's are reported by
+  // the next step, by id, while the entry stays.
+  void releaseCharacter(Character &character) {
+    if (character.jolt == nullptr) {
+      return;
+    }
+    const JPH::BodyID inner = character.jolt->GetInnerBodyID();
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> ended;
+    for (const JPH::CharacterContact &contact : character.jolt->GetActiveContacts()) {
+      const std::pair key{contact.mBodyB.GetIndexAndSequenceNumber(), contact.mSubShapeIDB.GetValue()};
+      if (contact.mHadCollision && !std::ranges::contains(ended, key)) {
+        ended.push_back(key);
+        m_recorder.record(inner, contact.mBodyB, 0, key.second, -1, glm::vec3{0.0f}, glm::vec3{0.0f}, true);
+      }
+    }
+    m_retired.push_back(inner.GetIndexAndSequenceNumber());
+    character.jolt = nullptr;
+  }
+
+  void destroyCharacter(flecs::entity_t entity) {
+    const auto it = m_characters.find(entity);
+    if (it == m_characters.end()) {
+      return;
+    }
+    releaseCharacter(it->second);
+    m_characters.erase(it);
+  }
+
+  // The character an entity has, created on the spot when it should have one and the step has not
+  // made it yet. Edit mode has none.
+  Character *characterOf(flecs::entity entity) {
+    if (!entity || !entity.is_alive() || !m_world.isPlaying() || !entity.has<CharacterController>() ||
+        entity.has(flecs::Prefab) || world::World::isDisabled(entity)) {
+      return nullptr;
+    }
+    auto it = m_characters.find(entity.id());
+    if (it == m_characters.end()) {
+      createCharacter(entity);
+      it = m_characters.find(entity.id());
+    }
+    return it != m_characters.end() && it->second.jolt != nullptr ? &it->second : nullptr;
+  }
+
+  // Puts the character at a world pose and clears everything it carried: velocity, intent, jump,
+  // inherited velocity, support and interpolation.
+  void teleport(flecs::entity entity, Character &character, glm::vec3 position, float yaw) {
+    const Pose pose{position, yawRotation(yaw)};
+    JPH::CharacterVirtual &jolt = *character.jolt;
+    jolt.SetPosition(JPH::RVec3{toJolt(position)});
+    jolt.SetRotation(toJolt(pose.rotation));
+    jolt.SetLinearVelocity(JPH::Vec3::sZero());
+    // The contacts where it now stands; what it left ends in the next step's events.
+    jolt.RefreshContacts(m_system->GetDefaultBroadPhaseLayerFilter(layers::Moving),
+                         m_system->GetDefaultLayerFilter(layers::Moving), {}, {}, *m_temp);
+    character.move = glm::vec3{0.0f};
+    character.jump.reset();
+    character.inherited = glm::vec3{0.0f};
+    character.vertical = 0.0f;
+    character.state = {};
+    character.previous = pose;
+    character.current = pose;
+    writePose(entity, character.written, pose);
+  }
+
+  // One fixed step of a character (ADR-0038, "The step"): the wrapper owns the velocity, which
+  // ExtendedUpdate only moves along and slides.
+  void stepCharacter(flecs::entity entity, Character &character, float dt) {
+    const CharacterController &controller = entity.get<CharacterController>();
+    JPH::CharacterVirtual &jolt = *character.jolt;
+    // The support may have changed velocity since the last step (a platform started moving).
+    jolt.UpdateGroundVelocity();
+    const glm::vec3 ground = fromJolt(jolt.GetGroundVelocity());
+    const glm::vec3 gravity = fromJolt(m_system->GetGravity());
+    const bool walkable = jolt.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+    const float groundVertical = glm::dot(ground, Up);
+    float vertical = character.vertical;
+    if (walkable) {
+      character.inherited = ground - groundVertical * Up;
+    }
+    if (character.jump) {
+      // Replaces the vertical velocity, so a late (coyote) jump goes as high as one from the ground.
+      vertical = (walkable ? groundVertical : 0.0f) + *character.jump + glm::dot(gravity, Up) * dt;
+      character.jump.reset();
+    } else if (walkable) {
+      // Standing: the support's vertical velocity and no gravity, so no creep down a walkable slope
+      // and no throw when a lift stops. A fall that Jolt already counts as landed (the ground is
+      // within its predictive distance) carries on down until the ground stops it.
+      vertical = groundVertical + std::min(0.0f, vertical - groundVertical);
+    } else {
+      vertical += glm::dot(gravity, Up) * dt;
+    }
+    jolt.SetLinearVelocity(toJolt(character.inherited + character.move + vertical * Up));
+    const glm::vec3 before = fromJolt(JPH::Vec3{jolt.GetPosition()});
+
+    JPH::CharacterVirtual::ExtendedUpdateSettings settings;
+    settings.mStickToFloorStepDown = toJolt(-Up * controller.groundSnap);
+    settings.mWalkStairsStepUp = toJolt(Up * controller.stepHeight);
+    jolt.ExtendedUpdate(dt, toJolt(gravity), settings, m_system->GetDefaultBroadPhaseLayerFilter(layers::Moving),
+                        m_system->GetDefaultLayerFilter(layers::Moving), {}, {}, *m_temp);
+
+    // Jolt keeps the velocity it was given; what the character did is its displacement. The vertical
+    // velocity is carried into the next step, except what a ceiling stopped on the way up or the
+    // ground stopped on landing; a step climbed or a snap down adds nothing to it.
+    const glm::vec3 achieved = (fromJolt(JPH::Vec3{jolt.GetPosition()}) - before) / dt;
+    const float achievedVertical = glm::dot(achieved, Up);
+    if (vertical > 0.0f) {
+      character.vertical = std::min(vertical, std::max(achievedVertical, 0.0f));
+    } else if (jolt.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround) {
+      character.vertical = std::clamp(achievedVertical, vertical, 0.0f);
+    } else {
+      character.vertical = vertical;
+    }
+
+    CharacterState &state = character.state;
+    state = {};
+    state.velocity = achieved;
+    state.grounded = jolt.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+    state.sliding = jolt.GetGroundState() == JPH::CharacterBase::EGroundState::OnSteepGround;
+    if (state.sliding) {
+      // Sliding off something too steep keeps only that ground's own motion: nothing on a static
+      // slope, the platform's at the rounded edge of a moving one.
+      const glm::vec3 steep = fromJolt(jolt.GetGroundVelocity());
+      character.inherited = steep - glm::dot(steep, Up) * Up;
+    }
+    if (state.grounded || state.sliding) {
+      state.groundNormal = fromJolt(jolt.GetGroundNormal());
+      state.supportVelocity = fromJolt(jolt.GetGroundVelocity());
+      if (const JPH::uint64 support = jolt.GetGroundUserData(); support != 0) {
+        state.support = flecs::entity{m_world.ecs(), support};
+      }
+    }
+  }
+
+  // Step (1) for characters: drops those of entities that are gone, disabled or without a
+  // controller, re-checks the rest and creates the missing ones.
+  void refreshCharacters() {
+    flecs::world &ecs = m_world.ecs();
+    std::vector<flecs::entity_t> stale;
+    for (const auto &[id, character] : m_characters) {
+      const flecs::entity entity{ecs, id};
+      if (!ecs.is_alive(id) || !entity.has<CharacterController>() || world::World::isDisabled(entity)) {
+        stale.push_back(id);
+      }
+    }
+    for (const flecs::entity_t id : stale) {
+      destroyCharacter(id);
+    }
+    m_controllers.each([&](flecs::entity entity) {
+      const auto it = m_characters.find(entity.id());
+      if (it == m_characters.end()) {
+        createCharacter(entity);
+        return;
+      }
+      std::string problem = characterProblem(entity);
+      if (!problem.empty()) {
+        if (it->second.jolt != nullptr || it->second.rejected != problem) {
+          rejectCharacter(entity, std::move(problem));
+        }
+      } else if (it->second.jolt == nullptr) {
+        m_characters.erase(it);
+        createCharacter(entity);
+      }
+    });
+  }
+
+  // The characters in entity-id order, which their updates run in.
+  std::vector<std::pair<flecs::entity, Character *>> activeCharacters() {
+    std::vector<std::pair<flecs::entity, Character *>> result;
+    for (auto &[id, character] : m_characters) {
+      if (character.jolt != nullptr) {
+        result.emplace_back(flecs::entity{m_world.ecs(), id}, &character);
+      }
+    }
+    std::ranges::sort(result, {}, [](const auto &entry) { return entry.first.id(); });
+    return result;
   }
 
   void step(float dt) {
@@ -997,6 +1455,8 @@ private:
         createBody(root);
       }
     });
+
+    refreshCharacters();
 
     // Poses in: static and kinematic bodies follow their entities, dynamic ones only when
     // something else moved them. A changed world scale rebuilds the shape.
@@ -1041,6 +1501,21 @@ private:
       destroyBody(id);
       createBody(flecs::entity{ecs, id});
     }
+    // A character's Transform written by anyone else teleports it there, its rotation's yaw too.
+    const auto characters = activeCharacters();
+    for (const auto &[entity, character] : characters) {
+      if (movedFromOutside(entity, character->written)) {
+        const world::Transform placed = world::Transform::fromMatrix(world::World::worldMatrix(entity));
+        teleport(entity, *character, placed.position, yawOf(placed.rotation));
+      }
+    }
+
+    // Characters move against the world as the last step left it, with this step's kinematic
+    // velocities, on this thread and before Jolt's update: their pushes on dynamic bodies go
+    // through the body interface and the temporary allocator, which the update then owns.
+    for (const auto &[entity, character] : characters) {
+      stepCharacter(entity, *character, dt);
+    }
 
     const JPH::EPhysicsUpdateError errors = m_system->Update(dt, 1, m_temp.get(), m_jobs.get());
     if (errors != JPH::EPhysicsUpdateError::None) {
@@ -1066,7 +1541,12 @@ private:
         bodies().GetPositionAndRotation(body.id, position, rotation);
         body.current = {fromJolt(position), fromJolt(rotation)};
       }
-      writePose(flecs::entity{ecs, id}, body, body.current);
+      writePose(flecs::entity{ecs, id}, body.written, body.current);
+    }
+    for (const auto &[entity, character] : characters) {
+      character->previous = character->current;
+      character->current = {fromJolt(JPH::Vec3{character->jolt->GetPosition()}), character->current.rotation};
+      writePose(entity, character->written, character->current);
     }
   }
 
@@ -1169,14 +1649,26 @@ private:
         continue;
       }
       const flecs::entity entity = flecs::entity{ecs, id};
-      const world::Transform *local = entity.try_get<world::Transform>();
       // A script moved it this frame: the next step teleports the body there.
-      if (local == nullptr || local->position != body.written.position || local->rotation != body.written.rotation) {
+      if (!entity.has<world::Transform>() || movedFromOutside(entity, body.written)) {
         continue;
       }
-      writePose(entity, body,
+      writePose(entity, body.written,
                 {glm::mix(body.previous.position, body.current.position, alpha),
                  glm::slerp(body.previous.rotation, body.current.rotation, alpha)});
+    }
+    // Characters: the position between their last two steps, the rotation constant between
+    // teleports.
+    for (auto &[id, character] : m_characters) {
+      if (character.jolt == nullptr || character.previous == character.current) {
+        continue;
+      }
+      const flecs::entity entity = flecs::entity{ecs, id};
+      if (!entity.has<world::Transform>() || movedFromOutside(entity, character.written)) {
+        continue;
+      }
+      writePose(entity, character.written,
+                {glm::mix(character.previous.position, character.current.position, alpha), character.current.rotation});
     }
   }
 
@@ -1192,12 +1684,15 @@ private:
   std::unordered_map<std::uint32_t, BodyInfo> m_bodyInfo; // by Jolt body id; read by the listener
   std::vector<std::uint32_t> m_retired;                   // ids of bodies destroyed since the last step
   ContactRecorder m_recorder;
+  CharacterContactRecorder m_characterRecorder;
+  std::unordered_map<flecs::entity_t, Character> m_characters;
   std::unordered_map<PairKey, PairState, PairHash> m_pairs;
   std::vector<ContactEvent> m_events;
   std::uint32_t m_dropped{0};
   std::uint64_t m_stepIndex{0};
   bool m_overflowLogged{false};
   flecs::query<> m_colliders;
+  flecs::query<> m_controllers;
   flecs::system m_stepSystem;
   flecs::system m_interpolateSystem;
   std::vector<flecs::entity> m_observers;
