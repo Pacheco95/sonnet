@@ -42,7 +42,10 @@ struct AnimationEventRecord {
 //
 // ADR-0023: playback blends the Animator's clip with its layers by weight, crossfades when the
 // clip is assigned with a fade, takes root motion out of the pose and records the animation
-// events it crossed, which events() returns until the next Update.
+// events it crossed, which events() returns until the next Update. ADR-0038: the clip's weight
+// is the Animator's `weight` times the crossfade's ramp, and a layer with `sync` follows the
+// clip's phase. The clips a crossfade leaves fade out in the system's own state, beside the
+// Animator's `layers` rather than in them, so a script can replace the list every frame.
 //
 // Clips and skins are resolved through the asset database every frame; the entities they bind
 // are resolved by path once and again when the asset is reloaded or a bound entity goes away.
@@ -67,7 +70,8 @@ private:
     std::uint64_t frame{0};               // the last frame the entity was seen, to drop the others
   };
 
-  // A clip binding is per entity and layer: slot 0 is the Animator's own clip.
+  // A clip binding is per entity and layer: slot 0 is the Animator's own clip, 1 up its layers,
+  // FadingSlot up the clips its crossfades left.
   struct LayerKey {
     flecs::entity_t entity{0};
     std::uint32_t slot{0};
@@ -79,16 +83,31 @@ private:
     }
   };
 
+  static constexpr std::uint32_t FadingSlot = 1u << 16;
+
   // What an Animator did last frame, to see a clip replaced and fade out of the old one.
   struct PlayState {
     core::Uuid clip;
     float time{0.0f};
     float speed{1.0f};
     bool loop{true};
-    float weight{1.0f}; // of the Animator's own clip
+    float ramp{1.0f};      // the crossfade's envelope on the Animator's own clip
+    float effective{1.0f}; // the clip's blend weight last frame: the Animator's weight times the ramp
     float fadeSeconds{0.0f};
+    std::vector<AnimationLayer> fading{}; // the clips crossfades left, losing weight
     bool known{false};
     std::uint64_t frame{0};
+  };
+
+  // The Animator's phase this frame, for synchronised layers: `phased` while it has a clip of
+  // some duration.
+  struct PrimaryPhase {
+    bool phased{false};
+    float from{0.0f};
+    float to{0.0f};
+    float speed{0.0f};
+    bool loop{true};
+    bool playing{false};
   };
 
   // A clip playing this frame, moved from `from` to `to`.
@@ -119,7 +138,9 @@ private:
   void play(float dt);
   void pose();
   [[nodiscard]] bool valid(const Binding &binding, const core::Uuid &asset, std::uint64_t revision) const;
-  const Binding &bind(flecs::entity entity, std::uint32_t slot, const Animator &animator,
+  // Advances one layer, by its own time or by the phase; false when it faded out and goes.
+  bool advanceLayer(AnimationLayer &layer, std::uint32_t slot, const PrimaryPhase &phase, float dt);
+  const Binding &bind(flecs::entity entity, std::uint32_t slot, const core::Uuid &asset,
                       const assets::AnimationClip &clip);
   void applyRootMotion(flecs::entity entity, const Animator &animator, const assets::AnimationClip &clip, float from,
                        float weight);

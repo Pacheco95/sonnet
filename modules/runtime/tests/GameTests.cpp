@@ -864,16 +864,16 @@ TEST_CASE("the start scene's walker, jelly and sparks play the same from a proje
     REQUIRE(face.get<world::MorphWeights>().weights.at(0) > 0.9f);
     REQUIRE(walker.get<world::Animator>().clip == idle); // still standing
 
-    // Three seconds in the walker crossfades to Walk: the idle clip is a layer for 0.4 s.
+    // Three seconds in the walker crossfades to Walk, the idle clip fading out over 0.4 s in the
+    // animation system's own state rather than in the script's layers (ADR-0038).
     for (int i = 0; i < 125; ++i) {
       game.update(1.0f / 60.0f);
     }
     REQUIRE(walker.get<world::Animator>().clip != idle);
-    REQUIRE(walker.get<world::Animator>().layers.size() == 1);
+    REQUIRE(walker.get<world::Animator>().layers.empty());
     for (int i = 0; i < 60; ++i) {
       game.update(1.0f / 60.0f);
     }
-    REQUIRE(walker.get<world::Animator>().layers.empty());
     core::Log::removeSink(messages);
     core::Log::removeSink(problems);
     REQUIRE(problems->problems.empty());

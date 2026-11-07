@@ -137,7 +137,9 @@ struct SkinnedMesh {
 
 // A clip playing besides an Animator's own, blended with it by weight (ADR-0023). A layer whose
 // `fadeRate` is positive gains weight to 1 and stops there; a negative one loses it and is
-// removed at zero, which is how a crossfade lets the clip it left go.
+// removed at zero. With `sync` (ADR-0038) the layer follows the Animator's phase instead of its
+// own time: its `time` is the Animator's `time / duration` times its own duration, and its
+// `speed`, `playing` and `loop` are ignored.
 struct AnimationLayer {
   core::Uuid clip{};
   float time{0.0f}; // seconds
@@ -146,6 +148,7 @@ struct AnimationLayer {
   float fadeRate{0.0f}; // weight per second
   bool playing{true};
   bool loop{true};
+  bool sync{false};
 
   bool operator==(const AnimationLayer &) const = default;
 };
@@ -160,10 +163,15 @@ struct AnimationLayer {
 // blend of every layer that has a channel for them. With `rootMotion`, the translation of the
 // bone at `rootBone` (empty: the clip's translation channel with the shortest path) is taken
 // out of the pose and moves this entity instead.
+//
+// ADR-0038: the clip's blend weight is `weight` (0 to 1) times the crossfade's ramp. The clip a
+// crossfade leaves is the animation system's, not one of `layers`, so a script that replaces
+// the list does not cut it short.
 struct Animator {
   core::Uuid clip{};
   float time{0.0f}; // seconds
   float speed{1.0f};
+  float weight{1.0f};
   bool playing{true};
   bool loop{true};
   float fade{0.0f}; // seconds

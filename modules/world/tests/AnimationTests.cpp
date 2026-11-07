@@ -20,6 +20,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <format>
+#include <string>
 
 using namespace sonnet;
 using Catch::Approx;
@@ -28,7 +30,9 @@ namespace {
 
 // Nodes Rig, Rig/Root, Rig/Root/Tip (one metre up) and Rig/Strip, a quad two metres high skinned
 // to Root at the bottom and Tip at the top; the clip "Bend" turns Tip a quarter about Z over one
-// second and moves Root to x = 1 at half a second, in a step.
+// second and moves Root to x = 1 at half a second, in a step. "Reach" turns Tip a quarter the
+// other way over one second, "Stride" the same over two seconds with its steps at Bend's phases,
+// and "Still", of zero duration, holds Tip at 30 degrees.
 void writeRig(const std::filesystem::path &gltf) {
   using nlohmann::json;
   std::vector<std::byte> bin;
@@ -75,6 +79,17 @@ void writeRig(const std::filesystem::path &gltf) {
   accessors.back()["max"] = json::array({0.5});
   const auto translation = add(translations.data(), 24, 2, "VEC3", floatType);
   const auto reversed = add(reverse.data(), 32, 2, "VEC4", floatType);
+  const std::vector<float> longTimes{0.0f, 2.0f};
+  const auto longTime = add(longTimes.data(), 8, 2, "SCALAR", floatType);
+  accessors.back()["min"] = json::array({0.0});
+  accessors.back()["max"] = json::array({2.0});
+  const std::vector<float> stillTimes{0.0f};
+  const auto stillTime = add(stillTimes.data(), 4, 1, "SCALAR", floatType);
+  accessors.back()["min"] = json::array({0.0});
+  accessors.back()["max"] = json::array({0.0});
+  const glm::quat thirty = glm::angleAxis(glm::radians(30.0f), glm::vec3{0.0f, 0.0f, 1.0f});
+  const std::vector<float> stillRotation{thirty.x, thirty.y, thirty.z, thirty.w};
+  const auto still = add(stillRotation.data(), 16, 1, "VEC4", floatType);
   const std::string binName = gltf.stem().string() + ".bin";
   REQUIRE(core::writeFile(gltf.parent_path() / binName, bin).has_value());
   const json document{
@@ -104,6 +119,15 @@ void writeRig(const std::filesystem::path &gltf) {
                                            json{{"sampler", 1}, {"target", {{"node", 1}, {"path", "translation"}}}}})}},
             json{{"name", "Reach"},
                  {"samplers", json::array({json{{"input", time}, {"output", reversed}}})},
+                 {"channels", json::array({json{{"sampler", 0}, {"target", {{"node", 2}, {"path", "rotation"}}}}})}},
+            json{{"name", "Stride"},
+                 {"extras",
+                  {{"events", json::array({json{{"time", 0.6}, {"name", "step"}, {"argument", "left"}},
+                                           json{{"time", 1.6}, {"name", "step"}, {"argument", "right"}}})}}},
+                 {"samplers", json::array({json{{"input", longTime}, {"output", reversed}}})},
+                 {"channels", json::array({json{{"sampler", 0}, {"target", {{"node", 2}, {"path", "rotation"}}}}})}},
+            json{{"name", "Still"},
+                 {"samplers", json::array({json{{"input", stillTime}, {"output", still}}})},
                  {"channels", json::array({json{{"sampler", 0}, {"target", {{"node", 2}, {"path", "rotation"}}}}})}}})},
       {"buffers", json::array({json{{"uri", binName}, {"byteLength", bin.size()}}})},
       {"bufferViews", views},
@@ -149,6 +173,17 @@ struct Fixture {
     world.clearScene();
     assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
     sonnet::test::removeScratch(root);
+  }
+
+  // The model's clip of that name.
+  core::Uuid clip(std::string_view name) const {
+    for (const assets::AssetInfo *info : assets.assets(assets::AssetType::Animation)) {
+      if (info->name == name) {
+        return info->uuid;
+      }
+    }
+    FAIL("no clip named " << name);
+    return {};
   }
 
   // The instance's node at a path under it.
@@ -322,13 +357,8 @@ TEST_CASE("assigning a clip with a fade crossfades from the one it replaces", "[
   fixture.loadPayloads();
   world::World &world = fixture.world;
   world::AnimationSystem animation{world, fixture.assets};
-  core::Uuid bend;
-  core::Uuid reach;
-  for (const assets::AssetInfo *info : fixture.assets.assets(assets::AssetType::Animation)) {
-    (info->name == "Bend" ? bend : reach) = info->uuid;
-  }
-  REQUIRE_FALSE(bend.isNil());
-  REQUIRE_FALSE(reach.isNil());
+  const core::Uuid bend = fixture.clip("Bend");
+  const core::Uuid reach = fixture.clip("Reach");
   const flecs::entity instance = world.instantiate(fixture.prefab, "Fader");
   const flecs::entity tip = fixture.node(instance, "Rig/Root/Tip");
   world.setPlaying(true);
@@ -341,8 +371,8 @@ TEST_CASE("assigning a clip with a fade crossfades from the one it replaces", "[
   instance.set<world::Animator>({.clip = reach, .time = 0.5f, .speed = 0.0f, .fade = 1.0f});
   world.progress(0.5f);
   REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(0.0f).margin(1e-3));
-  REQUIRE(instance.get<world::Animator>().layers.size() == 1);
-  REQUIRE(instance.get<world::Animator>().layers[0].weight == Approx(0.5f));
+  // The clip left is the system's to fade out, not one of the script's layers (ADR-0038).
+  REQUIRE(instance.get<world::Animator>().layers.empty());
 
   world.progress(0.25f); // three quarters across: Reach has 0.75 of the blend
   REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) ==
@@ -457,4 +487,345 @@ TEST_CASE("a clip animates a mesh's morph weights, and the draw list hands them 
   world.clearScene();
   database.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
   sonnet::test::removeScratch(root);
+}
+
+// ADR-0038: the Animator's own clip weighs `weight` times its crossfade ramp, and the blend
+// normalises by the weights, so one weight at 1 and the rest at 0 is that clip alone.
+TEST_CASE("an Animator's weight blends its clip with its layers, from pure to mixed and back",
+          "[world][animation][weights]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const core::Uuid bend = fixture.clip("Bend");
+  const core::Uuid reach = fixture.clip("Reach");
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Mixer");
+  const flecs::entity tip = fixture.node(instance, "Rig/Root/Tip");
+  world.setPlaying(true);
+
+  // Both clips held at half a second: Bend turns the tip +45 degrees there, Reach -45.
+  const auto hold = [&](float weight, float layerWeight) {
+    instance.set<world::Animator>({.clip = bend,
+                                   .time = 0.5f,
+                                   .speed = 0.0f,
+                                   .weight = weight,
+                                   .layers = {{.clip = reach, .time = 0.5f, .speed = 0.0f, .weight = layerWeight}}});
+    world.progress(0.1f);
+    return angleAboutZ(tip.get<world::Transform>().rotation);
+  };
+  REQUIRE(world::Animator{}.weight == 1.0f);
+  REQUIRE_FALSE(world::AnimationLayer{}.sync);
+  REQUIRE(hold(1.0f, 0.0f) == Approx(45.0f));  // pure primary
+  REQUIRE(hold(0.0f, 1.0f) == Approx(-45.0f)); // pure layer
+  REQUIRE(hold(0.5f, 0.5f) == Approx(0.0f).margin(1e-3));
+  REQUIRE(hold(0.25f, 0.25f) == Approx(0.0f).margin(1e-3)); // normalised: the sum need not be 1
+  REQUIRE(hold(2.0f, 1.0f) == Approx(0.0f).margin(1e-3));   // the Animator's weight stops at 1
+
+  // Moving the weight from one clip to the other moves the pose with it, a little at a time.
+  float last = hold(1.0f, 0.0f);
+  for (int i = 1; i <= 20; ++i) {
+    const float w = static_cast<float>(i) / 20.0f;
+    const float angle = hold(1.0f - w, w);
+    REQUIRE(angle < last);
+    REQUIRE(last - angle < 6.0f);
+    last = angle;
+  }
+  REQUIRE(last == Approx(-45.0f));
+
+  // Nothing weighs: the targets keep the pose they last had.
+  REQUIRE(hold(1.0f, 0.0f) == Approx(45.0f));
+  REQUIRE(hold(0.0f, 0.0f) == Approx(45.0f));
+}
+
+TEST_CASE("layers without sync play by their own time, speed and loop as before", "[world][animation][sync]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Free");
+  world.setPlaying(true);
+  instance.set<world::Animator>(
+      {.clip = fixture.clip("Bend"),
+       .layers = {{.clip = fixture.clip("Stride"), .time = 1.0f, .speed = 0.5f},
+                  {.clip = fixture.clip("Reach"), .time = 0.9f, .speed = 1.0f, .loop = false}}});
+
+  world.progress(0.4f);
+  const world::Animator &animator = instance.get<world::Animator>();
+  REQUIRE(animator.time == Approx(0.4f));
+  REQUIRE(animator.layers.size() == 2);
+  REQUIRE(animator.layers[0].time == Approx(1.2f));
+  REQUIRE(animator.layers[1].time == Approx(1.0f)); // stopped at its end
+  REQUIRE_FALSE(animator.layers[1].playing);
+
+  auto paused = instance.get<world::Animator>();
+  paused.playing = false;
+  instance.set<world::Animator>(paused);
+  world.progress(0.4f); // the layer does not follow the Animator's pause
+  REQUIRE(instance.get<world::Animator>().time == Approx(0.4f));
+  REQUIRE(instance.get<world::Animator>().layers[0].time == Approx(1.4f));
+}
+
+// Stride lasts two seconds and Bend one: synchronised, Stride is at twice Bend's time. Bend's
+// weight is 0, so the tip shows Stride alone, -45 degrees per second of its own time.
+TEST_CASE("a synchronised layer follows the primary's phase through loops, pauses, reversal and ends",
+          "[world][animation][sync]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Synced");
+  const flecs::entity tip = fixture.node(instance, "Rig/Root/Tip");
+  world.setPlaying(true);
+  instance.set<world::Animator>({.clip = fixture.clip("Bend"),
+                                 .weight = 0.0f,
+                                 .layers = {{.clip = fixture.clip("Stride"),
+                                             .time = 1.9f, // its own time, speed, playing and loop are ignored
+                                             .speed = 0.0f,
+                                             .playing = false,
+                                             .loop = false,
+                                             .sync = true}}});
+  const auto layerTime = [&] { return instance.get<world::Animator>().layers.at(0).time; };
+  const auto angle = [&] { return angleAboutZ(tip.get<world::Transform>().rotation); };
+
+  world.progress(0.25f);
+  REQUIRE(instance.get<world::Animator>().time == Approx(0.25f));
+  REQUIRE(layerTime() == Approx(0.5f)); // the same phase, a quarter
+  REQUIRE(angle() == Approx(-22.5f));
+  world.progress(0.5f);
+  REQUIRE(layerTime() == Approx(1.5f));
+  REQUIRE(angle() == Approx(-67.5f));
+  world.progress(0.5f); // the primary wraps, and the layer with it
+  REQUIRE(instance.get<world::Animator>().time == Approx(0.25f));
+  REQUIRE(layerTime() == Approx(0.5f));
+  const world::AnimationLayer &layer = instance.get<world::Animator>().layers.at(0);
+  REQUIRE(layer.speed == 0.0f);
+  REQUIRE_FALSE(layer.playing);
+  REQUIRE_FALSE(layer.loop);
+
+  auto animator = instance.get<world::Animator>();
+  animator.playing = false; // paused: the layer holds
+  instance.set<world::Animator>(animator);
+  world.progress(0.3f);
+  REQUIRE(layerTime() == Approx(0.5f));
+
+  animator.playing = true;
+  animator.speed = -1.0f; // backwards, wrapping below zero
+  instance.set<world::Animator>(animator);
+  world.progress(0.5f);
+  REQUIRE(instance.get<world::Animator>().time == Approx(0.75f));
+  REQUIRE(layerTime() == Approx(1.5f));
+
+  animator = instance.get<world::Animator>();
+  animator.speed = 1.0f;
+  animator.loop = false;
+  animator.time = 0.5f;
+  instance.set<world::Animator>(animator);
+  world.progress(1.0f); // the primary stops at its end; the layer sits at its own
+  REQUIRE(instance.get<world::Animator>().time == Approx(1.0f));
+  REQUIRE_FALSE(instance.get<world::Animator>().playing);
+  REQUIRE(layerTime() == Approx(2.0f));
+  REQUIRE(angle() == Approx(-90.0f));
+}
+
+TEST_CASE("a synchronised layer holds without a primary and takes a new primary's phase", "[world][animation][sync]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Holder");
+  const flecs::entity tip = fixture.node(instance, "Rig/Root/Tip");
+  world.setPlaying(true);
+  const auto layerTime = [&] { return instance.get<world::Animator>().layers.at(0).time; };
+
+  // No primary clip: the layer holds its time and is still posed there.
+  instance.set<world::Animator>(
+      {.clip = core::Uuid{}, .layers = {{.clip = fixture.clip("Stride"), .time = 0.5f, .sync = true}}});
+  world.progress(0.3f);
+  REQUIRE(layerTime() == Approx(0.5f));
+  REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(-22.5f));
+
+  // A primary of zero duration has no phase either.
+  auto animator = instance.get<world::Animator>();
+  animator.clip = fixture.clip("Still");
+  instance.set<world::Animator>(animator);
+  world.progress(0.3f);
+  REQUIRE(layerTime() == Approx(0.5f));
+
+  // The primary is back: the layer jumps to its phase.
+  animator = instance.get<world::Animator>();
+  animator.clip = fixture.clip("Bend");
+  animator.time = 0.5f;
+  instance.set<world::Animator>(animator);
+  world.progress(0.1f);
+  REQUIRE(layerTime() == Approx(1.2f));
+
+  // A new primary keeping the time: the layer follows the new clip's phase.
+  animator = instance.get<world::Animator>();
+  animator.clip = fixture.clip("Reach");
+  instance.set<world::Animator>(animator);
+  world.progress(0.1f);
+  REQUIRE(instance.get<world::Animator>().time == Approx(0.7f));
+  REQUIRE(layerTime() == Approx(1.4f));
+
+  // A layer without a clip waits; one of zero duration sits at zero.
+  animator = instance.get<world::Animator>();
+  animator.weight = 0.0f;
+  animator.layers = {{.clip = core::Uuid{}, .sync = true}, {.clip = fixture.clip("Still"), .time = 0.3f, .sync = true}};
+  instance.set<world::Animator>(animator);
+  world.progress(0.1f);
+  REQUIRE(instance.get<world::Animator>().layers.size() == 2);
+  REQUIRE(instance.get<world::Animator>().layers[1].time == 0.0f);
+  REQUIRE(angleAboutZ(tip.get<world::Transform>().rotation) == Approx(30.0f));
+}
+
+// ADR-0038: the clip a crossfade leaves starts at the weight it had and fades in the system's
+// own state, so a script that writes `layers` whole every frame keeps it, and an interrupted
+// crossfade hands over without a jump.
+TEST_CASE("a crossfade keeps fading while the script replaces the layers, and an interrupted one is continuous",
+          "[world][animation][weights]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const core::Uuid bend = fixture.clip("Bend");
+  const core::Uuid stride = fixture.clip("Stride");
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Fader");
+  const flecs::entity tip = fixture.node(instance, "Rig/Root/Tip");
+  world.setPlaying(true);
+  const auto angle = [&] { return angleAboutZ(tip.get<world::Transform>().rotation); };
+  // What a locomotion script writes every frame: Reach held at -45 degrees, at half weight.
+  const std::vector<world::AnimationLayer> layers{
+      {.clip = fixture.clip("Reach"), .time = 0.5f, .speed = 0.0f, .weight = 0.5f}};
+  const auto step = [&](float dt) {
+    auto animator = instance.get<world::Animator>();
+    animator.layers = layers;
+    instance.set<world::Animator>(animator);
+    world.progress(dt);
+  };
+
+  // Bend held at +45 at half weight against Reach.
+  instance.set<world::Animator>({.clip = bend, .time = 0.5f, .speed = 0.0f, .weight = 0.5f, .layers = layers});
+  world.progress(0.1f);
+  REQUIRE(angle() == Approx(0.0f).margin(1e-3));
+
+  // To Stride at half its length (-45) over a second: Bend leaves at its weight, no jump.
+  instance.set<world::Animator>(
+      {.clip = stride, .time = 1.0f, .speed = 0.0f, .weight = 0.5f, .fade = 1.0f, .layers = layers});
+  world.progress(0.001f);
+  REQUIRE(angle() == Approx(0.0f).margin(0.2));
+  REQUIRE(instance.get<world::Animator>().layers.size() == 1);
+  float last = angle();
+  for (int i = 0; i < 499; ++i) {
+    step(0.001f);
+    REQUIRE(std::abs(angle() - last) < 0.2f);
+    last = angle();
+  }
+  // Half way: Bend 0.25, Stride 0.5 x 0.5, Reach 0.5.
+  REQUIRE(angle() == Approx(-22.5f).margin(1.5));
+  REQUIRE(instance.get<world::Animator>().layers.size() == 1);
+
+  // Interrupted: back to Bend, and Stride leaves at the 0.25 it had reached.
+  auto animator = instance.get<world::Animator>();
+  animator.clip = bend;
+  animator.time = 0.5f;
+  instance.set<world::Animator>(animator);
+  step(0.001f);
+  REQUIRE(angle() == Approx(last).margin(0.2));
+
+  // Both outgoing clips gone, Bend back at its half weight against Reach.
+  for (int i = 0; i < 11; ++i) {
+    step(0.1f);
+  }
+  REQUIRE(angle() == Approx(0.0f).margin(1e-3));
+  REQUIRE(instance.get<world::Animator>().layers.size() == 1);
+}
+
+TEST_CASE("events cross the primary's interval on synchronised layers, without footsteps when the phase resets",
+          "[world][animation][sync]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Stepper");
+  world.setPlaying(true);
+  const auto arguments = [&] {
+    std::vector<std::string> result;
+    for (const world::AnimationEventRecord &event : animation.events()) {
+      result.push_back(std::format("{}@{:.1f}", event.argument, event.time));
+    }
+    return result;
+  };
+  using Events = std::vector<std::string>;
+
+  // Bend at weight 0 is silent; Stride, synchronised, steps at 0.6 and 1.6 of its own time.
+  instance.set<world::Animator>(
+      {.clip = fixture.clip("Bend"), .weight = 0.0f, .layers = {{.clip = fixture.clip("Stride"), .sync = true}}});
+  world.progress(0.2f);
+  REQUIRE(arguments().empty());
+  world.progress(0.2f); // phase 0.2 to 0.4: Stride 0.4 to 0.8
+  REQUIRE(arguments() == Events{"left@0.6"});
+  world.progress(0.5f);
+  REQUIRE(arguments() == Events{"right@1.6"});
+  world.progress(0.3f); // wraps: 1.8 to 0.4 crosses nothing
+  REQUIRE(arguments().empty());
+  world.progress(0.2f);
+  REQUIRE(arguments() == Events{"left@0.6"});
+
+  // The script moves the primary on to 0.9: the layer, last at 0.8, does not cross 1.6 getting there.
+  auto animator = instance.get<world::Animator>();
+  animator.time = 0.9f;
+  instance.set<world::Animator>(animator);
+  world.progress(0.05f);
+  REQUIRE(arguments().empty());
+  REQUIRE(instance.get<world::Animator>().layers[0].time == Approx(1.9f));
+
+  // Under the event weight a synchronised layer is as quiet as any other.
+  animator = instance.get<world::Animator>();
+  animator.time = 0.2f;
+  animator.layers[0].weight = 0.04f;
+  instance.set<world::Animator>(animator);
+  world.progress(0.2f);
+  REQUIRE(arguments().empty());
+
+  // A gait switch keeping a time past the new clip's end crosses no lap it never played.
+  instance.set<world::Animator>({.clip = fixture.clip("Stride"), .time = 1.5f});
+  world.progress(0.01f);
+  REQUIRE(arguments().empty());
+  animator = instance.get<world::Animator>();
+  animator.clip = fixture.clip("Bend");
+  instance.set<world::Animator>(animator);
+  world.progress(0.1f); // 0.51 to 0.61 of Bend
+  REQUIRE(arguments().empty());
+  REQUIRE(instance.get<world::Animator>().time == Approx(0.61f));
+}
+
+TEST_CASE("a crossfade's outgoing clip and the incoming one both fire their events", "[world][animation][sync]") {
+  Fixture fixture;
+  fixture.loadPayloads();
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{world, fixture.assets};
+  const flecs::entity instance = world.instantiate(fixture.prefab, "Changer");
+  world.setPlaying(true);
+  const auto arguments = [&] {
+    std::vector<std::string> result;
+    for (const world::AnimationEventRecord &event : animation.events()) {
+      result.push_back(std::format("{}@{:.1f}", event.argument, event.time));
+    }
+    return result;
+  };
+  using Events = std::vector<std::string>;
+
+  instance.set<world::Animator>({.clip = fixture.clip("Bend"), .time = 0.1f});
+  world.progress(0.05f);
+  REQUIRE(arguments().empty());
+  auto animator = instance.get<world::Animator>();
+  animator.clip = fixture.clip("Stride"); // from 0.15, over a second
+  animator.fade = 1.0f;
+  instance.set<world::Animator>(animator);
+  world.progress(0.2f); // Bend, leaving, crosses its 0.3; Stride is at 0.35
+  REQUIRE(arguments() == Events{"left@0.3"});
+  world.progress(0.3f); // Stride, at half weight, crosses its 0.6
+  REQUIRE(arguments() == Events{"left@0.6"});
+  world.progress(0.4f); // Bend, at 0.1, still crosses its 0.8
+  REQUIRE(arguments() == Events{"right@0.8"});
 }

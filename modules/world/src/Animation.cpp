@@ -98,75 +98,87 @@ void AnimationSystem::play(float dt) {
     const assets::AnimationClip *clip = m_assets.requestAnimation(animator.clip);
 
     // A clip assigned over another with a fade is a crossfade: the one it replaced carries on
-    // from where it was as a layer that loses its weight, while this one gains it.
+    // from where it was, at the weight it had, losing it in the system's own list (not the
+    // Animator's `layers`, which are the script's), while this one gains it.
     PlayState &state = m_states[entity.id()];
     state.frame = m_playFrame;
     if (state.known && state.clip != animator.clip) {
-      if (animator.fade > 0.0f && !state.clip.isNil() && state.weight > 0.0f) {
-        animator.layers.push_back({.clip = state.clip,
-                                   .time = state.time,
-                                   .speed = state.speed,
-                                   .weight = state.weight,
-                                   .fadeRate = -state.weight / animator.fade,
-                                   .playing = true,
-                                   .loop = state.loop});
-        state.weight = 0.0f;
+      if (animator.fade > 0.0f && !state.clip.isNil() && state.effective > 0.0f) {
+        state.fading.push_back({.clip = state.clip,
+                                .time = state.time,
+                                .speed = state.speed,
+                                .weight = state.effective,
+                                .fadeRate = -state.effective / animator.fade,
+                                .playing = true,
+                                .loop = state.loop});
+        state.ramp = 0.0f;
         state.fadeSeconds = animator.fade;
       } else {
-        state.weight = 1.0f;
+        state.ramp = 1.0f;
       }
     }
     state.known = true;
     state.clip = animator.clip;
-    if (state.weight < 1.0f) {
-      state.weight = std::min(1.0f, state.weight + dt / std::max(state.fadeSeconds, 1.0e-4f));
+    if (state.ramp < 1.0f) {
+      state.ramp = std::min(1.0f, state.ramp + dt / std::max(state.fadeSeconds, 1.0e-4f));
     }
+    // Written as a negation so a NaN weight counts as none.
+    const float weight = !(animator.weight > 0.0f) ? 0.0f : std::min(animator.weight, 1.0f);
+    const float effective = weight * state.ramp;
 
     // Every clip that plays this frame, with the time it moved from.
     m_active.clear();
-    const float primaryFrom = animator.time;
-    const bool hadLayers = !animator.layers.empty();
+    PrimaryPhase phase;
+    const float assigned = animator.time;
     if (clip != nullptr) {
+      // A time outside the clip, from a script or a clip shorter than the last one, is brought
+      // into it first, so the frame crosses only what it plays and no lap that never happened.
+      if (clip->duration > 0.0f) {
+        animator.time = animator.loop ? std::fmod(animator.time, clip->duration) : animator.time;
+        if (animator.time < 0.0f && animator.loop) {
+          animator.time += clip->duration;
+        }
+        animator.time = std::clamp(animator.time, 0.0f, clip->duration);
+      }
+      const float from = animator.time;
       advance(animator.time, animator.playing, animator.speed, animator.loop, clip->duration, dt);
       m_active.push_back({.clip = clip,
-                          .from = primaryFrom,
+                          .from = from,
                           .to = animator.time,
                           .speed = animator.speed,
-                          .weight = state.weight,
+                          .weight = effective,
                           .loop = animator.loop,
                           .playing = animator.playing,
                           .slot = 0});
+      if (clip->duration > 0.0f) {
+        phase = {.phased = true,
+                 .from = from / clip->duration,
+                 .to = animator.time / clip->duration,
+                 .speed = animator.speed,
+                 .loop = animator.loop,
+                 .playing = animator.playing};
+      }
     }
+    const bool hadLayers = !animator.layers.empty();
     for (std::size_t i = 0; i < animator.layers.size();) {
-      AnimationLayer &layer = animator.layers[i];
-      const assets::AnimationClip *layerClip = m_assets.requestAnimation(layer.clip);
-      if (layerClip != nullptr) {
-        const float from = layer.time;
-        advance(layer.time, layer.playing, layer.speed, layer.loop, layerClip->duration, dt);
-        layer.weight += layer.fadeRate * dt;
-        if (layer.fadeRate > 0.0f && layer.weight >= 1.0f) {
-          layer.weight = 1.0f;
-          layer.fadeRate = 0.0f;
-        }
-        if (layer.fadeRate < 0.0f && layer.weight <= 0.0f) {
-          animator.layers.erase(animator.layers.begin() + static_cast<std::ptrdiff_t>(i));
-          continue;
-        }
-        m_active.push_back({.clip = layerClip,
-                            .from = from,
-                            .to = layer.time,
-                            .speed = layer.speed,
-                            .weight = layer.weight,
-                            .loop = layer.loop,
-                            .playing = layer.playing,
-                            .slot = static_cast<std::uint32_t>(i + 1)});
+      if (!advanceLayer(animator.layers[i], static_cast<std::uint32_t>(i + 1), phase, dt)) {
+        animator.layers.erase(animator.layers.begin() + static_cast<std::ptrdiff_t>(i));
+        continue;
+      }
+      ++i;
+    }
+    for (std::size_t i = 0; i < state.fading.size();) {
+      if (!advanceLayer(state.fading[i], FadingSlot + static_cast<std::uint32_t>(i), phase, dt)) {
+        state.fading.erase(state.fading.begin() + static_cast<std::ptrdiff_t>(i));
+        continue;
       }
       ++i;
     }
     state.time = animator.time;
     state.speed = animator.speed;
     state.loop = animator.loop;
-    if (animator.playing || animator.time != primaryFrom || hadLayers || !animator.layers.empty()) {
+    state.effective = effective;
+    if (animator.playing || animator.time != assigned || hadLayers || !animator.layers.empty()) {
       entity.set<Animator>(animator); // an instance gets its own from its prefab's here
     }
     if (m_active.empty()) {
@@ -177,7 +189,10 @@ void AnimationSystem::play(float dt) {
     m_poses.clear();
     m_poseIndex.clear();
     for (const Active &active : m_active) {
-      const Binding &binding = bind(entity, active.slot, animator, *active.clip);
+      const core::Uuid &asset = active.slot == 0           ? animator.clip
+                                : active.slot < FadingSlot ? animator.layers[active.slot - 1].clip
+                                                           : state.fading[active.slot - FadingSlot].clip;
+      const Binding &binding = bind(entity, active.slot, asset, *active.clip);
       for (std::size_t c = 0; c < active.clip->channels.size(); ++c) {
         const assets::AnimationChannel &channel = active.clip->channels[c];
         const flecs::entity_t target = binding.targets[c];
@@ -229,8 +244,8 @@ void AnimationSystem::play(float dt) {
 
     // Root motion: the root bone's translation leaves the pose, and what it moved this frame
     // moves the entity.
-    if (animator.rootMotion && clip != nullptr) {
-      applyRootMotion(entity, animator, *clip, primaryFrom, state.weight);
+    if (animator.rootMotion && clip != nullptr && effective > 0.0f) {
+      applyRootMotion(entity, animator, *clip, m_active.front().from, effective);
     }
 
     for (const TargetPose &pose : m_poses) {
@@ -277,9 +292,51 @@ void AnimationSystem::play(float dt) {
   prune(m_states, m_playFrame);
 }
 
-const AnimationSystem::Binding &AnimationSystem::bind(flecs::entity entity, std::uint32_t slot,
-                                                      const Animator &animator, const assets::AnimationClip &clip) {
-  const core::Uuid &asset = slot == 0 ? animator.clip : animator.layers[slot - 1].clip;
+bool AnimationSystem::advanceLayer(AnimationLayer &layer, std::uint32_t slot, const PrimaryPhase &phase, float dt) {
+  const assets::AnimationClip *clip = m_assets.requestAnimation(layer.clip);
+  if (clip == nullptr) {
+    return true; // waits for its file, or for a clip to be given
+  }
+  Active active{.clip = clip,
+                .from = layer.time,
+                .to = layer.time,
+                .speed = layer.speed,
+                .weight = 0.0f,
+                .loop = layer.loop,
+                .playing = layer.playing,
+                .slot = slot};
+  if (!layer.sync) {
+    advance(layer.time, layer.playing, layer.speed, layer.loop, clip->duration, dt);
+    active.to = layer.time;
+    active.playing = layer.playing;
+  } else if (phase.phased) {
+    // The interval the Animator's clip crossed, mapped onto this one, with its direction and wrap.
+    active.from = phase.from * clip->duration;
+    active.to = phase.to * clip->duration;
+    active.speed = phase.speed;
+    active.loop = phase.loop;
+    active.playing = phase.playing;
+    layer.time = active.to;
+  } else {
+    // No phase to follow: it holds where it is and crosses nothing.
+    active.speed = 0.0f;
+    active.playing = false;
+  }
+  layer.weight += layer.fadeRate * dt;
+  if (layer.fadeRate > 0.0f && layer.weight >= 1.0f) {
+    layer.weight = 1.0f;
+    layer.fadeRate = 0.0f;
+  }
+  if (layer.fadeRate < 0.0f && layer.weight <= 0.0f) {
+    return false;
+  }
+  active.weight = layer.weight;
+  m_active.push_back(active);
+  return true;
+}
+
+const AnimationSystem::Binding &AnimationSystem::bind(flecs::entity entity, std::uint32_t slot, const core::Uuid &asset,
+                                                      const assets::AnimationClip &clip) {
   Binding &binding = m_clipBindings[{entity.id(), slot}];
   binding.frame = m_playFrame;
   if (!valid(binding, asset, clip.revision)) {

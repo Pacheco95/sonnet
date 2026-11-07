@@ -227,12 +227,14 @@ void World::registerComponents() {
       .member<float>("weight")
       .member<float>("fadeRate")
       .member<bool>("playing")
-      .member<bool>("loop");
+      .member<bool>("loop")
+      .member<bool>("sync");
   registerVector<AnimationLayer>();
   registerComponent<Animator>("Animator")
       .member<core::Uuid>("clip")
       .member<float>("time")
       .member<float>("speed")
+      .member<float>("weight")
       .member<bool>("playing")
       .member<bool>("loop")
       .member<float>("fade")
