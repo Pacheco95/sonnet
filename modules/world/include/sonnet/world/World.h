@@ -180,22 +180,26 @@ public:
   template <typename Elem> void registerVector() {
     using Vector = std::vector<Elem>;
     m_world.component<Vector>().opaque([](flecs::world &world) {
-      return flecs::opaque<Vector, Elem>(world)
-          .as_type(world.vector<Elem>())
-          .serialize([](const flecs::serializer *serializer, const Vector *vector) {
-            for (const Elem &element : *vector) {
-              serializer->value(element);
-            }
-            return 0;
-          })
-          .count([](const Vector *vector) { return vector->size(); })
-          .resize([](Vector *vector, std::size_t count) { vector->resize(count); })
-          .ensure_element([](Vector *vector, std::size_t index) {
-            if (vector->size() <= index) {
-              vector->resize(index + 1);
-            }
-            return &(*vector)[index];
-          });
+      flecs::opaque<Vector, Elem> type(world);
+      type.as_type(world.vector<Elem>()).serialize([](const flecs::serializer *serializer, const Vector *vector) {
+        for (const Elem &element : *vector) {
+          serializer->value(element);
+        }
+        return 0;
+      });
+      // These take `void *` as flecs declares them, rather than the typed builder setters that
+      // cast a `Vector *` function, so C++ callers (Lua reflection) call each through its own
+      // type, which the function sanitizer requires.
+      type.desc.type.count = [](const void *vector) { return static_cast<const Vector *>(vector)->size(); };
+      type.desc.type.resize = [](void *vector, std::size_t count) { static_cast<Vector *>(vector)->resize(count); };
+      type.desc.type.ensure_element = [](void *data, std::size_t index) -> void * {
+        auto *vector = static_cast<Vector *>(data);
+        if (vector->size() <= index) {
+          vector->resize(index + 1);
+        }
+        return &(*vector)[index];
+      };
+      return type;
     });
   }
   // A string member of a registered component that holds JSON text (a script slot's properties).
