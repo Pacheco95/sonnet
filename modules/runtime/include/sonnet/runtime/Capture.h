@@ -12,6 +12,11 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
+
+namespace sonnet::assets {
+class AssetDatabase;
+}
 
 namespace sonnet::runtime {
 
@@ -101,14 +106,23 @@ constexpr std::uint32_t MaxRenderSide = 16384;
 // the one place a phone lets it write (docs/player.md, "Capture runs"). An absolute path stays.
 void resolveOutputs(CaptureOptions &options, const std::filesystem::path &directory);
 
+// The assets whose loads are in flight, by name: a file's path under the project, or the name of
+// one that has no file. What a capture target lists in `waitingFor`.
+[[nodiscard]] std::vector<std::string> pendingAssetNames(const assets::AssetDatabase &assets);
+
+// What a capture that gave up says it waited for: the first eight names, then how many more.
+[[nodiscard]] std::string describeWaiting(std::span<const std::string> waiting);
+
 // What a capture run steps through: the editor, or the player's game.
 class ICaptureTarget {
 public:
   virtual ~ICaptureTarget() = default;
   // Opens --scene, when there is one, and sets --shading-term.
   [[nodiscard]] virtual core::Result<void> begin(const CaptureOptions &options) = 0;
-  // Whether a frame has drawn into the image the screenshot copies, with nothing left loading.
-  [[nodiscard]] virtual bool loaded() = 0;
+  // What the capture still waits for, by name: the image the screenshot copies until a frame has
+  // drawn into it, and each asset still loading. Empty once everything has; the run names what is
+  // left when it gives up.
+  [[nodiscard]] virtual std::vector<std::string> waitingFor() = 0;
   // The assets have loaded: temporal anti-aliasing starts over here, so that the frames from now
   // to the screenshot resolve the same way however many were drawn while loading (ADR-0024).
   virtual void cutHistory() = 0;
@@ -173,7 +187,7 @@ public:
   explicit GameCaptureTarget(Game &game) : m_game(game) {
   }
   [[nodiscard]] core::Result<void> begin(const CaptureOptions &options) override;
-  [[nodiscard]] bool loaded() override;
+  [[nodiscard]] std::vector<std::string> waitingFor() override;
   void cutHistory() override;
   void play(std::uint64_t randomSeed) override;
   [[nodiscard]] core::Result<void> select(std::string_view path) override;

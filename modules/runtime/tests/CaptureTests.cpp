@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -80,6 +81,18 @@ TEST_CASE("the player takes the capture flags it has a use for", "[runtime][capt
     REQUIRE(!player({"a", "b", "--screenshot", "a.png"}).has_value()); // two games
     REQUIRE(!player({"--shading-term", "sparkle", "--screenshot", "a.png"}).has_value());
   }
+}
+
+TEST_CASE("a capture that gives up names what it waited for", "[runtime][capture]") {
+  REQUIRE(runtime::describeWaiting(std::vector<std::string>{}).empty());
+  REQUIRE(runtime::describeWaiting(std::vector<std::string>{"the first frame", "assets/sky.hdr"}) ==
+          "the first frame, assets/sky.hdr");
+  std::vector<std::string> many;
+  for (int i = 0; i < 11; ++i) {
+    many.push_back(std::format("t{}.png", i));
+  }
+  REQUIRE(runtime::describeWaiting(many) ==
+          "t0.png, t1.png, t2.png, t3.png, t4.png, t5.png, t6.png, t7.png and 3 more");
 }
 
 TEST_CASE("the editor and the player share one table", "[runtime][capture]") {

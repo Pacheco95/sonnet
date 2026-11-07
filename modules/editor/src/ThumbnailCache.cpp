@@ -300,4 +300,14 @@ bool ThumbnailCache::busy() const noexcept {
   return std::ranges::any_of(m_entries, [](const auto &entry) { return entry.second.pending != nullptr; });
 }
 
+std::vector<core::Uuid> ThumbnailCache::busyAssets() const {
+  std::vector<core::Uuid> busy;
+  for (const auto &[uuid, entry] : m_entries) {
+    if (entry.pending != nullptr) {
+      busy.push_back(uuid);
+    }
+  }
+  return busy;
+}
+
 } // namespace sonnet::editor
