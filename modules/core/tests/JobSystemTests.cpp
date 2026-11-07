@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -44,16 +45,16 @@ TEST_CASE("a default handle is not valid and waiting on it returns", "[core][job
 
 TEST_CASE("every scheduled job runs exactly once", "[core][jobs]") {
   JobSystem jobs{workers(4)};
-  constexpr int Count = 500;
-  std::vector<std::atomic<int>> ran(Count);
+  constexpr int count = 500;
+  std::vector<std::atomic<int>> ran(count);
   std::vector<JobHandle> handles;
-  handles.reserve(Count);
-  for (int i = 0; i < Count; ++i) {
+  handles.reserve(count);
+  for (int i = 0; i < count; ++i) {
     handles.push_back(jobs.schedule("many", [&ran, i] { ran[static_cast<std::size_t>(i)].fetch_add(1); }));
   }
   jobs.wait(handles);
-  for (const std::atomic<int> &count : ran) {
-    CHECK(count.load() == 1);
+  for (const std::atomic<int> &runs : ran) {
+    CHECK(runs.load() == 1);
   }
 }
 
@@ -114,14 +115,14 @@ TEST_CASE("a job may wait on the jobs it schedules", "[core][jobs]") {
 
 TEST_CASE("parallelFor covers the range exactly once", "[core][jobs]") {
   JobSystem jobs{workers(4)};
-  constexpr std::size_t Count = 10000;
-  std::vector<int> touched(Count, 0);
-  jobs.parallelFor("touch", Count, 64, [&touched](std::size_t begin, std::size_t end) {
+  constexpr std::size_t count = 10000;
+  std::vector<int> touched(count, 0);
+  jobs.parallelFor("touch", count, 64, [&touched](std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; ++i) {
       touched[i] += 1;
     }
   });
-  CHECK(std::accumulate(touched.begin(), touched.end(), 0) == static_cast<int>(Count));
+  CHECK(std::accumulate(touched.begin(), touched.end(), 0) == static_cast<int>(count));
   CHECK(std::ranges::all_of(touched, [](int value) { return value == 1; }));
 }
 
@@ -193,6 +194,70 @@ TEST_CASE("waiting on the main thread drains main-thread jobs", "[core][jobs]") 
   std::atomic<bool> ran{false};
   jobs.wait(jobs.scheduleOnMainThread("publish", [&ran] { ran.store(true); }));
   CHECK(ran.load());
+}
+
+TEST_CASE("parallelFor on the main thread leaves main-thread jobs queued", "[core][jobs]") {
+  // The renderer fills a frame's buffers with parallelFor. An asset publish run inside it created
+  // materials after the frame had sized its material array, and the writes past the array's end
+  // overwrote the motion pass's per-draw data, which lost the device on an RTX 4090 (#514).
+  JobSystem jobs{workers(2)};
+  const std::thread::id main = std::this_thread::get_id();
+  std::atomic<bool> published{false};
+  std::atomic<bool> publishedDuringLoop{false};
+  std::atomic<int> workerChunks{0};
+  const JobHandle publish = jobs.scheduleOnMainThread("publish", [&published] { published.store(true); });
+  // Three chunks: two for the workers and the last, run first, for the caller. The caller's waits
+  // until the workers hold theirs, so it then waits with the pool queue empty, which is when it
+  // used to drain the main-thread queue.
+  jobs.parallelFor("fill", 3, 1, [&](std::size_t, std::size_t) {
+    if (std::this_thread::get_id() == main) {
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+      while (workerChunks.load() < 2 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+      }
+    } else {
+      workerChunks.fetch_add(1);
+      std::this_thread::sleep_for(std::chrono::milliseconds{30});
+    }
+    if (published.load()) {
+      publishedDuringLoop.store(true);
+    }
+  });
+  CHECK_FALSE(publishedDuringLoop.load());
+  CHECK_FALSE(publish.finished());
+  CHECK(jobs.runMainThreadJobs() == 1);
+  CHECK(published.load());
+}
+
+TEST_CASE("waiting on the main thread for pool work leaves main-thread jobs queued", "[core][jobs]") {
+  JobSystem jobs{workers(2)};
+  std::atomic<bool> started{false};
+  const JobHandle publish = jobs.scheduleOnMainThread("publish", [] {});
+  const JobHandle work = jobs.schedule("work", [&started] {
+    started.store(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds{30});
+  });
+  // A worker holds the job, so the wait finds nothing in the pool queue to help with.
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (!started.load() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::yield();
+  }
+  jobs.wait(work);
+  CHECK_FALSE(publish.finished());
+  CHECK(jobs.runMainThreadJobs() == 1);
+}
+
+TEST_CASE("a pool job held by a main-thread job can be waited for on the main thread", "[core][jobs]") {
+  // Its dependency may be a main-thread job, which only the waiting thread can run.
+  JobSystem jobs{workers(2)};
+  std::atomic<int> order{0};
+  std::atomic<int> publishedAt{-1};
+  std::atomic<int> followedAt{-1};
+  const JobHandle publish = jobs.scheduleOnMainThread("publish", [&] { publishedAt.store(order.fetch_add(1)); });
+  const std::array dependencies{publish};
+  jobs.wait(jobs.schedule("after", [&] { followedAt.store(order.fetch_add(1)); }, dependencies));
+  CHECK(publishedAt.load() == 0);
+  CHECK(followedAt.load() == 1);
 }
 
 TEST_CASE("a job that throws still completes", "[core][jobs]") {
