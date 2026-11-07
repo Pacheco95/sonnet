@@ -46,7 +46,7 @@ The output of this skill is designed to automatically update your [GitHub Projec
    - **What this skill moves.** It proposes a Status for every open card and moves it, after approval, between **Backlog**, **Refining** and **Ready for dev** only. A card in In Progress, Blocked or Done is never moved: `update_project.py` skips it and says so. The proposal follows these rules, which the report states per card:
      - **Ready for dev**: nothing open blocks it (no open "blocked by" issue, no external cause); the scope is clear enough to start from the body and comments, with a "Done when" or equivalent; no design decision, ADR or spike is still open; the estimate comes from reading the code. The roadmap should not rule it out for now.
      - **Refining**: the card fits the roadmap and nothing blocks it, but it needs a decision, an ADR (new or superseding one in `docs/decisions/`), a spike's answer, a missing "Done when" or a question to the author before it can be built. Say what is missing.
-     - **Backlog**: blocked by another open issue (soft "do first" relations included when the order matters), deferred, too large and not yet split, or not a priority now. Say which.
+     - **Backlog**: blocked by another open issue (soft "do first" relations included when the order matters), deferred (blocked or ruled out by the roadmap), or not a priority now. Size alone never keeps a card in Backlog. Say which.
      - A card moves forward or back between these three as the analysis says, so a card whose blocker closed can be promoted and one whose scope turned out open can be demoted. There is no limit on how many cards are in Ready for dev: every card that meets the Ready for dev rule goes there, whatever the column already holds. Board order, not the column's size, decides what `sonnet-next-issue` takes first.
    - Do not add or rename Status options through the API without care: `updateProjectV2Field` regenerates every option passed without its `id` and resets the Status of the cards on it. Pass each kept option's `id`, record all cards' Status first and read them back afterwards.
 
@@ -113,7 +113,7 @@ For each issue:
 
 The board has only three tiers, so map them like this:
 - Quick Win → **Quick Win**, Medium → **Medium Fit**.
-- Heavy → **Deferred**, whether it is blocked or merely large. Say which in the report: "Deferred (blocked)" or "Deferred (large but fits the roadmap)", and recommend splitting the large ones into steps that each fit a tier.
+- Heavy → **Medium Fit** when nothing blocks it. Hours never make a card Deferred: **Deferred** is only for a card that is blocked (by another open issue or an external cause) or that the roadmap rules out for now, and the report names which. Recommend splitting a heavy card into steps when the split makes the work clearer, not to change its tier.
 - The hour ranges decide the tier, not the wording. A 6–8 hour item is Medium Fit, not a Quick Win.
 
 **Estimate from the code, not from the issue text or an earlier number.** Before giving hours, open the modules the issue touches and note what already exists and what does not. Typical findings that move an estimate:
@@ -126,7 +126,7 @@ Put one line of evidence per issue in the report ("`Preferences` already stores 
 
 When the user asks to re-evaluate, redo this reading for every issue. Never re-derive hours from the previous range, and never treat recomputing a stored value (a midpoint, a unit conversion) as a re-evaluation. Say plainly which of the two was done.
 
-Tier follows the hours and the impact together: Quick Win needs a rounded midpoint of 6 hours or less and clear UX impact; more hours or only moderate impact is Medium Fit; blocked or heavy work is Deferred.
+Tier follows the hours and the impact together: Quick Win needs a rounded midpoint of 6 hours or less and clear UX impact; more hours, however many, or only moderate impact is Medium Fit; only blocked work, or work the roadmap rules out for now, is Deferred.
 
 For each issue, estimate hours including:
 - Design/spec time (if needed)
