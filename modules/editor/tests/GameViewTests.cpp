@@ -157,6 +157,20 @@ TEST_CASE("the Game view draws through the scene camera beside the Scene view", 
     REQUIRE(editor.scriptView().size == editor.gamePanel().input().size);
     REQUIRE(editor.scriptView().camera.position != editor.viewport().camera().camera().position);
 
+    // Issue #515: the Game view draws the camera where this frame's update put it, and scripts
+    // unproject through it from the next frame, as it was drawn.
+    {
+      const flecs::entity sceneCamera = byName(editor.world(), "Camera");
+      world::Transform moved = sceneCamera.get<world::Transform>();
+      moved.position += glm::vec3{2.0f, 0.0f, 0.0f};
+      sceneCamera.set<world::Transform>(moved);
+      fixture.frame(editor);
+      REQUIRE(editor.gameView().camera.position.x == Approx(moved.position.x));
+      REQUIRE(editor.scriptView().camera.position.x == Approx(scenePosition.x));
+      fixture.frame(editor);
+      REQUIRE(editor.scriptView().camera.position.x == Approx(moved.position.x));
+    }
+
     // Closing the panel hands them back and drops the second view.
     editor.setShowGame(false);
     fixture.frame(editor);

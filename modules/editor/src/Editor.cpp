@@ -562,19 +562,10 @@ void Editor::update(float dt) {
   // input's presses and releases last one frame. Playing with the Game panel on screen, the game
   // is seen through the scene's camera, and that is where a scene without an AudioListener is
   // heard from and what scripts unproject through, over the panel's image; otherwise it is the
-  // editor's camera over the viewport's.
-  const bool gameOnScreen = m_gamePanel.input().visible;
-  const std::optional<renderer::Camera> sceneCam = world::sceneCamera(m_world);
-  if (sceneCam) {
-    m_warnedAboutCamera = false;
-  } else if (gameOnScreen && !m_warnedAboutCamera) {
-    SONNET_LOG_WARN("the scene has no Camera; the Game view draws from the fallback view");
-    m_warnedAboutCamera = true;
-  }
-  const renderer::Camera gameCamera = sceneCam.value_or(world::fallbackCamera());
-  const renderer::Camera &camera = gameViewActive() ? gameCamera : m_viewportPanel.camera().camera();
-  m_audio->setFallbackListener(camera.position, camera.rotation);
-  m_scriptView = {.camera = camera, .size = gameInputSource().size};
+  // editor's camera over the viewport's. Scripts unproject through the scene's camera as the last
+  // frame drew it, which is what the pointer was over (ADR-0038, "The frame").
+  const renderer::Camera &scriptCamera = gameViewActive() ? m_gameView.camera : m_viewportPanel.camera().camera();
+  m_scriptView = {.camera = scriptCamera, .size = gameInputSource().size};
   m_world.progress(dt);
   // A script's `game.quit()` is the Stop button here, with its prompt for the play's edits; the
   // editor stays open.
@@ -592,6 +583,19 @@ void Editor::update(float dt) {
   const glm::uvec2 gameSize = m_gamePanel.target().size();
   const glm::vec2 gameImage = m_gamePanel.input().size;
   m_gui.update(glm::vec2{gameSize}, gameImage, {{0, 0}, glm::uvec2{gameImage}});
+  // The scene's camera is read after the frame's systems, as the draw list is, so the Game view is
+  // drawn where this frame's scripts and transform system placed it (issue #515).
+  const bool gameOnScreen = m_gamePanel.input().visible;
+  const std::optional<renderer::Camera> sceneCam = world::sceneCamera(m_world);
+  if (sceneCam) {
+    m_warnedAboutCamera = false;
+  } else if (gameOnScreen && !m_warnedAboutCamera) {
+    SONNET_LOG_WARN("the scene has no Camera; the Game view draws from the fallback view");
+    m_warnedAboutCamera = true;
+  }
+  const renderer::Camera gameCamera = sceneCam.value_or(world::fallbackCamera());
+  const renderer::Camera &listener = gameViewActive() ? gameCamera : m_viewportPanel.camera().camera();
+  m_audio->setFallbackListener(listener.position, listener.rotation);
   world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
   // A drop's preview is the viewport's alone: its lists are copies of the scene's with the held object added, or
   // with the object under the cursor drawn with the held material. The Game view keeps the scene's.
