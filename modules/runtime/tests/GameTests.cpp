@@ -409,6 +409,54 @@ TEST_CASE("a scene without a camera is drawn from the fallback view", "[runtime]
   sonnet::test::removeScratch(root);
 }
 
+// Issue #515: the camera handed to the renderer is the one this frame's update placed, not the one
+// the frame before left, so a camera a script moves is drawn with the transforms it is drawn among.
+TEST_CASE("the drawn camera is where this frame's scripts moved it", "[runtime][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_runtime_camera_after_update";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  std::filesystem::create_directories(root / "scenes");
+  assets::Project project;
+  project.root = root;
+  project.name = "Dolly";
+  project.assetRoots = {"assets"};
+  REQUIRE(project.save().has_value());
+  REQUIRE(core::writeFile(root / "assets" / "dolly.lua", std::string_view{R"(
+local Dolly = {}
+function Dolly:update(dt)
+  local transform = self.entity:get("Transform")
+  transform.position = transform.position + vec3(1, 0, 0)
+  self.entity:set("Transform", transform)
+end
+return Dolly
+)"})
+              .has_value());
+  REQUIRE(core::writeFile(root / "assets" / "dolly.lua.meta",
+                          std::string_view{R"({"version": 2, "uuid": "8d2f5c10-7a3e-4b6d-9c1f-515000000002",
+                                            "type": "Script", "settings": {}})"})
+              .has_value());
+  REQUIRE(core::writeFile(root / "scenes" / "main.scene.json", std::string_view{R"({"version": 3, "entities": [
+    {"uuid": "8d2f5c10-7a3e-4b6d-9c1f-515000000010", "name": "Camera",
+     "components": {
+       "Transform": {"position": [0, 1, 5], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1]},
+       "Camera": {},
+       "Scripts": {"slots": [{"script": "8d2f5c10-7a3e-4b6d-9c1f-515000000002", "properties": {}}]}}}
+  ]})"})
+              .has_value());
+
+  runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(root).has_value());
+  // Updates alone: the camera handed to the renderer is the view's, built at the end of update.
+  for (int frame = 1; frame <= 4; ++frame) {
+    game.update(1.0f / 60.0f);
+    REQUIRE(game.view().camera.position.x == Approx(static_cast<float>(frame)));
+    REQUIRE(game.view().camera.position.y == Approx(1.0f));
+    REQUIRE(game.view().camera.position.z == Approx(5.0f));
+  }
+  sonnet::test::removeScratch(root);
+}
+
 // What the player does on WillEnterBackground and DidEnterForeground (docs/player.md, "The
 // lifecycle"), which lives in apps/player/main.cpp: the game goes on without an image and without
 // sound, and draws again once both are back.
