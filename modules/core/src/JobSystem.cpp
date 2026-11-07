@@ -221,6 +221,14 @@ void JobSystem::wait(const JobHandle &handle) {
   SONNET_ZONE();
   const JobPtr &job = handle.m_job;
   const bool onMainThread = std::this_thread::get_id() == m_state->mainThread;
+  // The main thread runs main-thread jobs only while it waits for one, or for a job still held by
+  // dependencies (which may be main-thread jobs), since nothing else would run them. Waiting for
+  // pool work, a parallelFor's chunks above all, leaves them queued for runMainThreadJobs: they
+  // create renderer resources, and running one in the middle of the caller's own work would change
+  // what the caller is part-way through (a frame's material count, its mesh pointers).
+  const auto mayDrainMainQueue = [&] {
+    return onMainThread && (job->mainThread || job->remaining.load(std::memory_order_acquire) > 0);
+  };
   while (!job->done.load(std::memory_order_acquire)) {
     JobPtr next;
     {
@@ -233,7 +241,7 @@ void JobSystem::wait(const JobHandle &handle) {
       if (!m_state->queue.empty()) {
         next = std::move(m_state->queue.front());
         m_state->queue.pop_front();
-      } else if (onMainThread && !m_state->mainQueue.empty()) {
+      } else if (!m_state->mainQueue.empty() && mayDrainMainQueue()) {
         next = std::move(m_state->mainQueue.front());
         m_state->mainQueue.pop_front();
       } else {
