@@ -324,6 +324,78 @@ TEST_CASE("a string member reads and writes as a Lua string", "[scripting][gui]"
   REQUIRE(label.get<gui::GuiText>().size == 32.0f); // the other members stay
 }
 
+TEST_CASE("repeated members read as arrays and an array replaces the list", "[scripting][vectors]") {
+  Fixture fixture{{"layers.lua", R"lua(
+    local First = "c0000000-0000-4000-8000-000000000001"
+    local Second = "c0000000-0000-4000-8000-000000000002"
+    local Layers = {}
+    function Layers:start()
+      local e = self.entity
+      local animator = e:get("Animator")
+      assert(#animator.layers == 2, #animator.layers)
+      local first, second = animator.layers[1], animator.layers[2]
+      assert(first.clip == First and first.weight == 0.25 and first.time == 1 and first.playing, tostring(first.clip))
+      assert(second.clip == nil and second.weight == 0.5 and second.loop == false)
+
+      -- A changed copy goes back whole, a new element starting from the defaults.
+      animator.layers[2].weight = 0.75
+      animator.layers[3] = { clip = Second, speed = 2 }
+      e:set("Animator", animator)
+      local layers = e:get("Animator").layers
+      assert(#layers == 3 and layers[1].clip == First and layers[1].time == 1)
+      assert(layers[2].weight == 0.75 and layers[2].loop == false)
+      assert(layers[3].clip == Second and layers[3].speed == 2 and layers[3].weight == 1 and layers[3].loop)
+
+      -- Omitted members stay, the list among them.
+      e:set("Animator", { speed = 3 })
+      animator = e:get("Animator")
+      assert(#animator.layers == 3 and animator.rootBone == "Hips" and animator.speed == 3)
+
+      -- A malformed replacement changes nothing, not even the members before it.
+      local function rejects(value, text)
+        local ok, message = pcall(function() e:set("Animator", value) end)
+        assert(not ok and message:find(text, 1, true), message)
+        local now = e:get("Animator")
+        assert(now.speed == 3 and now.rootBone == "Hips" and #now.layers == 3 and now.layers[2].weight == 0.75)
+      end
+      rejects({ speed = 5, layers = { { weight = 1 }, { weight = "heavy" } } },
+              "Animator: layers[2].weight: expected a number")
+      rejects({ layers = { { clip = "nonsense" } } }, "layers[1].clip: \"nonsense\" is not an asset identity")
+      rejects({ layers = { [1] = {}, [3] = {} } }, "layers[2]: missing, the array has a gap")
+      rejects({ layers = { {}, name = "x" } }, "layers: expected an array, but the table has the key \"name\"")
+      rejects({ layers = { [0] = {} } }, "layers: expected an array, but the table has the key 0")
+      rejects({ layers = { [1.5] = {} } }, "layers: expected an array, but the table has the key 1.5")
+      rejects({ layers = 3 }, "layers: expected an array")
+      rejects({ layers = { 3 } }, "layers[1]: expected a table")
+
+      -- An empty array clears the list.
+      e:set("Animator", { layers = {} })
+      assert(#e:get("Animator").layers == 0 and e:get("Animator").speed == 3)
+
+      e:set("MorphWeights", { weights = { 0.5, 1 } })
+      local slots = e:get("Scripts").slots
+      assert(#slots == 1 and type(slots[1].properties) == "string")
+      log.info("@" .. slots[1].script)
+    end
+    return Layers
+  )lua"}};
+  const flecs::entity entity = fixture.scripted("Layered", "layers.lua");
+  const core::Uuid first = *core::Uuid::parse("c0000000-0000-4000-8000-000000000001");
+  entity.set<world::Animator>({.playing = false,
+                               .rootBone = "Hips",
+                               .layers = {{.clip = first, .time = 1.0f, .weight = 0.25f, .playing = true},
+                                          {.weight = 0.5f, .playing = false, .loop = false}}});
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  REQUIRE(fixture.sink->find("stops on") == nullptr);
+  REQUIRE(fixture.trace() == std::vector<std::string>{fixture.script("layers.lua").toString()});
+  const auto &animator = entity.get<world::Animator>();
+  REQUIRE(animator.layers.empty());
+  REQUIRE(animator.speed == 3.0f);
+  REQUIRE(animator.rootBone == "Hips");
+  REQUIRE(entity.get<world::MorphWeights>().weights == std::vector{0.5f, 1.0f});
+}
+
 TEST_CASE("scripts find, create, instantiate and destroy entities", "[scripting]") {
   Fixture fixture{{"spawner.lua", R"lua(
     local Spawner = {}

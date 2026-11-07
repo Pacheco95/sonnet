@@ -110,7 +110,7 @@ Chosen from what M4 to M8 deferred, ordered by one rule: [1.0.0](#100) waits for
 
 Done (version 0.12.0, PR #130): the playground's `Coin` is a trigger that takes the ball, and `Crate coin`, the same script with other properties, is taken by the first crate to land under the spawner; `editor_tests` and `runtime_tests` play it from the project folder and the cooked bundle and get the same log. The thousand-box physics benchmark moved about 3 percent, within noise.
 
-Deferred: repeated members are not visible from Lua (`entity:get("Scripts")` leaves `slots` `nil`); no event for a continuing contact; the runtime does not clamp a property to its `min` and `max`, only the inspector's widgets do; enum and list property types; the top-level code of a script runs when the inspector first asks for its properties in edit mode; reordering slots rebuilds their instances, losing their state; and a trigger on a folded-in child collider is ignored.
+Deferred: repeated members are not visible from Lua (`entity:get("Scripts")` leaves `slots` `nil`; closed with the third-person character's Lua arrays, [scripting.md](scripting.md#components)); no event for a continuing contact; the runtime does not clamp a property to its `min` and `max`, only the inspector's widgets do; enum and list property types; the top-level code of a script runs when the inspector first asks for its properties in edit mode; reordering slots rebuilds their instances, losing their state; and a trigger on a folded-in child collider is ignored.
 
 ## M12: Animation and effects
 

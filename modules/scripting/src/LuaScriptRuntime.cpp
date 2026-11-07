@@ -1167,9 +1167,7 @@ private:
             target.add(info.id);
             return;
           }
-          void *data = target.ensure(info.id);
-          const std::optional<std::string> error = fromLua(value, m_world.ecs(), m_types, info.id, data);
-          target.modified(info.id);
+          const std::optional<std::string> error = setFromLua(value, m_world.ecs(), m_types, target, info.id);
           if (error) {
             raise(state, std::format("{}: {}", name, *error));
           }
