@@ -1,0 +1,10 @@
+{
+  "settings": {
+    "compress": true,
+    "mipmaps": true,
+    "srgb": true
+  },
+  "type": "Texture",
+  "uuid": "360784f4-4293-881f-b7c8-a0a89c1302b8",
+  "version": 1
+}

@@ -1,0 +1,249 @@
+{
+  "settings": {},
+  "sourceHash": "b1cb3d9fc530e2c1",
+  "subAssets": [
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Passage wall west",
+      "type": "Mesh",
+      "uuid": "10fa86e4-5b3d-8d72-bd9b-b78276abf3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Step 0.5 m 1",
+      "type": "Mesh",
+      "uuid": "1e72c597-3ecf-8c8d-addf-7a86267feb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Column 2",
+      "type": "Mesh",
+      "uuid": "271087e4-5b4a-8d72-a685-b782769ef3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Low ceiling",
+      "type": "Mesh",
+      "uuid": "29ff86e4-5b40-8d72-a496-b78276a8f3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Ledge block",
+      "type": "Mesh",
+      "uuid": "2b6d8fe4-5b4f-8772-aea7-ba827629f7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Floor south",
+      "type": "Mesh",
+      "uuid": "3777c597-3ed2-8c8d-88d3-7a862678eb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Wall west",
+      "type": "Mesh",
+      "uuid": "420487e4-5b43-8d72-8b91-b78276a5f3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Beam",
+      "type": "Mesh",
+      "uuid": "44728fe4-5b52-8772-adb0-ba82762ef7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Column pit west",
+      "type": "Mesh",
+      "uuid": "5d778fe4-5b55-8772-94ab-ba82762bf7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Crate",
+      "type": "Mesh",
+      "uuid": "5f668fe4-5b4b-8772-a2a0-ba827625f7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Step 0.2 m 3",
+      "type": "Mesh",
+      "uuid": "6b70c597-3ece-8c8d-94da-7a86267ceb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Column 1",
+      "type": "Mesh",
+      "uuid": "740e87e4-5b49-8d72-9987-b782769ff3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Tunnel wall east",
+      "type": "Mesh",
+      "uuid": "76fd86e4-5b3f-8d72-9798-b78276a9f3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Far wall",
+      "type": "Mesh",
+      "uuid": "786b8fe4-5b4e-8772-a1a9-ba82762af7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Floor north",
+      "type": "Mesh",
+      "uuid": "8475c597-3ed1-8c8d-bbd4-7a862679eb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Ramp 55 deg",
+      "type": "Mesh",
+      "uuid": "8f0287e4-5b42-8d72-be93-b78276a6f3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Far corner wall",
+      "type": "Mesh",
+      "uuid": "91708fe4-5b51-8772-88a4-ba827627f7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Step 0.2 m 1",
+      "type": "Mesh",
+      "uuid": "9d7ac597-3ed4-8c8d-aed6-7a86267aeb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Step 0.5 m 2",
+      "type": "Mesh",
+      "uuid": "9f69c597-3eca-8c8d-b0c5-7a862670eb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Column pit east",
+      "type": "Mesh",
+      "uuid": "aa758fe4-5b54-8772-87ac-ba82762cf7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Body",
+      "type": "Mesh",
+      "uuid": "ac648fe4-5b4a-8772-95a2-ba827626f7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Step 0.2 m 4",
+      "type": "Mesh",
+      "uuid": "b86ec597-3ecd-8c8d-87db-7a86267deb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Passage wall east",
+      "type": "Mesh",
+      "uuid": "c3fb86e4-5b3e-8d72-8a9a-b78276aaf3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Deck",
+      "type": "Mesh",
+      "uuid": "d173c597-3ed0-8c8d-badd-7a86267eeb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Ramp 20 deg",
+      "type": "Mesh",
+      "uuid": "dc0087e4-5b41-8d72-b194-b78276a7f3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Platform",
+      "type": "Mesh",
+      "uuid": "de6e8fe4-5b50-8772-bba5-ba827628f7ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Step 0.2 m 2",
+      "type": "Mesh",
+      "uuid": "ea78c597-3ed3-8c8d-a1d8-7a86267beb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Step 0.5 m 3",
+      "type": "Mesh",
+      "uuid": "ec67c597-3ec9-8c8d-a3c7-7a862671eb40"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Wall north",
+      "type": "Mesh",
+      "uuid": "f50587e4-5b44-8d72-988f-b78276a4f3ca"
+    },
+    {
+      "materials": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "name": "Column 3",
+      "type": "Mesh",
+      "uuid": "f7738fe4-5b53-8772-baae-ba82762df7ca"
+    }
+  ],
+  "type": "Model",
+  "uuid": "a81211fc-f8a8-8aa2-a91d-850150eaa9d6",
+  "version": 2
+}

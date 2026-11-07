@@ -27,6 +27,7 @@
 #include <stb_image.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -1353,4 +1354,119 @@ TEST_CASE("the HUD stress scene builds two hundred elements of which a third are
       std::ranges::any_of(game.graph().statistics().passes, [](const auto &pass) { return pass.name == "overlay"; }));
   REQUIRE(sink->problems.empty());
   core::Log::removeSink(sink);
+}
+
+// Issue #490: the character sample's obstacle course, from the project and from its bundle. Rays
+// down onto every step, the deck, both ramps and the ledge block, and sideways and up in the
+// narrow passage and under the low ceiling, land on the surfaces the meshes draw; the bodies come
+// to rest on the floor; the platform shuttles across the pit and rests at its far end; and a body
+// dropped into the pit falls into the kill volume and comes back above the respawn marker.
+TEST_CASE("the character sample's course collides as drawn, its platform moves and its pit respawns",
+          "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform, "character");
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  // Played from the project only: cooking its textures and sky takes minutes in a Debug build on
+  // CI's Lavapipe, and the bundle path is covered by the basic sample's tests.
+  {
+    const auto problems = std::make_shared<ProblemSink>();
+    const auto messages = std::make_shared<MessageSink>();
+    core::Log::addSink(problems);
+    core::Log::addSink(messages);
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(project).has_value());
+    world::World &world = game.world();
+    const auto root = [&](std::string_view name) {
+      for (const flecs::entity entity : world.roots()) {
+        const world::Name *named = entity.try_get<world::Name>();
+        if (named != nullptr && named->value == name) {
+          return entity;
+        }
+      }
+      return flecs::entity{};
+    };
+    const flecs::entity course = root("Course");
+    const flecs::entity body = root("Placeholder body");
+    REQUIRE(course.is_valid());
+    REQUIRE(body.is_valid());
+    const flecs::entity platform = world.findByPath(course, "Platform");
+    const flecs::entity crate = world.findByPath(course, "Crate");
+    REQUIRE(platform.is_valid());
+    REQUIRE(crate.is_valid());
+    const auto position = [](flecs::entity entity) { return entity.get<world::Transform>().position; };
+    const float platformStart = position(platform).z;
+
+    // One second: the bodies settle and the platform is still resting at its start.
+    // The simulation alone, as the other gameplay tests step it: Lavapipe draws a frame slowly.
+    const auto advance = [&](int frames) {
+      for (int i = 0; i < frames; ++i) {
+        game.update(1.0f / 60.0f);
+      }
+    };
+    advance(60);
+    REQUIRE(position(body).y == Approx(0.9f).margin(0.04f));
+    REQUIRE(position(body).z == Approx(10.0f).margin(0.01f));
+    REQUIRE(position(crate).y == Approx(0.45f).margin(0.04f));
+    REQUIRE(position(platform).z == Approx(platformStart));
+
+    physics::IPhysicsWorld &physics = game.physics();
+    const auto down = [&](float x, float z) {
+      const auto hit = physics.raycast({x, 10.0f, z}, {0.0f, -1.0f, 0.0f}, 20.0f);
+      REQUIRE(hit.has_value());
+      return *hit;
+    };
+    for (int step = 0; step < 4; ++step) {
+      // Treads 0.3 m deep and 0.2 m high, the first one's front at z = 8.
+      REQUIRE(down(-11.0f, 7.85f - 0.3f * static_cast<float>(step)).point.y ==
+              Approx(0.2f * static_cast<float>(step + 1)).margin(0.001f));
+    }
+    for (int step = 0; step < 3; ++step) {
+      REQUIRE(down(-7.7f + 0.6f * static_cast<float>(step), -1.0f).point.y ==
+              Approx(0.5f * static_cast<float>(step + 1)).margin(0.001f));
+    }
+    REQUIRE(down(-3.0f, -1.0f).point.y == Approx(1.5f).margin(0.001f));
+    REQUIRE(down(-2.0f, -16.0f).point.y == Approx(1.2f).margin(0.001f));
+    // Halfway up each ramp the slope is 0.75 m high, and its normal leans by the ramp's angle.
+    const float run20 = 1.5f / std::tan(glm::radians(20.0f));
+    const physics::RaycastHit ramp20 = down(-1.5f, 1.0f + run20 / 2.0f);
+    REQUIRE(ramp20.point.y == Approx(0.75f).margin(0.01f));
+    REQUIRE(ramp20.normal.y == Approx(std::cos(glm::radians(20.0f))).margin(0.001f));
+    const float run55 = 1.5f / std::tan(glm::radians(55.0f));
+    const physics::RaycastHit ramp55 = down(2.0f + run55 / 2.0f, -1.0f);
+    REQUIRE(ramp55.point.y == Approx(0.75f).margin(0.01f));
+    REQUIRE(ramp55.normal.y == Approx(std::cos(glm::radians(55.0f))).margin(0.001f));
+    REQUIRE(ramp55.normal.x > 0.8f);
+    const auto ceiling = physics.raycast({10.5f, 1.0f, 4.0f}, {0.0f, 1.0f, 0.0f}, 5.0f);
+    REQUIRE(ceiling.has_value());
+    REQUIRE(ceiling->point.y == Approx(2.0f).margin(0.001f));
+    const auto east = physics.raycast({8.5f, 1.0f, 4.0f}, {1.0f, 0.0f, 0.0f}, 5.0f);
+    const auto west = physics.raycast({8.5f, 1.0f, 4.0f}, {-1.0f, 0.0f, 0.0f}, 5.0f);
+    REQUIRE(east.has_value());
+    REQUIRE(west.has_value());
+    REQUIRE(east->point.x - west->point.x == Approx(0.8f).margin(0.001f));
+
+    // Four more seconds: the platform has crossed and rests at the far end of its travel.
+    advance(240);
+    REQUIRE(position(platform).z == Approx(platformStart - 3.1f).margin(0.001f));
+
+    // Over the pit beside the platform: the body falls into the kill volume and is put back.
+    world::Transform drop = body.get<world::Transform>();
+    drop.position = {5.0f, 0.9f, -6.0f};
+    body.set(drop);
+    advance(240);
+    // One drawn frame: the course renders without a warning.
+    fixture.frame(game);
+    const bool respawned = std::ranges::any_of(
+        messages->messages, [](const std::string &line) { return line == "Placeholder body fell and was respawned"; });
+    const glm::vec3 back = position(body);
+    core::Log::removeSink(messages);
+    core::Log::removeSink(problems);
+    REQUIRE(respawned);
+    REQUIRE(back.x == Approx(0.0f).margin(0.05f));
+    REQUIRE(back.z == Approx(10.0f).margin(0.05f));
+    REQUIRE(back.y == Approx(0.9f).margin(0.05f));
+    REQUIRE(problems->problems.empty());
+  }
 }
