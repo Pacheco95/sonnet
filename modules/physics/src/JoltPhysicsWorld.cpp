@@ -19,6 +19,8 @@
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -29,11 +31,13 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <format>
@@ -133,6 +137,24 @@ public:
   [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
     return a == layers::Moving || b == layers::Moving;
   }
+};
+
+// A sphere cast's bodies: solid ones only, minus the ignored entities' bodies.
+class SolidBodyFilter final : public JPH::BodyFilter {
+public:
+  explicit SolidBodyFilter(std::span<const JPH::BodyID> ignored) : m_ignored(ignored) {
+  }
+
+  [[nodiscard]] bool ShouldCollide(const JPH::BodyID &body) const override {
+    return std::ranges::find(m_ignored, body) == m_ignored.end();
+  }
+
+  [[nodiscard]] bool ShouldCollideLocked(const JPH::Body &body) const override {
+    return !body.IsSensor();
+  }
+
+private:
+  std::span<const JPH::BodyID> m_ignored;
 };
 
 // ---- Conversions ----
@@ -423,6 +445,81 @@ public:
                       .point = fromJolt(point),
                       .normal = fromJolt(body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, point)),
                       .distance = hit.mFraction * maxDistance};
+  }
+
+  std::optional<SphereCastHit> sphereCast(glm::vec3 origin, float radius, glm::vec3 direction, float maxDistance,
+                                          std::span<const flecs::entity> ignore) override {
+    const auto finite = [](glm::vec3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+    if (!finite(origin) || !finite(direction) || !std::isfinite(radius) || !std::isfinite(maxDistance) ||
+        radius <= 0.0f || maxDistance < 0.0f) {
+      return std::nullopt;
+    }
+    std::vector<JPH::BodyID> ignored;
+    for (const flecs::entity entity : ignore) {
+      if (entity && entity.is_alive()) {
+        if (const auto it = m_bodies.find(bodyRootOf(entity).id());
+            it != m_bodies.end() && !it->second.id.IsInvalid()) {
+          ignored.push_back(it->second.id);
+        }
+      }
+    }
+    const SolidBodyFilter filter{ignored};
+    // The query only reads the shape, so it can live on the stack.
+    JPH::SphereShape sphere{radius};
+    sphere.SetEmbedded();
+    const JPH::RVec3 base = JPH::RVec3{toJolt(origin)};
+    const float length = glm::length(direction);
+    if (!std::isfinite(length)) { // a finite direction too long to measure
+      return std::nullopt;
+    }
+    const glm::vec3 unit = length > 0.0f ? direction / length : glm::vec3{0.0f};
+    const float travel = length > 0.0f ? maxDistance : 0.0f;
+
+    const JPH::CollideShapeResult *result = nullptr;
+    float distance = 0.0f;
+    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> cast;
+    JPH::ClosestHitCollisionCollector<JPH::CollideShapeCollector> overlap;
+    if (travel > 0.0f) {
+      JPH::ShapeCastSettings settings;
+      // An overlap at the start is a hit whichever way the sphere moves, and its normal is the
+      // deepest penetration's, which pushes the sphere out.
+      settings.SetBackFaceMode(JPH::EBackFaceMode::CollideWithBackFaces);
+      settings.mReturnDeepestPoint = true;
+      const JPH::RShapeCast shapeCast = JPH::RShapeCast::sFromWorldTransform(
+          &sphere, JPH::Vec3::sReplicate(1.0f), JPH::RMat44::sTranslation(base), toJolt(unit * travel));
+      m_system->GetNarrowPhaseQuery().CastShape(shapeCast, settings, base, cast, {}, {}, filter);
+      if (cast.HadHit()) {
+        result = &cast.mHit;
+        distance = std::max(cast.mHit.mFraction, 0.0f) * travel;
+      }
+    } else {
+      JPH::CollideShapeSettings settings;
+      settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+      m_system->GetNarrowPhaseQuery().CollideShape(&sphere, JPH::Vec3::sReplicate(1.0f),
+                                                   JPH::RMat44::sTranslation(base), settings, base, overlap, {}, {},
+                                                   filter);
+      if (overlap.HadHit()) {
+        result = &overlap.mHit;
+      }
+    }
+    if (result == nullptr) {
+      return std::nullopt;
+    }
+    const JPH::BodyLockRead lock{m_system->GetBodyLockInterface(), result->mBodyID2};
+    if (!lock.Succeeded()) {
+      return std::nullopt;
+    }
+    // The penetration axis points from the sphere into the body. Should a degenerate contact
+    // leave it zero, the way back along the move is the push out.
+    const JPH::Vec3 axis = result->mPenetrationAxis;
+    glm::vec3 normal = axis.LengthSq() > 1e-12f ? -fromJolt(axis.Normalized()) : -unit;
+    if (glm::dot(normal, normal) == 0.0f) {
+      normal = {0.0f, 1.0f, 0.0f};
+    }
+    return SphereCastHit{.entity = flecs::entity{m_world.ecs(), lock.GetBody().GetUserData()},
+                         .point = fromJolt(JPH::Vec3{base + result->mContactPointOn2}),
+                         .normal = normal,
+                         .distance = distance};
   }
 
   void addImpulse(flecs::entity entity, glm::vec3 impulse) override {
