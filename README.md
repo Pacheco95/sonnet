@@ -182,7 +182,7 @@ ctest --preset linux-debug
 | [0006](docs/decisions/0006-vulkan-object-ownership.md) | vk-bootstrap creates, Vulkan-HPP RAII owns | Accepted |
 | [0007](docs/decisions/0007-data-driven-game-structure.md) | Games are data-driven projects run by a generic player | Accepted |
 | [0008](docs/decisions/0008-clustered-forward-rendering.md) | Clustered forward rendering as the main pipeline | Accepted |
-| [0009](docs/decisions/0009-physics-and-scripting.md) | Physics and scripting as world subsystems | Accepted |
+| [0009](docs/decisions/0009-physics-and-scripting.md) | Physics and scripting as world subsystems | Accepted, amended by 0038 |
 | [0010](docs/decisions/0010-audio-and-animation.md) | Audio on miniaudio, animation in `world`, skinning in compute | Accepted |
 | [0011](docs/decisions/0011-cooked-bundles-and-the-player.md) | Cooked bundles, the `runtime` module and what export assembles | Accepted |
 | [0012](docs/decisions/0012-gpu-driven-rendering.md) | GPU culling into indirect draws, batched per pipeline and mesh | Accepted, amended by 0014, 0015 and 0016 |
@@ -195,8 +195,8 @@ ctest --preset linux-debug
 | [0019](docs/decisions/0019-vulkan-1.3-devices-with-the-1.4-extensions.md) | Vulkan 1.3 devices that carry the engine's 1.4 features as extensions | Accepted |
 | [0020](docs/decisions/0020-linux-runtime-libraries.md) | Linux runtime libraries beside the editor | Accepted |
 | [0021](docs/decisions/0021-two-views-in-one-frame.md) | Several views in one graph frame | Accepted |
-| [0022](docs/decisions/0022-gameplay-events-and-script-properties.md) | Physics events, script properties and several scripts per entity | Accepted |
-| [0023](docs/decisions/0023-animation-blending-morph-targets-and-particles.md) | Animation blending, morph targets and GPU particles | Accepted |
+| [0022](docs/decisions/0022-gameplay-events-and-script-properties.md) | Physics events, script properties and several scripts per entity | Accepted, amended by 0038 |
+| [0023](docs/decisions/0023-animation-blending-morph-targets-and-particles.md) | Animation blending, morph targets and GPU particles | Accepted, amended by 0038 |
 | [0024](docs/decisions/0024-temporal-anti-aliasing-and-occlusion-culling.md) | Temporal anti-aliasing, occlusion culling and compressed HDR environments | Accepted |
 | [0025](docs/decisions/0025-shadow-levels-of-detail.md) | A coarser index range for the far shadow cascades | Accepted |
 | [0026](docs/decisions/0026-game-ui.md) | Game UI is scene entities drawn by a `gui` module | Accepted |
@@ -211,7 +211,7 @@ ctest --preset linux-debug
 | [0035](docs/decisions/0035-moltenvk-stays-pinned.md) | MoltenVK is deprecated upstream and stays pinned | Accepted |
 | [0036](docs/decisions/0036-dear-imgui-stays-the-editor-ui.md) | Dear ImGui stays the editor's UI library | Accepted |
 | [0037](docs/decisions/0037-per-field-instance-overrides.md) | An instance stores the fields it changed, and the rest follow the prefab | Accepted |
-| [0038](docs/decisions/0038-character-controller.md) | A character controller on Jolt's CharacterVirtual, its frame order and animation weights | Proposed |
+| [0038](docs/decisions/0038-character-controller.md) | A character controller on Jolt's CharacterVirtual, its frame order and animation weights | Accepted |
 
 ## License
 

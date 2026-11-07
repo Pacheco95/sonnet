@@ -1,6 +1,6 @@
 # ADR-0038: A character controller on Jolt's CharacterVirtual, its frame order and animation weights
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Amends:** [ADR-0009](0009-physics-and-scripting.md), [ADR-0022](0022-gameplay-events-and-script-properties.md) and [ADR-0023](0023-animation-blending-morph-targets-and-particles.md)
 - **Date:** 2026-11-07
 
