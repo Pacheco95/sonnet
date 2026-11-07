@@ -555,9 +555,11 @@ TEST_CASE("a requested texture arrives on a later frame, imported off the main t
   REQUIRE(database.loading());
   // Asking again while it is in flight must not schedule a second import of the same file.
   REQUIRE(!database.requestTexture(woodUuid).isValid());
+  REQUIRE(database.pendingLoads() == std::vector{woodUuid}); // what a capture that gives up names
 
   database.waitForLoads();
   REQUIRE(!database.loading());
+  REQUIRE(database.pendingLoads().empty());
   const renderer::TextureHandle wood = database.requestTexture(woodUuid);
   REQUIRE(fixture.renderer.isValid(wood));
   // The same object the synchronous loader would have returned, under the same identity.

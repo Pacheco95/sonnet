@@ -76,6 +76,8 @@ public:
   }
   // Whether a picture is still being made or waits for its upload.
   [[nodiscard]] bool busy() const noexcept;
+  // The assets and prefabs whose pictures are still being made, in order, for a wait that gives up to say why.
+  [[nodiscard]] std::vector<core::Uuid> busyAssets() const;
 
 private:
   struct Pending {

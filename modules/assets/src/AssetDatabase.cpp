@@ -1047,6 +1047,16 @@ renderer::TextureHandle AssetDatabase::placeholderTexture() {
   return m_placeholder;
 }
 
+std::vector<core::Uuid> AssetDatabase::pendingLoads() const {
+  std::vector<core::Uuid> pending;
+  pending.reserve(m_pending.size());
+  for (const auto &[uuid, load] : m_pending) {
+    pending.push_back(uuid);
+  }
+  std::ranges::sort(pending);
+  return pending;
+}
+
 void AssetDatabase::waitForLoads() {
   // Each pass finishes the imports in flight and runs the main-thread jobs they scheduled, which
   // is what erases them; a publish schedules nothing new, so the loop drains.

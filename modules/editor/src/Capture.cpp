@@ -3,10 +3,13 @@
 #include <sonnet/editor/Editor.h>
 #include <sonnet/world/Components.h>
 
+#include <algorithm>
 #include <format>
+#include <iterator>
 #include <source_location>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace sonnet::editor {
 
@@ -34,7 +37,7 @@ flecs::entity findEntity(world::World &world, std::string_view path) {
 // the window with its panels are the editor's own.
 class EditorCaptureTarget final : public runtime::ICaptureTarget {
 public:
-  explicit EditorCaptureTarget(Editor &editor) : m_editor(editor) {
+  EditorCaptureTarget(Editor &editor, bool viewportShot) : m_editor(editor), m_viewportShot(viewportShot) {
   }
 
   core::Result<void> begin(const CaptureOptions &options) override {
@@ -82,9 +85,27 @@ public:
     return {};
   }
 
-  bool loaded() override {
-    // The viewport has a target only once its panel has been laid out.
-    return m_editor.viewport().target().isValid() && !m_editor.assets().loading() && !m_editor.thumbnails().busy();
+  std::vector<std::string> waitingFor() override {
+    std::vector<std::string> waiting;
+    // A view has a target only once its panel has been laid out. --screenshot copies the Viewport's; the window needs
+    // the scene view in front to have drawn, which is the Game view's under --front game: the default layout tabs
+    // the two together, so the Viewport behind it never makes a target (#516).
+    const bool viewport = m_editor.viewport().target().isValid();
+    if (m_viewportShot && !viewport) {
+      waiting.emplace_back("the Viewport's first frame");
+    } else if (!viewport && !m_editor.gamePanel().target().isValid()) {
+      waiting.emplace_back("the first frame of the Viewport or the Game view");
+    }
+    std::ranges::move(runtime::pendingAssetNames(m_editor.assets()), std::back_inserter(waiting));
+    for (const core::Uuid &uuid : m_editor.thumbnails().busyAssets()) {
+      const assets::AssetInfo *info = m_editor.assets().find(uuid);
+      const flecs::entity prefab = info == nullptr ? m_editor.world().find(uuid) : flecs::entity{};
+      const world::Name *name = prefab ? prefab.try_get<world::Name>() : nullptr;
+      waiting.push_back(std::format("the thumbnail of {}", info != nullptr   ? info->name
+                                                           : name != nullptr ? name->value
+                                                                             : uuid.toString()));
+    }
+    return waiting;
   }
 
   void cutHistory() override {
@@ -114,6 +135,7 @@ public:
 
 private:
   Editor &m_editor;
+  bool m_viewportShot;
 };
 
 } // namespace
@@ -134,11 +156,11 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
   return CommandLine{.project = std::move(line->content), .capture = std::move(line->capture), .help = line->help};
 }
 
-CaptureRun::CaptureRun(CaptureOptions options) : m_run(std::move(options)) {
+CaptureRun::CaptureRun(CaptureOptions options) : m_viewportShot(!options.viewport.empty()), m_run(std::move(options)) {
 }
 
 CaptureRun::Status CaptureRun::step(Editor &editor) {
-  EditorCaptureTarget target{editor};
+  EditorCaptureTarget target{editor, m_viewportShot};
   return m_run.step(target);
 }
 

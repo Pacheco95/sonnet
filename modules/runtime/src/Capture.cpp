@@ -1,5 +1,6 @@
 #include <sonnet/runtime/Capture.h>
 
+#include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/core/Assert.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/runtime/Game.h>
@@ -10,9 +11,11 @@
 #include <charconv>
 #include <cmath>
 #include <format>
+#include <iterator>
 #include <limits>
 #include <source_location>
 #include <string>
+#include <vector>
 
 namespace sonnet::runtime {
 
@@ -358,6 +361,34 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
   return line;
 }
 
+std::vector<std::string> pendingAssetNames(const assets::AssetDatabase &assets) {
+  std::vector<std::string> names;
+  for (const core::Uuid &uuid : assets.pendingLoads()) {
+    const assets::AssetInfo *info = assets.find(uuid);
+    if (info == nullptr) {
+      names.push_back(uuid.toString());
+    } else if (info->source.is_absolute()) {
+      names.push_back(info->source.lexically_relative(assets.projectRoot()).generic_string());
+    } else {
+      names.push_back(info->name);
+    }
+  }
+  return names;
+}
+
+std::string describeWaiting(std::span<const std::string> waiting) {
+  constexpr std::size_t shown = 8;
+  std::string text;
+  for (std::size_t i = 0; i < std::min(waiting.size(), shown); ++i) {
+    text += i == 0 ? "" : ", ";
+    text += waiting[i];
+  }
+  if (waiting.size() > shown) {
+    text += std::format(" and {} more", waiting.size() - shown);
+  }
+  return text;
+}
+
 void resolveOutputs(CaptureOptions &options, const std::filesystem::path &directory) {
   for (std::filesystem::path *file : {&options.viewport, &options.window}) {
     if (!file->empty() && file->is_relative()) {
@@ -387,10 +418,11 @@ CaptureRun::Status CaptureRun::step(ICaptureTarget &target) {
     // Imports finish on workers and publish between frames, and the image the screenshot copies
     // exists only once a frame has drawn into it: the editor's viewport once its panel has been
     // laid out, the player's once a swapchain image was acquired.
-    if (!target.loaded()) {
+    if (const std::vector<std::string> waiting = target.waitingFor(); !waiting.empty()) {
       m_frames = 0;
       if (std::chrono::steady_clock::now() - m_loadStart > LoadTimeout) {
-        return fail(captureError(std::format("the assets were still loading after {}", LoadTimeout)));
+        return fail(captureError(
+            std::format("the capture was still waiting after {} for {}", LoadTimeout, describeWaiting(waiting))));
       }
       return Status::Running;
     }
@@ -471,8 +503,13 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
   return {};
 }
 
-bool GameCaptureTarget::loaded() {
-  return m_game.target().isValid() && !m_game.assets().loading();
+std::vector<std::string> GameCaptureTarget::waitingFor() {
+  std::vector<std::string> waiting;
+  if (!m_game.target().isValid()) {
+    waiting.emplace_back("the first frame");
+  }
+  std::ranges::move(pendingAssetNames(m_game.assets()), std::back_inserter(waiting));
+  return waiting;
 }
 
 void GameCaptureTarget::cutHistory() {

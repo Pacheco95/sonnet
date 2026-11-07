@@ -440,6 +440,49 @@ TEST_CASE("a capture shows the Assets grid, a panel in front and a dialog withou
   sonnet::test::removeScratch(directory);
 }
 
+// The default layout tabs the Game view with the Viewport, so --front game leaves the Viewport without a target. A
+// window capture waited for the Viewport's and gave up after two minutes on every project (#516).
+TEST_CASE("a window capture with the Game view in front waits for the Game view, not the Viewport",
+          "[editor][capture][gpu][view]") {
+  Fixture fixture;
+  const auto directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "front-game";
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    editor.setPreferencesFile(directory / "preferences.json");
+    REQUIRE(editor.createProject(directory / "project", "Front game").has_value());
+    REQUIRE(fixture.swapchain->readable());
+    editor::CaptureOptions options;
+    options.window = directory / "window.png";
+    options.front = "game";
+    options.settleFrames = 2;
+    editor::CaptureRun capture{options};
+    REQUIRE(fixture.run(editor, capture) == editor::CaptureRun::Status::Done); // within 600 frames, not 120 s
+    REQUIRE_FALSE(editor.viewport().target().isValid());                       // behind the Game tab
+    REQUIRE(editor.gamePanel().target().isValid());
+    const Image window = readPng(options.window);
+    REQUIRE(window.width == static_cast<int>(fixture.swapchain->extent().x));
+
+    // --screenshot copies the Viewport, which is not on screen: the run waits for it rather than writing nothing.
+    options.viewport = directory / "viewport.png";
+    editor::CaptureRun hidden{options};
+    for (int frame = 0; frame < 30; ++frame) {
+      editor.update(editor::CaptureRun::FrameSeconds);
+      rhi::ICommandList &commands = fixture.device->beginFrame();
+      const auto image = fixture.swapchain->acquire();
+      REQUIRE(image.has_value());
+      editor.render(commands, image);
+      fixture.device->endFrame();
+      editor.afterPresent();
+      REQUIRE(hidden.step(editor) == editor::CaptureRun::Status::Running);
+    }
+    REQUIRE_FALSE(std::filesystem::exists(options.viewport));
+  }
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  sonnet::test::removeScratch(directory);
+}
+
 TEST_CASE("a capture refuses a view it cannot show", "[editor][capture][gpu][view]") {
   Fixture fixture;
   const auto directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "view-refused";
