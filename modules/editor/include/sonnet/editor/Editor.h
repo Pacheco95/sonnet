@@ -453,6 +453,10 @@ public:
   [[nodiscard]] const scripting::ScriptView &scriptView() const noexcept {
     return m_scriptView;
   }
+  // What the Game view draws this frame, built at the end of update.
+  [[nodiscard]] const renderer::SceneView &gameView() const noexcept {
+    return m_gameView;
+  }
   void setShowGame(bool show) noexcept {
     m_viewState.game = show;
   }
