@@ -211,6 +211,7 @@ ctest --preset linux-debug
 | [0035](docs/decisions/0035-moltenvk-stays-pinned.md) | MoltenVK is deprecated upstream and stays pinned | Accepted |
 | [0036](docs/decisions/0036-dear-imgui-stays-the-editor-ui.md) | Dear ImGui stays the editor's UI library | Accepted |
 | [0037](docs/decisions/0037-per-field-instance-overrides.md) | An instance stores the fields it changed, and the rest follow the prefab | Accepted |
+| [0038](docs/decisions/0038-character-controller.md) | A character controller on Jolt's CharacterVirtual, its frame order and animation weights | Proposed |
 
 ## License
 
