@@ -104,6 +104,9 @@ public:
   [[nodiscard]] bool loading() const noexcept {
     return !m_pending.empty();
   }
+  // The assets whose requests are in flight, sorted: a glTF file or a file texture each, for a
+  // wait that gives up to say what it was waiting for.
+  [[nodiscard]] std::vector<core::Uuid> pendingLoads() const;
   // Runs every request to completion, for a caller that wants the synchronous behaviour back.
   void waitForLoads();
   // A material is created at once, and requests its textures rather than loading them: until one

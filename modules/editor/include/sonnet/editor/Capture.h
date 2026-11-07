@@ -48,6 +48,7 @@ public:
   [[nodiscard]] Status step(Editor &editor);
 
 private:
+  bool m_viewportShot{false}; // --screenshot, which copies the Viewport's target; before m_run, which takes the options
   runtime::CaptureRun m_run;
 };
 
