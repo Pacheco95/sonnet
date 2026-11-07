@@ -1,0 +1,155 @@
+{
+  "settings": {},
+  "sourceHash": "de80619207f1b447",
+  "subAssets": [
+    {
+      "materials": [],
+      "name": "Hair",
+      "type": "Material",
+      "uuid": "0e879b4f-6712-80a1-9189-baad82649e7a"
+    },
+    {
+      "materials": [],
+      "name": "Clothes_ORM",
+      "type": "Texture",
+      "uuid": "21e3a204-48d0-8e44-94fa-a24043f58714"
+    },
+    {
+      "materials": [],
+      "name": "Eyes_BaseColor",
+      "type": "Texture",
+      "uuid": "23d2a204-48c6-8e44-a2f0-a24043ef8714"
+    },
+    {
+      "materials": [],
+      "name": "Eyebrows",
+      "type": "Material",
+      "uuid": "278c9b4f-6715-80a1-848a-baad82659e7a"
+    },
+    {
+      "materials": [],
+      "name": "Hair_BaseColor",
+      "type": "Texture",
+      "uuid": "3cd7a204-48c9-8e44-89eb-a24043ec8714"
+    },
+    {
+      "materials": [],
+      "name": "Armature",
+      "type": "Skin",
+      "uuid": "422c1077-f4d9-80e4-958d-90526b214aab"
+    },
+    {
+      "materials": [],
+      "name": "Eyebrows_BaseColor",
+      "type": "Texture",
+      "uuid": "55dca204-48cc-8e44-b0e6-a24043e98714"
+    },
+    {
+      "materials": [],
+      "name": "Clothes_Normal",
+      "type": "Texture",
+      "uuid": "5b29b1e0-5f0b-84cf-a4cb-d8d44635e585"
+    },
+    {
+      "materials": [],
+      "name": "Clothes_BaseColor",
+      "type": "Texture",
+      "uuid": "6ee1a204-48cf-8e44-87fc-a24043f68714"
+    },
+    {
+      "materials": [],
+      "name": "Skin_Normal",
+      "type": "Texture",
+      "uuid": "70d0a204-48c5-8e44-95f2-a24043f08714"
+    },
+    {
+      "materials": [],
+      "name": "Eyelashes",
+      "type": "Material",
+      "uuid": "748a9b4f-6714-80a1-b78c-baad82669e7a"
+    },
+    {
+      "materials": [],
+      "name": "Skin_ORM",
+      "type": "Texture",
+      "uuid": "89d5a204-48c8-8e44-bced-a24043ed8714"
+    },
+    {
+      "materials": [],
+      "name": "Eyes",
+      "type": "Material",
+      "uuid": "8d8f9b4f-6717-80a1-aa8e-baad82679e7a"
+    },
+    {
+      "materials": [],
+      "name": "Eyelashes_BaseColor",
+      "type": "Texture",
+      "uuid": "a2daa204-48cb-8e44-a3e8-a24043ea8714"
+    },
+    {
+      "materials": [],
+      "name": "Shoes_BaseColor",
+      "type": "Texture",
+      "uuid": "a827b1e0-5f0a-84cf-97cd-d8d44636e585"
+    },
+    {
+      "materials": [],
+      "name": "Shoes",
+      "type": "Material",
+      "uuid": "a8839b4f-6710-80a1-ab85-baad82629e7a"
+    },
+    {
+      "materials": [],
+      "name": "Stand",
+      "type": "Animation",
+      "uuid": "ad9d9da2-02ba-8a6b-947b-c70e4c2497f8"
+    },
+    {
+      "materials": [],
+      "name": "Shoes_Normal",
+      "type": "Texture",
+      "uuid": "c12cb1e0-5f0d-84cf-8ace-d8d44637e585"
+    },
+    {
+      "materials": [],
+      "name": "Clothes",
+      "type": "Material",
+      "uuid": "c1889b4f-6713-80a1-9e87-baad82639e7a"
+    },
+    {
+      "materials": [],
+      "name": "Skin_BaseColor",
+      "type": "Texture",
+      "uuid": "d6d3a204-48c7-8e44-afee-a24043ee8714"
+    },
+    {
+      "materials": [],
+      "name": "Skin",
+      "type": "Material",
+      "uuid": "da8d9b4f-6716-80a1-9d8f-baad82689e7a"
+    },
+    {
+      "materials": [
+        "da8d9b4f-6716-80a1-9d8f-baad82689e7a",
+        "8d8f9b4f-6717-80a1-aa8e-baad82679e7a",
+        "748a9b4f-6714-80a1-b78c-baad82669e7a",
+        "278c9b4f-6715-80a1-848a-baad82659e7a",
+        "0e879b4f-6712-80a1-9189-baad82649e7a",
+        "c1889b4f-6713-80a1-9e87-baad82639e7a",
+        "a8839b4f-6710-80a1-ab85-baad82629e7a"
+      ],
+      "name": "Body",
+      "type": "Mesh",
+      "uuid": "ee934c00-53fb-8d52-b152-2c666c5f116e"
+    },
+    {
+      "materials": [],
+      "name": "Hair_Normal",
+      "type": "Texture",
+      "uuid": "efd8a204-48ca-8e44-96e9-a24043eb8714"
+    }
+  ],
+  "type": "Model",
+  "uuid": "51944cde-5e99-8970-b067-74a956ab5e8f",
+  "version": 2
+}
