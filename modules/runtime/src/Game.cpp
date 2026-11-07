@@ -256,16 +256,10 @@ void Game::update(float dt) {
   // Imports that finished on a worker are published before the draw list resolves them.
   static_cast<void>(m_jobs.runMainThreadJobs());
 
-  const std::optional<renderer::Camera> scene = world::sceneCamera(m_world);
-  if (!scene && !m_warnedAboutCamera) {
-    SONNET_LOG_WARN("the scene has no Camera; drawing from the fallback view");
-    m_warnedAboutCamera = true;
-  }
-  const renderer::Camera camera = scene.value_or(world::fallbackCamera());
-  // A scene without an AudioListener is heard from the camera, as it is in the editor.
-  m_audio->setFallbackListener(camera.position, camera.rotation);
-  // Input positions are in window coordinates, so the view's size is the window's.
-  m_scriptView = {.camera = camera, .size = glm::vec2{m_window.size()}};
+  // Scripts unproject through the camera the last frame drew, which is what the pointer was over
+  // (ADR-0038, "The frame"). Input positions are in window coordinates, so the view's size is the
+  // window's.
+  m_scriptView = {.camera = m_view.camera, .size = glm::vec2{m_window.size()}};
 
   m_world.progress(dt);
   // A script's `game.loadScene` takes effect between frames, so this frame lays out and draws
@@ -280,6 +274,16 @@ void Game::update(float dt) {
   m_gui.endFrame();
   m_gui.update(glm::vec2{m_renderSize.value_or(m_window.pixelSize())}, glm::vec2{m_window.size()}, m_window.safeArea());
 
+  // The camera is read after the frame's systems, as the draw list is, so it is drawn where this
+  // frame's scripts and transform system placed it, not one update behind (issue #515).
+  const std::optional<renderer::Camera> scene = world::sceneCamera(m_world);
+  if (!scene && !m_warnedAboutCamera) {
+    SONNET_LOG_WARN("the scene has no Camera; drawing from the fallback view");
+    m_warnedAboutCamera = true;
+  }
+  const renderer::Camera camera = scene.value_or(world::fallbackCamera());
+  // A scene without an AudioListener is heard from the drawn camera, as it is in the editor.
+  m_audio->setFallbackListener(camera.position, camera.rotation);
   world::buildDrawList(m_world, m_assets, m_draws, m_joints, m_morphWeights);
   world::buildLightList(m_world, m_lights);
   world::buildParticleList(m_world, m_assets, m_particles);
