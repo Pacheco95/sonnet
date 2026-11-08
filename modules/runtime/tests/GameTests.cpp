@@ -3,6 +3,7 @@
 
 #include <sonnet/assets/Bundle.h>
 #include <sonnet/assets/Cook.h>
+#include <sonnet/assets/Importers.h>
 #include <sonnet/assets/Json.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
@@ -28,6 +29,8 @@
 #include <stb_image.h>
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -36,6 +39,8 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <utility>
 #include <vector>
 
 using namespace sonnet;
@@ -66,6 +71,40 @@ namespace {
     }
   }
   return {};
+}
+
+// The character sample, with its humanoid's images already in the copy's cache as 1x1 placeholders.
+// Cooking the thirteen 2048-texel images to UASTC is most of what playing the character costs: about
+// 15 s in a Debug build and three minutes under ASan on CI's runners (issue #496). A texture is
+// cooked again only when its cache entry is older than the file, and nothing the tests check looks
+// at the character's skin; the image path itself is assets_tests' to cover.
+[[nodiscard]] std::filesystem::path characterProject(platform::Platform &platform) {
+  const std::filesystem::path project = sampleProject(platform, "character");
+  if (project.empty()) {
+    return project;
+  }
+  const std::filesystem::path model = project / "assets" / "character" / "humanoid.glb";
+  const auto sidecar = core::readFile(std::filesystem::path{model}.concat(".meta"));
+  REQUIRE(sidecar.has_value());
+  const std::optional<core::Uuid> identity =
+      core::Uuid::parse(assets::parseJson(*sidecar).at("uuid").get<std::string>());
+  REQUIRE(identity.has_value());
+  const auto imported = assets::importGltf(model);
+  REQUIRE(imported.has_value());
+  const std::filesystem::path cache = project / ".sonnet" / "cache";
+  std::filesystem::create_directories(cache);
+  for (std::size_t i = 0; i < imported->images.size(); ++i) {
+    const renderer::TextureData texel{.size = {1, 1},
+                                      .format = imported->images[i].srgb ? rhi::Format::R8G8B8A8Srgb
+                                                                         : rhi::Format::R8G8B8A8Unorm,
+                                      .mipLevels = 1,
+                                      .data = std::vector<std::byte>(4, std::byte{0x80})};
+    const auto cooked = assets::cookKtx2(texel, false);
+    REQUIRE(cooked.has_value());
+    const core::Uuid image = core::Uuid::derive(*identity, std::format("image/{}", i));
+    REQUIRE(core::writeFile(cache / (image.toString() + ".ktx2"), *cooked).has_value());
+  }
+  return project;
 }
 
 // Collects warnings and errors, so a frame that logs one fails the test that asked for silence.
@@ -1407,13 +1446,14 @@ TEST_CASE("the HUD stress scene builds two hundred elements of which a third are
 
 // Issue #490: the character sample's obstacle course, from the project and from its bundle. Rays
 // down onto every step, the deck, both ramps and the ledge block, and sideways and up in the
-// narrow passage and under the low ceiling, land on the surfaces the meshes draw; the bodies come
-// to rest on the floor; the platform shuttles across the pit and rests at its far end; and a body
-// dropped into the pit falls into the kill volume and comes back above the respawn marker.
+// narrow passage and under the low ceiling, land on the surfaces the meshes draw; the crate comes
+// to rest on the floor and the character (issue #496) stands at the start; the platform shuttles
+// across the pit and rests at its far end; and the character, put over the pit, falls into the
+// kill volume and comes back standing on the respawn marker.
 TEST_CASE("the character sample's course collides as drawn, its platform moves and its pit respawns",
           "[runtime][samples][gpu]") {
   Fixture fixture;
-  const std::filesystem::path project = sampleProject(fixture.platform, "character");
+  const std::filesystem::path project = characterProject(fixture.platform);
   if (project.empty()) {
     SKIP("the character sample was not found in a checkout above the test binary");
   }
@@ -1424,7 +1464,9 @@ TEST_CASE("the character sample's course collides as drawn, its platform moves a
     const auto messages = std::make_shared<MessageSink>();
     core::Log::addSink(problems);
     core::Log::addSink(messages);
-    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+    test::RelativeModeWindow window{*fixture.window};
+    runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
     REQUIRE(game.open(project).has_value());
     world::World &world = game.world();
     const auto root = [&](std::string_view name) {
@@ -1437,7 +1479,7 @@ TEST_CASE("the character sample's course collides as drawn, its platform moves a
       return flecs::entity{};
     };
     const flecs::entity course = root("Course");
-    const flecs::entity body = root("Placeholder body");
+    const flecs::entity body = root("Character");
     REQUIRE(course.is_valid());
     REQUIRE(body.is_valid());
     const flecs::entity platform = world.findByPath(course, "Platform");
@@ -1455,7 +1497,7 @@ TEST_CASE("the character sample's course collides as drawn, its platform moves a
       }
     };
     advance(60);
-    REQUIRE(position(body).y == Approx(0.9f).margin(0.04f));
+    REQUIRE(position(body).y == Approx(0.0f).margin(0.01f));
     REQUIRE(position(body).z == Approx(10.0f).margin(0.01f));
     REQUIRE(position(crate).y == Approx(0.45f).margin(0.04f));
     REQUIRE(position(platform).z == Approx(platformStart));
@@ -1500,24 +1542,364 @@ TEST_CASE("the character sample's course collides as drawn, its platform moves a
     advance(240);
     REQUIRE(position(platform).z == Approx(platformStart - 3.1f).margin(0.001f));
 
-    // Over the pit beside the platform: the body falls into the kill volume and is put back.
+    // Over the pit beside the platform: the character falls into the kill volume and is put back.
+    // Writing its Transform teleports it (docs/physics.md, "Characters").
     world::Transform drop = body.get<world::Transform>();
-    drop.position = {5.0f, 0.9f, -6.0f};
+    drop.position = {5.0f, 0.0f, -6.0f};
     body.set(drop);
     advance(240);
     // One drawn frame: the course renders without a warning.
     fixture.frame(game);
     const bool respawned = std::ranges::any_of(
-        messages->messages, [](const std::string &line) { return line == "Placeholder body fell and was respawned"; });
+        messages->messages, [](const std::string &line) { return line == "Character fell and was respawned"; });
     const glm::vec3 back = position(body);
     core::Log::removeSink(messages);
     core::Log::removeSink(problems);
     REQUIRE(respawned);
     REQUIRE(back.x == Approx(0.0f).margin(0.05f));
     REQUIRE(back.z == Approx(10.0f).margin(0.05f));
-    REQUIRE(back.y == Approx(0.9f).margin(0.05f));
+    REQUIRE(back.y == Approx(0.0f).margin(0.01f));
     REQUIRE(problems->problems.empty());
   }
+}
+
+namespace {
+
+// Every record from debug up, with the frame it came in, for the footsteps the character sample's
+// script logs at debug.
+class FrameSink final : public spdlog::sinks::base_sink<std::mutex> {
+public:
+  int frame{0};
+  std::vector<std::pair<int, std::string>> messages;
+
+protected:
+  void sink_it_(const spdlog::details::log_msg &message) override {
+    messages.emplace_back(frame, std::string(message.payload.data(), message.payload.size()));
+  }
+  void flush_() override {
+  }
+};
+
+} // namespace
+
+// Issue #496: the character sample's start scene played from the keyboard. W runs north, the way
+// the camera looks, reaching the run speed; W and D together are no faster; letting go stops the
+// character; Shift walks; the model turns to face the way it goes while the root keeps its yaw;
+// Space jumps from the ground, a press just before landing is kept and jumps again on landing,
+// and a press in mid-air long before landing is dropped. The camera asks for the pointer.
+TEST_CASE("the character sample runs, walks, stops, turns and jumps from the keyboard", "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const auto problems = std::make_shared<ProblemSink>();
+  core::Log::addSink(problems);
+  // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+  test::RelativeModeWindow window{*fixture.window};
+  runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  world::World &world = game.world();
+  flecs::entity character;
+  for (const flecs::entity entity : world.roots()) {
+    const world::Name *named = entity.try_get<world::Name>();
+    if (named != nullptr && named->value == "Character") {
+      character = entity;
+    }
+  }
+  REQUIRE(character.is_valid());
+  const flecs::entity model = world.findByPath(character, "Model");
+  REQUIRE(model.is_valid());
+  const auto frames = [&](int count) {
+    for (int i = 0; i < count; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+  };
+  const auto press = [&](platform::Key key) {
+    game.event(platform::KeyPressed{.key = key, .modifiers = {}, .repeat = false});
+  };
+  const auto release = [&](platform::Key key) { game.event(platform::KeyReleased{.key = key, .modifiers = {}}); };
+  const auto speed = [&] {
+    const auto state = game.physics().character(character);
+    REQUIRE(state.has_value());
+    return glm::length(glm::vec2{state->velocity.x, state->velocity.z});
+  };
+  const auto position = [&] { return character.get<world::Transform>().position; };
+  // The way the model faces, on the ground plane.
+  const auto facing = [&] {
+    const glm::vec3 forward = model.get<world::Transform>().rotation * glm::vec3{0.0f, 0.0f, -1.0f};
+    return glm::normalize(glm::vec2{forward.x, forward.z});
+  };
+
+  frames(30);
+  REQUIRE(game.scripts().mouseLockRequested());
+  REQUIRE(game.input().mouseLocked());
+  REQUIRE(game.physics().character(character)->grounded);
+  const glm::vec3 start = position();
+
+  // Running north, then north-east, then stopping.
+  press(platform::Key::W);
+  frames(45);
+  CHECK(speed() == Approx(4.8f).margin(0.05f));
+  CHECK(position().z < start.z - 2.5f);
+  CHECK(std::abs(position().x - start.x) < 0.05f);
+  CHECK(facing().y < -0.99f);
+  press(platform::Key::D);
+  frames(20);
+  CHECK(speed() == Approx(4.8f).margin(0.05f));
+  CHECK(facing().x > 0.6f);
+  CHECK(facing().y < -0.6f);
+  release(platform::Key::W);
+  release(platform::Key::D);
+  frames(30);
+  CHECK(speed() < 0.01f);
+  CHECK(character.get<world::Transform>().rotation.w == Approx(1.0f)); // the root never turns
+
+  // Walking south with Shift.
+  press(platform::Key::LeftShift);
+  press(platform::Key::S);
+  frames(40);
+  CHECK(speed() == Approx(1.5f).margin(0.05f));
+  CHECK(facing().y > 0.99f);
+  release(platform::Key::S);
+  release(platform::Key::LeftShift);
+  frames(30);
+
+  // A jump from standing, then a press 0.1 s before it lands, which jumps again on landing.
+  const float ground = position().y;
+  press(platform::Key::Space);
+  frames(1);
+  release(platform::Key::Space);
+  float highest = ground;
+  int airborne = 0;
+  for (int i = 0; i < 120 && !(airborne > 0 && game.physics().character(character)->grounded); ++i) {
+    frames(1);
+    highest = std::max(highest, position().y);
+    const auto state = game.physics().character(character);
+    if (!state->grounded) {
+      ++airborne;
+    }
+    // About 0.1 s before it comes down: falling, a quarter of a metre up.
+    if (state->velocity.y < 0.0f && position().y < ground + 0.25f && position().y > ground + 0.05f) {
+      press(platform::Key::Space);
+      frames(1);
+      release(platform::Key::Space);
+      break;
+    }
+  }
+  CHECK(highest == Approx(ground + 1.27f).margin(0.1f));
+  float second = ground;
+  for (int i = 0; i < 90; ++i) {
+    frames(1);
+    second = std::max(second, position().y);
+  }
+  CHECK(second > ground + 1.0f); // the buffered press jumped again
+
+  // A press long before landing is forgotten: one jump only.
+  frames(60);
+  press(platform::Key::Space);
+  frames(1);
+  release(platform::Key::Space);
+  frames(15); // rising
+  press(platform::Key::Space);
+  frames(1);
+  release(platform::Key::Space);
+  frames(90);
+  float third = ground;
+  for (int i = 0; i < 60; ++i) {
+    frames(1);
+    third = std::max(third, position().y);
+  }
+  CHECK(third < ground + 0.01f);
+  core::Log::removeSink(problems);
+  CHECK(problems->problems.empty());
+}
+
+// Issue #496: the character sample's route scene runs the course by itself through the same
+// controller the keys drive: through the passage and the tunnel, up the ramp and down the steps,
+// over the pit on the platform and onto the ledge block with a jump, to the last waypoint, without
+// a respawn or a warning. On the way:
+// - a planted foot stays where it was put while the character runs and walks: the playback rate
+//   follows the ground speed over the clips' strides;
+// - footsteps alternate feet and no foot sounds twice for one step, though Walk and Run both cross
+//   it when they are blended;
+// - the camera is never inside the course: a sphere around its near plane overlaps nothing.
+// Then a respawn and opening the scene again each start the route over from the start.
+TEST_CASE("the character sample's route runs the course with planted feet, single footsteps and a clear camera",
+          "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const auto problems = std::make_shared<ProblemSink>();
+  const auto messages = std::make_shared<FrameSink>();
+  core::Log::addSink(problems);
+  core::Log::addSink(messages);
+  // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+  test::RelativeModeWindow window{*fixture.window};
+  runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  REQUIRE(game.openScene("scenes/route.scene.json").has_value());
+  world::World &world = game.world();
+  physics::IPhysicsWorld &physics = game.physics();
+  const auto root = [&](std::string_view name) {
+    for (const flecs::entity entity : world.roots()) {
+      const world::Name *named = entity.try_get<world::Name>();
+      if (named != nullptr && named->value == name) {
+        return entity;
+      }
+    }
+    return flecs::entity{};
+  };
+  const auto said = [&](std::string_view text) {
+    return std::ranges::count_if(messages->messages, [&](const auto &record) { return record.second == text; });
+  };
+  const auto step = [&] {
+    game.update(1.0f / 60.0f);
+    ++messages->frame;
+  };
+  // The humanoid's clips are imported on the asset workers the first time an Animator asks: play
+  // until its time moves, then open the scene again so the route starts with them loaded.
+  {
+    const flecs::entity model = world.findByPath(root("Character"), "Model");
+    REQUIRE(model.is_valid());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
+    while (model.get<world::Animator>().time == 0.0f && std::chrono::steady_clock::now() < deadline) {
+      game.update(1.0f / 60.0f);
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(model.get<world::Animator>().time > 0.0f);
+  }
+  REQUIRE(game.openScene("scenes/route.scene.json").has_value());
+  messages->messages.clear();
+
+  // The course, with the route the character starts on and ends near.
+  {
+    const flecs::entity character = root("Character");
+    const flecs::entity camera = root("Camera");
+    REQUIRE(character.is_valid());
+    REQUIRE(camera.is_valid());
+    const flecs::entity model = world.findByPath(character, "Model");
+    REQUIRE(model.is_valid());
+    flecs::entity foot = world.findByPath(model, "Armature/Root/pelvis/thigh_l/calf_l/foot_l/ball_l");
+    if (!foot.is_valid()) {
+      foot = world.findByPath(model, "Root/pelvis/thigh_l/calf_l/foot_l/ball_l");
+    }
+    REQUIRE(foot.is_valid());
+    const auto position = [](flecs::entity entity) { return entity.get<world::Transform>().position; };
+
+    // The toes' world positions while the character runs its first, straight leg (at 4.8 m/s) and
+    // walks the passage (at 1.5 m/s): a foot is planted while it is within 2 cm of its lowest.
+    struct Sample {
+      int frame;
+      glm::vec3 toes;
+    };
+    std::vector<Sample> run;
+    std::vector<Sample> walk;
+    const std::array ignore{character};
+    int cameraOverlaps = 0;
+    int frames = 0;
+    for (; frames < 60 * 70 && (frames % 30 != 0 || said("Character finished its route") == 0); ++frames) {
+      step();
+      const glm::vec3 toes{foot.get<world::WorldTransform>().matrix[3]};
+      if (frames >= 36 && frames < 84) {
+        run.push_back({frames, toes});
+      } else if (frames >= 200 && frames < 320) {
+        walk.push_back({frames, toes});
+      }
+      if (physics.sphereCast(position(camera), 0.14f, glm::vec3{0.0f}, 0.0f, ignore).has_value()) {
+        ++cameraOverlaps;
+      }
+    }
+    // How fast a planted foot moves over the ground: the median over the frames it is down, since
+    // the band also takes in the frames it comes down and lifts off in.
+    const auto planted = [](const std::vector<Sample> &samples) {
+      float lowest = samples.front().toes.y;
+      for (const Sample &sample : samples) {
+        lowest = std::min(lowest, sample.toes.y);
+      }
+      std::vector<float> speeds;
+      for (std::size_t i = 1; i < samples.size(); ++i) {
+        const Sample &a = samples[i - 1];
+        const Sample &b = samples[i];
+        if (b.frame == a.frame + 1 && a.toes.y < lowest + 0.02f && b.toes.y < lowest + 0.02f) {
+          speeds.push_back(glm::length(glm::vec2{b.toes.x - a.toes.x, b.toes.z - a.toes.z}) * 60.0f);
+        }
+      }
+      REQUIRE(speeds.size() >= 4);
+      std::ranges::sort(speeds);
+      return speeds[speeds.size() / 2];
+    };
+    const float runSlide = planted(run);
+    const float walkSlide = planted(walk);
+    INFO("planted toes slide at " << runSlide << " m/s running and " << walkSlide << " m/s walking");
+    CHECK(runSlide < 0.3f);
+    CHECK(walkSlide < 0.15f);
+
+    REQUIRE(said("Character finished its route") == 1);
+    CHECK(said("Character fell and was respawned") == 0);
+    CHECK(cameraOverlaps == 0);
+    const glm::vec3 end = position(character);
+    CHECK(end.x == Approx(3.0f).margin(0.6f));
+    CHECK(end.z == Approx(-20.5f).margin(0.6f));
+    CHECK(end.y == Approx(0.0f).margin(0.01f));
+
+    // Footsteps: both feet, about one per 0.3 to 0.6 s over the run, and never the same foot twice
+    // within a quarter of a second, which a step crossed by both blended clips, or a landing's own
+    // step just after a walking one, would do.
+    std::vector<std::pair<int, bool>> steps;
+    for (const auto &[frame, text] : messages->messages) {
+      if (text.starts_with("footstep left ") || text.starts_with("footstep right ")) {
+        steps.emplace_back(frame, text.starts_with("footstep left "));
+      }
+    }
+    INFO(steps.size() << " footsteps in " << frames << " frames");
+    CHECK(steps.size() > 40);
+    int doubled = 0;
+    for (std::size_t i = 1; i < steps.size(); ++i) {
+      for (std::size_t j = 0; j < i; ++j) {
+        if (steps[i].first - steps[j].first < 15 && steps[j].second == steps[i].second) {
+          UNSCOPED_INFO("doubled at frames " << steps[j].first << " and " << steps[i].first);
+          ++doubled;
+        }
+      }
+    }
+    CHECK(doubled == 0);
+
+    // Over the pit beside the platform: the kill volume puts the character back at the start, and
+    // the route starts over towards its first waypoint, east and a little south.
+    world::Transform drop = character.get<world::Transform>();
+    drop.position = {5.0f, 0.0f, -6.0f};
+    character.set(drop);
+    for (int i = 0; i < 240 && said("Character fell and was respawned") == 0; ++i) {
+      step();
+    }
+    REQUIRE(said("Character fell and was respawned") == 1);
+    REQUIRE(position(character).z == Approx(10.0f).margin(0.05f));
+    for (int i = 0; i < 30; ++i) {
+      step();
+    }
+    CHECK(position(character).x > 0.5f);
+    CHECK(position(character).z > 10.0f);
+  }
+
+  // Opening the scene again, as stopping and starting play does, starts the route over too.
+  REQUIRE(game.openScene("scenes/route.scene.json").has_value());
+  {
+    const flecs::entity character = root("Character");
+    REQUIRE(character.is_valid());
+    REQUIRE(character.get<world::Transform>().position.z == Approx(10.0f));
+    for (int i = 0; i < 30; ++i) {
+      step();
+    }
+    const glm::vec3 moved = character.get<world::Transform>().position;
+    CHECK(moved.x > 0.5f);
+    CHECK(moved.z > 10.0f);
+  }
+  core::Log::removeSink(messages);
+  core::Log::removeSink(problems);
+  CHECK(problems->problems.empty());
 }
 
 namespace {

@@ -346,38 +346,6 @@ def wedge_mesh(width, rise, run, origin):
     return m
 
 
-def capsule_mesh(radius, height, slices=32, stacks=24):
-    """A capsule centred on its entity along Y, as CapsuleCollider is, height counting both caps."""
-    half = height / 2 - radius
-    m = Mesh()
-    rows = []
-    for j in range(stacks + 1):
-        theta = math.pi * j / stacks  # from the top pole
-        y = radius * math.cos(theta) + (half if j <= stacks // 2 else -half)
-        r = radius * math.sin(theta)
-        ny = math.cos(theta)
-        rows.append((y, r, ny, math.sin(theta)))
-    # The equator is duplicated across the straight part.
-    rows.insert(stacks // 2 + 1, (-half, radius, 0.0, 1.0))
-    base = 0
-    for j, (y, r, ny, nr) in enumerate(rows):
-        for s in range(slices + 1):
-            phi = 2 * math.pi * s / slices
-            m.p.append([r * math.cos(phi), y, -r * math.sin(phi)])
-            m.n.append([nr * math.cos(phi), ny, -nr * math.sin(phi)])
-            m.t.append([s / slices, j / (len(rows) - 1)])
-    for j in range(len(rows) - 1):
-        for s in range(slices):
-            a = base + j * (slices + 1) + s
-            b = a + slices + 1
-            # The poles' rows are one point repeated; their degenerate halves are left out.
-            if j + 1 < len(rows) - 1:
-                m.i += [a, b, b + 1]
-            if j > 0:
-                m.i += [a, b + 1, a + 1]
-    return m
-
-
 # ---------------------------------------------------------------------------------------------
 # The course
 # ---------------------------------------------------------------------------------------------
@@ -441,7 +409,6 @@ def course():
 
 PLATFORM = {"size": (3.0, 0.3, 2.6), "start": (0.0, -0.15, -5.45), "travel": (0.0, 0.0, -3.1), "period": 8.0, "pause": 1.5}
 CRATE = {"size": (0.9, 0.9, 0.9), "position": (3.0, 0.45, 7.0), "mass": 30.0}
-BODY = {"radius": 0.35, "height": 1.8, "position": (0.0, 0.92, 10.0), "mass": 80.0}
 RESPAWN = (0.0, 0.0, 10.0)
 
 
@@ -468,7 +435,10 @@ def mesh_for(piece):
 # ---------------------------------------------------------------------------------------------
 
 MODEL = "assets/level/course.glb"
-SCRIPTS = {"platform": "scripts/platform.lua", "kill_volume": "scripts/kill_volume.lua"}
+SCRIPTS = {name: f"scripts/{name}.lua" for name in ("platform", "kill_volume", "character", "footsteps", "camera", "controls")}
+FONT = "assets/fonts/NotoSans-Regular.ttf"  # the basic sample's subset of Noto Sans (OFL 1.1), copied
+HUMANOID = "assets/character/humanoid.glb"
+CHARACTER_PREFAB = "prefabs/character.prefab.json"
 
 
 def write_sidecar(relative: str, kind: str, version: int, settings: dict):
@@ -485,7 +455,6 @@ def write_model(pieces):
     entries = [(piece[0], *mesh_for(piece)) for piece in pieces]
     entries.append(("Platform", box_mesh(PLATFORM["size"], PLATFORM["start"]), list(PLATFORM["start"]), None, [0, 0, 0, 1]))
     entries.append(("Crate", crate_mesh(CRATE["size"]), list(CRATE["position"]), None, [0, 0, 0, 1]))
-    entries.append(("Body", capsule_mesh(BODY["radius"], BODY["height"]), list(BODY["position"]), None, [0, 0, 0, 1]))
     for index, (name, m, centre, _, rotation) in enumerate(entries):
         attributes = {
             "POSITION": g.floats(m.p, "VEC3", 34962),
@@ -535,14 +504,6 @@ def write_materials():
         out[name] = asset_uuid(relative)
         for kind in ("Color", "NormalGL", "ORM"):
             write_sidecar(texture_path(source, kind), "Texture", 1, {"compress": True, "mipmaps": True, "srgb": kind == "Color"})
-    relative = "assets/level/materials/placeholder.material.json"
-    (PROJECT / relative).write_text(json.dumps({
-        "version": 6, "baseColor": [0.4, 0.41, 0.43, 1.0], "emissive": [0.0, 0.0, 0.0], "metallic": 0.0,
-        "roughness": 0.45, "normalScale": 1.0, "occlusionStrength": 1.0, "alphaCutoff": 0.5, "transmission": 0.0,
-        "alphaMode": "Opaque", "doubleSided": False, "unlit": False, "textures": {},
-    }, indent=2) + "\n")
-    write_sidecar(relative, "Material", 2, {})
-    out["placeholder"] = asset_uuid(relative)
     return out
 
 
@@ -564,7 +525,63 @@ def engine_version():
     return text[start:text.index(" ", start)].strip()
 
 
-def write_scene(meshes, materials):
+# The character's prefab (issue #496): the root carries the capsule and the controller script, the humanoid
+# model is a child that turns to face where it goes and hears its clips' footsteps, and three sound sources
+# play the steps and landings. Its identities are fixed, as the scene's are.
+CHARACTER = {"radius": 0.3, "halfHeight": 0.6, "maxSlope": math.radians(50.0), "stepHeight": 0.3, "groundSnap": 0.3,
+             "mass": 70.0, "pushStrength": 100.0}
+
+
+def prefab_identity(index):
+    return f"c4a20001-0000-4000-8000-{index:012x}"
+
+
+def write_prefab():
+    def slot(script, **properties):
+        return {"script": asset_uuid(SCRIPTS[script]), "properties": properties}
+
+    def transform(position=(0, 0, 0)):
+        return {"position": list(position), "rotation": [0, 0, 0, 1], "scale": [1, 1, 1]}
+
+    root = prefab_identity(1)
+    entities = [{"uuid": root, "name": "Character", "components": {
+        "Transform": transform(),
+        "CharacterController": {"radius": CHARACTER["radius"], "halfHeight": CHARACTER["halfHeight"], "offset": [0, 0, 0],
+                                "maxSlope": CHARACTER["maxSlope"], "stepHeight": CHARACTER["stepHeight"],
+                                "groundSnap": CHARACTER["groundSnap"], "mass": CHARACTER["mass"],
+                                "pushStrength": CHARACTER["pushStrength"]},
+        "Scripts": {"slots": [slot("character")]}}}]
+    entities.append({"uuid": prefab_identity(2), "name": "Model", "parent": root, "prefab": asset_uuid(HUMANOID),
+                     "components": {"Transform": transform(), "Scripts": {"slots": [slot("footsteps")]}}})
+    for index, (name, x) in enumerate((("Left foot", -0.1), ("Right foot", 0.1), ("Landing", 0.0))):
+        entities.append({"uuid": prefab_identity(3 + index), "name": name, "parent": root, "components": {
+            "Transform": transform((x, 0.05, 0.0)),
+            "AudioSource": {"sound": NIL, "volume": 1.0, "pitch": 1.0, "playing": False, "loop": False, "spatial": True,
+                            "minDistance": 2.0, "maxDistance": 40.0}}})
+    (PROJECT / "prefabs").mkdir(parents=True, exist_ok=True)
+    (PROJECT / CHARACTER_PREFAB).write_text(scene_json.dumps({"version": 9, "entities": entities}) + "\n")
+    return root
+
+
+# The route a capture or a test runs the course by (issue #496): waypoints in order, their cues in their names
+# (scripts/character.lua): "walk" for the leg to it, "jump" on reaching it, "ride" to stand there until the ground
+# under the next one has come to rest (the platform), "wait <s>". It goes through the narrow passage and the low
+# tunnel, up the ramp, across the deck and down its 0.5 m steps, along the pit's edge under the beam, over the pit
+# on the platform, onto the ledge block with a jump and off its far side.
+ROUTE = [
+    ("01", (6.8, 0.0, 11.0)), ("02", (8.5, 0.0, 9.0)), ("03 walk", (8.5, 0.0, 6.8)), ("04 walk", (8.5, 0.0, 1.0)),
+    ("05", (10.6, 0.0, 0.8)), ("06", (10.6, 0.0, 7.2)), ("07", (10.6, 0.0, 10.5)), ("08", (5.0, 0.0, 10.8)),
+    ("09", (2.0, 0.0, 10.6)), ("10", (-1.5, 0.0, 6.5)), ("11", (-1.5, 1.5, 0.0)), ("12", (-5.0, 1.5, -1.0)),
+    ("13 walk", (-8.6, 0.0, -1.0)), ("14", (-8.6, 0.0, -3.4)), ("15 ride", (0.0, 0.0, -3.4)),
+    ("16 ride", (0.0, 0.0, -5.3)), ("17", (0.0, 0.0, -9.0)), ("18", (-1.6, 0.0, -10.6)), ("19 jump", (-2.0, 0.0, -11.95)),
+    ("20", (-2.0, 1.2, -15.5)), ("21", (-2.0, 1.2, -17.2)), ("22", (-2.0, 0.0, -20.0)), ("23", (3.0, 0.0, -20.5)),
+]
+
+CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with a mouse button    look\nWheel    zoom\n"
+            "H    hide these controls")
+
+
+def write_scene(meshes, materials, character_prefab, file_name="main.scene.json", route=False):
     entities = []
     counter = [0]
 
@@ -592,9 +609,11 @@ def write_scene(meshes, materials):
     entity("Sky", Environment={"map": asset_uuid(SKY.relative_to(PROJECT).as_posix()), "intensity": 1.0})
     entity("Sun", (0, 30, 0), look_along([-c for c in sun]),
            DirectionalLight={"color": [round(c / strength, 4) for c in SUN_IRRADIANCE], "intensity": round(strength, 3)})
-    eye, target = (-9.0, 6.5, 17.0), (1.0, 0.0, -6.0)
-    entity("Camera", eye, look_along([target[k] - eye[k] for k in range(3)]),
-           Camera={"fovY": math.radians(55.0), "nearPlane": 0.1, "exposure": CAMERA_EXPOSURE, "bloomStrength": 0.02})
+    # The follow camera (scripts/camera.lua) places itself in the first frame; this is where it starts from,
+    # behind the character, so the scene opens in the editor looking at it.
+    eye, target = (0.0, 2.4, 14.0), (0.0, 1.55, 10.0)
+    camera = entity("Camera", eye, look_along([target[k] - eye[k] for k in range(3)]),
+                    Camera={"fovY": math.radians(55.0), "nearPlane": 0.1, "exposure": CAMERA_EXPOSURE, "bloomStrength": 0.02})
 
     level = entity("Course")
     for piece in course():
@@ -633,14 +652,40 @@ def write_scene(meshes, materials):
     entity("Kill volume", (0.0, -12.0, -5.0), None, None,
            BoxCollider={"halfExtents": [80.0, 2.0, 80.0], "offset": [0, 0, 0]}, Trigger=None,
            Scripts={"slots": [{"script": asset_uuid(SCRIPTS["kill_volume"]), "properties": {"respawn": respawn}}]})
-    entity("Placeholder body", BODY["position"], None, None,
-           MeshRenderer=renderer(meshes["Body"], materials["placeholder"]),
-           RigidBody=rigid("Dynamic", BODY["mass"], friction=0.5, angular=0.9),
-           CapsuleCollider={"radius": BODY["radius"], "halfHeight": BODY["height"] / 2 - BODY["radius"], "offset": [0, 0, 0]})
+    character = entity("Character", RESPAWN)
+    entities[-1]["prefab"] = character_prefab
+    for record in entities:
+        if record["uuid"] == camera:
+            record["components"]["Scripts"] = {"slots": [{"script": asset_uuid(SCRIPTS["camera"]),
+                                                          "properties": {"target": character}}]}
+
+    canvas = entity("Controls", GuiCanvas={"referenceSize": [1920, 1080], "match": 0.5, "safeArea": True, "order": 0},
+                    Scripts={"slots": [{"script": asset_uuid(SCRIPTS["controls"]), "properties": {}}]})
+    panel = entity("Panel", parent=canvas,
+                   GuiRect={"anchorMin": [0, 1], "anchorMax": [0, 1], "pivot": [0, 1], "offsetMin": [32, -296],
+                            "offsetMax": [620, -32]},
+                   GuiImage={"texture": NIL, "tint": [0.02, 0.02, 0.03, 0.5], "slice": [0, 0, 0, 0], "blocksInput": False})
+    entity("Label", parent=panel,
+           GuiRect={"anchorMin": [0, 0], "anchorMax": [1, 1], "pivot": [0.5, 0.5], "offsetMin": [24, 20],
+                    "offsetMax": [-24, -20]},
+           GuiText={"font": asset_uuid(FONT), "text": CONTROLS, "size": 28, "color": [1, 1, 1, 0.92],
+                    "horizontal": "Start", "vertical": "Start", "wrap": False})
+
+    if route:
+        path = entity("Route")
+        for name, position in ROUTE:
+            entity(name, position, None, path)
+        for record in entities:
+            if record["uuid"] == camera:
+                # A capture has no mouse: the camera swings behind where the character runs.
+                record["components"]["Scripts"]["slots"][0]["properties"]["trail"] = 3.0
+            if record["uuid"] == character:
+                record["components"]["Scripts"] = {"slots": [{"script": asset_uuid(SCRIPTS["character"]),
+                                                              "properties": {"route": path}}]}
 
     (PROJECT / "scenes").mkdir(parents=True, exist_ok=True)
-    (PROJECT / "scenes" / "main.scene.json").write_text(scene_json.dumps({"version": 9, "entities": entities}) + "\n")
-    print(f"main.scene.json: {len(entities)} entities")
+    (PROJECT / "scenes" / file_name).write_text(scene_json.dumps({"version": 9, "entities": entities}) + "\n")
+    print(f"{file_name}: {len(entities)} entities")
 
 
 # The map is relative, not absolute: sun and sky together put about 5 units of irradiance on the ground, so
@@ -653,10 +698,13 @@ def write_level():
     for relative in SCRIPTS.values():
         write_sidecar(relative, "Script", 2, {})
     write_sidecar(SKY.relative_to(PROJECT).as_posix(), "Environment", 2, {})
+    write_sidecar(FONT, "Font", 2, {"preload": [[32, 126], [160, 255]]})
     pieces = course()
     meshes = write_model(pieces)
     materials = write_materials()
-    write_scene(meshes, materials)
+    character = write_prefab()
+    write_scene(meshes, materials, character)
+    write_scene(meshes, materials, character, "route.scene.json", route=True)
     project = {"version": 2, "name": "Character", "engineVersion": engine_version(), "startScene": "scenes/main.scene.json",
                "assetRoots": ["assets", "scripts"]}
     (PROJECT / "project.json").write_text(json.dumps(project, indent=2) + "\n")
