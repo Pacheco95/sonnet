@@ -30,7 +30,7 @@ The camera asks for the pointer to be locked to the game when play starts (`inpu
 |---|---|
 | `scenes/main.scene.json` | The start scene: the course, its sky and sun, the character at the start, the camera and the controls overlay |
 | `scenes/route.scene.json` | The same, with a `Route` the character follows instead of the keys, for captures and tests |
-| `scenes/capture_*.scene.json` | Five stills of the character, below ([Captures](#captures)) |
+| `scenes/capture_*.scene.json` | Six stills of the character, below ([Captures](#captures)) |
 | `prefabs/character.prefab.json` | The character: the root with the `CharacterController` and `character.lua`, the humanoid as its `Model` child with `footsteps.lua`, and three sound sources (`Left foot`, `Right foot`, `Landing`) |
 | `scripts/character.lua` | Movement, jumping, facing and the animation weights |
 | `scripts/camera.lua` | The follow camera, on the scene's `Camera` |
@@ -54,7 +54,7 @@ Each rendered frame, `update` notes a Space press, which lasts one frame and may
 3. Jumps with `physics.jumpCharacter` when a buffered press meets the ground, or the coyote time after leaving it, once per time on the ground.
 4. Sets the animation weights from `physics.character`, what the step just did, so the same frame's playback uses them (ADR-0038).
 
-The model turns towards the intended velocity once per rendered frame, smoothly and no faster than `facingRate`, and keeps its heading when the character stops. A move of more than 2.5 m in one step is a teleport (the kill volume's respawn, or a `Transform` written in the editor): the script starts over from there.
+The model turns towards the intended velocity once per rendered frame, smoothly and no faster than `facingRate`, and keeps its heading when the character stops. From standing, an input more than `turnThreshold` off that heading turns the character on the spot first ([Animation](#animation)). A move of more than 2.5 m in one step is a teleport (the kill volume's respawn, or a `Transform` written in the editor): the script starts over from there.
 
 | Property | Default | |
 |---|---|---|
@@ -66,6 +66,9 @@ The model turns towards the intended velocity once per rendered frame, smoothly 
 | `jumpBuffer`, `coyoteTime` | 0.15, 0.12 s | |
 | `walkStride`, `runStride` | 1.505, 3.235 m | The clips' measured strides ([LICENSES.md](LICENSES.md#locomotion-clips-issue-505)) |
 | `hardLanding` | 7 m/s | Coming down faster than this plays `HardLand` |
+| `turnThreshold` | 60° | From standing, an input further off than this turns on the spot; 180 never does |
+| `turnSpeed` | 1.25 | The turn clips' playback rate |
+| `turnHold` | 0.6 s | The longest a turn on the spot holds the move back |
 | `camera` | the scene's `Camera` | Whose yaw turns the keys |
 | `route`, `routeTolerance` | none, 0.4 m | Below |
 
@@ -75,6 +78,7 @@ The weights follow what the character does, not the keys. The ground speed is th
 
 - **Locomotion.** The `Animator` plays `Walk` as its clip and `Run` as a layer synchronised to it ([docs/world.md](../../../docs/world.md#animation)); both put the left foot down at the start of their cycle and the right at half. Below 0.9 m/s the walk blends into `Idle` by weight; between the clips' own speeds, 1.29 and 4.85 m/s, the walk blends into the run. The playback rate is the ground speed over the blended stride, in cycles per second, times the walk's length: a foot on the ground stays where it was put. It is kept within 0.7 and 1.4 of the blend's own rate, below which the idle has taken over.
 - **Jumps and falls.** A jump starts `JumpStart` at 0.4 s, just before its take-off, and gives way to the looping `Fall` near its end or on the way down. Walking off an edge plays `Fall` once the character has been off the ground for 0.15 s or comes down faster than 2.5 m/s, so a step down plays nothing. The locomotion fades out over 0.12 s as the air takes over.
+- **Turns on the spot** (issue #528). Standing still on the ground, an input more than `turnThreshold` (60°) off the model's heading plays a turn clip instead of swinging the idle round on its feet: `TurnLeft90` or `TurnRight90` below 135°, `TurnLeft180` or `TurnRight180` from there, to the side the input is on, at `turnSpeed`. The clips have their turn taken out at a constant rate ([LICENSES.md](LICENSES.md#turn-clips-issue-528)), so the model turns by the clip's measured angle (92.4°, -90.1°, 180° and -176.4°) times how much of it has played, with no other turning on top, and the feet stay where the clip puts them; the capsule keeps its yaw and root motion stays off. A turn fades in over 0.15 s and back into the idle over the last 0.3 s of its clip, and the little it falls short of the input is then turned smoothly. It holds the move back until the model faces within 45° of the input, for at most `turnHold`; a tap turns the character on the spot and nothing more. Once the character moves off, or jumps, the clip fades into the walk or run over 0.15 s and the usual facing finishes the turn. A smaller error keeps the usual facing, with no clip.
 - **Landings.** Coming down faster than 2.5 m/s plays `Land` at a weight that grows with the speed, and faster than `hardLanding` `HardLand`. A landing fades out over the second half of its clip, sooner when the character runs on, and at once for another jump; one that is interrupted by a fall hands over to it. Each clip is started once, on the step its state begins; nothing is reset every frame.
 
 ## Footsteps
@@ -99,6 +103,7 @@ With the character's `route` property set to an entity, its children, in sibling
 | `jump` | Press jump on reaching it |
 | `wait <seconds>` | Stand there that long |
 | `ride` | Stand there until the ground under the next waypoint has been away or moving and is now still: the platform, come to rest |
+| `turn` | Turn on the spot to face the next waypoint, if that is a turn, and set off only once it has played |
 
 The character slows into a waypoint where it will stand or where the route turns by more than 60°, and logs `Character finished its route` after the last one. A respawn starts the route over, and so does every play, since stopping play drops every script's state. `scenes/route.scene.json` runs the whole course this way: through the passage and the tunnel, up the ramp, across the deck and down its steps, along the pit's edge under the beam, over the pit on the platform, onto the ledge block with a jump and off its far side.
 
@@ -112,6 +117,7 @@ Each `capture_*` scene is the course with the character started somewhere else, 
 | `capture_locomotion` | 2 | Running east across the open floor at 4.8 m/s, from the south: the run's stride, a planted foot and the course behind |
 | `capture_jump` | 1.8 | The route's jump onto the ledge block, from the east, at the top of the jump over the block's edge |
 | `capture_landing` | 1.4 | Off the ledge block's far side, 1.2 m down, from the east: both feet down and the knees bent as `Land` plays |
+| `capture_turn` | 0.6 | Standing at the start, from the front and a little to the right, a quarter turn to the left on the spot (`TurnLeft90`) halfway, the left foot stepping round |
 | `capture_camera_obstruction` | 4 | Walking south into the low tunnel with the camera behind and above: the ceiling holds the camera under it, about 1.2 m from the pivot, and the character stays in view |
 
 ```bash
@@ -125,12 +131,12 @@ The editor's `--screenshot` is its Viewport, through the editor's own camera, so
 
 ## Tests
 
-`runtime_tests` plays the course from this folder: its colliders lie where it draws them, the platform shuttles, and the character stands at the start and comes back there when it falls into the pit. From the keyboard, the character reaches the run speed and no more on a diagonal, stops, walks with Shift, faces the way it goes and jumps 1.27 m; a Space press just before landing jumps again and one long before is dropped. Walking off the ledge block, a jump 0.03 s after the feet leave it is taken and one 0.2 s after is not; a 0.25 m hop picks no landing clip, a 1 m drop the soft one at about three quarters of its weight and a 4.5 m drop the hard one; running off a hard landing starts at once and fades it faster than standing through it, and a jump pressed during it fades it out without starting its clip again. The route scene runs the course to the end without a respawn or a warning; on the way the planted toes move at a median of 0.18 m/s while running at 4.8 m/s and 0.08 m/s while walking, no foot sounds twice for one step, and the camera's near-plane sphere never overlaps the course. The route starts over after a respawn and when the scene is opened again.
+`runtime_tests` plays the course from this folder: its colliders lie where it draws them, the platform shuttles, and the character stands at the start and comes back there when it falls into the pit. From the keyboard, the character reaches the run speed and no more on a diagonal, stops, walks with Shift, faces the way it goes and jumps 1.27 m; a Space press just before landing jumps again and one long before is dropped. Walking off the ledge block, a jump 0.03 s after the feet leave it is taken and one 0.2 s after is not; a 0.25 m hop picks no landing clip, a 1 m drop the soft one at about three quarters of its weight and a 4.5 m drop the hard one; running off a hard landing starts at once and fades it faster than standing through it, and a jump pressed during it fades it out without starting its clip again. Tapping a key a quarter turn and then a half turn off the model's heading plays `TurnRight90` and then a half turn to the end, the model ends facing the key's direction within 1°, the capsule does not move, and each foot's toes, while planted (within 2.5 cm of their lowest and slower than 0.6 m/s), travel under 0.7 of the arc they would sweep if the idle were swung round on them (0.5 to 0.6 measured); an input 45° off plays no turn clip. The route scene runs the course to the end without a respawn or a warning; on the way the planted toes move at a median of 0.16 m/s while running at 4.8 m/s and 0.08 m/s while walking, no foot sounds twice for one step, and the camera's near-plane sphere never overlaps the course. The route starts over after a respawn and when the scene is opened again.
 
-The same route plays from this folder and from the bundle the tests cook from it, and the two runs agree to the step: the frame the route ends on, where the character ends, the number of footsteps and the highest weight each clip reached (Run, JumpStart, Fall and Land; never HardLand). The bundle also runs `capture_landing` with the player's own flags. Rendered at 30, 60 and 144 frames a second, two seconds of running east cover 8.52 m (8.60 m at 144, where a key can land up to a step before the step that reads it), a Space press in a frame without a step still jumps, 1.23 m high at every rate (1.27 m in closed form, less what steps of 1/60 s lose), and the camera moves by the same distance every frame, within 0.02 %, while the character runs at a steady speed.
+The same route plays from this folder and from the bundle the tests cook from it, and the two runs agree to the step: the frame the route ends on, where the character ends, the number of footsteps and the highest weight each clip reached (Run, JumpStart, Fall, Land and the quarter turn on the spot the route starts with; never HardLand). The bundle also runs `capture_landing` with the player's own flags. Rendered at 30, 60 and 144 frames a second, two seconds of running east, from standing already turned east, cover 8.52 m (8.60 m at 144, where a key can land up to a step before the step that reads it), a Space press in a frame without a step still jumps, 1.23 m high at every rate (1.27 m in closed form, less what steps of 1/60 s lose), and the camera moves by the same distance every frame, within 0.02 %, while the character runs at a steady speed.
 
 The tests' copy of this folder has 1×1 textures and a 4×2 sky in place of the real ones, so the humanoid's images, the course's textures and the sky are not cooked on every run (the colours are nothing the tests check). The captures above are where the real ones are looked at.
 
 ## Not done here
 
-Foot IK on slopes and steps ([#500](https://github.com/Pacheco95/sonnet/issues/500)): the feet are placed for flat ground. Turning on the spot plays no turn clip, and there is no crouch, sprint or gamepad input.
+Foot IK on slopes and steps ([#500](https://github.com/Pacheco95/sonnet/issues/500)): the feet are placed for flat ground. The turn clips come from another performer than the locomotion clips, so the idle's posture changes a little through a turn, and there is no crouch, sprint or gamepad input.

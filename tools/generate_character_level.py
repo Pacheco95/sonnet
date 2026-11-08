@@ -598,6 +598,10 @@ CAPTURES = {
     # ceiling pulls the camera in under it, about 1.2 m from the pivot, rather than letting it pass through.
     "capture_camera_obstruction": {"start": (10.6, 0.0, -1.5), "route": [("01 walk", (10.6, 0.0, 6.0))],
                                    "camera": {"yaw": 180.0, "pitch": -12.0, "distance": 4.0}, "seconds": 4},
+    # Standing at the start facing north, a quarter turn on the spot to the left (issue #528), the "turn" cue holding
+    # the walk west until it has played; seen from the front and a little to the right, as the idle is, mid-turn.
+    "capture_turn": {"start": RESPAWN, "route": [("01 turn", RESPAWN), ("02 walk", (-3.0, 0.0, 10.0))],
+                     "camera": {"yaw": 155.0, "pitch": -14.0, "distance": 3.0}, "seconds": 0.6},
 }
 
 CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with a mouse button    look\nWheel    zoom\n"

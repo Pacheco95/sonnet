@@ -14,6 +14,13 @@
 -- playback rate is the ground speed over the blended stride, so a foot on the ground stays put.
 -- Idle, the jump, the fall and the two landings are unsynchronised layers whose weights fade.
 --
+-- Turning on the spot (issue #528): from standing, an input more than `turnThreshold` off the way
+-- the model faces plays a turn clip instead of swinging the idle round on its feet. The clips have
+-- their turn taken out at a constant rate, so the model turns by the clip's measured angle over
+-- its length, with nothing on top, and the feet stay where the clip puts them. The character waits
+-- for the turn before it moves off; if it moves off first, the clip fades into the walk or run and
+-- the usual facing finishes the turn. The capsule never turns, and root motion stays off.
+--
 -- With `route` set, the route's children, in order, steer the character instead of the keys,
 -- through the same intent, acceleration and jump buffer (see the README).
 local Character = {
@@ -33,6 +40,9 @@ local Character = {
     runStride = { type = "number", default = 3.235, min = 0.1, max = 10 }, -- m per Run cycle (#505)
     hardLanding = { type = "number", default = 7, min = 0, max = 50 }, -- m/s down: HardLand above it
     routeTolerance = { type = "number", default = 0.4, min = 0.05, max = 5 }, -- m to count as arrived
+    turnThreshold = { type = "number", default = 60, min = 0, max = 180 }, -- degrees; 180 turns no clip
+    turnSpeed = { type = "number", default = 1.25, min = 0.1, max = 4 }, -- the turn clips' playback rate
+    turnHold = { type = "number", default = 0.6, min = 0, max = 5 }, -- s a turn may hold the move back
   },
 }
 
@@ -46,11 +56,29 @@ local CLIPS = {
   fall = "2e959da2-02b5-8a6b-bb76-c70e4c2197f8",
   land = "7b939da2-02b4-8a6b-ae78-c70e4c2297f8",
   hardLand = "c8919da2-02b3-8a6b-a179-c70e4c2397f8",
+  turnLeft90 = "15909da2-02b2-8a6b-bc6d-c70e4c1c97f8",
+  turnRight90 = "628e9da2-02b1-8a6b-af6f-c70e4c1d97f8",
+  turnLeft180 = "3eb8cf51-7a29-84fd-b531-fa1c3dd75130",
+  turnRight180 = "f1b9cf51-7a2a-84fd-822f-fa1c3dd65130",
 }
 local DURATION = { walk = 7 / 6, run = 2 / 3, jumpStart = 17 / 30, land = 0.8, hardLand = 22 / 30 }
 
+-- The turn clips' measured angles (radians about +Y, positive to the left) and lengths (seconds),
+-- in the order startTurn picks them: left and right quarter turns, then half turns (issue #528).
+local TURNS = {
+  { clip = CLIPS.turnLeft90, angle = math.rad(92.4), duration = 46 / 30 },
+  { clip = CLIPS.turnRight90, angle = math.rad(-90.1), duration = 42 / 30 },
+  { clip = CLIPS.turnLeft180, angle = math.rad(180.0), duration = 89 / 30 },
+  { clip = CLIPS.turnRight180, angle = math.rad(-176.4), duration = 88 / 30 },
+}
+
 -- The Animator's layers, in order. Walk is the Animator's own clip.
-local IDLE, RUN, JUMP, FALL, LAND, HARD = 1, 2, 3, 4, 5, 6
+local IDLE, RUN, JUMP, FALL, LAND, HARD, TURN = 1, 2, 3, 4, 5, 6, 7
+
+-- A turn on the spot lets the character move off once the model faces within this of the input.
+local TURN_RELEASE = math.rad(45)
+-- An error at least this large picks a half turn rather than a quarter turn.
+local HALF_TURN = math.rad(135)
 
 -- Where JumpStart's feet leave the ground (frame 33 of its 18 to 35): the jump starts the clip a
 -- little before it, so the push-off shows without the crouch that would come before the jump.
@@ -94,11 +122,11 @@ local function yawOf(direction)
   return math.atan(-direction.x, -direction.z)
 end
 
--- A waypoint's cues are words in its name: "walk", "jump", "wait <seconds>", "ride".
+-- A waypoint's cues are words in its name: "walk", "jump", "wait <seconds>", "ride", "turn".
 local function parseCues(name)
   local cues = {}
   for word in name:lower():gmatch("%S+") do
-    if word == "walk" or word == "jump" or word == "ride" then
+    if word == "walk" or word == "jump" or word == "ride" or word == "turn" then
       cues[word] = true
     end
   end
@@ -141,6 +169,10 @@ function Character:restart()
   self.restartLayer = {} -- layer index to the time a one-shot clip starts from, this step
   self.wasAirborne = false
   self.playback = 1
+  self.turning = nil -- the turn on the spot playing, if any
+  self.turnWeight = 0
+  self.settle = nil -- the yaw a finished turn fell short of, turned to smoothly while standing
+  self.turnFirst = false -- a route's "turn" cue: stand until the turn has played
   self.waypoint = 1
   self.waitUntil = nil
   self.riding = nil
@@ -163,6 +195,7 @@ function Character:restart()
         { clip = CLIPS.fall, weight = 0 },
         { clip = CLIPS.land, weight = 0, loop = false, playing = false },
         { clip = CLIPS.hardLand, weight = 0, loop = false, playing = false },
+        { clip = TURNS[1].clip, weight = 0, loop = false, playing = false, speed = self.turnSpeed },
       },
     })
   end
@@ -260,6 +293,7 @@ function Character:routeIntent()
       self.riding = { seenAway = false }
       return vec3(0, 0, 0), false
     end
+    self.turnFirst = point.cues.turn == true
     return self:routeIntent()
   end
   -- Slow into a waypoint where it stands, and into one where the route turns by more than 60
@@ -301,7 +335,11 @@ function Character:fixedUpdate(dt)
   else
     direction, walking = self:keyIntent()
   end
+  self:startTurn(direction, grounded)
   local desired = direction * (walking and self.walkSpeed or self.runSpeed)
+  if self:turnHolds() then
+    desired = vec3(0, 0, 0)
+  end
   local speeding = desired:length() >= self.velocity:length() and desired:dot(self.velocity) >= 0
   local rate = speeding and self.acceleration or self.braking
   if not grounded then
@@ -319,6 +357,10 @@ function Character:fixedUpdate(dt)
     self.velocity = self.velocity:normalized() * (ground + 1.5)
   end
   physics.setCharacterMove(self.entity, self.velocity)
+  -- Moving off, or leaving the ground, hands a turn on the spot over to the usual facing.
+  if self.turning ~= nil and (self.velocity:length() >= 0.2 or not grounded) then
+    self.turning.handedOver = true
+  end
 
   -- Jump: a buffered press, on the ground or within the coyote time after leaving it, once per
   -- time on the ground.
@@ -350,19 +392,105 @@ function Character:rootYaw()
   return yawOf(forward)
 end
 
--- Turns the model towards the intended velocity, smoothly and at most `facingRate`.
-function Character:turn(dt)
-  if self.model == nil or self.velocity:length() < 0.2 then
+-- Starts a turn on the spot when the character stands still on the ground and the input is more
+-- than `turnThreshold` off the model's heading: a quarter or a half turn, to the side it is on.
+function Character:startTurn(direction, grounded)
+  local turn = self.turning
+  if turn ~= nil then
+    if not turn.handedOver and direction:length() > 0.1 then
+      turn.target = yawOf(direction) -- where the model is to face once it is done
+    end
     return
   end
-  local delta = wrapAngle(yawOf(self.velocity) - self.facing)
-  local turn = delta * (1 - math.exp(-12 * dt))
+  -- A route's "turn" cue lasts for the turn it starts, or none.
+  local cue = self.turnFirst
+  self.turnFirst = false
+  if self.model == nil or direction:length() <= 0.1 or self.turnThreshold >= 180 then
+    return
+  end
+  local landing = self.landWeight[LAND] + self.landWeight[HARD]
+  if not grounded or self.jumped or self.air > 0 or landing > 0.05 or self.groundSpeed > 0.2
+    or self.velocity:length() > 0.2 then
+    return
+  end
+  local error = wrapAngle(yawOf(direction) - self.facing)
+  if math.abs(error) <= math.rad(self.turnThreshold) then
+    return
+  end
+  local clip = TURNS[(error > 0 and 1 or 2) + (math.abs(error) >= HALF_TURN and 2 or 0)]
+  self.turning = {
+    clip = clip.clip,
+    angle = clip.angle,
+    duration = clip.duration,
+    from = self.facing,
+    target = yawOf(direction),
+    startedAt = self.clock,
+    handedOver = false,
+  }
+  self.turnFirst = cue
+  self.settle = nil
+  self.restartLayer[TURN] = 0
+end
+
+-- Whether a turn on the spot holds the move back: until the model faces within TURN_RELEASE of
+-- the input, for at most `turnHold` seconds, or, for a route's "turn" cue, until it has played.
+function Character:turnHolds()
+  local turn = self.turning
+  if turn == nil or turn.handedOver then
+    return false
+  end
+  if self.turnFirst then
+    return true
+  end
+  local remaining = math.abs(wrapAngle(turn.target - self.facing))
+  return remaining > TURN_RELEASE and self.clock - turn.startedAt < self.turnHold - 1e-6
+end
+
+-- Turns the model: during a turn on the spot, by the clip's angle times how much of it has played;
+-- otherwise towards the intended velocity, smoothly and at most `facingRate`, or, standing after a
+-- turn on the spot, by what that turn fell short of.
+function Character:turn(dt)
+  if self.model == nil then
+    return
+  end
+  local turn = self.turning
+  if turn ~= nil and not turn.handedOver then
+    local layer = self.model:get("Animator").layers[TURN]
+    local played = 0
+    if layer ~= nil and layer.clip == turn.clip then
+      played = clamp(layer.time / turn.duration, 0, 1)
+    end
+    self.facing = wrapAngle(turn.from + turn.angle * played)
+    self:faceModel()
+    return
+  end
+  local target
+  if self.velocity:length() >= 0.2 then
+    target = yawOf(self.velocity)
+    self.settle = nil
+  elseif self.settle ~= nil then
+    target = self.settle
+  else
+    return
+  end
+  local delta = wrapAngle(target - self.facing)
+  local step = delta * (1 - math.exp(-12 * dt))
   local limit = math.rad(self.facingRate) * dt
-  self.facing = wrapAngle(self.facing + clamp(turn, -limit, limit))
+  self.facing = wrapAngle(self.facing + clamp(step, -limit, limit))
+  if self.settle ~= nil and math.abs(wrapAngle(self.settle - self.facing)) < 1e-3 then
+    self.facing, self.settle = self.settle, nil
+  end
+  self:faceModel()
+end
+
+function Character:faceModel()
   self.model:set("Transform", { rotation = quat.axisAngle(vec3(0, 1, 0), self.facing - self:rootYaw()) })
 end
 
 function Character:startJump()
+  if self.turning ~= nil then
+    self.turning.handedOver = true
+  end
   self.restartLayer[JUMP] = TAKEOFF
   self.jumpWeight = 1
   self.landing = nil
@@ -440,10 +568,36 @@ function Character:animate(dt, state, ground)
     self.playback = cycles * DURATION.walk
   end
 
+  -- A turn on the spot: in over 0.15 s, out into the idle over the last 0.3 s of its clip, or over
+  -- 0.15 s once handed over to the walk or run. It is done when its weight is gone.
+  local turn = self.turning
+  if turn ~= nil then
+    local played = (self.restartLayer[TURN] ~= nil) and 0 or layers[TURN].time
+    if turn.handedOver then
+      self.turnWeight = approach(self.turnWeight, 0, dt / 0.15)
+    else
+      local tail = 1 - smoothstep(turn.duration - 0.3, turn.duration, played)
+      self.turnWeight = math.min(approach(self.turnWeight, 1, dt / 0.15), tail)
+    end
+    if not turn.handedOver and played >= turn.duration - 1e-4 then
+      self.facing = wrapAngle(turn.from + turn.angle)
+      if math.abs(wrapAngle(turn.target - self.facing)) > 1e-3 then
+        self.settle = turn.target
+      end
+      self.turning, self.turnWeight, self.turnFirst = nil, 0, false
+    elseif turn.handedOver and self.turnWeight <= 0 then
+      self.turning, self.turnFirst = nil, false
+    end
+  end
+
   local groundShare = 1 - self.air
   local landing = math.min(self.landWeight[LAND] + self.landWeight[HARD], 1)
   local locomotion = groundShare * (1 - landing)
-  layers[IDLE].weight = locomotion * (1 - moving)
+  layers[IDLE].weight = locomotion * (1 - moving) * (1 - self.turnWeight)
+  layers[TURN].weight = locomotion * self.turnWeight
+  if self.turning ~= nil then
+    layers[TURN].clip = self.turning.clip
+  end
   layers[RUN].weight = locomotion * moving * self.gait
   layers[JUMP].weight = self.air * self.jumpWeight
   layers[FALL].weight = self.air * (1 - self.jumpWeight)
