@@ -1,6 +1,6 @@
 # Licences of the character sample's content
 
-Every third-party file in this project is CC0 1.0 (public domain dedication): it may be copied, changed and redistributed, commercially too, with no attribution required. The sources are credited here anyway, with what was done to them. Everything else, the course's geometry (`assets/level/course.glb`), its materials, the scene and the scripts, is the engine's own, made by `tools/generate_character_level.py`.
+Every third-party file in this project is CC0 1.0 (public domain dedication), which may be copied, changed and redistributed, commercially too, with no attribution required, except the humanoid's motion-captured clips, which are CC BY 3.0: they may be copied, changed and redistributed, commercially too, as long as the credit below goes with them ([Locomotion clips](#locomotion-clips-issue-505)). The sources are credited here anyway, with what was done to them. Everything else, the course's geometry (`assets/level/course.glb`), its materials, the scene and the scripts, is the engine's own, made by `tools/generate_character_level.py`.
 
 ## Level content (issue #490)
 
@@ -142,3 +142,53 @@ Then the textures, written into the binary glTF (embedded, so they are the model
 - **Shoes**: the source's 1024 base colour and normal maps (it has no larger ones, nor an occlusion map); roughness 0.55.
 - **Hair, eyebrows, eyelashes**: alpha-masked cards (cutoff 0.35, double-sided), base colour with alpha as a palettised PNG; the hair has its 2048 normal map; roughness 0.62 for the hair, 0.7 for the brows and lashes.
 - **Eyes**: the iris and sclera map, masked at 0.5: its alpha is zero only where the cornea's shell maps, which would otherwise hide the iris. Roughness 0.08.
+
+## Locomotion clips (issue #505)
+
+The humanoid's clips other than `Stand` (`Idle`, `Walk`, `Run`, `JumpStart`, `Fall`, `Land`, `HardLand`, in `assets/character/humanoid.glb`) are motion capture retargeted onto its rig. Their footstep and landing events are in the model's sidecar, `humanoid.glb.meta`.
+
+| Clips | Source takes | Source | Author | Licence |
+|---|---|---|---|---|
+| All seven | `Male1_A1_Stand`, `Male1_B3_Walk`, `Male1_C03_Run`, `Male1_C20_Run2Jump2Walk`, `Male1_B17_Walk2Hop2Walk` from `Male1_bvh.zip` | [Open Motion Project, MoCap System and Data](https://accad.osu.edu/research/motion-lab/system-data): "Male 1 (69 files): bvh" | ACCAD, The Ohio State University | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+
+Credit, as the source page words it: **"Open Motion Project by ACCAD/The Ohio State University is licensed under a Creative Commons Attribution 3.0 Unported License."** CC BY 3.0 allows copying, redistributing and adapting the takes, commercially too, with that credit, a link to the licence, and a note that they were changed (retargeted, cut and looped as below). So the clips may be in this public repository and in cooked bundles; a game exported with them must carry the credit too, in its credits or a licence file beside it, and its bundle must not be locked against what the licence allows (CC BY 3.0, section 4a, technological measures). The other candidates the issue names, CMU's motion-capture database and Mixamo (excluded unless its terms allow redistribution), were not used: ACCAD's takes cover every clip under a standard licence that allows it.
+
+Downloaded on 2026-11-07. SHA-256 of the archive as downloaded and of the takes used from it:
+
+| File | SHA-256 |
+|---|---|
+| `Male1_bvh.zip` | `1cd26aeac2ee7f20e3c0fe5082e633201bb136a714ae8f684a4f34c4421f4627` |
+| `Male1_A1_Stand.bvh` | `0f820d765d21e9748accbadfdd967e13b0ce71e182d03dc3129fc4d60b9271e2` |
+| `Male1_B3_Walk.bvh` | `5acbd06ab7f5f0dcaa5b70c1caeba3e972e1472050ab92f9b8846ac1c8cd034e` |
+| `Male1_C03_Run.bvh` | `90bec698aea33584e4792d581946c1452d7cad0a29a4ee2656df0e04613bb95a` |
+| `Male1_C20_Run2Jump2Walk.bvh` | `8c5c81c1bd1d78f0e0a34907e9e9a84b9f296c55a698fd619f006ca41ff8ef44` |
+| `Male1_B17_Walk2Hop2Walk.bvh` | `32782470cc24c2c6b50102d3ef141ce4d476f8e50dd7c3a05627a4a92b15700d` |
+
+All five takes are one performer (Male 1), captured at 30 Hz in centimetres with the same 22-joint skeleton, so one reference pose serves them all. The archive has no dedicated idle loop, fall or hard landing: the idle is a stretch of the standing take, the fall and the hard landing come from the running jump, and the soft landing from the walking hop.
+
+### Preparation
+
+`python3 tools/retarget_character_clips.py <folder>` (Blender 4.2 or later, 5.2.2 here, and numpy) turns `Male1_bvh.zip`, anywhere under `<folder>`, into the clips: it rewrites `humanoid.glb` with `Stand` and the seven clips (removing the clips of an earlier run first, so two runs write the same bytes; meshes, skin and textures are copied unchanged) and the sidecar's `animationEvents`. Opening the project in the editor afterwards rebuilds the sidecar's sub-asset list. The script's docstring has every step; in short:
+
+- **Import**: Blender's own BVH importer reads each take (scale 0.01, so metres) and every joint's world position and orientation is sampled at each captured frame; the rest runs outside Blender.
+- **Floor**: the capture floor tilts about 1 cm a metre along the walk (planted ankles rise from step to step), so a line fitted under both ankles' heights along each take's travel is taken out of every height.
+- **Retargeting**: the standing take's first frame is the reference. The humanoid is put in a matching pose (its `Stand` pose, each mapped bone turned the least that points it as the subject's bone points; the pelvis and the chest by their up and left-to-right directions, the pelvis's up being the hip joints' midpoint to the chest, since the subject's `ToSpine` sits behind its hips and aiming at it tipped the pelvis forward), and at every frame each mapped bone's world orientation is the subject's bone's change from the reference applied to that pose. `Hips`, `ToSpine`, `Spine`, `Spine1`, `Neck`, `Head` map to `pelvis`, `spine_01..03`, `neck_01`, `head`; `LeftShoulder`, `LeftArm`, `LeftForeArm`, `LeftHand` to `clavicle_l`, `upperarm_l`, `lowerarm_l`, `hand_l`; `LeftUpLeg`, `LeftLeg`, `LeftFoot`, `LeftToeBase` to `thigh_l`, `calf_l`, `foot_l`, `ball_l`, and the right side alike. The fingers keep `Stand`'s pose (the takes have none). The hips travel as the subject's, scaled by the legs' length ratio, 0.98, and each leg is solved by two-bone inverse kinematics so the ankle follows the subject's (scaled), since the humanoid's thigh and shin are not in the subject's proportion.
+- **Facing and metres**: each take is turned about the vertical so it travels (or, standing, faces) along -Z, the engine's forward, with the character's left on -X, as the model is.
+- **Foot height**: the shoes are skinned from the model's mesh and weights at every frame. Each take is lifted so both shoes stand at y = 0 (the 10th percentile of each shoe's lowest vertex; the two shoes do not come out at the same height, 1 to 5 cm apart depending on the take, so each foot is levelled on its own), then a planted shoe is moved onto the ground and one below it out, through its ankle's goal, smoothed over five frames. No shoe goes more than 2 mm below the ground in any clip.
+- **Contacts**: a shoe is planted while its lowest vertex is within 2.5 cm of the ground and its heel or toes move slower than 0.6 m/s; the frame it comes down is a footstep. These are the frames the events and cycles below use.
+- **Clips**, all in place (the horizontal travel taken out, since the character's capsule moves the model, [ADR-0038](../../../docs/decisions/0038-character-controller.md)):
+
+| Clip | Take, frames | Length | Loops | Events |
+|---|---|---|---|---|
+| `Idle` | Stand, 28 to 128: the 3.3 s stretch whose ends match best (0.6° at most apart), the rest spread over it | 3.333 s | yes | |
+| `Walk` | Walk, 48 to 83: left footstep to left footstep, the right at frame 65 | 1.167 s | yes | `footstep` left 0, right 0.583 |
+| `Run` | Run, 20 to 40: left to left, the right at frame 29 | 0.667 s | yes | `footstep` left 0, right 0.333 |
+| `JumpStart` | Running jump, 18 to 35: the crouch, the take-off (the feet leave the ground at frame 33) and two frames after, the rise taken out | 0.567 s | no | |
+| `Fall` | Running jump, 39 to 45 and back: the descent from the top, played forwards then backwards, its height taken out, the shoes 2 cm above the bottom | 0.4 s | yes | |
+| `Land` | Walking hop, 110 to 134: from a frame before the right foot touches (111), the pelvis 11 cm down, until it is back nine tenths of the way to its walking height | 0.8 s | no | `landing` 0.033, `footstep` left 0.6 |
+| `HardLand` | Running jump, 46 to 68: from a frame before the left foot touches (47), both feet down, the pelvis 24 cm down, until it is back nine tenths of the way | 0.733 s | no | `landing` (argument `hard`) 0.033, `footstep` left 0.333 |
+
+- **Cycles**: the key times are warped piecewise linearly so the right footstep falls at half the cycle, as T4's phase synchronisation needs of walk and run alike (left down at 0, right at 0.5). The captured right footsteps fall at 0.514 of the walk's cycle and 0.45 of the run's, so the warp moves them by 1.4% and 5% of the cycle. What the last key differs from the first is spread over the cycle so the clip loops: at most 19.8° on one joint for the walk (the right shin, in swing) and 26.7° for the run (the right toes; the run take is two strides long and the two are not alike), and the pelvis's height.
+- **Strides** (metres per cycle, the hips' travel over the cycle in the take before it is put in place; T9's speed-matched playback divides by them): `Walk` **1.505 m** per 1.167 s, 1.29 m/s; `Run` **3.235 m** per 0.667 s, 4.85 m/s. Measured from the feet instead (each foot's planted position a cycle apart) they are 1.44 and 1.44 m for the walk and 3.27 and 3.10 m for the run, the take's speed not being quite constant.
+- **Sliding**: in the takes as retargeted (before they are put in place), a planted heel or toe moves at most 1.3 cm (walk) and 1.5 cm (run) over a contact.
+- **Keys**: one per captured frame (30 Hz), linear; a rotation for each of the 53 joints and the pelvis's translation, about 290 KB for the seven clips.

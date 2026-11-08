@@ -1,6 +1,56 @@
 {
-  "settings": {},
-  "sourceHash": "de80619207f1b447",
+  "settings": {
+    "animationEvents": {
+      "HardLand": [
+        {
+          "argument": "hard",
+          "name": "landing",
+          "time": 0.0333
+        },
+        {
+          "argument": "left",
+          "name": "footstep",
+          "time": 0.3333
+        }
+      ],
+      "Land": [
+        {
+          "name": "landing",
+          "time": 0.0333
+        },
+        {
+          "argument": "left",
+          "name": "footstep",
+          "time": 0.6
+        }
+      ],
+      "Run": [
+        {
+          "argument": "left",
+          "name": "footstep",
+          "time": 0.0
+        },
+        {
+          "argument": "right",
+          "name": "footstep",
+          "time": 0.3333
+        }
+      ],
+      "Walk": [
+        {
+          "argument": "left",
+          "name": "footstep",
+          "time": 0.0
+        },
+        {
+          "argument": "right",
+          "name": "footstep",
+          "time": 0.5833
+        }
+      ]
+    }
+  },
+  "sourceHash": "bd0b95f568615e89",
   "subAssets": [
     {
       "materials": [],
@@ -28,6 +78,12 @@
     },
     {
       "materials": [],
+      "name": "Fall",
+      "type": "Animation",
+      "uuid": "2e959da2-02b5-8a6b-bb76-c70e4c2197f8"
+    },
+    {
+      "materials": [],
       "name": "Hair_BaseColor",
       "type": "Texture",
       "uuid": "3cd7a204-48c9-8e44-89eb-a24043ec8714"
@@ -37,6 +93,12 @@
       "name": "Armature",
       "type": "Skin",
       "uuid": "422c1077-f4d9-80e4-958d-90526b214aab"
+    },
+    {
+      "materials": [],
+      "name": "Walk",
+      "type": "Animation",
+      "uuid": "479a9da2-02b8-8a6b-ba7e-c70e4c2697f8"
     },
     {
       "materials": [],
@@ -70,6 +132,12 @@
     },
     {
       "materials": [],
+      "name": "Land",
+      "type": "Animation",
+      "uuid": "7b939da2-02b4-8a6b-ae78-c70e4c2297f8"
+    },
+    {
+      "materials": [],
       "name": "Skin_ORM",
       "type": "Texture",
       "uuid": "89d5a204-48c8-8e44-bced-a24043ed8714"
@@ -79,6 +147,12 @@
       "name": "Eyes",
       "type": "Material",
       "uuid": "8d8f9b4f-6717-80a1-aa8e-baad82679e7a"
+    },
+    {
+      "materials": [],
+      "name": "Run",
+      "type": "Animation",
+      "uuid": "94989da2-02b7-8a6b-ad80-c70e4c2797f8"
     },
     {
       "materials": [],
@@ -118,6 +192,12 @@
     },
     {
       "materials": [],
+      "name": "HardLand",
+      "type": "Animation",
+      "uuid": "c8919da2-02b3-8a6b-a179-c70e4c2397f8"
+    },
+    {
+      "materials": [],
       "name": "Skin_BaseColor",
       "type": "Texture",
       "uuid": "d6d3a204-48c7-8e44-afee-a24043ee8714"
@@ -127,6 +207,12 @@
       "name": "Skin",
       "type": "Material",
       "uuid": "da8d9b4f-6716-80a1-9d8f-baad82689e7a"
+    },
+    {
+      "materials": [],
+      "name": "JumpStart",
+      "type": "Animation",
+      "uuid": "e1969da2-02b6-8a6b-8874-c70e4c2097f8"
     },
     {
       "materials": [
@@ -147,6 +233,12 @@
       "name": "Hair_Normal",
       "type": "Texture",
       "uuid": "efd8a204-48ca-8e44-96e9-a24043eb8714"
+    },
+    {
+      "materials": [],
+      "name": "Idle",
+      "type": "Animation",
+      "uuid": "fa9b9da2-02b9-8a6b-877d-c70e4c2597f8"
     }
   ],
   "type": "Model",
