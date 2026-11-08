@@ -21,7 +21,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <filesystem>
 #include <format>
 #include <optional>
@@ -32,6 +31,33 @@
 namespace sonnet::editor {
 
 namespace {
+
+// A copy of a component's value, made, assigned and destroyed through its type's hooks: a
+// component can hold strings and vectors, which a byte copy would leave sharing their buffers.
+class ComponentCopy {
+public:
+  ComponentCopy(const flecs::world &world, flecs::entity_t type, const void *from)
+      : m_world(world.c_ptr()), m_type(type), m_data(ecs_value_new(m_world, type)) {
+    ecs_value_copy(m_world, m_type, m_data, from);
+  }
+  ~ComponentCopy() {
+    ecs_value_free(m_world, m_type, m_data);
+  }
+  ComponentCopy(const ComponentCopy &) = delete;
+  ComponentCopy &operator=(const ComponentCopy &) = delete;
+
+  [[nodiscard]] void *data() const noexcept {
+    return m_data;
+  }
+  void assignTo(void *target) const {
+    ecs_value_copy(m_world, m_type, target, m_data);
+  }
+
+private:
+  ecs_world_t *m_world;
+  flecs::entity_t m_type;
+  void *m_data;
+};
 
 constexpr float DragSpeed = 0.01f;
 constexpr float AngleDragSpeed = 0.5f; // degrees
@@ -790,15 +816,11 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
       acceptScriptDrop(entity);
     } else {
       // An inherited value is edited on a copy and becomes the instance's own only when a widget
-      // is used; ensure on the shared value would override it just by being looked at. Registered
-      // components are plain data, so the copy is a byte copy.
-      const std::size_t size = static_cast<std::size_t>(type.get<flecs::Component>().size);
-      std::vector<std::byte> copy;
+      // is used; ensure on the shared value would override it just by being looked at.
+      std::optional<ComponentCopy> copy;
       void *data = nullptr;
       if (inherited) {
-        copy.resize(size);
-        std::memcpy(copy.data(), entity.get(info.id), size);
-        data = copy.data();
+        data = copy.emplace(m_world.ecs(), info.id, entity.get(info.id)).data();
       } else {
         data = entity.ensure(info.id);
       }
@@ -821,8 +843,8 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
       if (info.name == "ParticleEmitter" && m_particleReset && ImGui::Button("Restart")) {
         m_particleReset(entity);
       }
-      if (inherited && m_activated) {
-        std::memcpy(entity.ensure(info.id), copy.data(), size);
+      if (copy && m_activated) {
+        copy->assignTo(entity.ensure(info.id));
       }
     }
     if (m_activated && !m_edit) {
