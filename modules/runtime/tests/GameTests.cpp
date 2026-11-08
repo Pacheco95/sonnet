@@ -3,6 +3,7 @@
 
 #include <sonnet/assets/Bundle.h>
 #include <sonnet/assets/Cook.h>
+#include <sonnet/assets/Importers.h>
 #include <sonnet/assets/Json.h>
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
@@ -69,6 +70,40 @@ namespace {
     }
   }
   return {};
+}
+
+// The character sample, with its humanoid's images already in the copy's cache as 1x1 placeholders.
+// Cooking the thirteen 2048-texel images to UASTC is most of what playing the character costs: about
+// 15 s in a Debug build and three minutes under ASan on CI's runners (issue #496). A texture is
+// cooked again only when its cache entry is older than the file, and nothing the tests check looks
+// at the character's skin; the image path itself is assets_tests' to cover.
+[[nodiscard]] std::filesystem::path characterProject(platform::Platform &platform) {
+  const std::filesystem::path project = sampleProject(platform, "character");
+  if (project.empty()) {
+    return project;
+  }
+  const std::filesystem::path model = project / "assets" / "character" / "humanoid.glb";
+  const auto sidecar = core::readFile(std::filesystem::path{model}.concat(".meta"));
+  REQUIRE(sidecar.has_value());
+  const std::optional<core::Uuid> identity =
+      core::Uuid::parse(assets::parseJson(*sidecar).at("uuid").get<std::string>());
+  REQUIRE(identity.has_value());
+  const auto imported = assets::importGltf(model);
+  REQUIRE(imported.has_value());
+  const std::filesystem::path cache = project / ".sonnet" / "cache";
+  std::filesystem::create_directories(cache);
+  for (std::size_t i = 0; i < imported->images.size(); ++i) {
+    const renderer::TextureData texel{.size = {1, 1},
+                                      .format = imported->images[i].srgb ? rhi::Format::R8G8B8A8Srgb
+                                                                         : rhi::Format::R8G8B8A8Unorm,
+                                      .mipLevels = 1,
+                                      .data = std::vector<std::byte>(4, std::byte{0x80})};
+    const auto cooked = assets::cookKtx2(texel, false);
+    REQUIRE(cooked.has_value());
+    const core::Uuid image = core::Uuid::derive(*identity, std::format("image/{}", i));
+    REQUIRE(core::writeFile(cache / (image.toString() + ".ktx2"), *cooked).has_value());
+  }
+  return project;
 }
 
 // Collects warnings and errors, so a frame that logs one fails the test that asked for silence.
@@ -1417,7 +1452,7 @@ TEST_CASE("the HUD stress scene builds two hundred elements of which a third are
 TEST_CASE("the character sample's course collides as drawn, its platform moves and its pit respawns",
           "[runtime][samples][gpu]") {
   Fixture fixture;
-  const std::filesystem::path project = sampleProject(fixture.platform, "character");
+  const std::filesystem::path project = characterProject(fixture.platform);
   if (project.empty()) {
     SKIP("the character sample was not found in a checkout above the test binary");
   }
@@ -1551,7 +1586,7 @@ protected:
 // and a press in mid-air long before landing is dropped. The camera asks for the pointer.
 TEST_CASE("the character sample runs, walks, stops, turns and jumps from the keyboard", "[runtime][samples][gpu]") {
   Fixture fixture;
-  const std::filesystem::path project = sampleProject(fixture.platform, "character");
+  const std::filesystem::path project = characterProject(fixture.platform);
   if (project.empty()) {
     SKIP("the character sample was not found in a checkout above the test binary");
   }
@@ -1687,7 +1722,7 @@ TEST_CASE("the character sample runs, walks, stops, turns and jumps from the key
 TEST_CASE("the character sample's route runs the course with planted feet, single footsteps and a clear camera",
           "[runtime][samples][gpu]") {
   Fixture fixture;
-  const std::filesystem::path project = sampleProject(fixture.platform, "character");
+  const std::filesystem::path project = characterProject(fixture.platform);
   if (project.empty()) {
     SKIP("the character sample was not found in a checkout above the test binary");
   }
@@ -1815,8 +1850,8 @@ TEST_CASE("the character sample's route runs the course with planted feet, singl
     CHECK(steps.size() > 40);
     int doubled = 0;
     for (std::size_t i = 1; i < steps.size(); ++i) {
-      for (std::size_t j = i; j-- > 0 && steps[i].first - steps[j].first < 15;) {
-        if (steps[j].second == steps[i].second) {
+      for (std::size_t j = 0; j < i; ++j) {
+        if (steps[i].first - steps[j].first < 15 && steps[j].second == steps[i].second) {
           UNSCOPED_INFO("doubled at frames " << steps[j].first << " and " << steps[i].first);
           ++doubled;
         }
