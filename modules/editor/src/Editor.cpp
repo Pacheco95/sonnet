@@ -17,7 +17,9 @@
 #include <sonnet/ui/Widgets.h>
 #include <sonnet/world/Scene.h>
 
+#include <SDL3/SDL_error.h>
 #include <SDL3/SDL_events.h>
+#include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_video.h>
 #include <imgui.h>
@@ -86,7 +88,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
                // Platform windows need a display and a window the platform can position.
                .viewports = wantsViewports(platform.isHeadless(), platform.canPositionWindows())}),
       m_renderer(device, platform.basePath() / "shaders", {.jobs = &m_jobs}), m_graph(device), m_picker(device),
-      m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}), m_gui(m_world),
+      m_assets(m_renderer, m_jobs), m_world({.explorer = explorer}),
+      m_mouseLock(m_input, [this](bool enabled) { return setGameRelativeMouse(enabled); }), m_gui(m_world),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)), m_animation(m_world, m_assets),
       m_scripts(scripting::createScriptRuntime({.world = &m_world,
                                                 .assets = &m_assets,
@@ -208,6 +211,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
 }
 
 Editor::~Editor() {
+  // While the windows it may have locked are still there.
+  m_mouseLock.release();
   // Reaching here is a normal exit, whichever way the quit was answered.
   recordOpenScenes();
   endRecovery();
@@ -325,6 +330,13 @@ std::vector<std::string> Editor::savedLayouts() const {
 }
 
 void Editor::nativeEvent(const SDL_Event &event) {
+  // A pointer the game holds is not the panels': it hovers, clicks and scrolls nothing in the editor until Escape lets
+  // it go. A release still reaches them, so a button pressed before the lock is not left held.
+  const bool pointer = event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+                       event.type == SDL_EVENT_MOUSE_WHEEL;
+  if (pointer && m_mouseLock.locked()) {
+    return;
+  }
   if (event.type != SDL_EVENT_MOUSE_MOTION || !m_viewportPanel.cameraActive()) {
     m_imgui.processEvent(event);
   }
@@ -332,6 +344,8 @@ void Editor::nativeEvent(const SDL_Event &event) {
 
 void Editor::event(const platform::Event &event) {
   if (const auto *focus = std::get_if<platform::WindowFocusChanged>(&event); focus != nullptr) {
+    // A focus moving between the editor's windows loses one and gains the other, in that order.
+    m_windowFocused = focus->focused;
     if (focus->focused) {
       m_rescanRequested = true;
     } else {
@@ -355,6 +369,12 @@ void Editor::event(const platform::Event &event) {
     }
     return;
   }
+  // The lock hears a lost focus and Escape from any window, and a press only over the game's image: that click takes
+  // a pointer let go back, and focuses the panel for it.
+  const bool press = std::holds_alternative<platform::MouseButtonPressed>(event);
+  if ((!press || gameInputSource().hovered) && m_mouseLock.event(event)) {
+    return;
+  }
   if (!gameInputActive()) {
     return;
   }
@@ -365,9 +385,10 @@ void Editor::event(const platform::Event &event) {
   const auto relative = [&](platform::WindowId window, glm::vec2 position) {
     return m_windowOrigins.relativeToImage(window, position, source.origin);
   };
-  // The game UI takes a press on a button first, then the game gets what is left, as in the player.
+  // The game UI takes a press on a button first, then the game gets what is left, as in the player. A locked pointer
+  // points at nothing, so the UI does not get it.
   const auto handle = [&](const platform::Event &translated) {
-    if (!m_gui.event(translated)) {
+    if (m_mouseLock.locked() || !m_gui.event(translated)) {
       m_input.handle(translated);
     }
   };
@@ -375,8 +396,8 @@ void Editor::event(const platform::Event &event) {
     handle(platform::MouseMoved{
         .position = relative(moved->window, moved->position), .delta = moved->delta, .fromTouch = moved->fromTouch});
   } else if (const auto *pressed = std::get_if<platform::MouseButtonPressed>(&event)) {
-    // A click elsewhere in the editor is not the game's.
-    if (source.hovered) {
+    // A click elsewhere in the editor is not the game's; a locked pointer's is, wherever ImGui last saw it.
+    if (source.hovered || m_mouseLock.locked()) {
       handle(platform::MouseButtonPressed{.button = pressed->button,
                                           .position = relative(pressed->window, pressed->position),
                                           .clicks = pressed->clicks,
@@ -415,6 +436,26 @@ const ViewportInput &Editor::gameInputSource() const {
 bool Editor::gameInputActive() const {
   const ViewportInput &input = gameInputSource();
   return isPlaying() && !isPaused() && input.visible && input.focused && !m_viewportPanel.cameraActive();
+}
+
+bool Editor::setGameRelativeMouse(bool enabled) {
+  SDL_Window *main = m_window.nativeHandle();
+  SDL_Window *target = enabled ? SDL_GetKeyboardFocus() : m_lockedWindow;
+  if (target == nullptr) {
+    target = main;
+  }
+  bool applied = false;
+  if (target == main) {
+    applied = m_window.setRelativeMouseMode(enabled);
+  } else {
+    // A Game panel undocked into a window of its own: one of Dear ImGui's platform windows.
+    applied = SDL_SetWindowRelativeMouseMode(target, enabled);
+    if (!applied) {
+      SONNET_LOG_WARN("SDL_SetWindowRelativeMouseMode failed: {}", SDL_GetError());
+    }
+  }
+  m_lockedWindow = enabled && applied ? target : nullptr;
+  return applied;
 }
 
 void Editor::refreshWindowOrigins() {
@@ -554,6 +595,9 @@ void Editor::update(float dt) {
     m_gui.releaseAll();
   }
   m_gameInputWasActive = gameInput;
+  // The request the scripts left last frame, applied while the game has the input, so this frame's read
+  // `input.mouseLocked()` as it is.
+  m_mouseLock.update(m_scripts->mouseLockRequested(), gameInput && m_windowFocused);
   // The mouse off the game's image, or the game not taking input, is no longer over the UI.
   if (!gameInput || !gameInputSource().hovered) {
     static_cast<void>(m_gui.event(platform::MouseLeftWindow{}));
@@ -2993,6 +3037,7 @@ void Editor::pause() {
   }
   m_world.setPaused(true);
   m_audio->pause();
+  m_mouseLock.release();
   // Keys held down are let go: nothing runs to read them, and the release is not seen later.
   m_input.releaseAll();
   m_gui.releaseAll();
@@ -3133,6 +3178,7 @@ void Editor::loadPlayScene(const std::string &scene) {
   m_world.setPlaying(false);
   m_world.clearScene();
   m_scripts->reset();
+  m_mouseLock.release();
   m_audio->stopAll();
   m_input = {};
   m_gui.releaseAll();
@@ -3180,6 +3226,7 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
   m_world.setPlaying(false);
   // The scripts' instances and globals go with the running scene; the next play loads them fresh.
   m_scripts->reset();
+  m_mouseLock.release();
   m_audio->stopAll();
   m_input = {};
   m_gui.releaseAll();

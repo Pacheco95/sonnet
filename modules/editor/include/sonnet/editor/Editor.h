@@ -28,6 +28,7 @@
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/InputState.h>
+#include <sonnet/platform/MouseLock.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/platform/Window.h>
 #include <sonnet/renderer/Picker.h>
@@ -592,6 +593,9 @@ private:
   [[nodiscard]] bool gameViewActive() const;
   // The panel whose image the game's input is relative to.
   [[nodiscard]] const ViewportInput &gameInputSource() const;
+  // Relative mouse mode for the game's pointer lock, in the window the game's panel is in: the
+  // keyboard's, since the panel has the focus when it locks, and the one it locked when it lets go.
+  [[nodiscard]] bool setGameRelativeMouse(bool enabled);
 
   platform::IWindow &m_window;
   rhi::IDevice &m_device;
@@ -610,6 +614,10 @@ private:
   // After the world, which they register into and have to be destroyed before; scripts after
   // physics so their fixed update follows the physics step (ADR-0009).
   platform::InputState m_input;
+  // The scripts' request to lock the pointer, applied while the game has the input
+  // (docs/editor.md, "The pointer in play mode").
+  platform::MouseLock m_mouseLock;
+  SDL_Window *m_lockedWindow{nullptr}; // where the lock holds the pointer, while it does
   gui::GuiSystem m_gui;
   // The viewport's camera and size, for scripts turning a pointer into a ray.
   scripting::ScriptView m_scriptView;
@@ -737,6 +745,7 @@ private:
   ViewState m_savedView; // what the ini was last told, to notice a change
   LayoutSettings m_layoutSettings{m_viewState};
   bool m_gameInputWasActive{false};
+  bool m_windowFocused{true}; // one of the editor's windows has the focus
   WindowOrigins m_windowOrigins;
   bool m_quitRequested{false};
   float m_frameMilliseconds{0.0f};

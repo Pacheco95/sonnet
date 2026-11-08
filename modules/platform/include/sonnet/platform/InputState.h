@@ -34,6 +34,11 @@ public:
   void handle(const Event &event) noexcept;
   // Releases everything held, as a lost focus does; the releases show this frame.
   void releaseAll() noexcept;
+  // Forgets the mouse's motion so far this frame, as beginFrame does, keeping the presses and
+  // releases: the motion from before the pointer was locked or let go (MouseLock).
+  void clearMotion() noexcept {
+    m_mouseDelta = {0.0f, 0.0f};
+  }
 
   [[nodiscard]] bool keyDown(Key key) const noexcept;
   [[nodiscard]] bool keyPressed(Key key) const noexcept;

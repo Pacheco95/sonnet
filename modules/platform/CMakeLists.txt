@@ -15,6 +15,7 @@ sonnet_add_module(platform
     src/Content.cpp
     src/Input.cpp
     src/InputState.cpp
+    src/MouseLock.cpp
     src/Platform.cpp
     src/SdlDisplay.cpp
     src/SdlEntryPoint.cpp
@@ -45,6 +46,7 @@ sonnet_add_module_test(platform
     tests/ContentTests.cpp
     tests/EventTests.cpp
     tests/InputStateTests.cpp
+    tests/MouseLockTests.cpp
     tests/PlatformTests.cpp
     tests/ThermalTests.cpp
     tests/WindowTests.cpp
