@@ -322,6 +322,24 @@ public uint drawObject(uint startInstance, uint instance) {
   return frame.visible[startInstance + instance];
 }
 
+// The 4x4 ordered-dither threshold of a pixel, in (0, 1): the Bayer matrix, each rank taken at the
+// middle of its sixteenth so alpha 0 never survives and alpha 1 always does.
+public float orderedThreshold(float2 pixel) {
+  static const uint bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+  const uint2 cell = uint2(pixel) & 3;
+  return (float(bayer[cell.y * 4 + cell.x]) + 0.5) / 16.0;
+}
+
+// An opaque draw fades by its tint's alpha alone (MeshRenderer::color.a), screen-door style: the
+// pre-pass and the forward pass drop the pixels under the threshold, so what is left keeps its
+// depth, motion and shading, and the shadow passes never ask. The material's, the texture's and
+// the vertices' alpha stay ignored on an opaque material, and a draw on the transmission path is
+// blended, so neither is touched.
+public bool fadedOut(uint objectIndex, MaterialData material, float2 pixel) {
+  return (material.flags & 0xFF) == AlphaOpaque && (material.flags & MaterialTransmissive) == 0 &&
+         objects[objectIndex].color.a <= orderedThreshold(pixel);
+}
+
 public static const float Pi = 3.14159265359;
 
 // A sky ray has no camera translation. Subtracting nearby world-space points loses its
