@@ -1,6 +1,6 @@
 {
   "settings": {},
-  "sourceHash": "b1cb3d9fc530e2c1",
+  "sourceHash": "962308bf0efdc379",
   "subAssets": [
     {
       "materials": [
@@ -161,14 +161,6 @@
       "name": "Column pit east",
       "type": "Mesh",
       "uuid": "aa758fe4-5b54-8772-87ac-ba82762cf7ca"
-    },
-    {
-      "materials": [
-        "00000000-0000-0000-0000-000000000000"
-      ],
-      "name": "Body",
-      "type": "Mesh",
-      "uuid": "ac648fe4-5b4a-8772-95a2-ba827626f7ca"
     },
     {
       "materials": [

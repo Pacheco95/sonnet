@@ -1,6 +1,6 @@
 # Licences of the character sample's content
 
-Every third-party file in this project is CC0 1.0 (public domain dedication), which may be copied, changed and redistributed, commercially too, with no attribution required, except the humanoid's motion-captured clips, which are CC BY 3.0: they may be copied, changed and redistributed, commercially too, as long as the credit below goes with them ([Locomotion clips](#locomotion-clips-issue-505)). The sources are credited here anyway, with what was done to them. Everything else, the course's geometry (`assets/level/course.glb`), its materials, the scene and the scripts, is the engine's own, made by `tools/generate_character_level.py`.
+Every third-party file in this project is CC0 1.0 (public domain dedication), which may be copied, changed and redistributed, commercially too, with no attribution required, except the humanoid's motion-captured clips, which are CC BY 3.0: they may be copied, changed and redistributed, commercially too, as long as the credit below goes with them ([Locomotion clips](#locomotion-clips-issue-505)), and the overlay's font, which is under the SIL Open Font License 1.1 ([Font](#font-issue-496)). The sources are credited here anyway, with what was done to them. Everything else is the engine's own: the course's geometry (`assets/level/course.glb`), its materials, the scenes and the character's prefab, made by `tools/generate_character_level.py`, and the scripts, written by hand.
 
 ## Level content (issue #490)
 
@@ -192,3 +192,7 @@ All five takes are one performer (Male 1), captured at 30 Hz in centimetres with
 - **Strides** (metres per cycle, the hips' travel over the cycle in the take before it is put in place; T9's speed-matched playback divides by them): `Walk` **1.505 m** per 1.167 s, 1.29 m/s; `Run` **3.235 m** per 0.667 s, 4.85 m/s. Measured from the feet instead (each foot's planted position a cycle apart) they are 1.44 and 1.44 m for the walk and 3.27 and 3.10 m for the run, the take's speed not being quite constant.
 - **Sliding**: in the takes as retargeted (before they are put in place), a planted heel or toe moves at most 1.3 cm (walk) and 1.5 cm (run) over a contact.
 - **Keys**: one per captured frame (30 Hz), linear; a rotation for each of the 53 joints and the pelvis's translation, about 290 KB for the seven clips.
+
+## Font (issue #496)
+
+`assets/fonts/NotoSans-Regular.ttf`, which the controls overlay is set in, is the basic sample's subset of Noto Sans Regular, copied unchanged with its README ([assets/fonts/README.md](assets/fonts/README.md)): Copyright 2015 Google LLC, the Noto Project Authors, under the [SIL Open Font License 1.1](https://openfontlicense.org), which allows it to be used, embedded, changed and redistributed as long as it is not sold on its own.

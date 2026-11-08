@@ -36,8 +36,8 @@
       "name": "Camera",
       "components": {
         "Transform": {
-          "position": [-9.0, 6.5, 17.0],
-          "rotation": [-0.12380715222716923, -0.20199478585394523, -0.025750307982649524, 0.9711883530932689],
+          "position": [0.0, 2.4, 14.0],
+          "rotation": [-0.10450155281655546, -0.0, -0.0, 0.994524723402555],
           "scale": [1, 1, 1]
         },
         "Camera": {
@@ -45,6 +45,16 @@
           "nearPlane": 0.1,
           "exposure": 0.5,
           "bloomStrength": 0.02
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "55fb2058-a3a0-82dd-be7e-14c9d35a35a2",
+              "properties": {
+                "target": "c4a20000-0000-4000-8000-000000000026"
+              }
+            }
+          ]
         }
       }
     },
@@ -823,32 +833,91 @@
     },
     {
       "uuid": "c4a20000-0000-4000-8000-000000000026",
-      "name": "Placeholder body",
+      "name": "Character",
       "components": {
         "Transform": {
-          "position": [0.0, 0.92, 10.0],
+          "position": [0.0, 0.0, 10.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      },
+      "prefab": "c4a20001-0000-4000-8000-000000000001"
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000027",
+      "name": "Controls",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0],
           "rotation": [0, 0, 0, 1],
           "scale": [1, 1, 1]
         },
-        "MeshRenderer": {
-          "mesh": "ac648fe4-5b4a-8772-95a2-ba827626f7ca",
-          "material": "b1b37764-2556-8627-8e90-27f05aaf2726",
-          "color": [1, 1, 1, 1],
-          "visible": true
+        "GuiCanvas": {
+          "referenceSize": [1920, 1080],
+          "match": 0.5,
+          "safeArea": true,
+          "order": 0
         },
-        "RigidBody": {
-          "type": "Dynamic",
-          "mass": 80.0,
-          "friction": 0.5,
-          "restitution": 0.0,
-          "linearDamping": 0.05,
-          "angularDamping": 0.9,
-          "gravityScale": 1.0
+        "Scripts": {
+          "slots": [
+            {
+              "script": "34c1f80c-af30-8dda-bb23-8165750ceb22",
+              "properties": {}
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000028",
+      "name": "Panel",
+      "parent": "c4a20000-0000-4000-8000-000000000027",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
         },
-        "CapsuleCollider": {
-          "radius": 0.35,
-          "halfHeight": 0.55,
-          "offset": [0, 0, 0]
+        "GuiRect": {
+          "anchorMin": [0, 1],
+          "anchorMax": [0, 1],
+          "pivot": [0, 1],
+          "offsetMin": [32, -296],
+          "offsetMax": [620, -32]
+        },
+        "GuiImage": {
+          "texture": "00000000-0000-0000-0000-000000000000",
+          "tint": [0.02, 0.02, 0.03, 0.5],
+          "slice": [0, 0, 0, 0],
+          "blocksInput": false
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000029",
+      "name": "Label",
+      "parent": "c4a20000-0000-4000-8000-000000000028",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "GuiRect": {
+          "anchorMin": [0, 0],
+          "anchorMax": [1, 1],
+          "pivot": [0.5, 0.5],
+          "offsetMin": [24, 20],
+          "offsetMax": [-24, -20]
+        },
+        "GuiText": {
+          "font": "148c68d4-e807-83a9-997d-e3a169fd6bfb",
+          "text": "W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with a mouse button    look\nWheel    zoom\nH    hide these controls",
+          "size": 28,
+          "color": [1, 1, 1, 0.92],
+          "horizontal": "Start",
+          "vertical": "Start",
+          "wrap": false
         }
       }
     }
