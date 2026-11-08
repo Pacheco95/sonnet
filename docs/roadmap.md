@@ -206,6 +206,25 @@ CI is green on every job. Prefabs are not listed in the asset browser yet ([#219
 
 Not in the first version: per-field overrides, which come next, starting with script properties; placing a scene file; live updates of instances when a prefab changes; reordering or deleting an instance's source children; creating a prefab variant from the editor; applying an instance's changes back to its prefab.
 
+## Third-Person Character
+
+A release of the issue backlog rather than a numbered milestone, with no version decided yet: `apps/samples/character`, a standalone sample comparable in scope to Unreal's Third Person template, playable in the editor's play mode, the player and a cooked bundle, and as realistic as the renderer allows. [ADR-0038](decisions/0038-character-controller.md) decides the contracts it needed.
+
+- `physics`: a Jolt character controller whose origin is the feet, with ground and support state, slope and step limits, pushing and a one-shot jump; sphere casts ([physics.md](physics.md#characters)).
+- `world`: explicit animation weights per layer and layers synchronised to the clip's phase ([world.md](world.md#animation)).
+- `scripting`: `physics.character`, `setCharacterMove`, `jumpCharacter` and `sphereCast`, `lateUpdate` after physics has interpolated the frame, repeated members such as `Animator.layers` from Lua, and the mouse-lock request ([scripting.md](scripting.md)).
+- `runtime` and `editor`: the pointer locked to the game while it has the focus, Escape and a click to let it go and take it back ([player.md](player.md#the-pointer), [editor.md](editor.md#the-pointer-in-play-mode)).
+- The sample: a motion-captured humanoid with walk, run, jump, fall and landing clips and measured strides, footstep and landing foley by surface, a collision-aware follow camera, an obstacle course with PBR materials under a sky and its sun, a route that runs the course by itself and five capture scenes ([its README](../apps/samples/character/README.md)).
+
+Done when the sample plays from the project folder and from a cooked bundle with the same result, at any frame rate, with no foot sliding, no camera clipping and redistributable assets, and captures of it have been reviewed.
+
+Done ([#497](https://github.com/Pacheco95/sonnet/issues/497)). `runtime_tests` plays the route from the folder and from the cooked bundle, which agree to the step on where it ends, its footsteps and the clips it played; runs and jumps from the keyboard at 30, 60 and 144 rendered frames a second, which agree within one fixed step and move the camera evenly; and checks the planted feet, single footsteps, the clear camera, the respawn, coyote time and the landings ([the sample's tests](../apps/samples/character/README.md#tests)). The five capture scenes were taken from the player and from the editor's Game panel and reviewed for grounding, poses, framing, clipping and the look of the materials and the light.
+
+- **Tested on:** Linux, an RTX 4090 for the captures and Lavapipe for the tests, from the folder and from a bundle cooked by `sonnet_cook`. Windows, macOS and the phones were not checked for this release.
+- **Limitations seen in the captures:** without foot IK the feet are placed for flat ground, and the trailing foot of the fall pose dips below the ledge block's edge for a few frames of the jump ([#500](https://github.com/Pacheco95/sonnet/issues/500)). There is no ambient occlusion or contact shadow under the feet ([#508](https://github.com/Pacheco95/sonnet/issues/508), [#501](https://github.com/Pacheco95/sonnet/issues/501), [#509](https://github.com/Pacheco95/sonnet/issues/509)), and the skin and hair use the plain PBR model ([#502](https://github.com/Pacheco95/sonnet/issues/502)).
+
+Not in this release: gamepad input ([#498](https://github.com/Pacheco95/sonnet/issues/498)), standing on a rotating platform ([#499](https://github.com/Pacheco95/sonnet/issues/499)), turn-in-place clips, crouching and sprinting. Jolt's results are deterministic on one machine and build; nothing promises them bit for bit across platforms.
+
 ## 1.0.0
 
 Not a milestone and not dated: the engine is in development and nothing waits for a release. 1.0.0 is tagged when the project, scene, prefab, material, sidecar and bundle formats have stopped changing, and not before. The audit of how each format is versioned today and a proposed compatibility promise (read every older schema, refuse a newer one, rebuild bundles instead of migrating them) are in the closed [PR #151](https://github.com/Pacheco95/sonnet/pull/151), to start from when the time comes.
