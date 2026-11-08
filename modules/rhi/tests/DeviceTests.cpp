@@ -72,6 +72,27 @@ TEST_CASE("a buffer uploaded but never submitted is destroyed without a complain
   device->waitIdle();
 }
 
+TEST_CASE("an upload after waitIdle submitted the pending ones records into a fresh command buffer", "[rhi][device]") {
+  test::TestDevice device;
+  // What a game dropped without drawing a frame, and another opened on the same device, do (issue
+  // #497): waitIdle submits the first game's uploads, and the second game's first upload has to
+  // start the slot's upload command buffer again from a reset pool, not reset it implicitly.
+  const BufferHandle buffer = device->createBuffer(
+      {.size = 256, .usage = BufferUsage::Storage | BufferUsage::TransferDst, .debugName = "uploaded twice"});
+  const std::array<std::byte, 256> data{};
+  device->uploadBuffer(buffer, 0, data);
+  device->waitIdle();
+  device->uploadBuffer(buffer, 0, data);
+  device->waitIdle();
+  device->destroyBuffer(buffer);
+
+  for (int i = 0; i < 2 * static_cast<int>(FramesInFlight) + 1; ++i) {
+    static_cast<void>(device->beginFrame());
+    device->endFrame();
+  }
+  device->waitIdle();
+}
+
 TEST_CASE("two devices can coexist in one process", "[rhi][device]") {
   test::TestDevice first;
   sonnet::platform::Platform &platform = first.platform;

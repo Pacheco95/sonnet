@@ -1381,6 +1381,9 @@ void VulkanDevice::submitRecordedUploads() {
     return;
   }
   frame.submittedValue = signalValue;
+  // Submitted, as endFrame submits: the slot's next use waits for it and resets the pools before
+  // the upload command buffer is begun again.
+  frame.prepared = false;
 }
 
 void VulkanDevice::waitIdle() {
