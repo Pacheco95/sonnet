@@ -278,7 +278,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
 
   const float2 baseColorUv = uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, input.uvs));
   float4 baseColor = material.baseColor * input.color * sampleMaterial(material.baseColorTexture, materialSampler(material, SlotBaseColor), baseColorUv);
-  if (alphaMode == AlphaMask && baseColor.a < material.emissive.a) {
+  if ((alphaMode == AlphaMask && baseColor.a < material.emissive.a) || fadedOut(input.objectIndex, material, input.position.xy)) {
     discard;
   }
   const float4 metallicRoughness =

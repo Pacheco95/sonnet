@@ -6,6 +6,7 @@
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
+#include <sonnet/core/Log.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/NullDevice.h>
@@ -15,6 +16,7 @@
 #include <catch2/generators/catch_generators.hpp>
 
 #include <glm/gtc/packing.hpp>
+#include <spdlog/sinks/ostream_sink.h>
 
 #include <algorithm>
 #include <array>
@@ -23,11 +25,14 @@
 #include <cstring>
 #include <deque>
 #include <format>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace sonnet::renderer;
@@ -324,6 +329,205 @@ TEST_CASE("a stale mesh handle draws nothing and an empty scene records no draw"
   REQUIRE(countLines(*device, "drawIndexed") == 0);
   REQUIRE(!hasPass(graph, "shadow cascade 0")); // nothing casts, so no cascades
   REQUIRE(renderer.statistics().drawCount == 0);
+}
+
+namespace {
+
+// The null device with a guard after every transient allocation and a hook on the next one, for
+// a test that changes the renderer between a frame sizing its arrays and writing them.
+class GuardedDevice final : public IDevice {
+public:
+  static constexpr std::size_t GuardSize = 1024;
+  static constexpr std::byte GuardByte{0xA5};
+
+  std::function<void()> onNextAllocation;
+
+  NullDevice &null() {
+    return m_null;
+  }
+  // True while every guard still holds its pattern.
+  [[nodiscard]] bool guardsIntact() const {
+    return std::ranges::all_of(m_guards, [](std::span<const std::byte> guard) {
+      return std::ranges::all_of(guard, [](std::byte value) { return value == GuardByte; });
+    });
+  }
+
+  const DeviceInfo &info() const override {
+    return m_null.info();
+  }
+  std::unique_ptr<ISwapchain> createSwapchain(sonnet::platform::IWindow &window) override {
+    return m_null.createSwapchain(window);
+  }
+  BufferHandle createBuffer(const BufferDesc &desc) override {
+    return m_null.createBuffer(desc);
+  }
+  void destroyBuffer(BufferHandle handle) override {
+    m_null.destroyBuffer(handle);
+  }
+  std::span<std::byte> mappedRange(BufferHandle handle) override {
+    return m_null.mappedRange(handle);
+  }
+  std::uint64_t bufferAddress(BufferHandle handle) const override {
+    return m_null.bufferAddress(handle);
+  }
+  ImageHandle createImage(const ImageDesc &desc) override {
+    return m_null.createImage(desc);
+  }
+  void destroyImage(ImageHandle handle) override {
+    m_null.destroyImage(handle);
+  }
+  const ImageDesc &imageDesc(ImageHandle handle) const override {
+    return m_null.imageDesc(handle);
+  }
+  std::uint32_t sampledImageIndex(ImageHandle handle) const override {
+    return m_null.sampledImageIndex(handle);
+  }
+  std::uint32_t storageImageIndex(ImageHandle handle, std::uint32_t mipLevel) override {
+    return m_null.storageImageIndex(handle, mipLevel);
+  }
+  std::uint32_t storageBufferIndex(BufferHandle handle) override {
+    return m_null.storageBufferIndex(handle);
+  }
+  SamplerHandle createSampler(const SamplerDesc &desc) override {
+    return m_null.createSampler(desc);
+  }
+  void destroySampler(SamplerHandle handle) override {
+    m_null.destroySampler(handle);
+  }
+  std::uint32_t samplerIndex(SamplerHandle handle) const override {
+    return m_null.samplerIndex(handle);
+  }
+  void uploadBuffer(BufferHandle handle, std::uint64_t offset, std::span<const std::byte> data) override {
+    m_null.uploadBuffer(handle, offset, data);
+  }
+  void uploadImage(ImageHandle handle, std::span<const ImageUpload> uploads) override {
+    m_null.uploadImage(handle, uploads);
+  }
+  ShaderHandle createShader(const ShaderDesc &desc) override {
+    return m_null.createShader(desc);
+  }
+  void destroyShader(ShaderHandle handle) override {
+    m_null.destroyShader(handle);
+  }
+  PipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc &desc) override {
+    return m_null.createGraphicsPipeline(desc);
+  }
+  PipelineHandle createComputePipeline(const ComputePipelineDesc &desc) override {
+    return m_null.createComputePipeline(desc);
+  }
+  std::vector<PipelineHandle> createPipelines(std::span<const PipelineDesc> descs,
+                                              sonnet::core::JobSystem *jobs) override {
+    return m_null.createPipelines(descs, jobs);
+  }
+  void destroyPipeline(PipelineHandle handle) override {
+    m_null.destroyPipeline(handle);
+  }
+  bool isValid(BufferHandle handle) const override {
+    return m_null.isValid(handle);
+  }
+  bool isValid(ImageHandle handle) const override {
+    return m_null.isValid(handle);
+  }
+  bool isValid(SamplerHandle handle) const override {
+    return m_null.isValid(handle);
+  }
+  bool isValid(ShaderHandle handle) const override {
+    return m_null.isValid(handle);
+  }
+  bool isValid(PipelineHandle handle) const override {
+    return m_null.isValid(handle);
+  }
+  ICommandList &beginFrame() override {
+    m_guards.clear();
+    return m_null.beginFrame();
+  }
+  void endFrame() override {
+    m_null.endFrame();
+  }
+  void waitIdle() override {
+    m_null.waitIdle();
+  }
+  TransientAllocation allocateTransient(std::uint64_t size) override {
+    if (onNextAllocation) {
+      std::exchange(onNextAllocation, nullptr)();
+    }
+    TransientAllocation allocation = m_null.allocateTransient(size + GuardSize);
+    if (allocation.data.empty()) {
+      return allocation;
+    }
+    const std::span<std::byte> guard = allocation.data.subspan(size);
+    std::ranges::fill(guard, GuardByte);
+    m_guards.push_back(guard);
+    allocation.data = allocation.data.first(size);
+    return allocation;
+  }
+  std::span<const Timestamp> timestamps() const override {
+    return m_null.timestamps();
+  }
+  MemoryBudget memoryBudget() const override {
+    return m_null.memoryBudget();
+  }
+  std::uint32_t validationMessageCount() const override {
+    return m_null.validationMessageCount();
+  }
+
+private:
+  NullDevice m_null;
+  std::vector<std::span<const std::byte>> m_guards;
+};
+
+} // namespace
+
+// #514: a material published in the middle of a frame wrote past the array the frame had sized,
+// into the lights and the motion pass's records, and the GPU was lost reading them.
+TEST_CASE("a material created after the frame sized its materials is left out of that frame", "[renderer][null]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  GuardedDevice device;
+  Renderer renderer{device, shaderDir(platform), testSettings()};
+  RenderGraph graph{device};
+  RenderTarget target{device, "viewport"};
+  target.resize({64, 32});
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const MaterialHandle red = renderer.createMaterial({.baseColor = {1.0f, 0.0f, 0.0f, 1.0f}}, "red");
+  const std::array draws{DrawItem{.mesh = box, .material = red}};
+  const SceneView view = boxScene(draws);
+
+  std::ostringstream log;
+  const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
+  sonnet::core::Log::addSink(sink);
+  std::vector<MaterialHandle> late;
+  const auto frame = [&] {
+    ICommandList &commands = device.beginFrame();
+    graph.reset();
+    renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+    graph.execute(commands);
+    REQUIRE(device.guardsIntact());
+    device.endFrame();
+  };
+  // The first transient allocation of the frame is the frame constants', after the material
+  // count is read: two materials made there are past the array.
+  device.onNextAllocation = [&] {
+    late.push_back(renderer.createMaterial({}, "late"));
+    late.push_back(renderer.createMaterial({}, "later"));
+  };
+  frame();
+  REQUIRE(late.size() == 2);
+  // Next frame sizes the array with them, and nothing is reported.
+  frame();
+  sonnet::core::Log::removeSink(sink);
+
+  const std::string text = log.str();
+  const std::string expected = std::format("material slot {} was created after the frame sized its {} material slots",
+                                           late[0].index + 1, late[0].index + 1);
+  const auto first = text.find(expected);
+  REQUIRE(first != std::string::npos);
+  REQUIRE(text.find("material slots", first + expected.size()) == std::string::npos); // once, for both
+
+  for (const MaterialHandle handle : late) {
+    renderer.destroyMaterial(handle);
+  }
+  renderer.destroyMaterial(red);
+  renderer.destroyMesh(box);
 }
 
 TEST_CASE("blended materials draw after the opaque scene, farthest first", "[renderer][null]") {
@@ -652,10 +856,11 @@ struct WallShadow {
 };
 
 WallShadow wallShadow(IDevice &device, Renderer &renderer, MeshHandle plane, MeshHandle wall, MaterialHandle material,
-                      float dollyOffset = 0.0f, bool shiftRange = true) {
+                      float dollyOffset = 0.0f, bool shiftRange = true, glm::vec4 wallColor = glm::vec4{1.0f}) {
   const glm::mat4 upright = glm::translate(glm::mat4{1.0f}, {-1.0f, 1.0f, 0.0f}) *
                             glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{0.0f, 0.0f, 1.0f});
-  const std::array draws{DrawItem{.mesh = plane}, DrawItem{.mesh = wall, .material = material, .transform = upright}};
+  const std::array draws{DrawItem{.mesh = plane},
+                         DrawItem{.mesh = wall, .material = material, .transform = upright, .color = wallColor}};
   SceneView view = topDownScene(draws);
   view.camera.position.y += dollyOffset;
   view.camera.fovY = 2.0f * std::atan(std::tan(view.camera.fovY * 0.5f) * 6.0f / (6.0f + dollyOffset));
@@ -794,6 +999,93 @@ TEST_CASE("a vertex colour tints the lit surface and its alpha cuts the shadow o
     renderer.destroyMesh(plane);
     renderer.destroyMesh(white);
     renderer.destroyMesh(red);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// Issue #529: an opaque draw fades by its tint's alpha, screen-door style. The pre-pass and the
+// forward pass keep the pixels whose 4x4 ordered threshold is under the alpha, so a 16 by 16 block
+// keeps exactly alpha's share of its 256 pixels; the shadow passes keep every one.
+TEST_CASE("an opaque draw's tint alpha dithers it in the camera's passes and not in its shadow on a GPU",
+          "[renderer][gpu][shadow]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle ground = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "ground");
+    const MeshHandle panel = renderer.createMesh(primitives::plane({4.0f, 4.0f}), "panel");
+    // A red panel a metre over the ground, facing the camera above; the sun almost overhead puts its
+    // shadow under it, so what shows through a dithered-out pixel is the shadowed ground.
+    const glm::mat4 raised = glm::translate(glm::mat4{1.0f}, {0.0f, 1.0f, 0.0f});
+    const auto render = [&](std::optional<float> alpha, int frames = 1) {
+      std::vector<DrawItem> draws{DrawItem{.mesh = ground}};
+      if (alpha.has_value()) {
+        draws.push_back(DrawItem{.mesh = panel, .transform = raised, .color = {1.0f, 0.0f, 0.0f, *alpha}});
+      }
+      SceneView view = topDownScene(draws);
+      view.sun.direction = glm::normalize(glm::vec3{0.1f, -1.0f, 0.05f});
+      view.sun.intensity = 3.0f;
+      view.ambient = {0.02f, 0.02f, 0.02f};
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view, frames);
+      int red = 0;
+      float groundRed = 0.0f; // the mean red of the pixels that show the ground
+      int groundPixels = 0;
+      for (unsigned y = 24; y < 40; ++y) {
+        for (unsigned x = 24; x < 40; ++x) {
+          const Pixel pixel = scene.pixel(x, y);
+          if (pixel.r > pixel.g + 60) { // the ground is grey, lit or in shadow
+            ++red;
+          } else {
+            groundRed += static_cast<float>(pixel.r);
+            ++groundPixels;
+          }
+        }
+      }
+      return std::pair{red, groundPixels > 0 ? groundRed / static_cast<float>(groundPixels) : 0.0f};
+    };
+    const auto [noneRed, litGround] = render(std::nullopt);
+    const auto [clearRed, shadowedGround] = render(0.0f);
+    const auto [quarterRed, quarterGround] = render(0.25f);
+    const auto [halfRed, halfGround] = render(0.5f);
+    const auto [solidRed, solidGround] = render(1.0f);
+    WARN(std::format(
+        "red pixels of 256 at alpha 0 / 0.25 / 0.5 / 1: {} {} {} {}; ground lit {}, under the faded panel {}", clearRed,
+        quarterRed, halfRed, solidRed, litGround, shadowedGround));
+    REQUIRE(noneRed == 0);
+    REQUIRE(litGround > 100.0f);
+    // Alpha 0 draws nothing the camera sees, yet the panel's shadow is all there; alpha 1 is solid.
+    REQUIRE(clearRed == 0);
+    REQUIRE(shadowedGround * 3.0f < litGround);
+    REQUIRE(quarterRed == 64);
+    REQUIRE(halfRed == 128);
+    REQUIRE(solidRed == 256);
+    // The ground between the dithered pixels is in the same full shadow.
+    REQUIRE(std::abs(quarterGround - shadowedGround) < 2.0f);
+    REQUIRE(std::abs(halfGround - shadowedGround) < 2.0f);
+
+    // Under temporal anti-aliasing the pre-pass that also writes motion dithers the same way: a panel
+    // at alpha 0 leaves no red in the resolved image.
+    RendererSettings taa = testSettings();
+    taa.antialiasing = AntiAliasing::Taa;
+    renderer.setSettings(taa);
+    REQUIRE(render(0.0f, 4).first == 0);
+    REQUIRE(render(1.0f, 4).first == 256);
+    renderer.setSettings(testSettings());
+
+    // Seen edge-on, a wall at alpha 0 casts the opaque wall's shadow pixel for pixel: the shadow
+    // passes never read an opaque draw's tint.
+    const MeshHandle wall = renderer.createMesh(primitives::plane({2.0f, 4.0f}), "wall");
+    const WallShadow solid = wallShadow(*device, renderer, ground, wall, {});
+    const WallShadow faded = wallShadow(*device, renderer, ground, wall, {}, 0.0f, true, {1.0f, 1.0f, 1.0f, 0.0f});
+    REQUIRE(solid.shadowed * 3.0f < solid.lit);
+    REQUIRE(faded.shadowed == solid.shadowed);
+    REQUIRE(faded.lit == solid.lit);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMesh(wall);
+    renderer.destroyMesh(panel);
+    renderer.destroyMesh(ground);
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
