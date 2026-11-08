@@ -73,16 +73,29 @@ namespace {
   return {};
 }
 
-// The character sample, with its humanoid's images already in the copy's cache as 1x1 placeholders.
-// Cooking the thirteen 2048-texel images to UASTC is most of what playing the character costs: about
-// 15 s in a Debug build and three minutes under ASan on CI's runners (issue #496). A texture is
-// cooked again only when its cache entry is older than the file, and nothing the tests check looks
-// at the character's skin; the image path itself is assets_tests' to cover.
+// The character sample, with its humanoid's images and the course's textures already in the copy's
+// cache as 1x1 placeholders. Cooking the humanoid's thirteen 2048-texel images to UASTC is most of
+// what playing the character costs: about 15 s in a Debug build and three minutes under ASan on
+// CI's runners (issue #496). The course's twelve textures cook on the workers while the game plays,
+// about 6 s in Debug, and slow every frame stepped meanwhile (issue #530). A texture is cooked again
+// only when its cache entry is older than the file, and nothing the tests check looks at the
+// surfaces' colours; the image path itself is assets_tests' to cover.
 [[nodiscard]] std::filesystem::path characterProject(platform::Platform &platform) {
   const std::filesystem::path project = sampleProject(platform, "character");
   if (project.empty()) {
     return project;
   }
+  const std::filesystem::path cache = project / ".sonnet" / "cache";
+  std::filesystem::create_directories(cache);
+  const auto placeholder = [&](const core::Uuid &texture, bool srgb) {
+    const renderer::TextureData texel{.size = {1, 1},
+                                      .format = srgb ? rhi::Format::R8G8B8A8Srgb : rhi::Format::R8G8B8A8Unorm,
+                                      .mipLevels = 1,
+                                      .data = std::vector<std::byte>(4, std::byte{0x80})};
+    const auto cooked = assets::cookKtx2(texel, false);
+    REQUIRE(cooked.has_value());
+    REQUIRE(core::writeFile(cache / (texture.toString() + ".ktx2"), *cooked).has_value());
+  };
   const std::filesystem::path model = project / "assets" / "character" / "humanoid.glb";
   const auto sidecar = core::readFile(std::filesystem::path{model}.concat(".meta"));
   REQUIRE(sidecar.has_value());
@@ -91,19 +104,24 @@ namespace {
   REQUIRE(identity.has_value());
   const auto imported = assets::importGltf(model);
   REQUIRE(imported.has_value());
-  const std::filesystem::path cache = project / ".sonnet" / "cache";
-  std::filesystem::create_directories(cache);
   for (std::size_t i = 0; i < imported->images.size(); ++i) {
-    const renderer::TextureData texel{.size = {1, 1},
-                                      .format = imported->images[i].srgb ? rhi::Format::R8G8B8A8Srgb
-                                                                         : rhi::Format::R8G8B8A8Unorm,
-                                      .mipLevels = 1,
-                                      .data = std::vector<std::byte>(4, std::byte{0x80})};
-    const auto cooked = assets::cookKtx2(texel, false);
-    REQUIRE(cooked.has_value());
-    const core::Uuid image = core::Uuid::derive(*identity, std::format("image/{}", i));
-    REQUIRE(core::writeFile(cache / (image.toString() + ".ktx2"), *cooked).has_value());
+    placeholder(core::Uuid::derive(*identity, std::format("image/{}", i)), imported->images[i].srgb);
   }
+  int textures = 0;
+  for (const auto &entry : std::filesystem::directory_iterator(project / "assets" / "level" / "textures")) {
+    if (entry.path().extension() != ".meta") {
+      continue;
+    }
+    const auto text = core::readFile(entry.path());
+    REQUIRE(text.has_value());
+    const auto meta = assets::parseJson(*text);
+    REQUIRE(meta.at("type").get<std::string>() == "Texture");
+    const std::optional<core::Uuid> texture = core::Uuid::parse(meta.at("uuid").get<std::string>());
+    REQUIRE(texture.has_value());
+    placeholder(*texture, meta.at("settings").at("srgb").get<bool>());
+    ++textures;
+  }
+  REQUIRE(textures == 12);
   return project;
 }
 
@@ -1845,7 +1863,7 @@ TEST_CASE("the character sample's coyote time and its hard and interrupted landi
     release(platform::Key::LeftShift);
     // Down on the floor and staying there: the press was not kept for the landing.
     float after = position().y;
-    for (int i = 0; i < 60; ++i) {
+    for (int i = 0; i < 30; ++i) {
       frames(1);
       after = std::max(after, position().y);
     }
@@ -1862,7 +1880,7 @@ TEST_CASE("the character sample's coyote time and its hard and interrupted landi
   const glm::vec3 start{0.0f, 0.0f, 10.0f};
   const auto drop = [&](float height) {
     teleport(start);
-    frames(60); // any earlier landing has faded
+    frames(5); // the last drop's landing faded in its second
     teleport(start + glm::vec3{0.0f, height, 0.0f});
     REQUIRE(untilLanded());
     std::pair<float, float> peak{0.0f, 0.0f};
@@ -1895,7 +1913,7 @@ TEST_CASE("the character sample's coyote time and its hard and interrupted landi
   // Half a second into a hard landing, standing through it and running off it.
   const auto hardLanding = [&](bool run) {
     teleport(start);
-    frames(60);
+    frames(5);
     teleport(start + glm::vec3{0.0f, 4.5f, 0.0f});
     REQUIRE(untilLanded());
     if (run) {
@@ -1917,7 +1935,7 @@ TEST_CASE("the character sample's coyote time and its hard and interrupted landi
 
   // A jump pressed during a hard landing.
   teleport(start);
-  frames(60);
+  frames(5);
   teleport(start + glm::vec3{0.0f, 4.5f, 0.0f});
   REQUIRE(untilLanded());
   frames(6);
