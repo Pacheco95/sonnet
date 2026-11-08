@@ -57,7 +57,7 @@ Carried over from the first iteration of the engine and extended.
 
 ## Profiling
 
-Tracy zones (`SONNET_ZONE()`) on every system, pass and import step. GPU zones per render-graph pass. Frame markers at present. Zones compile out when `SONNET_ENABLE_TRACY` is off.
+Tracy zones (`SONNET_ZONE()`) on every system, pass and import step. GPU zones per render-graph pass. Frame markers at present. Zones compile out when `SONNET_ENABLE_TRACY` is off. The client is Tracy's default mode, not on-demand, so it records from startup; with no profiler connected at exit it exits at once, and `TRACY_NO_EXIT=1` in the environment keeps the process alive until a profiler collects the data.
 
 ## Testing
 
