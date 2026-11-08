@@ -1,0 +1,883 @@
+{
+  "version": 9,
+  "entities": [
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000001",
+      "name": "Sky",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "Environment": {
+          "map": "5ebe1b2f-0543-82db-b52e-9605fed60292",
+          "intensity": 1.0
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000002",
+      "name": "Sun",
+      "components": {
+        "Transform": {
+          "position": [0, 30, 0],
+          "rotation": [-0.36132084847092866, 0.4158137233255142, 0.18458985179247273, 0.8139243076414746],
+          "scale": [1, 1, 1]
+        },
+        "DirectionalLight": {
+          "color": [0.9912, 1.0, 0.9119],
+          "intensity": 4.54
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000003",
+      "name": "Camera",
+      "components": {
+        "Transform": {
+          "position": [0.0, 2.4, 14.0],
+          "rotation": [-0.10450155281655546, -0.0, -0.0, 0.994524723402555],
+          "scale": [1, 1, 1]
+        },
+        "Camera": {
+          "fovY": 0.9599310885968813,
+          "nearPlane": 0.1,
+          "exposure": 0.5,
+          "bloomStrength": 0.02
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "55fb2058-a3a0-82dd-be7e-14c9d35a35a2",
+              "properties": {
+                "target": "c4a20000-0000-4000-8000-000000000026",
+                "yaw": 180.0,
+                "pitch": -12.0,
+                "distance": 4.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000004",
+      "name": "Course",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000005",
+      "name": "Floor south",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [0.0, -1.5, 5.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "3777c597-3ed2-8c8d-88d3-7a862678eb40",
+          "material": "a0104d95-3146-8885-8d7e-92c447beb656",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [14.0, 1.5, 9.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000006",
+      "name": "Floor north",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [0.0, -1.5, -17.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "8475c597-3ed1-8c8d-bbd4-7a862679eb40",
+          "material": "a0104d95-3146-8885-8d7e-92c447beb656",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [14.0, 1.5, 7.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000007",
+      "name": "Step 0.2 m 1",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-11.25, 0.1, 5.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "9d7ac597-3ed4-8c8d-aed6-7a86267aeb40",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [1.75, 0.1, 3.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000008",
+      "name": "Step 0.2 m 2",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-11.25, 0.30000000000000004, 4.85],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "ea78c597-3ed3-8c8d-a1d8-7a86267beb40",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [1.75, 0.1, 2.85],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000009",
+      "name": "Step 0.2 m 3",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-11.25, 0.5, 4.7],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "6b70c597-3ece-8c8d-94da-7a86267ceb40",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [1.75, 0.10000000000000003, 2.7],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000000a",
+      "name": "Step 0.2 m 4",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-11.25, 0.7000000000000001, 4.55],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "b86ec597-3ecd-8c8d-87db-7a86267deb40",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [1.75, 0.09999999999999998, 2.55],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000000b",
+      "name": "Deck",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-2.0, 0.75, -1.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "d173c597-3ed0-8c8d-badd-7a86267eeb40",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [4.0, 0.75, 2.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000000c",
+      "name": "Step 0.5 m 1",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-7.0, 0.25, -1.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "1e72c597-3ecf-8c8d-addf-7a86267feb40",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [1.0, 0.25, 2.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000000d",
+      "name": "Step 0.5 m 2",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-6.7, 0.75, -1.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "9f69c597-3eca-8c8d-b0c5-7a862670eb40",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.7000000000000002, 0.25, 2.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000000e",
+      "name": "Step 0.5 m 3",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-6.4, 1.25, -1.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "ec67c597-3ec9-8c8d-a3c7-7a862671eb40",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.3999999999999999, 0.25, 2.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000000f",
+      "name": "Ramp 20 deg",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-1.5, 0.75, 3.060608064590967],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "dc0087e4-5b41-8d72-b194-b78276a7f3ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000010",
+      "name": "Ramp 20 deg collider",
+      "parent": "c4a20000-0000-4000-8000-00000000000f",
+      "components": {
+        "Transform": {
+          "position": [0.0, -0.1879385241571817, -0.06840402866513373],
+          "rotation": [0.1736481776669303, 0.0, 0.0, 0.984807753012208],
+          "scale": [1, 1, 1]
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [1.5, 0.2, 2.4928533001223157],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000011",
+      "name": "Ramp 55 deg",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [2.5251556536572823, 0.75, -1.0],
+          "rotation": [0.0, 0.7071067811865475, 0.0, 0.7071067811865476],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "8f0287e4-5b42-8d72-be93-b78276a6f3ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000012",
+      "name": "Ramp 55 deg collider",
+      "parent": "c4a20000-0000-4000-8000-000000000011",
+      "components": {
+        "Transform": {
+          "position": [0.0, -0.11471528727020924, -0.16383040885779837],
+          "rotation": [0.4617486132350339, 0.0, 0.0, 0.8870108331782217],
+          "scale": [1, 1, 1]
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [2.0, 0.2, 1.215580941571092],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000013",
+      "name": "Wall west",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [6.15, 1.5, 3.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "420487e4-5b43-8d72-8b91-b78276a5f3ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.1499999999999999, 1.5, 6.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000014",
+      "name": "Wall north",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [9.9, 1.5, -2.85],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "f50587e4-5b44-8d72-988f-b78276a4f3ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [3.6, 1.5, 0.1499999999999999],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000015",
+      "name": "Passage wall west",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [7.949999999999999, 1.3, 4.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "10fa86e4-5b3d-8d72-bd9b-b78276abf3ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.1499999999999999, 1.3, 2.5],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000016",
+      "name": "Passage wall east",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [9.05, 1.15, 4.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "c3fb86e4-5b3e-8d72-8a9a-b78276aaf3ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.14999999999999947, 1.15, 2.5],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000017",
+      "name": "Tunnel wall east",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [12.15, 1.15, 4.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "76fd86e4-5b3f-8d72-9798-b78276a9f3ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.15000000000000036, 1.15, 2.5],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000018",
+      "name": "Low ceiling",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [10.600000000000001, 2.15, 4.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "29ff86e4-5b40-8d72-a496-b78276a8f3ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [1.7000000000000002, 0.1499999999999999, 2.5],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000019",
+      "name": "Column 1",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [3.8, 2.1, 9.5],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "740e87e4-5b49-8d72-9987-b782769ff3ca",
+          "material": "d5015c73-0e65-87f2-a2fb-4324b5dde89e",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.19999999999999996, 2.1, 0.1999999999999993],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000001a",
+      "name": "Column 2",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [3.8, 2.1, 5.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "271087e4-5b4a-8d72-a685-b782769ef3ca",
+          "material": "d5015c73-0e65-87f2-a2fb-4324b5dde89e",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.19999999999999996, 2.1, 0.20000000000000018],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000001b",
+      "name": "Column 3",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [3.8, 2.1, 0.5],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "f7738fe4-5b53-8772-baae-ba82762df7ca",
+          "material": "d5015c73-0e65-87f2-a2fb-4324b5dde89e",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.19999999999999996, 2.1, 0.19999999999999998],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000001c",
+      "name": "Beam",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [0.0, 3.95, -3.4000000000000004],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "44728fe4-5b52-8772-adb0-ba82762ef7ca",
+          "material": "d5015c73-0e65-87f2-a2fb-4324b5dde89e",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [14.0, 0.25, 0.19999999999999996],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000001d",
+      "name": "Column pit west",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-13.8, 1.85, -3.4000000000000004],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "5d778fe4-5b55-8772-94ab-ba82762bf7ca",
+          "material": "d5015c73-0e65-87f2-a2fb-4324b5dde89e",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.20000000000000018, 1.85, 0.19999999999999996],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000001e",
+      "name": "Column pit east",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [13.8, 1.85, -3.4000000000000004],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "aa758fe4-5b54-8772-87ac-ba82762cf7ca",
+          "material": "d5015c73-0e65-87f2-a2fb-4324b5dde89e",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.20000000000000018, 1.85, 0.19999999999999996],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-00000000001f",
+      "name": "Ledge block",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-2.0, 0.6, -16.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "2b6d8fe4-5b4f-8772-aea7-ba827629f7ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [3.0, 0.6, 2.0],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000020",
+      "name": "Far wall",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [0.0, 1.5, -23.85],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "786b8fe4-5b4e-8772-a1a9-ba82762af7ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [14.0, 1.5, 0.15000000000000036],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000021",
+      "name": "Far corner wall",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [6.15, 1.5, -20.35],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "91708fe4-5b51-8772-88a4-ba827627f7ca",
+          "material": "d8cc0fa5-585d-8844-9fdf-c3ae244c4b6c",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "Static": null,
+        "BoxCollider": {
+          "halfExtents": [0.1499999999999999, 1.5, 3.3499999999999996],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000022",
+      "name": "Platform",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [0.0, -0.15, -5.45],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "de6e8fe4-5b50-8772-bba5-ba827628f7ca",
+          "material": "d5015c73-0e65-87f2-a2fb-4324b5dde89e",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "RigidBody": {
+          "type": "Kinematic",
+          "mass": 500.0,
+          "friction": 0.9,
+          "restitution": 0.0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1.0
+        },
+        "BoxCollider": {
+          "halfExtents": [1.5, 0.15, 1.3],
+          "offset": [0, 0, 0]
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "75e22043-648b-8bf9-aa8b-66c01e0d635d",
+              "properties": {
+                "travel": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": -3.1
+                },
+                "period": 8.0,
+                "pause": 1.5
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000023",
+      "name": "Crate",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [3.0, 0.45, 7.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "5f668fe4-5b4b-8772-a2a0-ba827625f7ca",
+          "material": "d21183d2-a844-8137-916e-033acc6c7f81",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "RigidBody": {
+          "type": "Dynamic",
+          "mass": 30.0,
+          "friction": 0.6,
+          "restitution": 0.0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1.0
+        },
+        "BoxCollider": {
+          "halfExtents": [0.45, 0.45, 0.45],
+          "offset": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000024",
+      "name": "Respawn",
+      "components": {
+        "Transform": {
+          "position": [0.0, 0.0, 10.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000025",
+      "name": "Kill volume",
+      "components": {
+        "Transform": {
+          "position": [0.0, -12.0, -5.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "BoxCollider": {
+          "halfExtents": [80.0, 2.0, 80.0],
+          "offset": [0, 0, 0]
+        },
+        "Trigger": null,
+        "Scripts": {
+          "slots": [
+            {
+              "script": "01c35fe6-99ba-88df-9054-dee817f7364e",
+              "properties": {
+                "respawn": "c4a20000-0000-4000-8000-000000000024"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000026",
+      "name": "Character",
+      "components": {
+        "Transform": {
+          "position": [10.6, 0.0, -1.5],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "69daba29-916c-8990-a466-7872257ff79c",
+              "properties": {
+                "route": "c4a20000-0000-4000-8000-000000000027"
+              }
+            }
+          ]
+        }
+      },
+      "prefab": "c4a20001-0000-4000-8000-000000000001"
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000027",
+      "name": "Route",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "uuid": "c4a20000-0000-4000-8000-000000000028",
+      "name": "01 walk",
+      "parent": "c4a20000-0000-4000-8000-000000000027",
+      "components": {
+        "Transform": {
+          "position": [10.6, 0.0, 6.0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    }
+  ]
+}

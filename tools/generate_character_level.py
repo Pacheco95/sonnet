@@ -577,11 +577,35 @@ ROUTE = [
     ("20", (-2.0, 1.2, -15.5)), ("21", (-2.0, 1.2, -17.2)), ("22", (-2.0, 0.0, -20.0)), ("23", (3.0, 0.0, -20.5)),
 ]
 
+# The capture scenes (issue #497): the course with the character started somewhere else, a short route made of the
+# route's own legs, and the camera at a fixed pose instead of trailing, so a still shows one thing from the side
+# that reads best. No controls overlay. `seconds` is the `--play` that lands on the moment, at the capture's fixed
+# 1/60 s step; the sample's README lists them.
+CAPTURES = {
+    # Standing at the start, seen from the front and a little to its right: skin, the idle pose, the feet on the floor.
+    "capture_idle": {"start": RESPAWN, "camera": {"yaw": 155.0, "pitch": -14.0, "distance": 3.0}, "seconds": 3},
+    # Running east along the start's open floor at full speed, seen from the south: the run's stride and planted foot.
+    "capture_locomotion": {"start": (-6.0, 0.0, 11.0), "route": [("01", (6.8, 0.0, 11.0))],
+                           "camera": {"yaw": -20.0, "pitch": -6.0, "distance": 4.0}, "seconds": 2},
+    # The route's jump onto the ledge block (its waypoints 18 to 20), seen from the east, near the top of the jump.
+    "capture_jump": {"start": (2.5, 0.0, -10.6), "route": [("01", (-1.6, 0.0, -10.6)), ("02 jump", (-2.0, 0.0, -11.95)),
+                                                         ("03", (-2.0, 1.2, -15.5))],
+                     "camera": {"yaw": 90.0, "pitch": -4.0, "distance": 4.0}, "seconds": 1.8},
+    # Off the ledge block's far side, a 1.2 m drop (the route's waypoints 21 and 22), as the landing clip plays.
+    "capture_landing": {"start": (-2.0, 1.2, -15.5), "route": [("01", (-2.0, 0.0, -20.5))],
+                        "camera": {"yaw": 90.0, "pitch": -4.0, "distance": 4.0}, "seconds": 1.4},
+    # Walking south into the low tunnel (the route's waypoints 05 and 06), the camera behind and above it: the
+    # ceiling pulls the camera in under it, about 1.2 m from the pivot, rather than letting it pass through.
+    "capture_camera_obstruction": {"start": (10.6, 0.0, -1.5), "route": [("01 walk", (10.6, 0.0, 6.0))],
+                                   "camera": {"yaw": 180.0, "pitch": -12.0, "distance": 4.0}, "seconds": 4},
+}
+
 CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with a mouse button    look\nWheel    zoom\n"
             "H    hide these controls")
 
 
-def write_scene(meshes, materials, character_prefab, file_name="main.scene.json", route=False):
+def write_scene(meshes, materials, character_prefab, file_name="main.scene.json", route=None, start=RESPAWN,
+                camera_properties=None, controls=True):
     entities = []
     counter = [0]
 
@@ -652,13 +676,31 @@ def write_scene(meshes, materials, character_prefab, file_name="main.scene.json"
     entity("Kill volume", (0.0, -12.0, -5.0), None, None,
            BoxCollider={"halfExtents": [80.0, 2.0, 80.0], "offset": [0, 0, 0]}, Trigger=None,
            Scripts={"slots": [{"script": asset_uuid(SCRIPTS["kill_volume"]), "properties": {"respawn": respawn}}]})
-    character = entity("Character", RESPAWN)
+    character = entity("Character", start)
     entities[-1]["prefab"] = character_prefab
     for record in entities:
         if record["uuid"] == camera:
             record["components"]["Scripts"] = {"slots": [{"script": asset_uuid(SCRIPTS["camera"]),
-                                                          "properties": {"target": character}}]}
+                                                          "properties": {"target": character, **(camera_properties or {})}}]}
 
+    if controls:
+        write_controls(entity)
+
+    if route:
+        path = entity("Route")
+        for name, position in route:
+            entity(name, position, None, path)
+        for record in entities:
+            if record["uuid"] == character:
+                record["components"]["Scripts"] = {"slots": [{"script": asset_uuid(SCRIPTS["character"]),
+                                                              "properties": {"route": path}}]}
+
+    (PROJECT / "scenes").mkdir(parents=True, exist_ok=True)
+    (PROJECT / "scenes" / file_name).write_text(scene_json.dumps({"version": 9, "entities": entities}) + "\n")
+    print(f"{file_name}: {len(entities)} entities")
+
+
+def write_controls(entity):
     canvas = entity("Controls", GuiCanvas={"referenceSize": [1920, 1080], "match": 0.5, "safeArea": True, "order": 0},
                     Scripts={"slots": [{"script": asset_uuid(SCRIPTS["controls"]), "properties": {}}]})
     panel = entity("Panel", parent=canvas,
@@ -670,22 +712,6 @@ def write_scene(meshes, materials, character_prefab, file_name="main.scene.json"
                     "offsetMax": [-24, -20]},
            GuiText={"font": asset_uuid(FONT), "text": CONTROLS, "size": 28, "color": [1, 1, 1, 0.92],
                     "horizontal": "Start", "vertical": "Start", "wrap": False})
-
-    if route:
-        path = entity("Route")
-        for name, position in ROUTE:
-            entity(name, position, None, path)
-        for record in entities:
-            if record["uuid"] == camera:
-                # A capture has no mouse: the camera swings behind where the character runs.
-                record["components"]["Scripts"]["slots"][0]["properties"]["trail"] = 3.0
-            if record["uuid"] == character:
-                record["components"]["Scripts"] = {"slots": [{"script": asset_uuid(SCRIPTS["character"]),
-                                                              "properties": {"route": path}}]}
-
-    (PROJECT / "scenes").mkdir(parents=True, exist_ok=True)
-    (PROJECT / "scenes" / file_name).write_text(scene_json.dumps({"version": 9, "entities": entities}) + "\n")
-    print(f"{file_name}: {len(entities)} entities")
 
 
 # The map is relative, not absolute: sun and sky together put about 5 units of irradiance on the ground, so
@@ -704,7 +730,11 @@ def write_level():
     materials = write_materials()
     character = write_prefab()
     write_scene(meshes, materials, character)
-    write_scene(meshes, materials, character, "route.scene.json", route=True)
+    # A capture has no mouse: on the route the camera swings behind where the character runs.
+    write_scene(meshes, materials, character, "route.scene.json", route=ROUTE, camera_properties={"trail": 3.0})
+    for name, capture in CAPTURES.items():
+        write_scene(meshes, materials, character, f"{name}.scene.json", route=capture.get("route"), start=capture["start"],
+                    camera_properties=capture["camera"], controls=False)
     project = {"version": 2, "name": "Character", "engineVersion": engine_version(), "startScene": "scenes/main.scene.json",
                "assetRoots": ["assets", "scripts"]}
     (PROJECT / "project.json").write_text(json.dumps(project, indent=2) + "\n")

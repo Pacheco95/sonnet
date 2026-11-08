@@ -7,6 +7,8 @@ A third-person character on an obstacle course, in the spirit of Unreal's Third 
 ./build/linux-debug/apps/player/sonnet_player apps/samples/character
 ./build/linux-debug/apps/player/sonnet_player apps/samples/character --scene scenes/route.scene.json \
   --play 20 --screenshot route.png                                         # the route runs the course by itself
+./build/linux-debug/apps/cook/sonnet_cook apps/samples/character --out build/character
+./build/linux-debug/apps/player/sonnet_player build/character/game.sbundle   # the same, cooked
 ```
 
 ## Controls
@@ -20,7 +22,7 @@ A third-person character on an obstacle course, in the spirit of Unreal's Third 
 | Wheel | Zoom between 1.5 and 7 m |
 | H | Hide or show the controls |
 
-The camera asks for the pointer to be locked to the game when play starts (`input.setMouseLocked(true)`). Until the application grants that ([#495](https://github.com/Pacheco95/sonnet/issues/495)), `input.mouseLocked()` is false and dragging looks around instead; the controls overlay says which is in effect.
+The camera asks for the pointer to be locked to the game when play starts (`input.setMouseLocked(true)`), and the player and the editor's play mode grant it while their window has the focus ([docs/player.md](../../../docs/player.md#the-pointer), [docs/editor.md](../../../docs/editor.md#the-pointer-in-play-mode)): Escape lets the pointer go and a click takes it back. While it is not locked, `input.mouseLocked()` is false and dragging looks around instead; the controls overlay says which is in effect.
 
 ## What is in it
 
@@ -28,6 +30,7 @@ The camera asks for the pointer to be locked to the game when play starts (`inpu
 |---|---|
 | `scenes/main.scene.json` | The start scene: the course, its sky and sun, the character at the start, the camera and the controls overlay |
 | `scenes/route.scene.json` | The same, with a `Route` the character follows instead of the keys, for captures and tests |
+| `scenes/capture_*.scene.json` | Five stills of the character, below ([Captures](#captures)) |
 | `prefabs/character.prefab.json` | The character: the root with the `CharacterController` and `character.lua`, the humanoid as its `Model` child with `footsteps.lua`, and three sound sources (`Left foot`, `Right foot`, `Landing`) |
 | `scripts/character.lua` | Movement, jumping, facing and the animation weights |
 | `scripts/camera.lua` | The follow camera, on the scene's `Camera` |
@@ -98,6 +101,27 @@ With the character's `route` property set to an entity, its children, in sibling
 | `ride` | Stand there until the ground under the next waypoint has been away or moving and is now still: the platform, come to rest |
 
 The character slows into a waypoint where it will stand or where the route turns by more than 60°, and logs `Character finished its route` after the last one. A respawn starts the route over, and so does every play, since stopping play drops every script's state. `scenes/route.scene.json` runs the whole course this way: through the passage and the tunnel, up the ramp, across the deck and down its steps, along the pit's edge under the beam, over the pit on the platform, onto the ledge block with a jump and off its far side.
+
+## Captures
+
+Each `capture_*` scene is the course with the character started somewhere else, a short route made of the route scene's own legs, and the camera at a fixed pose instead of trailing, with no controls overlay. `--play` is in seconds of fixed 1/60 s steps, so a capture is the same frame every run; these land on the moment each scene is for:
+
+| Scene | `--play` | What it shows |
+|---|---|---|
+| `capture_idle` | 3 | Standing at the start, from the front and a little to the right: the skin, the idle pose and the feet on the floor in the sun |
+| `capture_locomotion` | 2 | Running east across the open floor at 4.8 m/s, from the south: the run's stride, a planted foot and the course behind |
+| `capture_jump` | 1.8 | The route's jump onto the ledge block, from the east, at the top of the jump over the block's edge |
+| `capture_landing` | 1.4 | Off the ledge block's far side, 1.2 m down, from the east: both feet down and the knees bent as `Land` plays |
+| `capture_camera_obstruction` | 4 | Walking south into the low tunnel with the camera behind and above: the ceiling holds the camera under it, about 1.2 m from the pivot, and the character stays in view |
+
+```bash
+./build/linux-debug/apps/player/sonnet_player apps/samples/character --scene scenes/capture_jump.scene.json \
+  --play 1.8 --screenshot jump.png
+./build/linux-debug/apps/editor/sonnet_editor apps/samples/character --scene scenes/capture_jump.scene.json \
+  --play 1.8 --front game --screenshot-window jump_window.png              # the Game panel, through the scene's camera
+```
+
+The editor's `--screenshot` is its Viewport, through the editor's own camera, so a still through the follow camera is the window with the Game panel in front. The player and the editor's Game panel show the same pose at the same `--play`. The scenes are written by `tools/generate_character_level.py level`, with the rest; `CAPTURES` there holds each one's start, route, camera and time.
 
 ## Tests
 
