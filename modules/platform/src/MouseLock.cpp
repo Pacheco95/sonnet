@@ -53,10 +53,8 @@ void MouseLock::update(bool requested, bool focused) {
   // The events since the last update have been offered: motion from now on is the mouse's.
   m_skipMotion = false;
   const bool clicked = std::exchange(m_resumeClicked, false);
-  if (!requested) {
-    // A request made afresh locks at once.
-    m_suspended = false;
-  } else if (clicked && focused) {
+  // A request made afresh locks at once, and a click that gave the game the input takes the pointer back.
+  if (!requested || (clicked && focused)) {
     m_suspended = false;
   }
   if (!requested || !focused) {
