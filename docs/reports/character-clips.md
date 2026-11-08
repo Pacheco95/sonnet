@@ -12,7 +12,7 @@ Issue [#505](https://github.com/Pacheco95/sonnet/issues/505), T7b of the Third-P
 | `JumpStart` | 0.567 s | no | | |
 | `Fall` | 0.4 s | yes | | |
 | `Land` | 0.8 s | no | `landing` 0.033, `footstep` left 0.6 | |
-| `HardLand` | 0.733 s | no | `landing` (`hard`) 0.033, `footstep` left 0.367 | |
+| `HardLand` | 0.733 s | no | `landing` (`hard`) 0.033, `footstep` left 0.333 | |
 
 Every clip is in place: the capsule moves the character ([ADR-0038](../decisions/0038-character-controller.md)), so the clips keep the body's own sway and bob and drop the travel. Units are metres, the character faces -Z with its left on -X, and the shoes stand on y = 0 (no shoe goes more than 2 mm below it in any clip). Walk and run both put the left footstep at phase 0 and the right at 0.5, so a synchronised layer ([ADR-0038](../decisions/0038-character-controller.md#animation-weights-and-synchronisation)) keeps their feet together; T9's speed-matched playback divides the ground speed by the strides above. `landing` is the frame the first foot touches, one frame into the clip so the first update crosses it; `HardLand`'s carries the argument `hard`, and the footsteps after a landing are the other foot coming down. Keys are the capture's own, 30 a second, linear.
 
@@ -32,7 +32,7 @@ The two footsteps, `Walk` at 0 (left heel down, left arm back) and 0.583 (right 
 
 ![Run](character-clips/run.png)
 
-`JumpStart` at 0, 0.133, 0.267, 0.4 and 0.533 (the feet off the ground), `Fall` at 0 and 0.2, then `HardLand` at 0.033 (its `landing` event, the left foot down), 0.2, 0.367 (its `footstep`) and 0.7:
+`JumpStart` at 0, 0.133, 0.267, 0.4 and 0.533 (the feet off the ground), `Fall` at 0 and 0.2, then `HardLand` at 0.033 (its `landing` event, the left foot down), 0.2, 0.333 (its `footstep`) and 0.7:
 
 ![Jump](character-clips/jump.png)
 
@@ -54,6 +54,6 @@ The editor in play mode (`sonnet_editor --scene <temporary> --play 1.5 --front g
 ## Not covered
 
 - **A dedicated fall and landings from a standing jump.** ACCAD's Male 1 takes have none; the fall is the descent of a running jump, played forwards then back, and both landings come from moving jumps (`Land` from a hop on the walk, landing on the right foot; `HardLand` from a running two-footed jump), so they carry some forward lean.
-- **The run's loop**: the take is two strides long and they differ, so closing the loop spreads up to 26.7° (the right toes) over the cycle; the walk's is at most 12.6°. Neither jumps, but the run is less regular than a long take would be.
+- **The run's loop**: the take is two strides long and they differ, so closing the loop spreads up to 26.7° (the right toes) over the cycle; the walk's is at most 19.8°. Neither jumps, but the run is less regular than a long take would be.
 - **Foot sliding in play** depends on T9's speed-matched playback; in the retargeted takes a planted heel or toe moves at most 1.5 cm over a contact. Foot IK on slopes and steps is [#500](https://github.com/Pacheco95/sonnet/issues/500).
 - **Placement in the start scene** and the clip switching are T9's ([#496](https://github.com/Pacheco95/sonnet/issues/496)).

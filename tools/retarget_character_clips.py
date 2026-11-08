@@ -78,10 +78,14 @@ AIM = {
     "thigh_l": ("calf_l", "LeftLeg"), "calf_l": ("foot_l", "LeftFoot"), "foot_l": ("ball_l", "LeftToeBase"),
     "thigh_r": ("calf_r", "RightLeg"), "calf_r": ("foot_r", "RightFoot"), "foot_r": ("ball_r", "RightToeBase"),
 }
-# Bones aimed by two directions (up to the first child, across to the pair of joints that give left and right).
+# Bones aimed by two directions (up to a joint, across to the pair of joints that give left and right). Up is
+# measured from the bone's own joint, or from the across pair's midpoint where the joint is not comparable.
 FRAMES = {
-    "pelvis": (("spine_01", "ToSpine"), ("thigh_l", "thigh_r", "LeftUpLeg", "RightUpLeg")),
-    "spine_03": (("neck_01", "Neck"), ("clavicle_l", "clavicle_r", "LeftShoulder", "RightShoulder")),
+    # Up is the trunk's axis, the hip joints' midpoint to the chest: the subject's `ToSpine` sits behind its
+    # hips (Hips to ToSpine is 92 degrees from vertical, pelvis to spine_01 20), so aiming at it tipped the
+    # pelvis 72 degrees forward. Measured this way the two agree within 4 degrees.
+    "pelvis": (("spine_03", "Spine1"), ("thigh_l", "thigh_r", "LeftUpLeg", "RightUpLeg"), "midpoint"),
+    "spine_03": (("neck_01", "Neck"), ("clavicle_l", "clavicle_r", "LeftShoulder", "RightShoulder"), "joint"),
 }
 
 CONTACT_HEIGHT = 0.025  # metres above the ground: a shoe this low is down...
@@ -525,10 +529,14 @@ class Retargeter:
             source = MAPPING[name]
             self.ref_source[bone] = g @ reference.rot(source, reference_frame)
             if name in FRAMES:
-                (child, s_child), (left, right, s_left, s_right) = FRAMES[name]
-                up_t = R_stand[bone] @ rig.translation[idx[child]]
+                (child, s_child), (left, right, s_left, s_right), up_from = FRAMES[name]
+                if up_from == "midpoint":
+                    up_t = P_stand[idx[child]] - (P_stand[idx[left]] + P_stand[idx[right]]) / 2.0
+                    up_s = s_head(s_child) - (s_head(s_left) + s_head(s_right)) / 2.0
+                else:
+                    up_t = R_stand[bone] @ rig.translation[idx[child]]
+                    up_s = s_head(s_child) - s_head(source)
                 across_t = R_stand[bone] @ (rig.translation[idx[right]] - rig.translation[idx[left]])
-                up_s = s_head(s_child) - s_head(source)
                 across_s = s_head(s_right) - s_head(s_left)
                 turn = frame_of(up_s, across_s) @ frame_of(up_t, across_t).T
             elif name in AIM:
