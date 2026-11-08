@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Adds the motion-captured locomotion clips to the character sample's humanoid (issue #505).
+"""Adds the motion-captured locomotion (issue #505) and turn (issue #528) clips to the character sample's humanoid.
 
   python3 tools/retarget_character_clips.py <downloads>
 
 <downloads> is a folder holding, anywhere below it, `Male1_bvh.zip`, the ACCAD Open Motion Project's BVH takes
-of its "Male 1" subject (CC BY 3.0, see apps/samples/character/LICENSES.md). Blender 4.2 or later must be on the
-PATH, or named by the BLENDER environment variable (`/snap/bin/blender` here); numpy is needed too.
+of its "Male 1" subject (CC BY 3.0), and `69.asf`, `69_17.amc` and `69_18.amc`, subject 69's skeleton and two
+turn-in-place takes from the CMU motion-capture database (see apps/samples/character/LICENSES.md). Blender 4.2 or
+later must be on the PATH, or named by the BLENDER environment variable (`/snap/bin/blender` here); numpy is
+needed too. The CMU takes are read without Blender (cmu_sample); each subject has its own reference pose.
 
 The script unpacks the takes it uses into a temporary folder and runs itself inside Blender
 (`blender -b --factory-startup --python <this> -- sample ...`), which imports each take with Blender's own BVH
@@ -30,7 +32,9 @@ outside Blender, on those samples and on the committed `humanoid.glb`:
    synchronisation needs, and what the last frame differs from the first is spread over the cycle so it loops.
    The idle loop is the stretch of the standing take whose ends match best, closed the same way. The jump's
    flight is taken out of the pelvis's height: the take-off ends when the feet leave the ground, the fall loops
-   the descent forwards then back, and the landing starts a frame before the feet touch.
+   the descent forwards then back, and the landing starts a frame before the feet touch. A turn on the spot has
+   its turn taken out at a constant rate, its measured angle over its length, which character.lua puts back by
+   turning the model, and its ankles moved to the idle's stance at its ends as the feet step (build_clip).
 5. Writes the clips into `humanoid.glb` after `Stand` (removing any it added before, so a second run gives the
    same file) and their footstep and landing events into the sidecar's `animationEvents`, and prints what it
    measured: stride lengths, contact phases, foot heights and sliding.
@@ -53,10 +57,38 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MODEL = ROOT / "apps" / "samples" / "character" / "assets" / "character" / "humanoid.glb"
 ARCHIVE = "Male1_bvh.zip"
-FPS = 30.0  # every Male 1 take is captured at 30 Hz
+FPS = 30.0  # every Male 1 take is captured at 30 Hz, and the CMU takes are kept at it
 
-# The standing take and frame the humanoid's reference pose is matched to.
-REFERENCE = ("Male1_A1_Stand", 0)
+# CMU subject 69's skeleton and the rate its takes (`<take>.amc`) are captured at, 120 Hz; every
+# fourth frame is kept, so they run at FPS like the rest (issue #528).
+CMU_SKELETON = "69.asf"
+CMU_RATE = 120
+
+# Per subject, the standing take and frame the humanoid's reference pose is matched to.
+REFERENCES = {"Male1": ("Male1_A1_Stand", 0), "CMU69": ("69_17", 0)}
+
+
+def subject(take: str) -> str:
+    return "Male1" if take.startswith("Male1_") else "CMU69"
+
+
+# The ACCAD joint each CMU bone stands for: (the bone whose start is the joint's position, the bone whose
+# orientation is its orientation, the bone whose end is its tail). A CMU bone runs from its parent's end to
+# its own; the root's start is its translation. Both clavicles start at the thorax's end, so a shoulder is the
+# middle of its clavicle ("/2"): the chest's left-to-right is measured between them.
+CMU_JOINTS = {
+    "Hips": ("root", "root", "root"), "ToSpine": ("lowerback", "lowerback", "lowerback"),
+    "Spine": ("upperback", "upperback", "upperback"), "Spine1": ("thorax", "thorax", "thorax"),
+    "Neck": ("lowerneck", "upperneck", "upperneck"), "Head": ("head", "head", "head"),
+    "LeftShoulder": ("lclavicle/2", "lclavicle", "lclavicle"), "LeftArm": ("lhumerus", "lhumerus", "lhumerus"),
+    "LeftForeArm": ("lradius", "lradius", "lradius"), "LeftHand": ("lwrist", "lhand", "lhand"),
+    "RightShoulder": ("rclavicle/2", "rclavicle", "rclavicle"), "RightArm": ("rhumerus", "rhumerus", "rhumerus"),
+    "RightForeArm": ("rradius", "rradius", "rradius"), "RightHand": ("rwrist", "rhand", "rhand"),
+    "LeftUpLeg": ("lfemur", "lfemur", "lfemur"), "LeftLeg": ("ltibia", "ltibia", "ltibia"),
+    "LeftFoot": ("lfoot", "lfoot", "lfoot"), "LeftToeBase": ("ltoes", "ltoes", "ltoes"),
+    "RightUpLeg": ("rfemur", "rfemur", "rfemur"), "RightLeg": ("rtibia", "rtibia", "rtibia"),
+    "RightFoot": ("rfoot", "rfoot", "rfoot"), "RightToeBase": ("rtoes", "rtoes", "rtoes"),
+}
 
 # Humanoid bone <- ACCAD joint. The rest of the rig (fingers, Root) keeps the `Stand` clip's pose.
 MAPPING = {
@@ -101,6 +133,12 @@ CLIPS = {
     "Fall": {"take": "Male1_C20_Run2Jump2Walk", "kind": "fall"},
     "Land": {"take": "Male1_B17_Walk2Hop2Walk", "kind": "land"},
     "HardLand": {"take": "Male1_C20_Run2Jump2Walk", "kind": "land", "argument": "hard"},
+    # Turns on the spot, CMU subject 69 (issue #528): 69_17 turns left by quarter turns, 69_18 right, each
+    # from standing still to standing still. Frames at 30 Hz.
+    "TurnLeft90": {"take": "69_17", "kind": "turn", "frames": (24, 70)},
+    "TurnRight90": {"take": "69_18", "kind": "turn", "frames": (121, 163)},
+    "TurnLeft180": {"take": "69_17", "kind": "turn", "frames": (24, 113)},
+    "TurnRight180": {"take": "69_18", "kind": "turn", "frames": (30, 118)},
 }
 RECOVERED = 0.9  # a landing ends when the pelvis is back this far from its lowest to its height walking
 
@@ -130,6 +168,114 @@ def blender_sample(out_dir: Path, files):
             tails.append([to_gltf @ (world @ np.append(np.array(b.tail), 1.0))[:3] for b in rig.pose.bones])
         np.savez(out_dir / (Path(source).stem + ".npz"), names=np.array([b.name for b in rig.pose.bones]),
                  heads=np.array(heads), tails=np.array(tails), rotations=np.array(rotations))
+
+
+# ---------------------------------------------------------------------------------------------
+# Outside Blender: sample the CMU takes (Acclaim ASF skeleton and AMC motion)
+# ---------------------------------------------------------------------------------------------
+
+
+def acclaim_euler(angles, order):
+    """The rotation of Euler angles in degrees, the first axis in `order` applied first."""
+    np = np_()
+    m = np.eye(3)
+    for axis, angle in zip(order, angles):
+        m = axis_angle({"x": [1.0, 0.0, 0.0], "y": [0.0, 1.0, 0.0], "z": [0.0, 0.0, 1.0]}[axis],
+                       math.radians(angle)) @ m
+    return m
+
+
+def read_asf(path: Path):
+    """The skeleton: per bone its direction, length (metres), axis rotation, degrees of freedom and parent;
+    the root's channel order; the bones in parent-first order."""
+    np = np_()
+    lines = [line.split() for line in path.read_text().splitlines()]
+    bones, parents, root_order, section, scale = {}, {}, [], None, None
+    i = 0
+    while i < len(lines):
+        words = lines[i]
+        i += 1
+        if not words:
+            continue
+        if words[0].startswith(":"):
+            section = words[0]
+            continue
+        if section == ":units" and words[0] == "length":
+            scale = 0.0254 / float(words[1])  # lengths are inches divided by this
+        elif section == ":root" and words[0] == "order":
+            root_order = [w.lower() for w in words[1:]]
+        elif section == ":bonedata" and words[0] == "begin":
+            bone = {"dof": []}
+            while lines[i][0] != "end":
+                key, values = lines[i][0], lines[i][1:]
+                if key == "name":
+                    name = values[0]
+                elif key == "direction":
+                    bone["direction"] = np.array([float(v) for v in values])
+                elif key == "length":
+                    bone["length"] = float(values[0])
+                elif key == "axis":
+                    bone["axis"] = acclaim_euler([float(v) for v in values[:3]], values[3].lower())
+                elif key == "dof":
+                    bone["dof"] = [v.lower() for v in values]
+                i += 1
+            bones[name] = bone
+        elif section == ":hierarchy" and words[0] not in ("begin", "end"):
+            for child in words[1:]:
+                parents[child] = words[0]
+    for bone in bones.values():
+        bone["length"] *= scale
+    order, pending = [], ["root"]
+    while pending:
+        name = pending.pop(0)
+        order.append(name)
+        pending.extend(c for c in parents if parents[c] == name)
+    return bones, parents, root_order, order, scale
+
+
+def read_amc(path: Path):
+    frames, current = [], None
+    for line in path.read_text().splitlines():
+        words = line.split()
+        if not words or words[0].startswith((":", "#")):
+            continue
+        if len(words) == 1 and words[0].isdigit():
+            current = {}
+            frames.append(current)
+        else:
+            current[words[0]] = [float(v) for v in words[1:]]
+    return frames
+
+
+def cmu_sample(out_dir: Path, skeleton: Path, take: Path):
+    """Samples a CMU take as blender_sample samples a BVH one, under the ACCAD joints' names (CMU_JOINTS),
+    at every fourth captured frame. A bone's world orientation is its parent's times C M C^-1 (C its axis
+    rotation, M its channels' rotation, x then y then z), and its end is its start plus that orientation
+    times its direction and length; the skeleton is Y up and right-handed, as glTF is."""
+    np = np_()
+    bones, parents, root_order, order, scale = read_asf(skeleton)
+    heads, tails, rotations = [], [], []
+    for frame in read_amc(take)[::CMU_RATE // int(FPS)]:
+        start, end, world = {}, {}, {}
+        for name in order:
+            values = frame.get(name, [])
+            if name == "root":
+                channel = dict(zip(root_order, values))
+                start[name] = end[name] = np.array([channel["tx"], channel["ty"], channel["tz"]]) * scale
+                world[name] = acclaim_euler([channel["rx"], channel["ry"], channel["rz"]], "xyz")
+                continue
+            bone = bones[name]
+            channel = dict(zip(bone["dof"], values))
+            motion = acclaim_euler([channel.get(a, 0.0) for a in ("rx", "ry", "rz")], "xyz")
+            world[name] = world[parents[name]] @ bone["axis"] @ motion @ bone["axis"].T
+            start[name] = end[parents[name]]
+            end[name] = start[name] + world[name] @ bone["direction"] * bone["length"]
+        heads.append([(start[h[:-2]] + end[h[:-2]]) / 2.0 if h.endswith("/2") else start[h]
+                      for h, _, _ in CMU_JOINTS.values()])
+        rotations.append([world[r] for _, r, _ in CMU_JOINTS.values()])
+        tails.append([end[t] for _, _, t in CMU_JOINTS.values()])
+    np.savez(out_dir / (take.stem + ".npz"), names=np.array(list(CMU_JOINTS)), heads=np.array(heads),
+             tails=np.array(tails), rotations=np.array(rotations))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -556,9 +702,10 @@ class Retargeter:
         self.scale = leg / source_leg
         self.hip_mid_local = (rig.translation[idx["thigh_l"]] + rig.translation[idx["thigh_r"]]) / 2.0
 
-    def pose(self, take: Take, f: int, turn, origin, lift, feet=(0.0, 0.0)):
+    def pose(self, take: Take, f: int, turn, origin, lift, feet=(0.0, 0.0), shift=None):
         """World rotations of the mapped bones and the pelvis's position for frame f of a take. `lift` raises
-        the whole pose and `feet` each ankle (left, right) on top of it."""
+        the whole pose and `feet` each ankle (left, right) on top of it; `shift`, if given, moves each ankle
+        (left, right) across the ground by an (x, z) offset."""
         np = np_()
         rig, idx = self.rig, self.rig.index
         world = {}
@@ -582,6 +729,8 @@ class Retargeter:
             hip, knee, ankle = P[thigh], P[calf], P[foot]
             goal = hip + (target(f"{s_side}Foot") - target(f"{s_side}UpLeg"))
             goal[1] += raise_foot
+            if shift is not None:
+                goal[[0, 2]] += shift[0 if side == "l" else 1]
             a, b = np.linalg.norm(rig.translation[calf]), np.linalg.norm(rig.translation[foot])
             reach = goal - hip
             distance = min(np.linalg.norm(reach), (a + b) * 0.9999)
@@ -625,7 +774,7 @@ class Retargeter:
 class Track:
     """A retargeted stretch of a take: per frame, local rotations (quaternions) and the pelvis translation."""
 
-    def __init__(self, retargeter, take, frames, turn, origin, lift, feet=(0.0, 0.0)):
+    def __init__(self, retargeter, take, frames, turn, origin, lift, feet=(0.0, 0.0), shifts=None):
         np = np_()
         self.frames = list(frames)
         self.rotations, self.pelvis, self.soles_left, self.soles_right = [], [], [], []
@@ -634,7 +783,8 @@ class Track:
         if not hasattr(feet[0], "__len__"):
             feet = [feet] * len(self.frames)
         for k, f in enumerate(self.frames):
-            world, pelvis_position = retargeter.pose(take, f, turn, origin, lift, feet[k])
+            world, pelvis_position = retargeter.pose(take, f, turn, origin, lift, feet[k],
+                                                     None if shifts is None else shifts[k])
             local, translation, R, P = retargeter.locals(world, pelvis_position)
             self.rotations.append({n: matrix_to_quat(m) for n, m in local.items()})
             self.pelvis.append(translation)
@@ -714,15 +864,18 @@ def main():
 
     downloads = Path(args[0]).resolve()
     blender = os.environ.get("BLENDER") or shutil.which("blender") or "/snap/bin/blender"
-    takes = sorted({c["take"] for c in CLIPS.values()} | {REFERENCE[0]})
+    takes = sorted({c["take"] for c in CLIPS.values()} | {r[0] for r in REFERENCES.values()})
     keep = os.environ.get("KEEP_WORK")
     with tempfile.TemporaryDirectory() as temporary:
         work = Path(keep) if keep else Path(temporary)
         work.mkdir(parents=True, exist_ok=True)
+        skeleton = find(downloads, CMU_SKELETON)
+        for take in (t for t in takes if subject(t) == "CMU69"):
+            cmu_sample(work, skeleton, find(downloads, f"{take}.amc"))
         with zipfile.ZipFile(find(downloads, ARCHIVE)) as archive:
             members = {Path(m).stem: m for m in archive.namelist() if m.lower().endswith(".bvh")}
             files = []
-            for take in takes:
+            for take in (t for t in takes if subject(t) == "Male1"):
                 target = work / f"{take}.bvh"
                 target.write_bytes(archive.read(members[take]))
                 files.append(str(target))
@@ -766,7 +919,9 @@ class Prepared:
         frames = range(take.frames)
         self.lift, self.feet = ground(retargeter, take, frames, self.turn, self.origin)
         track = Track(retargeter, take, frames, self.turn, self.origin, self.lift, self.feet)
-        self.track = Track(retargeter, take, frames, self.turn, self.origin, self.lift, plant(track, self.feet))
+        self.retargeter = retargeter
+        self.raises = plant(track, self.feet)  # per frame, each ankle's raise
+        self.track = Track(retargeter, take, frames, self.turn, self.origin, self.lift, self.raises)
         self.planted, self.strikes, self.height = {}, {}, {}
         for side in "lr":
             self.planted[side], self.strikes[side], self.height[side] = contacts(self.track, side)
@@ -874,7 +1029,7 @@ def planted_slide(prepared, first, last):
     return worst
 
 
-def build_clip(name, spec, prepared: Prepared, rig: Rig):
+def build_clip(name, spec, prepared: Prepared, rig: Rig, stance=None):
     """Cuts a clip from a prepared take: key times, per-joint rotations, pelvis world positions, events."""
     np = np_()
     track, kind = prepared.track, spec["kind"]
@@ -924,8 +1079,71 @@ def build_clip(name, spec, prepared: Prepared, rig: Rig):
         times = [(f - a) / FPS for f in frames]
         rotations, pelvis = close_loop([track.rotations[f] for f in frames], pelvis_world[a:b + 1].copy())
         pelvis[:, [0, 2]] -= pelvis[:-1, [0, 2]].mean(axis=0)
+        # Where the ankles stand on average in the clip, which the turns start and end on.
+        moved = pelvis_world[a:b + 1, [0, 2]] - pelvis[:, [0, 2]]
+        info["stance"] = [[round(float(v), 4) for v in (track.joints[j][a:b + 1, [0, 2]] - moved)[:-1].mean(axis=0)]
+                          for j in ("foot_l", "foot_r")]
         info.update(frames=[a, b], closure_degrees=round(largest_turn(track, a, b, mapped), 1),
                     slide=round(planted_slide(prepared, a, b), 3))
+    elif kind == "turn":
+        # The body's turn taken out at a constant rate, ANGLE over the clip's length, about the midpoint of
+        # the pelvis's first and last positions: the character's script turns the model back at that rate,
+        # so the feet stand where the subject's stood. What the subject's turn differs from the constant
+        # rate stays in the clip.
+        #
+        # The subject stands narrower than the idle does, so each ankle is also moved across the ground to
+        # where the idle's stands (`stance`) at the clip's first and last frames, the change made as that foot
+        # steps: a planted foot stays planted, and the blends from and back to the idle do not slide the feet
+        # into the other stance.
+        a, b = spec["frames"]
+        frames = list(range(a, b + 1))
+        times = [(f - a) / FPS for f in frames]
+        headings = []
+        for f in frames:
+            forward = prepared.turn @ prepared.take.facing(f)
+            headings.append(math.atan2(-forward[0], -forward[2]))  # about +Y from -Z: positive is left
+        headings = np.unwrap(headings)
+        angle = float(headings[-1] - headings[0])
+        centre = (pelvis_world[a] + pelvis_world[b]) / 2.0
+        centre[1] = 0.0
+        shifts = np.zeros((len(frames), 2, 2))
+        info["stance_shift"] = []
+        for s, side in enumerate("lr"):
+            ankle = track.joints[f"foot_{side}"]
+            wanted = np.array([stance[s][0], 0.0, stance[s][1]])
+            first = (centre + yaw(headings[0]) @ wanted - ankle[a])[[0, 2]]
+            last = (centre + yaw(headings[-1]) @ wanted - ankle[b])[[0, 2]]
+            # The change goes with the square of the ankle's speed over the ground, so it is made in the
+            # steps, and hardly at all while the foot is down.
+            speed = np.r_[0.0, np.linalg.norm(np.diff(ankle[a:b + 1][:, [0, 2]], axis=0), axis=1)]
+            done = np.cumsum(speed ** 2) / max(float(np.sum(speed ** 2)), 1e-12)
+            shifts[:, s] = first + done[:, None] * (last - first)
+            info["stance_shift"].append([round(float(np.linalg.norm(first)), 3), round(float(np.linalg.norm(last)), 3)])
+        shifted = Track(prepared.retargeter, prepared.take, frames, prepared.turn, prepared.origin, prepared.lift,
+                        [prepared.raises[f] for f in frames], shifts)
+        root_R, _ = rig.world()
+        pelvis_node = rig.index["pelvis"]
+        parent_R = root_R[rig.parent[pelvis_node]]
+        rotations, pelvis = [], pelvis_world[a:b + 1].copy()
+        for k, f in enumerate(frames):
+            back = yaw(-(headings[0] + angle * k / (len(frames) - 1)))
+            keys = dict(shifted.rotations[k])
+            keys[pelvis_node] = quat_multiply(matrix_to_quat(parent_R.T @ back @ parent_R), keys[pelvis_node])
+            rotations.append(keys)
+            pelvis[k] = back @ (shifted.joints["pelvis"][k] - centre)
+        for k in range(1, len(rotations)):  # one hemisphere, as Track keeps it
+            if np.dot(rotations[k][pelvis_node], rotations[k - 1][pelvis_node]) < 0:
+                rotations[k][pelvis_node] = -rotations[k][pelvis_node]
+        planted = {}
+        for side, word in (("l", "left"), ("r", "right")):
+            planted[side], strikes, _ = contacts(shifted, side)
+            events += [{"time": round(k / FPS, 4), "name": "footstep", "argument": word} for k in strikes]
+        events.sort(key=lambda e: e["time"])
+        measured = type("Shifted", (), {"track": shifted, "planted": planted})
+        info.update(frames=[a, b], angle_degrees=round(math.degrees(angle), 1),
+                    heading_degrees=[round(math.degrees(h - headings[0]), 1) for h in headings[::3]],
+                    slide=round(planted_slide(measured, 0, len(frames) - 1), 3),
+                    captured_slide=round(planted_slide(prepared, a, b), 3))
     else:
         first_air, last_air = prepared.flight()
         height = prepared.ballistic(first_air, last_air)
@@ -1005,13 +1223,14 @@ def build(work: Path, takes):
     binary = drop_animations(document, binary, {"Stand"})
     rig = Rig(document, binary)
     loaded = {t: Take(work / f"{t}.npz") for t in takes}
-    retargeter = Retargeter(rig, loaded[REFERENCE[0]], REFERENCE[1])
+    retargeters = {s: Retargeter(rig, loaded[take], frame) for s, (take, frame) in REFERENCES.items()}
     prepared = {}
     clips = {}
     for name, spec in CLIPS.items():
         if spec["take"] not in prepared:
-            prepared[spec["take"]] = Prepared(retargeter, loaded[spec["take"]])
-        clips[name] = build_clip(name, spec, prepared[spec["take"]], rig)
+            prepared[spec["take"]] = Prepared(retargeters[subject(spec["take"])], loaded[spec["take"]])
+        stance = clips["Idle"]["info"]["stance"] if "Idle" in clips else None
+        clips[name] = build_clip(name, spec, prepared[spec["take"]], rig, stance)
     write_clips(clips, rig, document, binary)
     write_glb(MODEL, document, binary)
     sidecar = MODEL.with_name(MODEL.name + ".meta")
@@ -1019,7 +1238,7 @@ def build(work: Path, takes):
     settings = meta.setdefault("settings", {})
     settings["animationEvents"] = {name: clip["events"] for name, clip in clips.items() if clip["events"]}
     sidecar.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
-    report = {"scale": round(retargeter.scale, 4),
+    report = {"scale": {s: round(r.scale, 4) for s, r in retargeters.items()},
               "takes": {t: {"slope": round(p.take.slope, 4), "lift": round(p.lift, 3),
                             "feet": [round(x, 3) for x in p.feet]} for t, p in prepared.items()},
               "clips": {name: {**clip["info"], "events": clip["events"]} for name, clip in clips.items()}}

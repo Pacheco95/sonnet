@@ -1,6 +1,6 @@
 # Licences of the character sample's content
 
-Every third-party file in this project is CC0 1.0 (public domain dedication), which may be copied, changed and redistributed, commercially too, with no attribution required, except the humanoid's motion-captured clips, which are CC BY 3.0: they may be copied, changed and redistributed, commercially too, as long as the credit below goes with them ([Locomotion clips](#locomotion-clips-issue-505)), and the overlay's font, which is under the SIL Open Font License 1.1 ([Font](#font-issue-496)). The sources are credited here anyway, with what was done to them. Everything else is the engine's own: the course's geometry (`assets/level/course.glb`), its materials, the scenes and the character's prefab, made by `tools/generate_character_level.py`, and the scripts, written by hand.
+Every third-party file in this project is CC0 1.0 (public domain dedication), which may be copied, changed and redistributed, commercially too, with no attribution required, except the humanoid's motion-captured clips, which are CC BY 3.0: they may be copied, changed and redistributed, commercially too, as long as the credit below goes with them ([Locomotion clips](#locomotion-clips-issue-505)), the turn clips, from the CMU motion-capture database, free for all uses short of reselling the data itself ([Turn clips](#turn-clips-issue-528)), and the overlay's font, which is under the SIL Open Font License 1.1 ([Font](#font-issue-496)). The sources are credited here anyway, with what was done to them. Everything else is the engine's own: the course's geometry (`assets/level/course.glb`), its materials, the scenes and the character's prefab, made by `tools/generate_character_level.py`, and the scripts, written by hand.
 
 ## Level content (issue #490)
 
@@ -192,6 +192,42 @@ All five takes are one performer (Male 1), captured at 30 Hz in centimetres with
 - **Strides** (metres per cycle, the hips' travel over the cycle in the take before it is put in place; T9's speed-matched playback divides by them): `Walk` **1.505 m** per 1.167 s, 1.29 m/s; `Run` **3.235 m** per 0.667 s, 4.85 m/s. Measured from the feet instead (each foot's planted position a cycle apart) they are 1.44 and 1.44 m for the walk and 3.27 and 3.10 m for the run, the take's speed not being quite constant.
 - **Sliding**: in the takes as retargeted (before they are put in place), a planted heel or toe moves at most 1.3 cm (walk) and 1.5 cm (run) over a contact.
 - **Keys**: one per captured frame (30 Hz), linear; a rotation for each of the 53 joints and the pelvis's translation, about 290 KB for the seven clips.
+
+## Turn clips (issue #528)
+
+The humanoid's four turns on the spot (`TurnLeft90`, `TurnRight90`, `TurnLeft180`, `TurnRight180`, in `assets/character/humanoid.glb` after the locomotion clips) are motion capture from the Carnegie Mellon University Motion Capture Database, retargeted onto the same rig. Their footstep events are in the model's sidecar.
+
+| Clips | Source takes | Source | Author | Terms |
+|---|---|---|---|---|
+| All four | Subject 69, `69_17` ("turn in place") and `69_18` ("turn in place (opposite direction)"), with the subject's skeleton `69.asf` | [CMU Graphics Lab Motion Capture Database](http://mocap.cs.cmu.edu/), `subjects/69/` | Carnegie Mellon University | Free for all uses, see below |
+
+The database's terms, as its pages word them: "This dataset of motions is free for all uses"; "The motion capture data may be copied, modified, or redistributed without permission" ([FAQ](http://mocap.cs.cmu.edu/faqs.php)); "You may include this data in commercially-sold products, but you may not resell this data directly, even in converted form." So the clips may be in this public repository and in cooked bundles, and a game may ship them, as long as nobody sells the motion data itself. The acknowledgement the database asks for: **"The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217."** These are not a Creative Commons licence, unlike the locomotion clips' CC BY 3.0. ACCAD's Open Motion Project, the locomotion clips' source, was tried first: its Male 1, Male 2 and Female 1 archives have walking and running turns, but no turn from standing other than Male 2's martial-arts pivots in a fighting stance.
+
+Downloaded on 2026-11-08 (`http://mocap.cs.cmu.edu/subjects/69/<file>`). SHA-256 of the files as downloaded:
+
+| File | SHA-256 |
+|---|---|
+| `69.asf` | `c3019031ae5789b1d43d3bba424229ac544ccc68bb8c06e7d67bf75b1c41605f` |
+| `69_17.amc` | `f933b7f0a2ed924991fac43abaf089dbf5f412e7e9a0ccbcc1b89a54b500c333` |
+| `69_18.amc` | `ab26d17f420194b74a0434ad1a9ac400f364f839298bb3a10f37e15b98e81429` |
+
+### Preparation
+
+`python3 tools/retarget_character_clips.py <folder>` makes them with the locomotion clips, from the three files anywhere under `<folder>` beside `Male1_bvh.zip`; existing clips come out byte for byte as before, and two runs write the same bytes. The takes are Acclaim ASF/AMC at 120 Hz, which Blender does not import, so the script reads them itself (Y up, right-handed, inches over 0.45 to metres) and keeps every fourth frame, 30 Hz like the rest. Each CMU bone stands for the ACCAD joint it matches (`lfemur` for `LeftUpLeg`, `thorax` for `Spine1`, and so on; the shoulders are the middles of the clavicles, which both start at the thorax's end), and from there the retargeting is the locomotion clips': subject 69's own standing frame (`69_17`, frame 0) as the reference pose, legs scaled by 1.063, two-bone IK on the ankles, the shoes grounded and planted.
+
+- **Cuts**, each from standing still to standing still. Frames at 30 Hz:
+
+| Clip | Take, frames | Length | Angle | Events |
+|---|---|---|---|---|
+| `TurnLeft90` | 69_17, 24 to 70 | 1.533 s | **+92.4°** | `footstep` left 0.6 |
+| `TurnRight90` | 69_18, 121 to 163 | 1.4 s | **-90.1°** | `footstep` right 0.533, left 1.1 |
+| `TurnLeft180` | 69_17, 24 to 113 (two quarter turns, a 0.3 s pause between) | 2.967 s | **+180.0°** | `footstep` left 0.6, right 1.3, left 2.267 |
+| `TurnRight180` | 69_18, 30 to 118 | 2.933 s | **-176.4°** | `footstep` right 0.7, left 1.3, right 2.067 |
+
+- **Angle** (positive to the left, about +Y): the heading of the subject's hips, up crossed with their left-to-right, at the last frame less at the first, measured as the strides are, in the take before it is put in place. `character.lua` turns the model by exactly this.
+- **In place, the turn taken out**: the travel is taken out, and so is the turn, at a constant rate, the angle over the clip's length, about the midpoint of the pelvis's first and last positions. The script turns the model back at that rate, so in the world the feet stand where the subject's stood; what the subject's turn differs from the constant rate stays in the clip. Each clip starts and ends facing -Z, as `Idle` does.
+- **Stance**: the subject stands 14 to 17 cm between the feet, the idle 21 cm, so blending from and back to the idle would slide the feet 3 to 12 cm. Each ankle is moved across the ground to where `Idle`'s stands on average at the clip's first and last frames, the change spread with the square of the ankle's speed, so it is made in the steps and hardly at all while the foot is down.
+- **Sliding**: a planted heel or toe moves at most 10 and 17 cm in the quarter turns and 19 and 22 cm in the half turns over a contact, mostly the foot pivoting on its ball as the subject's does.
 
 ## Font (issue #496)
 
