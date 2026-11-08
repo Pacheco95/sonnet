@@ -86,7 +86,8 @@ struct ScriptDesc {
 // Runs the Scripts components of a world (ADR-0009, ADR-0022, docs/scripting.md). In play mode
 // every slot of every enabled entity gets an instance of its script's class, with the properties
 // the class declares set from the slot: `start` is called once, `update(dt)` every frame in the
-// Update phase and `fixedUpdate(dt)` every fixed step, after physics and after the step's
+// Update phase, `lateUpdate(dt)` every frame in PostUpdate after physics interpolated the drawn
+// poses (ADR-0038), and `fixedUpdate(dt)` every fixed step, after physics and after the step's
 // contact and trigger events. A script that fails to load is reported once per revision; a call
 // that fails is reported with the script's file and line and turns its instance off until the
 // script changes, which reloads it under the running instances, keeping their state.
@@ -116,6 +117,12 @@ public:
   // `reset`, project-relative as the script gave it. The application replaces the running scene
   // with it after the frame (docs/scripting.md, "game").
   [[nodiscard]] virtual std::optional<std::string> takeSceneRequest() = 0;
+  // Whether scripts want the pointer locked to the game: the last `input.setMouseLocked` since
+  // `reset`, false before any. An intent, held until a script changes it; the application locks
+  // the pointer while the game has focus and reports what it got through
+  // platform::InputState::setMouseLocked, which `input.mouseLocked()` reads (docs/scripting.md,
+  // "input").
+  [[nodiscard]] virtual bool mouseLockRequested() const = 0;
   // The properties the script's class declares, sorted by name, loading the class if need be:
   // what the inspector draws, in edit mode too. An error when the script is missing or has not
   // loaded; a revision that fails keeps answering with the last one that loaded.

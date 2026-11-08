@@ -152,6 +152,10 @@ struct LuaEntity {
   std::abort(); // luaL_error does not return
 }
 
+bool finite(glm::vec3 v) {
+  return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
 // "line: message" split into the line and the message.
 std::optional<std::pair<int, std::string_view>> splitLine(std::string_view rest) {
   int line = 0;
@@ -250,12 +254,21 @@ public:
           frame("update", it.delta_time());
         });
     m_world.addToSimulation(m_updateSystem);
+    // In PostUpdate after PhysicsInterpolate, which is declared first because the physics world
+    // is created before the runtime: lateUpdate reads this frame's drawn poses, before the
+    // transform system propagates them and the application reads the camera (ADR-0038).
+    m_lateSystem = ecs.system("ScriptLateUpdate")
+                       .kind(m_world.phase(world::Phase::PostUpdate))
+                       .immediate()
+                       .run([this](flecs::iter &it) { frame("lateUpdate", it.delta_time()); });
+    m_world.addToSimulation(m_lateSystem);
     SONNET_LOG_DEBUG("scripting ready, {}", LUA_RELEASE);
   }
 
   ~LuaScriptRuntime() override {
     m_fixedSystem.destruct();
     m_updateSystem.destruct();
+    m_lateSystem.destruct();
     m_scripts.destruct();
   }
 
@@ -265,6 +278,7 @@ public:
   void reset() override {
     m_quitRequested = false;
     m_sceneRequest.reset();
+    m_mouseLockRequested = false;
     m_instances.clear();
     m_classes.clear();
     m_modules.clear();
@@ -278,6 +292,10 @@ public:
 
   std::optional<std::string> takeSceneRequest() override {
     return std::exchange(m_sceneRequest, std::nullopt);
+  }
+
+  bool mouseLockRequested() const override {
+    return m_mouseLockRequested;
   }
 
   void seedRandom(std::uint64_t seed) override {
@@ -1306,6 +1324,13 @@ private:
       }
       return touches;
     });
+    table.set_function("setMouseLocked", [this](const sol::object &locked, sol::this_state state) {
+      if (locked.get_type() != sol::type::boolean) {
+        raise(state, "input.setMouseLocked: expected a boolean");
+      }
+      m_mouseLockRequested = locked.as<bool>();
+    });
+    table.set_function("mouseLocked", [this] { return m_input->mouseLocked(); });
   }
 
   void bindCamera() {
@@ -1339,6 +1364,77 @@ private:
                                                         makeVec3(hit->point), "normal", makeVec3(hit->normal),
                                                         "distance", hit->distance);
                        });
+    table.set_function("sphereCast",
+                       [this](const sol::object &origin, float radius, const sol::object &direction, float maxDistance,
+                              const sol::object &ignore, sol::this_state state) -> sol::object {
+                         // `ignore` is nil, an Entity or an array of them.
+                         std::vector<flecs::entity> ignored;
+                         if (ignore.is<LuaEntity>()) {
+                           ignored.push_back(alive(state, ignore.as<LuaEntity>()));
+                         } else if (ignore.get_type() == sol::type::table) {
+                           const sol::table entities = ignore.as<sol::table>();
+                           for (std::size_t index = 1; index <= entities.size(); ++index) {
+                             const sol::object entry = entities.get<sol::object>(index);
+                             if (!entry.is<LuaEntity>()) {
+                               raise(state, std::format("ignore[{}]: expected an Entity", index));
+                             }
+                             ignored.push_back(alive(state, entry.as<LuaEntity>()));
+                           }
+                         } else if (ignore.get_type() != sol::type::lua_nil && ignore.get_type() != sol::type::none) {
+                           raise(state, "ignore: expected an Entity or an array of them");
+                         }
+                         const std::optional<physics::SphereCastHit> hit =
+                             m_physics->sphereCast(toVec3(state, origin, "origin"), radius,
+                                                   toVec3(state, direction, "direction"), maxDistance, ignored);
+                         if (!hit) {
+                           return sol::make_object(m_lua, sol::lua_nil);
+                         }
+                         return m_lua.create_table_with("entity", LuaEntity{hit->entity.id()}, "point",
+                                                        makeVec3(hit->point), "normal", makeVec3(hit->normal),
+                                                        "distance", hit->distance);
+                       });
+    // Characters (ADR-0038). A value the C++ call would reject raises here, naming it, so a
+    // false return only ever means the entity has no valid character.
+    table.set_function("setCharacterMove",
+                       [this](const LuaEntity &entity, const sol::object &velocity, sol::this_state state) {
+                         const flecs::entity target = alive(state, entity);
+                         const glm::vec3 v = toVec3(state, velocity, "velocity");
+                         if (!finite(v) || std::abs(v.y) > 1e-4f) {
+                           raise(state, std::format("physics.setCharacterMove: the velocity must be finite and "
+                                                    "horizontal (y 0), not ({}, {}, {})",
+                                                    v.x, v.y, v.z));
+                         }
+                         return m_physics->setCharacterMove(target, v);
+                       });
+    table.set_function("jumpCharacter", [this](const LuaEntity &entity, float speed, sol::this_state state) {
+      const flecs::entity target = alive(state, entity);
+      if (!std::isfinite(speed) || speed <= 0.0f) {
+        raise(state, std::format("physics.jumpCharacter: the speed must be a number above 0, not {}", speed));
+      }
+      return m_physics->jumpCharacter(target, speed);
+    });
+    table.set_function("teleportCharacter", [this](const LuaEntity &entity, const sol::object &position, float yaw,
+                                                   sol::this_state state) {
+      const flecs::entity target = alive(state, entity);
+      const glm::vec3 p = toVec3(state, position, "position");
+      if (!finite(p) || !std::isfinite(yaw)) {
+        raise(state, std::format("physics.teleportCharacter: the position and yaw must be finite, not ({}, {}, {}) "
+                                 "and {}",
+                                 p.x, p.y, p.z, yaw));
+      }
+      return m_physics->teleportCharacter(target, p, yaw);
+    });
+    table.set_function("character", [this](const LuaEntity &entity, sol::this_state state) -> sol::object {
+      const std::optional<physics::CharacterState> character = m_physics->character(alive(state, entity));
+      if (!character) {
+        return sol::make_object(m_lua, sol::lua_nil);
+      }
+      sol::table result = m_lua.create_table_with(
+          "velocity", makeVec3(character->velocity), "grounded", character->grounded, "sliding", character->sliding,
+          "groundNormal", makeVec3(character->groundNormal), "supportVelocity", makeVec3(character->supportVelocity));
+      result["support"] = entityObject(character->support);
+      return result;
+    });
     table.set_function("addImpulse",
                        [this](const LuaEntity &entity, const sol::object &impulse, sol::this_state state) {
                          m_physics->addImpulse(alive(state, entity), toVec3(state, impulse, "impulse"));
@@ -1372,6 +1468,7 @@ private:
   bool m_canQuit;
   bool m_quitRequested{false};
   std::optional<std::string> m_sceneRequest;
+  bool m_mouseLockRequested{false};
   // Declared first so it is destroyed last: every sol reference below points into it.
   sol::state m_lua;
   LuaTypes m_types;
@@ -1389,6 +1486,7 @@ private:
   flecs::query<const Scripts> m_scripts;
   flecs::system m_fixedSystem;
   flecs::system m_updateSystem;
+  flecs::system m_lateSystem;
 };
 
 } // namespace

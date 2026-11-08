@@ -1226,3 +1226,285 @@ TEST_CASE("orthographic camera rays start at the pixel and pick the matching obj
                     "=ortho")
               .has_value());
 }
+
+namespace {
+
+// A floor whose top is at y = 0 and, standing on it at the origin, a character named Hero with
+// the given script, or none.
+flecs::entity heroOnFloor(Fixture &fixture, std::string_view file = {}) {
+  const flecs::entity floor = fixture.world.createEntity("Floor");
+  floor.set<world::Transform>({.position = {0.0f, -0.5f, 0.0f}});
+  floor.set<physics::BoxCollider>({.halfExtents = {50.0f, 0.5f, 50.0f}});
+  const flecs::entity hero = file.empty() ? fixture.world.createEntity("Hero") : fixture.scripted("Hero", file);
+  hero.set<world::Transform>({});
+  hero.set<physics::CharacterController>({});
+  return hero;
+}
+
+void lua(Fixture &fixture, std::string_view code) {
+  const auto ran = fixture.scripts->run(code, "test");
+  INFO((ran ? std::string{} : ran.error().message));
+  REQUIRE(ran.has_value());
+}
+
+} // namespace
+
+TEST_CASE("scripts move, jump and teleport a character and read its state", "[scripting][character]") {
+  Fixture fixture;
+  const flecs::entity hero = heroOnFloor(fixture);
+  fixture.world.setPlaying(true);
+  // Before any step: created on the spot by the call, standing nowhere yet.
+  lua(fixture, R"lua(
+    local hero, floor = world.findByName("Hero"), world.findByName("Floor")
+    local state = physics.character(hero)
+    assert(state.grounded == false and state.sliding == false and state.support == nil)
+    assert(state.velocity.x == 0 and state.velocity.y == 0)
+    assert(physics.setCharacterMove(hero, vec3(2, 0, 0)) == true)
+    -- Values the engine would reject raise, naming them; the intent is kept.
+    local ok, err = pcall(physics.setCharacterMove, hero, vec3(0, 1, 0))
+    assert(not ok and err:find("horizontal"), err)
+    assert(not pcall(physics.setCharacterMove, hero, vec3(0 / 0, 0, 0)))
+    ok, err = pcall(physics.jumpCharacter, hero, 0)
+    assert(not ok and err:find("above 0"), err)
+    assert(not pcall(physics.jumpCharacter, hero, 1 / 0))
+    assert(not pcall(physics.teleportCharacter, hero, vec3(1 / 0, 0, 0), 0))
+    assert(not pcall(physics.teleportCharacter, hero, vec3(0, 0, 0), 0 / 0))
+    -- An entity without a controller has no character.
+    assert(physics.setCharacterMove(floor, vec3(1, 0, 0)) == false)
+    assert(physics.jumpCharacter(floor, 1) == false)
+    assert(physics.teleportCharacter(floor, vec3(0, 0, 0), 0) == false)
+    assert(physics.character(floor) == nil)
+    -- A destroyed entity raises, as it does everywhere.
+    local gone = world.create("Gone")
+    gone:destroy()
+    ok, err = pcall(physics.character, gone)
+    assert(not ok and err:find("no longer exists"), err)
+    assert(not pcall(physics.setCharacterMove, gone, vec3(1, 0, 0)))
+  )lua");
+  fixture.run(30);
+  lua(fixture, R"lua(
+    local hero = world.findByName("Hero")
+    local state = physics.character(hero)
+    assert(state.grounded and not state.sliding, "grounded")
+    assert(math.abs(state.velocity.x - 2) < 1e-3, state.velocity.x)
+    assert(state.support:name() == "Floor")
+    assert(math.abs(state.groundNormal.y - 1) < 1e-3)
+    assert(state.supportVelocity.x == 0)
+    assert(physics.teleportCharacter(hero, vec3(5, 0, 3), math.pi / 2))
+  )lua");
+  // A teleport writes the Transform at once, so this frame draws it there.
+  REQUIRE(hero.get<world::Transform>().position.x == Catch::Approx(5.0f));
+  REQUIRE(hero.get<world::Transform>().position.z == Catch::Approx(3.0f));
+
+  // Disabled, it has no character.
+  hero.add<world::Disabled>();
+  lua(fixture, R"lua(
+    local hero = world.findByName("Hero")
+    assert(physics.character(hero) == nil)
+    assert(physics.setCharacterMove(hero, vec3(1, 0, 0)) == false)
+  )lua");
+}
+
+TEST_CASE("a command reaches the next fixed step and a jump is consumed once", "[scripting][character]") {
+  Fixture fixture{{"hero.lua", R"lua(
+    local Hero = {}
+    function Hero:start() self.frames = 0 end
+    function Hero:fixedUpdate()
+      print(string.format("@fixed %.1f", physics.character(self.entity).velocity.x))
+    end
+    function Hero:update()
+      self.frames = self.frames + 1
+      if self.frames == 1 then physics.setCharacterMove(self.entity, vec3(2, 0, 0)) end
+    end
+    return Hero
+  )lua"}};
+  const flecs::entity hero = heroOnFloor(fixture, "hero.lua");
+  fixture.world.setPlaying(true);
+  // Set in the first frame's update, after its step: the second step is the first to walk.
+  fixture.run(2);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"fixed 0.0", "fixed 2.0"});
+  fixture.run(30);
+  REQUIRE(fixture.physics->character(hero)->grounded);
+
+  // Two requests before a step: the last wins. A frame without a step leaves it pending.
+  lua(fixture, R"lua(
+    local hero = world.findByName("Hero")
+    physics.jumpCharacter(hero, 2)
+    physics.jumpCharacter(hero, 5)
+  )lua");
+  fixture.world.progress(Step * 0.25f);
+  REQUIRE(fixture.physics->character(hero)->grounded);
+  REQUIRE(fixture.physics->character(hero)->velocity.y == Catch::Approx(0.0f).margin(1e-3));
+  // Three steps in one frame: the first consumes it, the others only add gravity.
+  const std::size_t before = fixture.trace().size();
+  fixture.world.progress(Step * 3.0f);
+  REQUIRE(fixture.trace().size() == before + 3);
+  const physics::CharacterState state = *fixture.physics->character(hero);
+  REQUIRE_FALSE(state.grounded);
+  REQUIRE(state.velocity.y == Catch::Approx(5.0f - 3.0f * 9.81f * Step).margin(0.02f));
+}
+
+TEST_CASE("physics.sphereCast hits the first solid body and skips the ignored ones", "[scripting][character]") {
+  Fixture fixture;
+  heroOnFloor(fixture);
+  const flecs::entity side = fixture.world.createEntity("Side");
+  side.set<world::Transform>({.position = {10.0f, 1.0f, 0.0f}});
+  side.set<physics::BoxCollider>({.halfExtents = {0.5f, 0.5f, 0.5f}});
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  lua(fixture, R"lua(
+    local hero, floor = world.findByName("Hero"), world.findByName("Floor")
+    local down = vec3(0, -1, 0)
+    -- A character is seen through its inner body and reported as the controller's entity.
+    local hit = physics.sphereCast(vec3(0, 5, 0), 0.2, down, 10)
+    assert(hit.entity:name() == "Hero", hit.entity:name())
+    hit = physics.sphereCast(vec3(0, 5, 0), 0.2, down, 10, hero)
+    assert(hit.entity:name() == "Floor")
+    assert(math.abs(hit.distance - 4.8) < 0.05, hit.distance)
+    assert(math.abs(hit.normal.y - 1) < 1e-3 and math.abs(hit.point.y) < 0.05)
+    assert(physics.sphereCast(vec3(0, 5, 0), 0.2, down, 10, { hero, floor }) == nil)
+    assert(physics.sphereCast(vec3(0, 5, 0), 0.2, down, 3, hero) == nil)
+    assert(physics.sphereCast(vec3(5, 1, 0), 0.5, vec3(1, 0, 0), 10).entity:name() == "Side")
+    assert(physics.sphereCast(vec3(0, 5, 0), 0, down, 10) == nil)
+    local ok, err = pcall(physics.sphereCast, vec3(0, 5, 0), 0.2, down, 10, { 1 })
+    assert(not ok and err:find("ignore%[1%]"), err)
+    assert(not pcall(physics.sphereCast, vec3(0, 5, 0), 0.2, down, 10, "Hero"))
+  )lua");
+}
+
+TEST_CASE("lateUpdate runs after the interpolation and reads the frame's drawn poses", "[scripting][character]") {
+  Fixture fixture{{"hero.lua", R"lua(
+    local Hero = {}
+    local function fmt(v) return string.format("%.6f,%.6f", v.x + 0, v.y + 0) end
+    function Hero:start() physics.setCharacterMove(self.entity, vec3(2, 0, 0)) end
+    function Hero:fixedUpdate() print("@fixed") end
+    function Hero:update() print("@update " .. fmt(self.entity:worldPosition())) end
+    function Hero:lateUpdate(dt)
+      local eye = self.entity:children()[1]
+      print(string.format("@late %s %s %.6f", fmt(self.entity:worldPosition()), fmt(eye:worldPosition()), dt))
+    end
+    return Hero
+  )lua"}};
+  const flecs::entity hero = heroOnFloor(fixture, "hero.lua");
+  const flecs::entity eye = fixture.world.createEntity("Eye", hero);
+  eye.set<world::Transform>({.position = {0.0f, 1.6f, 0.0f}});
+  fixture.world.setPlaying(true);
+  fixture.run(10);
+  // Frames of one and a half steps: alternately one step and two, never a whole number behind.
+  for (int frame = 0; frame < 6; ++frame) {
+    fixture.sink->records.clear();
+    fixture.world.progress(Step * 1.5f);
+    const std::vector<std::string> lines = fixture.trace();
+    REQUIRE(lines.size() >= 3);
+    REQUIRE(lines[0] == "fixed");
+    REQUIRE(lines.back().starts_with("late "));
+    REQUIRE(before(lines, "update", "late"));
+    const glm::vec3 drawn = hero.get<world::Transform>().position;
+    const std::string at = std::format("{:.6f},{:.6f}", drawn.x, drawn.y);
+    // lateUpdate sees what the frame draws, the child through the hierarchy; update saw the step's pose.
+    REQUIRE(lines.back() == std::format("late {} {:.6f},{:.6f} {:.6f}", at, drawn.x, drawn.y + 1.6f, Step * 1.5f));
+    REQUIRE(lines[lines.size() - 2] != std::format("update {}", at));
+  }
+}
+
+TEST_CASE("lateUpdate skips disabled and destroyed entities, pauses and keeps a zero delta", "[scripting][character]") {
+  Fixture fixture{{"late.lua", R"lua(
+    local Late = {}
+    function Late:lateUpdate(dt)
+      print(string.format("@late %s %.4f", self.entity:name(), dt))
+      if self.entity:name() == "First" and _G.destroySecond then world.findByName("Second"):destroy() end
+    end
+    return Late
+  )lua"}};
+  const flecs::entity first = fixture.scripted("First", "late.lua");
+  const flecs::entity second = fixture.scripted("Second", "late.lua");
+  fixture.run(1); // edit mode: nothing
+  REQUIRE(fixture.trace().empty());
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  const std::string step = std::format("{:.4f}", Step);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"late First " + step, "late Second " + step});
+
+  // Paused, the simulation systems do not run, lateUpdate included.
+  fixture.sink->records.clear();
+  fixture.world.setPaused(true);
+  fixture.run(2);
+  REQUIRE(fixture.trace().empty());
+  fixture.world.setPaused(false);
+
+  // At time scale 0 it still runs, with a zero delta.
+  fixture.world.setTimeScale(0.0f);
+  fixture.run(1);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"late First 0.0000", "late Second 0.0000"});
+  fixture.world.setTimeScale(1.0f);
+
+  // Disabled, an entity gets none.
+  fixture.sink->records.clear();
+  first.add<world::Disabled>();
+  fixture.run(1);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"late Second " + step});
+  first.remove<world::Disabled>();
+
+  // Destroyed by an earlier lateUpdate in the same frame, neither.
+  lua(fixture, "_G.destroySecond = true");
+  fixture.sink->records.clear();
+  fixture.run(1);
+  REQUIRE(fixture.trace() == std::vector<std::string>{"late First " + step});
+  REQUIRE_FALSE(second.is_alive());
+}
+
+TEST_CASE("input.setMouseLocked is an intent and input.mouseLocked the state the application reports",
+          "[scripting][input]") {
+  Fixture fixture;
+  REQUIRE_FALSE(fixture.scripts->mouseLockRequested());
+  lua(fixture, "input.setMouseLocked(true)");
+  REQUIRE(fixture.scripts->mouseLockRequested());
+  // Asked for, not granted until the application says so.
+  lua(fixture, "assert(input.mouseLocked() == false)");
+  fixture.input.setMouseLocked(true);
+  lua(fixture, "assert(input.mouseLocked() == true)");
+  // The reported state lasts across frames and released keys; only the application changes it.
+  fixture.input.beginFrame();
+  fixture.input.releaseAll();
+  lua(fixture, "assert(input.mouseLocked() == true)");
+  // Anything but a boolean raises and leaves the intent as it was.
+  lua(fixture, R"lua(
+    local ok, err = pcall(input.setMouseLocked, 1)
+    assert(not ok and err:find("boolean"), err)
+    assert(not pcall(input.setMouseLocked))
+  )lua");
+  REQUIRE(fixture.scripts->mouseLockRequested());
+  lua(fixture, "input.setMouseLocked(false)");
+  REQUIRE_FALSE(fixture.scripts->mouseLockRequested());
+  // Stopping play and replacing the scene both reset the runtime, which forgets the intent.
+  lua(fixture, "input.setMouseLocked(true)");
+  fixture.scripts->reset();
+  REQUIRE_FALSE(fixture.scripts->mouseLockRequested());
+}
+
+TEST_CASE("a replaced scene's character starts from fresh state and takes commands", "[scripting][character]") {
+  Fixture fixture{{"hero.lua", R"lua(
+    local Hero = {}
+    function Hero:start()
+      physics.setCharacterMove(self.entity, vec3(1, 0, 0))
+      input.setMouseLocked(true)
+    end
+    return Hero
+  )lua"}};
+  heroOnFloor(fixture, "hero.lua");
+  fixture.world.setPlaying(true);
+  fixture.run(20);
+  REQUIRE(fixture.scripts->mouseLockRequested());
+  // As the player's openScene does: the running scene goes with its instances.
+  fixture.world.setPlaying(false);
+  fixture.world.clearScene();
+  fixture.scripts->reset();
+  REQUIRE_FALSE(fixture.scripts->mouseLockRequested());
+  const flecs::entity hero = heroOnFloor(fixture, "hero.lua");
+  fixture.world.setPlaying(true);
+  fixture.run(20);
+  REQUIRE(fixture.scripts->mouseLockRequested());
+  REQUIRE(fixture.scripts->instanceCount() == 1);
+  REQUIRE(hero.get<world::Transform>().position.x > 0.2f);
+  REQUIRE(hero.get<world::Transform>().position.x < 0.4f);
+}
