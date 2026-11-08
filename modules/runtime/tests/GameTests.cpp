@@ -32,11 +32,13 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -122,6 +124,14 @@ namespace {
     ++textures;
   }
   REQUIRE(textures == 12);
+  // The sky has no cache entry: a bundle's map is cooked from the .hdr each time, which for the 2k
+  // sky is most of a cook's minute in Debug (issue #497). A 4x2 grey sky in the copy keeps it short.
+  std::string sky = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 2 +X 4\n";
+  for (int texel = 0; texel < 8; ++texel) {
+    sky += "\x80\x80\x80\x81"; // RGBE for 1.0 in each channel
+  }
+  REQUIRE(core::writeFile(project / "assets" / "level" / "kloofendal_48d_partly_cloudy_2k.hdr", std::string_view{sky})
+              .has_value());
   return project;
 }
 
@@ -1475,8 +1485,7 @@ TEST_CASE("the character sample's course collides as drawn, its platform moves a
   if (project.empty()) {
     SKIP("the character sample was not found in a checkout above the test binary");
   }
-  // Played from the project only: cooking its textures and sky takes minutes in a Debug build on
-  // CI's Lavapipe, and the bundle path is covered by the basic sample's tests.
+  // Played from the project: the route test below runs the course from the cooked bundle too.
   {
     const auto problems = std::make_shared<ProblemSink>();
     const auto messages = std::make_shared<MessageSink>();
@@ -2159,6 +2168,306 @@ TEST_CASE("the character sample's route runs the course with planted feet, singl
   core::Log::removeSink(messages);
   core::Log::removeSink(problems);
   CHECK(problems->problems.empty());
+}
+
+namespace {
+
+// What one run of the character sample's route did, for comparing a run from the project folder
+// with one from the cooked bundle.
+struct RouteTrace {
+  int finishedAt{-1}; // the step that logged the route's end
+  glm::vec3 end{};
+  int footsteps{0};
+  int respawns{0};             // before the drop into the pit
+  bool rode{false};            // stood on the moving platform while it moved
+  std::array<float, 6> peak{}; // the highest weight each of the Animator's layers reached
+  glm::vec3 respawned{};       // where the kill volume put it back
+  std::vector<std::string> problems;
+};
+
+} // namespace
+
+// Issue #497: the route scene from the project folder and from the cooked bundle, as the player
+// runs either. Each run moves, turns where the route turns, walks, rides the platform, jumps onto
+// the ledge block, falls off its far side and lands, and is respawned after a drop into the pit;
+// the two runs agree on where the character went, the clips it played and the steps it took. The
+// bundle then runs a capture scene the way `sonnet_player <bundle> --scene ... --play` does.
+TEST_CASE("the character sample's route plays the same from its folder and from a cooked bundle",
+          "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const std::filesystem::path out = std::filesystem::temp_directory_path() / "sonnet_runtime_character_bundle";
+  std::filesystem::remove_all(out);
+  {
+    // Cooked through a Game, so the cook and the run use one database as they do in the editor.
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(project).has_value());
+    const auto opened = assets::Project::open(project);
+    REQUIRE(opened.has_value());
+    const auto report = assets::cook(game.assets(), *opened, {.outputDirectory = out});
+    REQUIRE(report.has_value());
+    REQUIRE(report->warnings.empty());
+  }
+
+  const auto play = [&](const std::filesystem::path &source) {
+    RouteTrace trace;
+    const auto problems = std::make_shared<ProblemSink>();
+    const auto messages = std::make_shared<FrameSink>();
+    core::Log::addSink(problems);
+    core::Log::addSink(messages);
+    {
+      // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+      test::RelativeModeWindow window{*fixture.window};
+      runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+      REQUIRE(game.open(source).has_value());
+      REQUIRE(game.openScene("scenes/route.scene.json").has_value());
+      world::World &world = game.world();
+      const auto character = [&] {
+        for (const flecs::entity entity : world.roots()) {
+          const world::Name *named = entity.try_get<world::Name>();
+          if (named != nullptr && named->value == "Character") {
+            return entity;
+          }
+        }
+        return flecs::entity{};
+      };
+      const auto said = [&](std::string_view text) {
+        return std::ranges::count_if(messages->messages, [&](const auto &record) { return record.second == text; });
+      };
+      // The clips load on the asset workers the first time the Animator asks, from the bundle as
+      // from the project: play until they move, then open the scene again, as the route test does.
+      {
+        const flecs::entity model = world.findByPath(character(), "Model");
+        REQUIRE(model.is_valid());
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
+        while (model.get<world::Animator>().time == 0.0f && std::chrono::steady_clock::now() < deadline) {
+          game.update(1.0f / 60.0f);
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        REQUIRE(model.get<world::Animator>().time > 0.0f);
+      }
+      REQUIRE(game.openScene("scenes/route.scene.json").has_value());
+      messages->messages.clear();
+      messages->frame = 0;
+      problems->problems.clear();
+
+      const flecs::entity body = character();
+      REQUIRE(body.is_valid());
+      const flecs::entity model = world.findByPath(body, "Model");
+      REQUIRE(model.is_valid());
+      const auto step = [&] {
+        game.update(1.0f / 60.0f);
+        ++messages->frame;
+      };
+      for (int frame = 0; frame < 60 * 70 && said("Character finished its route") == 0; ++frame) {
+        step();
+        const auto state = game.physics().character(body);
+        REQUIRE(state.has_value());
+        if (state->grounded && glm::length(state->supportVelocity) > 0.5f) {
+          trace.rode = true;
+        }
+        const std::vector<world::AnimationLayer> &layers = model.get<world::Animator>().layers;
+        REQUIRE(layers.size() == trace.peak.size());
+        for (std::size_t i = 0; i < layers.size(); ++i) {
+          trace.peak[i] = std::max(trace.peak[i], layers[i].weight);
+        }
+      }
+      for (const auto &[frame, text] : messages->messages) {
+        if (text == "Character finished its route") {
+          trace.finishedAt = frame;
+        }
+        if (text.starts_with("footstep left ") || text.starts_with("footstep right ")) {
+          ++trace.footsteps;
+        }
+      }
+      trace.end = body.get<world::Transform>().position;
+      trace.respawns = static_cast<int>(said("Character fell and was respawned"));
+
+      // Over the pit beside the platform: the kill volume puts the character back at the start.
+      world::Transform drop = body.get<world::Transform>();
+      drop.position = {5.0f, 0.0f, -6.0f};
+      body.set(drop);
+      for (int i = 0; i < 240 && said("Character fell and was respawned") == trace.respawns; ++i) {
+        step();
+      }
+      trace.respawned = body.get<world::Transform>().position;
+    }
+    core::Log::removeSink(messages);
+    core::Log::removeSink(problems);
+    trace.problems = problems->problems;
+    return trace;
+  };
+
+  const RouteTrace folder = play(project);
+  const RouteTrace bundle = play(out / "game.sbundle");
+  // The Animator's layers, in character.lua's order after Walk, its own clip.
+  enum Layer : std::uint8_t {
+    Idle,
+    Run,
+    JumpStart,
+    Fall,
+    Land,
+    HardLand
+  };
+  for (const RouteTrace *trace : {&folder, &bundle}) {
+    INFO((trace == &folder ? "from the folder" : "from the bundle"));
+    CHECK(trace->problems.empty());
+    REQUIRE(trace->finishedAt > 0);
+    CHECK(trace->respawns == 0);
+    CHECK(trace->end.x == Approx(3.0f).margin(0.6f));
+    CHECK(trace->end.z == Approx(-20.5f).margin(0.6f));
+    CHECK(trace->end.y == Approx(0.0f).margin(0.01f));
+    CHECK(trace->rode);
+    CHECK(trace->footsteps > 40);
+    CHECK(trace->peak[Idle] == Approx(1.0f));
+    CHECK(trace->peak[Run] > 0.9f);
+    CHECK(trace->peak[JumpStart] > 0.4f); // the jump onto the ledge block, faded in
+    CHECK(trace->peak[Fall] > 0.5f);      // off its far side, 1.2 m down
+    CHECK(trace->peak[Land] > 0.3f);      // and the landing at the bottom
+    CHECK(trace->peak[HardLand] == 0.0f); // no drop on the route is that hard
+    CHECK(trace->respawned.x == Approx(0.0f).margin(0.05f));
+    CHECK(trace->respawned.z == Approx(10.0f).margin(0.05f));
+  }
+  // The same simulation from the same scene: Jolt is deterministic on one machine and build (no
+  // promise across platforms), and the bundle's cooked colliders and clips are the project's.
+  CHECK(bundle.finishedAt == folder.finishedAt);
+  CHECK(glm::length(bundle.end - folder.end) < 0.001f);
+  CHECK(bundle.footsteps == folder.footsteps);
+  for (std::size_t i = 0; i < folder.peak.size(); ++i) {
+    CHECK(bundle.peak[i] == Approx(folder.peak[i]).margin(0.001f));
+  }
+
+  // A capture scene from the bundle, through the player's own flags: it plays its route for the
+  // documented time and writes the still.
+  const std::filesystem::path shot = out / "landing.png"; // absolute, so it stays where it is
+  {
+    test::RelativeModeWindow window{*fixture.window};
+    runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(out / "game.sbundle").has_value());
+    runtime::CaptureRun run{playerCapture({"--scene", "scenes/capture_landing.scene.json", "--play", "1.4",
+                                           "--settle-frames", "1", "--screenshot", shot.string()})};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
+  }
+  REQUIRE(std::filesystem::is_regular_file(shot));
+  sonnet::test::removeScratch(out);
+}
+
+// Issue #497: the start scene from the keyboard at 30, 60 and 144 rendered frames a second. The
+// world steps at a fixed 1/60 s whatever the frame rate: at 30 each frame runs two steps, at 144
+// most frames run none and draw the character interpolated between steps. Two seconds of running
+// east cover the same ground; a Space press in a frame without a step still jumps, as high; and
+// the camera, placed after the interpolation, moves by the same distance every frame while the
+// character runs at a constant speed, so the view does not judder.
+TEST_CASE("the character sample runs and jumps the same at 30, 60 and 144 frames a second", "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  struct Result {
+    float travel{0.0f}; // m east in two seconds from standing
+    float height{0.0f}; // m, the top of a jump from standing
+    float judder{0.0f}; // the largest difference of one frame's camera motion from the mean, over the mean
+  };
+  const auto play = [&](int rate) {
+    Result result;
+    const auto problems = std::make_shared<ProblemSink>();
+    core::Log::addSink(problems);
+    {
+      // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+      test::RelativeModeWindow window{*fixture.window};
+      runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+      REQUIRE(game.open(project).has_value());
+      world::World &world = game.world();
+      flecs::entity character;
+      flecs::entity camera;
+      for (const flecs::entity entity : world.roots()) {
+        const world::Name *named = entity.try_get<world::Name>();
+        if (named != nullptr && named->value == "Character") {
+          character = entity;
+        } else if (named != nullptr && named->value == "Camera") {
+          camera = entity;
+        }
+      }
+      REQUIRE(character.is_valid());
+      REQUIRE(camera.is_valid());
+      const float dt = 1.0f / static_cast<float>(rate);
+      const auto frames = [&](float seconds) {
+        for (int i = 0; i < static_cast<int>(std::lround(seconds * static_cast<float>(rate))); ++i) {
+          game.update(dt);
+        }
+      };
+      const auto press = [&](platform::Key key) {
+        game.event(platform::KeyPressed{.key = key, .modifiers = {}, .repeat = false});
+      };
+      const auto release = [&](platform::Key key) { game.event(platform::KeyReleased{.key = key, .modifiers = {}}); };
+      const auto position = [&] { return character.get<world::Transform>().position; };
+
+      // To the open floor south of the course, west of the columns; the camera looks north, so D
+      // runs east along it. Writing the Transform teleports the character.
+      frames(0.5f);
+      world::Transform start = character.get<world::Transform>();
+      start.position = {-6.0f, 0.0f, 11.0f};
+      character.set(start);
+      frames(0.5f);
+      REQUIRE(game.physics().character(character)->grounded);
+
+      const float x = position().x;
+      press(platform::Key::D);
+      std::vector<glm::vec3> eye;
+      for (int i = 0; i < 2 * rate; ++i) {
+        game.update(dt);
+        if (i >= rate) { // the second second: at the run speed, the camera caught up
+          eye.push_back(camera.get<world::Transform>().position);
+        }
+      }
+      result.travel = position().x - x;
+      release(platform::Key::D);
+      std::vector<float> moved;
+      for (std::size_t i = 1; i < eye.size(); ++i) {
+        moved.push_back(glm::length(eye[i] - eye[i - 1]));
+      }
+      const float mean = std::accumulate(moved.begin(), moved.end(), 0.0f) / static_cast<float>(moved.size());
+      for (const float distance : moved) {
+        result.judder = std::max(result.judder, std::abs(distance - mean) / mean);
+      }
+
+      frames(1.0f);
+      const float ground = position().y;
+      press(platform::Key::Space);
+      game.update(dt);
+      release(platform::Key::Space);
+      float highest = ground;
+      for (int i = 0; i < rate * 3 / 2; ++i) {
+        game.update(dt);
+        highest = std::max(highest, position().y);
+      }
+      result.height = highest - ground;
+    }
+    core::Log::removeSink(problems);
+    CHECK(problems->problems.empty());
+    return result;
+  };
+
+  const Result at60 = play(60);
+  for (const int rate : {30, 60, 144}) {
+    const Result result = rate == 60 ? at60 : play(rate);
+    INFO(rate << " frames a second: " << result.travel << " m in 2 s, a jump " << result.height
+              << " m high, the camera's motion within " << result.judder * 100.0f << "% of its mean");
+    // 4.8 m/s for two seconds, less the 0.96 m reaching it at 12 m/s^2 costs and the step the
+    // first one to read the key takes: 8.52 m measured.
+    CHECK(result.travel == Approx(8.6f).margin(0.15f));
+    // At 30 and 60 a press lands on a step's start; at 144 it can land up to one step before the
+    // next one reads it, which is at most 4.8 m/s * 1/60 s = 0.08 m less of running.
+    CHECK(result.travel == Approx(at60.travel).margin(0.09f));
+    // 5 m/s up is 1.27 m in closed form; Jolt's steps of 1/60 s reach 1.23 m at every rate.
+    CHECK(result.height == Approx(1.25f).margin(0.05f));
+    CHECK(result.height == Approx(at60.height).margin(0.01f));
+    CHECK(result.judder < 0.01f); // measured at 0.01 to 0.014 %
+  }
 }
 
 namespace {
