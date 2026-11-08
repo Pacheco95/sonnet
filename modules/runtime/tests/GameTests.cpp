@@ -1682,10 +1682,11 @@ TEST_CASE("the character sample runs, walks, stops, turns and jumps from the key
   CHECK(speed() < 0.01f);
   CHECK(character.get<world::Transform>().rotation.w == Approx(1.0f)); // the root never turns
 
-  // Walking south with Shift.
+  // Walking south with Shift. From standing facing north-east, that is a half turn on the spot,
+  // which holds the walk back for up to `turnHold`, 0.6 s (issue #528).
   press(platform::Key::LeftShift);
   press(platform::Key::S);
-  frames(40);
+  frames(75);
   CHECK(speed() == Approx(1.5f).margin(0.05f));
   CHECK(facing().y > 0.99f);
   release(platform::Key::S);
@@ -1804,14 +1805,14 @@ TEST_CASE("the character sample's coyote time and its hard and interrupted landi
     transform.position = to;
     character.set(transform);
   };
-  // The script's layers: Idle, Run, JumpStart, Fall, Land, HardLand.
+  // The script's layers: Idle, Run, JumpStart, Fall, Land, HardLand, Turn.
   constexpr std::size_t jumpLayer = 2;
   constexpr std::size_t fallLayer = 3;
   constexpr std::size_t landLayer = 4;
   constexpr std::size_t hardLayer = 5;
   const auto layer = [&](std::size_t index) {
     const world::Animator &animator = model.get<world::Animator>();
-    REQUIRE(animator.layers.size() == 6);
+    REQUIRE(animator.layers.size() == 7);
     return animator.layers[index];
   };
   // Steps until the character is on the ground after having left it; false after five seconds.
@@ -1983,6 +1984,201 @@ TEST_CASE("the character sample's coyote time and its hard and interrupted landi
   CHECK(problems->problems.empty());
 }
 
+// Issue #528: turning on the spot. From standing, a tap of a key a quarter turn and then a half turn
+// off the way the model faces plays a turn clip of that size and side: the model ends facing the
+// key's direction, the capsule stays where it stood, and the toes, while planted, move under 0.7 of
+// what they would if the idle were swung round on them (the arc they sweep at their distance from
+// the capsule's axis, as the script did before; 0.5 to 0.6 measured, the rest being the capture's
+// own shuffle and pivots on the ball of the foot). An input less than `turnThreshold` off still
+// turns the model smoothly as the character moves off, with no turn clip.
+TEST_CASE("the character sample turns on the spot with a turn clip, its planted feet staying put",
+          "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const auto problems = std::make_shared<ProblemSink>();
+  core::Log::addSink(problems);
+  // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+  test::RelativeModeWindow window{*fixture.window};
+  runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  world::World &world = game.world();
+  flecs::entity character;
+  for (const flecs::entity entity : world.roots()) {
+    const world::Name *named = entity.try_get<world::Name>();
+    if (named != nullptr && named->value == "Character") {
+      character = entity;
+    }
+  }
+  REQUIRE(character.is_valid());
+  const flecs::entity model = world.findByPath(character, "Model");
+  REQUIRE(model.is_valid());
+  const auto toes = [&](std::string_view side) {
+    const std::string leg = std::format("pelvis/thigh_{0}/calf_{0}/foot_{0}/ball_{0}", side);
+    flecs::entity foot = world.findByPath(model, "Armature/Root/" + leg);
+    if (!foot.is_valid()) {
+      foot = world.findByPath(model, "Root/" + leg);
+    }
+    return foot;
+  };
+  const std::array feet{toes("l"), toes("r")};
+  REQUIRE(feet[0].is_valid());
+  REQUIRE(feet[1].is_valid());
+  const auto frames = [&](int count) {
+    for (int i = 0; i < count; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+  };
+  const auto press = [&](platform::Key key) {
+    game.event(platform::KeyPressed{.key = key, .modifiers = {}, .repeat = false});
+  };
+  const auto release = [&](platform::Key key) { game.event(platform::KeyReleased{.key = key, .modifiers = {}}); };
+  const auto position = [&] { return character.get<world::Transform>().position; };
+  // The model's yaw about +Y, 0 facing -Z, as character.lua measures it.
+  const auto facing = [&] {
+    const glm::vec3 forward = model.get<world::Transform>().rotation * glm::vec3{0.0f, 0.0f, -1.0f};
+    return std::atan2(-forward.x, -forward.z);
+  };
+  const auto wrap = [](float angle) { return std::remainder(angle, 2.0f * glm::pi<float>()); };
+  // The turn layer, the script's seventh: Idle, Run, JumpStart, Fall, Land, HardLand, Turn.
+  const auto turnLayer = [&] {
+    const world::Animator &animator = model.get<world::Animator>();
+    REQUIRE(animator.layers.size() == 7);
+    return animator.layers[6];
+  };
+  const auto clip = [](std::string_view text) {
+    const std::optional<core::Uuid> id = core::Uuid::parse(text);
+    REQUIRE(id.has_value());
+    return *id;
+  };
+  const core::Uuid turnRight90 = clip("628e9da2-02b1-8a6b-af6f-c70e4c1d97f8");
+  const core::Uuid turnLeft180 = clip("3eb8cf51-7a29-84fd-b531-fa1c3dd75130");
+  const core::Uuid turnRight180 = clip("f1b9cf51-7a2a-84fd-822f-fa1c3dd65130");
+
+  // The humanoid's clips are imported on the asset workers the first time an Animator asks: play
+  // until its time moves, then a second more, standing at the start facing -Z.
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
+  while (model.get<world::Animator>().time == 0.0f && std::chrono::steady_clock::now() < deadline) {
+    game.update(1.0f / 60.0f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  REQUIRE(model.get<world::Animator>().time > 0.0f);
+  frames(60);
+  REQUIRE(game.physics().character(character)->grounded);
+  CHECK(std::abs(facing()) < 0.01f);
+
+  struct Turn {
+    core::Uuid clip;
+    float peak{0.0f};               // the turn layer's highest weight
+    float played{0.0f};             // how far its clip got, in seconds
+    float turned{0.0f};             // the model's yaw at the end less at the start
+    float moved{0.0f};              // the farthest the capsule got from where it stood
+    std::array<float, 2> planted{}; // how far each foot's toes travelled while planted
+    std::array<float, 2> swept{};   // the arc they would sweep on the idle, swung by `turned`
+  };
+  // Taps a key (one frame down) and plays until the turn layer has faded and the model is still.
+  const auto turn = [&](platform::Key key) {
+    Turn result;
+    const glm::vec3 start = position();
+    const float from = facing();
+    std::array<std::vector<glm::vec3>, 2> path;
+    for (std::size_t foot = 0; foot < 2; ++foot) {
+      const glm::vec3 at{feet[foot].get<world::WorldTransform>().matrix[3]};
+      path[foot].push_back(at);
+    }
+    press(key);
+    frames(1);
+    release(key);
+    float last = facing();
+    int still = 0;
+    for (int frame = 0; frame < 60 * 5 && still < 10; ++frame) {
+      frames(1);
+      const world::AnimationLayer layer = turnLayer();
+      if (layer.weight > result.peak) {
+        result.peak = layer.weight;
+        result.clip = layer.clip;
+      }
+      result.played = std::max(result.played, layer.time);
+      result.moved = std::max(result.moved, glm::length(position() - start));
+      for (std::size_t foot = 0; foot < 2; ++foot) {
+        path[foot].emplace_back(feet[foot].get<world::WorldTransform>().matrix[3]);
+      }
+      still = (result.peak > 0.0f && layer.weight == 0.0f && std::abs(wrap(facing() - last)) < 1e-5f) ? still + 1 : 0;
+      last = facing();
+    }
+    result.turned = wrap(facing() - from);
+    for (std::size_t foot = 0; foot < 2; ++foot) {
+      float lowest = path[foot].front().y;
+      for (const glm::vec3 &p : path[foot]) {
+        lowest = std::min(lowest, p.y);
+      }
+      // Planted as the clips' contacts are measured (LICENSES.md): within 2.5 cm of the lowest and
+      // slower than 0.6 m/s. A step the turn takes is neither; on the idle swung round, the toes
+      // never leave the floor, so all of the arc is sliding.
+      for (std::size_t i = 1; i < path[foot].size(); ++i) {
+        const glm::vec3 a = path[foot][i - 1];
+        const glm::vec3 b = path[foot][i];
+        const float step = glm::length(glm::vec2{b.x - a.x, b.z - a.z});
+        if (a.y < lowest + 0.025f && b.y < lowest + 0.025f && step * 60.0f < 0.6f) {
+          result.planted[foot] += step;
+        }
+      }
+      const glm::vec3 first = path[foot].front();
+      result.swept[foot] = glm::length(glm::vec2{first.x - start.x, first.z - start.z}) * std::abs(result.turned);
+    }
+    return result;
+  };
+
+  // A quarter turn to the right: D, with the camera behind the character looking along -Z.
+  const Turn quarter = turn(platform::Key::D);
+  INFO("quarter turn: turned " << glm::degrees(quarter.turned) << " degrees, planted " << quarter.planted[0] << " and "
+                               << quarter.planted[1] << " m, swept " << quarter.swept[0] << " and " << quarter.swept[1]
+                               << " m, moved " << quarter.moved << " m");
+  CHECK(quarter.clip == turnRight90);
+  CHECK(quarter.peak > 0.95f);
+  CHECK(quarter.played == Approx(42.0f / 30.0f).margin(0.01f)); // to the end of its clip
+  CHECK(glm::degrees(wrap(facing() + glm::half_pi<float>())) == Approx(0.0f).margin(1.0f));
+  CHECK(quarter.moved < 0.01f);
+  for (std::size_t foot = 0; foot < 2; ++foot) {
+    CHECK(quarter.swept[foot] > 0.1f);
+    CHECK(quarter.planted[foot] < 0.7f * quarter.swept[foot]);
+  }
+
+  // A half turn, to face +X's opposite: A, either way round.
+  const Turn half = turn(platform::Key::A);
+  INFO("half turn: turned " << glm::degrees(half.turned) << " degrees, planted " << half.planted[0] << " and "
+                            << half.planted[1] << " m, swept " << half.swept[0] << " and " << half.swept[1]
+                            << " m, moved " << half.moved << " m");
+  CHECK((half.clip == turnLeft180 || half.clip == turnRight180));
+  CHECK(half.peak > 0.95f);
+  CHECK(glm::degrees(wrap(facing() - glm::half_pi<float>())) == Approx(0.0f).margin(1.0f));
+  CHECK(half.moved < 0.01f);
+  for (std::size_t foot = 0; foot < 2; ++foot) {
+    CHECK(half.swept[foot] > 0.2f);
+    CHECK(half.planted[foot] < 0.7f * half.swept[foot]);
+  }
+
+  // 45 degrees off, below the threshold: no turn clip, the model turns as the character runs off.
+  const glm::vec3 stood = position();
+  press(platform::Key::A);
+  press(platform::Key::W);
+  float weight = 0.0f;
+  for (int i = 0; i < 30; ++i) {
+    frames(1);
+    weight = std::max(weight, turnLayer().weight);
+  }
+  release(platform::Key::A);
+  release(platform::Key::W);
+  CHECK(weight == 0.0f);
+  CHECK(glm::degrees(wrap(facing() - glm::quarter_pi<float>())) == Approx(0.0f).margin(2.0f));
+  CHECK(glm::length(position() - stood) > 1.0f);
+
+  core::Log::removeSink(problems);
+  CHECK(problems->problems.empty());
+}
+
 // Issue #496: the character sample's route scene runs the course by itself through the same
 // controller the keys drive: through the passage and the tunnel, up the ramp and down the steps,
 // over the pit on the platform and onto the ledge block with a jump, to the last waypoint, without
@@ -2068,12 +2264,19 @@ TEST_CASE("the character sample's route runs the course with planted feet, singl
     const std::array ignore{character};
     int cameraOverlaps = 0;
     int frames = 0;
+    // The frame the character sets off: the first leg starts with a quarter turn on the spot, which
+    // holds it back for a while (issue #528). The windows count from there.
+    int off = -1;
     for (; frames < 60 * 70 && (frames % 30 != 0 || said("Character finished its route") == 0); ++frames) {
       step();
       const glm::vec3 toes{foot.get<world::WorldTransform>().matrix[3]};
-      if (frames >= 36 && frames < 84) {
+      if (off < 0 && glm::length(glm::vec2{physics.character(character)->velocity.x,
+                                           physics.character(character)->velocity.z}) > 0.2f) {
+        off = frames;
+      }
+      if (off >= 0 && frames >= off + 36 && frames < off + 84) {
         run.push_back({frames, toes});
-      } else if (frames >= 200 && frames < 320) {
+      } else if (off >= 0 && frames >= off + 200 && frames < off + 320) {
         walk.push_back({frames, toes});
       }
       if (physics.sphereCast(position(camera), 0.14f, glm::vec3{0.0f}, 0.0f, ignore).has_value()) {
@@ -2145,7 +2348,7 @@ TEST_CASE("the character sample's route runs the course with planted feet, singl
     }
     REQUIRE(said("Character fell and was respawned") == 1);
     REQUIRE(position(character).z == Approx(10.0f).margin(0.05f));
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 70; ++i) { // the quarter turn on the spot first, then off
       step();
     }
     CHECK(position(character).x > 0.5f);
@@ -2158,7 +2361,7 @@ TEST_CASE("the character sample's route runs the course with planted feet, singl
     const flecs::entity character = root("Character");
     REQUIRE(character.is_valid());
     REQUIRE(character.get<world::Transform>().position.z == Approx(10.0f));
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 70; ++i) { // the quarter turn on the spot first, then off
       step();
     }
     const glm::vec3 moved = character.get<world::Transform>().position;
@@ -2180,7 +2383,7 @@ struct RouteTrace {
   int footsteps{0};
   int respawns{0};             // before the drop into the pit
   bool rode{false};            // stood on the moving platform while it moved
-  std::array<float, 6> peak{}; // the highest weight each of the Animator's layers reached
+  std::array<float, 7> peak{}; // the highest weight each of the Animator's layers reached
   glm::vec3 respawned{};       // where the kill volume put it back
   std::vector<std::string> problems;
 };
@@ -2310,7 +2513,8 @@ TEST_CASE("the character sample's route plays the same from its folder and from 
     JumpStart,
     Fall,
     Land,
-    HardLand
+    HardLand,
+    Turn
   };
   for (const RouteTrace *trace : {&folder, &bundle}) {
     INFO((trace == &folder ? "from the folder" : "from the bundle"));
@@ -2328,6 +2532,7 @@ TEST_CASE("the character sample's route plays the same from its folder and from 
     CHECK(trace->peak[Fall] > 0.5f);      // off its far side, 1.2 m down
     CHECK(trace->peak[Land] > 0.3f);      // and the landing at the bottom
     CHECK(trace->peak[HardLand] == 0.0f); // no drop on the route is that hard
+    CHECK(trace->peak[Turn] > 0.5f);      // the first leg starts with a quarter turn on the spot
     CHECK(trace->respawned.x == Approx(0.0f).margin(0.05f));
     CHECK(trace->respawned.z == Approx(10.0f).margin(0.05f));
   }
@@ -2414,6 +2619,13 @@ TEST_CASE("the character sample runs and jumps the same at 30, 60 and 144 frames
       character.set(start);
       frames(0.5f);
       REQUIRE(game.physics().character(character)->grounded);
+      // Facing east first: from standing facing north, D is a quarter turn on the spot, which holds
+      // the run back (issue #528). A short press starts it without moving; the run below then starts
+      // facing the way it goes.
+      press(platform::Key::D);
+      frames(0.05f);
+      release(platform::Key::D);
+      frames(2.0f);
 
       const float x = position().x;
       press(platform::Key::D);
