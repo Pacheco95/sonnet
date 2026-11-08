@@ -73,16 +73,29 @@ namespace {
   return {};
 }
 
-// The character sample, with its humanoid's images already in the copy's cache as 1x1 placeholders.
-// Cooking the thirteen 2048-texel images to UASTC is most of what playing the character costs: about
-// 15 s in a Debug build and three minutes under ASan on CI's runners (issue #496). A texture is
-// cooked again only when its cache entry is older than the file, and nothing the tests check looks
-// at the character's skin; the image path itself is assets_tests' to cover.
+// The character sample, with its humanoid's images and the course's textures already in the copy's
+// cache as 1x1 placeholders. Cooking the humanoid's thirteen 2048-texel images to UASTC is most of
+// what playing the character costs: about 15 s in a Debug build and three minutes under ASan on
+// CI's runners (issue #496). The course's twelve textures cook on the workers while the game plays,
+// about 6 s in Debug, and slow every frame stepped meanwhile (issue #530). A texture is cooked again
+// only when its cache entry is older than the file, and nothing the tests check looks at the
+// surfaces' colours; the image path itself is assets_tests' to cover.
 [[nodiscard]] std::filesystem::path characterProject(platform::Platform &platform) {
   const std::filesystem::path project = sampleProject(platform, "character");
   if (project.empty()) {
     return project;
   }
+  const std::filesystem::path cache = project / ".sonnet" / "cache";
+  std::filesystem::create_directories(cache);
+  const auto placeholder = [&](const core::Uuid &texture, bool srgb) {
+    const renderer::TextureData texel{.size = {1, 1},
+                                      .format = srgb ? rhi::Format::R8G8B8A8Srgb : rhi::Format::R8G8B8A8Unorm,
+                                      .mipLevels = 1,
+                                      .data = std::vector<std::byte>(4, std::byte{0x80})};
+    const auto cooked = assets::cookKtx2(texel, false);
+    REQUIRE(cooked.has_value());
+    REQUIRE(core::writeFile(cache / (texture.toString() + ".ktx2"), *cooked).has_value());
+  };
   const std::filesystem::path model = project / "assets" / "character" / "humanoid.glb";
   const auto sidecar = core::readFile(std::filesystem::path{model}.concat(".meta"));
   REQUIRE(sidecar.has_value());
@@ -91,19 +104,24 @@ namespace {
   REQUIRE(identity.has_value());
   const auto imported = assets::importGltf(model);
   REQUIRE(imported.has_value());
-  const std::filesystem::path cache = project / ".sonnet" / "cache";
-  std::filesystem::create_directories(cache);
   for (std::size_t i = 0; i < imported->images.size(); ++i) {
-    const renderer::TextureData texel{.size = {1, 1},
-                                      .format = imported->images[i].srgb ? rhi::Format::R8G8B8A8Srgb
-                                                                         : rhi::Format::R8G8B8A8Unorm,
-                                      .mipLevels = 1,
-                                      .data = std::vector<std::byte>(4, std::byte{0x80})};
-    const auto cooked = assets::cookKtx2(texel, false);
-    REQUIRE(cooked.has_value());
-    const core::Uuid image = core::Uuid::derive(*identity, std::format("image/{}", i));
-    REQUIRE(core::writeFile(cache / (image.toString() + ".ktx2"), *cooked).has_value());
+    placeholder(core::Uuid::derive(*identity, std::format("image/{}", i)), imported->images[i].srgb);
   }
+  int textures = 0;
+  for (const auto &entry : std::filesystem::directory_iterator(project / "assets" / "level" / "textures")) {
+    if (entry.path().extension() != ".meta") {
+      continue;
+    }
+    const auto text = core::readFile(entry.path());
+    REQUIRE(text.has_value());
+    const auto meta = assets::parseJson(*text);
+    REQUIRE(meta.at("type").get<std::string>() == "Texture");
+    const std::optional<core::Uuid> texture = core::Uuid::parse(meta.at("uuid").get<std::string>());
+    REQUIRE(texture.has_value());
+    placeholder(*texture, meta.at("settings").at("srgb").get<bool>());
+    ++textures;
+  }
+  REQUIRE(textures == 12);
   return project;
 }
 
@@ -1711,6 +1729,247 @@ TEST_CASE("the character sample runs, walks, stops, turns and jumps from the key
     third = std::max(third, position().y);
   }
   CHECK(third < ground + 0.01f);
+  core::Log::removeSink(problems);
+  CHECK(problems->problems.empty());
+}
+
+// Issue #530: what character.lua does around the ground that the keyboard test does not reach.
+// - Coyote time: walking off the ledge block, a jump pressed just after the feet leave it jumps;
+//   one pressed after the coyote time does not, and is dropped before the character lands.
+// - Landings: a hop picks no landing clip, a 1 m drop the soft one scaled below its full weight,
+//   a 4.5 m drop the hard one; moving off a hard landing runs at once, and the landing fades
+//   faster than standing through it.
+// - Interrupted landing: a jump pressed during a hard landing jumps, the landing fades out, and
+//   its clip is started once, not again each frame.
+TEST_CASE("the character sample's coyote time and its hard and interrupted landings", "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const auto problems = std::make_shared<ProblemSink>();
+  core::Log::addSink(problems);
+  // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+  test::RelativeModeWindow window{*fixture.window};
+  runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  world::World &world = game.world();
+  flecs::entity character;
+  for (const flecs::entity entity : world.roots()) {
+    const world::Name *named = entity.try_get<world::Name>();
+    if (named != nullptr && named->value == "Character") {
+      character = entity;
+    }
+  }
+  REQUIRE(character.is_valid());
+  const flecs::entity model = world.findByPath(character, "Model");
+  REQUIRE(model.is_valid());
+  const auto frames = [&](int count) {
+    for (int i = 0; i < count; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+  };
+  const auto press = [&](platform::Key key) {
+    game.event(platform::KeyPressed{.key = key, .modifiers = {}, .repeat = false});
+  };
+  const auto release = [&](platform::Key key) { game.event(platform::KeyReleased{.key = key, .modifiers = {}}); };
+  const auto tap = [&](platform::Key key) {
+    press(key);
+    frames(1);
+    release(key);
+  };
+  const auto grounded = [&] {
+    const auto state = game.physics().character(character);
+    REQUIRE(state.has_value());
+    return state->grounded;
+  };
+  const auto speed = [&] {
+    const auto state = game.physics().character(character);
+    REQUIRE(state.has_value());
+    return glm::length(glm::vec2{state->velocity.x, state->velocity.z});
+  };
+  const auto position = [&] { return character.get<world::Transform>().position; };
+  // Writing the Transform teleports the character (docs/physics.md, "Characters").
+  const auto teleport = [&](glm::vec3 to) {
+    world::Transform transform = character.get<world::Transform>();
+    transform.position = to;
+    character.set(transform);
+  };
+  // The script's layers: Idle, Run, JumpStart, Fall, Land, HardLand.
+  constexpr std::size_t jumpLayer = 2;
+  constexpr std::size_t fallLayer = 3;
+  constexpr std::size_t landLayer = 4;
+  constexpr std::size_t hardLayer = 5;
+  const auto layer = [&](std::size_t index) {
+    const world::Animator &animator = model.get<world::Animator>();
+    REQUIRE(animator.layers.size() == 6);
+    return animator.layers[index];
+  };
+  // Steps until the character is on the ground after having left it; false after five seconds.
+  const auto untilLanded = [&] {
+    bool left = false;
+    for (int i = 0; i < 300; ++i) {
+      frames(1);
+      left = left || !grounded();
+      if (left && grounded()) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // The humanoid's clips are imported on the asset workers the first time an Animator asks: a
+  // landing clip's time moves only once they are in.
+  {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
+    while (model.get<world::Animator>().time == 0.0f && std::chrono::steady_clock::now() < deadline) {
+      frames(1);
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(model.get<world::Animator>().time > 0.0f);
+  }
+  // The floor south of the ledge block, where its walks end.
+  {
+    const auto floor = game.physics().raycast({-2.0f, 5.0f, -12.5f}, {0.0f, -1.0f, 0.0f}, 10.0f);
+    REQUIRE(floor.has_value());
+    REQUIRE(floor->point.y == Approx(0.0f).margin(0.001f));
+  }
+
+  // Walks south off the 1.2 m ledge block and presses Space `late` frames after the feet leave
+  // it. Returns how high above the block the character then rises.
+  constexpr float ledge = 1.2f;
+  const auto walkOffAndJump = [&](int late) {
+    teleport({-2.0f, ledge, -16.0f});
+    frames(30);
+    REQUIRE(grounded());
+    REQUIRE(position().y == Approx(ledge).margin(0.01f));
+    press(platform::Key::LeftShift);
+    press(platform::Key::S);
+    int step = 0;
+    while (grounded() && step < 240) {
+      frames(1);
+      ++step;
+    }
+    REQUIRE_FALSE(grounded());
+    REQUIRE(position().z > -14.0f); // over the edge, not a step down
+    frames(late);
+    tap(platform::Key::Space);
+    float highest = position().y;
+    for (int i = 0; i < 90; ++i) {
+      frames(1);
+      highest = std::max(highest, position().y);
+    }
+    release(platform::Key::S);
+    release(platform::Key::LeftShift);
+    // Down on the floor and staying there: the press was not kept for the landing.
+    float after = position().y;
+    for (int i = 0; i < 30; ++i) {
+      frames(1);
+      after = std::max(after, position().y);
+    }
+    CHECK(after < 0.01f);
+    return highest - ledge;
+  };
+  // 2 frames is 0.03 s, inside the 0.12 s coyote time; 12 frames, 0.2 s, is outside it, and its
+  // 0.15 s jump buffer runs out before the 0.5 s fall ends.
+  CHECK(walkOffAndJump(2) > 0.8f);
+  CHECK(walkOffAndJump(12) < 0.01f);
+
+  // Drops from `height` above the floor at the start and returns the highest weight each landing
+  // layer reaches in the second after touching down.
+  const glm::vec3 start{0.0f, 0.0f, 10.0f};
+  const auto drop = [&](float height) {
+    teleport(start);
+    frames(5); // the last drop's landing faded in its second
+    teleport(start + glm::vec3{0.0f, height, 0.0f});
+    REQUIRE(untilLanded());
+    std::pair<float, float> peak{0.0f, 0.0f};
+    for (int i = 0; i < 60; ++i) {
+      peak.first = std::max(peak.first, layer(landLayer).weight);
+      peak.second = std::max(peak.second, layer(hardLayer).weight);
+      frames(1);
+    }
+    return peak;
+  };
+  {
+    // 0.25 m: 2.2 m/s down, under the 2.5 m/s a landing needs.
+    const auto [land, hard] = drop(0.25f);
+    CHECK(land < 0.01f);
+    CHECK(hard < 0.01f);
+  }
+  {
+    // 1 m: 4.4 m/s, the soft landing at (4.4 - 2.5) / 2.5 of its weight.
+    const auto [land, hard] = drop(1.0f);
+    CHECK(land == Approx(0.77f).margin(0.1f));
+    CHECK(hard < 0.01f);
+  }
+  {
+    // 4.5 m: 9.4 m/s, over `hardLanding`'s 7 m/s.
+    const auto [land, hard] = drop(4.5f);
+    CHECK(land < 0.01f);
+    CHECK(hard > 0.95f);
+  }
+
+  // Half a second into a hard landing, standing through it and running off it.
+  const auto hardLanding = [&](bool run) {
+    teleport(start);
+    frames(5);
+    teleport(start + glm::vec3{0.0f, 4.5f, 0.0f});
+    REQUIRE(untilLanded());
+    if (run) {
+      press(platform::Key::W);
+    }
+    frames(30);
+    const std::pair<float, float> result{layer(hardLayer).weight, speed()};
+    if (run) {
+      release(platform::Key::W);
+    }
+    return result;
+  };
+  const auto [standingWeight, standingSpeed] = hardLanding(false);
+  const auto [runningWeight, runningSpeed] = hardLanding(true);
+  CHECK(standingSpeed < 0.01f);
+  CHECK(standingWeight > 0.3f);
+  CHECK(runningSpeed > 3.0f); // a landing does not hold the character
+  CHECK(runningWeight < 0.8f * standingWeight);
+
+  // A jump pressed during a hard landing.
+  teleport(start);
+  frames(5);
+  teleport(start + glm::vec3{0.0f, 4.5f, 0.0f});
+  REQUIRE(untilLanded());
+  frames(6);
+  const float landed = position().y;
+  float hardTime = layer(hardLayer).time;
+  CHECK(hardTime > 0.05f);
+  CHECK(layer(hardLayer).weight > 0.9f);
+  tap(platform::Key::Space);
+  float highest = landed;
+  float jumpWeight = 0.0f;
+  float airWeight = 0.0f;
+  bool reset = false;
+  int faded = -1;
+  // Up and down again: the hard landing's clip only moves on, and its weight goes within 0.2 s.
+  for (int i = 0; i < 90; ++i) {
+    frames(1);
+    highest = std::max(highest, position().y);
+    jumpWeight = std::max(jumpWeight, layer(jumpLayer).weight);
+    airWeight = std::max(airWeight, layer(jumpLayer).weight + layer(fallLayer).weight);
+    const world::AnimationLayer hard = layer(hardLayer);
+    reset = reset || hard.time < hardTime;
+    hardTime = hard.time;
+    if (faded < 0 && hard.weight < 0.01f) {
+      faded = i;
+    }
+  }
+  CHECK(highest > landed + 1.0f);
+  // JumpStart plays, giving way to Fall on the way up, and the air layers take over.
+  CHECK(jumpWeight > 0.3f);
+  CHECK(airWeight > 0.95f);
+  CHECK_FALSE(reset);
+  CHECK(faded >= 0);
+  CHECK(faded <= 12);
+
   core::Log::removeSink(problems);
   CHECK(problems->problems.empty());
 }
