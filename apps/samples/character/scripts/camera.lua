@@ -11,6 +11,8 @@
 -- under a low ceiling or in a wall starts from inside the capsule instead; and one from there back
 -- to the camera. The sphere holds the near plane's corners, so nothing is clipped. A hit pulls the
 -- camera in at once; when the way clears, it eases back out, never further than the sweep allows.
+-- Close to the pivot the character fades out, dithered by its MeshRenderer's alpha, so it never
+-- pops; it keeps casting its shadow.
 local FollowCamera = {
   properties = {
     target = { type = "entity" }, -- the character; the scene's "Character" when unset
@@ -30,7 +32,8 @@ local FollowCamera = {
     aspect = { type = "number", default = 2, min = 1, max = 4 }, -- the widest view the probe covers
     orbit = { type = "number", default = 0, min = -360, max = 360 }, -- degrees per second, for captures
     trail = { type = "number", default = 0, min = 0, max = 20 }, -- 1/s, swing behind a moving character
-    hideWithin = { type = "number", default = 0.6, min = 0, max = 5 }, -- m: hide the character this close
+    fadeStart = { type = "number", default = 1.0, min = 0, max = 5 }, -- m: the character starts to fade
+    fadeEnd = { type = "number", default = 0.6, min = 0, max = 5 }, -- m: and is gone; never inside its head
   },
 }
 
@@ -42,10 +45,11 @@ local function smooth(current, target, sharpness, dt)
   return target + (current - target) * math.exp(-sharpness * dt)
 end
 
--- Every MeshRenderer at and under an entity, to hide the character when the camera is in it.
+-- Every MeshRenderer at and under an entity, with its colour, to fade the character as the camera
+-- closes in.
 local function renderers(entity, out)
   if entity:has("MeshRenderer") then
-    table.insert(out, entity)
+    table.insert(out, { entity = entity, color = entity:get("MeshRenderer").color })
   end
   for _, child in ipairs(entity:children()) do
     renderers(child, out)
@@ -80,7 +84,13 @@ function FollowCamera:start()
   self.current = self.wanted
   self.pivot = nil
   self.meshes = self.target ~= nil and renderers(self.target, {}) or {}
-  self.hidden = false
+  -- Gone by fadeEnd, kept where the near plane's sphere still clears the character's capsule, so
+  -- the near plane never cuts into a character that is still drawn.
+  local controller = self.target ~= nil and self.target:get("CharacterController") or nil
+  local clearance = self.radius + (controller ~= nil and controller.radius or 0.3)
+  self.fadeTo = math.max(self.fadeEnd, clearance)
+  self.fadeFrom = math.max(self.fadeStart, self.fadeTo)
+  self.fade = 1
   input.setMouseLocked(true)
 end
 
@@ -137,13 +147,19 @@ function FollowCamera:lateUpdate(dt)
   end
   self.entity:set("Transform", { position = pivot + back * self.current, rotation = rotation })
 
-  -- Pressed against a wall, the camera would be inside the character's head: hide it there.
-  local hide = self.current < self.hideWithin
-  if hide ~= self.hidden then
-    self.hidden = hide
+  -- Pressed against a wall, the camera would be inside the character's head: fade it out on the way,
+  -- through the MeshRenderer's alpha, which dithers an opaque draw and leaves its shadow whole.
+  local fade = 1
+  if self.current < self.fadeFrom then
+    local band = self.fadeFrom - self.fadeTo
+    fade = band > 0 and clamp((self.current - self.fadeTo) / band, 0, 1) or 0
+  end
+  if fade ~= self.fade then
+    self.fade = fade
     for _, mesh in ipairs(self.meshes) do
-      if mesh:isValid() then
-        mesh:set("MeshRenderer", { visible = not hide })
+      if mesh.entity:isValid() then
+        local c = mesh.color
+        mesh.entity:set("MeshRenderer", { color = { x = c.x, y = c.y, z = c.z, w = c.w * fade } })
       end
     end
   end

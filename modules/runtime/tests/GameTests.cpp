@@ -1983,6 +1983,128 @@ TEST_CASE("the character sample's coyote time and its hard and interrupted landi
   CHECK(problems->problems.empty());
 }
 
+// Issue #529: the follow camera fades the character out as a wall pulls it in, instead of hiding it
+// at once. A wall square to the view moves from 2.5 m behind the pivot to 0.5 m in steps of 0.1 m:
+// each step pulls the camera in at once, and the alpha of every MeshRenderer under the character
+// falls with the camera's distance, from 1 at fadeStart (1 m) to 0 at fadeEnd (0.6 m), never rising.
+// The meshes stay visible throughout, so the character keeps casting its shadow. With the wall gone
+// the camera eases back out to its 4 m, the alpha rising with it, and every colour is again its own.
+TEST_CASE("the character sample's camera fades the character as it closes in and back as it eases out",
+          "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const auto problems = std::make_shared<ProblemSink>();
+  core::Log::addSink(problems);
+  // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+  test::RelativeModeWindow window{*fixture.window};
+  runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  world::World &world = game.world();
+  flecs::entity character;
+  flecs::entity camera;
+  for (const flecs::entity entity : world.roots()) {
+    const world::Name *named = entity.try_get<world::Name>();
+    if (named != nullptr && named->value == "Character") {
+      character = entity;
+    } else if (named != nullptr && named->value == "Camera") {
+      camera = entity;
+    }
+  }
+  REQUIRE(character.is_valid());
+  REQUIRE(camera.is_valid());
+  std::vector<std::pair<flecs::entity, glm::vec4>> meshes;
+  std::vector<flecs::entity> pending{character};
+  while (!pending.empty()) {
+    const flecs::entity entity = pending.back();
+    pending.pop_back();
+    if (const world::MeshRenderer *renderer = entity.try_get<world::MeshRenderer>()) {
+      meshes.emplace_back(entity, renderer->color);
+    }
+    entity.children([&](flecs::entity child) { pending.push_back(child); });
+  }
+  REQUIRE_FALSE(meshes.empty());
+  const auto frames = [&](int count) {
+    for (int i = 0; i < count; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+  };
+  const auto pivot = [&] { return character.get<world::Transform>().position + glm::vec3{0.0f, 1.55f, 0.0f}; };
+  const auto distance = [&] { return glm::length(camera.get<world::Transform>().position - pivot()); };
+  // The fade the meshes carry, which is one for all of them, and whether they are all still drawn.
+  const auto fade = [&] {
+    const float first = meshes.front().first.get<world::MeshRenderer>().color.a / meshes.front().second.a;
+    for (const auto &[entity, color] : meshes) {
+      const world::MeshRenderer &renderer = entity.get<world::MeshRenderer>();
+      REQUIRE(renderer.visible);
+      REQUIRE(renderer.color.a / color.a == Approx(first).margin(1e-6));
+      REQUIRE(glm::vec3{renderer.color} == glm::vec3{color});
+    }
+    return first;
+  };
+  const auto expected = [](float d) { return std::clamp((d - 0.6f) / 0.4f, 0.0f, 1.0f); };
+
+  frames(60);
+  REQUIRE(game.physics().character(character)->grounded);
+  REQUIRE(distance() == Approx(4.0f).margin(0.01f));
+  REQUIRE(fade() == 1.0f);
+
+  // The wall, square to the view behind the pivot: a static box whose local Z is the camera's back.
+  const glm::quat facing = camera.get<world::Transform>().rotation;
+  const glm::vec3 back = facing * glm::vec3{0.0f, 0.0f, 1.0f};
+  const flecs::entity wall = world.createEntity("Fade wall");
+  const auto placeWall = [&](float behind) {
+    wall.set(world::Transform{.position = pivot() + back * behind, .rotation = facing, .scale = glm::vec3{1.0f}});
+  };
+  placeWall(2.5f);
+  wall.set(physics::BoxCollider{.halfExtents = {2.0f, 2.0f, 0.05f}, .offset = {}});
+  frames(3);
+  std::vector<std::pair<float, float>> closing; // the camera's distance and the fade, step by step
+  for (int step = 0; step <= 20; ++step) {
+    placeWall(2.5f - 0.1f * static_cast<float>(step));
+    frames(3);
+    closing.emplace_back(distance(), fade());
+  }
+  for (const auto &[d, f] : closing) {
+    INFO(std::format("camera {:.3f} m from the pivot, fade {:.3f}", d, f));
+    CHECK(f == Approx(expected(d)).margin(1e-3));
+  }
+  int partial = 0;
+  for (std::size_t i = 1; i < closing.size(); ++i) {
+    CHECK(closing[i].first < closing[i - 1].first); // every step pulled the camera in
+    CHECK(closing[i].second <= closing[i - 1].second);
+    partial += closing[i].second > 0.0f && closing[i].second < 1.0f ? 1 : 0;
+  }
+  CHECK(closing.front().second == 1.0f);
+  CHECK(closing.back().second == 0.0f);
+  CHECK(partial >= 3); // the band is crossed in steps, not at once
+
+  // The wall goes: the camera eases out and the character comes back, never fading again on the way.
+  wall.destruct();
+  float previousDistance = distance();
+  float previousFade = fade();
+  for (int i = 0; i < 240; ++i) {
+    frames(1);
+    const float d = distance();
+    const float f = fade();
+    CHECK(d >= previousDistance - 1e-4f);
+    CHECK(f >= previousFade);
+    CHECK(f == Approx(expected(d)).margin(1e-3));
+    previousDistance = d;
+    previousFade = f;
+  }
+  CHECK(distance() == Approx(4.0f).margin(0.01f));
+  CHECK(fade() == 1.0f);
+  for (const auto &[entity, color] : meshes) {
+    CHECK(entity.get<world::MeshRenderer>().color == color);
+  }
+
+  core::Log::removeSink(problems);
+  CHECK(problems->problems.empty());
+}
+
 // Issue #496: the character sample's route scene runs the course by itself through the same
 // controller the keys drive: through the passage and the tunnel, up the ramp and down the steps,
 // over the pit on the platform and onto the ledge block with a jump, to the last waypoint, without
