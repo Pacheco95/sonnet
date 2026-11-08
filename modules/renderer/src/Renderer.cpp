@@ -2640,10 +2640,12 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   parallelFor("frame objects", view.draws.size(), ObjectGrain, [&](std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; ++i) {
       const DrawItem &item = view.draws[i];
+      // A material past the array (created after it was sized) is drawn with the default this frame.
+      const std::uint32_t material = materialIndex(item.material);
       objects[i] = ObjectData{.model = item.transform,
                               .color = item.color,
                               .id = item.id,
-                              .material = materialIndex(item.material),
+                              .material = material < materialCount ? material : 0,
                               .vertexBuffer = 0};
       if (previousObjects != nullptr) {
         const glm::mat4 &previous = item.previousTransform ? *item.previousTransform : item.transform;
@@ -2756,9 +2758,23 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   for (std::uint32_t i = 0; i < materialCount; ++i) {
     gpuMaterials[i] = encode(defaultMaterial, defaultSamplers, defaultIndex);
   }
+  // The array was sized from the slots at the top of this function. A material created since (a
+  // resource created in the middle of the frame, which is an ordering bug) is left out until the
+  // next frame rather than written past the allocation, into whatever the GPU reads next.
+  std::uint32_t skippedSlot = 0;
   m_materials.forEach([&](MaterialHandle handle, const Material &material) {
-    gpuMaterials[handle.index + 1] = encode(material.desc, material.samplers, material.transmissionSampler);
+    const std::uint32_t slot = handle.index + 1;
+    if (slot >= materialCount) {
+      skippedSlot = skippedSlot == 0 ? slot : std::min(skippedSlot, slot);
+      return;
+    }
+    gpuMaterials[slot] = encode(material.desc, material.samplers, material.transmissionSampler);
   });
+  if (skippedSlot != 0) {
+    SONNET_LOG_ERROR("material slot {} was created after the frame sized its {} material slots; it is drawn "
+                     "next frame",
+                     skippedSlot, materialCount);
+  }
 
   // The budgeted lights' maps, matrices and depth slots, and which light each belongs to.
   rhi::TransientAllocation localShadows;
