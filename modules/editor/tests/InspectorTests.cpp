@@ -640,9 +640,9 @@ TEST_CASE("editing an inherited component gives the instance its own strings and
     selection.select(world.uuidOf(walker));
     driver.frame();
     // Dragging the inherited Animator's speed makes the value the instance's own.
-    const flecs::Struct &layout = world.ecs().component<world::Animator>().get<flecs::Struct>();
-    const ecs_member_t *members = ecs_vec_first_t(&layout.members, ecs_member_t);
-    const int speedIndex = static_cast<int>(&memberOf(world, world.ecs().id<world::Animator>(), "speed") - members);
+    const flecs::entity animator = world.ecs().component<world::Animator>();
+    const ecs_member_t *members = ecs_vec_first_t(&animator.get<flecs::Struct>().members, ecs_member_t);
+    const int speedIndex = static_cast<int>(&memberOf(world, animator, "speed") - members);
     // Each member is a row of a property table of its own, which pushes the table's id.
     const ImGuiID row =
         ImHashData(&speedIndex, sizeof(speedIndex), ImHashStr("Animator", 0, InspectorDriver::inspector()->ID));
