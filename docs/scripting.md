@@ -34,11 +34,12 @@ Every slot of an enabled entity gets an instance: a table whose metatable points
 - `start(self)` once, before the instance's first update, in the frame the instance appears.
 - `fixedUpdate(self, dt)` every fixed step, after the physics step ([physics.md](physics.md#the-simulation)), with the fixed delta.
 - `update(self, dt)` every frame, in the `Update` phase, before physics interpolates what is drawn.
+- `lateUpdate(self, dt)` every frame, in the `PostUpdate` phase, after physics has interpolated the drawn poses of bodies and characters and before the transform system and the application read the camera ([ADR-0038](decisions/0038-character-controller.md#the-frame)). `worldPosition()` there is where the frame draws an entity, so a follow camera places itself here. It runs in frames without a fixed step too, gets `dt` 0 at a time scale of 0 (a camera's smoothing must not divide by it), and does not run while the editor has play paused.
 - `onContactBegin(self, other, contact)`, `onContactEnd(self, other)`, `onTriggerEnter(self, other)` and `onTriggerExit(self, other)`, before the step's `fixedUpdate` ([Events](#events)).
 
 Instances are called in the order of their entities' ids, which is close to creation order, and an entity's slots in slot order. An instance ends when its entity is destroyed or disabled, itself or through an ancestor, its slot is removed or the slot's script changes to another; changing the other properties of a slot keeps the instance ([Properties](#properties)). A script's file runs once per load in an environment of its own over the shared globals, so two scripts never overwrite each other's top-level names, while instances of the same script share them.
 
-The runtime's two systems are simulation systems: nothing runs in edit mode. Stopping play in the editor calls `reset`, which drops every instance and every loaded script, so the next play starts from fresh script state as well as from the snapshot. The systems run with the world's deferring suspended, so a script sees its own changes on its next line: a component it just added, the children of a prefab it just instantiated.
+The runtime's three systems (`ScriptFixedUpdate`, `ScriptUpdate` and `ScriptLateUpdate`) are simulation systems: nothing runs in edit mode. Stopping play in the editor calls `reset`, which drops every instance and every loaded script, so the next play starts from fresh script state as well as from the snapshot. The systems run with the world's deferring suspended, so a script sees its own changes on its next line: a component it just added, the children of a prefab it just instantiated.
 
 ## Events
 
@@ -181,6 +182,8 @@ The keyboard, mouse and touches as state ([platform.md](platform.md#input-state)
 | `input.keyDown(key)`, `input.keyPressed(key)`, `input.keyReleased(key)` | Held now; went down or up this frame |
 | `input.mouseDown(button)`, `input.mousePressed(button)`, `input.mouseReleased(button)` | The same for mouse buttons |
 | `input.mousePosition()`, `input.mouseDelta()`, `input.wheel()` | Tables `{x, y}`: the position relative to the view, this frame's motion and wheel |
+| `input.setMouseLocked(locked)` | Asks for the pointer to be locked to the game (hidden, its motion reported only by `mouseDelta`) or released. An intent, held until a script changes it and forgotten when play stops or a scene is loaded; anything but a boolean raises an error |
+| `input.mouseLocked()` | Whether the pointer is locked now: what the application reports it got, which can differ from what was asked (the game window has lost focus, the player pressed Escape, the platform has no relative mouse mode). A script that needs the mouse's motion falls back to dragging while it is false |
 | `input.touches()` | An array of the fingers down now, in the order they went down, each `{id, position, delta}`: an integer that stays the finger's until it lifts, and tables `{x, y}` for the position relative to the view and this frame's motion, as the mouse's |
 
 Presses and releases last one frame, which may pass without a fixed step: a script that reacts in `fixedUpdate` should note the press in `update`. Touches are state, not edges, so `fixedUpdate` can read them. The first finger is also the left mouse button ([platform.md](platform.md#events)), so a script written against the mouse works on a phone, and a script that reads the touches should not read the left button as well.
@@ -212,9 +215,18 @@ When the runtime was given a physics world ([physics.md](physics.md#queries-and-
 | Function | |
 |---|---|
 | `physics.raycast(origin, direction, maxDistance, ignore?)` | `{entity, point, normal, distance}` for the nearest hit, or `nil`; `ignore` is an entity whose body is skipped |
+| `physics.sphereCast(origin, radius, direction, maxDistance, ignore?)` | `{entity, point, normal, distance}` for the first solid body a sphere touches as its centre moves along `direction` (normalised for you), or `nil`; `distance` is how far the centre travelled, 0 when it started out overlapping, and `normal` points from `point` towards the centre. `ignore` is an entity or an array of entities whose bodies are skipped. Triggers are not hit; a radius that is not positive, a negative distance or a value that is not finite hits nothing ([physics.md](physics.md#queries-and-forces)) |
 | `physics.addImpulse(entity, v)`, `physics.addForce(entity, v)` | For dynamic bodies |
 | `physics.linearVelocity(entity)`, `physics.setLinearVelocity(entity, v)` | |
 | `physics.angularVelocity(entity)`, `physics.setAngularVelocity(entity, v)` | |
+| `physics.setCharacterMove(entity, v)` → boolean | The horizontal velocity a character walks with, a world-space `vec3` in m/s with `y` 0, held until changed ([ADR-0038](decisions/0038-character-controller.md#commands-and-state)) |
+| `physics.jumpCharacter(entity, speed)` → boolean | A one-shot jump of `speed` m/s up, above 0, consumed by the next fixed step whatever the ground; two before a step do not add up, the last wins |
+| `physics.teleportCharacter(entity, position, yaw)` → boolean | Puts the character's feet at a world position facing `yaw` radians about +Y, and writes its `Transform` at once; it stops, forgets its move, a pending jump and what it stood on |
+| `physics.character(entity)` → table or `nil` | What the last fixed step left: `{velocity, grounded, sliding, groundNormal, support, supportVelocity}`. `velocity` is a `vec3` in m/s with the support's included; `grounded` is standing on walkable ground and `sliding` on ground too steep to stand on; while either holds, `groundNormal` is the ground's normal, `support` the `Entity` stood on (check `isValid()`, it may since have gone) and `supportVelocity` its velocity at the contact; in the air they are zero and `nil` |
+
+The character calls act on an entity with a valid `CharacterController` ([physics.md](physics.md#characters)) and return `false` and `nil` for anything else: an entity without one, a disabled one, one whose controller is rejected. A destroyed entity raises "the entity no longer exists" as everywhere, and so does a value the engine would reject (a move with a `y`, a jump speed of 0, anything not finite), naming it. A character exists from the first call or step in play mode, so `start` can teleport it or set its move; until a step has moved it, it is not grounded and stands still.
+
+Commands take effect in the next fixed step, wherever they are called. A move set in `update` is first walked with in the next frame's step; one set in `fixedUpdate` reaches the step after the one just taken, which is the one `physics.character` describes there. A frame without a step keeps a jump pending, and a frame with several steps walks the move in each and consumes the jump in the first. A sample controller reads its keys in `update`, calls `setCharacterMove` and `jumpCharacter` there or in `fixedUpdate`, picks its locomotion weights from `physics.character` in `fixedUpdate`, and places its camera in `lateUpdate` with `physics.sphereCast` from the character towards the camera, ignoring the character, so the camera stops short of walls.
 
 ### Sound and animation
 

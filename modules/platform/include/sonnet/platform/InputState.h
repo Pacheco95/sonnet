@@ -54,6 +54,15 @@ public:
   [[nodiscard]] std::span<const Touch> touches() const noexcept {
     return std::span{m_touches}.first(m_touchCount);
   }
+  // Whether the pointer is locked to the game (hidden, motion as deltas only): what the
+  // application got when it last applied a game's request, not the request itself. Kept across
+  // frames and releases; false until the application says otherwise.
+  void setMouseLocked(bool locked) noexcept {
+    m_mouseLocked = locked;
+  }
+  [[nodiscard]] bool mouseLocked() const noexcept {
+    return m_mouseLocked;
+  }
 
 private:
   [[nodiscard]] Touch *findTouch(std::uint64_t id) noexcept;
@@ -72,6 +81,7 @@ private:
   glm::vec2 m_wheel{0.0f, 0.0f};
   std::array<Touch, MaxTouches> m_touches{};
   std::size_t m_touchCount{0};
+  bool m_mouseLocked{false};
 };
 
 } // namespace sonnet::platform

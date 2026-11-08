@@ -71,7 +71,7 @@ A `CharacterController` makes its entity a character moved by intent rather than
 
 ### Commands and state
 
-`IPhysicsWorld` drives characters by entity. Each returns false (or nothing) on an entity that is gone, disabled, in edit mode, has no controller or a rejected one:
+`IPhysicsWorld` drives characters by entity, and Lua's `physics` table has the same calls under the same names ([scripting.md](scripting.md#physics)). Each returns false (or nothing) on an entity that is gone, disabled, in edit mode, has no controller or a rejected one:
 
 - `setCharacterMove(entity, horizontalVelocity)` sets the world-space intent in m/s, held until changed. Its `y` must be 0 (to 1e-4) and every component finite, or the call returns false and keeps the old intent. There is no speed limit.
 - `jumpCharacter(entity, verticalSpeed)` is a one-shot consumed by the next fixed step, whatever the ground: the script owns eligibility (a grounded check, coyote time, double jumps). The speed must be finite and positive; of several requests before a step, the last wins.
