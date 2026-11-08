@@ -2,6 +2,8 @@
 
 #include <sonnet/platform/Platform.h>
 
+#include <sonnet/core/Error.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <memory>
@@ -220,6 +222,12 @@ TEST_CASE("the headless driver refuses relative mode, and the lock reports it un
   // What a test can check of the real mode: that a refusal is reported. A headless success would
   // say nothing about a pointer held on a desktop, which needs a real window.
   Platform platform{{.headless = true}};
+  // Windows are created Vulkan-capable, which needs the Vulkan library (WindowTests.cpp).
+  try {
+    static_cast<void>(platform.vulkanGetInstanceProcAddr());
+  } catch (const sonnet::core::Exception &e) {
+    SKIP("no Vulkan loader on this machine: " << e.what());
+  }
   const std::unique_ptr<IWindow> window = platform.createWindow({.title = "mouselock", .size = {320, 240}});
   InputState input;
   MouseLock lock{input, [&](bool on) { return window->setRelativeMouseMode(on); }};
