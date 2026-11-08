@@ -22,6 +22,7 @@
 #include <cstring>
 #include <format>
 #include <string>
+#include <vector>
 
 using namespace sonnet;
 using Catch::Approx;
@@ -177,13 +178,12 @@ struct Fixture {
 
   // The model's clip of that name.
   core::Uuid clip(std::string_view name) const {
-    for (const assets::AssetInfo *info : assets.assets(assets::AssetType::Animation)) {
-      if (info->name == name) {
-        return info->uuid;
-      }
-    }
-    FAIL("no clip named " << name);
-    return {};
+    const std::vector<const assets::AssetInfo *> clips = assets.assets(assets::AssetType::Animation);
+    const auto found =
+        std::ranges::find_if(clips, [name](const assets::AssetInfo *info) { return info->name == name; });
+    INFO("no clip named " << name);
+    REQUIRE(found != clips.end());
+    return (*found)->uuid;
   }
 
   // The instance's node at a path under it.
