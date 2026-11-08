@@ -9,6 +9,7 @@
 #include <sonnet/physics/PhysicsWorld.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/InputState.h>
+#include <sonnet/platform/MouseLock.h>
 #include <sonnet/platform/Window.h>
 #include <sonnet/renderer/RenderGraph.h>
 #include <sonnet/renderer/RenderTarget.h>
@@ -174,6 +175,9 @@ private:
   // After the world, which they register into and have to be destroyed before; scripts after
   // physics so their fixed update follows the physics step (ADR-0009).
   platform::InputState m_input;
+  // The scripts' request to lock the pointer, applied to the window while it has the focus
+  // (docs/player.md, "The pointer").
+  platform::MouseLock m_mouseLock;
   // Offered the events before the input, and heard by the scripts.
   gui::GuiSystem m_gui;
   // The camera and the window's size, for scripts turning a pointer into a ray.
@@ -197,6 +201,8 @@ private:
   std::optional<std::filesystem::path> m_screenshotRequest;
   std::optional<core::Result<void>> m_screenshotResult;
   bool m_paused{false};
+  // Whether the window has the focus, from its events; it opens with it.
+  bool m_focused{true};
   const GameModule *m_module{nullptr};
   // Logged once: a scene with no Camera is drawn from the fallback instead of not at all.
   bool m_warnedAboutCamera{false};

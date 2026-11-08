@@ -17,6 +17,7 @@
 #include <sonnet/world/DrawList.h>
 #include <sonnet/world/Scene.h>
 
+#include <RelativeModeWindow.h>
 #include <TestSupport.h>
 
 #include <catch2/catch_approx.hpp>
@@ -1517,4 +1518,108 @@ TEST_CASE("the character sample's course collides as drawn, its platform moves a
     REQUIRE(back.y == Approx(0.9f).margin(0.05f));
     REQUIRE(problems->problems.empty());
   }
+}
+
+namespace {
+
+// A project of two empty scenes, for what needs no entity.
+std::filesystem::path emptyProject(const std::string &name) {
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / name;
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "scenes");
+  assets::Project project;
+  project.root = root;
+  project.name = "Empty";
+  project.startScene = "scenes/main.scene.json";
+  REQUIRE(project.save().has_value());
+  for (const char *scene : {"main", "other"}) {
+    REQUIRE(core::writeFile(root / "scenes" / std::format("{}.scene.json", scene),
+                            std::string_view{R"({"version": 3, "entities": []})"})
+                .has_value());
+  }
+  return root;
+}
+
+const platform::Event EscapeKey =
+    platform::KeyPressed{.key = platform::Key::Escape, .modifiers = platform::Modifiers::None, .repeat = false};
+const platform::Event LeftClick =
+    platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = {10.0f, 10.0f}, .clicks = 1};
+
+} // namespace
+
+TEST_CASE("the player locks the pointer for a script while it has the focus and lets it go",
+          "[runtime][gpu][mouselock]") {
+  Fixture fixture;
+  const std::filesystem::path root = emptyProject("sonnet_runtime_mouse_lock");
+  test::RelativeModeWindow window{*fixture.window};
+  {
+    runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(root).has_value());
+    game.update(1.0f / 60.0f);
+    REQUIRE_FALSE(window.relativeMouseMode());
+
+    // The request is applied at the next update, and the state the scripts read follows.
+    REQUIRE(game.scripts().run("input.setMouseLocked(true)", "lock").has_value());
+    game.update(1.0f / 60.0f);
+    REQUIRE(window.relativeMouseMode());
+    REQUIRE(game.input().mouseLocked());
+
+    // Escape lets go and is not the game's; a click takes it back and is not the game's either.
+    game.event(EscapeKey);
+    REQUIRE_FALSE(window.relativeMouseMode());
+    REQUIRE_FALSE(game.input().keyPressed(platform::Key::Escape));
+    game.update(1.0f / 60.0f);
+    REQUIRE_FALSE(game.input().mouseLocked());
+    game.event(LeftClick);
+    REQUIRE_FALSE(game.input().mousePressed(platform::MouseButton::Left));
+    game.update(1.0f / 60.0f);
+    REQUIRE(window.relativeMouseMode());
+    REQUIRE(game.input().mouseLocked());
+
+    // A lost focus lets go, and the focus coming back waits for a click.
+    game.event(platform::WindowFocusChanged{.focused = false});
+    REQUIRE_FALSE(window.relativeMouseMode());
+    game.event(platform::WindowFocusChanged{.focused = true});
+    game.update(1.0f / 60.0f);
+    REQUIRE_FALSE(game.input().mouseLocked());
+    game.event(LeftClick);
+    game.update(1.0f / 60.0f);
+    REQUIRE(game.input().mouseLocked());
+
+    // A replaced scene takes the request with its scripts.
+    REQUIRE(game.openScene("scenes/other.scene.json").has_value());
+    REQUIRE_FALSE(window.relativeMouseMode());
+    REQUIRE_FALSE(game.input().mouseLocked());
+    game.update(1.0f / 60.0f);
+    REQUIRE_FALSE(window.relativeMouseMode());
+
+    // The game going away gives the pointer back.
+    REQUIRE(game.scripts().run("input.setMouseLocked(true)", "lock").has_value());
+    game.update(1.0f / 60.0f);
+    REQUIRE(window.relativeMouseMode());
+  }
+  REQUIRE_FALSE(window.relativeMouseMode());
+  sonnet::test::removeScratch(root);
+}
+
+TEST_CASE("a window without relative mode leaves the player's pointer unlocked and the clicks the game's",
+          "[runtime][gpu][mouselock]") {
+  Fixture fixture;
+  const std::filesystem::path root = emptyProject("sonnet_runtime_mouse_lock_refused");
+  test::RelativeModeWindow window{*fixture.window};
+  window.supported = false;
+  {
+    runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+    REQUIRE(game.open(root).has_value());
+    REQUIRE(game.scripts().run("input.setMouseLocked(true)", "lock").has_value());
+    for (int frame = 0; frame < 5; ++frame) {
+      game.update(1.0f / 60.0f);
+    }
+    REQUIRE_FALSE(game.input().mouseLocked());
+    REQUIRE(window.requests == 1);
+    REQUIRE(game.scripts().run("assert(input.mouseLocked() == false)", "check").has_value());
+    game.event(LeftClick);
+    REQUIRE(game.input().mousePressed(platform::MouseButton::Left));
+  }
+  sonnet::test::removeScratch(root);
 }
