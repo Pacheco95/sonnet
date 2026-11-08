@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sonnet/physics/Components.h>
+
 #include <sonnet/core/Math.h>
 #include <sonnet/renderer/Mesh.h>
 #include <sonnet/renderer/SceneView.h>
@@ -15,5 +17,9 @@ namespace sonnet::physics {
 // edges of a mesh collider's mesh when one is given.
 void appendColliderLines(flecs::entity entity, const glm::mat4 &world, const renderer::MeshData *mesh, glm::vec4 color,
                          std::vector<renderer::DebugLine> &lines);
+
+// Appends a character controller's capsule at `world`, its bottom at the origin plus the offset.
+void appendCharacterLines(const CharacterController &controller, const glm::mat4 &world, glm::vec4 color,
+                          std::vector<renderer::DebugLine> &lines);
 
 } // namespace sonnet::physics

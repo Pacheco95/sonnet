@@ -17,6 +17,7 @@ sonnet_add_module(physics
 sonnet_add_module_test(physics
   SOURCES
     tests/CharacterFeasibilityTests.cpp
+    tests/CharacterTests.cpp
     tests/JoltJobSystemTests.cpp
     tests/PhysicsTests.cpp
   DEPENDS

@@ -50,6 +50,20 @@ struct SphereCastHit {
   float distance{0.0f};
 };
 
+// What the last fixed step left of a character (ADR-0038). `velocity` is the world velocity the
+// step moved it with, its support's included. `grounded` is standing on walkable ground,
+// `sliding` on ground too steep to stand on; while either holds, `groundNormal` is the ground's
+// normal, `support` the entity whose body is stood on (which may since have gone) and
+// `supportVelocity` that body's velocity at the contact. In the air they are zero and none.
+struct CharacterState {
+  glm::vec3 velocity{0.0f};
+  bool grounded{false};
+  bool sliding{false};
+  glm::vec3 groundNormal{0.0f};
+  flecs::entity support;
+  glm::vec3 supportVelocity{0.0f};
+};
+
 enum class ContactEventKind : std::uint8_t {
   ContactBegin, // two solid bodies started touching
   ContactEnd,   // ... stopped touching
@@ -75,12 +89,14 @@ struct ContactEvent {
 // kinematic bodies follow their entity's world transform; dynamic bodies write theirs back into
 // the local Transform, interpolated between the last two steps each frame, and a Transform
 // written by anyone else teleports the body. Queries and forces take entities; an entity without
-// a body is ignored, and one that should have a body gets it at once.
+// a body is ignored, and one that should have a body gets it at once. Entities with a
+// CharacterController are characters, stepped before the bodies and seen by queries and triggers
+// through an inner body that reports the controller's entity.
 class IPhysicsWorld {
 public:
   virtual ~IPhysicsWorld() = default;
 
-  // The nearest body along the ray within maxDistance, skipping `ignore`'s body, which a ray cast
+  // The nearest body along the ray within maxDistance, skipping `ignore`'s body (or character), which a ray cast
   // from inside an entity's own collider would otherwise hit first; `direction` need not be
   // normalised.
   [[nodiscard]] virtual std::optional<RaycastHit> raycast(glm::vec3 origin, glm::vec3 direction, float maxDistance,
@@ -103,6 +119,22 @@ public:
   [[nodiscard]] virtual glm::vec3 angularVelocity(flecs::entity entity) = 0;
   virtual void setAngularVelocity(flecs::entity entity, glm::vec3 velocity) = 0;
 
+  // Characters (ADR-0038). Each acts on an enabled entity whose CharacterController is valid, in
+  // play mode, creating its character on the spot when the step has not yet; on anything else
+  // the commands return false and do nothing and `character` returns nothing.
+  // The horizontal velocity the character walks with, in world m/s, held until changed. Its y must
+  // be 0 (to 1e-4) and every component finite; otherwise it returns false and keeps the old one.
+  virtual bool setCharacterMove(flecs::entity entity, glm::vec3 horizontalVelocity) = 0;
+  // A one-shot jump consumed by the next fixed step whatever the ground: the vertical velocity
+  // becomes the support's (when grounded) plus `verticalSpeed`, which must be finite and > 0.
+  // Requests before a step do not add up; the last one wins.
+  virtual bool jumpCharacter(flecs::entity entity, float verticalSpeed) = 0;
+  // Puts the character's origin at a world position, facing `yaw` radians about +Y, and writes
+  // the entity's local Transform at once. Clears the velocity, the move, a pending jump, the
+  // inherited support velocity, the support and the interpolation.
+  virtual bool teleportCharacter(flecs::entity entity, glm::vec3 position, float yaw) = 0;
+  [[nodiscard]] virtual std::optional<CharacterState> character(flecs::entity entity) = 0;
+
   // The events of the last fixed step, sorted by entity ids so their order does not depend on how
   // Jolt's worker threads were scheduled, and replaced by the next step. A pair is reported once
   // when it begins and once when it ends, however many shapes of a compound body are touching; a
@@ -112,9 +144,11 @@ public:
   [[nodiscard]] virtual std::uint32_t droppedEvents() const = 0;
   static constexpr std::size_t MaxContactEvents = 1024;
 
+  // The rigid bodies that exist; characters and their inner bodies are not counted.
   [[nodiscard]] virtual std::uint32_t bodyCount() const = 0;
-  // Every collider's outline at its entity's world transform, coloured by body type; drawn in
-  // edit mode too, where there are no bodies yet.
+  // Every collider's outline at its entity's world transform, coloured by body type, and every
+  // character controller's capsule in a colour of its own; drawn in edit mode too, where there
+  // are no bodies yet.
   virtual void debugLines(std::vector<renderer::DebugLine> &lines) = 0;
 };
 
