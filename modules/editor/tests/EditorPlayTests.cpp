@@ -16,7 +16,12 @@
 #include <sonnet/world/Components.h>
 #include <sonnet/world/Scene.h>
 
+#include <RelativeModeWindow.h>
 #include <TestSupport.h>
+
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_video.h>
+#include <imgui.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -1018,5 +1023,159 @@ TEST_CASE("an import settings change makes no scene unsaved and its undo entry s
     REQUIRE(editor.commands().undo(editor.world()));
     REQUIRE(editor.assets().modelSettings(modelUuid).lightScale == 0.5f);
   }
+  sonnet::test::removeScratch(directory);
+}
+
+namespace {
+
+const platform::Event EscapeKey =
+    platform::KeyPressed{.key = platform::Key::Escape, .modifiers = platform::Modifiers::None, .repeat = false};
+
+// The mouse over the middle of the window, which the default layout gives the viewport's image; Dear ImGui sees it
+// from the next frame.
+void hoverViewport(editor::Editor &editor, const platform::IWindow &window) {
+  SDL_Event motion{};
+  motion.type = SDL_EVENT_MOUSE_MOTION;
+  motion.motion.windowID = SDL_GetWindowID(window.nativeHandle());
+  motion.motion.x = static_cast<float>(window.size().x) * 0.5f;
+  motion.motion.y = static_cast<float>(window.size().y) * 0.5f;
+  editor.nativeEvent(motion);
+}
+
+} // namespace
+
+TEST_CASE("play mode locks the pointer for a script while the game has the input and lets it go",
+          "[editor][gpu][mouselock]") {
+  Fixture fixture;
+  const std::filesystem::path directory = std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "mouse_lock";
+  std::filesystem::remove_all(directory);
+  test::RelativeModeWindow window{*fixture.window};
+  {
+    editor::Editor editor{fixture.platform, window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Lock").has_value());
+    fixture.frame(editor);
+
+    // A request in edit mode, or while the viewport does not have the focus, locks nothing.
+    REQUIRE(editor.scripts().run("input.setMouseLocked(true)", "lock").has_value());
+    fixture.frame(editor);
+    REQUIRE_FALSE(window.relativeMouseMode());
+    editor.play();
+    REQUIRE(editor.scripts().run("input.setMouseLocked(true)", "lock").has_value());
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE_FALSE(window.relativeMouseMode());
+    REQUIRE_FALSE(editor.gameInput().mouseLocked());
+
+    // The viewport focused: the game has the input, and the pointer.
+    REQUIRE(editor.bringToFront("viewport").has_value());
+    hoverViewport(editor, window);
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE(window.relativeMouseMode());
+    REQUIRE(editor.gameInput().mouseLocked());
+    // The panels do not get a locked pointer; the game does, wherever Dear ImGui last saw it.
+    const ImVec2 seen = ImGui::GetIO().MousePos;
+    SDL_Event away{};
+    away.type = SDL_EVENT_MOUSE_MOTION;
+    away.motion.windowID = SDL_GetWindowID(window.nativeHandle());
+    away.motion.x = 5.0f;
+    away.motion.y = 5.0f;
+    editor.nativeEvent(away);
+    fixture.frame(editor);
+    REQUIRE(ImGui::GetIO().MousePos.x == seen.x);
+    REQUIRE(ImGui::GetIO().MousePos.y == seen.y);
+    editor.event(
+        platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = {5.0f, 5.0f}, .clicks = 1});
+    REQUIRE(editor.gameInput().mousePressed(platform::MouseButton::Left));
+    editor.event(platform::MouseButtonReleased{.button = platform::MouseButton::Left, .position = {5.0f, 5.0f}});
+    fixture.frame(editor);
+
+    // Escape lets go and is not the game's; a click on the image takes it back and is not the game's either.
+    editor.event(EscapeKey);
+    REQUIRE_FALSE(window.relativeMouseMode());
+    REQUIRE_FALSE(editor.gameInput().keyPressed(platform::Key::Escape));
+    fixture.frame(editor);
+    REQUIRE_FALSE(editor.gameInput().mouseLocked());
+    hoverViewport(editor, window);
+    fixture.frame(editor);
+    REQUIRE_FALSE(window.relativeMouseMode());
+    editor.event(platform::MouseButtonPressed{
+        .button = platform::MouseButton::Left, .position = glm::vec2{window.size()} * 0.5f, .clicks = 1});
+    REQUIRE_FALSE(editor.gameInput().mousePressed(platform::MouseButton::Left));
+    fixture.frame(editor);
+    REQUIRE(window.relativeMouseMode());
+
+    // A lost focus lets go until a click, as Escape does.
+    editor.event(platform::WindowFocusChanged{.focused = false});
+    REQUIRE_FALSE(window.relativeMouseMode());
+    editor.event(platform::WindowFocusChanged{.focused = true});
+    fixture.frame(editor);
+    REQUIRE_FALSE(window.relativeMouseMode());
+    editor.event(platform::MouseButtonPressed{
+        .button = platform::MouseButton::Left, .position = glm::vec2{window.size()} * 0.5f, .clicks = 1});
+    fixture.frame(editor);
+    REQUIRE(window.relativeMouseMode());
+
+    // Pause lets go, and Resume with the viewport still focused takes it again.
+    editor.pause();
+    REQUIRE_FALSE(window.relativeMouseMode());
+    REQUIRE_FALSE(editor.gameInput().mouseLocked());
+    fixture.frame(editor);
+    REQUIRE_FALSE(window.relativeMouseMode());
+    editor.resume();
+    fixture.frame(editor);
+    REQUIRE(window.relativeMouseMode());
+
+    // Stop lets go, and the request goes with the scripts' reset.
+    editor.stop();
+    REQUIRE_FALSE(window.relativeMouseMode());
+    REQUIRE_FALSE(editor.gameInput().mouseLocked());
+    fixture.frame(editor);
+    editor.play();
+    fixture.frame(editor);
+    fixture.frame(editor);
+    REQUIRE_FALSE(window.relativeMouseMode());
+
+    // The editor going away while the game holds the pointer gives it back.
+    REQUIRE(editor.scripts().run("input.setMouseLocked(true)", "lock").has_value());
+    fixture.frame(editor);
+    REQUIRE(window.relativeMouseMode());
+  }
+  REQUIRE_FALSE(window.relativeMouseMode());
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  sonnet::test::removeScratch(directory);
+}
+
+TEST_CASE("a window without relative mode leaves play mode's pointer unlocked and the clicks the game's",
+          "[editor][gpu][mouselock]") {
+  Fixture fixture;
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "mouse_lock_refused";
+  std::filesystem::remove_all(directory);
+  test::RelativeModeWindow window{*fixture.window};
+  window.supported = false;
+  {
+    editor::Editor editor{fixture.platform, window, *fixture.device, *fixture.swapchain};
+    REQUIRE(editor.createProject(directory, "Refused").has_value());
+    fixture.frame(editor);
+    editor.play();
+    REQUIRE(editor.bringToFront("viewport").has_value());
+    hoverViewport(editor, window);
+    REQUIRE(editor.scripts().run("input.setMouseLocked(true)", "lock").has_value());
+    for (int frame = 0; frame < 5; ++frame) {
+      fixture.frame(editor);
+    }
+    REQUIRE(window.requests == 1);
+    REQUIRE_FALSE(editor.gameInput().mouseLocked());
+    REQUIRE(editor.scripts().run("assert(input.mouseLocked() == false)", "check").has_value());
+    editor.event(platform::MouseButtonPressed{
+        .button = platform::MouseButton::Left, .position = glm::vec2{window.size()} * 0.5f, .clicks = 1});
+    REQUIRE(editor.gameInput().mousePressed(platform::MouseButton::Left));
+    editor.stop();
+    fixture.frame(editor);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
   sonnet::test::removeScratch(directory);
 }

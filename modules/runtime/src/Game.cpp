@@ -12,6 +12,7 @@
 #include <format>
 #include <iterator>
 #include <utility>
+#include <variant>
 
 namespace sonnet::runtime {
 
@@ -45,7 +46,8 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                        settings.jobs = &m_jobs;
                                                        return settings;
                                                      }()),
-      m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}), m_gui(m_world),
+      m_graph(device), m_target(device, "game"), m_assets(m_renderer, m_jobs), m_world({}),
+      m_mouseLock(m_input, [&window](bool enabled) { return window.setRelativeMouseMode(enabled); }), m_gui(m_world),
       m_physics(physics::createPhysicsWorld(m_world, m_assets, m_jobs)), m_animation(m_world, m_assets),
       m_scripts(scripting::createScriptRuntime({.world = &m_world,
                                                 .assets = &m_assets,
@@ -78,6 +80,7 @@ void Game::reset() {
   m_world.clearScene();
   m_world.clearPrefabs();
   m_scripts->reset();
+  m_mouseLock.release();
   m_audio->stopAll();
   m_name.clear();
   m_warnedAboutCamera = false;
@@ -135,6 +138,7 @@ core::Result<void> Game::openScene(const std::filesystem::path &scene) {
   m_world.setPlaying(false);
   m_world.clearScene();
   m_scripts->reset();
+  m_mouseLock.release();
   m_audio->stopAll();
   m_gui.releaseAll();
   m_warnedAboutCamera = false;
@@ -240,9 +244,17 @@ core::Result<void> Game::startScene(const json &scene) {
 }
 
 void Game::event(const platform::Event &event) {
+  if (const auto *focus = std::get_if<platform::WindowFocusChanged>(&event)) {
+    m_focused = focus->focused;
+  }
+  // The Escape that lets a locked pointer go and the click that takes it back are the lock's.
+  if (m_mouseLock.event(event)) {
+    return;
+  }
   // A press on a button is the UI's, with the motion and release that follow it; everything else
-  // the window gets is the game's, since there is no editor panel to compete for it.
-  if (!m_gui.event(event)) {
+  // the window gets is the game's, since there is no editor panel to compete for it. A locked
+  // pointer is hidden and points at nothing, so the UI does not get it.
+  if (m_mouseLock.locked() || !m_gui.event(event)) {
     m_input.handle(event);
   }
 }
@@ -261,6 +273,8 @@ void Game::update(float dt) {
   // window's.
   m_scriptView = {.camera = m_view.camera, .size = glm::vec2{m_window.size()}};
 
+  // The request the scripts left last frame, so this frame's read `input.mouseLocked()` as it is.
+  m_mouseLock.update(m_scripts->mouseLockRequested(), m_focused && !m_paused);
   m_world.progress(dt);
   // A script's `game.loadScene` takes effect between frames, so this frame lays out and draws
   // the new scene; one that cannot load leaves the running scene as it is.
