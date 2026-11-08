@@ -1,5 +1,5 @@
 // The depth pre-pass and the shadow cascades: positions only, with the alpha test of masked
-// materials. Entry points share the vertex shader; the shadow variant projects with a cascade's or
+// materials and, in the pre-pass, the dither of a faded opaque draw. Entry points share the vertex shader; the shadow variant projects with a cascade's or
 // a spot light's matrix, chosen by the push constants, instead of the camera's. The draw's object comes from the
 // visible list and is carried to the fragment stage uninterpolated (ADR-0016).
 import sonnet;
@@ -51,12 +51,13 @@ void alphaTest(uint objectIndex, float4 uvs, float vertexAlpha) {
   }
 }
 
-// The 4x4 ordered-dither threshold of a pixel, in (0, 1): the Bayer matrix, each rank taken at the
-// middle of its sixteenth so alpha 0 never survives and alpha 1 always does.
-float orderedThreshold(float2 pixel) {
-  static const uint bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
-  const uint2 cell = uint2(pixel) & 3;
-  return (float(bayer[cell.y * 4 + cell.x]) + 0.5) / 16.0;
+// The camera's pre-pass: the alpha test, and the dither of an opaque draw faded by its tint. The
+// shadow passes take neither, so a faded draw still casts its whole shadow.
+void prePassTest(uint objectIndex, float4 uvs, float vertexAlpha, float2 pixel) {
+  alphaTest(objectIndex, uvs, vertexAlpha);
+  if (fadedOut(objectIndex, frame.materials[objects[objectIndex].material], pixel)) {
+    discard;
+  }
 }
 
 // The effective transmission T = t * (1 - m) of a draw on the transmission path (ADR-0033).
@@ -101,7 +102,7 @@ void shadowFragmentMain(VertexOutput input) {
 
 [shader("fragment")]
 void fragmentMain(VertexOutput input) {
-  alphaTest(input.objectIndex, input.uvs, input.alpha);
+  prePassTest(input.objectIndex, input.uvs, input.alpha, input.position.xy);
 }
 
 // The pre-pass under temporal anti-aliasing (ADR-0024): the same depth, and the screen-space motion
@@ -145,7 +146,7 @@ float2 clipToUv(float4 clip) {
 // A point that was behind the camera has no previous position and reads as still.
 [shader("fragment")]
 float2 motionFragmentMain(MotionVertexOutput input) : SV_Target {
-  alphaTest(input.objectIndex, input.uvs, input.alpha);
+  prePassTest(input.objectIndex, input.uvs, input.alpha, input.position.xy);
   if (input.previousClip.w <= 1.0e-4 || input.currentClip.w <= 1.0e-4) {
     return float2(0.0, 0.0);
   }

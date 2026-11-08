@@ -652,10 +652,11 @@ struct WallShadow {
 };
 
 WallShadow wallShadow(IDevice &device, Renderer &renderer, MeshHandle plane, MeshHandle wall, MaterialHandle material,
-                      float dollyOffset = 0.0f, bool shiftRange = true) {
+                      float dollyOffset = 0.0f, bool shiftRange = true, glm::vec4 wallColor = glm::vec4{1.0f}) {
   const glm::mat4 upright = glm::translate(glm::mat4{1.0f}, {-1.0f, 1.0f, 0.0f}) *
                             glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{0.0f, 0.0f, 1.0f});
-  const std::array draws{DrawItem{.mesh = plane}, DrawItem{.mesh = wall, .material = material, .transform = upright}};
+  const std::array draws{DrawItem{.mesh = plane},
+                         DrawItem{.mesh = wall, .material = material, .transform = upright, .color = wallColor}};
   SceneView view = topDownScene(draws);
   view.camera.position.y += dollyOffset;
   view.camera.fovY = 2.0f * std::atan(std::tan(view.camera.fovY * 0.5f) * 6.0f / (6.0f + dollyOffset));
@@ -794,6 +795,93 @@ TEST_CASE("a vertex colour tints the lit surface and its alpha cuts the shadow o
     renderer.destroyMesh(plane);
     renderer.destroyMesh(white);
     renderer.destroyMesh(red);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// Issue #529: an opaque draw fades by its tint's alpha, screen-door style. The pre-pass and the
+// forward pass keep the pixels whose 4x4 ordered threshold is under the alpha, so a 16 by 16 block
+// keeps exactly alpha's share of its 256 pixels; the shadow passes keep every one.
+TEST_CASE("an opaque draw's tint alpha dithers it in the camera's passes and not in its shadow on a GPU",
+          "[renderer][gpu][shadow]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle ground = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "ground");
+    const MeshHandle panel = renderer.createMesh(primitives::plane({4.0f, 4.0f}), "panel");
+    // A red panel a metre over the ground, facing the camera above; the sun almost overhead puts its
+    // shadow under it, so what shows through a dithered-out pixel is the shadowed ground.
+    const glm::mat4 raised = glm::translate(glm::mat4{1.0f}, {0.0f, 1.0f, 0.0f});
+    const auto render = [&](std::optional<float> alpha, int frames = 1) {
+      std::vector<DrawItem> draws{DrawItem{.mesh = ground}};
+      if (alpha.has_value()) {
+        draws.push_back(DrawItem{.mesh = panel, .transform = raised, .color = {1.0f, 0.0f, 0.0f, *alpha}});
+      }
+      SceneView view = topDownScene(draws);
+      view.sun.direction = glm::normalize(glm::vec3{0.1f, -1.0f, 0.05f});
+      view.sun.intensity = 3.0f;
+      view.ambient = {0.02f, 0.02f, 0.02f};
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view, frames);
+      int red = 0;
+      float groundRed = 0.0f; // the mean red of the pixels that show the ground
+      int groundPixels = 0;
+      for (unsigned y = 24; y < 40; ++y) {
+        for (unsigned x = 24; x < 40; ++x) {
+          const Pixel pixel = scene.pixel(x, y);
+          if (pixel.r > pixel.g + 60) { // the ground is grey, lit or in shadow
+            ++red;
+          } else {
+            groundRed += static_cast<float>(pixel.r);
+            ++groundPixels;
+          }
+        }
+      }
+      return std::pair{red, groundPixels > 0 ? groundRed / static_cast<float>(groundPixels) : 0.0f};
+    };
+    const auto [noneRed, litGround] = render(std::nullopt);
+    const auto [clearRed, shadowedGround] = render(0.0f);
+    const auto [quarterRed, quarterGround] = render(0.25f);
+    const auto [halfRed, halfGround] = render(0.5f);
+    const auto [solidRed, solidGround] = render(1.0f);
+    WARN(std::format(
+        "red pixels of 256 at alpha 0 / 0.25 / 0.5 / 1: {} {} {} {}; ground lit {}, under the faded panel {}", clearRed,
+        quarterRed, halfRed, solidRed, litGround, shadowedGround));
+    REQUIRE(noneRed == 0);
+    REQUIRE(litGround > 100.0f);
+    // Alpha 0 draws nothing the camera sees, yet the panel's shadow is all there; alpha 1 is solid.
+    REQUIRE(clearRed == 0);
+    REQUIRE(shadowedGround * 3.0f < litGround);
+    REQUIRE(quarterRed == 64);
+    REQUIRE(halfRed == 128);
+    REQUIRE(solidRed == 256);
+    // The ground between the dithered pixels is in the same full shadow.
+    REQUIRE(std::abs(quarterGround - shadowedGround) < 2.0f);
+    REQUIRE(std::abs(halfGround - shadowedGround) < 2.0f);
+
+    // Under temporal anti-aliasing the pre-pass that also writes motion dithers the same way: a panel
+    // at alpha 0 leaves no red in the resolved image.
+    RendererSettings taa = testSettings();
+    taa.antialiasing = AntiAliasing::Taa;
+    renderer.setSettings(taa);
+    REQUIRE(render(0.0f, 4).first == 0);
+    REQUIRE(render(1.0f, 4).first == 256);
+    renderer.setSettings(testSettings());
+
+    // Seen edge-on, a wall at alpha 0 casts the opaque wall's shadow pixel for pixel: the shadow
+    // passes never read an opaque draw's tint.
+    const MeshHandle wall = renderer.createMesh(primitives::plane({2.0f, 4.0f}), "wall");
+    const WallShadow solid = wallShadow(*device, renderer, ground, wall, {});
+    const WallShadow faded = wallShadow(*device, renderer, ground, wall, {}, 0.0f, true, {1.0f, 1.0f, 1.0f, 0.0f});
+    REQUIRE(solid.shadowed * 3.0f < solid.lit);
+    REQUIRE(faded.shadowed == solid.shadowed);
+    REQUIRE(faded.lit == solid.lit);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMesh(wall);
+    renderer.destroyMesh(panel);
+    renderer.destroyMesh(ground);
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
