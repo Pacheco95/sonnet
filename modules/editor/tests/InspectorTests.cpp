@@ -617,3 +617,47 @@ TEST_CASE("the inspector draws the members an instance changed without changing 
   REQUIRE(world.componentToJson(bulb, world.findComponent("MeshRenderer")->id) == bulbBefore);
   REQUIRE(!world.find(world.uuidOf(lamp)).owns<world::MeshRenderer>());
 }
+
+TEST_CASE("editing an inherited component gives the instance its own strings and lists",
+          "[editor][inspector][prefab]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const flecs::entity prefab = world.createEntity("Walker");
+  prefab.set<world::Animator>({.rootBone = "Root", .layers = {world::AnimationLayer{}}});
+  world.makePrefab(prefab);
+  const flecs::entity walker = world.instantiate(prefab, "Walker 1");
+  REQUIRE_FALSE(walker.owns<world::Animator>());
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  {
+    const InspectorDriver driver{panel, {}};
+    selection.select(world.uuidOf(walker));
+    driver.frame();
+    // Dragging the inherited Animator's speed makes the value the instance's own.
+    const flecs::Struct &layout = world.ecs().component<world::Animator>().get<flecs::Struct>();
+    const ecs_member_t *members = ecs_vec_first_t(&layout.members, ecs_member_t);
+    const int speedIndex = static_cast<int>(&memberOf(world, world.ecs().id<world::Animator>(), "speed") - members);
+    // Each member is a row of a property table of its own, which pushes the table's id.
+    const ImGuiID row =
+        ImHashData(&speedIndex, sizeof(speedIndex), ImHashStr("Animator", 0, InspectorDriver::inspector()->ID));
+    const ImGuiID speed = ImHashStr("##value", 0, ImHashStr("member", 0, row));
+    REQUIRE(driver.hover(InspectorDriver::inspector(), speed, 300.0f));
+    driver.drag(30.0f);
+  }
+  REQUIRE(walker.owns<world::Animator>());
+  REQUIRE(commands.canUndo());
+  const world::Animator &own = walker.get<world::Animator>();
+  const world::Animator &shared = prefab.get<world::Animator>();
+  REQUIRE(own.speed != shared.speed);
+  // Its string and list are copies, not the prefab's buffers.
+  REQUIRE(own.rootBone == "Root");
+  REQUIRE(own.rootBone.data() != shared.rootBone.data());
+  REQUIRE(own.layers.size() == 1);
+  REQUIRE(own.layers.data() != shared.layers.data());
+}
