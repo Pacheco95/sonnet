@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -750,6 +751,88 @@ TEST_CASE("under TAA the contact holds still through the jitter cycle and lets g
     referenceRenderer.destroyMesh(referenceScene.plane);
     renderer.destroyMesh(scene.box);
     renderer.destroyMesh(scene.plane);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+// What the contact shadows cost (ADR-0039): `renderer_tests "[contact-cost]"` draws a ground that
+// fills the lower view under four hundred boxes and a sky, at 1080p with the default settings (TAA,
+// occlusion culling, 2048 cascades), and prints the median and p95 of whole GPU frames and of the pass,
+// with the sun's request off and on in alternating pairs. Headless, so no present paces the GPU.
+TEST_CASE("the cost of the contact shadows at 1080p", "[.][benchmark][contact-cost][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings;
+    settings.contactShadowSteps = GENERATE(16u, 8u);
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MeshHandle plane = renderer.createMesh(primitives::plane({200.0f, 200.0f}), "plane");
+    std::vector<DrawItem> draws{DrawItem{.mesh = plane}};
+    for (int row = 0; row < 20; ++row) {
+      for (int column = 0; column < 20; ++column) {
+        const glm::vec3 position{static_cast<float>(column - 10) * 2.0f, 0.4f, -static_cast<float>(row) * 2.0f - 2.0f};
+        draws.push_back(
+            {.mesh = box,
+             .transform = glm::translate(glm::mat4{1.0f}, position) * glm::scale(glm::mat4{1.0f}, glm::vec3{0.8f})});
+      }
+    }
+    SceneView view;
+    view.camera.position = {0.0f, 1.7f, 2.0f};
+    view.camera.rotation = glm::angleAxis(glm::radians(-12.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+    view.sun.direction = glm::normalize(glm::vec3{0.5f, -0.75f, -0.4f});
+    view.draws = draws;
+    const glm::uvec2 size{1920, 1080};
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize(size);
+    const auto frame = [&] {
+      ICommandList &commands = device->beginFrame();
+      graph.reset();
+      renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+      graph.execute(commands);
+      device->endFrame();
+    };
+    const auto rank = [](std::vector<float> values, float fraction) {
+      std::ranges::sort(values);
+      const auto index = static_cast<std::size_t>(std::ceil(fraction * static_cast<float>(values.size())));
+      return values[std::max<std::size_t>(index, 1) - 1];
+    };
+    WARN(std::format("{} steps on {}", settings.contactShadowSteps, device->info().deviceName));
+    for (int pair = 0; pair < 3; ++pair) {
+      for (const bool contact : pair % 2 == 0 ? std::array{false, true} : std::array{true, false}) {
+        view.sun.contactShadows = contact;
+        for (int warm = 0; warm < 120; ++warm) {
+          frame();
+        }
+        std::vector<float> totals;
+        std::vector<float> pass;
+        for (int measured = 0; measured < 300; ++measured) {
+          frame();
+          float total = 0.0f;
+          bool whole = true;
+          for (const PassTiming &timing : graph.statistics().passes) {
+            whole = whole && timing.gpuAvailable;
+            total += timing.gpuMilliseconds;
+            if (timing.name == "contact shadows" && timing.gpuAvailable) {
+              pass.push_back(timing.gpuMilliseconds);
+            }
+          }
+          if (whole) {
+            totals.push_back(total);
+          }
+        }
+        REQUIRE(!totals.empty());
+        WARN(std::format("  pair {} contact {:3}: frame median {:.4f} p95 {:.4f} ms ({} whole); pass {}", pair,
+                         contact ? "on" : "off", rank(totals, 0.5f), rank(totals, 0.95f), totals.size(),
+                         pass.empty() ? std::string{"-"}
+                                      : std::format("median {:.4f} p95 {:.4f} ms ({} samples)", rank(pass, 0.5f),
+                                                    rank(pass, 0.95f), pass.size())));
+      }
+    }
+    REQUIRE(device->validationMessageCount() == 0);
+    renderer.destroyMesh(plane);
+    renderer.destroyMesh(box);
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
