@@ -117,6 +117,10 @@ constexpr std::array<std::string_view, static_cast<std::size_t>(Key::Count)> Key
 constexpr std::array<std::string_view, static_cast<std::size_t>(MouseButton::Count)> MouseButtonNames{
     "Left", "Middle", "Right", "X1", "X2"};
 
+constexpr std::array<std::string_view, static_cast<std::size_t>(GamepadButton::Count)> GamepadButtonNames{
+    "South",      "East",         "West",          "North",  "Back",     "Guide",    "Start",    "LeftStick",
+    "RightStick", "LeftShoulder", "RightShoulder", "DPadUp", "DPadDown", "DPadLeft", "DPadRight"};
+
 } // namespace
 
 std::string_view toString(Key key) noexcept {
@@ -142,6 +146,20 @@ std::optional<MouseButton> mouseButtonFromName(std::string_view name) noexcept {
   for (std::size_t i = 0; i < MouseButtonNames.size(); ++i) {
     if (MouseButtonNames[i] == name) {
       return static_cast<MouseButton>(i);
+    }
+  }
+  return std::nullopt;
+}
+
+std::string_view toString(GamepadButton button) noexcept {
+  const auto index = static_cast<std::size_t>(button);
+  return index < GamepadButtonNames.size() ? GamepadButtonNames[index] : std::string_view{};
+}
+
+std::optional<GamepadButton> gamepadButtonFromName(std::string_view name) noexcept {
+  for (std::size_t i = 0; i < GamepadButtonNames.size(); ++i) {
+    if (GamepadButtonNames[i] == name) {
+      return static_cast<GamepadButton>(i);
     }
   }
   return std::nullopt;

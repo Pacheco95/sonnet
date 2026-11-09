@@ -1331,6 +1331,27 @@ private:
       m_mouseLockRequested = locked.as<bool>();
     });
     table.set_function("mouseLocked", [this] { return m_input->mouseLocked(); });
+    const auto padButton = [](std::string_view name, sol::this_state state) {
+      const std::optional<platform::GamepadButton> found = platform::gamepadButtonFromName(name);
+      if (!found) {
+        raise(state, std::format("there is no gamepad button named \"{}\"", name));
+      }
+      return *found;
+    };
+    table.set_function("gamepadConnected", [this] { return m_input->gamepadConnected(); });
+    table.set_function("gamepadDown", [this, padButton](std::string_view name, sol::this_state state) {
+      return m_input->gamepadDown(padButton(name, state));
+    });
+    table.set_function("gamepadPressed", [this, padButton](std::string_view name, sol::this_state state) {
+      return m_input->gamepadPressed(padButton(name, state));
+    });
+    table.set_function("gamepadReleased", [this, padButton](std::string_view name, sol::this_state state) {
+      return m_input->gamepadReleased(padButton(name, state));
+    });
+    table.set_function("leftStick", [this, vec2] { return vec2(m_input->leftStick()); });
+    table.set_function("rightStick", [this, vec2] { return vec2(m_input->rightStick()); });
+    table.set_function("leftTrigger", [this] { return m_input->leftTrigger(); });
+    table.set_function("rightTrigger", [this] { return m_input->rightTrigger(); });
   }
 
   void bindCamera() {

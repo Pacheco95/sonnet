@@ -511,6 +511,44 @@ TEST_CASE("scripts read the touches with their positions and this frame's motion
               .has_value());
 }
 
+TEST_CASE("scripts read the gamepad's buttons, sticks and triggers", "[scripting]") {
+  Fixture fixture;
+  REQUIRE(fixture.scripts
+              ->run(R"lua(
+    assert(not input.gamepadConnected())
+    assert(not input.gamepadDown("South"))
+    local s = input.leftStick()
+    assert(s.x == 0 and s.y == 0)
+    assert(input.rightTrigger() == 0)
+    assert(not pcall(input.gamepadDown, "A"), "a label is not a button's name")
+  )lua",
+                    "=none")
+              .has_value());
+  fixture.input.handle(platform::GamepadConnected{.name = "Pad"});
+  fixture.input.beginFrame();
+  fixture.input.handle(platform::GamepadButtonPressed{.button = platform::GamepadButton::South});
+  fixture.input.handle(platform::GamepadAxisMoved{.axis = platform::GamepadAxis::LeftY, .value = 1.0f});
+  fixture.input.handle(platform::GamepadAxisMoved{.axis = platform::GamepadAxis::RightX, .value = -1.0f});
+  fixture.input.handle(platform::GamepadAxisMoved{.axis = platform::GamepadAxis::LeftTrigger, .value = 1.0f});
+  REQUIRE(fixture.scripts
+              ->run(R"lua(
+    assert(input.gamepadConnected())
+    assert(input.gamepadDown("South") and input.gamepadPressed("South"))
+    assert(not input.gamepadReleased("South") and not input.gamepadDown("East"))
+    local left, right = input.leftStick(), input.rightStick()
+    assert(left.x == 0 and math.abs(left.y - 1) < 1e-6, left.y)
+    assert(math.abs(right.x + 1) < 1e-6 and right.y == 0, right.x)
+    assert(input.leftTrigger() == 1 and input.rightTrigger() == 0)
+  )lua",
+                    "=held")
+              .has_value());
+  fixture.input.beginFrame();
+  fixture.input.handle(platform::GamepadButtonReleased{.button = platform::GamepadButton::South});
+  REQUIRE(fixture.scripts
+              ->run(R"lua(assert(input.gamepadReleased("South") and not input.gamepadDown("South")))lua", "=released")
+              .has_value());
+}
+
 TEST_CASE("the camera turns a point of the view into a ray", "[scripting]") {
   Fixture fixture;
   // A 90-degree camera over a 200x100 view: its corners are one unit up and two across at a

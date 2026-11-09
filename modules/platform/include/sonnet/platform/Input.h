@@ -125,6 +125,39 @@ enum class MouseButton : std::uint8_t {
   Count
 };
 
+// A gamepad's buttons by position, as SDL names them: South is A on an Xbox pad and Cross on a
+// PlayStation one, whatever the label says (docs/platform.md, "Gamepads").
+enum class GamepadButton : std::uint8_t {
+  South,
+  East,
+  West,
+  North,
+  Back,
+  Guide,
+  Start,
+  LeftStick,
+  RightStick,
+  LeftShoulder,
+  RightShoulder,
+  DPadUp,
+  DPadDown,
+  DPadLeft,
+  DPadRight,
+  Count
+};
+
+// A gamepad's analog controls. The sticks' axes run from -1 to 1, +x to the right and +y up (away
+// from the player); the triggers from 0, let go, to 1, pulled all the way.
+enum class GamepadAxis : std::uint8_t {
+  LeftX,
+  LeftY,
+  RightX,
+  RightY,
+  LeftTrigger,
+  RightTrigger,
+  Count
+};
+
 enum class Modifiers : std::uint8_t {
   None = 0,
   Shift = 1 << 0,
@@ -154,5 +187,7 @@ constexpr bool has(Modifiers set, Modifiers flag) noexcept {
 [[nodiscard]] std::optional<Key> keyFromName(std::string_view name) noexcept;
 [[nodiscard]] std::string_view toString(MouseButton button) noexcept;
 [[nodiscard]] std::optional<MouseButton> mouseButtonFromName(std::string_view name) noexcept;
+[[nodiscard]] std::string_view toString(GamepadButton button) noexcept;
+[[nodiscard]] std::optional<GamepadButton> gamepadButtonFromName(std::string_view name) noexcept;
 
 } // namespace sonnet::platform

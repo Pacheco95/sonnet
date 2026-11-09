@@ -106,6 +106,26 @@ struct TouchMotion {
   WindowId window{0};
 };
 
+// The active gamepad (docs/platform.md, "Gamepads"). The platform opens one gamepad at a time and
+// reports only that one's controls. GamepadConnected is a gamepad becoming the active one, at
+// startup, plugged in while there was none, or replacing one that was removed; GamepadDisconnected
+// is the active one going with no other to take its place.
+struct GamepadConnected {
+  std::string name; // UTF-8, as SDL names the device
+};
+struct GamepadDisconnected {};
+struct GamepadButtonPressed {
+  GamepadButton button;
+};
+struct GamepadButtonReleased {
+  GamepadButton button;
+};
+// An axis's new value, normalised (the ranges and directions of GamepadAxis), before any dead zone.
+struct GamepadAxisMoved {
+  GamepadAxis axis;
+  float value;
+};
+
 // Files dragged from the operating system and dropped on a window: one FileDropped per file, then
 // one DropCompleted with where the drop landed (docs/platform.md, "Events").
 struct FileDropped {
@@ -130,7 +150,8 @@ struct Terminating {};
 using Event =
     std::variant<WindowResized, WindowMoved, WindowMinimized, WindowMaximized, WindowRestored, WindowFocusChanged,
                  MouseLeftWindow, WindowCloseRequested, QuitRequested, KeyPressed, KeyReleased, TextInput, MouseMoved,
-                 MouseButtonPressed, MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion, FileDropped,
+                 MouseButtonPressed, MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion, GamepadConnected,
+                 GamepadDisconnected, GamepadButtonPressed, GamepadButtonReleased, GamepadAxisMoved, FileDropped,
                  DropCompleted, WillEnterBackground, DidEnterForeground, LowMemory, Terminating>;
 
 } // namespace sonnet::platform

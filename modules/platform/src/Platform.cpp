@@ -82,9 +82,11 @@ Platform::Platform(const PlatformDesc &desc) : m_headless(desc.headless) {
     // Headless means no UI at all: an SDL assertion must not open its dialog and wait.
     SDL_SetHint(SDL_HINT_ASSERT, "abort");
   }
-  // Only the video subsystem for now; audio and gamepads join in their milestones. Subsystems the
-  // engine does not use stay off (ADR-0002).
-  if (!SDL_Init(SDL_INIT_VIDEO)) {
+  // Video, and gamepads where there is a player to hold one: headless runs (tests, captures, CI)
+  // never see a pad plugged into the machine they run on. Subsystems the engine does not use stay
+  // off (ADR-0002); audio has its own module.
+  const SDL_InitFlags flags = m_headless ? SDL_INIT_VIDEO : SDL_INIT_VIDEO | SDL_INIT_GAMEPAD;
+  if (!SDL_Init(flags)) {
     throw core::Exception{std::format("SDL_Init failed: {}", SDL_GetError()), core::ErrorCategory::Platform};
   }
   SONNET_LOG_INFO("SDL {}.{}.{} initialised, video driver \"{}\"{}", SDL_VERSIONNUM_MAJOR(SDL_GetVersion()),

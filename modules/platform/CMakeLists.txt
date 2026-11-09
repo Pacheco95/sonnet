@@ -20,6 +20,7 @@ sonnet_add_module(platform
     src/SdlDisplay.cpp
     src/SdlEntryPoint.cpp
     src/SdlEvents.cpp
+    src/SdlGamepads.cpp
     src/SdlWindow.cpp
     src/WindowIconData.cpp
     ${SONNET_THERMAL_SOURCE}
@@ -45,6 +46,7 @@ sonnet_add_module_test(platform
   SOURCES
     tests/ContentTests.cpp
     tests/EventTests.cpp
+    tests/GamepadTests.cpp
     tests/InputStateTests.cpp
     tests/MouseLockTests.cpp
     tests/PlatformTests.cpp
