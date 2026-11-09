@@ -178,10 +178,10 @@ void SdlGamepads::close() noexcept {
 void SdlGamepads::emitAxes() {
   for (std::size_t i = 0; i < static_cast<std::size_t>(GamepadAxis::Count); ++i) {
     const auto axis = static_cast<GamepadAxis>(i);
-    constexpr SDL_GamepadAxis Sdl[] = {SDL_GAMEPAD_AXIS_LEFTX,        SDL_GAMEPAD_AXIS_LEFTY,
-                                       SDL_GAMEPAD_AXIS_RIGHTX,       SDL_GAMEPAD_AXIS_RIGHTY,
-                                       SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER};
-    emit(GamepadAxisMoved{axis, gamepadAxisValue(axis, SDL_GetGamepadAxis(m_active, Sdl[i]))});
+    constexpr SDL_GamepadAxis sdlAxes[] = {SDL_GAMEPAD_AXIS_LEFTX,        SDL_GAMEPAD_AXIS_LEFTY,
+                                           SDL_GAMEPAD_AXIS_RIGHTX,       SDL_GAMEPAD_AXIS_RIGHTY,
+                                           SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER};
+    emit(GamepadAxisMoved{axis, gamepadAxisValue(axis, SDL_GetGamepadAxis(m_active, sdlAxes[i]))});
   }
 }
 
