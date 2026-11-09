@@ -35,7 +35,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND VCPKG_TARGET_TRIPLET MATCHES "-o
   endif()
 endif()
 
-project(sonnet VERSION 0.23.0 LANGUAGES CXX C)
+project(sonnet VERSION 0.24.0 LANGUAGES CXX C)
 if(WIN32)
   enable_language(RC)
 endif()
