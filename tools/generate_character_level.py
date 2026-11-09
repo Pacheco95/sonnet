@@ -648,7 +648,8 @@ def write_scene(meshes, materials, character_prefab, file_name="main.scene.json"
     # behind the character, so the scene opens in the editor looking at it.
     eye, target = (0.0, 2.4, 14.0), (0.0, 1.55, 10.0)
     camera = entity("Camera", eye, look_along([target[k] - eye[k] for k in range(3)]),
-                    Camera={"fovY": math.radians(55.0), "nearPlane": 0.1, "exposure": CAMERA_EXPOSURE, "bloomStrength": 0.02})
+                    Camera={"fovY": math.radians(55.0), "nearPlane": 0.1, "exposure": CAMERA_EXPOSURE, "bloomStrength": 0.02,
+                            "ambientOcclusion": True})
 
     level = entity("Course")
     for piece in course():
