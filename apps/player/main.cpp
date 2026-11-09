@@ -66,12 +66,16 @@ using namespace sonnet;
   desc.renderer.shadowLodCascade = 3;
   desc.renderer.maxEnvironmentSize = 1024;
   desc.renderer.transmission = false; // sustained heat on the S25 (docs/reports/transmission-mobile.md)
+  // Unmeasured on a phone (ADR-0039): off whatever a scene asks for, until #540 measures it.
+  desc.renderer.contactShadows = false;
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
   desc.renderer.farShadowMapSize = 1024;
   desc.renderer.shadowLodCascade = 3;
   desc.renderer.maxEnvironmentSize = 1024;
   // Half-size copy still does not establish the cold budget (docs/reports/transmission-ipad-half-copy.md).
   desc.renderer.transmission = false;
+  // Unmeasured on an iOS device (ADR-0039): an Android result would not enable it here either.
+  desc.renderer.contactShadows = false;
 #endif
   return desc;
 }

@@ -202,7 +202,12 @@ void World::registerComponents() {
       .member<float>("exposure")
       .member<float>("bloomStrength");
   registerComponent<DirectionalLight>("DirectionalLight");
-  m_world.component<DirectionalLight>().member<glm::vec3>("color").member<float>("intensity");
+  m_world.component<DirectionalLight>()
+      .member<glm::vec3>("color")
+      .member<float>("intensity")
+      .member<bool>("contactShadows")
+      .member<float>("contactShadowLength")
+      .member<float>("contactShadowThickness");
   registerComponent<PointLight>("PointLight");
   m_world.component<PointLight>()
       .member<glm::vec3>("color")

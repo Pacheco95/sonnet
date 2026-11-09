@@ -50,6 +50,14 @@ struct DirectionalLight {
   glm::vec3 direction{-0.4f, -1.0f, -0.3f}; // towards where the light travels
   glm::vec3 color{1.0f, 0.96f, 0.9f};
   float intensity{3.0f};
+  // Screen-space contact shadows (ADR-0039): a short march through the pre-pass depth towards the
+  // sun, for the contacts the cascades are too coarse to resolve. Asked for here, permitted by
+  // RendererSettings::contactShadows and drawn only with shadows on. The length is the ray's in
+  // metres (0 to 1) and the thickness the view depth behind a surface that still occludes (0 to the
+  // length); either at zero makes the effect neutral.
+  bool contactShadows{false};
+  float contactShadowLength{0.2f};
+  float contactShadowThickness{0.02f};
 };
 
 enum class LightType : std::uint8_t {

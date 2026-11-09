@@ -1,7 +1,9 @@
 #include <sonnet/runtime/FrameTimes.h>
 
 #include <algorithm>
+#include <cmath>
 #include <format>
+#include <vector>
 
 namespace sonnet::runtime {
 
@@ -75,6 +77,35 @@ std::string FrameTimes::summary() const {
     passes +=
         std::format("{}{} {:.3f} ms ({}/{} samples)", passes.empty() ? "" : ", ", pass.name, mean, available, ran);
   }
+  // Whole frames, which a budget is about (ADR-0039): each frame whose every pass has its GPU sample, summed
+  // as the means above are, a repeated name once; and the intervals between frames.
+  std::vector<float> totals;
+  std::vector<float> intervals;
+  for (const Frame &frame : m_frames) {
+    intervals.push_back(frame.intervalMilliseconds);
+    float total = 0.0f;
+    bool whole = !frame.passes.empty();
+    for (auto current = frame.passes.begin(); current != frame.passes.end() && whole; ++current) {
+      if (std::ranges::find(frame.passes.begin(), current, current->name, &Pass::name) != current) {
+        continue;
+      }
+      whole = current->gpuAvailable;
+      total += current->gpuMilliseconds;
+    }
+    if (whole) {
+      totals.push_back(total);
+    }
+  }
+  const auto rank = [](std::vector<float> &values, float fraction) {
+    std::ranges::sort(values);
+    const auto index = static_cast<std::size_t>(std::ceil(fraction * static_cast<float>(values.size())));
+    return values[std::max<std::size_t>(index, 1) - 1];
+  };
+  std::string distribution = totals.empty() ? "; GPU frames n/a (0 complete)"
+                                            : std::format("; GPU frames median {:.3f} ms, p95 {:.3f} ms ({} complete)",
+                                                          rank(totals, 0.5f), rank(totals, 0.95f), totals.size());
+  distribution +=
+      std::format("; intervals median {:.2f} ms, p95 {:.2f} ms", rank(intervals, 0.5f), rank(intervals, 0.95f));
   std::string thermal;
   if (m_thermalSeen) {
     thermal = m_thermalWorst == platform::ThermalState::Unknown
@@ -82,9 +113,9 @@ std::string FrameTimes::summary() const {
                   : std::format("; thermal {} -> {} (worst {})", platform::toString(m_thermalFirst),
                                 platform::toString(m_thermalLast), platform::toString(m_thermalWorst));
   }
-  return std::format("over the last {} frames: CPU {:.2f} ms a frame, {:.2f} ms apart; GPU {}: {}{}", m_frames.size(),
+  return std::format("over the last {} frames: CPU {:.2f} ms a frame, {:.2f} ms apart; GPU {}: {}{}{}", m_frames.size(),
                      cpu / frames, interval / frames, complete ? std::format("{:.3f} ms", gpu) : "n/a", passes,
-                     thermal);
+                     distribution, thermal);
 }
 
 } // namespace sonnet::runtime

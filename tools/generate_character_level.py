@@ -602,6 +602,11 @@ CAPTURES = {
     # the walk west until it has played; seen from the front and a little to the right, as the idle is, mid-turn.
     "capture_turn": {"start": RESPAWN, "route": [("01 turn", RESPAWN), ("02 walk", (-3.0, 0.0, 10.0))],
                      "camera": {"yaw": 155.0, "pitch": -14.0, "distance": 3.0}, "seconds": 0.6},
+    # Standing at the start, seen close and from low on its sunlit side, with the sun's contact shadows on
+    # (ADR-0039, issue #509): the feet, the steps and the columns' feet. The only scene of the sample that asks
+    # for them; `--contact-shadows off` on the player draws the same frame without.
+    "capture_contact_shadows": {"start": RESPAWN, "camera": {"yaw": -45.0, "pitch": -25.0, "distance": 2.2, "height": 0.7},
+                                "seconds": 3, "contact_shadows": True},
 }
 
 CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with a mouse button    look\nWheel    zoom\n"
@@ -609,7 +614,7 @@ CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with 
 
 
 def write_scene(meshes, materials, character_prefab, file_name="main.scene.json", route=None, start=RESPAWN,
-                camera_properties=None, controls=True):
+                camera_properties=None, controls=True, contact_shadows=False):
     entities = []
     counter = [0]
 
@@ -635,8 +640,10 @@ def write_scene(meshes, materials, character_prefab, file_name="main.scene.json"
     sun = SUN_DIRECTION
     strength = max(SUN_IRRADIANCE)
     entity("Sky", Environment={"map": asset_uuid(SKY.relative_to(PROJECT).as_posix()), "intensity": 1.0})
-    entity("Sun", (0, 30, 0), look_along([-c for c in sun]),
-           DirectionalLight={"color": [round(c / strength, 4) for c in SUN_IRRADIANCE], "intensity": round(strength, 3)})
+    light = {"color": [round(c / strength, 4) for c in SUN_IRRADIANCE], "intensity": round(strength, 3)}
+    if contact_shadows:
+        light.update({"contactShadows": True, "contactShadowLength": 0.2, "contactShadowThickness": 0.02})
+    entity("Sun", (0, 30, 0), look_along([-c for c in sun]), DirectionalLight=light)
     # The follow camera (scripts/camera.lua) places itself in the first frame; this is where it starts from,
     # behind the character, so the scene opens in the editor looking at it.
     eye, target = (0.0, 2.4, 14.0), (0.0, 1.55, 10.0)
@@ -738,7 +745,8 @@ def write_level():
     write_scene(meshes, materials, character, "route.scene.json", route=ROUTE, camera_properties={"trail": 3.0})
     for name, capture in CAPTURES.items():
         write_scene(meshes, materials, character, f"{name}.scene.json", route=capture.get("route"), start=capture["start"],
-                    camera_properties=capture["camera"], controls=False)
+                    camera_properties=capture["camera"], controls=False,
+                    contact_shadows=capture.get("contact_shadows", False))
     project = {"version": 2, "name": "Character", "engineVersion": engine_version(), "startScene": "scenes/main.scene.json",
                "assetRoots": ["assets", "scripts"]}
     (PROJECT / "project.json").write_text(json.dumps(project, indent=2) + "\n")

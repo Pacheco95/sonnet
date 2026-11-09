@@ -47,6 +47,9 @@ struct CaptureOptions {
   std::optional<bool> transmission;
   // --transmission-downscale: RendererSettings::transmissionDownscale for the run; the player's only.
   std::optional<std::uint32_t> transmissionDownscale;
+  // --contact-shadows: RendererSettings::contactShadows for the run, over the player's platform
+  // default; the player's only. The scene's sun still has to ask for them.
+  std::optional<bool> contactShadows;
   bool grid{false}; // editor capture only; does not change preferences
   // The next four are the editor's only and, like grid, are for the run: none changes the preferences or
   // the layout. The editor checks their values when it begins, since the panels' names and the tile

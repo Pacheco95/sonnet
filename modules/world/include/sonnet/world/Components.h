@@ -100,6 +100,12 @@ struct Camera {
 struct DirectionalLight {
   glm::vec3 color{1.0f, 0.96f, 0.9f};
   float intensity{3.0f};
+  // Screen-space contact shadows of the scene's sun (ADR-0039): off until authored, so older scenes
+  // look as they did. The length is the ray's in metres and the thickness the view depth behind a
+  // surface that still occludes; the renderer bounds them to 0-1 m and 0-length.
+  bool contactShadows{false};
+  float contactShadowLength{0.2f};
+  float contactShadowThickness{0.02f};
 };
 
 // Punctual lights at their entity's position; intensity is radiance at one metre.

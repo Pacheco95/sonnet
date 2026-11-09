@@ -483,6 +483,89 @@ TEST_CASE("a spot light's castsShadows survives a scene round trip and defaults 
   legacy.ecs().each([&](const world::SpotLight &light) { REQUIRE(!light.castsShadows); });
 }
 
+TEST_CASE("a sun's contact shadows survive source and cooked scenes and prefab overrides, off when absent",
+          "[world][scene][prefab]") {
+  // Cooked scenes are the same reflected JSON in CBOR (ADR-0011), so no format version moves.
+  const auto cooked = [](const nlohmann::json &document) {
+    const auto decoded = assets::decodeJson(assets::encodeJson(document));
+    REQUIRE(decoded.has_value());
+    return *decoded;
+  };
+  world::World source;
+  const flecs::entity sun = source.createEntity("Sun");
+  sun.set<world::DirectionalLight>(
+      {.intensity = 4.0f, .contactShadows = true, .contactShadowLength = 0.35f, .contactShadowThickness = 0.05f});
+  const core::Uuid sunUuid = source.uuidOf(sun);
+  const nlohmann::json scene = world::saveScene(source);
+  REQUIRE(scene["version"] == 9);
+  for (const nlohmann::json &document : {scene, cooked(scene)}) {
+    world::World target;
+    REQUIRE(world::loadScene(target, document));
+    const auto light = target.find(sunUuid).get<world::DirectionalLight>();
+    REQUIRE(light.contactShadows);
+    REQUIRE(light.contactShadowLength == Approx(0.35f));
+    REQUIRE(light.contactShadowThickness == Approx(0.05f));
+    target.progress(0.0f);
+    const auto rendered = world::sceneLight(target);
+    REQUIRE(rendered.has_value());
+    REQUIRE(rendered->contactShadows);
+    REQUIRE(rendered->contactShadowLength == Approx(0.35f));
+    REQUIRE(rendered->contactShadowThickness == Approx(0.05f));
+  }
+
+  // A scene written before the fields existed keeps its look: no contact shadows.
+  nlohmann::json old = scene;
+  for (const char *field : {"contactShadows", "contactShadowLength", "contactShadowThickness"}) {
+    old["entities"][0]["components"]["DirectionalLight"].erase(field);
+  }
+  world::World legacy;
+  REQUIRE(world::loadScene(legacy, old));
+  const auto plain = legacy.find(sunUuid).get<world::DirectionalLight>();
+  REQUIRE_FALSE(plain.contactShadows);
+  REQUIRE(plain.contactShadowLength == Approx(0.2f));
+  REQUIRE(plain.contactShadowThickness == Approx(0.02f));
+  REQUIRE(plain.intensity == Approx(4.0f));
+
+  // An instance that turns them on patches that member alone and follows the prefab for the rest.
+  nlohmann::json prefabDocument;
+  {
+    world::World authoring;
+    const flecs::entity root = authoring.createEntity("Lamp");
+    root.set<world::DirectionalLight>({.contactShadowLength = 0.3f});
+    prefabDocument = world::savePrefab(authoring, root);
+  }
+  nlohmann::json instanceScene;
+  core::Uuid instanceUuid;
+  {
+    world::World editing;
+    const auto prefab = world::loadPrefab(editing, prefabDocument);
+    REQUIRE(prefab.has_value());
+    const flecs::entity instance = editing.instantiate(*prefab, "Lamp 1");
+    instance.ensure<world::DirectionalLight>().contactShadows = true;
+    instanceUuid = editing.uuidOf(instance);
+    instanceScene = world::saveScene(editing);
+    const nlohmann::json &patch = instanceScene["entities"][0]["components"]["DirectionalLight"];
+    REQUIRE(patch == nlohmann::json{{"contactShadows", true}});
+  }
+  nlohmann::json changedPrefab = prefabDocument;
+  bool changed = false;
+  for (nlohmann::json &entity : changedPrefab["entities"]) {
+    if (entity["components"].contains("DirectionalLight")) {
+      entity["components"]["DirectionalLight"]["contactShadowLength"] = 0.4f;
+      changed = true;
+    }
+  }
+  REQUIRE(changed);
+  for (const nlohmann::json &document : {instanceScene, cooked(instanceScene)}) {
+    world::World playing;
+    REQUIRE(world::loadPrefab(playing, cooked(changedPrefab)).has_value());
+    REQUIRE(world::loadScene(playing, document));
+    const auto light = playing.find(instanceUuid).get<world::DirectionalLight>();
+    REQUIRE(light.contactShadows);
+    REQUIRE(light.contactShadowLength == Approx(0.4f));
+  }
+}
+
 TEST_CASE("vector and quaternion members save as arrays and load back (ADR-0029)", "[world][scene]") {
   world::World source;
   registerShape(source);

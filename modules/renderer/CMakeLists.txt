@@ -20,6 +20,7 @@ sonnet_add_module(renderer
 # are compiled, and sonnet_add_engine_shaders(<target>) places the result next to a binary.
 set_property(GLOBAL PROPERTY SONNET_ENGINE_SHADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cluster.slang"
+  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/contact.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cull.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/debug.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/depth.slang"
@@ -41,6 +42,7 @@ set_property(GLOBAL PROPERTY SONNET_ENGINE_SHADERS
 sonnet_add_module_test(renderer
   SOURCES
     tests/CameraTests.cpp
+    tests/ContactShadowTests.cpp
     tests/PickingTests.cpp
     tests/PrimitivesTests.cpp
     tests/RenderGraphTests.cpp

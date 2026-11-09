@@ -121,6 +121,7 @@ Each `capture_*` scene is the course with the character started somewhere else, 
 | `capture_landing` | 1.4 | Off the ledge block's far side, 1.2 m down, from the east: both feet down and the knees bent as `Land` plays |
 | `capture_turn` | 0.6 | Standing at the start, from the front and a little to the right, a quarter turn to the left on the spot (`TurnLeft90`) halfway, the left foot stepping round |
 | `capture_camera_obstruction` | 4 | Walking south into the low tunnel with the camera behind and above: the ceiling holds the camera under it, about 1.2 m from the pivot, and the character stays in view |
+| `capture_contact_shadows` | 3 | Standing at the start, close and from the south-west with the sun on the right: the sun's contact shadows (ADR-0039) at the feet, the only scene of the sample that asks for them. `--contact-shadows off` on the player draws the same frame without them |
 
 ```bash
 ./build/linux-debug/apps/player/sonnet_player apps/samples/character --scene scenes/capture_jump.scene.json \

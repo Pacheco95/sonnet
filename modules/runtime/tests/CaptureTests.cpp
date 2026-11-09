@@ -112,7 +112,7 @@ TEST_CASE("the editor and the player share one table", "[runtime][capture]") {
     REQUIRE(line.has_value() == option.player);
     players += option.player ? 1 : 0;
   }
-  REQUIRE(players == 8);
+  REQUIRE(players == 9);
   // The player's window is its scene, which its line for --screenshot says.
   REQUIRE(usage.contains("the scene, at the window's size"));
   REQUIRE(!usage.contains("viewport"));
@@ -153,6 +153,15 @@ TEST_CASE("--transmission takes on or off", "[runtime][capture]") {
   const auto bad = player({"--transmission", "yes", "--screenshot", "a.png"});
   REQUIRE_FALSE(bad.has_value());
   REQUIRE(bad.error().message.find("--transmission") != std::string::npos);
+}
+
+TEST_CASE("--contact-shadows takes on or off", "[runtime][capture]") {
+  REQUIRE(player({"--contact-shadows", "on", "--screenshot", "a.png"})->capture->contactShadows == true);
+  REQUIRE(player({"--contact-shadows", "off", "--screenshot", "a.png"})->capture->contactShadows == false);
+  REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->contactShadows.has_value());
+  const auto bad = player({"--contact-shadows", "1", "--screenshot", "a.png"});
+  REQUIRE_FALSE(bad.has_value());
+  REQUIRE(bad.error().message.find("--contact-shadows") != std::string::npos);
 }
 
 TEST_CASE("--play takes what floating-point from_chars took", "[runtime][capture]") {
@@ -260,7 +269,31 @@ TEST_CASE("frame times are the means of the last hundred frames", "[runtime][cap
   REQUIRE(
       times.summary() ==
       "over the last 100 frames: CPU 2.00 ms a frame, 16.00 ms apart; GPU 2.000 ms: shadow 0.500 ms (100/100 samples), "
-      "forward 1.500 ms (100/100 samples)");
+      "forward 1.500 ms (100/100 samples); GPU frames median 1.500 ms, p95 2.500 ms (100 complete); intervals median "
+      "16.00 ms, p95 16.00 ms");
+}
+
+TEST_CASE("frame times give the median and p95 of whole frames and of the intervals", "[runtime][capture]") {
+  runtime::FrameTimes times;
+  renderer::GraphStatistics graph;
+  graph.passes = {{.name = "depth", .gpuMilliseconds = 0.0f, .gpuAvailable = true},
+                  {.name = "forward", .gpuMilliseconds = 0.0f, .gpuAvailable = true}};
+  // Frames 1 to 20 ms in total, 10 to 29 ms apart; one more without a forward sample is no whole frame.
+  for (int i = 1; i <= 20; ++i) {
+    graph.passes[1].gpuMilliseconds = static_cast<float>(i) - 0.5f;
+    graph.passes[0].gpuMilliseconds = 0.5f;
+    times.record(1.0f, static_cast<float>(i + 9), graph);
+  }
+  graph.passes[1].gpuAvailable = false;
+  times.record(1.0f, 100.0f, graph);
+  const std::string summary = times.summary();
+  CAPTURE(summary);
+  REQUIRE(summary.contains("; GPU frames median 10.000 ms, p95 19.000 ms (20 complete)"));
+  REQUIRE(summary.contains("; intervals median 20.00 ms, p95 29.00 ms"));
+
+  runtime::FrameTimes none;
+  none.record(1.0f, 16.0f, renderer::GraphStatistics{});
+  REQUIRE(none.summary().contains("; GPU frames n/a (0 complete)"));
 }
 
 TEST_CASE("unavailable GPU samples are excluded while measured zero remains valid", "[runtime][capture]") {

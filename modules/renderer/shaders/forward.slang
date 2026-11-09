@@ -222,6 +222,17 @@ float pointShadow(Light light, float3 worldPosition, float3 normal, float3 toLig
   return lit / 9.0;
 }
 
+// The sun's contact visibility at the pixel (ADR-0039), 1 without the mask. Only opaque and masked
+// receivers drew the pre-pass depth it was traced from; a blended or transmissive surface keeps to
+// its shadow maps rather than taking the surface behind it's contact as its own.
+float contactShadow(float2 pixel, MaterialData material) {
+  if (frame.contactShadowImage == 0xFFFFFFFF || (material.flags & 0xFF) == AlphaBlend ||
+      (material.flags & MaterialTransmissive) != 0) {
+    return 1.0;
+  }
+  return textures[frame.contactShadowImage].Load(int3(int2(pixel), 0)).r;
+}
+
 // The parameters are not named `texture` or `sampler`: those are Metal types, and a parameter of
 // that name makes the translated MSL declare `constant array<sampler, 64>&` against the parameter
 // rather than the type, which Metal rejects. It bites the editor's runtime recompile, where the
@@ -336,7 +347,9 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   } else {
     if (frame.sunDirection.w > 0.0) {
       const float3 l = -frame.sunDirection.xyz;
-      shadow = sunShadow(input.worldPosition, viewDepth, geometricNormal);
+      // The minimum, not the product, of two estimates of the same partial shadow (ADR-0039); past
+      // the cascades' reach theirs is 1, so a nearby occluder still casts its contact.
+      shadow = min(sunShadow(input.worldPosition, viewDepth, geometricNormal), contactShadow(input.position.xy, material));
       sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0, diffuseWeight);
       color += sunDirect * shadow;
     }
