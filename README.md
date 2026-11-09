@@ -213,6 +213,7 @@ ctest --preset linux-debug
 | [0037](docs/decisions/0037-per-field-instance-overrides.md) | An instance stores the fields it changed, and the rest follow the prefab | Accepted |
 | [0038](docs/decisions/0038-character-controller.md) | A character controller on Jolt's CharacterVirtual, its frame order and animation weights | Accepted |
 | [0039](docs/decisions/0039-screen-space-ambient-occlusion-and-contact-shadows.md) | Depth-based GTAO and sun contact shadows, their saved controls and mobile budget | Accepted |
+| [0040](docs/decisions/0040-fbx-import-with-ufbx.md) | FBX source import with ufbx through the existing model and cooking pipeline | Proposed |
 
 ## License
 
