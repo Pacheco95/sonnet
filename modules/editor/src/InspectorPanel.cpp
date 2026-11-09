@@ -775,6 +775,11 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
     followedValue = m_world.componentToJson(followed, info.id);
     overrides = world::componentPatch(info, m_world.componentToJson(entity, info.id), followedValue);
   }
+  // Apply to prefab: offered on what differs, and on a component an instance root added.
+  const bool rootAdded = !source && prefab && !inherited && !prefab.has(info.id) && info.name != "Transform";
+  const ApplyRequest wholeRequest{.entity = uuid, .component = info.name};
+  const std::optional<std::string> applyTo =
+      changed || rootAdded ? applyTarget(wholeRequest) : std::optional<std::string>{};
   const std::string label = inherited ? std::format("{} (inherited)", info.name)
                             : changed ? std::format("{} (changed)", info.name)
                                       : info.name;
@@ -803,6 +808,14 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
     ImGui::PopID();
     return;
   }
+  if (opened && applyTo) {
+    if (changed) {
+      ImGui::SameLine();
+    }
+    if (ui::rowButton(std::format("Apply to {}", *applyTo).c_str())) {
+      m_apply(wholeRequest);
+    }
+  }
   if (opened && !info.tag) {
     // What the pending command restores: captured before any widget of this frame ran.
     const nlohmann::json before = m_edit ? nlohmann::json{} : m_world.componentToJson(entity, info.id);
@@ -827,6 +840,8 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
       m_overrides = overrides.is_object() && !overrides.empty() ? &overrides : nullptr;
       m_memberPath = nlohmann::json::json_pointer{};
       m_revertMember.reset();
+      m_drawnEntity = uuid;
+      m_drawnComponent = info.name;
       drawStruct(type, data);
       m_overrides = nullptr;
       if (m_revertMember) {
@@ -880,6 +895,17 @@ void InspectorPanel::drawRemovedComponents(flecs::entity entity, flecs::entity s
                            std::make_optional(info.tag ? nlohmann::json{} : m_world.componentToJson(source, info.id)),
                            std::format("restore {}", info.name)),
           m_world);
+    } else {
+      const ApplyRequest request{.entity = m_world.uuidOf(entity), .component = info.name};
+      if (const auto target = applyTarget(request)) {
+        ImGui::SameLine();
+        if (ui::rowButton(std::format("Apply to {}", *target).c_str())) {
+          m_apply(request);
+        }
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("Remove it from the prefab too");
+        }
+      }
     }
     ImGui::PopID();
   }
@@ -964,7 +990,13 @@ void InspectorPanel::drawScripts(flecs::entity entity, const scripting::Scripts 
       } else {
         for (const scripting::PropertyDecl &property : *declared) {
           ImGui::PushID(property.name.c_str());
-          drawProperty(slot, property, prefab != nullptr ? prefabSlot(*current, *prefab, i) : nullptr);
+          drawProperty(slot, property, prefab != nullptr ? prefabSlot(*current, *prefab, i) : nullptr,
+                       ApplyRequest{.entity = m_world.uuidOf(entity),
+                                    .component = "Scripts",
+                                    .member = nlohmann::json::json_pointer{std::format("/slots/{}/properties", i)} /
+                                              property.name,
+                                    .slot = i,
+                                    .property = property.name});
           ImGui::PopID();
         }
         for (const std::string &name : undeclaredProperties(slot, *declared)) {
@@ -992,7 +1024,7 @@ void InspectorPanel::drawScripts(flecs::entity entity, const scripting::Scripts 
 }
 
 void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property,
-                                  const scripting::ScriptSlot *prefab) {
+                                  const scripting::ScriptSlot *prefab, const ApplyRequest &request) {
   using scripting::PropertyType;
   nlohmann::json value = propertyValue(slot, property);
   const bool changedBefore = propertyChanged(slot, property);
@@ -1086,18 +1118,23 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
   }
   }
   ImGui::TableNextColumn();
-  // To the script's default, or to the prefab slot's value; a menu when both apply.
+  // To the script's default, or to the prefab slot's value, or the value applied to the prefab; a
+  // menu when more than one is offered.
   std::optional<bool> revertTo; // true: the prefab's value
-  if (changedBefore && overridden) {
-    if (ui::rowButton("Revert")) {
+  const std::optional<std::string> applyTo = overridden ? applyTarget(request) : std::nullopt;
+  if (applyTo || (changedBefore && overridden)) {
+    if (ui::rowButton(applyTo ? "Prefab" : "Revert")) {
       ImGui::OpenPopup("revert to");
     }
     if (ImGui::BeginPopup("revert to")) {
       if (ImGui::MenuItem("Prefab's value")) {
         revertTo = true;
       }
-      if (ImGui::MenuItem("Script's default")) {
+      if (changedBefore && ImGui::MenuItem("Script's default")) {
         revertTo = false;
+      }
+      if (applyTo && ImGui::MenuItem(std::format("Apply to {}", *applyTo).c_str())) {
+        m_apply(request);
       }
       ImGui::EndPopup();
     }
@@ -1337,14 +1374,38 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
   }
   if (level != nullptr) {
     ImGui::TableNextColumn();
-    if (overridden != nullptr && ui::rowButton("Revert")) {
+    const ApplyRequest request{
+        .entity = m_drawnEntity, .component = m_drawnComponent, .member = m_memberPath / member.name};
+    // The column holds one button: with an apply on offer it opens a menu of both.
+    const std::optional<std::string> applyTo = overridden != nullptr ? applyTarget(request) : std::nullopt;
+    if (applyTo) {
+      if (ui::rowButton("Prefab")) {
+        ImGui::OpenPopup("prefab member");
+      }
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Revert to the prefab's value, or apply this one to %s", applyTo->c_str());
+      }
+      if (ImGui::BeginPopup("prefab member")) {
+        if (ImGui::MenuItem("Revert to the prefab's value")) {
+          m_revertMember = request.member;
+        }
+        if (ImGui::MenuItem(std::format("Apply to {}", *applyTo).c_str())) {
+          m_apply(request);
+        }
+        ImGui::EndPopup();
+      }
+    } else if (overridden != nullptr && ui::rowButton("Revert")) {
       m_revertMember = m_memberPath / member.name;
     }
-    if (overridden != nullptr && ImGui::IsItemHovered()) {
+    if (!applyTo && overridden != nullptr && ImGui::IsItemHovered()) {
       ImGui::SetTooltip("Revert to the prefab's value");
     }
   }
   ui::endPropertyTable();
+}
+
+std::optional<std::string> InspectorPanel::applyTarget(const ApplyRequest &request) const {
+  return m_applyTarget && m_apply ? m_applyTarget(request) : std::nullopt;
 }
 
 void InspectorPanel::drawMemberLabel(const char *name, bool overridden) {

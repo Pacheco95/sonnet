@@ -2,6 +2,7 @@
 
 #include <sonnet/editor/AssetBrowserPanel.h>
 #include <sonnet/editor/CommandStack.h>
+#include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Export.h>
 #include <sonnet/editor/FileDialog.h>
 #include <sonnet/editor/GamePanel.h>
@@ -74,6 +75,15 @@ namespace sonnet::editor {
 [[nodiscard]] constexpr bool wantsViewports(bool headless, bool canPositionWindows) noexcept {
   return !headless && canPositionWindows;
 }
+
+// What places a prefab, which "Apply to prefab" lists before it writes (docs/editor.md, "Applying to
+// a prefab"): the scene files and prefab files on disk that place it, directly or inside other
+// prefabs, and the titles of the open scene tabs that do, in the state they are being edited in.
+struct PrefabUsers {
+  std::vector<std::filesystem::path> scenes;
+  std::vector<std::filesystem::path> prefabs;
+  std::vector<std::string> tabs;
+};
 
 // The per-user files an editor reads at start and writes while it runs (docs/editor.md, "Screenshots").
 // A path is empty when the editor must neither read nor write that file.
@@ -171,6 +181,28 @@ public:
   // `prefabs` folder, named after the entity, loads it and replaces the subtree by an instance of
   // it as one undoable command. Returns the file written.
   [[nodiscard]] core::Result<std::filesystem::path> saveAsPrefab(core::Uuid entity);
+  // "Apply to prefab" (docs/editor.md, "Applying to a prefab"): writes an instance's change into the
+  // prefab file World::applyTarget chooses, then rebuilds the prefabs and the instances, as one
+  // undoable command. The target's name when the inspector offers it, nothing when it does not:
+  // while playing, in a project opened from a bundle, outside an instance, on an instance root's
+  // Transform, when the chain has no prefab file, for a script property whose slot list the
+  // target runs differently, and for a removal the target cannot make (a component it inherits).
+  [[nodiscard]] std::optional<std::string> applyTargetName(const ApplyRequest &request) const;
+  // Opens the confirmation, which lists prefabUsers for the target; Apply there is applyToPrefab.
+  void requestApplyToPrefab(ApplyRequest request);
+  [[nodiscard]] bool applyDialogOpen() const noexcept {
+    return m_modal == Modal::ApplyToPrefab;
+  }
+  // What the open confirmation lists.
+  [[nodiscard]] const PrefabUsers &applyUsers() const noexcept {
+    return m_applyUsers;
+  }
+  void confirmApply();
+  void cancelApply();
+  // Applies at once, without asking; fails when applyTargetName offers nothing.
+  [[nodiscard]] core::Result<void> applyToPrefab(const ApplyRequest &request);
+  // The scene files, prefab files and open tabs that place the prefab with this identity.
+  [[nodiscard]] PrefabUsers prefabUsers(core::Uuid prefab);
   // Opens the scene in a tab of its own, or switches to the tab that already has it. A failure
   // leaves the current tab as it was.
   [[nodiscard]] core::Result<void> openScene(const std::filesystem::path &file);
@@ -485,6 +517,7 @@ private:
     Stop,
     Recover,
     SaveLayout,
+    ApplyToPrefab,
   };
 
   enum class DialogTarget : std::uint8_t {
@@ -577,8 +610,21 @@ private:
   // the focus, and when the Assets panel is shown. What it finds is applied at once, and the prefabs are rebuilt
   // as after a re-import when a model or a prefab file came, went or moved.
   void rescanProject();
-  // Once per frame: after a glTF re-import, rebuilds the prefabs and the scene's instances of them.
+  // Once per frame: after a glTF re-import or a prefab file changed outside, rebuilds the prefabs
+  // and the scene's instances of them, unless playing.
   void refreshModelPrefabs();
+  // The rebuild itself, also run by Apply to prefab: the scene is saved against the prefabs in the
+  // world, every prefab is loaded again from its file, and the scene is loaded back, so instances
+  // keep their overrides by identity. Undo history and selection stay.
+  void rebuildPrefabs();
+  // Where an apply goes and what it writes, when applyTargetName offers it.
+  struct ResolvedApply {
+    world::ApplyTarget target;
+    const world::ComponentInfo *info{nullptr};
+    std::filesystem::path file;
+  };
+  [[nodiscard]] std::optional<ResolvedApply> resolveApply(const ApplyRequest &request) const;
+  void drawApplyModal();
   void filesMoved(const std::filesystem::path &from, const std::filesystem::path &to);
   void openLocation(const std::string &path, int line);
   [[nodiscard]] core::Result<void> loadSceneFile(const std::filesystem::path &file);
@@ -696,6 +742,8 @@ private:
   // Prefab files the last load refused with nothing to keep in their place, and their write time
   // then: a rescan counts them as changed only once they are written again.
   std::map<std::filesystem::path, std::filesystem::file_time_type> m_brokenPrefabs;
+  std::optional<ApplyRequest> m_pendingApply; // what the Apply to prefab confirmation applies
+  PrefabUsers m_applyUsers;
   bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
   bool m_playLeftScene{false};   // a script loaded another scene: the play's edits are not the snapshot's
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;

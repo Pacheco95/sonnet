@@ -1,5 +1,6 @@
 #include <sonnet/editor/EntityCommands.h>
 
+#include <sonnet/core/File.h>
 #include <sonnet/core/Log.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/Scene.h>
@@ -500,6 +501,79 @@ std::unique_ptr<ICommand> reparentCommand(core::Uuid entity, core::Uuid parent, 
 
 std::unique_ptr<ICommand> renameCommand(core::Uuid entity, std::string before, std::string after) {
   return std::make_unique<RenameCommand>(entity, std::move(before), std::move(after));
+}
+
+namespace {
+
+class ApplyToPrefabCommand final : public ICommand {
+public:
+  ApplyToPrefabCommand(std::filesystem::path file, std::string before, std::string after, core::Uuid entity,
+                       std::string component, std::optional<json> value, std::function<void()> rebuild)
+      : m_file(std::move(file)), m_before(std::move(before)), m_after(std::move(after)), m_entity(entity),
+        m_component(std::move(component)), m_value(std::move(value)), m_rebuild(std::move(rebuild)),
+        m_description(std::format("apply {} to {}", m_component, m_file.filename().string())) {
+  }
+
+  void apply(world::World &world) override {
+    write(m_after);
+    m_rebuild();
+    // An instance root that now equals its prefab inherits the component again rather than
+    // keeping an override that changes nothing.
+    const flecs::entity entity = world.find(m_entity);
+    const world::ComponentInfo *info = world.findComponent(m_component);
+    const flecs::entity prefab =
+        entity && !entity.has<world::PrefabSource>() ? world.prefabOf(entity) : flecs::entity{};
+    if (prefab && info != nullptr && info->name != "Transform" && entity.owns(info->id) && prefab.has(info->id) &&
+        !world.differs(entity, prefab, *info)) {
+      entity.remove(info->id);
+    }
+  }
+  void revert(world::World &world) override {
+    write(m_before);
+    m_rebuild();
+    const flecs::entity entity = require(world, m_entity, m_description);
+    const world::ComponentInfo *info = world.findComponent(m_component);
+    if (!entity || info == nullptr) {
+      return;
+    }
+    if (m_value) {
+      world.componentFromJson(entity, info->id, *m_value);
+    } else if (entity.owns(info->id)) {
+      entity.remove(info->id);
+    }
+  }
+  // Play mode has its own history and no apply, so there is nothing to apply again.
+  bool reapply(world::World & /*world*/) override {
+    return false;
+  }
+  std::string_view description() const override {
+    return m_description;
+  }
+
+private:
+  void write(const std::string &text) const {
+    if (const auto written = core::writeFile(m_file, text); !written) {
+      SONNET_LOG_ERROR("{}: {}", m_description, written.error().toString());
+    }
+  }
+
+  std::filesystem::path m_file;
+  std::string m_before;
+  std::string m_after;
+  core::Uuid m_entity;
+  std::string m_component;
+  std::optional<json> m_value;
+  std::function<void()> m_rebuild;
+  std::string m_description;
+};
+
+} // namespace
+
+std::unique_ptr<ICommand> applyToPrefabCommand(std::filesystem::path file, std::string before, std::string after,
+                                               core::Uuid entity, std::string component, std::optional<json> value,
+                                               std::function<void()> rebuild) {
+  return std::make_unique<ApplyToPrefabCommand>(std::move(file), std::move(before), std::move(after), entity,
+                                                std::move(component), std::move(value), std::move(rebuild));
 }
 
 std::unique_ptr<ICommand> componentCommand(core::Uuid entity, std::string component, std::optional<json> before,

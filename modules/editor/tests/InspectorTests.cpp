@@ -20,9 +20,11 @@
 #include <imgui_internal.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -660,4 +662,68 @@ TEST_CASE("editing an inherited component gives the instance its own strings and
   REQUIRE(own.rootBone.data() != shared.rootBone.data());
   REQUIRE(own.layers.size() == 1);
   REQUIRE(own.layers.data() != shared.layers.data());
+}
+
+TEST_CASE("a changed member of an instance offers to apply it to the prefab", "[editor][inspector][prefab][apply]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const flecs::entity prefab = world.createEntity("Lamp");
+  prefab.set<world::PointLight>({});
+  world.makePrefab(prefab);
+  const flecs::entity lamp = world.instantiate(prefab, "Lamp 1");
+  lamp.ensure<world::PointLight>().intensity = 4.0f;
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  std::vector<editor::ApplyRequest> asked;
+  std::vector<editor::ApplyRequest> applied;
+  panel.setApplyHandlers(
+      [&](const editor::ApplyRequest &request) -> std::optional<std::string> {
+        asked.push_back(request);
+        return std::string{"Lamp"};
+      },
+      [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
+  const InspectorDriver driver{panel, {}};
+  selection.select(world.uuidOf(lamp));
+  driver.frame();
+  // Asked for the changed component and for its changed member, never for the others.
+  const auto askedFor = [&](std::string_view member) {
+    return std::ranges::any_of(asked, [&](const editor::ApplyRequest &request) {
+      return request.component == "PointLight" && request.member.to_string() == member;
+    });
+  };
+  CHECK(askedFor(""));
+  CHECK(askedFor("/intensity"));
+  CHECK(!askedFor("/range"));
+
+  // The member's row button opens a menu whose Apply asks for that member.
+  const flecs::entity type = world.ecs().component<world::PointLight>();
+  const ecs_member_t *members = ecs_vec_first_t(&type.get<flecs::Struct>().members, ecs_member_t);
+  const int index = static_cast<int>(&memberOf(world, type, "intensity") - members);
+  const ImGuiID row = ImHashData(&index, sizeof(index), ImHashStr("PointLight", 0, InspectorDriver::inspector()->ID));
+  const ImGuiID button = ImHashStr("Prefab", 0, ImHashStr("member", 0, row));
+  bool found = false;
+  for (float x = 490.0f; x > 400.0f && !found; x -= 6.0f) {
+    found = driver.hover(InspectorDriver::inspector(), button, x);
+  }
+  REQUIRE(found);
+  driver.click();
+  ImGuiContext &context = *ImGui::GetCurrentContext();
+  REQUIRE(!context.OpenPopupStack.empty());
+  ImGuiWindow *menu = context.OpenPopupStack.back().Window;
+  REQUIRE(menu != nullptr);
+  // A popup fits itself to its items over its first frames, so it is placed only after them.
+  driver.frame();
+  driver.frame();
+  REQUIRE(driver.hover(menu, ImHashStr("Apply to Lamp", 0, menu->ID), 20.0f));
+  driver.click();
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0].entity == world.uuidOf(lamp));
+  CHECK(applied[0].member.to_string() == "/intensity");
+  CHECK(!commands.canUndo());
 }

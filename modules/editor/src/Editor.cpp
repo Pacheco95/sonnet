@@ -126,6 +126,8 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
     }
   });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
+  m_inspectorPanel.setApplyHandlers([this](const ApplyRequest &request) { return applyTargetName(request); },
+                                    [this](ApplyRequest request) { requestApplyToPrefab(std::move(request)); });
   m_assetBrowserPanel.setThumbnailSource([this](const core::Uuid &uuid) { return m_thumbnails.get(uuid); });
   m_assetBrowserPanel.setViewHandler([this](const AssetsView &view) {
     if (!m_project) {
@@ -1282,6 +1284,11 @@ void Editor::drawModal() {
     ImGui::EndPopup();
     return;
   }
+  if (m_modal == Modal::ApplyToPrefab) {
+    drawApplyModal();
+    ImGui::EndPopup();
+    return;
+  }
   const char *title = m_modal == Modal::NewProject    ? "Create a project folder"
                       : m_modal == Modal::OpenProject ? "Open a project folder"
                       : m_modal == Modal::Export      ? "Export the project"
@@ -1406,6 +1413,7 @@ void Editor::drawModal() {
     case Modal::Stop:
     case Modal::Recover:
     case Modal::SaveLayout:
+    case Modal::ApplyToPrefab:
     case Modal::None:
       break;
     }
@@ -2286,6 +2294,10 @@ void Editor::refreshModelPrefabs() {
   if (!m_prefabsStale || isPlaying()) {
     return;
   }
+  rebuildPrefabs();
+}
+
+void Editor::rebuildPrefabs() {
   m_prefabsStale = false;
   // The round trip a tab switch makes, with the prefabs rebuilt in between: instances copy their
   // prefab's tree (ADR-0028), so they are made again from the saved scene, which keeps the
@@ -2308,6 +2320,171 @@ void Editor::refreshModelPrefabs() {
     SONNET_LOG_ERROR("refreshing the scene after a prefab change: {}", restored.error().toString());
   }
   m_selection.prune(m_world);
+}
+
+std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &request) const {
+  if (isPlaying() || !m_project || m_assets.bundle() != nullptr) {
+    return std::nullopt;
+  }
+  const flecs::entity entity = m_world.find(request.entity);
+  const world::ComponentInfo *info = m_world.findComponent(request.component);
+  if (!entity || info == nullptr) {
+    return std::nullopt;
+  }
+  const world::ApplyTarget target = m_world.applyTarget(entity, *info, request.member);
+  const auto *file = target.root ? target.root.try_get<world::PrefabFile>() : nullptr;
+  if (file == nullptr) {
+    return std::nullopt;
+  }
+  if (!entity.has(info->id)) {
+    // A removal: only of a component the target holds itself, not one it inherits.
+    const flecs::entity base =
+        target.entity.has<world::PrefabSource>() ? flecs::entity{} : m_world.prefabOf(target.entity);
+    if (!request.member.empty() || !target.entity.owns(info->id) || (base && base.has(info->id))) {
+      return std::nullopt;
+    }
+  } else if (request.slot) {
+    // A property pairs with the target's slot only while both run the same scripts in order.
+    const auto *scripts = entity.try_get<scripting::Scripts>();
+    const auto *targetScripts = target.entity.try_get<scripting::Scripts>();
+    if (scripts == nullptr || targetScripts == nullptr ||
+        prefabSlot(*scripts, *targetScripts, *request.slot) == nullptr || request.property.empty()) {
+      return std::nullopt;
+    }
+  }
+  return ResolvedApply{.target = target, .info = info, .file = file->path};
+}
+
+std::optional<std::string> Editor::applyTargetName(const ApplyRequest &request) const {
+  const auto resolved = resolveApply(request);
+  if (!resolved) {
+    return std::nullopt;
+  }
+  const auto *name = resolved->target.root.try_get<world::Name>();
+  return name != nullptr && !name->value.empty() ? name->value : resolved->file.filename().string();
+}
+
+void Editor::requestApplyToPrefab(ApplyRequest request) {
+  const auto resolved = resolveApply(request);
+  if (!resolved || m_modal != Modal::None) {
+    return;
+  }
+  m_applyUsers = prefabUsers(m_world.uuidOf(resolved->target.root));
+  m_pendingApply = std::move(request);
+  m_modal = Modal::ApplyToPrefab;
+}
+
+void Editor::confirmApply() {
+  if (m_modal != Modal::ApplyToPrefab) {
+    return;
+  }
+  m_modal = Modal::None;
+  if (m_pendingApply) {
+    if (const auto applied = applyToPrefab(*m_pendingApply); !applied) {
+      SONNET_LOG_ERROR("apply to prefab: {}", applied.error().toString());
+    }
+  }
+  m_pendingApply.reset();
+}
+
+void Editor::cancelApply() {
+  if (m_modal == Modal::ApplyToPrefab) {
+    m_modal = Modal::None;
+  }
+  m_pendingApply.reset();
+}
+
+core::Result<void> Editor::applyToPrefab(const ApplyRequest &request) {
+  const auto resolved = resolveApply(request);
+  if (!resolved) {
+    return std::unexpected(
+        core::Error{std::format("{} of {} cannot be applied to a prefab", request.component, request.entity.toString()),
+                    core::ErrorCategory::Unknown});
+  }
+  const world::ComponentInfo &info = *resolved->info;
+  const flecs::entity entity = m_world.find(request.entity);
+  const flecs::entity target = resolved->target.entity;
+  const auto before = core::readFile(resolved->file);
+  if (!before) {
+    return std::unexpected(before.error());
+  }
+  const auto valueOf = [&](flecs::entity holder) -> std::optional<nlohmann::json> {
+    if (!holder.has(info.id)) {
+      return std::nullopt;
+    }
+    return std::optional<nlohmann::json>{info.tag ? nlohmann::json{} : m_world.componentToJson(holder, info.id)};
+  };
+  const std::optional<nlohmann::json> value = valueOf(entity);
+  // The new document is the target's prefab with the change made on its entity in the world, which
+  // is then put back: the rebuild saves the scene against the prefabs in the world first, and an
+  // instance that follows the prefab would otherwise be saved as overriding the old value.
+  const std::optional<nlohmann::json> targetValue = valueOf(target);
+  const bool owned = target.owns(info.id);
+  if (request.slot) {
+    scripting::Scripts scripts = target.get<scripting::Scripts>();
+    scripts.slots[*request.slot] =
+        applyPropertyToPrefab(scripts.slots[*request.slot], entity.get<scripting::Scripts>().slots[*request.slot],
+                              scripting::PropertyDecl{.name = request.property});
+    target.set<scripting::Scripts>(std::move(scripts));
+  } else if (!value) {
+    target.remove(info.id);
+  } else if (!request.member.empty() && targetValue) {
+    m_world.componentFromJson(target, info.id, revertMember(info, *targetValue, *value, request.member));
+  } else {
+    m_world.componentFromJson(target, info.id, *value);
+  }
+  std::string after = world::sceneText(world::savePrefab(m_world, resolved->target.root));
+  if (!targetValue || !owned) {
+    target.remove(info.id); // an inherited value shows through again
+  } else {
+    m_world.componentFromJson(target, info.id, *targetValue);
+  }
+  std::string text(before->size(), '\0');
+  std::ranges::transform(*before, text.begin(), [](std::byte b) { return static_cast<char>(b); });
+  m_commands.push(applyToPrefabCommand(resolved->file, std::move(text), std::move(after), request.entity, info.name,
+                                       value, [this] { rebuildPrefabs(); }),
+                  m_world);
+  SONNET_LOG_INFO("applied {}{} to {}", info.name, request.member.to_string(), resolved->file.string());
+  return {};
+}
+
+PrefabUsers Editor::prefabUsers(core::Uuid prefab) {
+  PrefabUsers users;
+  if (!m_project) {
+    return users;
+  }
+  // Prefab files, then scene files, then the open tabs, as one list the search runs over.
+  std::vector<nlohmann::json> documents;
+  std::vector<std::filesystem::path> files;
+  const auto read = [&](const std::filesystem::path &file) {
+    if (const auto bytes = core::readFile(file)) {
+      if (nlohmann::json document = assets::parseJson(*bytes); !document.is_discarded()) {
+        documents.push_back(std::move(document));
+        files.push_back(file);
+      }
+    }
+  };
+  for (const std::filesystem::path &file : m_project->files(".prefab.json")) {
+    read(file);
+  }
+  const std::size_t prefabCount = documents.size();
+  for (const std::filesystem::path &file : m_project->files(".scene.json")) {
+    read(file);
+  }
+  const std::size_t fileCount = documents.size();
+  for (std::size_t i = 0; i < m_tabs.size(); ++i) {
+    documents.push_back(i == m_activeTab ? world::saveScene(m_world) : m_tabs[i].content);
+  }
+  for (const std::size_t index : world::documentsPlacing(documents, prefab)) {
+    if (index < prefabCount) {
+      users.prefabs.push_back(files[index]);
+    } else if (index < fileCount) {
+      users.scenes.push_back(files[index]);
+    } else {
+      users.tabs.push_back(tabTitle(index - fileCount));
+    }
+  }
+  return users;
 }
 
 core::Result<std::filesystem::path> Editor::saveAsPrefab(core::Uuid entity) {
@@ -2502,6 +2679,54 @@ void Editor::drawTabBar() {
     afterStopPrompt([this] { newScene(); });
   } else if (select) {
     afterStopPrompt([this, index = *select] { switchToTab(index); });
+  }
+}
+
+void Editor::drawApplyModal() {
+  const auto resolved = m_pendingApply ? resolveApply(*m_pendingApply) : std::nullopt;
+  if (!resolved) {
+    // The entity or the prefab went away under the dialog.
+    cancelApply();
+    ImGui::CloseCurrentPopup();
+    return;
+  }
+  const ApplyRequest &request = *m_pendingApply;
+  const std::string what = request.slot ? std::format("the property {}", request.property)
+                           : request.member.empty()
+                               ? request.component
+                               : std::format("{}{}", request.component, request.member.to_string());
+  const std::string target = applyTargetName(request).value_or(std::string{});
+  const auto relative = [&](const std::filesystem::path &path) {
+    return path.lexically_relative(m_project->root).generic_string();
+  };
+  ImGui::TextWrapped("Apply %s to %s? This writes %s.", what.c_str(), target.c_str(), relative(resolved->file).c_str());
+  ImGui::TextWrapped("Every instance that does not change it takes the new value; one that sets its own keeps it.");
+  const auto list = [&](const char *heading, const auto &items, const auto &label) {
+    if (items.empty()) {
+      return;
+    }
+    ui::sectionBreak();
+    ImGui::TextUnformatted(heading);
+    for (const auto &item : items) {
+      ImGui::BulletText("%s", label(item).c_str());
+    }
+  };
+  const auto plain = [](const std::string &title) { return title; };
+  list("Scenes that place it:", m_applyUsers.scenes, relative);
+  list("Prefabs that place it:", m_applyUsers.prefabs, relative);
+  list("Open tabs that place it:", m_applyUsers.tabs, plain);
+  if (m_applyUsers.scenes.empty() && m_applyUsers.prefabs.empty() && m_applyUsers.tabs.empty()) {
+    ui::mutedText("Nothing else places it.");
+  }
+  ui::sectionBreak();
+  const int answer =
+      ui::dialogButtons({{"Apply", ui::DialogButtonFlags::Default}, {"Cancel", ui::DialogButtonFlags::Cancel}});
+  if (answer == 0) {
+    ImGui::CloseCurrentPopup();
+    confirmApply();
+  } else if (answer == 1) {
+    ImGui::CloseCurrentPopup();
+    cancelApply();
   }
 }
 
