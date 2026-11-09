@@ -44,6 +44,9 @@ struct RenderStatistics {
   // Temporal anti-aliasing resolved this frame against a previous frame; false on the first
   // frame of a view, after a resize, a cut or a frame that was not resolved, and without TAA.
   bool temporalHistoryUsed{false};
+  // The ambient occlusion's own history was blended in this frame (ADR-0039): only under TAA, from
+  // the second consecutive frame with the same controls, size and projection.
+  bool ambientOcclusionHistoryUsed{false};
   // What survived the GPU's culling, read back FramesInFlight frames late (ADR-0024), so these
   // describe an earlier frame of the same view; `visibleCountsKnown` is false until the first
   // one arrives. Opaque and masked draws only: the blended ones are never culled.
@@ -64,10 +67,11 @@ enum class DebugView : std::uint32_t {
   ShadowFactor, // the sun's visibility, white where lit
   IblDiffuse,
   IblSpecular,
-  BrdfLut, // the split-sum scale and bias at the fragment's n.v and roughness, in red and green
-  Cascade, // the view-depth cascade, red, green, blue, then yellow
+  BrdfLut,          // the split-sum scale and bias at the fragment's n.v and roughness, in red and green
+  Cascade,          // the view-depth cascade, red, green, blue, then yellow
+  AmbientOcclusion, // the screen-space visibility the indirect light takes, after the camera's strength
 };
-constexpr std::uint32_t DebugViewCount = 9;
+constexpr std::uint32_t DebugViewCount = 10;
 // What the editor's View > Shading term menu calls a term: "Final", "Sun direct", "BRDF LUT".
 [[nodiscard]] const char *debugViewName(DebugView view) noexcept;
 
@@ -121,6 +125,14 @@ struct RendererSettings {
   // draw (ADR-0033). Off, such a draw is blended with the opacity the same transmission gives, and
   // no copy or extra pass is made.
   bool transmission{true};
+  // Permits the camera's screen-space ambient occlusion request (SceneView::ambientOcclusion,
+  // ADR-0039): half-resolution GTAO from the completed depth, filtered, and under TAA accumulated in
+  // a history of its own. An upper bound: off, no view draws it whatever the scene asks. The Android
+  // and iOS players turn it off. The counts bound its cost: slices 1 to 4, steps per side of a
+  // slice 1 to 8.
+  bool ambientOcclusion{true};
+  std::uint32_t ambientOcclusionSlices{3};
+  std::uint32_t ambientOcclusionSteps{4};
   // The copy's level 0 is the scene box-filtered to 1/n of the view's size on each side (1 is the view's
   // own size, bit for bit), and its chain has the levels of that smaller size. A smaller copy is cheaper
   // to write and to build and softens clear glass by n pixels. Values below 1 are 1.
@@ -327,6 +339,16 @@ public:
   // pass reads, 1 where nothing occludes; invalid when the view traced none. Valid until the next graph reset.
   [[nodiscard]] GraphImage contactShadows(std::size_t view = 0) const noexcept {
     return view < m_viewCount ? m_views[view]->contactShadows : GraphImage{};
+  }
+  // The full-resolution R8 visibility mask the forward pass of the `view`th declared view multiplies
+  // into its indirect light, after the camera's strength, and the half-resolution search it came
+  // from (visibility, view depth, octahedral normal); invalid when the view draws no ambient
+  // occlusion. Valid until the next graph reset.
+  [[nodiscard]] GraphImage ambientOcclusion(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->ambientOcclusion : GraphImage{};
+  }
+  [[nodiscard]] GraphImage ambientOcclusionSearch(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->ambientOcclusionSearch : GraphImage{};
   }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
@@ -594,7 +616,17 @@ private:
     float mipBias{0.0f};      // added to the level of material samples: TaaMipBias for a jittered view
     GraphImage transmission; // the opaque scene's mip chain, 1/transmissionDownscale of the view's size, when this view
                              // has a draw on the transmission path
-    GraphImage contactShadows; // the sun's contact visibility, when the view traces it (ADR-0039)
+    GraphImage contactShadows;         // the sun's contact visibility, when the view traces it (ADR-0039)
+    GraphImage ambientOcclusion;       // the full-resolution visibility mask, when this view draws ambient occlusion
+    GraphImage ambientOcclusionSearch; // its half-resolution search
+  };
+  // What a view's ambient occlusion was computed with: a change of any of them cuts its history.
+  struct AmbientOcclusionKey {
+    float radius{0.0f};
+    float strength{0.0f};
+    std::uint32_t slices{0};
+    std::uint32_t steps{0};
+    bool operator==(const AmbientOcclusionKey &) const = default;
   };
   // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
   // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
@@ -610,6 +642,16 @@ private:
     bool hasPrevious{false};
     glm::mat4 previousViewProjection{1.0f};
     ProjectionKind projectionKind{ProjectionKind::Perspective};
+    // The ambient occlusion's history (ADR-0039): two half-resolution guide images it ping-pongs
+    // between, valid only for the frame after one that wrote them with the same controls.
+    std::array<rhi::ImageHandle, 2> occlusion;
+    glm::uvec2 occlusionSize{0, 0};
+    std::uint32_t occlusionNext{0};
+    bool occlusionValid{false};
+    std::uint64_t occlusionFrame{0};
+    AmbientOcclusionKey occlusionKey;
+    glm::vec4 occlusionDepthRow{0.0f}; // the frame's world-space view-depth row, the next frame's previous one
+    glm::vec2 occlusionJitterUv{0.0f}; // the frame's raster jitter in UV
   };
 
   // Every pipeline is recorded with the module it comes from, so a reload rebuilds it.
@@ -642,6 +684,10 @@ private:
   // Rasterises the view with the sub-pixel `jitter` (in pixels) and the mip bias that goes with it.
   void applyJitter(ViewState &v, glm::vec2 jitter);
   void releaseHistory(History &history);
+  void releaseOcclusionHistory(History &history);
+  // Declares the ambient occlusion passes between the completed depth and the forward pass when the
+  // settings permit and the view asks for it (ADR-0039), and sets ViewState::ambientOcclusion.
+  void addAmbientOcclusionPasses(RenderGraph &graph, ViewState &v, GraphImage depth);
   // Declares the resolve between the forward pass and bloom: it takes the unresolved scene colour
   // and returns the image bloom and tone mapping read in its place.
   [[nodiscard]] GraphImage addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth);
@@ -750,6 +796,10 @@ private:
   rhi::PipelineHandle m_fxaaPipeline;
   rhi::PipelineHandle m_taaPipeline;
   rhi::PipelineHandle m_contactShadowPipeline;
+  rhi::PipelineHandle m_aoSearchPipeline;
+  rhi::PipelineHandle m_aoTemporalPipeline;
+  rhi::PipelineHandle m_aoBlurPipeline;
+  rhi::PipelineHandle m_aoUpsamplePipeline;
   rhi::PipelineHandle m_presentPipeline; // only when the settings named a present format
   rhi::PipelineHandle m_outlinePipeline;
   rhi::PipelineHandle m_debugLinePipeline;

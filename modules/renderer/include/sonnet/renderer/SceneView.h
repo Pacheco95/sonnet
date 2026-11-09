@@ -133,6 +133,12 @@ struct SceneView {
   glm::vec3 ambient{0.06f, 0.07f, 0.09f};
   float exposure{1.0f};
   float bloomStrength{0.04f};
+  // Screen-space ambient occlusion of the indirect light (ADR-0039), copied from the camera like
+  // exposure: off by default, the radius in metres (0 to 2) and the strength (0 to 1); a zero
+  // radius or strength draws none. RendererSettings::ambientOcclusion bounds it.
+  bool ambientOcclusion{false};
+  float ambientOcclusionRadius{0.5f};
+  float ambientOcclusionStrength{1.0f};
   std::span<const DrawItem> draws;
   // The skinned draws' joint matrices, each from the mesh's bind pose into its object space.
   std::span<const glm::mat4> joints;

@@ -37,6 +37,10 @@ struct Camera {
   float farPlane{500.0f};
   float exposure{1.0f};
   float bloomStrength{0.04f}; // fraction of the blurred HDR image, 0 to 1
+  // The view's screen-space ambient occlusion request, carried into SceneView (ADR-0039).
+  bool ambientOcclusion{false};
+  float ambientOcclusionRadius{0.5f};   // metres
+  float ambientOcclusionStrength{1.0f}; // 0 to 1
 
   [[nodiscard]] glm::vec3 forward() const;
   [[nodiscard]] glm::vec3 right() const;
