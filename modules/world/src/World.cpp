@@ -200,7 +200,10 @@ void World::registerComponents() {
       .member<float>("orthoHeight")
       .member<float>("farPlane")
       .member<float>("exposure")
-      .member<float>("bloomStrength");
+      .member<float>("bloomStrength")
+      .member<bool>("ambientOcclusion")
+      .member<float>("ambientOcclusionRadius")
+      .member<float>("ambientOcclusionStrength");
   registerComponent<DirectionalLight>("DirectionalLight");
   m_world.component<DirectionalLight>()
       .member<glm::vec3>("color")
