@@ -316,6 +316,9 @@ void Game::update(float dt) {
   m_view.environmentIntensity = environment ? environment->intensity : 1.0f;
   m_view.exposure = camera.exposure;
   m_view.bloomStrength = camera.bloomStrength;
+  m_view.ambientOcclusion = camera.ambientOcclusion;
+  m_view.ambientOcclusionRadius = camera.ambientOcclusionRadius;
+  m_view.ambientOcclusionStrength = camera.ambientOcclusionStrength;
   m_view.debugLines = {};
   m_view.resetHistory = std::exchange(m_cutHistory, false);
 }

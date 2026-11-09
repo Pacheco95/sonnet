@@ -112,7 +112,7 @@ TEST_CASE("the editor and the player share one table", "[runtime][capture]") {
     REQUIRE(line.has_value() == option.player);
     players += option.player ? 1 : 0;
   }
-  REQUIRE(players == 9);
+  REQUIRE(players == 10);
   // The player's window is its scene, which its line for --screenshot says.
   REQUIRE(usage.contains("the scene, at the window's size"));
   REQUIRE(!usage.contains("viewport"));
@@ -144,6 +144,15 @@ TEST_CASE("--transmission-downscale takes 1 to 8", "[runtime][capture]") {
     REQUIRE_FALSE(parsed.has_value());
     REQUIRE(parsed.error().message.find("--transmission-downscale") != std::string::npos);
   }
+}
+
+TEST_CASE("--ambient-occlusion takes on or off", "[runtime][capture]") {
+  REQUIRE(player({"--ambient-occlusion", "on", "--screenshot", "a.png"})->capture->ambientOcclusion == true);
+  REQUIRE(player({"--ambient-occlusion", "off", "--screenshot", "a.png"})->capture->ambientOcclusion == false);
+  REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->ambientOcclusion.has_value());
+  const auto bad = player({"--ambient-occlusion", "yes", "--screenshot", "a.png"});
+  REQUIRE_FALSE(bad.has_value());
+  REQUIRE(bad.error().message.find("--ambient-occlusion") != std::string::npos);
 }
 
 TEST_CASE("--transmission takes on or off", "[runtime][capture]") {

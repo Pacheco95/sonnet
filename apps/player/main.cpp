@@ -68,6 +68,8 @@ using namespace sonnet;
   desc.renderer.transmission = false; // sustained heat on the S25 (docs/reports/transmission-mobile.md)
   // Unmeasured on a phone (ADR-0039): off whatever a scene asks for, until #540 measures it.
   desc.renderer.contactShadows = false;
+  // Unmeasured on a phone until #540 (ADR-0039): a scene's request draws nothing here.
+  desc.renderer.ambientOcclusion = false;
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
   desc.renderer.farShadowMapSize = 1024;
   desc.renderer.shadowLodCascade = 3;
@@ -76,6 +78,8 @@ using namespace sonnet;
   desc.renderer.transmission = false;
   // Unmeasured on an iOS device (ADR-0039): an Android result would not enable it here either.
   desc.renderer.contactShadows = false;
+  // An iOS device has to be measured on its own before this changes (ADR-0039).
+  desc.renderer.ambientOcclusion = false;
 #endif
   return desc;
 }
