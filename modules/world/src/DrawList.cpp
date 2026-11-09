@@ -210,7 +210,10 @@ std::optional<renderer::DirectionalLight> sceneLight(const World &world) {
     result = renderer::DirectionalLight{.direction =
                                             glm::normalize(glm::mat3{transform.matrix} * glm::vec3{0.0f, 0.0f, -1.0f}),
                                         .color = light.color,
-                                        .intensity = light.intensity};
+                                        .intensity = light.intensity,
+                                        .contactShadows = light.contactShadows,
+                                        .contactShadowLength = light.contactShadowLength,
+                                        .contactShadowThickness = light.contactShadowThickness};
   });
   return result;
 }

@@ -280,6 +280,45 @@ TEST_CASE("an edit made before play can be undone after stop, and the play's own
   REQUIRE(world.find(uuid).get<world::Name>().value == "Before");
 }
 
+TEST_CASE("the sun's contact shadows reach both views, undo and survive play and stop", "[editor][gpu][contact]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const flecs::entity sun = byName(world, "Sun");
+  const core::Uuid uuid = world.uuidOf(sun);
+  const flecs::entity_t id = world.findComponent("DirectionalLight")->id;
+  // A scene that never asked for them has none.
+  fixture.frame(editor);
+  REQUIRE_FALSE(editor.gameView().sun.contactShadows);
+
+  const nlohmann::json before = world.componentToJson(sun, id);
+  world::DirectionalLight edited = sun.get<world::DirectionalLight>();
+  edited.contactShadows = true;
+  edited.contactShadowLength = 0.3f;
+  sun.set<world::DirectionalLight>(edited);
+  editor.commands().push(editor::componentCommand(uuid, "DirectionalLight", std::optional{before},
+                                                  std::optional{world.componentToJson(sun, id)}, "contact shadows"),
+                         world);
+  fixture.frame(editor);
+  REQUIRE(editor.gameView().sun.contactShadows);
+  REQUIRE(editor.gameView().sun.contactShadowLength == Catch::Approx(0.3f));
+
+  editor.play();
+  fixture.frame(editor);
+  REQUIRE(editor.gameView().sun.contactShadows);
+  editor.stop();
+  fixture.frame(editor);
+  REQUIRE(world.find(uuid).get<world::DirectionalLight>().contactShadows);
+  REQUIRE(editor.gameView().sun.contactShadows);
+
+  REQUIRE(editor.commands().undo(world));
+  fixture.frame(editor);
+  REQUIRE_FALSE(world.find(uuid).get<world::DirectionalLight>().contactShadows);
+  REQUIRE_FALSE(editor.gameView().sun.contactShadows);
+  REQUIRE(editor.commands().redo(world));
+  REQUIRE(world.find(uuid).get<world::DirectionalLight>().contactShadowLength == Catch::Approx(0.3f));
+}
+
 namespace {
 
 // A component command on the box's Transform with the position set to `after`, made the way the
