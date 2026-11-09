@@ -152,9 +152,9 @@ struct FrameConstants {
   std::uint32_t shadowSampler;
   std::uint32_t lightCount;
   std::uint32_t debugView;
-  std::uint32_t transmissionImage;   // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
-  std::uint32_t transmissionPadding; // the chain's size and levels come from the image itself
-  std::uint64_t visible;             // the object index of each instance an indirect or direct draw submits (ADR-0016)
+  std::uint32_t transmissionImage;  // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
+  std::uint32_t contactShadowImage; // the sun's contact visibility mask, InvalidBindlessIndex without one (ADR-0039)
+  std::uint64_t visible;            // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
@@ -217,6 +217,19 @@ struct TransmissionConstants {
   std::uint32_t padding;
 };
 static_assert(sizeof(TransmissionConstants) == 32);
+
+// Mirror of ContactConstants in shaders/contact.slang.
+struct ContactConstants {
+  glm::vec3 toLight; // towards the sun, in view space, normalised
+  std::uint32_t depth;
+  glm::vec2 jitter; // the raster jitter the depth was drawn with, in NDC
+  float rayLength;  // metres
+  float thickness;  // metres of view depth
+  std::uint32_t steps;
+  float stepOffset; // where the march's steps start within each step: a function of the raster jitter
+  std::uint32_t padding[2];
+};
+static_assert(sizeof(ContactConstants) == 48);
 
 // Mirror of shaders/cull.slang.
 struct CullConstants {
@@ -429,6 +442,11 @@ constexpr float TaaMipBias = -0.5f;
 // What the resolve keeps beside its colour: how many frames each pixel's history has accumulated,
 // in 1/255ths (taa.slang caps it).
 constexpr rhi::Format AgeFormat = rhi::Format::R8Unorm;
+// The sun's contact visibility, one per pixel (ADR-0039).
+constexpr rhi::Format ContactShadowFormat = rhi::Format::R8Unorm;
+// What RendererSettings and DirectionalLight bound the contact shadows' values to (ADR-0039).
+constexpr std::uint32_t MaxContactShadowSteps = 32;
+constexpr float MaxContactShadowLength = 1.0f;
 
 // The `index`th term of the Halton sequence of `base`, in [0, 1).
 float halton(std::uint32_t index, std::uint32_t base) {
@@ -563,6 +581,9 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                   .colorFormats = {HdrFormat, AgeFormat},
                   .cullMode = rhi::CullMode::None,
                   .debugName = "taa resolve"});
+  defineGraphics(
+      m_contactShadowPipeline, "contact",
+      {.colorFormats = {ContactShadowFormat}, .cullMode = rhi::CullMode::None, .debugName = "contact shadows"});
   if (m_settings.presentFormat != rhi::Format::Undefined) {
     defineGraphics(m_presentPipeline, "post",
                    {.fragmentEntry = "blit",
@@ -712,6 +733,7 @@ Renderer::~Renderer() {
                                              m_overlayPipeline,
                                              m_outlinePipeline,
                                              m_taaPipeline,
+                                             m_contactShadowPipeline,
                                              m_fxaaPipeline,
                                              m_presentPipeline,
                                              m_tonemapPipeline,
@@ -743,9 +765,9 @@ const char *antiAliasingName(AntiAliasing mode) noexcept {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 17> Names{
-      "cluster", "cull",    "debug",     "depth", "forward", "grid",   "hiz", "ibl",         "id",
-      "outline", "overlay", "particles", "post",  "skin",    "skybox", "taa", "transmission"};
+  static constexpr std::array<std::string_view, 18> Names{
+      "cluster", "contact", "cull",    "debug",     "depth", "forward", "grid",   "hiz", "ibl",
+      "id",      "outline", "overlay", "particles", "post",  "skin",    "skybox", "taa", "transmission"};
   return Names;
 }
 
@@ -1592,6 +1614,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.sceneColor = {};
   v.mipBias = 0.0f;
   v.transmission = {};
+  v.contactShadows = {};
   v.jitter = glm::vec2{0.0f};
   v.viewProjection =
       view.camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u))) *
@@ -2862,7 +2885,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .debugView = static_cast<std::uint32_t>(m_settings.debugView),
       .transmissionImage =
           v.transmission.isValid() ? sampledIndex(resources.image(v.transmission)) : rhi::InvalidBindlessIndex,
-      .transmissionPadding = 0,
+      .contactShadowImage =
+          v.contactShadows.isValid() ? sampledIndex(resources.image(v.contactShadows)) : rhi::InvalidBindlessIndex,
       .visible = m_visibleBuffer ? m_device.bufferAddress(m_visibleBuffer) : 0,
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
@@ -3066,6 +3090,62 @@ void Renderer::addTransmissionPasses(RenderGraph &graph, GraphImage source, Grap
                    level, rhi::mipSize(size, level));
         });
   }
+}
+
+void Renderer::addContactShadowPass(RenderGraph &graph, ViewState &v, GraphImage depth) {
+  const SceneView &view = *v.view;
+  const DirectionalLight &sun = view.sun;
+  // Bounds on what reaches the shader, not edits of the authored values: a non-finite value is the
+  // field's default, the length at most a metre and the thickness at most the length.
+  const DirectionalLight defaults;
+  const float rayLength =
+      std::clamp(std::isfinite(sun.contactShadowLength) ? sun.contactShadowLength : defaults.contactShadowLength, 0.0f,
+                 MaxContactShadowLength);
+  const float thickness = std::clamp(std::isfinite(sun.contactShadowThickness) ? sun.contactShadowThickness
+                                                                               : defaults.contactShadowThickness,
+                                     0.0f, rayLength);
+  const glm::vec3 direction = sun.direction;
+  const float directionLength = glm::length(direction);
+  // The renderer's toggle is an upper bound on the scene's request, and the trace belongs to the
+  // sun's shadow: no sun, no shadows or no pre-pass draws, no pass.
+  if (!m_settings.contactShadows || !m_settings.shadows || !view.hasSun || !sun.contactShadows || rayLength <= 0.0f ||
+      thickness <= 0.0f || v.opaqueOrder.empty() || !std::isfinite(directionLength) || directionLength <= 0.0f) {
+    return;
+  }
+  const glm::uvec2 size = v.targetSize;
+  const glm::vec3 toLight = glm::normalize(glm::mat3{view.camera.view()} * (-direction / directionLength));
+  // The steps start at a fraction of a step that follows the raster jitter, so under TAA the eight
+  // jitter phases sample eight offsets and the resolve averages them, while a still image, a debug
+  // view or a reference jitter gives the same pattern every time. Halton's base-2 term is the
+  // jitter's x, eight distinct offsets in [0, 1).
+  const float stepOffset = glm::fract(v.jitter.x + 0.5f);
+  const ContactConstants push{.toLight = toLight,
+                              .depth = 0,
+                              .jitter = v.jitter * 2.0f / glm::vec2{glm::max(size, glm::uvec2{1})},
+                              .rayLength = rayLength,
+                              .thickness = thickness,
+                              .steps = std::clamp(m_settings.contactShadowSteps, 1u, MaxContactShadowSteps),
+                              .stepOffset = stepOffset,
+                              .padding = {}};
+  v.contactShadows = graph.createImage({.size = size, .format = ContactShadowFormat, .debugName = "contact shadows"});
+  graph.addPass(
+      "contact shadows",
+      [&](PassBuilder &builder) {
+        builder.sample(depth);
+        builder.color(v.contactShadows, rhi::LoadOp::DontCare);
+      },
+      [this, &v, depth, push](rhi::ICommandList &commands, const PassResources &resources) {
+        ensureFrameUploaded(v, resources);
+        if (!v.frameBuffers.valid()) {
+          return;
+        }
+        ContactConstants constants = push;
+        constants.depth = sampledIndex(resources.image(depth));
+        commands.bindPipeline(m_contactShadowPipeline);
+        bindFrame(commands, v);
+        commands.pushConstants(std::as_bytes(std::span{&constants, 1}));
+        commands.draw(3);
+      });
 }
 
 void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphImage color, GraphImage depth,
@@ -3275,6 +3355,8 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
           recordDraws(commands, v, v.blendedOrder, m_glassMotionPipelines, false);
         });
   }
+  // After the completed depth, the late phase's included (ADR-0039).
+  addContactShadowPass(graph, v, depth);
   graph.addPass(
       "light clustering", [](PassBuilder &) {},
       [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
@@ -3297,6 +3379,9 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
     }
     for (const LocalShadow &local : v.localShadows) {
       builder.sample(local.image);
+    }
+    if (v.contactShadows.isValid()) {
+      builder.sample(v.contactShadows);
     }
     builder.sample(m_frameImages.lut);
     if (skybox) {

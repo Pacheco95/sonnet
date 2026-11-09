@@ -125,6 +125,11 @@ struct RendererSettings {
   // own size, bit for bit), and its chain has the levels of that smaller size. A smaller copy is cheaper
   // to write and to build and softens clear glass by n pixels. Values below 1 are 1.
   std::uint32_t transmissionDownscale{1};
+  // Permits the sun's screen-space contact shadows a scene asks for (DirectionalLight::contactShadows,
+  // ADR-0039); off, no view traces them whatever the scene says. The phone players turn it off.
+  bool contactShadows{true};
+  // The march's steps per pixel, 1 to 32: 16 is the standard quality and 8 the reduced one.
+  std::uint32_t contactShadowSteps{16};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
   // present pipeline out, which is what the editor does: it shows the scene through Dear ImGui.
   rhi::Format presentFormat{rhi::Format::Undefined};
@@ -317,6 +322,11 @@ public:
   // transmissive draw; invalid otherwise. Valid until the next graph reset.
   [[nodiscard]] GraphImage glassMotion(std::size_t view = 0) const noexcept {
     return view < m_viewCount ? m_views[view]->glassMotion : GraphImage{};
+  }
+  // The sun's contact-shadow visibility of the `view`th declared view (ADR-0039), an R8 mask the forward
+  // pass reads, 1 where nothing occludes; invalid when the view traced none. Valid until the next graph reset.
+  [[nodiscard]] GraphImage contactShadows(std::size_t view = 0) const noexcept {
+    return view < m_viewCount ? m_views[view]->contactShadows : GraphImage{};
   }
   [[nodiscard]] const RendererSettings &settings() const noexcept {
     return m_settings;
@@ -584,6 +594,7 @@ private:
     float mipBias{0.0f};      // added to the level of material samples: TaaMipBias for a jittered view
     GraphImage transmission; // the opaque scene's mip chain, 1/transmissionDownscale of the view's size, when this view
                              // has a draw on the transmission path
+    GraphImage contactShadows; // the sun's contact visibility, when the view traces it (ADR-0039)
   };
   // What a view keeps between frames for temporal anti-aliasing: the position in the jitter
   // sequence, last frame's camera and the two images the resolve ping-pongs between, keyed on the
@@ -637,6 +648,9 @@ private:
   void recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::ImageHandle current, rhi::ImageHandle history,
                  rhi::ImageHandle historyAge, rhi::ImageHandle motion, rhi::ImageHandle glassMotion, bool historyValid,
                  rhi::ImageHandle depth);
+  // Declares the sun's contact-shadow trace when the settings, the sun and the view's draws ask for one
+  // (ADR-0039), after the completed pre-pass depth, into v.contactShadows.
+  void addContactShadowPass(RenderGraph &graph, ViewState &v, GraphImage depth);
   // The bindless index of the buffer the draw pulls its vertices from: its skinned instance's
   // buffer, created or reused here, when it is a valid skinned draw, the mesh's otherwise.
   // InvalidBindlessIndex when the array is full.
@@ -735,6 +749,7 @@ private:
   rhi::PipelineHandle m_tonemapPipeline;
   rhi::PipelineHandle m_fxaaPipeline;
   rhi::PipelineHandle m_taaPipeline;
+  rhi::PipelineHandle m_contactShadowPipeline;
   rhi::PipelineHandle m_presentPipeline; // only when the settings named a present format
   rhi::PipelineHandle m_outlinePipeline;
   rhi::PipelineHandle m_debugLinePipeline;
