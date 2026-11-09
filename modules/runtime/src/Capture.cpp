@@ -53,7 +53,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 15> Options{{
+constexpr std::array<CommandLineOption, 16> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -82,6 +82,9 @@ constexpr std::array<CommandLineOption, 15> Options{{
      "off", true, ""},
     {"--transmission-downscale", "N",
      "build the transmission copy at 1/N of the view's size on each side, 1 to 8 (1, the view's size)", "2", true, ""},
+    {"--contact-shadows", "on|off",
+     "permit the sun's contact shadows a scene asks for, or turn them off; the platform's default otherwise", "off",
+     true, ""},
 }};
 
 } // namespace
@@ -325,6 +328,11 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
         return std::unexpected(captureError("--transmission takes on or off"));
       }
       capture.transmission = value == "on";
+    } else if (arg == "--contact-shadows") {
+      if (value != "on" && value != "off") {
+        return std::unexpected(captureError("--contact-shadows takes on or off"));
+      }
+      capture.contactShadows = value == "on";
     } else if (arg == "--transmission-downscale") {
       std::uint32_t downscale = 0;
       const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), downscale);
@@ -488,8 +496,12 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
     SONNET_LOG_INFO("capture draws at {}x{}, scaled to the window", options.renderSize->x, options.renderSize->y);
     m_game.setRenderSize(options.renderSize);
   }
-  if (options.transmission || options.transmissionDownscale) {
+  if (options.transmission || options.transmissionDownscale || options.contactShadows) {
     renderer::RendererSettings settings = m_game.renderer().settings();
+    if (options.contactShadows) {
+      SONNET_LOG_INFO("capture draws with contact shadows {}", *options.contactShadows ? "on" : "off");
+      settings.contactShadows = *options.contactShadows;
+    }
     if (options.transmission) {
       SONNET_LOG_INFO("capture draws with transmission {}", *options.transmission ? "on" : "off");
       settings.transmission = *options.transmission;

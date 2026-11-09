@@ -112,7 +112,7 @@ TEST_CASE("the editor and the player share one table", "[runtime][capture]") {
     REQUIRE(line.has_value() == option.player);
     players += option.player ? 1 : 0;
   }
-  REQUIRE(players == 8);
+  REQUIRE(players == 9);
   // The player's window is its scene, which its line for --screenshot says.
   REQUIRE(usage.contains("the scene, at the window's size"));
   REQUIRE(!usage.contains("viewport"));
@@ -153,6 +153,15 @@ TEST_CASE("--transmission takes on or off", "[runtime][capture]") {
   const auto bad = player({"--transmission", "yes", "--screenshot", "a.png"});
   REQUIRE_FALSE(bad.has_value());
   REQUIRE(bad.error().message.find("--transmission") != std::string::npos);
+}
+
+TEST_CASE("--contact-shadows takes on or off", "[runtime][capture]") {
+  REQUIRE(player({"--contact-shadows", "on", "--screenshot", "a.png"})->capture->contactShadows == true);
+  REQUIRE(player({"--contact-shadows", "off", "--screenshot", "a.png"})->capture->contactShadows == false);
+  REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->contactShadows.has_value());
+  const auto bad = player({"--contact-shadows", "1", "--screenshot", "a.png"});
+  REQUIRE_FALSE(bad.has_value());
+  REQUIRE(bad.error().message.find("--contact-shadows") != std::string::npos);
 }
 
 TEST_CASE("--play takes what floating-point from_chars took", "[runtime][capture]") {

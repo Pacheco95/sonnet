@@ -55,6 +55,10 @@ public:
     if (options.transmission) {
       return std::unexpected(captureError("--transmission is the player's: the editor always draws it"));
     }
+    if (options.contactShadows) {
+      return std::unexpected(
+          captureError("--contact-shadows is the player's: the editor draws what the scene asks for"));
+    }
     m_editor.setCaptureGrid(options.grid);
     if (options.assetsGrid || options.tileSize) {
       AssetsView view = m_editor.assetBrowser().view();
