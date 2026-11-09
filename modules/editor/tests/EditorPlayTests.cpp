@@ -341,6 +341,45 @@ void simulateBoxMoving(world::World &world, core::Uuid uuid) {
 
 } // namespace
 
+TEST_CASE("the scene camera's ambient occlusion reaches both views, survives play and stop and undoes",
+          "[editor][gpu][ao]") {
+  Fixture fixture;
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  world::World &world = editor.world();
+  const flecs::entity camera = byName(world, "Camera");
+  const core::Uuid uuid = world.uuidOf(camera);
+  const flecs::entity_t id = world.findComponent("Camera")->id;
+  const nlohmann::json before = world.componentToJson(camera, id);
+  world::Camera edited = camera.get<world::Camera>();
+  edited.ambientOcclusion = true;
+  edited.ambientOcclusionRadius = 0.8f;
+  camera.set<world::Camera>(edited);
+  editor.commands().push(editor::componentCommand(uuid, "Camera", std::optional{before},
+                                                  std::optional{world.componentToJson(camera, id)}, "edit Camera"),
+                         world);
+  const auto requested = [&](bool on) {
+    // The Scene view previews the scene camera's request through its own camera (ADR-0039).
+    for (const renderer::SceneView *view : {&editor.sceneView(), &editor.gameView()}) {
+      REQUIRE(view->ambientOcclusion == on);
+      REQUIRE(view->ambientOcclusionRadius == Catch::Approx(on ? 0.8f : 0.5f));
+    }
+  };
+  fixture.frame(editor);
+  requested(true);
+  editor.play();
+  fixture.frame(editor);
+  requested(true);
+  editor.stop();
+  fixture.frame(editor);
+  requested(true);
+  REQUIRE(editor.commands().undo(world));
+  fixture.frame(editor);
+  requested(false);
+  REQUIRE(editor.commands().redo(world));
+  fixture.frame(editor);
+  requested(true);
+}
+
 TEST_CASE("stopping a play that nothing edited needs no dialog however much moved", "[editor][gpu][changes]") {
   Fixture fixture;
   editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};

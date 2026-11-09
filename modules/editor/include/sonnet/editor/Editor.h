@@ -486,6 +486,10 @@ public:
   [[nodiscard]] const scripting::ScriptView &scriptView() const noexcept {
     return m_scriptView;
   }
+  // What the Scene view draws this frame, built at the end of update.
+  [[nodiscard]] const renderer::SceneView &sceneView() const noexcept {
+    return m_view;
+  }
   // What the Game view draws this frame, built at the end of update.
   [[nodiscard]] const renderer::SceneView &gameView() const noexcept {
     return m_gameView;

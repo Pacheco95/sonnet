@@ -59,6 +59,10 @@ public:
       return std::unexpected(
           captureError("--contact-shadows is the player's: the editor draws what the scene asks for"));
     }
+    if (options.ambientOcclusion) {
+      return std::unexpected(
+          captureError("--ambient-occlusion is the player's: the editor always permits what the camera asks"));
+    }
     m_editor.setCaptureGrid(options.grid);
     if (options.assetsGrid || options.tileSize) {
       AssetsView view = m_editor.assetBrowser().view();

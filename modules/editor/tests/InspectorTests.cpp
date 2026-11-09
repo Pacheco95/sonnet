@@ -201,6 +201,9 @@ TEST_CASE("scalar members get the widget of their reflected kind", "[editor][ins
   REQUIRE(widget(ecs.id<world::DirectionalLight>(), "contactShadows") == Widget::Checkbox);
   REQUIRE(widget(ecs.id<world::DirectionalLight>(), "contactShadowLength") == Widget::Float);
   REQUIRE(widget(ecs.id<world::DirectionalLight>(), "contactShadowThickness") == Widget::Float);
+  REQUIRE(widget(ecs.id<world::Camera>(), "ambientOcclusion") == Widget::Checkbox);
+  REQUIRE(widget(ecs.id<world::Camera>(), "ambientOcclusionRadius") == Widget::Float);
+  REQUIRE(widget(ecs.id<world::Camera>(), "ambientOcclusionStrength") == Widget::Float);
   // Not primitives: drawn by the struct, vector and asset branches.
   REQUIRE(widget(ecs.id<world::Transform>(), "position") == Widget::Unsupported);
   REQUIRE(widget(ecs.id<world::MeshRenderer>(), "mesh") == Widget::Unsupported);
