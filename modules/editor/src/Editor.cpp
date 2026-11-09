@@ -728,6 +728,11 @@ void Editor::update(float dt) {
   m_view.environmentIntensity = environment ? environment->intensity : 1.0f;
   m_view.exposure = m_view.camera.exposure;
   m_view.bloomStrength = m_view.camera.bloomStrength;
+  // The Scene view previews the scene camera's ambient occlusion through its own pose and projection,
+  // so an inspector edit shows in both views (ADR-0039).
+  m_view.ambientOcclusion = gameCamera.ambientOcclusion;
+  m_view.ambientOcclusionRadius = gameCamera.ambientOcclusionRadius;
+  m_view.ambientOcclusionStrength = gameCamera.ambientOcclusionStrength;
   // The Game view draws the same lists through the scene's camera, with no debug lines; it is a
   // distinct SceneView because the renderer finds a view's state by its address (ADR-0021).
   // A scene swap, or play starting or ending, is a cut: the last frame is no guide to this one.

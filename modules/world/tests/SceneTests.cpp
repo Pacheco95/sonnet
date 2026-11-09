@@ -833,6 +833,72 @@ TEST_CASE("camera post processing round trips and defaults when absent", "[world
   REQUIRE(world.find(cameraUuid).get<world::Camera>().bloomStrength == Approx(0.04f));
 }
 
+TEST_CASE("a camera's ambient occlusion request round trips, cooked too, and defaults to off when absent",
+          "[world][scene][camera][ao]") {
+  world::World world;
+  const auto camera = world.createEntity("Camera");
+  camera.set<world::Camera>(
+      {.ambientOcclusion = true, .ambientOcclusionRadius = 0.8f, .ambientOcclusionStrength = 0.6f});
+  const auto cameraUuid = world.uuidOf(camera);
+  const auto saved = world::saveScene(world);
+  // A cooked scene is the same JSON as CBOR (docs/assets.md): the bundle layout does not change.
+  const auto cooked = assets::decodeJson(assets::encodeJson(saved));
+  REQUIRE(cooked.has_value());
+  for (const nlohmann::json &document : {saved, *cooked}) {
+    world.clearScene();
+    REQUIRE(world::loadScene(world, document));
+    const auto loaded = world.find(cameraUuid).get<world::Camera>();
+    REQUIRE(loaded.ambientOcclusion);
+    REQUIRE(loaded.ambientOcclusionRadius == Approx(0.8f));
+    REQUIRE(loaded.ambientOcclusionStrength == Approx(0.6f));
+    world.progress(0.0f);
+    const std::optional<renderer::Camera> drawn = world::sceneCamera(world);
+    REQUIRE(drawn->ambientOcclusion);
+    REQUIRE(drawn->ambientOcclusionRadius == Approx(0.8f));
+    REQUIRE(drawn->ambientOcclusionStrength == Approx(0.6f));
+  }
+  REQUIRE(saved["version"] == 9);
+
+  // A scene saved before the fields existed draws as it did: no occlusion.
+  auto old = saved;
+  for (const char *field : {"ambientOcclusion", "ambientOcclusionRadius", "ambientOcclusionStrength"}) {
+    old["entities"][0]["components"]["Camera"].erase(field);
+  }
+  world.clearScene();
+  REQUIRE(world::loadScene(world, old));
+  const auto defaults = world.find(cameraUuid).get<world::Camera>();
+  REQUIRE_FALSE(defaults.ambientOcclusion);
+  REQUIRE(defaults.ambientOcclusionRadius == Approx(0.5f));
+  REQUIRE(defaults.ambientOcclusionStrength == Approx(1.0f));
+  REQUIRE_FALSE(world::fallbackCamera().ambientOcclusion);
+
+  // An instance of a camera prefab that turns the request on keeps that change alone, and follows
+  // the prefab's later radius.
+  nlohmann::json prefabFile = old;
+  const auto prefabRoot = core::Uuid::parse(prefabFile["entities"][0]["uuid"].get<std::string>()).value();
+  core::Uuid instanceUuid;
+  nlohmann::json scene;
+  {
+    world::World editing;
+    REQUIRE(world::loadPrefab(editing, prefabFile).has_value());
+    const flecs::entity instance = editing.instantiate(editing.find(prefabRoot), "Camera 1");
+    instanceUuid = editing.uuidOf(instance);
+    instance.ensure<world::Camera>().ambientOcclusion = true;
+    scene = world::saveScene(editing);
+  }
+  const auto instanceEntry = std::ranges::find_if(
+      scene["entities"], [&](const nlohmann::json &entity) { return entity["uuid"] == instanceUuid.toString(); });
+  REQUIRE(instanceEntry != scene["entities"].end());
+  REQUIRE((*instanceEntry)["components"]["Camera"] == nlohmann::json{{"ambientOcclusion", true}});
+  prefabFile["entities"][0]["components"]["Camera"]["ambientOcclusionRadius"] = 1.5f;
+  world::World playing;
+  REQUIRE(world::loadPrefab(playing, prefabFile).has_value());
+  REQUIRE(world::loadScene(playing, scene).has_value());
+  const auto instanceCamera = playing.find(instanceUuid).get<world::Camera>();
+  REQUIRE(instanceCamera.ambientOcclusion);
+  REQUIRE(instanceCamera.ambientOcclusionRadius == Approx(1.5f));
+}
+
 TEST_CASE("version 5 moves the first environment exposure to cameras", "[world][scene][camera]") {
   world::World world;
   const auto first = world.createEntity("First");

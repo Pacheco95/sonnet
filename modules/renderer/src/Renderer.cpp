@@ -22,7 +22,8 @@ namespace sonnet::renderer {
 
 const char *debugViewName(DebugView view) noexcept {
   static constexpr std::array<const char *, DebugViewCount> Names{
-      "Final", "Albedo", "Normal", "Sun direct", "Shadow factor", "IBL diffuse", "IBL specular", "BRDF LUT", "Cascade"};
+      "Final",       "Albedo",       "Normal",   "Sun direct", "Shadow factor",
+      "IBL diffuse", "IBL specular", "BRDF LUT", "Cascade",    "Ambient occlusion"};
   const auto index = static_cast<std::size_t>(view);
   return index < Names.size() ? Names[index] : "";
 }
@@ -152,16 +153,18 @@ struct FrameConstants {
   std::uint32_t shadowSampler;
   std::uint32_t lightCount;
   std::uint32_t debugView;
-  std::uint32_t transmissionImage;  // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
-  std::uint32_t contactShadowImage; // the sun's contact visibility mask, InvalidBindlessIndex without one (ADR-0039)
-  std::uint64_t visible;            // the object index of each instance an indirect or direct draw submits (ADR-0016)
+  std::uint32_t transmissionImage;     // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
+  std::uint32_t contactShadowImage;    // the sun's contact visibility mask, InvalidBindlessIndex without one (ADR-0039)
+  std::uint32_t ambientOcclusionImage; // the R8 visibility mask, InvalidBindlessIndex without one (ADR-0039)
+  std::uint32_t ambientOcclusionPadding;
+  std::uint64_t visible; // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
   std::uint64_t clusters;
   std::uint64_t localShadows;    // GpuLocalShadow per local shadow map, 0 without any
   std::uint64_t previousObjects; // PreviousObject per draw, 0 without TAA
 };
-static_assert(sizeof(FrameConstants) == 992);
+static_assert(sizeof(FrameConstants) == 1000);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -317,6 +320,30 @@ struct TaaConstants {
   glm::vec2 size;
 };
 static_assert(sizeof(TaaConstants) == 48);
+
+// Mirror of shaders/ao.slang.
+struct AoConstants {
+  glm::mat4 inverseProjection; // of the jittered raster projection
+  glm::vec4 previousDepthRow;  // last frame's view depth of a point given in this frame's view space
+  glm::vec2 jitterDelta;       // last frame's raster jitter less this one's, in UV
+  float pixelRadius;           // the radius in full-resolution pixels, at view depth 1 under perspective
+  float radius;
+  std::uint32_t depth;
+  std::uint32_t source;
+  std::uint32_t history;
+  std::uint32_t motion;
+  std::uint32_t counts; // slices, steps << 8, jitter phase << 16
+  std::uint32_t flags;
+  float strength;
+  std::uint32_t padding{0};
+};
+static_assert(sizeof(AoConstants) == 128);
+static_assert(sizeof(AoConstants) <= rhi::PushConstantSize);
+constexpr std::uint32_t AoHistoryValid = 1u;
+constexpr std::uint32_t AoVertical = 2u;
+// The half-resolution search, history and filters: visibility, view depth and an octahedral normal.
+constexpr rhi::Format OcclusionGuideFormat = rhi::Format::R16G16B16A16Sfloat;
+constexpr rhi::Format OcclusionMaskFormat = rhi::Format::R8Unorm;
 
 // Mirror of shaders/outline.slang.
 struct OutlineConstants {
@@ -576,6 +603,26 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineGraphics(
       m_fxaaPipeline, "post",
       {.fragmentEntry = "fxaa", .colorFormats = {ColorFormat}, .cullMode = rhi::CullMode::None, .debugName = "fxaa"});
+  defineGraphics(m_aoSearchPipeline, "ao",
+                 {.fragmentEntry = "search",
+                  .colorFormats = {OcclusionGuideFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "ao search"});
+  defineGraphics(m_aoTemporalPipeline, "ao",
+                 {.fragmentEntry = "temporal",
+                  .colorFormats = {OcclusionGuideFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "ao temporal"});
+  defineGraphics(m_aoBlurPipeline, "ao",
+                 {.fragmentEntry = "blur",
+                  .colorFormats = {OcclusionGuideFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "ao blur"});
+  defineGraphics(m_aoUpsamplePipeline, "ao",
+                 {.fragmentEntry = "upsample",
+                  .colorFormats = {OcclusionMaskFormat},
+                  .cullMode = rhi::CullMode::None,
+                  .debugName = "ao upsample"});
   defineGraphics(m_taaPipeline, "taa",
                  {.fragmentEntry = "resolve",
                   .colorFormats = {HdrFormat, AgeFormat},
@@ -655,6 +702,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
 Renderer::~Renderer() {
   for (auto &[view, history] : m_histories) {
     releaseHistory(history);
+    releaseOcclusionHistory(history);
   }
   releaseSkinnedVertices(true);
   releaseParticles(true);
@@ -734,6 +782,10 @@ Renderer::~Renderer() {
                                              m_outlinePipeline,
                                              m_taaPipeline,
                                              m_contactShadowPipeline,
+                                             m_aoUpsamplePipeline,
+                                             m_aoBlurPipeline,
+                                             m_aoTemporalPipeline,
+                                             m_aoSearchPipeline,
                                              m_fxaaPipeline,
                                              m_presentPipeline,
                                              m_tonemapPipeline,
@@ -765,9 +817,9 @@ const char *antiAliasingName(AntiAliasing mode) noexcept {
 }
 
 std::span<const std::string_view> Renderer::shaderNames() noexcept {
-  static constexpr std::array<std::string_view, 18> Names{
-      "cluster", "contact", "cull",    "debug",     "depth", "forward", "grid",   "hiz", "ibl",
-      "id",      "outline", "overlay", "particles", "post",  "skin",    "skybox", "taa", "transmission"};
+  static constexpr std::array<std::string_view, 19> Names{
+      "ao", "cluster", "contact", "cull",      "debug", "depth", "forward", "grid", "hiz",         "ibl",
+      "id", "outline", "overlay", "particles", "post",  "skin",  "skybox",  "taa",  "transmission"};
   return Names;
 }
 
@@ -1615,6 +1667,8 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
   v.mipBias = 0.0f;
   v.transmission = {};
   v.contactShadows = {};
+  v.ambientOcclusion = {};
+  v.ambientOcclusionSearch = {};
   v.jitter = glm::vec2{0.0f};
   v.viewProjection =
       view.camera.projection(static_cast<float>(targetSize.x) / static_cast<float>(std::max(targetSize.y, 1u))) *
@@ -1738,6 +1792,17 @@ void Renderer::releaseHistory(History &history) {
   }
 }
 
+void Renderer::releaseOcclusionHistory(History &history) {
+  for (rhi::ImageHandle &image : history.occlusion) {
+    if (image) {
+      m_device.destroyImage(image); // deferred past the frames still reading it
+      image = {};
+    }
+  }
+  history.occlusionValid = false;
+  history.occlusionSize = {0, 0};
+}
+
 GraphImage Renderer::addTaaPass(RenderGraph &graph, ViewState &v, GraphImage hdr, GraphImage depth) {
   History &history = m_histories[v.view];
   const glm::uvec2 size = v.targetSize;
@@ -1840,6 +1905,7 @@ void Renderer::beginTemporal(ViewState &v) {
   for (auto it = m_histories.begin(); it != m_histories.end();) {
     if (it->second.lastFrame + HistoryFrames < m_frameNumber || (!wanted && it->first == v.view)) {
       releaseHistory(it->second); // an unresolved frame is no guide to the next one
+      releaseOcclusionHistory(it->second);
       it = m_histories.erase(it);
     } else {
       ++it;
@@ -1859,6 +1925,7 @@ void Renderer::beginTemporal(ViewState &v) {
     history.valid = false;
     history.hasPrevious = false;
     history.sequence = 0;
+    history.occlusionValid = false;
   }
   history.projectionKind = v.view->camera.projectionKind;
   history.lastFrame = m_frameNumber;
@@ -1870,6 +1937,196 @@ void Renderer::beginTemporal(ViewState &v) {
   v.previousViewProjection = history.hasPrevious ? history.previousViewProjection : v.viewProjection;
   history.previousViewProjection = v.viewProjection;
   history.hasPrevious = true;
+}
+
+namespace {
+
+// The Halton sample a raster jitter is, so that SceneView::referenceJitter selects the search
+// pattern of TAA's same phase; 0 without jitter or off the sequence (ADR-0039).
+std::uint32_t jitterPhase(glm::vec2 jitter) {
+  for (std::uint32_t i = 0; i < JitterSamples; ++i) {
+    const glm::vec2 sample = glm::vec2{halton(i + 1, 2), halton(i + 1, 3)} - glm::vec2{0.5f};
+    if (glm::all(glm::lessThan(glm::abs(jitter - sample), glm::vec2{1.0e-5f}))) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+// A camera control as the renderer takes it: within [0, high], and the default when not finite.
+float boundedControl(float value, float fallback, float high) {
+  return std::isfinite(value) ? std::clamp(value, 0.0f, high) : fallback;
+}
+
+} // namespace
+
+void Renderer::addAmbientOcclusionPasses(RenderGraph &graph, ViewState &v, GraphImage depth) {
+  const SceneView &view = *v.view;
+  const float radius = boundedControl(view.ambientOcclusionRadius, 0.5f, 2.0f);
+  const float strength = boundedControl(view.ambientOcclusionStrength, 1.0f, 1.0f);
+  // A view without pre-pass draws has nothing to occlude or be occluded.
+  const bool enabled = m_settings.ambientOcclusion && view.ambientOcclusion && radius > 0.0f && strength > 0.0f &&
+                       !v.opaqueOrder.empty();
+  History *history = nullptr;
+  if (v.taa) {
+    if (const auto it = m_histories.find(v.view); it != m_histories.end()) {
+      history = &it->second;
+    }
+  }
+  if (!enabled) {
+    if (history != nullptr) {
+      releaseOcclusionHistory(*history);
+    }
+    return;
+  }
+  const glm::uvec2 size = v.targetSize;
+  const glm::uvec2 half = (size + 1u) / 2u;
+  const AmbientOcclusionKey key{.radius = radius,
+                                .strength = strength,
+                                .slices = std::clamp(m_settings.ambientOcclusionSlices, 1u, 4u),
+                                .steps = std::clamp(m_settings.ambientOcclusionSteps, 1u, 8u)};
+  // Depth is reconstructed through the projection it was rasterised with, the jittered one.
+  const float aspect = static_cast<float>(size.x) / static_cast<float>(std::max(size.y, 1u));
+  const glm::mat4 projection = view.camera.projection(aspect);
+  const glm::vec2 ndcJitter = v.jitter * 2.0f / glm::vec2{size};
+  const glm::mat4 jittered = glm::translate(glm::mat4{1.0f}, glm::vec3{ndcJitter, 0.0f}) * projection;
+  const glm::vec2 jitterUv = glm::vec2{v.jitter.x, -v.jitter.y} / glm::vec2{size};
+  AoConstants base{.inverseProjection = glm::inverse(jittered),
+                   .previousDepthRow = glm::vec4{0.0f},
+                   .jitterDelta = glm::vec2{0.0f},
+                   .pixelRadius = radius * projection[1][1] * 0.5f * static_cast<float>(size.y),
+                   .radius = radius,
+                   .depth = 0,
+                   .source = 0,
+                   .history = 0,
+                   .motion = 0,
+                   .counts = key.slices | (key.steps << 8) | (jitterPhase(v.jitter) << 16),
+                   .flags = 0,
+                   .strength = strength};
+  const auto record = [this, &v](rhi::ICommandList &commands, const PassResources &resources,
+                                 rhi::PipelineHandle pipeline, AoConstants push, GraphImage depthImage) {
+    ensureFrameUploaded(v, resources);
+    if (!v.frameBuffers.valid()) {
+      return;
+    }
+    push.depth = sampledIndex(resources.image(depthImage));
+    commands.bindPipeline(pipeline);
+    bindFrame(commands, v);
+    commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+    commands.draw(3);
+  };
+
+  const GraphImage search =
+      graph.createImage({.size = half, .format = OcclusionGuideFormat, .debugName = "ambient occlusion search"});
+  graph.addPass(
+      "ao search",
+      [&](PassBuilder &builder) {
+        builder.sample(depth);
+        builder.color(search, rhi::LoadOp::DontCare);
+      },
+      [this, record, base, depth](rhi::ICommandList &commands, const PassResources &resources) {
+        record(commands, resources, m_aoSearchPipeline, base, depth);
+      });
+
+  // Under TAA the search is blended with the view's own visibility history before it is filtered,
+  // through the motion of each texel's selected sample.
+  GraphImage filtered = search;
+  if (history != nullptr) {
+    if (history->occlusionSize != half) {
+      releaseOcclusionHistory(*history);
+      history->occlusionSize = half;
+    }
+    for (std::size_t i = 0; i < history->occlusion.size(); ++i) {
+      if (!history->occlusion[i]) {
+        history->occlusion[i] =
+            m_device.createImage({.size = half,
+                                  .format = OcclusionGuideFormat,
+                                  .usage = rhi::ImageUsage::ColorAttachment | rhi::ImageUsage::Sampled,
+                                  .debugName = std::format("ambient occlusion history {}", i)});
+        history->occlusionValid = false;
+      }
+    }
+    const bool valid =
+        history->occlusionValid && history->occlusionFrame + 1 == m_frameNumber && history->occlusionKey == key;
+    v.statistics.ambientOcclusionHistoryUsed = valid;
+    const GraphImage write =
+        graph.importImage(history->occlusion[history->occlusionNext], rhi::ImageLayout::ShaderReadOnly);
+    GraphImage read;
+    AoConstants push = base;
+    if (valid) {
+      read = graph.importImage(history->occlusion[1 - history->occlusionNext], rhi::ImageLayout::ShaderReadOnly,
+                               rhi::ImageLayout::ShaderReadOnly);
+      // Last frame's view depth of a point in this frame's view space.
+      push.previousDepthRow = glm::transpose(glm::inverse(view.camera.view())) * history->occlusionDepthRow;
+      push.jitterDelta = history->occlusionJitterUv - jitterUv;
+      push.flags = AoHistoryValid;
+    }
+    history->occlusionNext = 1 - history->occlusionNext;
+    history->occlusionValid = true;
+    history->occlusionFrame = m_frameNumber;
+    history->occlusionKey = key;
+    history->occlusionDepthRow = -glm::row(view.camera.view(), 2);
+    history->occlusionJitterUv = jitterUv;
+    graph.addPass(
+        "ao temporal",
+        [&](PassBuilder &builder) {
+          builder.sample(search);
+          builder.sample(v.motion);
+          builder.sample(depth);
+          if (valid) {
+            builder.sample(read);
+          }
+          builder.color(write, rhi::LoadOp::DontCare);
+        },
+        [this, record, push, depth, search, read, valid, motion = v.motion](rhi::ICommandList &commands,
+                                                                            const PassResources &resources) {
+          AoConstants constants = push;
+          constants.source = sampledIndex(resources.image(search));
+          constants.motion = sampledIndex(resources.image(motion));
+          constants.history = valid ? sampledIndex(resources.image(read)) : constants.source;
+          record(commands, resources, m_aoTemporalPipeline, constants, depth);
+        });
+    filtered = write;
+  }
+
+  // The separable bilateral filter, then the depth- and normal-aware upsample into the mask.
+  GraphImage source = filtered;
+  for (const bool vertical : {false, true}) {
+    const GraphImage blurred =
+        graph.createImage({.size = half,
+                           .format = OcclusionGuideFormat,
+                           .debugName = vertical ? "ambient occlusion blur y" : "ambient occlusion blur x"});
+    graph.addPass(
+        vertical ? "ao blur y" : "ao blur x",
+        [&](PassBuilder &builder) {
+          builder.sample(source);
+          builder.sample(depth);
+          builder.color(blurred, rhi::LoadOp::DontCare);
+        },
+        [this, record, base, depth, source, vertical](rhi::ICommandList &commands, const PassResources &resources) {
+          AoConstants constants = base;
+          constants.source = sampledIndex(resources.image(source));
+          constants.flags = vertical ? AoVertical : 0u;
+          record(commands, resources, m_aoBlurPipeline, constants, depth);
+        });
+    source = blurred;
+  }
+  const GraphImage mask =
+      graph.createImage({.size = size, .format = OcclusionMaskFormat, .debugName = "ambient occlusion"});
+  graph.addPass(
+      "ao upsample",
+      [&](PassBuilder &builder) {
+        builder.sample(source);
+        builder.sample(depth);
+        builder.color(mask, rhi::LoadOp::DontCare);
+      },
+      [this, record, base, depth, source](rhi::ICommandList &commands, const PassResources &resources) {
+        AoConstants constants = base;
+        constants.source = sampledIndex(resources.image(source));
+        record(commands, resources, m_aoUpsamplePipeline, constants, depth);
+      });
+  v.ambientOcclusion = mask;
+  v.ambientOcclusionSearch = search;
 }
 
 void Renderer::buildBatches(const ViewState &v, std::span<const std::uint32_t> order,
@@ -2887,6 +3144,9 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
           v.transmission.isValid() ? sampledIndex(resources.image(v.transmission)) : rhi::InvalidBindlessIndex,
       .contactShadowImage =
           v.contactShadows.isValid() ? sampledIndex(resources.image(v.contactShadows)) : rhi::InvalidBindlessIndex,
+      .ambientOcclusionImage =
+          v.ambientOcclusion.isValid() ? sampledIndex(resources.image(v.ambientOcclusion)) : rhi::InvalidBindlessIndex,
+      .ambientOcclusionPadding = 0,
       .visible = m_visibleBuffer ? m_device.bufferAddress(m_visibleBuffer) : 0,
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
@@ -3357,6 +3617,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
   }
   // After the completed depth, the late phase's included (ADR-0039).
   addContactShadowPass(graph, v, depth);
+  addAmbientOcclusionPasses(graph, v, depth);
   graph.addPass(
       "light clustering", [](PassBuilder &) {},
       [this, &v](rhi::ICommandList &commands, const PassResources &resources) {
@@ -3384,6 +3645,9 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       builder.sample(v.contactShadows);
     }
     builder.sample(m_frameImages.lut);
+    if (v.ambientOcclusion.isValid()) {
+      builder.sample(v.ambientOcclusion);
+    }
     if (skybox) {
       builder.sample(m_frameImages.skybox);
       builder.sample(m_frameImages.irradiance);

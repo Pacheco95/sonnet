@@ -1319,10 +1319,15 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     case ScalarWidget::Checkbox:
       ImGui::Checkbox("##value", &at<bool>(field, 0));
       break;
-    case ScalarWidget::Float:
-      ImGui::DragFloat("##value", &at<float>(field, 0), DragSpeed, 0.0f, name == "bloomStrength" ? 1.0f : 0.0f, "%.3f",
-                       name == "bloomStrength" ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
+    case ScalarWidget::Float: {
+      // The fields the renderer bounds are dragged within those bounds (ADR-0039 for the occlusion).
+      const float high = name == "bloomStrength" || name == "ambientOcclusionStrength" ? 1.0f
+                         : name == "ambientOcclusionRadius"                            ? 2.0f
+                                                                                       : 0.0f;
+      ImGui::DragFloat("##value", &at<float>(field, 0), DragSpeed, 0.0f, high, "%.3f",
+                       high > 0.0f ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
       break;
+    }
     case ScalarWidget::Degrees: {
       float degrees = glm::degrees(at<float>(field, 0));
       if (ImGui::DragFloat("##value", &degrees, AngleDragSpeed, 0.0f, 0.0f, "%.1f°")) {

@@ -53,7 +53,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 16> Options{{
+constexpr std::array<CommandLineOption, 17> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -84,6 +84,9 @@ constexpr std::array<CommandLineOption, 16> Options{{
      "build the transmission copy at 1/N of the view's size on each side, 1 to 8 (1, the view's size)", "2", true, ""},
     {"--contact-shadows", "on|off",
      "permit the sun's contact shadows a scene asks for, or turn them off; the platform's default otherwise", "off",
+     true, ""},
+    {"--ambient-occlusion", "on|off",
+     "permit the scene camera's screen-space ambient occlusion, or draw none; the platform's default otherwise", "off",
      true, ""},
 }};
 
@@ -340,6 +343,11 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
         return std::unexpected(captureError(std::format("--transmission-downscale takes 1 to 8, not \"{}\"", value)));
       }
       capture.transmissionDownscale = downscale;
+    } else if (arg == "--ambient-occlusion") {
+      if (value != "on" && value != "off") {
+        return std::unexpected(captureError("--ambient-occlusion takes on or off"));
+      }
+      capture.ambientOcclusion = value == "on";
     } else if (arg == "--shading-term") {
       capture.shadingTerm = shadingTerm(value);
       if (!capture.shadingTerm) {
@@ -496,11 +504,15 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
     SONNET_LOG_INFO("capture draws at {}x{}, scaled to the window", options.renderSize->x, options.renderSize->y);
     m_game.setRenderSize(options.renderSize);
   }
-  if (options.transmission || options.transmissionDownscale || options.contactShadows) {
+  if (options.transmission || options.transmissionDownscale || options.contactShadows || options.ambientOcclusion) {
     renderer::RendererSettings settings = m_game.renderer().settings();
     if (options.contactShadows) {
       SONNET_LOG_INFO("capture draws with contact shadows {}", *options.contactShadows ? "on" : "off");
       settings.contactShadows = *options.contactShadows;
+    }
+    if (options.ambientOcclusion) {
+      SONNET_LOG_INFO("capture draws with ambient occlusion {}", *options.ambientOcclusion ? "permitted" : "off");
+      settings.ambientOcclusion = *options.ambientOcclusion;
     }
     if (options.transmission) {
       SONNET_LOG_INFO("capture draws with transmission {}", *options.transmission ? "on" : "off");

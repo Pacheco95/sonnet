@@ -95,6 +95,8 @@ Two sphere sweeps keep the camera clear of the course, ignoring the character, a
 
 `yaw` and `pitch` are where it starts, so a capture run, which repeats exactly, gets the same pose every time. Two properties stand in for the mouse in captures: `orbit` turns the view at a constant rate, and `trail` swings it behind the character's motion over the ground, which the route scene uses.
 
+Every scene's `Camera` asks for screen-space ambient occlusion (`ambientOcclusion`, at the default 0.5 m radius and full strength), which grounds the character's feet, the steps and the props in the sky's light ([rendering.md](../../../docs/rendering.md#ambient-occlusion)). It changes the indirect light only, never the sun's. The desktop player and the editor draw it; the Android and iOS players do not until a phone's measurement allows it, and `--ambient-occlusion off` draws a capture without it.
+
 ## The route
 
 With the character's `route` property set to an entity, its children, in sibling order, steer the character instead of the keys, through the same intent, acceleration, jump buffer and animation. Each waypoint is reached within `routeTolerance` of it on the ground plane; the words of its name are cues:

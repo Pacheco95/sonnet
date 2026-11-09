@@ -19,6 +19,7 @@ sonnet_add_module(renderer
 # Engine shaders. sonnet.slang is a module the entry-point files import; only entry-point files
 # are compiled, and sonnet_add_engine_shaders(<target>) places the result next to a binary.
 set_property(GLOBAL PROPERTY SONNET_ENGINE_SHADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ao.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cluster.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/contact.slang"
   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/cull.slang"
@@ -41,6 +42,7 @@ set_property(GLOBAL PROPERTY SONNET_ENGINE_SHADERS
 
 sonnet_add_module_test(renderer
   SOURCES
+    tests/AmbientOcclusionTests.cpp
     tests/CameraTests.cpp
     tests/ContactShadowTests.cpp
     tests/PickingTests.cpp

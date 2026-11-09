@@ -94,6 +94,12 @@ struct Camera {
   float farPlane{500.0f};
   float exposure{1.0f};
   float bloomStrength{0.04f}; // fraction of the blurred HDR image, 0 to 1
+  // Screen-space ambient occlusion of the view's indirect light (ADR-0039): off until authored, so
+  // an older scene looks as it did. The renderer takes the radius within 0 to 2 m and the strength
+  // within 0 to 1.
+  bool ambientOcclusion{false};
+  float ambientOcclusionRadius{0.5f}; // metres
+  float ambientOcclusionStrength{1.0f};
 };
 
 // Shines along the entity's -Z.

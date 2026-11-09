@@ -209,6 +209,8 @@ public struct FrameConstants {
   public uint debugView; // RendererSettings::debugView
   public uint transmissionImage; // the opaque scene's mip chain for transmissive surfaces, 0xFFFFFFFF without one
   public uint contactShadowImage; // the sun's contact visibility mask (ADR-0039), 0xFFFFFFFF without one
+  public uint ambientOcclusionImage; // the R8 visibility mask of screen-space ambient occlusion, 0xFFFFFFFF without one
+  public uint ambientOcclusionPadding;
   // The object index of every instance a draw submits, at its first instance plus its instance
   // index: the culling pass's runs for the indirect draws, the direct range for the rest
   // (ADR-0016). A pointer is allowed here, in a uniform block, and not in a storage-buffer struct.

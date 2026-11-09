@@ -47,7 +47,8 @@
           "fovY": 0.9599310885968813,
           "nearPlane": 0.1,
           "exposure": 0.5,
-          "bloomStrength": 0.02
+          "bloomStrength": 0.02,
+          "ambientOcclusion": true
         },
         "Scripts": {
           "slots": [

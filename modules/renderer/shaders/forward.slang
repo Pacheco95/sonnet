@@ -309,8 +309,16 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
     transmittance = transmission * (1.0 - metallic);
   }
   const float2 occlusionUv = uvTransform(material.occlusionUv, material.occlusionUvOffset, uvSet(material, SlotOcclusion, input.uvs));
-  const float occlusion =
+  const float materialOcclusion =
       lerp(1.0, sampleMaterial(material.occlusionTexture, materialSampler(material, SlotOcclusion), occlusionUv).r, material.occlusionStrength);
+  // Screen-space ambient occlusion (ADR-0039), lerp(1, A, s) already, for the opaque and masked
+  // surfaces of the pre-pass only: a blended or transmissive surface is not the one the mask saw.
+  float screenOcclusion = 1.0;
+  if (frame.ambientOcclusionImage != 0xFFFFFFFF && alphaMode != AlphaBlend && (material.flags & MaterialTransmissive) == 0) {
+    screenOcclusion = textures[frame.ambientOcclusionImage].Load(int3(int2(input.position.xy), 0)).r;
+  }
+  // What the indirect light, and only it, is multiplied by: once, material and screen together.
+  const float occlusion = materialOcclusion * screenOcclusion;
   const float2 emissiveUv = uvTransform(material.emissiveUv, material.emissiveUvOffset, uvSet(material, SlotEmissive, input.uvs));
   const float3 emissive = material.emissive.rgb * sampleMaterial(material.emissiveTexture, materialSampler(material, SlotEmissive), emissiveUv).rgb;
 
@@ -424,6 +432,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
     color = colors[shadowCascade(viewDepth)];
     break;
   }
+  case 9: color = float3(screenOcclusion); break;
   default: break;
   }
 

@@ -22,7 +22,10 @@ renderer::Camera placedCamera(const WorldTransform &transform, const Camera &cam
           .orthoHeight = camera.orthoHeight,
           .farPlane = camera.farPlane,
           .exposure = camera.exposure,
-          .bloomStrength = glm::clamp(camera.bloomStrength, 0.0f, 1.0f)};
+          .bloomStrength = glm::clamp(camera.bloomStrength, 0.0f, 1.0f),
+          .ambientOcclusion = camera.ambientOcclusion,
+          .ambientOcclusionRadius = camera.ambientOcclusionRadius,
+          .ambientOcclusionStrength = camera.ambientOcclusionStrength};
 }
 
 } // namespace
