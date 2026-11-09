@@ -1,6 +1,7 @@
 #include <sonnet/platform/Application.h>
 
 #include "SdlEvents.h"
+#include "SdlGamepads.h"
 
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
@@ -26,9 +27,11 @@ namespace sonnet::platform::detail {
 
 namespace {
 
-// Platform is declared first so it outlives the application.
+// Declared in the order each needs the one before; destroyed the other way round, the application
+// before the gamepad it reads and SDL last.
 struct AppState {
   Platform platform;
+  SdlGamepads gamepads;
   std::unique_ptr<IApplication> app;
 };
 
@@ -92,11 +95,19 @@ SDL_AppResult appIterate(void *state) {
 SDL_AppResult appEvent(void *state, SDL_Event *event) {
   auto *appState = static_cast<AppState *>(state);
   appState->app->nativeEvent(*event);
-  const std::optional<Event> translated = translateEvent(*event);
-  if (!translated) {
-    return SDL_APP_CONTINUE;
+  AppResult result = AppResult::Continue;
+  if (const std::optional<Event> translated = translateEvent(*event)) {
+    result = appState->app->event(*translated);
   }
-  return toSdl(appState->app->event(*translated));
+  // The active gamepad's events, after the one they follow: a regained focus before the axes it
+  // brings back (docs/platform.md, "Gamepads"). An application that is done hears no more.
+  for (const Event &gamepad : appState->gamepads.handle(*event)) {
+    if (result != AppResult::Continue) {
+      break;
+    }
+    result = appState->app->event(gamepad);
+  }
+  return toSdl(result);
 }
 
 void appQuit(void *state, SDL_AppResult result) {

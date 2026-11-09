@@ -15,6 +15,29 @@ std::size_t index(MouseButton button) noexcept {
   return static_cast<std::size_t>(button);
 }
 
+std::size_t index(GamepadButton button) noexcept {
+  return static_cast<std::size_t>(button);
+}
+
+std::size_t index(GamepadAxis axis) noexcept {
+  return static_cast<std::size_t>(axis);
+}
+
+// A radial dead zone: inside it the stick is centred; outside, the length is rescaled from the dead
+// zone's edge to `full` and kept within 1, the direction as it is.
+glm::vec2 radial(glm::vec2 raw, float deadZone, float full) noexcept {
+  const float length = glm::length(raw);
+  if (length <= deadZone) {
+    return {0.0f, 0.0f};
+  }
+  const float scaled = std::min((length - deadZone) / (full - deadZone), 1.0f);
+  return raw * (scaled / length);
+}
+
+float trigger(float raw, float deadZone, float full) noexcept {
+  return std::clamp((raw - deadZone) / (full - deadZone), 0.0f, 1.0f);
+}
+
 } // namespace
 
 void InputState::beginFrame() noexcept {
@@ -27,6 +50,8 @@ void InputState::beginFrame() noexcept {
   for (Touch &touch : std::span{m_touches}.first(m_touchCount)) {
     touch.delta = {0.0f, 0.0f};
   }
+  m_padPressed.reset();
+  m_padReleased.reset();
 }
 
 void InputState::handle(const Event &event) noexcept {
@@ -73,6 +98,29 @@ void InputState::handle(const Event &event) noexcept {
       std::shift_left(m_touches.begin() + at, m_touches.begin() + static_cast<std::ptrdiff_t>(m_touchCount), 1);
       --m_touchCount;
     }
+  } else if (const auto *padDown = std::get_if<GamepadButtonPressed>(&event)) {
+    // As with keys, a button already held is not pressed again.
+    if (padDown->button != GamepadButton::Count && !m_padDown.test(index(padDown->button))) {
+      m_padDown.set(index(padDown->button));
+      m_padPressed.set(index(padDown->button));
+    }
+  } else if (const auto *padUp = std::get_if<GamepadButtonReleased>(&event)) {
+    // A button held before the state saw it go down has nothing to release.
+    if (padUp->button != GamepadButton::Count && m_padDown.test(index(padUp->button))) {
+      m_padDown.reset(index(padUp->button));
+      m_padReleased.set(index(padUp->button));
+    }
+  } else if (const auto *axis = std::get_if<GamepadAxisMoved>(&event)) {
+    if (axis->axis != GamepadAxis::Count) {
+      m_padAxes[index(axis->axis)] = axis->value;
+    }
+  } else if (std::holds_alternative<GamepadConnected>(event)) {
+    // A gamepad replacing another starts with nothing held: the old one's buttons are let go.
+    releaseGamepad();
+    m_gamepadConnected = true;
+  } else if (std::holds_alternative<GamepadDisconnected>(event)) {
+    releaseGamepad();
+    m_gamepadConnected = false;
   } else if (const auto *focus = std::get_if<WindowFocusChanged>(&event)) {
     // The release of a key held while the focus leaves never arrives.
     if (!focus->focused) {
@@ -87,6 +135,19 @@ void InputState::releaseAll() noexcept {
   m_buttonsReleased |= m_buttonsDown;
   m_buttonsDown.reset();
   m_touchCount = 0;
+  releaseGamepad();
+}
+
+void InputState::reset() noexcept {
+  const bool connected = m_gamepadConnected;
+  *this = InputState{};
+  m_gamepadConnected = connected;
+}
+
+void InputState::releaseGamepad() noexcept {
+  m_padReleased |= m_padDown;
+  m_padDown.reset();
+  m_padAxes.fill(0.0f);
 }
 
 Touch *InputState::findTouch(std::uint64_t id) noexcept {
@@ -117,6 +178,39 @@ bool InputState::mousePressed(MouseButton button) const noexcept {
 
 bool InputState::mouseReleased(MouseButton button) const noexcept {
   return button != MouseButton::Count && m_buttonsReleased.test(index(button));
+}
+
+bool InputState::gamepadDown(GamepadButton button) const noexcept {
+  return button != GamepadButton::Count && m_padDown.test(index(button));
+}
+
+bool InputState::gamepadPressed(GamepadButton button) const noexcept {
+  return button != GamepadButton::Count && m_padPressed.test(index(button));
+}
+
+bool InputState::gamepadReleased(GamepadButton button) const noexcept {
+  return button != GamepadButton::Count && m_padReleased.test(index(button));
+}
+
+glm::vec2 InputState::leftStick() const noexcept {
+  return radial({m_padAxes[index(GamepadAxis::LeftX)], m_padAxes[index(GamepadAxis::LeftY)]}, StickDeadZone, StickFull);
+}
+
+glm::vec2 InputState::rightStick() const noexcept {
+  return radial({m_padAxes[index(GamepadAxis::RightX)], m_padAxes[index(GamepadAxis::RightY)]}, StickDeadZone,
+                StickFull);
+}
+
+float InputState::leftTrigger() const noexcept {
+  return trigger(m_padAxes[index(GamepadAxis::LeftTrigger)], TriggerDeadZone, TriggerFull);
+}
+
+float InputState::rightTrigger() const noexcept {
+  return trigger(m_padAxes[index(GamepadAxis::RightTrigger)], TriggerDeadZone, TriggerFull);
+}
+
+float InputState::gamepadAxis(GamepadAxis axis) const noexcept {
+  return axis != GamepadAxis::Count ? m_padAxes[index(axis)] : 0.0f;
 }
 
 } // namespace sonnet::platform

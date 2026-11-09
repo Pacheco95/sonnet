@@ -2,8 +2,9 @@
 --
 -- It places itself in `lateUpdate`, after physics has interpolated the character to where this frame
 -- draws it (ADR-0038). The mouse's motion is a displacement, so it turns the view as it is, never
--- scaled by dt nor read per fixed step. It asks for the pointer to be locked to the game; until the
--- application grants that (issue #495), dragging with either button looks around.
+-- scaled by dt nor read per fixed step; the gamepad's right stick is a rate, scaled by dt (issue
+-- #498). It asks for the pointer to be locked to the game; until the application grants that
+-- (issue #495), dragging with either button looks around.
 --
 -- The view looks at a pivot above the character's feet, which follows them with smoothing that
 -- does not depend on the frame rate. Two sphere sweeps keep it out of the geometry, ignoring the
@@ -25,6 +26,7 @@ local FollowCamera = {
     pitchMin = { type = "number", default = -70, min = -89, max = 89 }, -- degrees, looking down
     pitchMax = { type = "number", default = 40, min = -89, max = 89 }, -- degrees, looking up
     sensitivity = { type = "number", default = 0.15, min = 0.001, max = 5 }, -- degrees per pixel
+    stickRate = { type = "number", default = 180, min = 1, max = 720 }, -- degrees per second, right stick
     follow = { type = "number", default = 12, min = 0, max = 100 }, -- 1/s, horizontal follow
     rise = { type = "number", default = 6, min = 0, max = 100 }, -- 1/s, vertical follow
     ease = { type = "number", default = 3, min = 0.1, max = 100 }, -- 1/s, back out after a hit
@@ -104,6 +106,14 @@ function FollowCamera:lateUpdate(dt)
     local delta = input.mouseDelta()
     self.yawAngle = self.yawAngle - math.rad(delta.x * self.sensitivity)
     self.pitchAngle = self.pitchAngle - math.rad(delta.y * self.sensitivity)
+  end
+  -- The gamepad's right stick is a rate, not a displacement: degrees per second at a full push, so
+  -- it is scaled by dt. Pushed up, the view looks up.
+  local stick = input.rightStick()
+  if stick.x ~= 0 or stick.y ~= 0 then
+    looking = true
+    self.yawAngle = self.yawAngle - math.rad(stick.x * self.stickRate * dt)
+    self.pitchAngle = self.pitchAngle + math.rad(stick.y * self.stickRate * 0.6 * dt)
   end
   -- Trailing, for captures and routes: the yaw swings behind the character's motion over the ground.
   local state = self.trail > 0 and not looking and physics.character(self.target) or nil

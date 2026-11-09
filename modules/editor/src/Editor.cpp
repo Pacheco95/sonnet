@@ -369,6 +369,13 @@ void Editor::event(const platform::Event &event) {
     }
     return;
   }
+  // Whether a gamepad is there is heard whatever has the input, so a script started later reads it right; its
+  // buttons and sticks are the game's only while the game has the input, as the keys are.
+  if (std::holds_alternative<platform::GamepadConnected>(event) ||
+      std::holds_alternative<platform::GamepadDisconnected>(event)) {
+    m_input.handle(event);
+    return;
+  }
   // The lock hears a lost focus and Escape from any window, and a press only over the game's image: that click takes
   // a pointer let go back, and focuses the panel for it.
   const bool press = std::holds_alternative<platform::MouseButtonPressed>(event);
@@ -3180,7 +3187,7 @@ void Editor::loadPlayScene(const std::string &scene) {
   m_scripts->reset();
   m_mouseLock.release();
   m_audio->stopAll();
-  m_input = {};
+  m_input.reset();
   m_gui.releaseAll();
   m_commands = CommandStack{};
   m_playLeftScene = true;
@@ -3228,7 +3235,7 @@ core::Result<void> Editor::endPlay(PlayEnd end, const std::filesystem::path &fil
   m_scripts->reset();
   m_mouseLock.release();
   m_audio->stopAll();
-  m_input = {};
+  m_input.reset();
   m_gui.releaseAll();
   const auto restoreSnapshot = [this] {
     m_world.clearScene();

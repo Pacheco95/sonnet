@@ -1,7 +1,7 @@
 -- The sample's third-person character (issue #496). It sits on the root that carries the
 -- CharacterController, which owns the capsule; the "Model" child is the humanoid, which this script
 -- turns to face where it goes and whose Animator it drives. The camera is a separate entity
--- (camera.lua), whose yaw turns the input.
+-- (camera.lua), whose yaw turns the input: the keys or the gamepad's left stick (issue #498).
 --
 -- The frame (ADR-0038): `update` notes a jump press, which lasts one rendered frame, and keeps it
 -- for `jumpBuffer` seconds; `fixedUpdate` reads the keys, which are state, accelerates the intended
@@ -202,7 +202,7 @@ function Character:restart()
 end
 
 function Character:update(dt)
-  if #self.waypoints == 0 and input.keyPressed("Space") then
+  if #self.waypoints == 0 and (input.keyPressed("Space") or input.gamepadPressed("South")) then
     self.jumpPressedAt = self.clock
   end
   self:turn(dt)
@@ -220,13 +220,19 @@ function Character:cameraForward()
   return self.forward
 end
 
--- The keys as a world-space direction no longer than 1, and whether to walk.
+-- The keys, or the left stick while no movement key is held, as a world-space direction no longer
+-- than 1, and whether to walk. The stick's dead zone is the engine's; a stick pushed part of the way
+-- asks for that fraction of the run speed, so the feet slow with it.
 function Character:keyIntent()
   local function key(a, b)
     return (input.keyDown(a) or input.keyDown(b)) and 1 or 0
   end
   local x = key("D", "Right") - key("A", "Left")
   local y = key("W", "Up") - key("S", "Down")
+  if x == 0 and y == 0 then
+    local stick = input.leftStick()
+    x, y = stick.x, stick.y
+  end
   local length = math.sqrt(x * x + y * y)
   if length > 1 then -- a diagonal is as fast as a straight line
     x, y = x / length, y / length

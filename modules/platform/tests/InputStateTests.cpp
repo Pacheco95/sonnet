@@ -1,5 +1,6 @@
 #include <sonnet/platform/InputState.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
@@ -126,5 +127,129 @@ TEST_CASE("keys and buttons have names scripts can use", "[platform][input]") {
   for (auto i = 1; i < static_cast<int>(Key::Count); ++i) {
     const auto key = static_cast<Key>(i);
     REQUIRE(keyFromName(toString(key)) == key);
+  }
+}
+
+TEST_CASE("gamepad buttons are held between their press and release, with one-frame edges",
+          "[platform][input][gamepad]") {
+  InputState input;
+  REQUIRE_FALSE(input.gamepadConnected());
+  input.handle(GamepadConnected{.name = "Pad"});
+  REQUIRE(input.gamepadConnected());
+  input.beginFrame();
+  input.handle(GamepadButtonPressed{.button = GamepadButton::South});
+  REQUIRE(input.gamepadDown(GamepadButton::South));
+  REQUIRE(input.gamepadPressed(GamepadButton::South));
+  REQUIRE_FALSE(input.gamepadDown(GamepadButton::East));
+  input.beginFrame();
+  // A press of a button already held is not another edge.
+  input.handle(GamepadButtonPressed{.button = GamepadButton::South});
+  REQUIRE(input.gamepadDown(GamepadButton::South));
+  REQUIRE_FALSE(input.gamepadPressed(GamepadButton::South));
+  input.beginFrame();
+  input.handle(GamepadButtonReleased{.button = GamepadButton::South});
+  input.handle(GamepadButtonReleased{.button = GamepadButton::North}); // never seen going down
+  REQUIRE_FALSE(input.gamepadDown(GamepadButton::South));
+  REQUIRE(input.gamepadReleased(GamepadButton::South));
+  REQUIRE_FALSE(input.gamepadReleased(GamepadButton::North));
+  REQUIRE_FALSE(input.gamepadDown(GamepadButton::Count));
+}
+
+TEST_CASE("the sticks have a radial dead zone that keeps a partial push and its direction",
+          "[platform][input][gamepad]") {
+  InputState input;
+  const auto stick = [&](float x, float y) {
+    input.handle(GamepadAxisMoved{.axis = GamepadAxis::LeftX, .value = x});
+    input.handle(GamepadAxisMoved{.axis = GamepadAxis::LeftY, .value = y});
+    return input.leftStick();
+  };
+  // Inside the dead zone, on either axis or both: centred.
+  REQUIRE(stick(0.2f, 0.0f) == glm::vec2{0.0f, 0.0f});
+  REQUIRE(stick(0.16f, 0.16f) == glm::vec2{0.0f, 0.0f});
+  // Radial, not per axis: a diagonal whose components are each inside the dead zone counts.
+  CHECK(glm::length(stick(0.2f, 0.2f)) > 0.0f);
+  // Halfway between the dead zone and full is half a push, in the same direction.
+  const float half = (InputState::StickDeadZone + InputState::StickFull) / 2.0f;
+  const glm::vec2 partial = stick(half * 0.6f, half * 0.8f);
+  CHECK(glm::length(partial) == Catch::Approx(0.5f).margin(1e-4f));
+  CHECK(partial.x / partial.y == Catch::Approx(0.75f).margin(1e-4f));
+  // Full and beyond, a corner included: no longer than 1.
+  CHECK(glm::length(stick(0.0f, 1.0f)) == Catch::Approx(1.0f));
+  CHECK(glm::length(stick(1.0f, 1.0f)) == Catch::Approx(1.0f));
+  CHECK(stick(0.0f, -1.0f).y == Catch::Approx(-1.0f));
+  // The right stick is its own.
+  REQUIRE(input.rightStick() == glm::vec2{0.0f, 0.0f});
+  input.handle(GamepadAxisMoved{.axis = GamepadAxis::RightX, .value = 1.0f});
+  CHECK(input.rightStick().x == Catch::Approx(1.0f));
+  CHECK(input.gamepadAxis(GamepadAxis::RightX) == 1.0f);
+}
+
+TEST_CASE("the triggers read from let go to pulled past their dead zone", "[platform][input][gamepad]") {
+  InputState input;
+  input.handle(GamepadAxisMoved{.axis = GamepadAxis::RightTrigger, .value = 0.1f});
+  CHECK(input.rightTrigger() == 0.0f);
+  CHECK(input.gamepadAxis(GamepadAxis::RightTrigger) == 0.1f); // the raw value stays readable
+  const float half = (InputState::TriggerDeadZone + InputState::TriggerFull) / 2.0f;
+  input.handle(GamepadAxisMoved{.axis = GamepadAxis::RightTrigger, .value = half});
+  CHECK(input.rightTrigger() == Catch::Approx(0.5f).margin(1e-4f));
+  input.handle(GamepadAxisMoved{.axis = GamepadAxis::LeftTrigger, .value = 1.0f});
+  CHECK(input.leftTrigger() == 1.0f);
+}
+
+TEST_CASE("a lost focus or gamepad lets go of its buttons and centres its axes", "[platform][input][gamepad]") {
+  InputState input;
+  const auto hold = [&] {
+    input.beginFrame();
+    input.handle(GamepadButtonPressed{.button = GamepadButton::East});
+    input.handle(GamepadAxisMoved{.axis = GamepadAxis::LeftX, .value = 1.0f});
+    input.handle(GamepadAxisMoved{.axis = GamepadAxis::LeftTrigger, .value = 1.0f});
+    input.beginFrame();
+  };
+  input.handle(GamepadConnected{.name = "Pad"});
+  hold();
+  input.handle(WindowFocusChanged{.focused = false});
+  CHECK_FALSE(input.gamepadDown(GamepadButton::East));
+  CHECK(input.gamepadReleased(GamepadButton::East));
+  CHECK(input.leftStick() == glm::vec2{0.0f, 0.0f});
+  CHECK(input.leftTrigger() == 0.0f);
+  CHECK(input.gamepadConnected()); // the focus does not unplug it
+
+  hold();
+  input.handle(GamepadConnected{.name = "Another"}); // replacing the one that went
+  CHECK(input.gamepadReleased(GamepadButton::East));
+  CHECK(input.leftStick() == glm::vec2{0.0f, 0.0f});
+  CHECK(input.gamepadConnected());
+
+  hold();
+  input.handle(GamepadDisconnected{});
+  CHECK_FALSE(input.gamepadConnected());
+  CHECK(input.gamepadReleased(GamepadButton::East));
+  CHECK(input.leftStick() == glm::vec2{0.0f, 0.0f});
+}
+
+TEST_CASE("a reset forgets everything but whether a gamepad is connected", "[platform][input][gamepad]") {
+  InputState input;
+  input.handle(GamepadConnected{.name = "Pad"});
+  input.handle(KeyPressed{.key = Key::W, .modifiers = Modifiers::None, .repeat = false});
+  input.handle(GamepadButtonPressed{.button = GamepadButton::South});
+  input.setMouseLocked(true);
+  input.reset();
+  CHECK(input.gamepadConnected());
+  CHECK_FALSE(input.keyDown(Key::W));
+  CHECK_FALSE(input.keyPressed(Key::W));
+  CHECK_FALSE(input.gamepadDown(GamepadButton::South));
+  CHECK_FALSE(input.gamepadReleased(GamepadButton::South));
+  CHECK_FALSE(input.mouseLocked());
+}
+
+TEST_CASE("gamepad buttons have names scripts can use", "[platform][input][gamepad]") {
+  REQUIRE(toString(GamepadButton::South) == "South");
+  REQUIRE(toString(GamepadButton::DPadRight) == "DPadRight");
+  REQUIRE(toString(GamepadButton::Count).empty());
+  REQUIRE(gamepadButtonFromName("RightShoulder") == GamepadButton::RightShoulder);
+  REQUIRE_FALSE(gamepadButtonFromName("A").has_value());
+  for (auto i = 0; i < static_cast<int>(GamepadButton::Count); ++i) {
+    const auto button = static_cast<GamepadButton>(i);
+    REQUIRE(gamepadButtonFromName(toString(button)) == button);
   }
 }

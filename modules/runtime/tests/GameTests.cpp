@@ -1743,6 +1743,109 @@ TEST_CASE("the character sample runs, walks, stops, turns and jumps from the key
   CHECK(problems->problems.empty());
 }
 
+// Issue #498: the left stick moves the character at the fraction of the run speed it is pushed,
+// the South button jumps, the right stick turns the camera at a rate, and the overlay shows the
+// gamepad's controls while one is connected.
+TEST_CASE("the character sample runs, slows, jumps and looks around from a gamepad", "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const auto problems = std::make_shared<ProblemSink>();
+  core::Log::addSink(problems);
+  test::RelativeModeWindow window{*fixture.window};
+  runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  world::World &world = game.world();
+  const auto root = [&](std::string_view name) {
+    for (const flecs::entity entity : world.roots()) {
+      const world::Name *named = entity.try_get<world::Name>();
+      if (named != nullptr && named->value == name) {
+        return entity;
+      }
+    }
+    return flecs::entity{};
+  };
+  const flecs::entity character = root("Character");
+  const flecs::entity camera = root("Camera");
+  const flecs::entity label = world.findByPath(root("Controls"), "Panel/Label");
+  REQUIRE(character.is_valid());
+  REQUIRE(camera.is_valid());
+  REQUIRE(label.is_valid());
+  const auto frames = [&](int count) {
+    for (int i = 0; i < count; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+  };
+  const auto axis = [&](platform::GamepadAxis which, float value) {
+    game.event(platform::GamepadAxisMoved{.axis = which, .value = value});
+  };
+  const auto speed = [&] {
+    const auto state = game.physics().character(character);
+    REQUIRE(state.has_value());
+    return glm::length(glm::vec2{state->velocity.x, state->velocity.z});
+  };
+  const auto position = [&] { return character.get<world::Transform>().position; };
+  const auto cameraForward = [&] {
+    const glm::vec3 forward = camera.get<world::Transform>().rotation * glm::vec3{0.0f, 0.0f, -1.0f};
+    return glm::normalize(glm::vec2{forward.x, forward.z});
+  };
+
+  frames(30);
+  CHECK(label.get<gui::GuiText>().text.starts_with("W A S D"));
+  game.event(platform::GamepadConnected{.name = "Pad"});
+  frames(1);
+  CHECK(label.get<gui::GuiText>().text.starts_with("Left stick"));
+  REQUIRE(game.physics().character(character)->grounded);
+  const glm::vec3 start = position();
+
+  // Full forward runs north at the run speed.
+  axis(platform::GamepadAxis::LeftY, 1.0f);
+  frames(45);
+  CHECK(speed() == Approx(4.8f).margin(0.05f));
+  CHECK(position().z < start.z - 2.5f);
+  // Pushed half of the way past the dead zone, the character slows to half the run speed.
+  const float half = (platform::InputState::StickDeadZone + platform::InputState::StickFull) / 2.0f;
+  axis(platform::GamepadAxis::LeftY, half);
+  frames(45);
+  CHECK(speed() == Approx(2.4f).margin(0.05f));
+  // Inside the dead zone it stops.
+  axis(platform::GamepadAxis::LeftY, 0.1f);
+  frames(45);
+  CHECK(speed() < 0.01f);
+
+  // South jumps.
+  const float ground = position().y;
+  game.event(platform::GamepadButtonPressed{.button = platform::GamepadButton::South});
+  frames(1);
+  game.event(platform::GamepadButtonReleased{.button = platform::GamepadButton::South});
+  float highest = ground;
+  for (int i = 0; i < 60; ++i) {
+    frames(1);
+    highest = std::max(highest, position().y);
+  }
+  CHECK(highest == Approx(ground + 1.27f).margin(0.1f));
+  frames(60);
+
+  // The right stick turns the view at `stickRate`, 180 degrees a second at a full push: a quarter
+  // turn in half a second, whatever the frame rate.
+  const glm::vec2 before = cameraForward();
+  axis(platform::GamepadAxis::RightX, 1.0f);
+  frames(30);
+  axis(platform::GamepadAxis::RightX, 0.0f);
+  frames(1);
+  const glm::vec2 after = cameraForward();
+  CHECK(std::abs(glm::dot(before, after)) < 0.05f);
+
+  // Unplugged, the overlay goes back to the keys.
+  game.event(platform::GamepadDisconnected{});
+  frames(1);
+  CHECK(label.get<gui::GuiText>().text.starts_with("W A S D"));
+  core::Log::removeSink(problems);
+  CHECK(problems->problems.empty());
+}
+
 // Issue #530: what character.lua does around the ground that the keyboard test does not reach.
 // - Coyote time: walking off the ledge block, a jump pressed just after the feet leave it jumps;
 //   one pressed after the coyote time does not, and is dropped before the character lands.
