@@ -793,7 +793,7 @@ TEST_CASE("the cost of the contact shadows at 1080p", "[.][benchmark][contact-co
       graph.execute(commands);
       device->endFrame();
     };
-    const auto rank = [](std::vector<float> values, float fraction) {
+    const auto rank = [](std::vector<float> &values, float fraction) {
       std::ranges::sort(values);
       const auto index = static_cast<std::size_t>(std::ceil(fraction * static_cast<float>(values.size())));
       return values[std::max<std::size_t>(index, 1) - 1];
