@@ -9,6 +9,8 @@
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
+#include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -65,6 +67,27 @@ namespace sonnet::editor {
 // one undo step.
 [[nodiscard]] std::unique_ptr<ICommand> replaceWithInstanceCommand(const world::World &world, core::Uuid entity,
                                                                    core::Uuid prefab);
+// What "Apply to prefab" applies of an instance's change (docs/editor.md, "Applying to a
+// prefab"): one component of `entity`, the member at `member` (a pointer into the value
+// componentToJson writes), or the whole component when `member` is empty, the entity holding it or
+// not (one it removed). A script property names its slot and property, with `member` pointing at
+// the property in the slot.
+struct ApplyRequest {
+  core::Uuid entity;
+  std::string component;
+  nlohmann::json::json_pointer member = nlohmann::json::json_pointer{};
+  std::optional<std::size_t> slot = std::nullopt;
+  std::string property = std::string{};
+};
+// "Apply to prefab" as one undo step: apply writes `after` to the prefab file `file` and runs
+// `rebuild`, which reloads every prefab and the scene's instances from the files; revert writes
+// `before`, rebuilds, and sets the entity's component back to `value`, what it held before the
+// apply (absent when empty), since the rebuild made it follow the prefab. Not applied again by
+// play's Keep: apply is not offered while playing.
+[[nodiscard]] std::unique_ptr<ICommand> applyToPrefabCommand(std::filesystem::path file, std::string before,
+                                                             std::string after, core::Uuid entity,
+                                                             std::string component, std::optional<nlohmann::json> value,
+                                                             std::function<void()> rebuild);
 // Several commands as one undo step, applied in order and reverted in reverse.
 [[nodiscard]] std::unique_ptr<ICommand> compositeCommand(std::string description,
                                                          std::vector<std::unique_ptr<ICommand>> commands);

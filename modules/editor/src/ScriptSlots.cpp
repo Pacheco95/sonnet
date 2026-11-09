@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <format>
+#include <utility>
 
 namespace sonnet::editor {
 
@@ -111,6 +112,11 @@ scripting::ScriptSlot revertPropertyToPrefab(scripting::ScriptSlot slot, const s
   }
   slot.properties = serialize(values);
   return slot;
+}
+
+scripting::ScriptSlot applyPropertyToPrefab(scripting::ScriptSlot prefab, const scripting::ScriptSlot &slot,
+                                            const scripting::PropertyDecl &property) {
+  return revertPropertyToPrefab(std::move(prefab), slot, property);
 }
 
 std::vector<std::string> undeclaredProperties(const scripting::ScriptSlot &slot,

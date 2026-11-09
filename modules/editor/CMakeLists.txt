@@ -60,6 +60,7 @@ sonnet_add_module_test(editor
   TIMEOUT 600
   COST 240
   SOURCES
+    tests/ApplyToPrefabTests.cpp
     tests/AssetMenuTests.cpp
     tests/CameraLinesTests.cpp
     tests/CaptureTests.cpp

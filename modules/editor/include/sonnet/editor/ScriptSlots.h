@@ -45,6 +45,11 @@ namespace sonnet::editor {
 [[nodiscard]] scripting::ScriptSlot revertPropertyToPrefab(scripting::ScriptSlot slot,
                                                            const scripting::ScriptSlot &prefab,
                                                            const scripting::PropertyDecl &property);
+// The prefab's slot with the property as the instance's slot stores it, the mirror of
+// revertPropertyToPrefab: what "Apply" on a script property writes to the prefab.
+[[nodiscard]] scripting::ScriptSlot applyPropertyToPrefab(scripting::ScriptSlot prefab,
+                                                          const scripting::ScriptSlot &slot,
+                                                          const scripting::PropertyDecl &property);
 // The names in the slot's JSON that the declarations do not include, kept in the scene.
 [[nodiscard]] std::vector<std::string> undeclaredProperties(const scripting::ScriptSlot &slot,
                                                             const std::vector<scripting::PropertyDecl> &properties);

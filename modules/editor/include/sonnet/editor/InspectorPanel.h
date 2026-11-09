@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sonnet/editor/CommandStack.h>
+#include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Selection.h>
 
 #include <sonnet/assets/AssetDatabase.h>
@@ -38,6 +39,14 @@ public:
   // Opens a file at a line in the external editor; the script asset view's Edit button uses it.
   void setOpenHandler(std::function<void(const std::string &, int)> handler) {
     m_open = std::move(handler);
+  }
+  // "Apply to prefab" (docs/editor.md, "Applying to a prefab"): `target` names the prefab an apply
+  // would write to, nothing when it is not offered, and `apply` asks for one. Without them the
+  // inspector offers no apply.
+  void setApplyHandlers(std::function<std::optional<std::string>(const ApplyRequest &)> target,
+                        std::function<void(ApplyRequest)> apply) {
+    m_applyTarget = std::move(target);
+    m_apply = std::move(apply);
   }
   // Where the script slots get the properties a class declares; without one a slot shows its script
   // and no properties.
@@ -107,9 +116,12 @@ private:
   // The `Scripts` component: the slot list with its buttons and one widget per declared property.
   // `prefab` is the value the entity's slots follow, when it is part of an instance.
   void drawScripts(flecs::entity entity, const scripting::Scripts *prefab);
-  // `prefab` is the prefab's slot this one follows (ADR-0037), null when it has none.
+  // `prefab` is the prefab's slot this one follows (ADR-0037), null when it has none; `request`
+  // what applying the property to the prefab asks for.
   void drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property,
-                    const scripting::ScriptSlot *prefab);
+                    const scripting::ScriptSlot *prefab, const ApplyRequest &request);
+  // The prefab an apply of `request` would write to, when one is offered.
+  [[nodiscard]] std::optional<std::string> applyTarget(const ApplyRequest &request) const;
   // A drop target on the last widget for a script asset from the browser: one more slot.
   void acceptScriptDrop(flecs::entity entity);
   // A button naming the entity that opens a list of the scene's, and a drop target for the
@@ -147,6 +159,11 @@ private:
   const nlohmann::json *m_overrides{nullptr};
   nlohmann::json::json_pointer m_memberPath;
   std::optional<nlohmann::json::json_pointer> m_revertMember;
+  // The entity and component being drawn, for the members' apply requests.
+  core::Uuid m_drawnEntity;
+  std::string m_drawnComponent;
+  std::function<std::optional<std::string>(const ApplyRequest &)> m_applyTarget;
+  std::function<void(ApplyRequest)> m_apply;
   std::optional<MaterialEdit> m_materialEdit;
   std::optional<EmissiveView> m_emissive;
   std::optional<ModelAnimations> m_modelAnimations;
