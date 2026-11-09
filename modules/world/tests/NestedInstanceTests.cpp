@@ -509,3 +509,108 @@ TEST_CASE("a stored order meets a prefab that changed", "[world][prefab][order]"
   // One with nothing before it comes first.
   REQUIRE(loaded({}, "Gained", true) == Names{"Gained", "Hinge", "Latch", "Lid"});
 }
+
+TEST_CASE("applying a change goes to the deepest prefab file the value reaches the instance from",
+          "[world][prefab][nested][apply]") {
+  const Prefabs files;
+  world::World world;
+  files.load(world);
+  const flecs::entity wheelPrefab = world.find(files.wheel);
+  const flecs::entity cartPrefab = world.find(files.cart);
+  wheelPrefab.set<world::PrefabFile>({"wheel.prefab.json"});
+  cartPrefab.set<world::PrefabFile>({"cart.prefab.json"});
+  const world::ComponentInfo &meshRenderer = *world.findComponent("MeshRenderer");
+  const world::ComponentInfo &transform = *world.findComponent("Transform");
+  const json::json_pointer color{"/color"};
+  const json::json_pointer visible{"/visible"};
+  const flecs::entity wheelHub = childNamed(world, wheelPrefab, "Hub");
+  const flecs::entity cartHub = childNamed(world, childNamed(world, cartPrefab, "Axle"), "Hub");
+
+  // A plain instance: its prefab, for a member or the whole component.
+  const flecs::entity wheel = world.instantiate(wheelPrefab, "Wheel 1");
+  const flecs::entity hub = childNamed(world, wheel, "Hub");
+  CHECK(world.applyTarget(hub, meshRenderer, color).entity == wheelHub);
+  CHECK(world.applyTarget(hub, meshRenderer, color).root == wheelPrefab);
+  CHECK(world.applyTarget(hub, meshRenderer).entity == wheelHub);
+  // An instance root's own components go to the prefab's root, except the transform that places it.
+  CHECK(world.applyTarget(wheel, meshRenderer).entity == wheelPrefab);
+  CHECK(!world.applyTarget(wheel, transform).entity);
+  // An entity outside any instance has nowhere to go.
+  CHECK(!world.applyTarget(world.createEntity("Loose"), meshRenderer).entity);
+
+  // Nested: a member the outer prefab leaves to the inner one goes to the inner file.
+  const flecs::entity cart = world.instantiate(cartPrefab, "Cart 1");
+  const flecs::entity axle = childNamed(world, cart, "Axle");
+  const flecs::entity nestedHub = childNamed(world, axle, "Hub");
+  CHECK(world.applyTarget(nestedHub, meshRenderer, color).entity == wheelHub);
+  CHECK(world.applyTarget(nestedHub, meshRenderer, color).root == wheelPrefab);
+
+  // The outer prefab changes the colour (the pallet sets a crate's lid): the colour goes to the
+  // outer file, and the visibility, which it leaves alone, still to the inner one.
+  cartHub.ensure<world::MeshRenderer>().color = {1.0f, 0.0f, 0.0f, 1.0f};
+  CHECK(world.applyTarget(nestedHub, meshRenderer, color).entity == cartHub);
+  CHECK(world.applyTarget(nestedHub, meshRenderer, color).root == cartPrefab);
+  CHECK(world.applyTarget(nestedHub, meshRenderer, visible).entity == wheelHub);
+  // The whole component differs at the outer level, so it stops there.
+  CHECK(world.applyTarget(nestedHub, meshRenderer).entity == cartHub);
+  // The nested instance's transform places it inside the outer prefab: the outer file's.
+  CHECK(world.applyTarget(axle, transform, json::json_pointer{"/position"}).entity ==
+        childNamed(world, cartPrefab, "Axle"));
+
+  // Without a file at the inner level, the outer one is the deepest with a file.
+  wheelPrefab.remove<world::PrefabFile>();
+  CHECK(world.applyTarget(nestedHub, meshRenderer, visible).entity == cartHub);
+  // And with no file at all, nothing.
+  cartPrefab.remove<world::PrefabFile>();
+  CHECK(!world.applyTarget(nestedHub, meshRenderer, visible).entity);
+  CHECK(!world.applyTarget(hub, meshRenderer, color).entity);
+}
+
+TEST_CASE("applying a change to a model node inside a prefab goes to the prefab's file",
+          "[world][prefab][nested][apply]") {
+  const core::Uuid modelUuid = core::Uuid::generate();
+  assets::Model model;
+  model.nodes.push_back({.name = "Body", .parent = -1, .position = {1.0f, 0.0f, 0.0f}});
+  world::World world;
+  static_cast<void>(world::loadModelPrefab(world, model, modelUuid, "Car"));
+  const core::Uuid stand = core::Uuid::generate();
+  const json standFile = {{"version", world::SceneVersion},
+                          {"entities",
+                           {{{"uuid", stand.toString()}, {"name", "Stand"}, {"components", json::object()}},
+                            {{"uuid", core::Uuid::derive(stand, "car").toString()},
+                             {"name", "Car"},
+                             {"parent", stand.toString()},
+                             {"prefab", modelUuid.toString()},
+                             {"components", json::object()}}}}};
+  REQUIRE(world::loadPrefabs(world, {{"stand", standFile, {}}}).empty());
+  const flecs::entity standPrefab = world.find(stand);
+  standPrefab.set<world::PrefabFile>({"stand.prefab.json"});
+  const flecs::entity instance = world.instantiate(standPrefab, "Stand 1");
+  const flecs::entity body = world.findByPath(instance, "Car/Body");
+  REQUIRE(body);
+  // The model's own prefab has no file, so the node's position goes into the stand's.
+  const world::ApplyTarget target =
+      world.applyTarget(body, *world.findComponent("Transform"), json::json_pointer{"/position"});
+  CHECK(target.root == standPrefab);
+  CHECK(target.entity == world.findByPath(standPrefab, "Car/Body"));
+}
+
+TEST_CASE("the documents that place a prefab are found through the prefabs placing it",
+          "[world][prefab][nested][apply]") {
+  const Prefabs files;
+  const core::Uuid other = core::Uuid::generate();
+  const auto scene = [](const core::Uuid &prefab) {
+    return json{{"version", world::SceneVersion},
+                {"entities",
+                 {{{"uuid", core::Uuid::generate().toString()},
+                   {"name", "Placed"},
+                   {"prefab", prefab.toString()},
+                   {"components", json::object()}}}}};
+  };
+  const std::vector<json> documents{files.wheelFile(), files.cartFile(), scene(files.cart), scene(files.wheel),
+                                    scene(other)};
+  // The cart places the wheel, so the scene placing the cart does too; the wheel's own file does not.
+  CHECK(world::documentsPlacing(documents, files.wheel) == std::vector<std::size_t>{1, 2, 3});
+  CHECK(world::documentsPlacing(documents, files.cart) == std::vector<std::size_t>{2});
+  CHECK(world::documentsPlacing(documents, other) == std::vector<std::size_t>{4});
+}

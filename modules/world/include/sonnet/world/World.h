@@ -61,6 +61,14 @@ struct ComponentInfo {
 [[nodiscard]] nlohmann::json mergePatch(const ComponentInfo &info, nlohmann::json target, const nlohmann::json &patch,
                                         std::string_view entity);
 
+// Where "Apply to prefab" writes an instance's change (World::applyTarget): the prefab entity
+// whose value the change replaces, and the root of its prefab, which has the PrefabFile. Both
+// null when there is none.
+struct ApplyTarget {
+  flecs::entity entity;
+  flecs::entity root;
+};
+
 struct WorldDesc {
   // Serves the flecs explorer on its default port; Debug builds of the editor turn it on.
   bool explorer{false};
@@ -160,6 +168,19 @@ public:
   // Whether `entity` has `component` where `source` has not, or holds a different value: what a
   // scene stores of an instance's descendant and what the inspector marks as changed.
   [[nodiscard]] bool differs(flecs::entity entity, flecs::entity source, const ComponentInfo &component) const;
+  // The prefab entity that applying `entity`'s `component` writes to (docs/editor.md, "Applying to
+  // a prefab"), for the member at `member`, a pointer into the value componentToJson writes, or the
+  // whole component when it is empty. The chain runs from the entity's source (sourceOf, or
+  // prefabOf for an instance root) to that entity's own source, and on while one is a copy or an
+  // instance. It goes deeper while the deeper entity holds the same member (or, for the whole
+  // component, the same value or the same absence), so it stops at the first level that changes
+  // it; of the levels it reaches, the deepest whose prefab has a file is the target. A matched list
+  // (matchBy) pairs its elements only while both levels run the same keys in the same order, and
+  // an instance root's Transform is its own at every level. Null for an entity outside an
+  // instance, an instance root's Transform, and a chain with no file.
+  [[nodiscard]] ApplyTarget
+  applyTarget(flecs::entity entity, const ComponentInfo &component,
+              const nlohmann::json::json_pointer &member = nlohmann::json::json_pointer{}) const;
   // Turns an instance into ordinary entities ("Make local"): the instance and every instance copied
   // inside it take their own copy of each component they inherit and drop their IsA, and their
   // descendants drop their PrefabSource. Every entity keeps its identity.

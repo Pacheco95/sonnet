@@ -11,6 +11,7 @@
 #include <format>
 #include <fstream>
 #include <functional>
+#include <set>
 #include <unordered_map>
 #include <utility>
 
@@ -749,6 +750,38 @@ std::vector<core::Error> loadPrefabFiles(World &world, std::span<const std::file
   std::vector<core::Error> refused = loadPrefabs(world, std::move(documents));
   errors.insert(errors.end(), std::make_move_iterator(refused.begin()), std::make_move_iterator(refused.end()));
   return errors;
+}
+
+std::vector<std::size_t> documentsPlacing(std::span<const json> documents, const core::Uuid &prefab) {
+  std::vector<PrefabLinks> links;
+  links.reserve(documents.size());
+  for (const json &document : documents) {
+    links.push_back(prefabLinks(document));
+  }
+  // The prefabs known to place it, which grows by the root of each prefab document found to; a
+  // scene's first root joins too, which nothing instantiates.
+  std::set<std::string> placing{prefab.toString()};
+  std::vector<bool> places(documents.size(), false);
+  for (bool grew = true; grew;) {
+    grew = false;
+    for (std::size_t i = 0; i < documents.size(); ++i) {
+      if (!places[i] &&
+          std::ranges::any_of(links[i].uses, [&](const std::string &use) { return placing.contains(use); })) {
+        places[i] = true;
+        grew = true;
+        if (!links[i].root.empty()) {
+          placing.insert(links[i].root);
+        }
+      }
+    }
+  }
+  std::vector<std::size_t> result;
+  for (std::size_t i = 0; i < documents.size(); ++i) {
+    if (places[i]) {
+      result.push_back(i);
+    }
+  }
+  return result;
 }
 
 flecs::entity loadModelPrefab(World &world, const assets::Model &model, const core::Uuid &uuid, std::string_view name) {

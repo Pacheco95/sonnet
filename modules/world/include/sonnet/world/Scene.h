@@ -7,6 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <filesystem>
 #include <span>
 #include <string>
@@ -70,6 +71,12 @@ struct PrefabDocument {
 [[nodiscard]] std::vector<core::Error> loadPrefabs(World &world, std::vector<PrefabDocument> documents);
 // The same for prefab files; one that cannot be read is refused too.
 [[nodiscard]] std::vector<core::Error> loadPrefabFiles(World &world, std::span<const std::filesystem::path> paths);
+
+// Which of `documents`, scenes and prefabs alike, place the prefab `prefab`: the indices of those
+// with an entry that instantiates it, or that instantiates a prefab among the documents that
+// places it, at any depth. What "Apply to prefab" lists before it writes (docs/editor.md).
+[[nodiscard]] std::vector<std::size_t> documentsPlacing(std::span<const nlohmann::json> documents,
+                                                        const core::Uuid &prefab);
 
 // A glTF file's node hierarchy as a prefab (docs/assets.md, "Importers"): the root carries the
 // model's identity and name, every node becomes a child with the node's transform and, for a

@@ -939,6 +939,68 @@ nlohmann::json mergePatch(const ComponentInfo &info, nlohmann::json target, cons
   return target;
 }
 
+namespace {
+
+// Whether `pointer` names `list` or something inside it.
+bool within(const nlohmann::json::json_pointer &pointer, const std::string &list) {
+  const std::string text = pointer.to_string();
+  const std::string prefix = "/" + list;
+  return text == prefix || text.starts_with(prefix + "/");
+}
+
+} // namespace
+
+ApplyTarget World::applyTarget(flecs::entity entity, const ComponentInfo &component,
+                               const nlohmann::json::json_pointer &member) const {
+  // An instance root's transform places it, at every level of the chain.
+  const auto placement = [&](flecs::entity level) {
+    return component.name == "Transform" && isInstance(level) && !level.has<PrefabSource>();
+  };
+  const auto next = [&](flecs::entity level) { return level.has<PrefabSource>() ? sourceOf(level) : prefabOf(level); };
+  // Whether the value `level` holds at the member is the one `deeper` gives it.
+  const auto same = [&](flecs::entity level, flecs::entity deeper) {
+    if (level.has(component.id) != deeper.has(component.id)) {
+      return false;
+    }
+    if (!level.has(component.id) || component.tag) {
+      return true;
+    }
+    const nlohmann::json value = componentToJson(level, component.id);
+    const nlohmann::json source = componentToJson(deeper, component.id);
+    if (member.empty()) {
+      return value == source;
+    }
+    for (const MatchedMember &matched : component.matchedMembers) {
+      const nlohmann::json::json_pointer list{"/" + matched.member};
+      if (within(member, matched.member) && value.contains(list) && source.contains(list) &&
+          matchKeys(value.at(list), matched.key) != matchKeys(source.at(list), matched.key)) {
+        return false;
+      }
+    }
+    const bool held = value.contains(member);
+    return held == source.contains(member) && (!held || value.at(member) == source.at(member));
+  };
+  if (!entity || placement(entity)) {
+    return {};
+  }
+  ApplyTarget target;
+  for (flecs::entity level = next(entity); level;) {
+    flecs::entity root = level;
+    while (root.parent()) {
+      root = root.parent();
+    }
+    if (root.has<PrefabFile>()) {
+      target = {.entity = level, .root = root};
+    }
+    const flecs::entity deeper = next(level);
+    if (!deeper || placement(level) || !same(level, deeper)) {
+      break;
+    }
+    level = deeper;
+  }
+  return target;
+}
+
 nlohmann::json World::valueToJson(flecs::entity_t component, const void *value) const {
   char *text = ecs_ptr_to_json(m_world, component, value);
   if (text == nullptr) {
