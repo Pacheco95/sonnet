@@ -75,7 +75,7 @@ sonnet_player apps/samples/basic --scene scenes/playground.scene.json --play 3 -
 sonnet_player --play 3 --shading-term albedo --screenshot albedo.png   # game.sbundle beside the binary
 ```
 
-The flags are the editor's, with the editor's meaning, from one table and one parser in `runtime` (`sonnet/runtime/Capture.h`) that both applications use. The player takes six of the eight:
+The flags are the editor's, with the editor's meaning, from one table and one parser in `runtime` (`sonnet/runtime/Capture.h`) that both applications use. The player takes the ones below:
 
 | Flag | Effect |
 |---|---|
