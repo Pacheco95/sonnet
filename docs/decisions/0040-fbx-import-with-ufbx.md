@@ -5,15 +5,23 @@
 
 ## Context
 
-Sonnet imports models from glTF through fastgltf. An FBX asset currently needs an external conversion before it can enter the project, adding a tool dependency and a second place where materials, transforms or animation can change. FBX import should use the existing asset workflow: a source file and sidecar, derived sub-assets, a model prefab, asynchronous loading, reimport and cooking.
+Sonnet imports `.gltf` and `.glb` through one fastgltf importer. An FBX asset currently needs an external conversion before it can enter the project, adding a tool dependency and a second place where materials, transforms or animation can change. FBX import should use the existing asset workflow: a source file and sidecar, derived sub-assets, a model prefab, asynchronous loading, reimport and cooking.
 
 The engine already represents meshes, materials, node hierarchies, skins, clips and morph targets ([assets.md](../assets.md)). The limits are the renderer's vertex layout and metallic-roughness materials, four skin influences per vertex, eight morph targets, two UV sets, and local translation, quaternion rotation and scale. FBX adds conversion work around units, axes, pivots, geometric transforms, scale inheritance and exporter-specific materials. Parsing a file alone does not establish that the engine can reproduce it.
 
+The existing `GltfImport` and `GltfStructure` results in [Importers.h](../../modules/assets/include/sonnet/assets/Importers.h) contain Sonnet types, with no public fastgltf objects. Generalizing these names and dispatch lets additional parsers feed the same asset pipeline. Supporting more formats does not require one parsing library or another intermediate scene representation.
+
 [ufbx](https://github.com/ufbx/ufbx) provides FBX parsing, triangulation, transform conversion and animation baking as a C library with an [MIT license option](https://github.com/ufbx/ufbx/blob/main/LICENSE). [Godot uses it for new FBX imports](https://docs.godotengine.org/en/stable/tutorials/assets_pipeline/importing_3d_scenes/available_formats.html#importing-fbx-files-in-godot). The investigation found no ufbx port at Sonnet's pinned vcpkg baseline. Source and documentation review support this choice; no Sonnet FBX import or platform build has yet validated it.
+
+The FBX animation contract is a concrete reason to prefer ufbx: its [evaluation and baking](https://ufbx.github.io/elements/animation/) handle curves, layers, pivots and Euler rotations before Sonnet consumes TRS tracks. The inspected Assimp FBX converters in [6.0.4](https://github.com/assimp/assimp/blob/v6.0.4/code/AssetLib/FBX/FBXConverter.cpp#L3240) and [6.0.6](https://github.com/assimp/assimp/blob/v6.0.6/code/AssetLib/FBX/FBXConverter.cpp#L3266) interpolate scalar keys linearly and leave layer parameters unused in transform-key conversion. Assimp already supports pivot helpers, geometric transforms and material conversion; the concern is fidelity for the declared animation subset. These are source findings, not comparative importer benchmarks, and ufbx baking still needs explicit error tolerances and reference-pose validation.
+
+Replacing fastgltf has separate preservation costs. Sonnet's pinned [vcpkg port](https://github.com/microsoft/vcpkg/blob/a1cae005c39be7b18ba319fced856b68d7276271/ports/assimp/vcpkg.json) offers Assimp 6.0.4#3, whose [glTF conversion](https://github.com/assimp/assimp/blob/v6.0.4/code/AssetLib/glTF2/glTF2Importer.cpp#L1203) drops STEP interpolation and cubic TRS tangents; its [build patch](https://github.com/microsoft/vcpkg/blob/a1cae005c39be7b18ba319fced856b68d7276271/ports/assimp/build_fixes.patch) does not change that path. The inspected [6.0.6 conversion](https://github.com/assimp/assimp/blob/v6.0.6/code/AssetLib/glTF2/glTF2Importer.cpp#L1330) preserves those TRS semantics. Even there, [morph keys](https://github.com/assimp/assimp/blob/v6.0.6/include/assimp/anim.h#L198) lack interpolation/tangent fields, animation `extras.events` need supplementary preservation, and the inspected glTF paths have no meshopt decoder. An adapter could address these gaps, but format breadth alone does not justify that work.
 
 ## Decision
 
 **Import `.fbx` directly with ufbx in `assets`, alongside fastgltf for `.gltf` and `.glb`. Both parsers produce the same engine-owned model data and use the existing database, prefab and cooking paths.** FBX is a source format; its supported subset becomes the existing cooked payloads, with no new scene, prefab or bundle schema required by this decision.
+
+A future Assimp adapter in `assets` is explicitly permitted for concrete additional format requirements. It produces the same Sonnet data, enables only the required importers and defines each format's supported subset and fixtures. Adding it does not require migrating glTF or FBX. Replacing either chosen parser would need a new decision supported by a prototype that preserves existing behavior and identities, passes platform builds and demonstrates a maintenance or measured operational benefit.
 
 ### Dependency and ownership
 
@@ -24,6 +32,8 @@ The engine already represents meshes, materials, node hierarchies, skins, clips 
 ### One model pipeline
 
 Generalize the glTF-specific result and metadata types in `Importers.h` and the calls that dispatch model import, structure reads and dependency enumeration. Keep format-specific parsing in its own implementation. Update the database and editor callers together; fastgltf's existing results, ordering and identities remain the regression baseline.
+
+Preserve glTF's TRS and morph-weight interpolation, embedded and sidecar animation events, supported extensions including meshopt compression and Basis Universal textures, per-slot samplers and UV transforms, cameras and lights, and JSON-only structure reads. These are existing [importer behaviors](../../modules/assets/src/GltfImporter.cpp), not new requirements on every source format.
 
 The dispatch covers source recognition, sub-asset discovery, synchronous and asynchronous loading, model hierarchy reads, thumbnails, import and duplicate commands, dependency-aware moves, reimport, animation metadata in the inspector, and desktop/mobile cooking. Workers produce CPU data; the existing main-thread publication creates renderer objects. A model and its sub-assets remain one import request.
 
@@ -54,6 +64,8 @@ Malformed input and transforms or deformers that cannot be represented return a 
 
 The model keeps its sidecar UUID. Sub-assets use the existing kind/index derivation, and prefab nodes use the name paths of [ADR-0030](0030-model-node-identities.md). The importer generates deterministic helper names from their owning node and role, resolving name collisions consistently. Skin joints and animation channels address that same hierarchy.
 
+Parser replacement must preserve the meaning of those indices. Sonnet groups a glTF mesh's primitives into submeshes, whereas Assimp's [glTF conversion](https://github.com/assimp/assimp/blob/v6.0.6/code/AssetLib/glTF2/glTF2Importer.cpp#L473) splits them into meshes and compacts embedded images into a separate array. Using parser indices directly would change existing UUID bindings; a migration needs explicit source grouping and index mappings.
+
 Identical reimports and moving a model with its sidecar preserve identities. Adding an unrelated named node preserves the identities of existing named paths. This does not guarantee stable mesh/material/clip references after an exporter reorders sub-assets, or stable overrides after node renames, reparenting, duplicate-name reordering or changes to unnamed-node indices. Document and test those boundaries. This ADR does not introduce a new matching scheme or amend ADR-0030.
 
 ## Consequences
@@ -74,7 +86,7 @@ The implementation updates [assets.md](../assets.md), [editor.md](../editor.md),
 
 ## Alternatives considered
 
-- **Assimp.** A viable FBX importer and a reasonable choice for a concrete multi-format requirement. Its broader format surface adds dependency and conversion scope that this FBX-specific addition does not need; replacing fastgltf would also expand the regression surface.
+- **Assimp.** Its common scene representation and postprocessing can reduce adapter work for several required formats, and [selective importer builds](https://github.com/assimp/assimp/blob/v6.0.6/code/CMakeLists.txt#L236) make a future adapter practical without enabling every format. It remains permitted for that role; ufbx better fits this FBX evaluation contract, while retaining fastgltf avoids the identified glTF preservation work.
 - **Autodesk FBX SDK.** The vendor implementation is an option for a demonstrated fidelity gap, but adds proprietary distribution terms and platform packaging work. Its current [platform summary](https://aps.autodesk.com/developer/overview/fbx-sdk) omits Android, which matters while source import lives in the shared assets target.
 - **Require external conversion to glTF/GLB.** Blender remains a useful manual workaround, but makes every user maintain a second import workflow and diagnose conversion losses outside Sonnet. Godot's [FBX2glTF fork](https://github.com/godotengine/FBX2glTF) is no longer actively maintained, so it is not adopted as a mandatory converter.
 - **Write an FBX parser.** Avoids a dependency while making Sonnet responsible for format versions, transform semantics, malformed-file handling and exporter quirks already addressed by ufbx. That work does not advance the engine's asset model.
