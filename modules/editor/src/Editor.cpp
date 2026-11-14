@@ -2430,7 +2430,8 @@ core::Result<void> Editor::applyToPrefab(const ApplyRequest &request) {
         core::Error{std::format("{} of {} cannot be applied to a prefab", request.component, request.entity.toString()),
                     core::ErrorCategory::Unknown});
   }
-  const std::vector<ApplyAllPlan::File> files{{.path = resolved->file, .changes = {request}}};
+  const std::vector<ApplyAllPlan::File> files{
+      {.path = resolved->file, .prefab = applyTargetName(request).value_or(std::string{}), .changes = {request}}};
   if (auto pushed =
           pushApply(std::format("apply {} to {}", request.component, resolved->file.filename().string()), files);
       !pushed) {
@@ -2588,7 +2589,8 @@ ApplyAllPlan Editor::applyAllPlan(core::Uuid instance) const {
     if (const auto resolved = resolveApply(request)) {
       auto file = std::ranges::find(plan.files, resolved->file, &ApplyAllPlan::File::path);
       if (file == plan.files.end()) {
-        plan.files.push_back({.path = resolved->file, .prefab = applyTargetName(request).value_or(std::string{})});
+        plan.files.push_back(
+            {.path = resolved->file, .prefab = applyTargetName(request).value_or(std::string{}), .changes = {}});
         file = std::prev(plan.files.end());
       }
       file->changes.push_back(request);
