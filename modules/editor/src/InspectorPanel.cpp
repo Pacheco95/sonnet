@@ -1118,23 +1118,29 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
   }
   }
   ImGui::TableNextColumn();
-  // To the script's default, or to the prefab slot's value, or the value applied to the prefab; a
-  // menu when more than one is offered.
+  // Apply writes the value into the prefab slot this one follows. Revert goes to the script's
+  // default or to the prefab slot's value, a menu when both are offered.
   std::optional<bool> revertTo; // true: the prefab's value
   const std::optional<std::string> applyTo = overridden ? applyTarget(request) : std::nullopt;
-  if (applyTo || (changedBefore && overridden)) {
-    if (ui::rowButton(applyTo ? "Prefab" : "Revert")) {
+  if (applyTo) {
+    if (ui::rowButton("Apply")) {
+      m_apply(request);
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Apply this value to %s", applyTo->c_str());
+    }
+    ImGui::SameLine();
+  }
+  if (changedBefore && overridden) {
+    if (ui::rowButton("Revert")) {
       ImGui::OpenPopup("revert to");
     }
     if (ImGui::BeginPopup("revert to")) {
       if (ImGui::MenuItem("Prefab's value")) {
         revertTo = true;
       }
-      if (changedBefore && ImGui::MenuItem("Script's default")) {
+      if (ImGui::MenuItem("Script's default")) {
         revertTo = false;
-      }
-      if (applyTo && ImGui::MenuItem(std::format("Apply to {}", *applyTo).c_str())) {
-        m_apply(request);
       }
       ImGui::EndPopup();
     }
@@ -1381,29 +1387,24 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     ImGui::TableNextColumn();
     const ApplyRequest request{
         .entity = m_drawnEntity, .component = m_drawnComponent, .member = m_memberPath / member.name};
-    // The column holds one button: with an apply on offer it opens a menu of both.
+    // Apply, when the change can be written to a prefab, beside Revert.
     const std::optional<std::string> applyTo = overridden != nullptr ? applyTarget(request) : std::nullopt;
     if (applyTo) {
-      if (ui::rowButton("Prefab")) {
-        ImGui::OpenPopup("prefab member");
+      if (ui::rowButton("Apply")) {
+        m_apply(request);
       }
       if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Revert to the prefab's value, or apply this one to %s", applyTo->c_str());
+        ImGui::SetTooltip("Apply this value to %s", applyTo->c_str());
       }
-      if (ImGui::BeginPopup("prefab member")) {
-        if (ImGui::MenuItem("Revert to the prefab's value")) {
-          m_revertMember = request.member;
-        }
-        if (ImGui::MenuItem(std::format("Apply to {}", *applyTo).c_str())) {
-          m_apply(request);
-        }
-        ImGui::EndPopup();
-      }
-    } else if (overridden != nullptr && ui::rowButton("Revert")) {
-      m_revertMember = m_memberPath / member.name;
+      ImGui::SameLine();
     }
-    if (!applyTo && overridden != nullptr && ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("Revert to the prefab's value");
+    if (overridden != nullptr) {
+      if (ui::rowButton("Revert")) {
+        m_revertMember = request.member;
+      }
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Revert to the prefab's value");
+      }
     }
   }
   ui::endPropertyTable();

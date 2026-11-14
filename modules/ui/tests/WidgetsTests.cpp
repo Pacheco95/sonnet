@@ -152,7 +152,6 @@ TEST_CASE("the width tokens default to what the editor drew before the theme had
   CHECK(theme.dialogButtonWidth == 120.0f);
   CHECK(theme.dialogButtonWideWidth == 200.0f);
   CHECK(theme.propertyLabelWidth == 90.0f);
-  CHECK(theme.propertyRevertWidth == 50.0f);
   CHECK(theme.overlayInset == 8.0f);
 }
 
@@ -342,16 +341,17 @@ TEST_CASE("status text wraps unless asked not to and is never a format string", 
   CHECK(width == Approx(ImGui::CalcTextSize("100%s%d").x));
 }
 
-TEST_CASE("a property table has the theme's label width, a stretching value and an optional revert column",
+TEST_CASE("a property table has the theme's label width, a stretching value and an optional action column",
           "[ui][widgets]") {
   for (const float scale : {1.0f, 2.0f}) {
     ui::Theme theme;
     theme.propertyLabelWidth = 90.0f;
-    theme.propertyRevertWidth = 50.0f;
+    theme.propertyActionWidth = 6.0f;
     HeadlessImGui imgui{scale, theme};
     float label = 0.0f;
     float value = 0.0f;
-    float revert = 0.0f;
+    float actions = 0.0f;
+    float font = 0.0f;
     float labelOnly = 0.0f;
     float valueOnly = 0.0f;
     int columns = 0;
@@ -363,8 +363,9 @@ TEST_CASE("a property table has the theme's label width, a stretching value and 
         const ImGuiTable *table = ImGui::GetCurrentTable();
         label = table->Columns[0].WidthGiven;
         value = table->Columns[1].WidthGiven;
-        revert = table->Columns[2].WidthGiven;
+        actions = table->Columns[2].WidthGiven;
         columns = table->ColumnsCount;
+        font = ImGui::GetFontSize();
         ui::endPropertyTable();
       }
       if (ui::beginPropertyTable("member")) {
@@ -381,13 +382,48 @@ TEST_CASE("a property table has the theme's label width, a stretching value and 
     CHECK(columns == 3);
     CHECK(columnsOnly == 2);
     CHECK(label == Approx(90.0f * scale));
-    CHECK(revert == Approx(50.0f * scale));
+    CHECK(actions == Approx(6.0f * font));
     CHECK(labelOnly == Approx(90.0f * scale));
-    // The value takes what is left, and with no revert column that is more. Measured on the very first frame of the
+    // The value takes what is left, and with no action column that is more. Measured on the very first frame of the
     // table: a stretch column weighed by its content's auto width came out as 0/0 there, and the values drew a few
     // pixels wide on the frame after every selection.
     CHECK(value > 100.0f * scale);
     CHECK(valueOnly > value);
+  }
+}
+
+TEST_CASE("the default action column holds Apply and Revert side by side at every scale and text zoom",
+          "[ui][widgets]") {
+  CHECK(ui::Theme{}.propertyActionWidth == 9.5f);
+  for (const float scale : {1.0f, 2.0f}) {
+    for (const float zoom : {1.0f, 2.0f}) {
+      HeadlessImGui imgui{scale};
+      ImGui::GetStyle().FontScaleMain = zoom;
+      float revertRight = 0.0f;
+      float cellRight = 0.0f;
+      float applyTop = 0.0f;
+      float revertTop = 0.0f;
+      HeadlessImGui::frame([&] {
+        if (ui::beginPropertyTable("property", true)) {
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          ImGui::TableNextColumn();
+          ImGui::TableNextColumn();
+          (void)ui::rowButton("Apply");
+          applyTop = ImGui::GetItemRectMin().y;
+          ImGui::SameLine();
+          (void)ui::rowButton("Revert");
+          revertRight = ImGui::GetItemRectMax().x;
+          revertTop = ImGui::GetItemRectMin().y;
+          const ImGuiTable *table = ImGui::GetCurrentTable();
+          cellRight = table->Columns[2].MaxX - table->CellPaddingX;
+          ui::endPropertyTable();
+        }
+      });
+      INFO("scale " << scale << ", zoom " << zoom);
+      CHECK(revertTop == Approx(applyTop));
+      CHECK(revertRight <= cellRight);
+    }
   }
 }
 

@@ -111,7 +111,6 @@ struct Theme {
   float dialogButtonWidth{120.0f};     // a modal's buttons
   float dialogButtonWideWidth{200.0f}; // a modal's button with a label that is too long for the normal width
   float propertyLabelWidth{90.0f};     // the name column of the inspector's property tables
-  float propertyRevertWidth{50.0f};    // the revert column of a script property
   float overlayInset{8.0f};            // from the corner of a view to an overlay drawn in it
   float sectionGap{4.0f};              // above and below the separator between two sections (`ui::sectionBreak`)
   float groupGap{4.0f};                // above a group that closes a section (`ui::groupBreak`)
@@ -120,6 +119,8 @@ struct Theme {
   float narrowFieldWidth{5.5f}; // a short number: a time, a tile size
   float fieldWidth{8.5f};       // a number, a name, a combo of short choices
   float wideFieldWidth{11.5f};  // a filter or a longer text
+  // The action column of the inspector's property tables: Apply and Revert side by side (`ui::beginPropertyTable`).
+  float propertyActionWidth{9.5f};
 };
 
 // Overwrites `style` with the theme's, from the base values every time, so a change of scale never compounds the
