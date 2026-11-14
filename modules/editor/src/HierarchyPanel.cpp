@@ -434,6 +434,10 @@ void HierarchyPanel::drawContextMenu(flecs::entity entity) {
   if (m_world.isInstance(entity) && !part && ImGui::MenuItem("Make local")) {
     m_afterTree = [this, uuid] { m_commands.push(makeLocalCommand(uuid), m_world); };
   }
+  if (m_world.isInstance(entity) && !part && m_applyAllOffered && m_applyAll && m_applyAllOffered(uuid) &&
+      ImGui::MenuItem("Apply all overrides")) {
+    m_afterTree = [this, uuid] { m_applyAll(uuid); };
+  }
   if (m_saveAsPrefab && !part && ImGui::MenuItem("Save as prefab")) {
     m_afterTree = [this, uuid] { m_saveAsPrefab(uuid); };
   }

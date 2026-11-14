@@ -723,6 +723,9 @@ void InspectorPanel::drawEntity(flecs::entity entity) {
   } else if (const flecs::entity prefab = m_world.prefabOf(entity)) {
     const world::Name *name = prefab.try_get<world::Name>();
     ui::mutedText("Instance of %s", name != nullptr ? name->value.c_str() : "prefab");
+    if (m_applyAllOffered && m_applyAll && m_applyAllOffered(uuid) && ui::rowButton("Apply all overrides")) {
+      m_applyAll(uuid);
+    }
   }
   {
     const ScopedMono mono;

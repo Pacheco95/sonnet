@@ -256,6 +256,59 @@ TEST_CASE("the context menu's save as prefab runs after the tree is drawn", "[ed
   frame(panel);
 }
 
+TEST_CASE("the context menu offers to apply all of an instance's overrides", "[editor][hierarchy][prefab]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const flecs::entity prefab = world.createEntity("Crate");
+  world.createEntity("Lid", prefab);
+  world.makePrefab(prefab);
+  const flecs::entity instance = world.instantiate(prefab, "Crate 1");
+  std::vector<core::Uuid> asked;
+  std::vector<core::Uuid> applied;
+  panel.setApplyAllHandlers(
+      [&](core::Uuid uuid) {
+        asked.push_back(uuid);
+        return true;
+      },
+      [&](core::Uuid uuid) { applied.push_back(uuid); });
+  frame(panel);
+
+  ImGuiIO &io = ImGui::GetIO();
+  const auto hover = [&](const ImGuiWindow *window, ImGuiID id) {
+    for (float y = window->Pos.y; y < window->Pos.y + window->Size.y; y += 2.0f) {
+      io.AddMousePosEvent(window->Pos.x + 40.0f, y);
+      frame(panel);
+      if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const auto click = [&](ImGuiMouseButton button) {
+    io.AddMouseButtonEvent(button, true);
+    frame(panel);
+    io.AddMouseButtonEvent(button, false);
+    frame(panel);
+  };
+  ImGuiWindow *hierarchy = ImGui::FindWindowByName("Hierarchy");
+  REQUIRE(hierarchy != nullptr);
+  const int pick = static_cast<int>(world::World::pickId(instance));
+  REQUIRE(hover(hierarchy, ImHashStr("node", 0, ImHashData(&pick, sizeof(pick), hierarchy->ID))));
+  CHECK(asked.empty()); // asked only while the menu is open
+  click(ImGuiMouseButton_Right);
+  REQUIRE(!ImGui::GetCurrentContext()->OpenPopupStack.empty());
+  ImGuiWindow *menu = ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  REQUIRE(menu != nullptr);
+  REQUIRE(hover(menu, ImHashStr("Apply all overrides", 0, menu->ID)));
+  click(ImGuiMouseButton_Left);
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0] == world.uuidOf(instance));
+  CHECK(std::ranges::all_of(asked, [&](const core::Uuid &uuid) { return uuid == world.uuidOf(instance); }));
+}
+
 TEST_CASE("a row moves among its siblings, an instance's own children included", "[editor][hierarchy]") {
   world::World world;
   editor::Selection selection;
