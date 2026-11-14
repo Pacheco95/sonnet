@@ -736,3 +736,45 @@ TEST_CASE("a changed member of an instance offers to apply it to the prefab", "[
   CHECK(commands.canUndo());
   CHECK(lamp.get<world::PointLight>().intensity == prefab.get<world::PointLight>().intensity);
 }
+
+TEST_CASE("an instance root offers to apply all of its overrides", "[editor][inspector][prefab][apply]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const flecs::entity prefab = world.createEntity("Lamp");
+  prefab.set<world::PointLight>({});
+  world.makePrefab(prefab);
+  const flecs::entity lamp = world.instantiate(prefab, "Lamp 1");
+  lamp.ensure<world::PointLight>().intensity = 4.0f;
+  const flecs::entity plain = world.createEntity("Plain");
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  std::vector<core::Uuid> asked;
+  std::vector<core::Uuid> applied;
+  panel.setApplyAllHandlers(
+      [&](core::Uuid instance) {
+        asked.push_back(instance);
+        return true;
+      },
+      [&](core::Uuid instance) { applied.push_back(instance); });
+  const InspectorDriver driver{panel, {}};
+  // Asked about an instance root only.
+  selection.select(world.uuidOf(plain));
+  driver.frame();
+  CHECK(asked.empty());
+  selection.select(world.uuidOf(lamp));
+  driver.frame();
+  REQUIRE(!asked.empty());
+  CHECK(asked.back() == world.uuidOf(lamp));
+  REQUIRE(driver.hover(InspectorDriver::inspector(),
+                       ImHashStr("Apply all overrides", 0, InspectorDriver::inspector()->ID)));
+  driver.click();
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0] == world.uuidOf(lamp));
+  CHECK(!commands.canUndo());
+}

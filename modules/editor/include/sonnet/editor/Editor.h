@@ -85,6 +85,20 @@ struct PrefabUsers {
   std::vector<std::string> tabs;
 };
 
+// What "Apply all overrides" does with an instance (docs/editor.md, "Applying to a prefab"): the
+// changes of the instance root and of its descendants that can be applied, grouped by the prefab
+// file each one goes to (World::applyTarget), and a description of each change that stays on the
+// instance because it cannot be applied.
+struct ApplyAllPlan {
+  struct File {
+    std::filesystem::path path;
+    std::string prefab; // the name of the prefab the file holds
+    std::vector<ApplyRequest> changes;
+  };
+  std::vector<File> files;
+  std::vector<std::string> kept;
+};
+
 // The per-user files an editor reads at start and writes while it runs (docs/editor.md, "Screenshots").
 // A path is empty when the editor must neither read nor write that file.
 struct UserFiles {
@@ -201,6 +215,27 @@ public:
   void cancelApply();
   // Applies at once, without asking; fails when applyTargetName offers nothing.
   [[nodiscard]] core::Result<void> applyToPrefab(const ApplyRequest &request);
+  // "Apply all overrides" (docs/editor.md, "Applying to a prefab"): every change of the instance
+  // root `instance` and its descendants that applyTargetName offers, written to the files they go
+  // to as one undoable command with one rebuild. The plan is empty when `instance` is not an
+  // instance root or apply is not offered at all (playing, a bundle); the action is offered when
+  // it lists a file.
+  [[nodiscard]] ApplyAllPlan applyAllPlan(core::Uuid instance) const;
+  // Opens the confirmation, which lists the plan; Apply there is applyAllOverrides.
+  void requestApplyAllOverrides(core::Uuid instance);
+  [[nodiscard]] bool applyAllDialogOpen() const noexcept {
+    return m_modal == Modal::ApplyAllOverrides;
+  }
+  // What the open confirmation lists.
+  [[nodiscard]] const ApplyAllPlan &pendingApplyAll() const noexcept {
+    return m_applyAllPlan;
+  }
+  // Applies at once, without asking; fails when the plan lists no file.
+  [[nodiscard]] core::Result<void> applyAllOverrides(core::Uuid instance);
+  // How many times the prefabs and the instances were rebuilt (rebuildPrefabs); for tests.
+  [[nodiscard]] std::size_t prefabRebuilds() const noexcept {
+    return m_prefabRebuilds;
+  }
   // The scene files, prefab files and open tabs that place the prefab with this identity.
   [[nodiscard]] PrefabUsers prefabUsers(core::Uuid prefab);
   // Opens the scene in a tab of its own, or switches to the tab that already has it. A failure
@@ -522,6 +557,7 @@ private:
     Recover,
     SaveLayout,
     ApplyToPrefab,
+    ApplyAllOverrides,
   };
 
   enum class DialogTarget : std::uint8_t {
@@ -628,7 +664,15 @@ private:
     std::filesystem::path file;
   };
   [[nodiscard]] std::optional<ResolvedApply> resolveApply(const ApplyRequest &request) const;
+  // The document `root`, a prefab with a file, saves with every request's change made on its
+  // target, which is then put back so the rebuild still saves the scene against the old prefab.
+  // Every request must resolve to `root`.
+  [[nodiscard]] std::string appliedPrefabText(flecs::entity root, std::span<const ApplyRequest> requests);
+  // Pushes the one command that writes every file of `files`, each with its changes, and rebuilds
+  // once; the single apply is a plan of one file with one change.
+  [[nodiscard]] core::Result<void> pushApply(std::string description, const std::vector<ApplyAllPlan::File> &files);
   void drawApplyModal();
+  void drawApplyAllModal();
   void filesMoved(const std::filesystem::path &from, const std::filesystem::path &to);
   void openLocation(const std::string &path, int line);
   [[nodiscard]] core::Result<void> loadSceneFile(const std::filesystem::path &file);
@@ -748,6 +792,9 @@ private:
   std::map<std::filesystem::path, std::filesystem::file_time_type> m_brokenPrefabs;
   std::optional<ApplyRequest> m_pendingApply; // what the Apply to prefab confirmation applies
   PrefabUsers m_applyUsers;
+  std::optional<core::Uuid> m_pendingApplyAll; // the instance the Apply all overrides confirmation applies
+  ApplyAllPlan m_applyAllPlan;
+  std::size_t m_prefabRebuilds{0};
   bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
   bool m_playLeftScene{false};   // a script loaded another scene: the play's edits are not the snapshot's
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;

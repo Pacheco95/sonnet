@@ -48,6 +48,13 @@ public:
     m_applyTarget = std::move(target);
     m_apply = std::move(apply);
   }
+  // "Apply all overrides" on an instance root (docs/editor.md, "Applying to a prefab"): `offered`
+  // says whether the instance has a change that can be applied, and `apply` asks for the
+  // confirmation. Without them the action is not offered.
+  void setApplyAllHandlers(std::function<bool(core::Uuid)> offered, std::function<void(core::Uuid)> apply) {
+    m_applyAllOffered = std::move(offered);
+    m_applyAll = std::move(apply);
+  }
   // Where the script slots get the properties a class declares; without one a slot shows its script
   // and no properties.
   void setScripts(scripting::IScriptRuntime *scripts) noexcept {
@@ -164,6 +171,8 @@ private:
   std::string m_drawnComponent;
   std::function<std::optional<std::string>(const ApplyRequest &)> m_applyTarget;
   std::function<void(ApplyRequest)> m_apply;
+  std::function<bool(core::Uuid)> m_applyAllOffered;
+  std::function<void(core::Uuid)> m_applyAll;
   std::optional<MaterialEdit> m_materialEdit;
   std::optional<EmissiveView> m_emissive;
   std::optional<ModelAnimations> m_modelAnimations;

@@ -507,39 +507,46 @@ namespace {
 
 class ApplyToPrefabCommand final : public ICommand {
 public:
-  ApplyToPrefabCommand(std::filesystem::path file, std::string before, std::string after, core::Uuid entity,
-                       std::string component, std::optional<json> value, std::function<void()> rebuild)
-      : m_file(std::move(file)), m_before(std::move(before)), m_after(std::move(after)), m_entity(entity),
-        m_component(std::move(component)), m_value(std::move(value)), m_rebuild(std::move(rebuild)),
-        m_description(std::format("apply {} to {}", m_component, m_file.filename().string())) {
+  ApplyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files, std::vector<InstanceValue> values,
+                       std::function<void()> rebuild)
+      : m_files(std::move(files)), m_values(std::move(values)), m_rebuild(std::move(rebuild)),
+        m_description(std::move(description)) {
   }
 
   void apply(world::World &world) override {
-    write(m_after);
+    for (const PrefabFileEdit &file : m_files) {
+      write(file.file, file.after);
+    }
     m_rebuild();
     // An instance root that now equals its prefab inherits the component again rather than
     // keeping an override that changes nothing.
-    const flecs::entity entity = world.find(m_entity);
-    const world::ComponentInfo *info = world.findComponent(m_component);
-    const flecs::entity prefab =
-        entity && !entity.has<world::PrefabSource>() ? world.prefabOf(entity) : flecs::entity{};
-    if (prefab && info != nullptr && info->name != "Transform" && entity.owns(info->id) && prefab.has(info->id) &&
-        !world.differs(entity, prefab, *info)) {
-      entity.remove(info->id);
+    for (const InstanceValue &value : m_values) {
+      const flecs::entity entity = world.find(value.entity);
+      const world::ComponentInfo *info = world.findComponent(value.component);
+      const flecs::entity prefab =
+          entity && !entity.has<world::PrefabSource>() ? world.prefabOf(entity) : flecs::entity{};
+      if (prefab && info != nullptr && info->name != "Transform" && entity.owns(info->id) && prefab.has(info->id) &&
+          !world.differs(entity, prefab, *info)) {
+        entity.remove(info->id);
+      }
     }
   }
   void revert(world::World &world) override {
-    write(m_before);
-    m_rebuild();
-    const flecs::entity entity = require(world, m_entity, m_description);
-    const world::ComponentInfo *info = world.findComponent(m_component);
-    if (!entity || info == nullptr) {
-      return;
+    for (const PrefabFileEdit &file : m_files) {
+      write(file.file, file.before);
     }
-    if (m_value) {
-      world.componentFromJson(entity, info->id, *m_value);
-    } else if (entity.owns(info->id)) {
-      entity.remove(info->id);
+    m_rebuild();
+    for (const InstanceValue &value : m_values) {
+      const flecs::entity entity = require(world, value.entity, m_description);
+      const world::ComponentInfo *info = world.findComponent(value.component);
+      if (!entity || info == nullptr) {
+        continue;
+      }
+      if (value.value) {
+        world.componentFromJson(entity, info->id, *value.value);
+      } else if (entity.owns(info->id)) {
+        entity.remove(info->id);
+      }
     }
   }
   // Play mode has its own history and no apply, so there is nothing to apply again.
@@ -551,29 +558,24 @@ public:
   }
 
 private:
-  void write(const std::string &text) const {
-    if (const auto written = core::writeFile(m_file, text); !written) {
+  void write(const std::filesystem::path &file, const std::string &text) const {
+    if (const auto written = core::writeFile(file, text); !written) {
       SONNET_LOG_ERROR("{}: {}", m_description, written.error().toString());
     }
   }
 
-  std::filesystem::path m_file;
-  std::string m_before;
-  std::string m_after;
-  core::Uuid m_entity;
-  std::string m_component;
-  std::optional<json> m_value;
+  std::vector<PrefabFileEdit> m_files;
+  std::vector<InstanceValue> m_values;
   std::function<void()> m_rebuild;
   std::string m_description;
 };
 
 } // namespace
 
-std::unique_ptr<ICommand> applyToPrefabCommand(std::filesystem::path file, std::string before, std::string after,
-                                               core::Uuid entity, std::string component, std::optional<json> value,
-                                               std::function<void()> rebuild) {
-  return std::make_unique<ApplyToPrefabCommand>(std::move(file), std::move(before), std::move(after), entity,
-                                                std::move(component), std::move(value), std::move(rebuild));
+std::unique_ptr<ICommand> applyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files,
+                                               std::vector<InstanceValue> values, std::function<void()> rebuild) {
+  return std::make_unique<ApplyToPrefabCommand>(std::move(description), std::move(files), std::move(values),
+                                                std::move(rebuild));
 }
 
 std::unique_ptr<ICommand> componentCommand(core::Uuid entity, std::string component, std::optional<json> before,

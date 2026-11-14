@@ -79,14 +79,26 @@ struct ApplyRequest {
   std::optional<std::size_t> slot = std::nullopt;
   std::string property = std::string{};
 };
-// "Apply to prefab" as one undo step: apply writes `after` to the prefab file `file` and runs
-// `rebuild`, which reloads every prefab and the scene's instances from the files; revert writes
-// `before`, rebuilds, and sets the entity's component back to `value`, what it held before the
-// apply (absent when empty), since the rebuild made it follow the prefab. Not applied again by
-// play's Keep: apply is not offered while playing.
-[[nodiscard]] std::unique_ptr<ICommand> applyToPrefabCommand(std::filesystem::path file, std::string before,
-                                                             std::string after, core::Uuid entity,
-                                                             std::string component, std::optional<nlohmann::json> value,
+// A prefab file an apply writes, with its text before and after.
+struct PrefabFileEdit {
+  std::filesystem::path file;
+  std::string before;
+  std::string after;
+};
+// An instance's component as it was before an apply: its value, or absent when empty.
+struct InstanceValue {
+  core::Uuid entity;
+  std::string component;
+  std::optional<nlohmann::json> value;
+};
+// "Apply to prefab", and "Apply all overrides", as one undo step: apply writes every file's
+// `after` and runs `rebuild` once, which reloads every prefab and the scene's instances from the
+// files; revert writes every `before`, rebuilds once, and sets each of `values` back to what the
+// instance held before the apply, since the rebuild made it follow the prefab. An instance root
+// whose component then equals its prefab's drops the override. Not applied again by play's Keep:
+// apply is not offered while playing.
+[[nodiscard]] std::unique_ptr<ICommand> applyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files,
+                                                             std::vector<InstanceValue> values,
                                                              std::function<void()> rebuild);
 // Several commands as one undo step, applied in order and reverted in reverse.
 [[nodiscard]] std::unique_ptr<ICommand> compositeCommand(std::string description,

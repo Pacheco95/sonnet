@@ -438,3 +438,278 @@ TEST_CASE("apply to prefab is not offered while playing", "[editor][gpu][prefab]
   fixture.frame(editor);
   CHECK(editor.applyTargetName(request).has_value());
 }
+
+namespace {
+
+// Beacon: a root with a point light and a "Bulb" child with a mesh renderer.
+struct Beacon {
+  core::Uuid root = core::Uuid::generate();
+  core::Uuid bulb = core::Uuid::generate();
+
+  void write(const std::filesystem::path &file) const {
+    writeDocument(file, json::array({{{"uuid", root.toString()},
+                                      {"name", "Beacon"},
+                                      {"components", {{"PointLight", {{"intensity", 5.0}, {"range", 10.0}}}}}},
+                                     {{"uuid", bulb.toString()},
+                                      {"name", "Bulb"},
+                                      {"parent", root.toString()},
+                                      {"components", {{"MeshRenderer", {{"visible", true}}}}}}}));
+  }
+};
+
+std::size_t changesTo(const editor::ApplyAllPlan &plan, const std::filesystem::path &file) {
+  const auto it = std::ranges::find(plan.files, file, &editor::ApplyAllPlan::File::path);
+  return it == plan.files.end() ? 0 : it->changes.size();
+}
+
+bool lists(const editor::ApplyAllPlan &plan, std::string_view text) {
+  return std::ranges::any_of(plan.kept, [&](const std::string &kept) { return kept.find(text) != std::string::npos; });
+}
+
+} // namespace
+
+TEST_CASE("apply all overrides writes the root's and the descendants' changes in one undo step",
+          "[editor][gpu][prefab][apply][all]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-all");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Beacon beacon;
+  const std::filesystem::path file = directory / "prefabs" / "beacon.prefab.json";
+  beacon.write(file);
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid a = core::Uuid::generate();
+  const core::Uuid b = core::Uuid::generate();
+  const core::Uuid c = core::Uuid::generate();
+  for (const core::Uuid &uuid : {a, b, c}) {
+    editor.commands().push(editor::instantiatePrefabCommand(beacon.root, "Beacon", {}, uuid), world);
+  }
+  const auto bulb = [&](const core::Uuid &instance) { return world.findByPath(world.find(instance), "Bulb"); };
+  const auto set = [&](flecs::entity entity, std::string_view component, const auto &change) {
+    const auto id = world.findComponent(component)->id;
+    const json before = world.componentToJson(entity, id);
+    json after = before;
+    change(after);
+    editor.commands().push(editor::componentCommand(world.uuidOf(entity), std::string{component}, std::optional{before},
+                                                    std::optional{after}, "edit"),
+                           world);
+  };
+  // A changes both of the root's light members and hides its bulb's mesh; C sets its own range.
+  set(world.find(a), "PointLight", [](json &value) {
+    value["intensity"] = 8.0;
+    value["range"] = 20.0;
+  });
+  set(bulb(a), "MeshRenderer", [](json &value) { value["visible"] = false; });
+  set(world.find(c), "PointLight", [](json &value) { value["range"] = 3.0; });
+  REQUIRE(editor.saveSceneAs(directory / "scenes" / "beacons.scene.json").has_value());
+  fixture.frame(editor);
+  const std::string original = text(file);
+
+  // Offered on the instance root only, and for B, which changes nothing, not at all.
+  const editor::ApplyAllPlan plan = editor.applyAllPlan(a);
+  REQUIRE(plan.files.size() == 1);
+  CHECK(plan.files[0].path == file);
+  CHECK(plan.files[0].prefab == "Beacon");
+  CHECK(changesTo(plan, file) == 3);
+  CHECK(editor.applyAllPlan(b).files.empty());
+  CHECK(editor.applyAllPlan(world.uuidOf(bulb(a))).files.empty());
+
+  const std::size_t undoBefore = editor.commands().size();
+  const std::size_t rebuildsBefore = editor.prefabRebuilds();
+  REQUIRE(editor.applyAllOverrides(a).has_value());
+  CHECK(editor.commands().size() == undoBefore + 1);
+  CHECK(editor.prefabRebuilds() == rebuildsBefore + 1);
+  CHECK(stored(file, beacon.root)["PointLight"]["intensity"] == 8.0);
+  CHECK(stored(file, beacon.root)["PointLight"]["range"] == 20.0);
+  CHECK(stored(file, beacon.bulb)["MeshRenderer"]["visible"] == false);
+  // B takes everything, A follows its prefab again (its root drops the override), C keeps its range.
+  CHECK(world.find(b).get<world::PointLight>().intensity == Approx(8.0f));
+  CHECK(world.find(b).get<world::PointLight>().range == Approx(20.0f));
+  CHECK(!bulb(b).get<world::MeshRenderer>().visible);
+  CHECK(!world.find(a).owns<world::PointLight>());
+  CHECK(marked(world, bulb(a), "MeshRenderer").empty());
+  CHECK(world.find(c).get<world::PointLight>().intensity == Approx(8.0f));
+  CHECK(world.find(c).get<world::PointLight>().range == Approx(3.0f));
+  CHECK(editor.applyAllPlan(a).files.empty()); // nothing left to apply
+
+  // One undo puts the file and A's values back; redo applies again.
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(file) == original);
+  CHECK(world.find(a).get<world::PointLight>().intensity == Approx(8.0f));
+  CHECK(world.find(b).get<world::PointLight>().intensity == Approx(5.0f));
+  CHECK(bulb(b).get<world::MeshRenderer>().visible);
+  CHECK(!bulb(a).get<world::MeshRenderer>().visible);
+  CHECK(changesTo(editor.applyAllPlan(a), file) == 3);
+  REQUIRE(editor.commands().redo(world));
+  CHECK(stored(file, beacon.root)["PointLight"]["intensity"] == 8.0);
+  CHECK(world.find(b).get<world::PointLight>().intensity == Approx(8.0f));
+
+  // Saved and opened again, the instances read the new prefab: B takes what it did not override,
+  // C keeps its own range.
+  REQUIRE(editor.saveScene().has_value());
+  REQUIRE(editor.openProject(directory).has_value());
+  REQUIRE(editor.openScene(directory / "scenes" / "beacons.scene.json").has_value());
+  world::World &reloaded = editor.world();
+  CHECK(reloaded.find(b).get<world::PointLight>().intensity == Approx(8.0f));
+  CHECK(!reloaded.findByPath(reloaded.find(b), "Bulb").get<world::MeshRenderer>().visible);
+  CHECK(reloaded.find(c).get<world::PointLight>().intensity == Approx(8.0f));
+  CHECK(reloaded.find(c).get<world::PointLight>().range == Approx(3.0f));
+  CHECK(!reloaded.find(a).owns<world::PointLight>());
+}
+
+TEST_CASE("apply all overrides of a nested instance writes each change to the file its target rule picks",
+          "[editor][gpu][prefab][apply][all][nested]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-all-nested");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  // The crate and pallet of the single apply's nested case.
+  const core::Uuid crate = core::Uuid::generate();
+  const core::Uuid lid = core::Uuid::generate();
+  const core::Uuid pallet = core::Uuid::generate();
+  const core::Uuid crateB = core::Uuid::derive(pallet, "b");
+  const core::Uuid palletLid = world::World::instancedIdentity(crateB, lid);
+  const std::filesystem::path crateFile = directory / "prefabs" / "crate.prefab.json";
+  const std::filesystem::path palletFile = directory / "prefabs" / "pallet.prefab.json";
+  writeDocument(
+      crateFile,
+      json::array(
+          {{{"uuid", crate.toString()}, {"name", "Crate"}, {"components", json::object()}},
+           {{"uuid", lid.toString()},
+            {"name", "Lid"},
+            {"parent", crate.toString()},
+            {"components", {{"MeshRenderer", {{"color", json::array({0.5, 0.5, 0.5, 1.0})}, {"visible", true}}}}}}}));
+  writeDocument(palletFile,
+                json::array({{{"uuid", pallet.toString()}, {"name", "Pallet"}, {"components", json::object()}},
+                             {{"uuid", crateB.toString()},
+                              {"name", "Crate B"},
+                              {"parent", pallet.toString()},
+                              {"prefab", crate.toString()},
+                              {"components", json::object()}},
+                             {{"uuid", palletLid.toString()},
+                              {"instanced", true},
+                              {"components", {{"MeshRenderer", {{"color", json::array({0.0, 0.0, 1.0, 1.0})}}}}}}}));
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid placed = core::Uuid::generate();
+  const core::Uuid other = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(pallet, "Pallet", {}, placed), world);
+  editor.commands().push(editor::instantiatePrefabCommand(pallet, "Pallet", {}, other), world);
+  fixture.frame(editor);
+  const auto sceneLid = [&](const core::Uuid &instance) {
+    return world.findByPath(world.find(instance), "Crate B/Lid");
+  };
+  REQUIRE(sceneLid(placed));
+  const auto id = world.findComponent("MeshRenderer")->id;
+  const json before = world.componentToJson(sceneLid(placed), id);
+  json after = before;
+  after["color"] = json::array({1.0, 0.0, 0.0, 1.0});
+  after["visible"] = false;
+  editor.commands().push(editor::componentCommand(world.uuidOf(sceneLid(placed)), "MeshRenderer", std::optional{before},
+                                                  std::optional{after}, "lid"),
+                         world);
+  const std::string crateText = text(crateFile);
+  const std::string palletText = text(palletFile);
+
+  // The colour goes to the pallet, which sets it; the visibility to the crate, which the pallet
+  // leaves it to. The confirmation lists both files with one change each.
+  editor.requestApplyAllOverrides(placed);
+  REQUIRE(editor.applyAllDialogOpen());
+  const editor::ApplyAllPlan &plan = editor.pendingApplyAll();
+  REQUIRE(plan.files.size() == 2);
+  CHECK(changesTo(plan, palletFile) == 1);
+  CHECK(changesTo(plan, crateFile) == 1);
+  fixture.frame(editor); // the dialog draws
+  editor.confirmApply();
+  CHECK(!editor.applyAllDialogOpen());
+  CHECK(stored(palletFile, palletLid)["MeshRenderer"]["color"] == json::array({1.0, 0.0, 0.0, 1.0}));
+  CHECK(stored(crateFile, lid)["MeshRenderer"]["visible"] == false);
+  CHECK(sceneLid(other).get<world::MeshRenderer>().color.r == Approx(1.0f));
+  CHECK(!sceneLid(other).get<world::MeshRenderer>().visible);
+  CHECK(marked(world, sceneLid(placed), "MeshRenderer").empty());
+
+  // One undo restores both files, with one rebuild.
+  const std::size_t rebuildsBefore = editor.prefabRebuilds();
+  REQUIRE(editor.commands().undo(world));
+  CHECK(editor.prefabRebuilds() == rebuildsBefore + 1);
+  CHECK(text(crateFile) == crateText);
+  CHECK(text(palletFile) == palletText);
+  CHECK(sceneLid(other).get<world::MeshRenderer>().color.b == Approx(1.0f));
+  CHECK(sceneLid(placed).get<world::MeshRenderer>().color.r == Approx(1.0f));
+  CHECK(!sceneLid(placed).get<world::MeshRenderer>().visible);
+  REQUIRE(editor.commands().redo(world));
+  CHECK(stored(crateFile, lid)["MeshRenderer"]["visible"] == false);
+
+  // The other pallet has nothing to apply, so no confirmation opens.
+  editor.requestApplyAllOverrides(other);
+  CHECK(!editor.applyAllDialogOpen());
+}
+
+TEST_CASE("apply all overrides lists what it cannot apply and leaves it on the instance",
+          "[editor][gpu][prefab][apply][all]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-all-kept");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Beacon beacon;
+  const std::filesystem::path file = directory / "prefabs" / "beacon.prefab.json";
+  beacon.write(file);
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid a = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(beacon.root, "Beacon", {}, a), world);
+  const flecs::entity root = world.find(a);
+  const auto bulb = [&] { return world.findByPath(world.find(a), "Bulb"); };
+  // Applicable: the light's intensity. Not: the root's place, the bulb's new name, an added child.
+  const auto lightId = world.findComponent("PointLight")->id;
+  json light = world.componentToJson(root, lightId);
+  const json lightBefore = light;
+  light["intensity"] = 9.0;
+  editor.commands().push(
+      editor::componentCommand(a, "PointLight", std::optional{lightBefore}, std::optional{light}, "l"), world);
+  const auto transformId = world.findComponent("Transform")->id;
+  json place = world.componentToJson(root, transformId);
+  const json placeBefore = place;
+  place["position"] = json::array({4.0, 0.0, 0.0});
+  editor.commands().push(
+      editor::componentCommand(a, "Transform", std::optional{placeBefore}, std::optional{place}, "move"), world);
+  editor.commands().push(editor::renameCommand(world.uuidOf(bulb()), "Bulb", "Lamp bulb"), world);
+  world.createEntity("Antenna", world.find(a));
+
+  const editor::ApplyAllPlan plan = editor.applyAllPlan(a);
+  REQUIRE(plan.files.size() == 1);
+  CHECK(changesTo(plan, file) == 1);
+  CHECK(lists(plan, "Transform"));
+  CHECK(lists(plan, "the name Lamp bulb"));
+  CHECK(lists(plan, "the added child Antenna"));
+  editor.requestApplyAllOverrides(a);
+  REQUIRE(editor.applyAllDialogOpen());
+  fixture.frame(editor); // the dialog draws the kept list
+  editor.confirmApply();
+
+  CHECK(stored(file, beacon.root)["PointLight"]["intensity"] == 9.0);
+  const json bulbEntry = [&] {
+    const json document = assets::parseJson(*core::readFile(file));
+    for (const json &entry : document["entities"]) {
+      if (entry["uuid"] == beacon.bulb.toString()) {
+        return entry;
+      }
+    }
+    return json{};
+  }();
+  CHECK(bulbEntry["name"] == "Bulb");
+  CHECK(world.find(a).get<world::Transform>().position.x == Approx(4.0f));
+  CHECK(world.findByPath(world.find(a), "Lamp bulb"));
+  CHECK(world.findByPath(world.find(a), "Antenna"));
+  // What stays is still listed, with nothing left to apply.
+  const editor::ApplyAllPlan after = editor.applyAllPlan(a);
+  CHECK(after.files.empty());
+  CHECK(lists(after, "the added child Antenna"));
+  // Not offered while playing.
+  editor.play();
+  fixture.frame(editor);
+  CHECK(editor.applyAllPlan(a).files.empty());
+  CHECK(editor.applyAllPlan(a).kept.empty());
+  editor.stop();
+}

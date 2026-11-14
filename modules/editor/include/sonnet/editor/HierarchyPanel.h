@@ -46,6 +46,14 @@ public:
     m_saveAsPrefab = std::move(saveAsPrefab);
   }
 
+  // "Apply all overrides" on an instance root (docs/editor.md, "Applying to a prefab"): `offered`
+  // says whether the instance has a change that can be applied, and `apply` asks for the
+  // confirmation. Without them the action is not offered.
+  void setApplyAllHandlers(std::function<bool(core::Uuid)> offered, std::function<void(core::Uuid)> apply) {
+    m_applyAllOffered = std::move(offered);
+    m_applyAll = std::move(apply);
+  }
+
   void draw(bool &open);
 
   // The context menu's creations, also used by the Edit menu and the viewport's drops. `parent`
@@ -110,6 +118,8 @@ private:
   CommandStack &m_commands;
   std::function<void()> m_focus;
   std::function<void(core::Uuid)> m_saveAsPrefab;
+  std::function<bool(core::Uuid)> m_applyAllOffered;
+  std::function<void(core::Uuid)> m_applyAll;
   // A context-menu action that changes the tree, run after the tree is drawn.
   std::function<void()> m_afterTree;
   struct PendingOpen {
