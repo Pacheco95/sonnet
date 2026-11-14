@@ -86,9 +86,13 @@ json saveEntity(const World &world, flecs::entity entity, flecs::entity parent, 
       continue; // an instance stores only what it overrides
     }
     const bool patched = instance && !isPlacement(instance, component);
-    components[component.name] = patched         ? changedComponent(world, entity, world.prefabOf(entity), component)
-                                 : component.tag ? json{}
-                                                 : world.componentToJson(entity, component.id);
+    json value = patched         ? changedComponent(world, entity, world.prefabOf(entity), component)
+                 : component.tag ? json{}
+                                 : world.componentToJson(entity, component.id);
+    if (patched && !component.tag && value.empty() && world.prefabOf(entity).has(component.id)) {
+      continue; // an override equal to the prefab's value: loading inherits the same value
+    }
+    components[component.name] = std::move(value);
   }
   entry["components"] = std::move(components);
   if (instance) {
