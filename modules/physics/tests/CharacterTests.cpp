@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <numbers>
@@ -644,6 +645,89 @@ TEST_CASE("the drawn character moves smoothly at 30, 60 and 144 frames per secon
       previous = x;
     }
   }
+}
+
+// Where the frame draws an entity: its world matrix after the transform system.
+glm::mat4 drawnOf(flecs::entity entity) {
+  return entity.get<world::WorldTransform>().matrix;
+}
+
+// A kinematic platform moved as a script's fixedUpdate moves it, after the physics step, by
+// `pose(time)`; it returns the platform.
+flecs::entity scriptedPlatform(Fixture &fixture, std::function<world::Transform(float)> pose) {
+  const flecs::entity platform = fixture.box("Platform", {3.0f, 0.1f, 3.0f}, {0.0f, 1.0f, 0.0f});
+  platform.set<physics::RigidBody>({.type = physics::BodyType::Kinematic});
+  auto time = std::make_shared<float>(0.0f);
+  fixture.world.ecs()
+      .system("PlatformScript")
+      .kind(fixture.world.phase(world::Phase::FixedUpdate))
+      .run([platform, time, pose = std::move(pose)](flecs::iter &it) {
+        *time += it.delta_time();
+        platform.set<world::Transform>(pose(*time));
+      });
+  return platform;
+}
+
+TEST_CASE("a character is drawn on its moving platform at 30, 60 and 144 frames per second", "[physics][character]") {
+  const auto translating = [](float time) { return world::Transform{.position = {std::sin(time) * 1.5f, 1.0f, 0.0f}}; };
+  const auto rotating = [](float time) {
+    return world::Transform{.position = {0.0f, 1.0f, 0.0f}, .rotation = glm::angleAxis(time, glm::vec3{0, 1, 0})};
+  };
+  for (const bool spinning : {false, true}) {
+    for (const float rate : {30.0f, 60.0f, 144.0f}) {
+      CAPTURE(spinning, rate);
+      Fixture fixture;
+      fixture.ground();
+      const flecs::entity platform =
+          spinning ? scriptedPlatform(fixture, rotating) : scriptedPlatform(fixture, translating);
+      const flecs::entity character = fixture.character({1.5f, 1.1f, 0.0f});
+      fixture.play();
+      settle(fixture, character);
+      REQUIRE(fixture.state(character).support == platform);
+
+      // The point of the platform the character is drawn over stays put, frame after frame,
+      // whatever share of a step the frame ends on.
+      const auto local = [&] { return glm::vec3{glm::inverse(drawnOf(platform)) * drawnOf(character)[3]}; };
+      const float frame = 1.0f / rate;
+      fixture.world.progress(frame);
+      const glm::vec3 start = local();
+      float drift = 0.0f;
+      for (int i = 0; i < static_cast<int>(rate); ++i) {
+        fixture.world.progress(frame);
+        drift = std::max(drift, glm::length(local() - start));
+      }
+      CAPTURE(drift);
+      REQUIRE(drift < 0.001f);
+      REQUIRE(fixture.state(character).support == platform);
+    }
+  }
+}
+
+TEST_CASE("a kinematic body is drawn between its steps and snaps when it is placed anew", "[physics]") {
+  Fixture fixture;
+  fixture.ground();
+  auto moving = std::make_shared<bool>(true);
+  const flecs::entity platform = scriptedPlatform(
+      fixture, [moving](float time) { return world::Transform{.position = {*moving ? time : -20.0f, 1.0f, 0.0f}}; });
+  fixture.play();
+  fixture.step(10);
+
+  // Half a step after a step, the body is drawn halfway between the poses of its last two steps,
+  // and the Transform scripts read holds the target its script wrote.
+  fixture.world.progress(Step * 0.5f);
+  const float target = platform.get<world::Transform>().position.x;
+  REQUIRE(drawnOf(platform)[3].x == Approx(target - Step * 1.5f).margin(1e-4f));
+
+  // Rebuilt somewhere else (a new RigidBody), it is placed there, not moved: the frame after the
+  // step draws it at the new pose, with nothing in between.
+  *moving = false;
+  platform.set<world::Transform>({.position = {-20.0f, 1.0f, 0.0f}});
+  platform.set<physics::RigidBody>({.type = physics::BodyType::Kinematic});
+  fixture.world.progress(Step * 0.5f);
+  REQUIRE(drawnOf(platform)[3].x == Approx(-20.0f).margin(1e-4f));
+  fixture.world.progress(Step * 0.25f);
+  REQUIRE(drawnOf(platform)[3].x == Approx(-20.0f).margin(1e-4f));
+  REQUIRE(platform.get<world::Transform>().position.x == Approx(-20.0f).margin(1e-4f));
 }
 
 TEST_CASE("commands wait for a step and a jump is consumed by the first of several", "[physics][character]") {
