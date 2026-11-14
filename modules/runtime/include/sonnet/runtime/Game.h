@@ -37,6 +37,10 @@ struct GameDesc {
   // Opens scenes without simulating them until play(): a capture run draws its settle frames
   // first, as the editor does before it plays (docs/player.md, "Capture runs").
   bool paused{false};
+  // Off for a capture run, which plays the same however the keyboard, mouse, touches and gamepads
+  // are handled meanwhile and whichever window has the focus: their events are neither the UI's
+  // nor the scripts', and the pointer is never locked (docs/player.md, "Capture runs").
+  bool deviceInput{true};
   // The game module this player was linked with, registered before any scene loads; null for the
   // generic player, which refuses a project or bundle that needs one (ADR-0027).
   const GameModule *module{nullptr};
@@ -201,6 +205,7 @@ private:
   std::optional<std::filesystem::path> m_screenshotRequest;
   std::optional<core::Result<void>> m_screenshotResult;
   bool m_paused{false};
+  bool m_deviceInput{true};
   // Whether the window has the focus, from its events; it opens with it.
   bool m_focused{true};
   const GameModule *m_module{nullptr};

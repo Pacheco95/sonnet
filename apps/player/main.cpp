@@ -56,6 +56,9 @@ using namespace sonnet;
   runtime::GameDesc desc;
   // A capture run draws its settle frames before it plays, as the editor's does.
   desc.paused = line.capture.has_value();
+  // It hears no keyboard, mouse, touch or gamepad either, so the same flags draw the same image whatever
+  // is done at the machine meanwhile (issue #556).
+  desc.deviceInput = !line.capture.has_value();
   desc.module = game::linkedModule();
   // The far cascade's cost on a phone's tile-based GPU follows its map and its triangle count: 512
   // pays on the Adreno 830, 1024 is enough on the A16 (docs/reports/far-cascade-mechanism.md), and
