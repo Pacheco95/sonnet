@@ -398,7 +398,8 @@ core::Result<std::vector<flecs::entity>> loadEntities(World &world, const json &
     if (!uuid) {
       return fail(std::format("entity {} has no valid uuid", loaded.size()));
     }
-    if (entry.value("instanced", false)) {
+    // Not entry.value("instanced", false): GCC 14 at -O2 flags a null dereference inside its copy.
+    if (const auto instanced = entry.find("instanced"); instanced != entry.end() && *instanced == true) {
       // What an instance's descendant changed; the descendant came with the instance, which the
       // file lists before it.
       const flecs::entity target = world.find(*uuid);
