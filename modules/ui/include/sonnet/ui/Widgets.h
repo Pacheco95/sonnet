@@ -142,10 +142,10 @@ bool beginFullBleedWindow(const char *name, bool *open);
 // -- Property table ----------------------------------------------------------------------------------------------
 
 // A table of one property: its name in a column of `propertyLabelWidth`, its value stretching over the rest and, with
-// `revertColumn`, a column of `propertyRevertWidth` for a revert button. The caller fills the first row, starting with
-// `ImGui::TableNextRow()` and `ImGui::TableNextColumn()`, and calls `endPropertyTable` when this returned true. `id`
-// is the table's ID in the caller's stack.
-[[nodiscard]] bool beginPropertyTable(const char *id, bool revertColumn = false);
+// `actionColumn`, a column of `propertyActionWidth` (in `ui::em`) for the row's Apply and Revert buttons. The caller
+// fills the first row, starting with `ImGui::TableNextRow()` and `ImGui::TableNextColumn()`, and calls
+// `endPropertyTable` when this returned true. `id` is the table's ID in the caller's stack.
+[[nodiscard]] bool beginPropertyTable(const char *id, bool actionColumn = false);
 void endPropertyTable();
 
 // -- Overlay -----------------------------------------------------------------------------------------------------

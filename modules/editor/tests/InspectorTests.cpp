@@ -707,29 +707,32 @@ TEST_CASE("a changed member of an instance offers to apply it to the prefab", "[
   CHECK(askedFor("/intensity"));
   CHECK(!askedFor("/range"));
 
-  // The member's row button opens a menu whose Apply asks for that member.
+  // The member's row has Apply and Revert side by side, each one click away.
   const flecs::entity type = world.ecs().component<world::PointLight>();
   const ecs_member_t *members = ecs_vec_first_t(&type.get<flecs::Struct>().members, ecs_member_t);
   const int index = static_cast<int>(&memberOf(world, type, "intensity") - members);
   const ImGuiID row = ImHashData(&index, sizeof(index), ImHashStr("PointLight", 0, InspectorDriver::inspector()->ID));
-  const ImGuiID button = ImHashStr("Prefab", 0, ImHashStr("member", 0, row));
-  bool found = false;
-  for (float x = 490.0f; x > 400.0f && !found; x -= 6.0f) {
-    found = driver.hover(InspectorDriver::inspector(), button, x);
-  }
-  REQUIRE(found);
+  const auto hoverButton = [&](const char *label) {
+    const ImGuiID button = ImHashStr(label, 0, ImHashStr("member", 0, row));
+    for (float x = 494.0f; x > 300.0f; x -= 6.0f) {
+      if (driver.hover(InspectorDriver::inspector(), button, x)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  REQUIRE(hoverButton("Apply"));
   driver.click();
-  ImGuiContext &context = *ImGui::GetCurrentContext();
-  REQUIRE(!context.OpenPopupStack.empty());
-  ImGuiWindow *menu = context.OpenPopupStack.back().Window;
-  REQUIRE(menu != nullptr);
-  // A popup fits itself to its items over its first frames, so it is placed only after them.
-  driver.frame();
-  driver.frame();
-  REQUIRE(driver.hover(menu, ImHashStr("Apply to Lamp", 0, menu->ID), 20.0f));
-  driver.click();
+  CHECK(ImGui::GetCurrentContext()->OpenPopupStack.empty());
   REQUIRE(applied.size() == 1);
   CHECK(applied[0].entity == world.uuidOf(lamp));
   CHECK(applied[0].member.to_string() == "/intensity");
   CHECK(!commands.canUndo());
+
+  REQUIRE(hoverButton("Revert"));
+  driver.click();
+  driver.frame();
+  CHECK(applied.size() == 1);
+  CHECK(commands.canUndo());
+  CHECK(lamp.get<world::PointLight>().intensity == prefab.get<world::PointLight>().intensity);
 }

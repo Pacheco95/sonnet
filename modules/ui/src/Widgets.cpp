@@ -162,8 +162,8 @@ bool beginFullBleedWindow(const char *name, bool *open) {
   return visible;
 }
 
-bool beginPropertyTable(const char *id, bool revertColumn) {
-  if (!ImGui::BeginTable(id, revertColumn ? 3 : 2, ImGuiTableFlags_SizingStretchProp)) {
+bool beginPropertyTable(const char *id, bool actionColumn) {
+  if (!ImGui::BeginTable(id, actionColumn ? 3 : 2, ImGuiTableFlags_SizingStretchProp)) {
     return false;
   }
   const Theme &theme = currentTheme();
@@ -172,8 +172,9 @@ bool beginPropertyTable(const char *id, bool revertColumn) {
   // auto width, which a table's first frame has not measured yet. The weight came out as 0/0, so on
   // the frame after every selection the values drew a few pixels wide, and grew back over the next.
   ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-  if (revertColumn) {
-    ImGui::TableSetupColumn("revert", ImGuiTableColumnFlags_WidthFixed, scaled(theme.propertyRevertWidth));
+  if (actionColumn) {
+    // In text heights, since it holds the labels of two buttons and the editor's text zoom moves them.
+    ImGui::TableSetupColumn("actions", ImGuiTableColumnFlags_WidthFixed, em(theme.propertyActionWidth));
   }
   return true;
 }
