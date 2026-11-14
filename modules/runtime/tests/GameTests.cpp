@@ -689,6 +689,67 @@ TEST_CASE("--scene opens another of a bundle's scenes for the capture", "[runtim
   sonnet::test::removeScratch(out);
 }
 
+// Issue #556: the character sample's camera asks for the pointer lock, and its character walks from
+// the keyboard and the gamepad, so a capture that heard the devices drew wherever the mouse moved
+// and whichever window had the focus. Two runs with the same flags draw the same image, whatever
+// someone at the machine does meanwhile.
+TEST_CASE("two identical capture runs draw the same image whatever the devices do",
+          "[runtime][capture][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  // The lock succeeds, as on a desktop, rather than being refused by the offscreen driver.
+  test::RelativeModeWindow window{*fixture.window};
+  const auto capture = [&](std::string_view name, bool handled) {
+    const std::string screenshot = std::format("shots/{}.png", name);
+    const runtime::CaptureOptions options =
+        playerCapture({"--scene", "scenes/capture_contact_shadows.scene.json", "--play", "0.5", "--settle-frames", "2",
+                       "--render-size", "96x64", "--screenshot", screenshot});
+    std::filesystem::remove(options.viewport);
+    runtime::GameDesc desc = fixture.desc();
+    desc.paused = true;
+    desc.deviceInput = false; // as the player opens a capture run
+    runtime::Game game{window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(project).has_value());
+    runtime::CaptureRun run{options};
+    runtime::GameCaptureTarget target{game};
+    runtime::CaptureRun::Status status = runtime::CaptureRun::Status::Running;
+    for (int i = 0; i < 600 && status == runtime::CaptureRun::Status::Running; ++i) {
+      if (handled) {
+        // The window losing and regaining the focus, the mouse moving and clicking, a key held and
+        // a stick pushed, every frame of the run.
+        game.event(platform::WindowFocusChanged{.focused = i % 20 != 0});
+        game.event(platform::MouseMoved{.position = {40.0f, 30.0f}, .delta = {17.0f, -5.0f}});
+        game.event(platform::MouseButtonPressed{
+            .button = platform::MouseButton::Left, .position = {40.0f, 30.0f}, .clicks = 1});
+        game.event(platform::KeyPressed{.key = platform::Key::W, .modifiers = {}, .repeat = i > 0});
+        game.event(platform::GamepadConnected{.name = "pad"});
+        game.event(platform::GamepadAxisMoved{.axis = platform::GamepadAxis::LeftX, .value = 1.0f});
+      }
+      fixture.frame(game, runtime::CaptureRun::FrameSeconds);
+      status = run.step(target);
+    }
+    REQUIRE(status == runtime::CaptureRun::Status::Done);
+    // The scripts heard none of it, and the pointer was never taken.
+    CHECK_FALSE(game.input().keyDown(platform::Key::W));
+    CHECK_FALSE(game.input().gamepadConnected());
+    CHECK_FALSE(game.input().mouseLocked());
+    CHECK_FALSE(window.relativeMouseMode());
+    Png png = readPng(options.viewport);
+    std::filesystem::remove(options.viewport);
+    return png;
+  };
+  const Png alone = capture("repeat-alone", false);
+  const Png handled = capture("repeat-handled", true);
+  REQUIRE(alone.width == 96);
+  REQUIRE(handled.width == alone.width);
+  REQUIRE(handled.height == alone.height);
+  const bool same = handled.rgba == alone.rgba; // not expanded: Catch2 prints the whole image
+  CHECK(same);
+}
+
 TEST_CASE("a path that is neither a project nor a bundle is an error", "[runtime][gpu]") {
   Fixture fixture;
   runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, fixture.desc()};

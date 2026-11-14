@@ -32,6 +32,20 @@ using nlohmann::json;
   return document;
 }
 
+template <typename... Types> [[nodiscard]] bool holdsAny(const platform::Event &event) {
+  return (std::holds_alternative<Types>(event) || ...);
+}
+
+// What someone at the machine does: the devices, and the focus that decides whether the game has
+// them and whether the pointer is locked.
+[[nodiscard]] bool isDeviceInput(const platform::Event &event) {
+  return holdsAny<platform::WindowFocusChanged, platform::MouseLeftWindow, platform::KeyPressed, platform::KeyReleased,
+                  platform::TextInput, platform::MouseMoved, platform::MouseButtonPressed,
+                  platform::MouseButtonReleased, platform::MouseWheel, platform::TouchDown, platform::TouchUp,
+                  platform::TouchMotion, platform::GamepadConnected, platform::GamepadDisconnected,
+                  platform::GamepadButtonPressed, platform::GamepadButtonReleased, platform::GamepadAxisMoved>(event);
+}
+
 } // namespace
 
 Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchain &swapchain, const GameDesc &desc)
@@ -58,7 +72,7 @@ Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchai
                                                 .view = &m_scriptView,
                                                 .canQuit = platform::canQuit()})),
       m_audio(audio::createAudioDevice(m_world, m_assets, {.output = desc.audioOutput})), m_screenshots(device),
-      m_paused(desc.paused), m_module(desc.module) {
+      m_paused(desc.paused), m_deviceInput(desc.deviceInput), m_module(desc.module) {
   // The module's components and systems go in after the engine's and before any scene loads.
   if (m_module != nullptr) {
     GameRegistry registry{m_world, *m_scripts};
@@ -244,6 +258,11 @@ core::Result<void> Game::startScene(const json &scene) {
 }
 
 void Game::event(const platform::Event &event) {
+  // A capture run plays the same whatever the devices do (issue #556): the mouse turned the
+  // character sample's camera through the pointer lock, and a key or a stick walked its character.
+  if (!m_deviceInput && isDeviceInput(event)) {
+    return;
+  }
   if (const auto *focus = std::get_if<platform::WindowFocusChanged>(&event)) {
     m_focused = focus->focused;
   }
@@ -274,7 +293,9 @@ void Game::update(float dt) {
   m_scriptView = {.camera = m_view.camera, .size = glm::vec2{m_window.size()}};
 
   // The request the scripts left last frame, so this frame's read `input.mouseLocked()` as it is.
-  m_mouseLock.update(m_scripts->mouseLockRequested(), m_focused && !m_paused);
+  // Without the devices the game never has the input, so a capture neither takes the user's pointer
+  // nor shows the scripts a lock that depends on which window had the focus.
+  m_mouseLock.update(m_scripts->mouseLockRequested(), m_deviceInput && m_focused && !m_paused);
   m_world.progress(dt);
   // A script's `game.loadScene` takes effect between frames, so this frame lays out and draws
   // the new scene; one that cannot load leaves the running scene as it is.
