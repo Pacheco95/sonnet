@@ -290,6 +290,48 @@ TEST_CASE("a version 8 scene's instance components replace the prefab's", "[worl
           json{{"slots", {{Mover.toString(), {{{"properties", {{"$removed", {"range"}}, {"speed", 6}}}}}}}}});
 }
 
+TEST_CASE("an instance's override equal to its prefab is not saved", "[world][prefab][overrides]") {
+  Turret turret;
+  json scene;
+  core::Uuid instanceUuid;
+  {
+    world::World world;
+    turret.load(world);
+    const flecs::entity instance = world.instantiate(world.find(turret.root), "Turret 1");
+    instanceUuid = world.uuidOf(instance);
+    // Overridden, then set back to the prefab's values: the instance still owns both.
+    instance.ensure<world::PointLight>().intensity = 4.0f;
+    instance.ensure<world::PointLight>().intensity = 1.0f;
+    setProperties(instance, 0, {{"speed", 2}, {"range", 5}});
+    REQUIRE(instance.owns<world::PointLight>());
+    REQUIRE(instance.owns<Slots>());
+
+    scene = world::saveScene(world);
+    INFO(scene.dump(2));
+    const json &components = componentsOf(scene, instanceUuid);
+    REQUIRE_FALSE(components.contains("PointLight"));
+    REQUIRE_FALSE(components.contains("Scripts"));
+    REQUIRE(components.contains("Transform"));
+  }
+  // Loading gives the same world: the instance inherits the prefab's values, and later ones.
+  {
+    world::World world;
+    turret.load(world);
+    REQUIRE(world::loadScene(world, scene).has_value());
+    const flecs::entity instance = world.find(instanceUuid);
+    REQUIRE_FALSE(instance.owns<world::PointLight>());
+    REQUIRE(instance.get<world::PointLight>().intensity == Approx(1.0f));
+    REQUIRE(instance.get<world::PointLight>().range == Approx(10.0f));
+    REQUIRE(properties(instance.get<Slots>().slots[0]) == json{{"speed", 2}, {"range", 5}});
+    REQUIRE(world::saveScene(world) == scene);
+  }
+  turret.lightRange = 20.0f;
+  world::World world;
+  turret.load(world);
+  REQUIRE(world::loadScene(world, scene).has_value());
+  REQUIRE(world.find(instanceUuid).get<world::PointLight>().range == Approx(20.0f));
+}
+
 TEST_CASE("a patch keeps only the members that differ and merges back onto its source", "[world][overrides]") {
   world::World world;
   registerSlots(world);
