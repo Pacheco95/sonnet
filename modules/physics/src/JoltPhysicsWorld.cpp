@@ -436,6 +436,13 @@ public:
           interpolate();
         });
     world.addToSimulation(m_interpolateSystem);
+    // After the transform system has taken the drawn poses: kinematic bodies' Transforms go back
+    // to the targets their scripts wrote, which the next frame reads and the next step moves to.
+    m_restoreSystem =
+        ecs.system("PhysicsRestoreTargets").kind(world.phase(world::Phase::PreRender)).run([this](flecs::iter &) {
+          restoreTargets();
+        });
+    world.addToSimulation(m_restoreSystem);
     observeChanges<RigidBody>();
     observeChanges<BoxCollider>();
     observeChanges<SphereCollider>();
@@ -480,6 +487,7 @@ public:
     }
     m_stepSystem.destruct();
     m_interpolateSystem.destruct();
+    m_restoreSystem.destruct();
     m_colliders.destruct();
     m_controllers.destruct();
     // A character's destructor removes its inner body from the system.
@@ -727,11 +735,14 @@ private:
     BodyType type{BodyType::Static};
     glm::vec3 scale{1.0f}; // the world scale the shape was built with
     Pose pose;             // static and kinematic: the pose last pushed to Jolt
-    // Dynamic: the world poses after the last two steps, and the local transform physics last
-    // wrote, which tells an outside write apart.
+    // Dynamic and kinematic: the world poses after the last two steps, and the local transform
+    // physics last wrote, which tells an outside write apart.
     Pose previous;
     Pose current;
     world::Transform written;
+    // Kinematic: the local transform a script wrote, held while the drawn pose stands in for it
+    // between PhysicsInterpolate and the transform system.
+    std::optional<world::Transform> target;
     // Colliders of descendants folded into this body, by id, with the pose they were built at.
     std::vector<Contributor> contributors;
   };
@@ -1069,6 +1080,7 @@ private:
     if (it == m_bodies.end()) {
       return;
     }
+    restoreTarget(entity, it->second);
     if (!it->second.id.IsInvalid()) {
       // Jolt reports the contacts of a removed body in the next step, by id; the entry stays
       // until then.
@@ -1483,6 +1495,9 @@ private:
       case BodyType::Kinematic:
         bodies().MoveKinematic(body.id, toJolt(pose.position), toJolt(pose.rotation), dt);
         body.pose = pose;
+        // A new body starts with both at its pose, so it is drawn where it was placed.
+        body.previous = body.current;
+        body.current = pose;
         break;
       case BodyType::Dynamic:
         if (const world::Transform *local = entity.try_get<world::Transform>();
@@ -1644,6 +1659,34 @@ private:
     SONNET_ZONE();
     const float alpha = m_world.fixedAlpha();
     flecs::world &ecs = m_world.ecs();
+    // Kinematic bodies first, parents before children, so what is placed relative to its parent
+    // (a body or a character below a platform) is placed relative to where the parent is drawn.
+    std::vector<std::pair<int, flecs::entity_t>> kinematic;
+    for (const auto &[id, body] : m_bodies) {
+      if (!body.id.IsInvalid() && body.type == BodyType::Kinematic && body.previous != body.current) {
+        int depth = 0;
+        for (flecs::entity parent = flecs::entity{ecs, id}.parent(); parent; parent = parent.parent()) {
+          ++depth;
+        }
+        kinematic.emplace_back(depth, id);
+      }
+    }
+    std::ranges::sort(kinematic);
+    for (const auto &[depth, id] : kinematic) {
+      Body &body = m_bodies.at(id);
+      const flecs::entity entity = flecs::entity{ecs, id};
+      const world::Transform *local = entity.try_get<world::Transform>();
+      if (local == nullptr) {
+        continue;
+      }
+      // The Transform is the script's target unless it is still the pose drawn last time.
+      if (!body.target.has_value() || movedFromOutside(entity, body.written)) {
+        body.target = *local;
+      }
+      writePose(entity, body.written,
+                {glm::mix(body.previous.position, body.current.position, alpha),
+                 glm::slerp(body.previous.rotation, body.current.rotation, alpha)});
+    }
     for (auto &[id, body] : m_bodies) {
       if (body.id.IsInvalid() || body.type != BodyType::Dynamic || body.previous == body.current) {
         continue;
@@ -1672,6 +1715,28 @@ private:
     }
   }
 
+  void restoreTargets() {
+    SONNET_ZONE();
+    for (auto &[id, body] : m_bodies) {
+      restoreTarget(id, body);
+    }
+  }
+
+  // Puts a kinematic body's target back in its Transform, unless something wrote the Transform
+  // after the drawn pose (a lateUpdate, say), which is then the target.
+  void restoreTarget(flecs::entity_t id, Body &body) {
+    if (!body.target.has_value()) {
+      return;
+    }
+    const flecs::entity entity{m_world.ecs(), id};
+    if (m_world.ecs().is_alive(id) && !movedFromOutside(entity, body.written)) {
+      if (world::Transform *local = entity.try_get_mut<world::Transform>()) {
+        *local = *body.target;
+      }
+    }
+    body.target.reset();
+  }
+
   world::World &m_world;
   assets::AssetDatabase &m_assets;
   LayerInterface m_layers;
@@ -1695,6 +1760,7 @@ private:
   flecs::query<> m_controllers;
   flecs::system m_stepSystem;
   flecs::system m_interpolateSystem;
+  flecs::system m_restoreSystem;
   std::vector<flecs::entity> m_observers;
 };
 
