@@ -516,16 +516,14 @@ TEST_CASE("a box on a plane occludes the ground beside it and an open plane stay
     open.camera.projectionKind = projection;
     open.camera.orthoHeight = 4.0f;
     const Frame alone = scene.render(open);
-    // Every pixel: the plane and the sky past its far edge. A few slices through a grazing plane
-    // scatter around 1 by a few hundredths before the filter averages them, most where the plane's
-    // edge leaves the filter fewer neighbours.
+    // Every pixel: the plane and the sky past its far edge.
     double sum = 0.0;
     for (const float value : alone.mask) {
       sum += static_cast<double>(value);
     }
     CAPTURE(*std::ranges::min_element(alone.mask), sum / static_cast<double>(alone.mask.size()));
-    REQUIRE(*std::ranges::min_element(alone.mask) > 0.95f);
-    REQUIRE(sum / static_cast<double>(alone.mask.size()) > 0.995);
+    REQUIRE(*std::ranges::min_element(alone.mask) > 0.99f);
+    REQUIRE(sum / static_cast<double>(alone.mask.size()) > 0.999);
 
     const std::array draws{fixture.ground(), fixture.standing()};
     SceneView boxed = occlusionScene(draws);
@@ -542,6 +540,66 @@ TEST_CASE("a box on a plane occludes the ground beside it and an open plane stay
     // The flat ambient term takes exactly the mask.
     const glm::vec4 lit = withBox.light(beside);
     REQUIRE(std::abs(lit.r - withBox.occlusion(beside)) < 0.01f);
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("an open plane at a grazing angle stays unoccluded up to its edges without TAA on a GPU",
+          "[renderer][ao][gpu]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), aoSettings(GENERATE(AntiAliasing::None, AntiAliasing::Fxaa))};
+    Fixture fixture{renderer};
+    const ProjectionKind projection = GENERATE(ProjectionKind::Perspective, ProjectionKind::Orthographic);
+    // Low over the plane towards its far edge, along an axis and across a corner, and over a ramp
+    // tilted 35 degrees: a slanted surface the search must not darken either.
+    const int pose = GENERATE(0, 1, 2, 3, 4);
+    CAPTURE(projection == ProjectionKind::Orthographic, pose);
+    const glm::uvec2 size{256, 192};
+    GpuScene scene{*device, renderer, size};
+    std::array plane{fixture.ground()};
+    SceneView view = occlusionScene(plane);
+    switch (pose) {
+    case 0:
+      view.camera = lookingAt({0.0f, 0.3f, 4.0f}, {0.0f, 0.0f, -3.0f});
+      break;
+    case 1:
+      view.camera = lookingAt({0.0f, 0.8f, 5.0f}, {0.0f, 0.0f, -4.0f});
+      break;
+    case 2:
+      view.camera = lookingAt({3.0f, 0.5f, 3.0f}, {-4.0f, 0.0f, -4.0f});
+      break;
+    case 3:
+      view.camera = lookingAt({7.0f, 0.6f, 1.0f}, {0.0f, 0.0f, -1.0f}); // the side edge in view
+      break;
+    default:
+      plane[0].transform = glm::rotate(glm::mat4{1.0f}, glm::radians(35.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+      view.camera = lookingAt({1.0f, 0.5f, 6.0f}, {0.0f, -1.0f, -2.0f});
+      break;
+    }
+    view.camera.projectionKind = projection;
+    view.camera.orthoHeight = 3.0f;
+    const Frame frame = scene.render(view);
+    double sum = 0.0;
+    std::size_t covered = 0;
+    float darkest = 1.0f;
+    for (std::size_t i = 0; i < frame.mask.size(); ++i) {
+      darkest = std::min(darkest, frame.mask[i]);
+      // Only the plane's pixels: the sky's are 1 by construction.
+      if (frame.hdr[i].r > 0.0f) {
+        sum += static_cast<double>(frame.mask[i]);
+        ++covered;
+      }
+    }
+    REQUIRE(covered > frame.mask.size() / 8);
+    const double mean = sum / static_cast<double>(covered);
+    CAPTURE(darkest, mean, covered);
+    // Every slice is normalised by its own unoccluded arc and the plane's far edge continues onto
+    // the slice's line, so nothing is left for the filters to average: within the mask's 8-bit step.
+    REQUIRE(darkest > 0.99f);
+    REQUIRE(mean > 0.999);
     REQUIRE(device->validationMessageCount() == 0);
   }
   REQUIRE(device->validationMessageCount() == 0);

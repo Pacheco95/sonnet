@@ -5,10 +5,11 @@
 // the view's own scalar history; `blur` is a separable five-tap bilateral filter; `upsample` writes
 // the full-resolution R8 mask the forward pass multiplies into the indirect light. Every half-
 // resolution image holds the visibility in x, the surface's positive view depth in y (0: no surface)
-// and its octahedral world-space normal in zw, which the filters and the history compare. The
-// visibility stays unclamped up to 2 until the mask: a few slices through an open surface at a
-// grazing angle overshoot 1 as often as they undershoot it, and clamping each texel before the
-// filters average them would darken every slanted surface.
+// and its octahedral world-space normal in zw, which the filters and the history compare. A slice's
+// arc integral through an open surface is not 1 on its own, only its mean over every azimuth is, so
+// a few slices through a surface the view meets at a grazing angle scatter around 1; the search
+// divides by the same slices' integral with nothing above the tangent plane, which is 1 exactly on
+// an open surface of any slant, instead of by the slice count.
 import sonnet;
 
 struct AoConstants {
@@ -230,6 +231,7 @@ float4 search(VertexOutput input) : SV_Target {
   const float falloff = max(ao.radius * 0.4, 1.0e-4);
 
   float visibility = 0.0;
+  float unoccluded = 0.0;
   for (uint slice = 0; slice < slices; ++slice) {
     const float phi = (float(slice) + rotation) * Pi / float(slices);
     const float2 direction = float2(cos(phi), sin(phi)); // in pixels, y down
@@ -264,12 +266,28 @@ float4 search(VertexOutput input) : SV_Target {
         const int2 q1 = q0 + (alongX ? int2(0, 1) : int2(1, 0));
         const float d0 = depthAt(q0);
         const float d1 = depthAt(q1);
-        // Off screen or sky on the nearer side: no occluder. Sky on the farther side: the nearer alone.
+        // Off screen or sky on the nearer side: no occluder. Sky on the farther side: the nearer
+        // surface continued onto the line through its other neighbour, which is exact on a plane (as
+        // in axisDerivative); its own depth alone, off the line, read a grazing plane's far edge as
+        // up to 5 % occluded. Only a one-pixel strip keeps the nearer depth as it is.
         const float nearer = fraction < 0.5 ? d0 : d1;
         if (nearer <= 0.0) {
           continue;
         }
-        const float sampleDepth = d0 > 0.0 && d1 > 0.0 ? lerp(d0, d1, fraction) : nearer;
+        float sampleDepth = nearer;
+        if (d0 > 0.0 && d1 > 0.0) {
+          sampleDepth = lerp(d0, d1, fraction);
+        } else {
+          const int2 minorStep = alongX ? int2(0, 1) : int2(1, 0);
+          const bool low0 = d0 > 0.0;
+          const float beyond = depthAt(low0 ? q0 - minorStep : q1 + minorStep);
+          if (beyond > 0.0) {
+            sampleDepth = low0 ? d0 + fraction * (d0 - beyond) : d1 + (1.0 - fraction) * (d1 - beyond);
+          }
+          if (sampleDepth <= 0.0) {
+            continue;
+          }
+        }
         const float3 delta = viewPosition(at, sampleDepth) - position;
         const float length2 = dot(delta, delta);
         if (length2 < 1.0e-12) {
@@ -290,8 +308,11 @@ float4 search(VertexOutput input) : SV_Target {
     h0 = n + max(h0 - n, -Pi * 0.5);
     h1 = n + min(h1 - n, Pi * 0.5);
     visibility += projectedLength * (horizonArc(h0, n, cosN) + horizonArc(h1, n, cosN));
+    // Both arcs at the tangent plane, h = n -+ pi/2: what this slice holds with nothing above it.
+    unoccluded += projectedLength * (cosN + n * sin(n));
   }
-  visibility = clamp(visibility / float(slices), 0.0, 2.0);
+  // Raising a horizon only removes arc, so the ratio is in [0, 1] up to rounding.
+  visibility = unoccluded > 1.0e-6 ? saturate(visibility / unoccluded) : 1.0;
   return float4(isnan(visibility) ? 1.0 : visibility, viewDepth, guides);
 }
 
@@ -344,7 +365,7 @@ float4 temporal(VertexOutput input) : SV_Target {
         continue;
       }
       const float w = (x == 0 ? 1.0 - f.x : f.x) * (y == 0 ? 1.0 - f.y : f.y) + 1.0e-4;
-      sum += clamp(guide.x, 0.0, 2.0) * w;
+      sum += saturate(guide.x) * w;
       weights += w;
     }
   }
