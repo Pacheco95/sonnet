@@ -61,7 +61,7 @@ After ten minutes of full load the GPU holds within 2 % of its cold clock and th
 
 The added whole-frame time is at most 0.5 ms for contact shadows: **met** at both qualities, median and p95, cold and sustained. The headless benchmark adds 0.08 ms (16 steps) and 0.05 ms (8 steps); the player at 1080p adds 0.065 to 0.106 ms to the median and 0.066 to 0.110 ms to the p95 over the three scenes, and 0.112 ms (median) and 0.113 ms (p95) after ten minutes of full load. Desktop renderers keep the standard 16 steps.
 
-What remains unmeasured: the 8-step quality in the player, windowed runs (presentation and frame pacing included), and every phone figure (#540).
+What remains unmeasured: the 8-step quality in the player, windowed runs (presentation and frame pacing included), and iOS. The Galaxy S25 Ultra figures are in [s25-ao-contact-shadows](s25-ao-contact-shadows.md) ([#540](https://github.com/Pacheco95/sonnet/issues/540)).
 
 ## Captures
 

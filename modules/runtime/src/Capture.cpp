@@ -82,12 +82,12 @@ constexpr std::array<CommandLineOption, 18> Options{{
      "off", true, ""},
     {"--transmission-downscale", "N",
      "build the transmission copy at 1/N of the view's size on each side, 1 to 8 (1, the view's size)", "2", true, ""},
-    {"--contact-shadows", "on|off",
-     "permit the sun's contact shadows a scene asks for, or turn them off; the platform's default otherwise", "off",
-     true, ""},
-    {"--ambient-occlusion", "on|off",
-     "permit the scene camera's screen-space ambient occlusion, or draw none; the platform's default otherwise", "off",
-     true, ""},
+    {"--contact-shadows", "on|reduced|off",
+     "permit the sun's contact shadows a scene asks for, 8 steps if reduced, or none; else the platform's default",
+     "off", true, ""},
+    {"--ambient-occlusion", "on|reduced|off",
+     "permit the camera's ambient occlusion, 2 slices of 3 steps if reduced, or none; else the platform's default",
+     "off", true, ""},
     {"--headless", "on|off",
      "draw offscreen with no window, so no display paces the frames, for timing runs; the desktop's only (off)", "on",
      true, ""},
@@ -335,10 +335,11 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
       }
       capture.transmission = value == "on";
     } else if (arg == "--contact-shadows") {
-      if (value != "on" && value != "off") {
-        return std::unexpected(captureError("--contact-shadows takes on or off"));
+      if (value != "on" && value != "reduced" && value != "off") {
+        return std::unexpected(captureError("--contact-shadows takes on, reduced or off"));
       }
-      capture.contactShadows = value == "on";
+      capture.contactShadows = value != "off";
+      capture.contactShadowsReduced = value == "reduced";
     } else if (arg == "--transmission-downscale") {
       std::uint32_t downscale = 0;
       const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), downscale);
@@ -347,10 +348,11 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
       }
       capture.transmissionDownscale = downscale;
     } else if (arg == "--ambient-occlusion") {
-      if (value != "on" && value != "off") {
-        return std::unexpected(captureError("--ambient-occlusion takes on or off"));
+      if (value != "on" && value != "reduced" && value != "off") {
+        return std::unexpected(captureError("--ambient-occlusion takes on, reduced or off"));
       }
-      capture.ambientOcclusion = value == "on";
+      capture.ambientOcclusion = value != "off";
+      capture.ambientOcclusionReduced = value == "reduced";
     } else if (arg == "--headless") {
       if (value != "on" && value != "off") {
         return std::unexpected(captureError("--headless takes on or off"));
@@ -514,13 +516,26 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
   }
   if (options.transmission || options.transmissionDownscale || options.contactShadows || options.ambientOcclusion) {
     renderer::RendererSettings settings = m_game.renderer().settings();
+    // `reduced` is ADR-0039's Reduced candidate, which a phone measures when the standard counts miss
+    // its budget.
     if (options.contactShadows) {
-      SONNET_LOG_INFO("capture draws with contact shadows {}", *options.contactShadows ? "on" : "off");
       settings.contactShadows = *options.contactShadows;
+      if (options.contactShadowsReduced) {
+        settings.contactShadowSteps = 8;
+      }
+      SONNET_LOG_INFO("capture draws with contact shadows {}",
+                      !*options.contactShadows ? "off" : (options.contactShadowsReduced ? "on, 8 steps" : "on"));
     }
     if (options.ambientOcclusion) {
-      SONNET_LOG_INFO("capture draws with ambient occlusion {}", *options.ambientOcclusion ? "permitted" : "off");
       settings.ambientOcclusion = *options.ambientOcclusion;
+      if (options.ambientOcclusionReduced) {
+        settings.ambientOcclusionSlices = 2;
+        settings.ambientOcclusionSteps = 3;
+      }
+      SONNET_LOG_INFO("capture draws with ambient occlusion {}",
+                      !*options.ambientOcclusion
+                          ? "off"
+                          : (options.ambientOcclusionReduced ? "permitted, 2 slices of 3 steps" : "permitted"));
     }
     if (options.transmission) {
       SONNET_LOG_INFO("capture draws with transmission {}", *options.transmission ? "on" : "off");

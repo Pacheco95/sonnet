@@ -270,6 +270,9 @@ TEST_CASE("applying inside a prefab of prefabs writes the file the target rule p
   const editor::ApplyRequest colour{
       .entity = world.uuidOf(sceneLid()), .component = "MeshRenderer", .member = json::json_pointer{"/color"}};
   REQUIRE(editor.applyTargetName(colour) == "Pallet");
+  // The crate's lid colour no longer reaches the scene, so the pallet is the only choice.
+  REQUIRE(editor.applyChoices(colour).size() == 1);
+  CHECK(editor.applyChoices(colour)[0].prefab == pallet);
   const std::string crateText = text(crateFile);
   REQUIRE(editor.applyToPrefab(colour).has_value());
   CHECK(text(crateFile) == crateText);
@@ -307,6 +310,50 @@ TEST_CASE("applying inside a prefab of prefabs writes the file the target rule p
   REQUIRE(editor.applyDialogOpen());
   editor.cancelApply();
   CHECK(stored(crateFile, lid)["MeshRenderer"]["visible"] == false);
+
+  // An outer prefab instead (#549): the rule picks the crate, the pallet is offered after it, and
+  // choosing it writes the pallet's file with the same confirmation, undo and rebuild.
+  const std::vector<editor::ApplyChoice> choices = editor.applyChoices(visible);
+  REQUIRE(choices.size() == 2);
+  CHECK(choices[0].prefab == crate);
+  CHECK(choices[0].name == "Crate");
+  CHECK(choices[1].prefab == pallet);
+  CHECK(choices[1].name == "Pallet");
+  editor::ApplyRequest outer = visible;
+  outer.prefab = pallet;
+  CHECK(editor.applyTargetName(outer) == "Pallet");
+  // A prefab that is not on the chain is not a target.
+  editor::ApplyRequest stranger = visible;
+  stranger.prefab = core::Uuid::generate();
+  CHECK(!editor.applyTargetName(stranger).has_value());
+  editor.requestApplyToPrefab(outer);
+  REQUIRE(editor.applyDialogOpen());
+  // What places the pallet: the closed scene and the open tab, no other prefab.
+  CHECK(editor.applyUsers().prefabs.empty());
+  REQUIRE(editor.applyUsers().scenes.size() == 1);
+  CHECK(editor.applyUsers().scenes[0].filename() == "closed.scene.json");
+  fixture.frame(editor); // the dialog draws, naming the pallet
+  const std::string crateBefore = text(crateFile);
+  const std::string palletBefore = text(palletFile);
+  const std::size_t rebuilds = editor.prefabRebuilds();
+  editor.confirmApply();
+  CHECK(!editor.applyDialogOpen());
+  CHECK(editor.prefabRebuilds() == rebuilds + 1);
+  CHECK(text(crateFile) == crateBefore);
+  CHECK(stored(palletFile, world::World::instancedIdentity(crateB, lid))["MeshRenderer"]["visible"] == true);
+  CHECK(sceneLid().get<world::MeshRenderer>().visible);
+  CHECK(marked(world, sceneLid(), "MeshRenderer").empty());
+  // The crate still hides its lid; only the pallet's crate shows it.
+  CHECK(stored(crateFile, lid)["MeshRenderer"]["visible"] == false);
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(palletFile) == palletBefore);
+  CHECK(sceneLid().get<world::MeshRenderer>().visible);
+  CHECK(marked(world, sceneLid(), "MeshRenderer") == json{{"visible", true}});
+  REQUIRE(editor.commands().redo(world));
+  CHECK(stored(palletFile, world::World::instancedIdentity(crateB, lid))["MeshRenderer"]["visible"] == true);
+  // Now the pallet sets the visibility, so it is the rule's pick and the only choice.
+  REQUIRE(editor.applyChoices(visible).size() == 1);
+  CHECK(editor.applyChoices(visible)[0].prefab == pallet);
 }
 
 TEST_CASE("applying a script property writes it into the prefab's slot", "[editor][gpu][prefab][apply][scripts]") {

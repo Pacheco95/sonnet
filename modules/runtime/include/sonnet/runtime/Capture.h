@@ -48,11 +48,16 @@ struct CaptureOptions {
   // --transmission-downscale: RendererSettings::transmissionDownscale for the run; the player's only.
   std::optional<std::uint32_t> transmissionDownscale;
   // --contact-shadows: RendererSettings::contactShadows for the run, over the player's platform
-  // default; the player's only. The scene's sun still has to ask for them.
+  // default; the player's only. The scene's sun still has to ask for them. `reduced` permits them
+  // at ADR-0039's Reduced count, 8 steps, and sets contactShadowsReduced.
   std::optional<bool> contactShadows;
+  bool contactShadowsReduced{false};
   // --ambient-occlusion: RendererSettings::ambientOcclusion for the run, over the player's platform
   // default; the player's only. On permits the scene camera's request, which still has to ask.
+  // `reduced` permits it at ADR-0039's Reduced counts, 2 slices of 3 steps a side, and sets
+  // ambientOcclusionReduced.
   std::optional<bool> ambientOcclusion;
+  bool ambientOcclusionReduced{false};
   // --headless: the player draws through SDL's offscreen video driver into an OffscreenSwapchain, so
   // no window shows and no display or compositor paces the frames (docs/player.md, "Headless runs");
   // the player's only, on the desktop.

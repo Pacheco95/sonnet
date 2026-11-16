@@ -146,8 +146,13 @@ TEST_CASE("--transmission-downscale takes 1 to 8", "[runtime][capture]") {
   }
 }
 
-TEST_CASE("--ambient-occlusion takes on or off", "[runtime][capture]") {
-  REQUIRE(player({"--ambient-occlusion", "on", "--screenshot", "a.png"})->capture->ambientOcclusion == true);
+TEST_CASE("--ambient-occlusion takes on, reduced or off", "[runtime][capture]") {
+  const auto on = player({"--ambient-occlusion", "on", "--screenshot", "a.png"});
+  REQUIRE(on->capture->ambientOcclusion == true);
+  REQUIRE_FALSE(on->capture->ambientOcclusionReduced);
+  const auto reduced = player({"--ambient-occlusion", "reduced", "--screenshot", "a.png"});
+  REQUIRE(reduced->capture->ambientOcclusion == true);
+  REQUIRE(reduced->capture->ambientOcclusionReduced);
   REQUIRE(player({"--ambient-occlusion", "off", "--screenshot", "a.png"})->capture->ambientOcclusion == false);
   REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->ambientOcclusion.has_value());
   const auto bad = player({"--ambient-occlusion", "yes", "--screenshot", "a.png"});
@@ -164,8 +169,13 @@ TEST_CASE("--transmission takes on or off", "[runtime][capture]") {
   REQUIRE(bad.error().message.find("--transmission") != std::string::npos);
 }
 
-TEST_CASE("--contact-shadows takes on or off", "[runtime][capture]") {
-  REQUIRE(player({"--contact-shadows", "on", "--screenshot", "a.png"})->capture->contactShadows == true);
+TEST_CASE("--contact-shadows takes on, reduced or off", "[runtime][capture]") {
+  const auto on = player({"--contact-shadows", "on", "--screenshot", "a.png"});
+  REQUIRE(on->capture->contactShadows == true);
+  REQUIRE_FALSE(on->capture->contactShadowsReduced);
+  const auto reduced = player({"--contact-shadows", "reduced", "--screenshot", "a.png"});
+  REQUIRE(reduced->capture->contactShadows == true);
+  REQUIRE(reduced->capture->contactShadowsReduced);
   REQUIRE(player({"--contact-shadows", "off", "--screenshot", "a.png"})->capture->contactShadows == false);
   REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->contactShadows.has_value());
   const auto bad = player({"--contact-shadows", "1", "--screenshot", "a.png"});

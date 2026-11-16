@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -40,12 +41,13 @@ public:
   void setOpenHandler(std::function<void(const std::string &, int)> handler) {
     m_open = std::move(handler);
   }
-  // "Apply to prefab" (docs/editor.md, "Applying to a prefab"): `target` names the prefab an apply
-  // would write to, nothing when it is not offered, and `apply` asks for one. Without them the
-  // inspector offers no apply.
-  void setApplyHandlers(std::function<std::optional<std::string>(const ApplyRequest &)> target,
+  // "Apply to prefab" (docs/editor.md, "Applying to a prefab"): `choices` lists the prefabs an
+  // apply could write to, the rule's pick first (Editor::applyChoices), empty when it is not
+  // offered, and `apply` asks for one, with the chosen prefab set. Without them the inspector
+  // offers no apply.
+  void setApplyHandlers(std::function<std::vector<ApplyChoice>(const ApplyRequest &)> choices,
                         std::function<void(ApplyRequest)> apply) {
-    m_applyTarget = std::move(target);
+    m_applyChoices = std::move(choices);
     m_apply = std::move(apply);
   }
   // "Apply all overrides" on an instance root (docs/editor.md, "Applying to a prefab"): `offered`
@@ -127,8 +129,14 @@ private:
   // what applying the property to the prefab asks for.
   void drawProperty(scripting::ScriptSlot &slot, const scripting::PropertyDecl &property,
                     const scripting::ScriptSlot *prefab, const ApplyRequest &request);
-  // The prefab an apply of `request` would write to, when one is offered.
-  [[nodiscard]] std::optional<std::string> applyTarget(const ApplyRequest &request) const;
+  // The prefabs an apply of `request` could write to, the rule's pick first; empty when none is
+  // offered.
+  [[nodiscard]] std::vector<ApplyChoice> applyChoices(const ApplyRequest &request) const;
+  // Apply, labelled `label`, which asks to apply `request` to the first of `choices`. With more
+  // than one it is a split button whose arrow opens the list of them all, the first marked as the
+  // default. `tooltip` is shown over the button.
+  void drawApply(const std::string &label, const ApplyRequest &request, std::span<const ApplyChoice> choices,
+                 const std::string &tooltip);
   // A drop target on the last widget for a script asset from the browser: one more slot.
   void acceptScriptDrop(flecs::entity entity);
   // A button naming the entity that opens a list of the scene's, and a drop target for the
@@ -169,7 +177,7 @@ private:
   // The entity and component being drawn, for the members' apply requests.
   core::Uuid m_drawnEntity;
   std::string m_drawnComponent;
-  std::function<std::optional<std::string>(const ApplyRequest &)> m_applyTarget;
+  std::function<std::vector<ApplyChoice>(const ApplyRequest &)> m_applyChoices;
   std::function<void(ApplyRequest)> m_apply;
   std::function<bool(core::Uuid)> m_applyAllOffered;
   std::function<void(core::Uuid)> m_applyAll;
