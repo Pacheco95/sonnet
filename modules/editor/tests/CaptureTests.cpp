@@ -3,6 +3,7 @@
 
 #include <sonnet/core/Error.h>
 #include <sonnet/core/File.h>
+#include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/platform/Window.h>
 #include <sonnet/rhi/Device.h>
@@ -10,10 +11,13 @@
 #include <sonnet/scripting/Components.h>
 #include <sonnet/world/Components.h>
 
+#include <RelativeModeWindow.h>
 #include <TestSupport.h>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_video.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -26,6 +30,7 @@
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -291,6 +296,130 @@ TEST_CASE("two captures of a scene that plays random numbers write the same imag
   const std::vector<std::byte> first = capture(directory / "first.png", 1000);
   const std::vector<std::byte> second = capture(directory / "second.png", 2000);
   REQUIRE(first == second);
+  sonnet::test::removeScratch(directory);
+}
+
+// A script that goes wherever the devices take it, as the character sample's camera and character do: it asks for
+// the pointer lock and climbs while it has it, walks on W and slides with the mouse.
+constexpr std::string_view Steer = R"lua(
+local Steer = {}
+function Steer:update(dt)
+  input.setMouseLocked(true)
+  local transform = self.entity:get("Transform")
+  local p = transform.position
+  local delta = input.mouseDelta()
+  local walk = input.keyDown("W") and dt * 4 or 0
+  local climb = input.mouseLocked() and dt * 4 or 0
+  transform.position = vec3(p.x + walk, p.y + climb, p.z + delta.x * 0.01)
+  self.entity:set("Transform", transform)
+end
+return Steer
+)lua";
+
+// Issue #576: the editor's capture runs heard the devices as the player's did before #556. Two captures with the
+// same flags draw the same image, the second with the focus, the mouse, a key and a stick handled every frame, over
+// the viewport that has the game's input; an editor that is not a capture run would have drawn it elsewhere.
+TEST_CASE("two identical editor captures draw the same image whatever the devices do", "[editor][capture][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "capture_devices";
+  std::filesystem::remove_all(directory);
+  // The lock succeeds, as on a desktop, rather than being refused by the offscreen driver.
+  test::RelativeModeWindow window{*fixture.window};
+  const SDL_WindowID windowId = SDL_GetWindowID(window.nativeHandle());
+  const glm::vec2 centre = glm::vec2{window.size()} * 0.5f;
+  const auto sdl = [&](SDL_EventType type) {
+    SDL_Event event{};
+    event.type = type;
+    return event;
+  };
+  // What someone at the machine does: the mouse over the viewport's image, a right drag that would fly its camera,
+  // a click, W held, a stick pushed and the focus lost and found, both as SDL hands them to Dear ImGui and as the
+  // platform hands them to the editor.
+  const auto handle = [&](editor::Editor &editor, int frame) {
+    SDL_Event motion = sdl(SDL_EVENT_MOUSE_MOTION);
+    motion.motion.windowID = windowId;
+    motion.motion.x = centre.x + static_cast<float>(frame % 7);
+    motion.motion.y = centre.y;
+    motion.motion.xrel = 17.0f;
+    editor.nativeEvent(motion);
+    SDL_Event right = sdl(SDL_EVENT_MOUSE_BUTTON_DOWN);
+    right.button.windowID = windowId;
+    right.button.button = SDL_BUTTON_RIGHT;
+    right.button.down = true;
+    right.button.x = centre.x;
+    right.button.y = centre.y;
+    editor.nativeEvent(right);
+    SDL_Event key = sdl(SDL_EVENT_KEY_DOWN);
+    key.key.windowID = windowId;
+    key.key.scancode = SDL_SCANCODE_W;
+    key.key.key = SDLK_W;
+    key.key.down = true;
+    key.key.repeat = frame > 0;
+    editor.nativeEvent(key);
+    editor.event(platform::WindowFocusChanged{.focused = frame % 20 != 0});
+    editor.event(platform::MouseMoved{.position = centre, .delta = {17.0f, -5.0f}});
+    editor.event(platform::MouseButtonPressed{.button = platform::MouseButton::Left, .position = centre, .clicks = 1});
+    editor.event(platform::KeyPressed{.key = platform::Key::W, .modifiers = {}, .repeat = frame > 0});
+    editor.event(platform::GamepadConnected{.name = "pad"});
+    editor.event(platform::GamepadAxisMoved{.axis = platform::GamepadAxis::LeftX, .value = 1.0f});
+  };
+  const auto capture = [&](std::string_view name, bool captureRun, bool handled) {
+    editor::Editor editor{fixture.platform, window, *fixture.device, *fixture.swapchain, false, nullptr, captureRun};
+    const std::filesystem::path project = directory / name;
+    REQUIRE(editor.createProject(project, "Devices").has_value());
+    const auto script = editor.assets().createScript(project / "scripts" / "steer.lua", Steer);
+    REQUIRE(script.has_value());
+    for (const flecs::entity root : editor.world().roots()) {
+      if (root.get<world::Name>().value == "Box") {
+        root.set<scripting::Scripts>({.slots = {{.script = *script}}});
+      }
+    }
+    editor::CaptureOptions options;
+    options.playSeconds = 0.25f;
+    options.viewport = directory / "shots" / std::format("{}.png", name);
+    options.settleFrames = 2;
+    options.front = "viewport"; // the viewport has the focus, and with it the game's input
+    editor::CaptureRun run{options};
+    editor::CaptureRun::Status status = editor::CaptureRun::Status::Running;
+    for (int frame = 0; frame < 600 && status == editor::CaptureRun::Status::Running; ++frame) {
+      if (handled) {
+        handle(editor, frame);
+      }
+      editor.update(editor::CaptureRun::FrameSeconds);
+      rhi::ICommandList &commands = fixture.device->beginFrame();
+      const auto image = fixture.swapchain->acquire();
+      REQUIRE(image.has_value());
+      editor.render(commands, image);
+      fixture.device->endFrame();
+      editor.afterPresent();
+      status = run.step(editor);
+    }
+    REQUIRE(status == editor::CaptureRun::Status::Done);
+    if (captureRun) {
+      // The scripts heard none of it, and the pointer was never taken.
+      CHECK_FALSE(editor.gameInput().keyDown(platform::Key::W));
+      CHECK_FALSE(editor.gameInput().gamepadConnected());
+      CHECK_FALSE(editor.gameInput().mouseLocked());
+      CHECK_FALSE(window.relativeMouseMode());
+    }
+    return readPng(options.viewport);
+  };
+  const Image alone = capture("alone", true, false);
+  const Image handled = capture("handled", true, true);
+  REQUIRE(alone.width > 0);
+  REQUIRE(handled.width == alone.width);
+  REQUIRE(handled.height == alone.height);
+  const bool same = handled.rgba == alone.rgba; // not expanded: Catch2 prints the whole image
+  CHECK(same);
+  // The same events reach an editor that is not a capture run, and move what it draws: the test handles enough.
+  const Image heard = capture("heard", false, true);
+  REQUIRE(heard.width == alone.width);
+  const bool moved = heard.rgba != alone.rgba;
+  CHECK(moved);
+  REQUIRE_FALSE(window.relativeMouseMode()); // given back as the editor went away
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
   sonnet::test::removeScratch(directory);
 }
 

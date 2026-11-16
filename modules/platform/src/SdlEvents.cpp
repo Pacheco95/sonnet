@@ -285,4 +285,37 @@ std::optional<Event> translateEvent(const SDL_Event &event) {
   }
 }
 
+namespace {
+
+template <typename... Types> [[nodiscard]] bool holdsAny(const Event &event) noexcept {
+  return (std::holds_alternative<Types>(event) || ...);
+}
+
+} // namespace
+
+bool isDeviceInput(const Event &event) noexcept {
+  return holdsAny<WindowFocusChanged, MouseLeftWindow, KeyPressed, KeyReleased, TextInput, MouseMoved,
+                  MouseButtonPressed, MouseButtonReleased, MouseWheel, TouchDown, TouchUp, TouchMotion,
+                  GamepadConnected, GamepadDisconnected, GamepadButtonPressed, GamepadButtonReleased, GamepadAxisMoved>(
+      event);
+}
+
+bool isDeviceInput(const SDL_Event &event) noexcept {
+  switch (event.type) {
+  case SDL_EVENT_WINDOW_MOUSE_ENTER:
+  case SDL_EVENT_TEXT_EDITING:
+  case SDL_EVENT_TEXT_EDITING_CANDIDATES:
+    return true;
+  default:
+    break;
+  }
+  // The joysticks', the gamepads' and the pens' own events.
+  if ((event.type >= SDL_EVENT_JOYSTICK_AXIS_MOTION && event.type < SDL_EVENT_FINGER_DOWN) ||
+      (event.type >= SDL_EVENT_PEN_PROXIMITY_IN && event.type <= SDL_EVENT_PEN_AXIS)) {
+    return true;
+  }
+  const std::optional<Event> translated = translateEvent(event);
+  return translated.has_value() && isDeviceInput(*translated);
+}
+
 } // namespace sonnet::platform

@@ -154,4 +154,9 @@ using Event =
                  GamepadDisconnected, GamepadButtonPressed, GamepadButtonReleased, GamepadAxisMoved, FileDropped,
                  DropCompleted, WillEnterBackground, DidEnterForeground, LowMemory, Terminating>;
 
+// What someone at the machine does: the keys, text, mouse, touches and gamepads, and the focus and the mouse leaving
+// a window, which decide whether the application has them. A capture run ignores these, so the same flags draw the
+// same image whatever is done at the machine meanwhile (docs/player.md and docs/editor.md, the capture runs).
+[[nodiscard]] bool isDeviceInput(const Event &event) noexcept;
+
 } // namespace sonnet::platform
