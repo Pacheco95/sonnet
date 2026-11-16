@@ -48,6 +48,7 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset linux-debug 
 python3 tools/check_docs.py            # after editing any Markdown
 python3 tools/check_dependencies.py    # the one-way module dependency rule
 python3 tools/check_version.py         # vcpkg.json must mirror project(sonnet VERSION ...)
+python3 tools/check_version_bump.py    # warns when feat commits landed since the last version bump
 git ls-files '*.h' '*.cpp' | xargs clang-format-20 --dry-run --Werror   # CI rejects unformatted code; run it with version 20 before opening a PR
 sh tools/install_hooks.sh              # once per clone: commit-msg (Conventional Commits) and pre-commit (dependency rule) hooks
 ```

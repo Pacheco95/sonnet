@@ -1,0 +1,30 @@
+name: Version reminder
+
+# Warns, never fails, when feat or breaking commits have landed since the engine version last changed
+# (docs/conventions.md, "Versioning"; docs/build.md, "Continuous integration"). Separate from ci.yml so
+# it runs on drafts too and never holds up the build matrix.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'pull_request'
+    && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  minor-bump:
+    name: Minor bump reminder
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Warn about features since the last version change
+        run: python3 tools/check_version_bump.py
