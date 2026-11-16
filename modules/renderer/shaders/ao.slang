@@ -343,8 +343,11 @@ float4 temporal(VertexOutput input) : SV_Target {
   // lose its history, which is better than keeping another surface's occlusion.
   const float predicted = dot(ao.previousDepthRow, float4(viewPosition(float2(p) + 0.5, depth), 1.0));
   const float3 normal = decodeNormal(current.zw);
-  // A half-resolution texel's footprint centre is at full-resolution 2t + 1.
-  const float2 at = uv * full * 0.5 - 0.5;
+  // A history texel h holds its own representative's estimate, which on a continuous surface lies
+  // at the same place in its footprint as this texel's, full-resolution 2h + (p - 2t) + 0.5. Taken
+  // as the footprint centre 2h + 1 instead, the representative's half-pixel offset (the nearer row
+  // of a receding floor) moved the history a quarter texel a frame, away from the camera's side.
+  const float2 at = (uv * full - float2(p - 2 * texel) - 0.5) * 0.5;
   const int2 base = int2(floor(at));
   const float2 f = at - float2(base);
   const int2 size = halfSize();
@@ -364,7 +367,12 @@ float4 temporal(VertexOutput input) : SV_Target {
           dot(decodeNormal(guide.zw), normal) < 0.9) {
         continue;
       }
-      const float w = (x == 0 ? 1.0 - f.x : f.x) * (y == 0 ? 1.0 - f.y : f.y) + 1.0e-4;
+      // The nearest texel, and the others' bilinear weights only when it is not compatible: a
+      // bilinear blend is resampled again every frame, which compounds into a blur of a few texels,
+      // and beside a silhouette, where the occluder's own texels are rejected, the blur leans to the
+      // open side. With both, the ground beside a box settled 0.07 lighter than the search (#573).
+      const bool nearest = (x == 0) == (f.x < 0.5) && (y == 0) == (f.y < 0.5);
+      const float w = (nearest ? 1.0 : 0.0) + 1.0e-3 * (x == 0 ? 1.0 - f.x : f.x) * (y == 0 ? 1.0 - f.y : f.y) + 1.0e-6;
       sum += saturate(guide.x) * w;
       weights += w;
     }
