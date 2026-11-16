@@ -221,6 +221,10 @@ public:
   // instance root or apply is not offered at all (playing, a bundle); the action is offered when
   // it lists a file.
   [[nodiscard]] ApplyAllPlan applyAllPlan(core::Uuid instance) const;
+  // Whether applyAllPlan(instance) lists a file, without building it: the walk stops at the first
+  // change that can be applied and describes nothing. The inspector and the hierarchy ask it every
+  // frame they show an instance root (#578).
+  [[nodiscard]] bool applyAllOffered(core::Uuid instance) const;
   // Opens the confirmation, which lists the plan; Apply there is applyAllOverrides.
   void requestApplyAllOverrides(core::Uuid instance);
   [[nodiscard]] bool applyAllDialogOpen() const noexcept {
@@ -664,6 +668,9 @@ private:
     std::filesystem::path file;
   };
   [[nodiscard]] std::optional<ResolvedApply> resolveApply(const ApplyRequest &request) const;
+  // applyAllPlan's walk; with `plan` null it only finds whether a change can be applied, stopping
+  // at the first one.
+  bool walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const;
   // The document `root`, a prefab with a file, saves with every request's change made on its
   // target, which is then put back so the rebuild still saves the scene against the old prefab.
   // Every request must resolve to `root`.
