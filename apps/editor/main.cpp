@@ -213,6 +213,11 @@ private:
 
 } // namespace
 
+// The editor always opens its window; a capture needs its panels laid out on a real one.
+platform::PlatformDesc platform::platformDesc(std::span<const std::string_view>) noexcept {
+  return {};
+}
+
 std::unique_ptr<platform::IApplication> platform::createApplication(Platform &platform,
                                                                     std::span<const std::string_view> args) {
   // A project folder, and the flags of a capture run (docs/editor.md, "Screenshots"). Help and

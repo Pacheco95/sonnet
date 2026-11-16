@@ -112,7 +112,7 @@ Buttons are named by position as SDL's `SDL_GamepadButton` is (`South`, `East`, 
 
 ## Headless
 
-`PlatformDesc::headless` selects SDL's offscreen video driver: windows exist and report sizes, nothing is displayed, and the Vulkan library still loads, so the same code paths run in tests and CI. SDL assertions abort instead of opening their dialog, and the gamepad subsystem stays off ([Gamepads](#gamepads)). `platform_tests` uses it for every test that needs the subsystem.
+The entry point builds the `Platform` from `platformDesc(args)`, which each executable defines beside `createApplication` (`Application.h`) and which sees the same arguments before SDL starts video: the editor always returns the default, and the player asks for a headless platform for a capture with `--headless on` ([player.md](player.md#headless-runs)). `PlatformDesc::headless` selects SDL's offscreen video driver: windows exist and report sizes, nothing is displayed, and the Vulkan library still loads, so the same code paths run in tests and CI. SDL assertions abort instead of opening their dialog, and the gamepad subsystem stays off ([Gamepads](#gamepads)). `platform_tests` uses it for every test that needs the subsystem.
 
 ## Paths
 

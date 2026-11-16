@@ -112,7 +112,7 @@ TEST_CASE("the editor and the player share one table", "[runtime][capture]") {
     REQUIRE(line.has_value() == option.player);
     players += option.player ? 1 : 0;
   }
-  REQUIRE(players == 10);
+  REQUIRE(players == 11);
   // The player's window is its scene, which its line for --screenshot says.
   REQUIRE(usage.contains("the scene, at the window's size"));
   REQUIRE(!usage.contains("viewport"));
@@ -171,6 +171,17 @@ TEST_CASE("--contact-shadows takes on or off", "[runtime][capture]") {
   const auto bad = player({"--contact-shadows", "1", "--screenshot", "a.png"});
   REQUIRE_FALSE(bad.has_value());
   REQUIRE(bad.error().message.find("--contact-shadows") != std::string::npos);
+}
+
+TEST_CASE("--headless takes on or off and is off by default", "[runtime][capture]") {
+  REQUIRE(player({"--headless", "on", "--screenshot", "a.png"})->capture->headless);
+  REQUIRE_FALSE(player({"--headless", "off", "--screenshot", "a.png"})->capture->headless);
+  REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->headless);
+  const auto bad = player({"--headless", "yes", "--screenshot", "a.png"});
+  REQUIRE_FALSE(bad.has_value());
+  REQUIRE(bad.error().message.find("--headless") != std::string::npos);
+  // A capture flag like the others: without a screenshot there is nothing for the run to end on.
+  REQUIRE_FALSE(player({"--headless", "on"}).has_value());
 }
 
 TEST_CASE("--play takes what floating-point from_chars took", "[runtime][capture]") {

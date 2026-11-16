@@ -10,6 +10,7 @@
 #include <sonnet/platform/Thermal.h>
 #include <sonnet/platform/Window.h>
 #include <sonnet/rhi/Device.h>
+#include <sonnet/rhi/OffscreenSwapchain.h>
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/runtime/Capture.h>
 #include <sonnet/runtime/FrameTimes.h>
@@ -87,6 +88,21 @@ using namespace sonnet;
   return desc;
 }
 
+// A headless capture draws into an offscreen swapchain: no surface, so no display or compositor
+// paces its presents. A windowed run on a locked or blanked desktop is paced at one frame a second
+// by Xwayland, with the GPU at its idle clock (docs/player.md, "Headless runs").
+[[nodiscard]] bool headless(const runtime::CommandLine &line) {
+  return line.capture && line.capture->headless;
+}
+
+[[nodiscard]] std::unique_ptr<rhi::ISwapchain> createSwapchain(rhi::IDevice &device, platform::IWindow &window,
+                                                               bool offscreen) {
+  if (offscreen) {
+    return std::make_unique<rhi::OffscreenSwapchain>(device, window);
+  }
+  return device.createSwapchain(window);
+}
+
 // Ends the run on its first iteration: --help, or a command line that does not parse. The
 // window and device are never created for it.
 class ExitApp final : public platform::IApplication {
@@ -116,7 +132,7 @@ public:
   PlayerApp(platform::Platform &platform, const runtime::CommandLine &line)
       : m_window(platform.createWindow({.title = "Sonnet", .size = {1280, 720}, .frameRate = 60.0F})),
         m_device(rhi::createDevice({.platform = &platform, .applicationName = "Sonnet Player"})),
-        m_swapchain(m_device->createSwapchain(*m_window)),
+        m_swapchain(createSwapchain(*m_device, *m_window, headless(line))),
         m_game(std::make_unique<runtime::Game>(*m_window, *m_device, *m_swapchain, gameDesc(line))) {
     if (line.capture) {
       // A relative screenshot goes where a phone lets the player write (docs/player.md, "Capture
@@ -124,8 +140,8 @@ public:
       runtime::CaptureOptions options = *line.capture;
       runtime::resolveOutputs(options, platform.prefPath("sonnet", "player"));
       const rhi::DeviceInfo &info = m_device->info();
-      SONNET_LOG_INFO("capture run on \"{}\", Vulkan {}, writing {}", info.deviceName, vulkanVersion(info.apiVersion),
-                      options.viewport.string());
+      SONNET_LOG_INFO("capture run on \"{}\", Vulkan {}, writing {}{}", info.deviceName, vulkanVersion(info.apiVersion),
+                      options.viewport.string(), options.headless ? ", headless: no display paces the frames" : "");
       m_capture.emplace(std::move(options));
     }
     const std::filesystem::path content = contentPath(line.content);
@@ -276,6 +292,23 @@ private:
 
 } // namespace
 
+// SDL's offscreen video driver for a headless capture, chosen before SDL starts video. A command
+// line that does not parse starts the platform as usual, and createApplication reports it.
+platform::PlatformDesc platform::platformDesc(std::span<const std::string_view> args) noexcept {
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+  static_cast<void>(args);
+  return {};
+#else
+  try {
+    const core::Result<runtime::CommandLine> line =
+        runtime::parseCommandLine(args, runtime::CaptureApplication::Player);
+    return {.headless = line && headless(*line)};
+  } catch (...) {
+    return {};
+  }
+#endif
+}
+
 std::unique_ptr<platform::IApplication> platform::createApplication(Platform &platform,
                                                                     std::span<const std::string_view> args) {
   // A game and the flags of a capture run, in any order (docs/player.md, "Capture runs"). A
@@ -289,5 +322,12 @@ std::unique_ptr<platform::IApplication> platform::createApplication(Platform &pl
     std::print("{}", runtime::commandLineUsage(runtime::CaptureApplication::Player));
     return std::make_unique<ExitApp>(platform::AppResult::Success);
   }
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+  // A phone's window is the app's whole screen, which the OS stops drawing in the background anyway.
+  if (headless(*line)) {
+    SONNET_LOG_ERROR("sonnet_player: --headless is the desktop's");
+    return std::make_unique<ExitApp>(platform::AppResult::Failure);
+  }
+#endif
   return std::make_unique<PlayerApp>(platform, *line);
 }

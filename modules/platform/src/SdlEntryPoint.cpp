@@ -30,6 +30,8 @@ namespace {
 // Declared in the order each needs the one before; destroyed the other way round, the application
 // before the gamepad it reads and SDL last.
 struct AppState {
+  explicit AppState(const PlatformDesc &desc) : platform(desc) {
+  }
   Platform platform;
   SdlGamepads gamepads;
   std::unique_ptr<IApplication> app;
@@ -71,9 +73,9 @@ SDL_AppResult appInit(void **state, int argc, char **argv) {
   }
 #endif
   try {
-    auto appState = std::make_unique<AppState>();
     // The arguments proper: the program name is of no use to an application.
     std::vector<std::string_view> args(argv + std::min(argc, 1), argv + argc);
+    auto appState = std::make_unique<AppState>(platformDesc(args));
     appState->app = createApplication(appState->platform, args);
     // SDL holds the state between callbacks; appQuit takes ownership back.
     *state = appState.release();

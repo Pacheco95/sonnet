@@ -13,6 +13,7 @@
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/NullDevice.h>
+#include <sonnet/rhi/OffscreenSwapchain.h>
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/DrawList.h>
@@ -39,6 +40,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -156,12 +158,18 @@ struct Fixture {
   std::unique_ptr<rhi::IDevice> device;
   std::unique_ptr<rhi::ISwapchain> swapchain;
 
-  explicit Fixture(glm::uvec2 windowSize = {640, 480}) {
+  // `offscreen` draws into the player's headless swapchain rather than through a headless surface,
+  // which every device can, including those without headless surfaces.
+  explicit Fixture(glm::uvec2 windowSize = {640, 480}, bool offscreen = false) {
     try {
       window = platform.createWindow({.title = "runtime_tests", .size = windowSize});
       device = rhi::createDevice({.platform = &platform, .applicationName = "runtime_tests"});
     } catch (const core::Exception &e) {
       SKIP("no usable Vulkan 1.4 device: " << e.what());
+    }
+    if (offscreen) {
+      swapchain = std::make_unique<rhi::OffscreenSwapchain>(*device, *window);
+      return;
     }
     const rhi::DeviceInfo &info = device->info();
     if (info.loaderVersion < VK_API_VERSION_1_4 && info.driverName != "llvmpipe") {
@@ -611,6 +619,77 @@ TEST_CASE("a player's capture run writes the scene under the preferences directo
                              4;
   REQUIRE(png.rgba[centre] + png.rgba[centre + 1] + png.rgba[centre + 2] > 30);
   std::filesystem::remove(written);
+}
+
+// The basic sample captured as the player captures it, at the fixed step with its settle frames
+// first, written under captureDirectory() / file and read back. Empty when the sample is missing.
+[[nodiscard]] std::optional<Png> captureBasic(Fixture &fixture, const runtime::CaptureOptions &options) {
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    return std::nullopt;
+  }
+  std::filesystem::remove(options.viewport);
+  {
+    runtime::GameDesc desc = fixture.desc();
+    desc.paused = true;
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(project).has_value());
+    runtime::CaptureRun run{options};
+    REQUIRE(fixture.capture(game, run) == runtime::CaptureRun::Status::Done);
+    REQUIRE(game.graph().statistics().passes.size() > 2);
+  }
+  Png png = readPng(options.viewport);
+  std::filesystem::remove(options.viewport);
+  return png;
+}
+
+TEST_CASE("a headless capture draws into the offscreen swapchain on any device", "[runtime][capture][gpu]") {
+  // The headless platform, as the player's --headless starts it, with the player's offscreen
+  // swapchain: no surface, so it runs where headless surfaces do not, the desktop GPUs among them.
+  Fixture fixture{{640, 480}, true};
+  REQUIRE(fixture.swapchain->imageCount() == rhi::OffscreenSwapchain::ImageCount);
+  const runtime::CaptureOptions options = playerCapture(
+      {"--headless", "on", "--play", "0.25", "--settle-frames", "2", "--screenshot", "shots/headless.png"});
+  REQUIRE(options.headless);
+  const auto sink = std::make_shared<ProblemSink>();
+  core::Log::addSink(sink);
+  const std::optional<Png> png = captureBasic(fixture, options);
+  core::Log::removeSink(sink);
+  if (!png) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  // Validation is on in the tests' devices: the present pass's layout on images no surface owns,
+  // and each image drawn again three acquires later, raise nothing.
+  REQUIRE(sink->problems.empty());
+  REQUIRE(png->width == 640);
+  REQUIRE(png->height == 480);
+  const std::size_t centre = (static_cast<std::size_t>(png->height / 2) * static_cast<std::size_t>(png->width) +
+                              static_cast<std::size_t>(png->width / 2)) *
+                             4;
+  REQUIRE(png->rgba[centre] + png->rgba[centre + 1] + png->rgba[centre + 2] > 30);
+}
+
+TEST_CASE("a headless capture draws what the window's swapchain draws", "[runtime][capture][gpu]") {
+  // Through a headless surface first, which skips where the device cannot present to one.
+  std::optional<Png> windowed;
+  {
+    Fixture fixture;
+    windowed = captureBasic(
+        fixture, playerCapture({"--play", "0.25", "--settle-frames", "2", "--screenshot", "shots/windowed.png"}));
+  }
+  if (!windowed) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  std::optional<Png> headless;
+  {
+    Fixture fixture{{640, 480}, true};
+    headless = captureBasic(fixture, playerCapture({"--headless", "on", "--play", "0.25", "--settle-frames", "2",
+                                                    "--screenshot", "shots/headless.png"}));
+  }
+  REQUIRE(headless.has_value());
+  REQUIRE(headless->width == windowed->width);
+  REQUIRE(headless->height == windowed->height);
+  REQUIRE(headless->rgba == windowed->rgba);
 }
 
 TEST_CASE("a capture with --render-size draws and writes at that size, not the window's", "[runtime][capture][gpu]") {
