@@ -205,6 +205,11 @@ public:
   // Transform, when the chain has no prefab file, for a script property whose slot list the
   // target runs differently, and for a removal the target cannot make (a component it inherits).
   [[nodiscard]] std::optional<std::string> applyTargetName(const ApplyRequest &request) const;
+  // The prefabs the inspector offers to apply `request` to (World::applyTargets): the rule's pick
+  // first, then each outer prefab with a file that the value would reach the entity unchanged
+  // from, outwards. Each one, set as the request's `prefab`, is applied like the rule's pick. Empty
+  // when applyTargetName offers nothing; `request.prefab` is ignored.
+  [[nodiscard]] std::vector<ApplyChoice> applyChoices(const ApplyRequest &request) const;
   // Opens the confirmation, which lists prefabUsers for the target; Apply there is applyToPrefab.
   void requestApplyToPrefab(ApplyRequest request);
   [[nodiscard]] bool applyDialogOpen() const noexcept {
