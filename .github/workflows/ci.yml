@@ -370,8 +370,10 @@ jobs:
         run: |
           caches=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$PREFIX" --limit 100 --json id,key)
           # Only once the new entry is there, so a save that failed does not leave the group empty.
+          # tr: jq on Windows ends its lines with CR LF, and gh would look for an id ending in CR.
           if jq -e --arg key "$KEY" 'any(.key == $key)' <<< "$caches" > /dev/null; then
             jq -r --arg key "$KEY" '.[] | select(.key != $key) | .id' <<< "$caches" \
+              | tr -d '\r' \
               | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY"
           else
             echo "::warning::$KEY is not in the cache list; keeping the older entries"
@@ -439,8 +441,10 @@ jobs:
         run: |
           caches=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$PREFIX" --limit 100 --json id,key)
           # Only once the new entry is there, so a save that failed does not leave the group empty.
+          # tr: jq on Windows ends its lines with CR LF, and gh would look for an id ending in CR.
           if jq -e --arg key "$KEY" 'any(.key == $key)' <<< "$caches" > /dev/null; then
             jq -r --arg key "$KEY" '.[] | select(.key != $key) | .id' <<< "$caches" \
+              | tr -d '\r' \
               | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY"
           else
             echo "::warning::$KEY is not in the cache list; keeping the older entries"
@@ -584,8 +588,10 @@ jobs:
         run: |
           caches=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$PREFIX" --limit 100 --json id,key)
           # Only once the new entry is there, so a save that failed does not leave the group empty.
+          # tr: jq on Windows ends its lines with CR LF, and gh would look for an id ending in CR.
           if jq -e --arg key "$KEY" 'any(.key == $key)' <<< "$caches" > /dev/null; then
             jq -r --arg key "$KEY" '.[] | select(.key != $key) | .id' <<< "$caches" \
+              | tr -d '\r' \
               | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY"
           else
             echo "::warning::$KEY is not in the cache list; keeping the older entries"
@@ -695,8 +701,10 @@ jobs:
         run: |
           caches=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$PREFIX" --limit 100 --json id,key)
           # Only once the new entry is there, so a save that failed does not leave the group empty.
+          # tr: jq on Windows ends its lines with CR LF, and gh would look for an id ending in CR.
           if jq -e --arg key "$KEY" 'any(.key == $key)' <<< "$caches" > /dev/null; then
             jq -r --arg key "$KEY" '.[] | select(.key != $key) | .id' <<< "$caches" \
+              | tr -d '\r' \
               | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY"
           else
             echo "::warning::$KEY is not in the cache list; keeping the older entries"
