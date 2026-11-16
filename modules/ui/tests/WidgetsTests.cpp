@@ -392,9 +392,9 @@ TEST_CASE("a property table has the theme's label width, a stretching value and 
   }
 }
 
-TEST_CASE("the default action column holds Apply and Revert side by side at every scale and text zoom",
+TEST_CASE("the default action column holds Apply, its arrow and Revert side by side at every scale and text zoom",
           "[ui][widgets]") {
-  CHECK(ui::Theme{}.propertyActionWidth == 9.5f);
+  CHECK(ui::Theme{}.propertyActionWidth == 10.5f);
   for (const float scale : {1.0f, 2.0f}) {
     for (const float zoom : {1.0f, 2.0f}) {
       HeadlessImGui imgui{scale};
@@ -409,7 +409,8 @@ TEST_CASE("the default action column holds Apply and Revert side by side at ever
           ImGui::TableNextColumn();
           ImGui::TableNextColumn();
           ImGui::TableNextColumn();
-          (void)ui::rowButton("Apply");
+          // Apply with the arrow of its prefabs, the widest the column holds.
+          (void)ui::splitRowButton("Apply");
           applyTop = ImGui::GetItemRectMin().y;
           ImGui::SameLine();
           (void)ui::rowButton("Revert");
@@ -424,6 +425,36 @@ TEST_CASE("the default action column holds Apply and Revert side by side at ever
       CHECK(revertTop == Approx(applyTop));
       CHECK(revertRight <= cellRight);
     }
+  }
+}
+
+TEST_CASE("a split row button joins an arrow as tall as the button, under the button's label", "[ui][widgets]") {
+  for (const float scale : {1.0f, 2.0f}) {
+    HeadlessImGui imgui{scale};
+    ImGuiID arrow = 0;
+    ImGuiID expected = 0;
+    ImVec2 buttonMin;
+    ImVec2 buttonMax;
+    ImVec2 arrowMin;
+    ImVec2 arrowMax;
+    float font = 0.0f;
+    HeadlessImGui::frame([&] {
+      (void)ui::rowButton("Measure");
+      buttonMin = ImGui::GetItemRectMin();
+      buttonMax = ImGui::GetItemRectMax();
+      (void)ui::splitRowButton("Apply");
+      arrow = ImGui::GetItemID();
+      arrowMin = ImGui::GetItemRectMin();
+      arrowMax = ImGui::GetItemRectMax();
+      ImGui::PushID("Apply");
+      expected = ImGui::GetID("menu");
+      ImGui::PopID();
+      font = ImGui::GetFontSize();
+    });
+    INFO("scale " << scale);
+    CHECK(arrow == expected);
+    CHECK(arrowMax.y - arrowMin.y == Approx(buttonMax.y - buttonMin.y));
+    CHECK(arrowMax.x - arrowMin.x == Approx(font));
   }
 }
 
