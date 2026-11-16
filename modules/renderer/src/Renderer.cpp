@@ -1210,8 +1210,12 @@ std::uint32_t Renderer::packSamplers(const MaterialDesc &desc) {
 
 MaterialHandle Renderer::createMaterial(const MaterialDesc &desc, std::string debugName) {
   const auto samplers = packSamplers(desc);
-  // Spike (#502): the humanoid's Skin and Hair, by the "<model>/<material>" debug name.
-  const std::uint32_t spikeModel = debugName.ends_with("/Skin") ? 1u : debugName.ends_with("/Hair") ? 2u : 0u;
+  // Spike (#502): the humanoid's Skin and Hair, by the debug name: "<model>/<material>" from a
+  // project, the material's own name from a cooked bundle.
+  const auto named = [&](std::string_view name) {
+    return debugName == name || debugName.ends_with(std::string{"/"} + std::string{name});
+  };
+  const std::uint32_t spikeModel = named("Skin") ? 1u : named("Hair") ? 2u : 0u;
   const MaterialHandle handle = m_materials.emplace(
       Material{std::move(debugName), desc, samplers, materialSampler(desc.transmissionSampler), spikeModel});
   m_materialSlots = std::max(m_materialSlots, handle.index + 1);
@@ -3030,7 +3034,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   const auto encode = [this](const MaterialDesc &desc, std::uint32_t samplers, std::uint32_t transmissionSampler,
                              std::uint32_t spikeModel = 0) {
     // Spike (#502): Skin and Hair by name, with the sample's parameters.
-    const std::uint32_t model = m_settings.characterShading ? spikeModel : 0u;
+    const std::uint32_t model =
+        m_settings.characterShading && !(m_settings.characterShadingSkinOnly && spikeModel == 2) ? spikeModel : 0u;
     const glm::vec4 shadingRow = model == 1   ? glm::vec4{1.0f, SpikeSkinRadius, 0.0f, 0.0f}
                                  : model == 2 ? glm::vec4{-0.08f, 0.12f, 0.5f, 0.0f}
                                               : glm::vec4{0.0f};

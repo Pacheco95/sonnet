@@ -144,7 +144,8 @@ struct RendererSettings {
   // Spike (#502), not for merge: the humanoid's materials named Skin and Hair shade with the
   // prototype skin and hair models, and Hair takes the TAA-dithered mask. Off renders as today.
   bool characterShading{false};
-  bool characterShadingHairU{false}; // spike (#502): the hair's strands along U instead of V
+  bool characterShadingHairU{false};    // spike (#502): the hair's strands along U instead of V
+  bool characterShadingSkinOnly{false}; // spike (#502): Hair stays standard
   // The march's steps per pixel, 1 to 32: 16 is the standard quality and 8 the reduced one.
   std::uint32_t contactShadowSteps{16};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the

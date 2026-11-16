@@ -88,7 +88,7 @@ constexpr std::array<CommandLineOption, 19> Options{{
     {"--ambient-occlusion", "on|reduced|off",
      "permit the camera's ambient occlusion, 2 slices of 3 steps if reduced, or none; else the platform's default",
      "off", true, ""},
-    {"--character-shading", "on|off",
+    {"--character-shading", "on|skin|hair-u|off",
      "spike (#502): shade the humanoid's Skin and Hair with the prototype models (off)", "on", true, ""},
     {"--headless", "on|off",
      "draw offscreen with no window, so no display paces the frames, for timing runs; the desktop's only (off)", "on",
@@ -356,11 +356,12 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
       capture.ambientOcclusion = value != "off";
       capture.ambientOcclusionReduced = value == "reduced";
     } else if (arg == "--character-shading") {
-      if (value != "on" && value != "hair-u" && value != "off") {
-        return std::unexpected(captureError("--character-shading takes on, hair-u or off"));
+      if (value != "on" && value != "skin" && value != "hair-u" && value != "off") {
+        return std::unexpected(captureError("--character-shading takes on, skin, hair-u or off"));
       }
       capture.characterShading = value != "off";
       capture.characterShadingHairU = value == "hair-u";
+      capture.characterShadingSkinOnly = value == "skin";
     } else if (arg == "--headless") {
       if (value != "on" && value != "off") {
         return std::unexpected(captureError("--headless takes on or off"));
@@ -529,6 +530,7 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
       SONNET_LOG_INFO("capture draws with character shading {}", *options.characterShading ? "on" : "off");
       settings.characterShading = *options.characterShading;
       settings.characterShadingHairU = options.characterShadingHairU;
+      settings.characterShadingSkinOnly = options.characterShadingSkinOnly;
     }
     // `reduced` is ADR-0039's Reduced candidate, which a phone measures when the standard counts miss
     // its budget.
