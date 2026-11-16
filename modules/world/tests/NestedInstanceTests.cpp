@@ -548,6 +548,7 @@ TEST_CASE("applying a change goes to the deepest prefab file the value reaches t
   // one first, then the outer one. A plain instance has its prefab alone.
   const auto entities = [](const std::vector<world::ApplyTarget> &targets) {
     std::vector<flecs::entity> out;
+    out.reserve(targets.size());
     for (const world::ApplyTarget &target : targets) {
       out.push_back(target.entity);
     }
