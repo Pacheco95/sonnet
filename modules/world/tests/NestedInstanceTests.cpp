@@ -544,6 +544,21 @@ TEST_CASE("applying a change goes to the deepest prefab file the value reaches t
   const flecs::entity nestedHub = childNamed(world, axle, "Hub");
   CHECK(world.applyTarget(nestedHub, meshRenderer, color).entity == wheelHub);
   CHECK(world.applyTarget(nestedHub, meshRenderer, color).root == wheelPrefab);
+  // The value reaches the instance unchanged from both levels, so either can take it: the inner
+  // one first, then the outer one. A plain instance has its prefab alone.
+  const auto entities = [](const std::vector<world::ApplyTarget> &targets) {
+    std::vector<flecs::entity> out;
+    out.reserve(targets.size());
+    for (const world::ApplyTarget &target : targets) {
+      out.push_back(target.entity);
+    }
+    return out;
+  };
+  using Entities = std::vector<flecs::entity>;
+  CHECK(entities(world.applyTargets(nestedHub, meshRenderer, color)) == Entities{wheelHub, cartHub});
+  CHECK(world.applyTargets(nestedHub, meshRenderer, color)[1].root == cartPrefab);
+  CHECK(entities(world.applyTargets(hub, meshRenderer, color)) == Entities{wheelHub});
+  CHECK(world.applyTargets(wheel, transform).empty());
 
   // The outer prefab changes the colour (the pallet sets a crate's lid): the colour goes to the
   // outer file, and the visibility, which it leaves alone, still to the inner one.
@@ -553,6 +568,9 @@ TEST_CASE("applying a change goes to the deepest prefab file the value reaches t
   CHECK(world.applyTarget(nestedHub, meshRenderer, visible).entity == wheelHub);
   // The whole component differs at the outer level, so it stops there.
   CHECK(world.applyTarget(nestedHub, meshRenderer).entity == cartHub);
+  // The inner level no longer gives the instance the colour, so only the outer one is offered.
+  CHECK(entities(world.applyTargets(nestedHub, meshRenderer, color)) == Entities{cartHub});
+  CHECK(entities(world.applyTargets(nestedHub, meshRenderer, visible)) == Entities{wheelHub, cartHub});
   // The nested instance's transform places it inside the outer prefab: the outer file's.
   CHECK(world.applyTarget(axle, transform, json::json_pointer{"/position"}).entity ==
         childNamed(world, cartPrefab, "Axle"));
@@ -560,6 +578,7 @@ TEST_CASE("applying a change goes to the deepest prefab file the value reaches t
   // Without a file at the inner level, the outer one is the deepest with a file.
   wheelPrefab.remove<world::PrefabFile>();
   CHECK(world.applyTarget(nestedHub, meshRenderer, visible).entity == cartHub);
+  CHECK(entities(world.applyTargets(nestedHub, meshRenderer, visible)) == Entities{cartHub});
   // And with no file at all, nothing.
   cartPrefab.remove<world::PrefabFile>();
   CHECK(!world.applyTarget(nestedHub, meshRenderer, visible).entity);

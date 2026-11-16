@@ -136,6 +136,29 @@ bool rowButton(const char *label) {
   return ImGui::SmallButton(label);
 }
 
+SplitButtonPart splitRowButton(const char *label, const char *tooltip, const char *menuTooltip) {
+  SplitButtonPart part = SplitButtonPart::None;
+  if (rowButton(label)) {
+    part = SplitButtonPart::Action;
+  }
+  if (tooltip != nullptr && ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s", tooltip);
+  }
+  // Joined to the button, one pixel apart, and as tall as a small button: no vertical padding.
+  ImGui::SameLine(0.0f, scaled(1.0f));
+  ImGui::PushID(label);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{0.0f, 0.0f});
+  if (ImGui::ArrowButton("menu", ImGuiDir_Down)) {
+    part = SplitButtonPart::Menu;
+  }
+  ImGui::PopStyleVar();
+  ImGui::PopID();
+  if (menuTooltip != nullptr && ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s", menuTooltip);
+  }
+  return part;
+}
+
 void setNextFieldWidth(FieldWidth width) {
   const Theme &theme = currentTheme();
   const float count = width == FieldWidth::Narrow ? theme.narrowFieldWidth

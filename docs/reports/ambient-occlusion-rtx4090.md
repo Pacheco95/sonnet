@@ -69,5 +69,5 @@ Logs, scripts and screenshots: `~/sonnet-measurements/559-ao-showcase/` (outside
 
 - A windowed player run of the stress scene: [#559](https://github.com/Pacheco95/sonnet/issues/559)'s are headless, so they say nothing of presentation or of the display's intervals.
 - A sustained player run on the character course: the player's sustained pair is the stress scene's.
-- The phones: [#540](https://github.com/Pacheco95/sonnet/issues/540) for the Galaxy S25 Ultra, and an iOS device of its own. Both players keep the effect off until then.
+- The phones: the Galaxy S25 Ultra is measured in [s25-ao-contact-shadows](s25-ao-contact-shadows.md) ([#540](https://github.com/Pacheco95/sonnet/issues/540)), where it misses the budget and the Android player keeps it off; an iOS device needs a run of its own, and the iOS player keeps it off until then.
 - Frame intervals: the benchmark presents nothing, so it has none.

@@ -688,10 +688,11 @@ TEST_CASE("a changed member of an instance offers to apply it to the prefab", "[
   editor::InspectorPanel panel{world, assets, selection, commands};
   std::vector<editor::ApplyRequest> asked;
   std::vector<editor::ApplyRequest> applied;
+  const core::Uuid lampPrefab = world.uuidOf(prefab);
   panel.setApplyHandlers(
-      [&](const editor::ApplyRequest &request) -> std::optional<std::string> {
+      [&](const editor::ApplyRequest &request) {
         asked.push_back(request);
-        return std::string{"Lamp"};
+        return std::vector<editor::ApplyChoice>{{.prefab = lampPrefab, .name = "Lamp"}};
       },
       [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
   const InspectorDriver driver{panel, {}};
@@ -727,6 +728,7 @@ TEST_CASE("a changed member of an instance offers to apply it to the prefab", "[
   REQUIRE(applied.size() == 1);
   CHECK(applied[0].entity == world.uuidOf(lamp));
   CHECK(applied[0].member.to_string() == "/intensity");
+  CHECK(applied[0].prefab == lampPrefab);
   CHECK(!commands.canUndo());
 
   REQUIRE(hoverButton("Revert"));
@@ -735,6 +737,81 @@ TEST_CASE("a changed member of an instance offers to apply it to the prefab", "[
   CHECK(applied.size() == 1);
   CHECK(commands.canUndo());
   CHECK(lamp.get<world::PointLight>().intensity == prefab.get<world::PointLight>().intensity);
+}
+
+TEST_CASE("a change nested prefabs could each take offers them in Apply's menu, the rule's pick first",
+          "[editor][inspector][prefab][apply][nested]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const flecs::entity prefab = world.createEntity("Lamp");
+  prefab.set<world::PointLight>({});
+  world.makePrefab(prefab);
+  const flecs::entity lamp = world.instantiate(prefab, "Lamp 1");
+  lamp.ensure<world::PointLight>().intensity = 4.0f;
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  // The handler stands in for Editor::applyChoices: an inner and an outer prefab.
+  const core::Uuid crate = core::Uuid::generate();
+  const core::Uuid pallet = core::Uuid::generate();
+  std::vector<editor::ApplyRequest> applied;
+  panel.setApplyHandlers(
+      [&](const editor::ApplyRequest &) {
+        return std::vector<editor::ApplyChoice>{{.prefab = crate, .name = "Crate"},
+                                                {.prefab = pallet, .name = "Pallet"}};
+      },
+      [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
+  const InspectorDriver driver{panel, {}};
+  selection.select(world.uuidOf(lamp));
+  driver.frame();
+
+  const flecs::entity type = world.ecs().component<world::PointLight>();
+  const ecs_member_t *members = ecs_vec_first_t(&type.get<flecs::Struct>().members, ecs_member_t);
+  const int index = static_cast<int>(&memberOf(world, type, "intensity") - members);
+  const ImGuiID row = ImHashData(&index, sizeof(index), ImHashStr("PointLight", 0, InspectorDriver::inspector()->ID));
+  const ImGuiID cell = ImHashStr("member", 0, row);
+  const auto hoverRow = [&](ImGuiID id) {
+    for (float x = 494.0f; x > 300.0f; x -= 3.0f) {
+      if (driver.hover(InspectorDriver::inspector(), id, x)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  // The button itself applies to the rule's pick, with no menu.
+  REQUIRE(hoverRow(ImHashStr("Apply", 0, cell)));
+  driver.click();
+  CHECK(ImGui::GetCurrentContext()->OpenPopupStack.empty());
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0].prefab == crate);
+  CHECK(applied[0].member.to_string() == "/intensity");
+
+  // The arrow beside it opens the list, and picking the outer prefab applies there.
+  REQUIRE(hoverRow(ImHashStr("menu", 0, ImHashStr("Apply", 0, cell))));
+  driver.click();
+  CHECK(applied.size() == 1);
+  REQUIRE(ImGui::GetCurrentContext()->OpenPopupStack.Size == 1);
+  ImGuiWindow *menu = ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  REQUIRE(menu != nullptr);
+  int outer = 1;
+  const ImGuiID palletItem = ImHashStr("Pallet", 0, ImHashData(&outer, sizeof(outer), menu->ID));
+  bool found = false;
+  for (float x = 8.0f; x < menu->Size.x && !found; x += 8.0f) {
+    found = driver.hover(menu, palletItem, x);
+  }
+  REQUIRE(found);
+  driver.click();
+  REQUIRE(applied.size() == 2);
+  CHECK(applied[1].prefab == pallet);
+  CHECK(applied[1].member.to_string() == "/intensity");
+  CHECK(applied[1].entity == world.uuidOf(lamp));
+  CHECK(ImGui::GetCurrentContext()->OpenPopupStack.empty());
+  CHECK(!commands.canUndo());
 }
 
 TEST_CASE("an instance root offers to apply all of its overrides", "[editor][inspector][prefab][apply]") {

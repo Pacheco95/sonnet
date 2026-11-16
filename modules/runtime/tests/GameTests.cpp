@@ -351,6 +351,34 @@ TEST_CASE("a script's game.quit reaches the application through Game", "[runtime
   REQUIRE_FALSE(game.takeQuitRequest());
 }
 
+TEST_CASE("a capture's reduced ambient occlusion and contact shadows use ADR-0039's Reduced counts",
+          "[runtime][capture][gpu]") {
+  Fixture fixture;
+  const auto settingsFor = [&](std::initializer_list<std::string_view> flags) {
+    runtime::GameDesc desc = fixture.desc();
+    desc.renderer.ambientOcclusion = false; // as a phone player starts
+    desc.renderer.contactShadows = false;
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    runtime::GameCaptureTarget target{game};
+    REQUIRE(target.begin(playerCapture(flags)).has_value());
+    return game.renderer().settings();
+  };
+  const renderer::RendererSettings reduced =
+      settingsFor({"--ambient-occlusion", "reduced", "--contact-shadows", "reduced", "--screenshot", "reduced.png"});
+  CHECK(reduced.ambientOcclusion);
+  CHECK(reduced.ambientOcclusionSlices == 2);
+  CHECK(reduced.ambientOcclusionSteps == 3);
+  CHECK(reduced.contactShadows);
+  CHECK(reduced.contactShadowSteps == 8);
+  const renderer::RendererSettings standard =
+      settingsFor({"--ambient-occlusion", "on", "--contact-shadows", "on", "--screenshot", "standard.png"});
+  CHECK(standard.ambientOcclusion);
+  CHECK(standard.ambientOcclusionSlices == 3);
+  CHECK(standard.ambientOcclusionSteps == 4);
+  CHECK(standard.contactShadows);
+  CHECK(standard.contactShadowSteps == 16);
+}
+
 TEST_CASE("the player runs a project folder's start scene", "[runtime][gpu]") {
   Fixture fixture;
   const std::filesystem::path project = sampleProject(fixture.platform);
