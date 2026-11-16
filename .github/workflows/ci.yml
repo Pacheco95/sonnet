@@ -67,6 +67,7 @@ jobs:
         # share a triplet and a compiler share a group.
         # `llvm` lists the LLVM 20 packages a Linux job installs from apt.llvm.org, `tidy` adds clang-tidy 20
         # on pull requests, and `lavapipe: false` leaves Mesa out (docs/build.md, "Linux packages").
+        # `build-only: true` skips the Test step and the test reports.
         include:
           - name: Linux GCC
             cache: linux-gcc
@@ -118,6 +119,19 @@ jobs:
             game: apps/samples/hook
             cc: gcc-14
             cxx: g++-14
+          # The linux-release preset as a developer builds it, RelWithDebInfo (-O2 -g, assertions and Tracy
+          # on): GCC 14 warns at -O2 in places -O3 does not (#554), so both levels build. Build only, without
+          # Lavapipe: the Release job runs the same code's tests (#574). `sccache` names its compiler cache
+          # group, which would otherwise be the GCC Release job's.
+          - name: Linux GCC RelWithDebInfo
+            cache: linux-gcc
+            sccache: linux-release-relwithdebinfo-gcc-14
+            os: ubuntu-24.04
+            preset: linux-release
+            cc: gcc-14
+            cxx: g++-14
+            lavapipe: false
+            build-only: true
           - name: Linux Clang Release
             cache: linux-clang
             os: ubuntu-24.04
@@ -228,7 +242,7 @@ jobs:
           dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' \
             $LLVM clang-tidy-20 libllvm20 mesa-vulkan-drivers 2> /dev/null | grep '^ii' || true
           if [ "$LAVAPIPE" = false ]; then
-            echo "No Lavapipe: the ${{ matrix.preset }} test preset runs with no Vulkan driver"
+            echo "No Lavapipe: this job runs no Vulkan test"
             exit 0
           fi
           icd=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
@@ -272,13 +286,16 @@ jobs:
       # time while one rolls out, and their compilers and SDKs give the ports different ABI hashes. The
       # runner sets `ImageVersion` as an environment variable, which expressions cannot read, so it goes
       # through GITHUB_ENV first.
-      # SCCACHE_GROUP names the job's compiler cache: one per preset and compiler, since each job builds
-      # with its own flags and objects never carry over between them.
+      # SCCACHE_GROUP names the job's compiler cache: one per preset and compiler, or the matrix's `sccache`
+      # where two jobs share both, since each job builds with its own flags and objects never carry over
+      # between them.
       - name: Note the runner image
         shell: bash
+        env:
+          SCCACHE_NAME: ${{ matrix.sccache }}
         run: |
           echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
-          echo "SCCACHE_GROUP=sccache-${{ matrix.preset }}-${CC:-default}" >> "$GITHUB_ENV"
+          echo "SCCACHE_GROUP=sccache-${SCCACHE_NAME:-${{ matrix.preset }}-${CC:-default}}" >> "$GITHUB_ENV"
 
       - name: Restore the vcpkg binary cache
         uses: actions/cache/restore@v4
@@ -456,6 +473,7 @@ jobs:
       # system's threads, so on four vCPUs a third one measured no faster. editor_tests starts first (its COST).
       - name: Test
         id: test
+        if: ${{ !matrix.build-only }}
         run: ctest --preset ${{ matrix.preset }} --parallel 2 --timeout 300 --output-junit test-results/ctest.xml
 
       # Test timings (docs/build.md): after a failed or timed-out Test step too, and neither step changes the
