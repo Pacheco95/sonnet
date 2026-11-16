@@ -214,6 +214,7 @@ ctest --preset linux-debug
 | [0038](docs/decisions/0038-character-controller.md) | A character controller on Jolt's CharacterVirtual, its frame order and animation weights | Accepted |
 | [0039](docs/decisions/0039-screen-space-ambient-occlusion-and-contact-shadows.md) | Depth-based GTAO and sun contact shadows, their saved controls and mobile budget | Accepted |
 | [0040](docs/decisions/0040-fbx-import-with-ufbx.md) | FBX source import with ufbx through the existing model and cooking pipeline | Proposed |
+| [0041](docs/decisions/0041-skin-shading.md) | Pre-integrated skin shading in its own forward pipeline, per-submesh material slots, and masked draws that fade | Proposed |
 
 ## License
 
