@@ -23,6 +23,7 @@ Part of #
 - [ ] The PR follows the instructions in [docs/conventions.md](https://github.com/Pacheco95/sonnet/blob/main/docs/conventions.md)
 - [ ] `python3 tools/check_docs.py` passes after Markdown edits
 - [ ] Bug fix includes the test that would have caught it
+- [ ] A `feat` or breaking change: the MINOR version is bumped here, or the bump is left for a later PR on purpose (the Version reminder check lists the features waiting for one)
 - [ ] Docs updated; no accepted ADR edited (a change of direction is a new ADR that supersedes the old one)
 
 ## Platforms tested
