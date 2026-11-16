@@ -31,6 +31,10 @@ public:
   virtual void nativeEvent(const SDL_Event &event) = 0;
 };
 
+// isDeviceInput (Event.h) for an SDL event before translation, as nativeEvent gets it: also the ones the engine has
+// no type for but Dear ImGui reads, the mouse entering a window, text being composed and the gamepads' own events.
+[[nodiscard]] bool isDeviceInput(const SDL_Event &event) noexcept;
+
 // Defined by the executable, which includes <sonnet/platform/EntryPoint.h> exactly once. Called
 // after the platform is up with the command-line arguments after the program name; may throw,
 // which terminates with the message logged.

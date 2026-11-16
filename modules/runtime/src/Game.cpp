@@ -32,20 +32,6 @@ using nlohmann::json;
   return document;
 }
 
-template <typename... Types> [[nodiscard]] bool holdsAny(const platform::Event &event) {
-  return (std::holds_alternative<Types>(event) || ...);
-}
-
-// What someone at the machine does: the devices, and the focus that decides whether the game has
-// them and whether the pointer is locked.
-[[nodiscard]] bool isDeviceInput(const platform::Event &event) {
-  return holdsAny<platform::WindowFocusChanged, platform::MouseLeftWindow, platform::KeyPressed, platform::KeyReleased,
-                  platform::TextInput, platform::MouseMoved, platform::MouseButtonPressed,
-                  platform::MouseButtonReleased, platform::MouseWheel, platform::TouchDown, platform::TouchUp,
-                  platform::TouchMotion, platform::GamepadConnected, platform::GamepadDisconnected,
-                  platform::GamepadButtonPressed, platform::GamepadButtonReleased, platform::GamepadAxisMoved>(event);
-}
-
 } // namespace
 
 Game::Game(platform::IWindow &window, rhi::IDevice &device, const rhi::ISwapchain &swapchain, const GameDesc &desc)
@@ -260,7 +246,7 @@ core::Result<void> Game::startScene(const json &scene) {
 void Game::event(const platform::Event &event) {
   // A capture run plays the same whatever the devices do (issue #556): the mouse turned the
   // character sample's camera through the pointer lock, and a key or a stick walked its character.
-  if (!m_deviceInput && isDeviceInput(event)) {
+  if (!m_deviceInput && platform::isDeviceInput(event)) {
     return;
   }
   if (const auto *focus = std::get_if<platform::WindowFocusChanged>(&event)) {

@@ -1,5 +1,6 @@
 #include "SdlEvents.h"
 
+#include <sonnet/platform/Application.h>
 #include <sonnet/platform/Event.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/platform/Window.h>
@@ -276,4 +277,41 @@ TEST_CASE("window and pointer events say which window they came from", "[platfor
 
   const auto finger = std::get<TouchDown>(*translateEvent(makeFinger(SDL_EVENT_FINGER_DOWN, 10, 1, 0.0f, 0.0f)));
   REQUIRE(finger.window == 10);
+}
+
+TEST_CASE("device input is what someone at the machine does, before and after translation", "[platform][input]") {
+  // What a capture run ignores (issues #556 and #576).
+  REQUIRE(isDeviceInput(Event{KeyPressed{.key = Key::W, .modifiers = Modifiers::None, .repeat = false}}));
+  REQUIRE(isDeviceInput(Event{TextInput{.text = "w"}}));
+  REQUIRE(isDeviceInput(Event{MouseMoved{}}));
+  REQUIRE(isDeviceInput(Event{MouseWheel{}}));
+  REQUIRE(isDeviceInput(Event{TouchDown{}}));
+  REQUIRE(isDeviceInput(Event{GamepadAxisMoved{}}));
+  REQUIRE(isDeviceInput(Event{WindowFocusChanged{.focused = false}}));
+  REQUIRE(isDeviceInput(Event{MouseLeftWindow{}}));
+  // What the application needs whoever is at the machine.
+  REQUIRE_FALSE(isDeviceInput(Event{WindowResized{}}));
+  REQUIRE_FALSE(isDeviceInput(Event{QuitRequested{}}));
+  REQUIRE_FALSE(isDeviceInput(Event{WindowCloseRequested{}}));
+  REQUIRE_FALSE(isDeviceInput(Event{FileDropped{}}));
+  REQUIRE_FALSE(isDeviceInput(Event{WillEnterBackground{}}));
+
+  SDL_Event key = makeEvent(SDL_EVENT_KEY_DOWN);
+  key.key.scancode = SDL_SCANCODE_W;
+  REQUIRE(isDeviceInput(key));
+  SDL_Event button = makeEvent(SDL_EVENT_MOUSE_BUTTON_DOWN);
+  button.button.button = SDL_BUTTON_RIGHT;
+  button.button.down = true;
+  REQUIRE(isDeviceInput(button));
+  REQUIRE(isDeviceInput(makeEvent(SDL_EVENT_WINDOW_FOCUS_GAINED)));
+  // Dear ImGui reads these, which have no engine type.
+  REQUIRE(isDeviceInput(makeEvent(SDL_EVENT_WINDOW_MOUSE_ENTER)));
+  REQUIRE(isDeviceInput(makeEvent(SDL_EVENT_TEXT_EDITING)));
+  REQUIRE(isDeviceInput(makeEvent(SDL_EVENT_GAMEPAD_ADDED)));
+  REQUIRE(isDeviceInput(makeEvent(SDL_EVENT_JOYSTICK_BUTTON_DOWN)));
+  REQUIRE(isDeviceInput(makeEvent(SDL_EVENT_PEN_DOWN)));
+  REQUIRE_FALSE(isDeviceInput(makeEvent(SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)));
+  REQUIRE_FALSE(isDeviceInput(makeEvent(SDL_EVENT_WINDOW_CLOSE_REQUESTED)));
+  REQUIRE_FALSE(isDeviceInput(makeEvent(SDL_EVENT_QUIT)));
+  REQUIRE_FALSE(isDeviceInput(makeEvent(SDL_EVENT_DROP_FILE)));
 }
