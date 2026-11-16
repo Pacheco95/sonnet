@@ -53,7 +53,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 17> Options{{
+constexpr std::array<CommandLineOption, 18> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -87,6 +87,9 @@ constexpr std::array<CommandLineOption, 17> Options{{
      true, ""},
     {"--ambient-occlusion", "on|off",
      "permit the scene camera's screen-space ambient occlusion, or draw none; the platform's default otherwise", "off",
+     true, ""},
+    {"--headless", "on|off",
+     "draw offscreen with no window, so no display paces the frames, for timing runs; the desktop's only (off)", "on",
      true, ""},
 }};
 
@@ -348,6 +351,11 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
         return std::unexpected(captureError("--ambient-occlusion takes on or off"));
       }
       capture.ambientOcclusion = value == "on";
+    } else if (arg == "--headless") {
+      if (value != "on" && value != "off") {
+        return std::unexpected(captureError("--headless takes on or off"));
+      }
+      capture.headless = value == "on";
     } else if (arg == "--shading-term") {
       capture.shadingTerm = shadingTerm(value);
       if (!capture.shadingTerm) {

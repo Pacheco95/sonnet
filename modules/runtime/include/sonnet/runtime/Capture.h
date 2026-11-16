@@ -53,6 +53,10 @@ struct CaptureOptions {
   // --ambient-occlusion: RendererSettings::ambientOcclusion for the run, over the player's platform
   // default; the player's only. On permits the scene camera's request, which still has to ask.
   std::optional<bool> ambientOcclusion;
+  // --headless: the player draws through SDL's offscreen video driver into an OffscreenSwapchain, so
+  // no window shows and no display or compositor paces the frames (docs/player.md, "Headless runs");
+  // the player's only, on the desktop.
+  bool headless{false};
   bool grid{false}; // editor capture only; does not change preferences
   // The next four are the editor's only and, like grid, are for the run: none changes the preferences or
   // the layout. The editor checks their values when it begins, since the panels' names and the tile

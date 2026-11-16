@@ -7,6 +7,7 @@ sonnet_add_module(rhi
   SOURCES
     src/Device.cpp
     src/NullDevice.cpp
+    src/OffscreenSwapchain.cpp
     src/VmaImpl.cpp
     src/VulkanCommandList.cpp
     src/VulkanDevice.cpp

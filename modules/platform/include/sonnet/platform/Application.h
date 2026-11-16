@@ -40,4 +40,9 @@ public:
 // which terminates with the message logged.
 std::unique_ptr<IApplication> createApplication(Platform &platform, std::span<const std::string_view> args);
 
+// Also defined by the executable: how the platform starts, from the same arguments, before
+// createApplication and before SDL initialises video. A command line that does not parse gets the
+// default here and is reported by createApplication. Must not throw.
+PlatformDesc platformDesc(std::span<const std::string_view> args) noexcept;
+
 } // namespace sonnet::platform
