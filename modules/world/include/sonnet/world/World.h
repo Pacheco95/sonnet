@@ -166,7 +166,8 @@ public:
   // The prefab entity an instance's descendant was copied from; null for any other entity.
   [[nodiscard]] flecs::entity sourceOf(flecs::entity descendant) const;
   // Whether `entity` has `component` where `source` has not, or holds a different value: what a
-  // scene stores of an instance's descendant and what the inspector marks as changed.
+  // scene stores of an instance's descendant and what the inspector marks as changed. Equal bytes
+  // answer at once; only values whose bytes differ are compared as JSON.
   [[nodiscard]] bool differs(flecs::entity entity, flecs::entity source, const ComponentInfo &component) const;
   // The prefab entity that applying `entity`'s `component` writes to (docs/editor.md, "Applying to
   // a prefab"), for the member at `member`, a pointer into the value componentToJson writes, or the
