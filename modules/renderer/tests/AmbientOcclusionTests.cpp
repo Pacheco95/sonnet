@@ -21,7 +21,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -836,6 +835,20 @@ float meanDifference(const Frame &a, const Frame &b) {
   return static_cast<float>(sum / static_cast<double>(a.mask.size()));
 }
 
+// TAA's `index`th raster jitter, in pixels: Halton(2, 3) less a half (Renderer.cpp's).
+glm::vec2 taaJitter(std::uint32_t index) {
+  const auto halton = [](std::uint32_t i, std::uint32_t base) {
+    float result = 0.0f;
+    float fraction = 1.0f;
+    for (; i > 0; i /= base) {
+      fraction /= static_cast<float>(base);
+      result += fraction * static_cast<float>(i % base);
+    }
+    return result;
+  };
+  return glm::vec2{halton(index + 1, 2), halton(index + 1, 3)} - glm::vec2{0.5f};
+}
+
 } // namespace
 
 TEST_CASE("without TAA the search pattern is fixed, and a reference jitter repeats its own", "[renderer][ao][gpu]") {
@@ -875,25 +888,37 @@ TEST_CASE("under TAA the occlusion settles near the spatial reference and a vaca
     GpuScene spatial{*device, reference, size};
 
     // A held pose: after 32 frames to settle, a whole eight-frame jitter cycle stays near the
-    // fixed-pattern spatial result and barely changes from frame to frame.
+    // fixed-pattern spatial result and barely changes from frame to frame. On the ground just beside
+    // the box it stays near the mean of the eight jittered patterns, where a history resampled
+    // bilinearly every frame settled 0.07 lighter.
     const std::array draws{fixture.ground(), fixture.standing()};
     const std::array referenceDraws{referenceFixture.ground(), referenceFixture.standing()};
     SceneView view = occlusionScene(draws);
     SceneView referenceView = occlusionScene(referenceDraws);
     const Frame expected = spatial.render(referenceView);
+    const glm::ivec2 heldBeside = pixelOf(view, size, BesideBox);
+    float jitteredBeside = 0.0f;
+    for (std::uint32_t phase = 0; phase < 8; ++phase) {
+      SceneView jittered = referenceView;
+      jittered.referenceJitter = taaJitter(phase);
+      jitteredBeside += spatial.render(jittered).occlusion(heldBeside) / 8.0f;
+    }
     Frame previous = scene.render(view, 32);
     float worstDrift = 0.0f;
     float worstReference = 0.0f;
+    float worstBeside = 0.0f;
     for (int frame = 0; frame < 8; ++frame) {
       const Frame current = scene.render(view);
       REQUIRE(renderer.statistics().ambientOcclusionHistoryUsed);
       worstDrift = std::max(worstDrift, meanDifference(current, previous));
       worstReference = std::max(worstReference, meanDifference(current, expected));
+      worstBeside = std::max(worstBeside, std::abs(current.occlusion(heldBeside) - jitteredBeside));
       previous = current;
     }
-    CAPTURE(worstDrift, worstReference);
+    CAPTURE(worstDrift, worstReference, worstBeside, jitteredBeside);
     REQUIRE(worstDrift < 0.01f);
     REQUIRE(worstReference < 0.03f);
+    REQUIRE(worstBeside < 0.03f);
 
     // The camera moves: the history follows it, and the occlusion beside the box stays.
     for (int frame = 0; frame < 8; ++frame) {
