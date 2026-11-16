@@ -13,6 +13,7 @@
 #include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
 #include <sonnet/core/Version.h>
+#include <sonnet/platform/Application.h>
 #include <sonnet/ui/Theme.h>
 #include <sonnet/ui/Widgets.h>
 #include <sonnet/world/Scene.h>
@@ -106,6 +107,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
       m_hierarchyPanel(m_world, m_selection, m_commands, [this] { focusSelection(); }),
       m_inspectorPanel(m_world, m_assets, m_selection, m_commands), m_assetBrowserPanel(m_assets, m_world, m_selection),
       m_thumbnails(device, m_imgui, m_renderer, m_assets, m_world) {
+  m_deviceInput = !capture;
   addFonts(ImGui::GetIO());
   m_viewportPanel.setTransitionDuration(m_preferences.smoothViewDuration);
   m_viewportPanel.setImmediateViews(platform.isHeadless());
@@ -336,6 +338,11 @@ std::vector<std::string> Editor::savedLayouts() const {
 }
 
 void Editor::nativeEvent(const SDL_Event &event) {
+  // A capture run draws the same whatever is done at the machine meanwhile: a click, a key or a hover reaches no
+  // panel, and a right drag over the viewport does not fly its camera (issue #576).
+  if (!m_deviceInput && platform::isDeviceInput(event)) {
+    return;
+  }
   // A pointer the game holds is not the panels': it hovers, clicks and scrolls nothing in the editor until Escape lets
   // it go. A release still reaches them, so a button pressed before the lock is not left held.
   const bool pointer = event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
@@ -349,6 +356,10 @@ void Editor::nativeEvent(const SDL_Event &event) {
 }
 
 void Editor::event(const platform::Event &event) {
+  // Nor do the devices reach play mode, the fly camera or the pointer lock, as in the player's capture runs.
+  if (!m_deviceInput && platform::isDeviceInput(event)) {
+    return;
+  }
   if (const auto *focus = std::get_if<platform::WindowFocusChanged>(&event); focus != nullptr) {
     // A focus moving between the editor's windows loses one and gains the other, in that order.
     m_windowFocused = focus->focused;
@@ -610,7 +621,8 @@ void Editor::update(float dt) {
   m_gameInputWasActive = gameInput;
   // The request the scripts left last frame, applied while the game has the input, so this frame's read
   // `input.mouseLocked()` as it is.
-  m_mouseLock.update(m_scripts->mouseLockRequested(), gameInput && m_windowFocused);
+  // A capture run never takes the user's pointer, nor shows the scripts a lock that depends on the focus.
+  m_mouseLock.update(m_scripts->mouseLockRequested(), m_deviceInput && gameInput && m_windowFocused);
   // The mouse off the game's image, or the game not taking input, is no longer over the UI.
   if (!gameInput || !gameInputSource().hovered) {
     static_cast<void>(m_gui.event(platform::MouseLeftWindow{}));

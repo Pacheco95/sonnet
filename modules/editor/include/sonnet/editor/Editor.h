@@ -135,7 +135,10 @@ public:
   // editor was linked with, registered before any scene loads; without one the editor refuses a
   // project that needs a module (ADR-0027). A `capture` run, like a headless platform's editor (a
   // test's), uses the default layout and default preferences and writes neither file (`userFiles`);
-  // `setLayoutFile` and `setPreferencesFile` still point it at files, for a test.
+  // `setLayoutFile` and `setPreferencesFile` still point it at files, for a test. A capture run also
+  // hears no device, as the player's (`runtime::GameDesc::deviceInput`): the keyboard, the mouse,
+  // touches, gamepads and the windows' focus reach neither the panels, the fly camera nor play mode,
+  // and the pointer is never locked (docs/editor.md, "Screenshots").
   Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDevice &device,
          const rhi::ISwapchain &swapchain, bool explorer = false, const runtime::GameModule *module = nullptr,
          bool capture = false);
@@ -845,6 +848,7 @@ private:
   LayoutSettings m_layoutSettings{m_viewState};
   bool m_gameInputWasActive{false};
   bool m_windowFocused{true}; // one of the editor's windows has the focus
+  bool m_deviceInput{true};   // off for a capture run, which ignores what is done at the machine
   WindowOrigins m_windowOrigins;
   bool m_quitRequested{false};
   float m_frameMilliseconds{0.0f};
