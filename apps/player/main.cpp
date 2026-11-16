@@ -70,9 +70,10 @@ using namespace sonnet;
   desc.renderer.shadowLodCascade = 3;
   desc.renderer.maxEnvironmentSize = 1024;
   desc.renderer.transmission = false; // sustained heat on the S25 (docs/reports/transmission-mobile.md)
-  // Unmeasured on a phone (ADR-0039): off whatever a scene asks for, until #540 measures it.
+  // Off whatever a scene asks for (ADR-0039): on the S25 the standard counts miss the cold budgets, AO by
+  // 0.5 to 1.6 ms and contact shadows by 0.7 to 1.3 ms, and the reduced counts are unmeasured
+  // (docs/reports/s25-ao-contact-shadows.md).
   desc.renderer.contactShadows = false;
-  // Unmeasured on a phone until #540 (ADR-0039): a scene's request draws nothing here.
   desc.renderer.ambientOcclusion = false;
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
   desc.renderer.farShadowMapSize = 1024;
