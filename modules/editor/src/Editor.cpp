@@ -128,7 +128,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
   m_inspectorPanel.setApplyHandlers([this](const ApplyRequest &request) { return applyTargetName(request); },
                                     [this](ApplyRequest request) { requestApplyToPrefab(std::move(request)); });
-  const auto applyAllOffered = [this](core::Uuid instance) { return !applyAllPlan(instance).files.empty(); };
+  const auto applyAllOffered = [this](core::Uuid instance) { return this->applyAllOffered(instance); };
   const auto applyAll = [this](core::Uuid instance) { requestApplyAllOverrides(instance); };
   m_inspectorPanel.setApplyAllHandlers(applyAllOffered, applyAll);
   m_hierarchyPanel.setApplyAllHandlers(applyAllOffered, applyAll);
@@ -2570,15 +2570,29 @@ bool isSavedChild(flecs::entity entity) {
 
 ApplyAllPlan Editor::applyAllPlan(core::Uuid instance) const {
   ApplyAllPlan plan;
+  walkApplyAll(instance, &plan);
+  return plan;
+}
+
+bool Editor::applyAllOffered(core::Uuid instance) const {
+  return walkApplyAll(instance, nullptr);
+}
+
+bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
   if (isPlaying() || !m_project || m_assets.bundle() != nullptr) {
-    return plan;
+    return false;
   }
   const flecs::entity root = m_world.find(instance);
   if (!root || !m_world.isInstance(root) || root.has<world::PrefabSource>()) {
-    return plan;
+    return false;
   }
-  const auto keep = [&](flecs::entity entity, const std::string &what) {
-    plan.kept.push_back(std::format("{}: {}", nameOf(entity), what));
+  bool found = false; // a change that can be applied; without a plan, the walk stops there
+  const auto done = [&] { return found && plan == nullptr; };
+  // `what` is called only when there is a plan to describe it in.
+  const auto keep = [&](flecs::entity entity, const auto &what) {
+    if (plan != nullptr) {
+      plan->kept.push_back(std::format("{}: {}", nameOf(entity), what()));
+    }
   };
   const auto describe = [](const ApplyRequest &request) {
     return request.slot ? std::format("{} property {}", request.component, request.property)
@@ -2587,35 +2601,44 @@ ApplyAllPlan Editor::applyAllPlan(core::Uuid instance) const {
   // Adds the change to the file it goes to, or lists it as kept with the reason.
   const auto add = [&](flecs::entity entity, const ApplyRequest &request) {
     if (const auto resolved = resolveApply(request)) {
-      auto file = std::ranges::find(plan.files, resolved->file, &ApplyAllPlan::File::path);
-      if (file == plan.files.end()) {
-        plan.files.push_back(
+      found = true;
+      if (plan == nullptr) {
+        return;
+      }
+      auto file = std::ranges::find(plan->files, resolved->file, &ApplyAllPlan::File::path);
+      if (file == plan->files.end()) {
+        plan->files.push_back(
             {.path = resolved->file, .prefab = applyTargetName(request).value_or(std::string{}), .changes = {}});
-        file = std::prev(plan.files.end());
+        file = std::prev(plan->files.end());
       }
       file->changes.push_back(request);
       return;
     }
-    const world::ComponentInfo *info = m_world.findComponent(request.component);
-    const world::ApplyTarget target = m_world.applyTarget(entity, *info, request.member);
-    const std::string reason = !target.root || !target.root.has<world::PrefabFile>()
-                                   ? "no prefab along the way has a file"
-                               : !entity.has(info->id) ? "removes a component the prefab inherits"
-                                                       : "the prefab cannot take it";
-    keep(entity, std::format("{} ({})", describe(request), reason));
+    keep(entity, [&] {
+      const world::ComponentInfo *info = m_world.findComponent(request.component);
+      const world::ApplyTarget target = m_world.applyTarget(entity, *info, request.member);
+      const std::string reason = !target.root || !target.root.has<world::PrefabFile>()
+                                     ? "no prefab along the way has a file"
+                                 : !entity.has(info->id) ? "removes a component the prefab inherits"
+                                                         : "the prefab cannot take it";
+      return std::format("{} ({})", describe(request), reason);
+    });
   };
   std::function<void(flecs::entity, flecs::entity)> visit;
   visit = [&](flecs::entity entity, flecs::entity source) {
     const core::Uuid uuid = m_world.uuidOf(entity);
     const bool isRoot = entity == root;
     for (const world::ComponentInfo &info : m_world.components()) {
+      if (done()) {
+        return;
+      }
       if (isRoot) {
         // What the root overrides is what it owns; the rest it inherits.
         if (!entity.owns(info.id) || (source.has(info.id) && !m_world.differs(entity, source, info))) {
           continue;
         }
         if (info.name == "Transform") {
-          keep(entity, "Transform (it places the instance)");
+          keep(entity, [] { return "Transform (it places the instance)"; });
           continue;
         }
       } else if (!m_world.differs(entity, source, info)) {
@@ -2634,7 +2657,7 @@ ApplyAllPlan Editor::applyAllPlan(core::Uuid instance) const {
         for (std::size_t i = 0; i < scripts.slots.size(); ++i) {
           const scripting::ScriptSlot *prefabSlotValue = prefabSlot(scripts, prefab, i);
           if (prefabSlotValue == nullptr) {
-            keep(entity, "Scripts (the slot list differs from the prefab's)");
+            keep(entity, [] { return "Scripts (the slot list differs from the prefab's)"; });
             break;
           }
           std::set<std::string> names;
@@ -2665,29 +2688,37 @@ ApplyAllPlan Editor::applyAllPlan(core::Uuid instance) const {
                   nlohmann::json::json_pointer{}, leaves);
       for (const nlohmann::json::json_pointer &member : leaves) {
         add(entity, {.entity = uuid, .component = info.name, .member = member});
+        if (done()) {
+          return;
+        }
       }
     }
     // What the single apply does not offer either stays on the instance (docs/editor.md).
-    if (!isRoot && nameOf(entity) != nameOf(source)) {
-      keep(entity, std::format("the name {}", nameOf(entity)));
-    }
     std::vector<flecs::entity> children = m_world.children(entity);
-    std::vector<flecs::entity> standard = m_world.defaultChildren(entity);
     std::erase_if(children, std::not_fn(isSavedChild));
-    std::erase_if(standard, std::not_fn(isSavedChild));
-    if (children != standard) {
-      keep(entity, "the order of its children");
+    if (plan != nullptr) {
+      if (!isRoot && nameOf(entity) != nameOf(source)) {
+        keep(entity, [&] { return std::format("the name {}", nameOf(entity)); });
+      }
+      std::vector<flecs::entity> standard = m_world.defaultChildren(entity);
+      std::erase_if(standard, std::not_fn(isSavedChild));
+      if (children != standard) {
+        keep(entity, [] { return "the order of its children"; });
+      }
     }
     for (const flecs::entity child : children) {
+      if (done()) {
+        return;
+      }
       if (!child.has<world::PrefabSource>()) {
-        keep(entity, std::format("the added child {}", nameOf(child)));
+        keep(entity, [&] { return std::format("the added child {}", nameOf(child)); });
       } else if (const flecs::entity childSource = m_world.sourceOf(child)) {
         visit(child, childSource);
       }
     }
   };
   visit(root, m_world.prefabOf(root));
-  return plan;
+  return found;
 }
 
 void Editor::requestApplyAllOverrides(core::Uuid instance) {

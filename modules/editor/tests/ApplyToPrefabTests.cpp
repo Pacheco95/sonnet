@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <optional>
 #include <string>
@@ -711,5 +712,123 @@ TEST_CASE("apply all overrides lists what it cannot apply and leaves it on the i
   fixture.frame(editor);
   CHECK(editor.applyAllPlan(a).files.empty());
   CHECK(editor.applyAllPlan(a).kept.empty());
+  CHECK(!editor.applyAllOffered(a));
   editor.stop();
+}
+
+TEST_CASE("apply all is offered exactly when its plan lists a file", "[editor][gpu][prefab][apply][all]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-all-offered");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Beacon beacon;
+  beacon.write(directory / "prefabs" / "beacon.prefab.json");
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid a = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(beacon.root, "Beacon", {}, a), world);
+  const core::Uuid bulb = world.uuidOf(world.findByPath(world.find(a), "Bulb"));
+  const auto agrees = [&](const core::Uuid &uuid) {
+    return editor.applyAllOffered(uuid) == !editor.applyAllPlan(uuid).files.empty();
+  };
+  const auto edit = [&](flecs::entity entity, std::string_view component, const auto &change) {
+    const auto id = world.findComponent(component)->id;
+    const json before = world.componentToJson(entity, id);
+    json after = before;
+    change(after);
+    editor.commands().push(editor::componentCommand(world.uuidOf(entity), std::string{component}, std::optional{before},
+                                                    std::optional{after}, "edit"),
+                           world);
+  };
+
+  // Untouched, and with only what stays on the instance (its place, a rename, an added child).
+  CHECK(!editor.applyAllOffered(a));
+  edit(world.find(a), "Transform", [](json &value) { value["position"] = json::array({4.0, 0.0, 0.0}); });
+  editor.commands().push(editor::renameCommand(bulb, "Bulb", "Lamp bulb"), world);
+  world.createEntity("Antenna", world.find(a));
+  CHECK(!editor.applyAllOffered(a));
+  CHECK(!editor.applyAllPlan(a).kept.empty());
+  // A descendant's change is offered; undoing it takes the offer back, redoing brings it again.
+  edit(world.find(bulb), "MeshRenderer", [](json &value) { value["visible"] = false; });
+  CHECK(editor.applyAllOffered(a));
+  CHECK(!editor.applyAllOffered(bulb)); // not an instance root
+  REQUIRE(editor.commands().undo(world));
+  CHECK(!editor.applyAllOffered(a));
+  REQUIRE(editor.commands().redo(world));
+  CHECK(editor.applyAllOffered(a));
+  CHECK(agrees(a));
+  // Applied, nothing is left; the root's own change is offered too.
+  REQUIRE(editor.applyAllOverrides(a).has_value());
+  CHECK(!editor.applyAllOffered(a));
+  edit(world.find(a), "PointLight", [](json &value) { value["range"] = 2.0; });
+  CHECK(editor.applyAllOffered(a));
+  CHECK(agrees(a));
+}
+
+TEST_CASE("the cost of deciding whether to offer apply all on a large instance", "[.][benchmark][apply][all]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-all-benchmark");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  // Tower: a root with a point light and 300 parts, each with a place and a mesh renderer.
+  constexpr int parts = 300;
+  const core::Uuid tower = core::Uuid::generate();
+  json entities = json::array({{{"uuid", tower.toString()},
+                                {"name", "Tower"},
+                                {"components", {{"PointLight", {{"intensity", 5.0}, {"range", 10.0}}}}}}});
+  for (int i = 0; i < parts; ++i) {
+    entities.push_back({{"uuid", core::Uuid::generate().toString()},
+                        {"name", std::format("Part {}", i)},
+                        {"parent", tower.toString()},
+                        {"components",
+                         {{"Transform", {{"position", json::array({0.0, static_cast<double>(i), 0.0})}}},
+                          {"MeshRenderer", {{"visible", true}}}}}});
+  }
+  writeDocument(directory / "prefabs" / "tower.prefab.json", entities);
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid a = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(tower, "Tower", {}, a), world);
+  fixture.frame(editor);
+
+  using Clock = std::chrono::steady_clock;
+  const auto best = [](const auto &work) {
+    double fastest = 1e9;
+    for (int run = 0; run < 20; ++run) {
+      const auto start = Clock::now();
+      work();
+      fastest = std::min(fastest, std::chrono::duration<double, std::milli>(Clock::now() - start).count());
+    }
+    return fastest;
+  };
+  const auto offered = [&] { return editor.applyAllOffered(a); };
+  const auto edit = [&](flecs::entity entity, std::string_view component, const auto &change) {
+    const auto id = world.findComponent(component)->id;
+    const json before = world.componentToJson(entity, id);
+    json after = before;
+    change(after);
+    editor.commands().push(editor::componentCommand(world.uuidOf(entity), std::string{component}, std::optional{before},
+                                                    std::optional{after}, "edit"),
+                           world);
+  };
+  const auto part = [&](int i) { return world.findByPath(world.find(a), std::format("Part {}", i)); };
+  REQUIRE(part(parts - 1));
+
+  CHECK(!offered());
+  const double untouched = best(offered);
+  // One change, on the last part the walk reaches.
+  edit(part(parts - 1), "MeshRenderer", [](json &value) { value["visible"] = false; });
+  CHECK(offered());
+  const double lastChanged = best(offered);
+  // Every part moved.
+  for (int i = 0; i < parts; ++i) {
+    edit(part(i), "Transform", [i](json &value) { value["position"] = json::array({1.0, i, 0.0}); });
+  }
+  CHECK(offered());
+  const double allChanged = best(offered);
+  const double plan = best([&] { return editor.applyAllPlan(a); });
+  CHECK(offered() == !editor.applyAllPlan(a).files.empty());
+  WARN(std::format("{} parts: offered untouched {:.3f} ms, last part changed {:.3f} ms, every part changed {:.3f} ms; "
+                   "full plan with every part changed {:.3f} ms",
+                   parts, untouched, lastChanged, allChanged, plan));
 }
