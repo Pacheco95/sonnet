@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Writes the basic sample's two stress scenes, the performance targets as scenes.
+"""Writes the basic sample's stress scenes, the performance targets as scenes.
 
 scenes/stress.scene.json is the README's target: a sun, a sky, a camera and one entity running
 scripts/stress.lua, which builds the ten thousand draws and a hundred lights when it plays.
+scenes/stress_ao.scene.json is the same scene with a camera that asks for ambient occlusion, so
+the player's --ambient-occlusion on|off pairs time it on the target (issue #559).
 scenes/hud_stress.scene.json is M15's HUD budget: a sky, a camera and a canvas running
-scripts/hud_stress.lua, which builds two hundred elements, a third of them labels. Both build
+scripts/hud_stress.lua, which builds two hundred elements, a third of them labels. They build
 their content in a script so the files stay a few kilobytes. Run it from anywhere; it overwrites
-both scene files.
+the scene files.
 """
 import json
 import math
@@ -46,17 +48,25 @@ def write(name, entities):
 
 
 # The camera and the sun are the benchmark's: above the grid's near edge, pitched down 18 degrees.
-write("stress", [
-    entity("Camera", (0, 12, 40), {"Camera": {"fovY": 1.0, "nearPlane": 0.1}, "AudioListener": None}, pitch(-18)),
-    entity("Sun", (0, 8, 0), {"DirectionalLight": {"color": vec(1.0, 0.96, 0.9), "intensity": 3.0}}, pitch(-50)),
-    entity("Sky", (0, 0, 0), {"Environment": {"map": SKY, "intensity": 1.0}}),
-    entity("Stress", (0, 0, 0), {"Scripts": {"slots": [{"script": STRESS_SCRIPT, "properties": {}}]}}),
-])
+# The variant asks for ambient occlusion and is otherwise the same scene, identities included, so
+# an on/off pair differs only in that request and the player's permission.
+def stress(camera):
+    return [
+        entity("Camera", (0, 12, 40), {"Camera": camera, "AudioListener": None}, pitch(-18)),
+        entity("Sun", (0, 8, 0), {"DirectionalLight": {"color": vec(1.0, 0.96, 0.9), "intensity": 3.0}}, pitch(-50)),
+        entity("Sky", (0, 0, 0), {"Environment": {"map": SKY, "intensity": 1.0}}),
+        entity("Stress", (0, 0, 0), {"Scripts": {"slots": [{"script": STRESS_SCRIPT, "properties": {}}]}}),
+    ]
+
+
+CAMERA = {"fovY": 1.0, "nearPlane": 0.1, "exposure": 1.0, "bloomStrength": 0.04}
+write("stress", stress(CAMERA))
+write("stress_ao", stress({**CAMERA, "ambientOcclusion": True}))
 
 # The HUD's own cost is the overlay pass's, so the scene behind it is only a sky. The canvas scales
 # by width, so the whole grid is on screen in portrait too, in the top third of a phone.
 write("hud_stress", [
-    entity("Camera", (0, 2, 6), {"Camera": {"fovY": 1.0, "nearPlane": 0.1}, "AudioListener": None}, scene="hud_stress"),
+    entity("Camera", (0, 2, 6), {"Camera": CAMERA, "AudioListener": None}, scene="hud_stress"),
     entity("Sky", (0, 0, 0), {"Environment": {"map": SKY, "intensity": 1.0}}, scene="hud_stress"),
     entity("HUD", (0, 0, 0), {
         "GuiCanvas": {"referenceSize": [1920, 1080], "match": 0.0, "safeArea": False, "order": 0},
