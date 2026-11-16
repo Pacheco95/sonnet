@@ -76,6 +76,86 @@ float3 shade(float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float
   return (diffuseWeight * kd * albedo / Pi + specular) * radiance * nDotL;
 }
 
+// ---- Spike (#502): skin and hair, chosen per draw by the material's shading model ----
+
+struct Surface {
+  uint model;
+  float3 n; // the mapped normal, which every specular term uses
+  // Skin: each channel's diffuse normal, between the mapped and the smooth one, red the smoothest;
+  // the skin LUT's curvature row; the subsurface weight.
+  float3 diffuseR;
+  float3 diffuseG;
+  float3 diffuseB;
+  float skinRow;
+  float subsurface;
+  // Hair: the primary and secondary lobes' strand directions, shifted along the normal, and the
+  // secondary's exponent as a fraction of the primary's.
+  float3 strand1;
+  float3 strand2;
+  float hairWidth;
+};
+
+float3 skinLutAt(float nDotL, float row) {
+  return textures[frame.skinLut].SampleLevel(samplers[frame.linearSampler], float2(nDotL * 0.5 + 0.5, row), 0.0).rgb;
+}
+
+// Pre-integrated skin (Penner): the specular of the standard model on the mapped normal, and a
+// diffuse whose cosine per channel comes from the LUT at that channel's normal and the curvature.
+float3 shadeSkin(Surface s, float3 v, float3 l, float3 radiance, float3 albedo, float metallic, float roughness,
+                 float3 f0) {
+  const float3 h = normalize(v + l);
+  const float nDotL = saturate(dot(s.n, l));
+  const float nDotV = max(dot(s.n, v), 1.0e-4);
+  const float d = distributionGgx(saturate(dot(s.n, h)), roughness);
+  const float g = geometrySmith(nDotV, nDotL, roughness);
+  const float3 f = fresnelSchlick(saturate(dot(h, v)), f0);
+  const float3 specular = (d * g * f) / max(4.0 * nDotV * nDotL, 1.0e-4) * nDotL;
+  const float3 cosines = float3(dot(s.diffuseR, l), dot(s.diffuseG, l), dot(s.diffuseB, l));
+  const float3 scattered =
+      float3(skinLutAt(cosines.r, s.skinRow).r, skinLutAt(cosines.g, s.skinRow).g, skinLutAt(cosines.b, s.skinRow).b);
+  const float3 diffuseCos = lerp(saturate(cosines), scattered, s.subsurface);
+  const float3 kd = (1.0 - f) * (1.0 - metallic);
+  return (kd * albedo / Pi * diffuseCos + specular) * radiance;
+}
+
+// Kajiya-Kay's strand lobe, normalised: sin(T, H) to the exponent.
+float strandLobe(float3 strand, float3 h, float exponent) {
+  const float th = dot(strand, h);
+  // Narrow in one direction only, so normalised by about sqrt(e), not a 2D lobe's (e + 2) / 2 pi,
+  // which made a white band where the strands of a cap turn slowly.
+  return pow(sqrt(saturate(1.0 - th * th)), exponent) * (sqrt(exponent) + 1.0) / (2.0 * Pi);
+}
+
+float hairExponent(float roughness) {
+  const float a = roughness * roughness;
+  return clamp(2.0 / max(a * a, 1.0e-4) - 2.0, 2.0, 2048.0);
+}
+
+// Scheuermann's two shifted lobes: the primary untinted, the secondary tinted by the base colour and
+// wider; a wrapped diffuse. The lobes fade on the side away from the light rather than stop at the
+// card's terminator, which a card does not have.
+float3 shadeHair(Surface s, float3 v, float3 l, float3 radiance, float3 albedo, float roughness, float3 f0) {
+  const float3 h = normalize(v + l);
+  const float nDotL = dot(s.n, l);
+  const float exponent = hairExponent(roughness);
+  // No Schlick term: without a geometry term to damp it, a backlit half vector took the lobe to white.
+  // The secondary (TRT) passes through the strand, so it is the base colour's and wider.
+  const float3 specular = f0 * strandLobe(s.strand1, h, exponent) + 0.5 * albedo * strandLobe(s.strand2, h, exponent * s.hairWidth);
+  const float3 diffuse = (1.0 - f0) * albedo / Pi * saturate((nDotL + 0.5) / 1.5);
+  return (diffuse + specular * saturate(nDotL * 0.75 + 0.25)) * radiance;
+}
+
+float3 shadeSurface(Surface s, float3 v, float3 l, float3 radiance, float3 albedo, float metallic, float roughness,
+                    float3 f0, float diffuseWeight) {
+  if (s.model == ShadingSkin) {
+    return shadeSkin(s, v, l, radiance, albedo, metallic, roughness, f0);
+  }
+  if (s.model == ShadingHair) {
+    return shadeHair(s, v, l, radiance, albedo, roughness, f0);
+  }
+  return shade(s.n, v, l, radiance, albedo, metallic, roughness, f0, diffuseWeight);
+}
+
 uint shadowCascade(float viewDepth) {
   return uint(viewDepth >= frame.cascadeSplits[0]) + uint(viewDepth >= frame.cascadeSplits[1]) +
          uint(viewDepth >= frame.cascadeSplits[2]);
@@ -289,7 +369,10 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
 
   const float2 baseColorUv = uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, input.uvs));
   float4 baseColor = material.baseColor * input.color * sampleMaterial(material.baseColorTexture, materialSampler(material, SlotBaseColor), baseColorUv);
-  if ((alphaMode == AlphaMask && baseColor.a < material.emissive.a) || fadedOut(input.objectIndex, material, input.position.xy)) {
+  // A dithered mask (spike, #502) is decided by the pre-pass alone: the equal depth test keeps this
+  // pass to its pixels, where the two passes' alpha samples might disagree.
+  if ((alphaMode == AlphaMask && !dithered(material) && baseColor.a < material.emissive.a) ||
+      fadedOut(input.objectIndex, material, input.position.xy)) {
     discard;
   }
   const float4 metallicRoughness =
@@ -334,6 +417,40 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   tangentNormal.xy = textureToMeshFrame(material.normalUv, tangentNormal.xy) * material.normalScale;
   n = normalize(t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z);
 
+  Surface surface;
+  surface.model = shadingModel(material);
+  surface.n = n;
+  surface.diffuseR = n;
+  surface.diffuseG = n;
+  surface.diffuseB = n;
+  surface.skinRow = 0.0;
+  surface.subsurface = 0.0;
+  surface.strand1 = t;
+  surface.strand2 = t;
+  surface.hairWidth = 1.0;
+  if (surface.model == ShadingSkin) {
+    // The curvature 1/r from the screen derivatives of the smooth normal and the position, in units
+    // of the scatter radius (the LUT's 0 to 0.5 per profile millimetre).
+    const float curvature = length(fwidth(geometricNormal)) / max(length(fwidth(input.worldPosition)), 1.0e-6);
+    surface.skinRow = saturate(curvature * material.shading.y * 2.0);
+    surface.subsurface = saturate(material.shading.x);
+    const float3 smoothing = surface.subsurface * float3(0.9, 0.6, 0.3);
+    surface.diffuseR = normalize(lerp(n, geometricNormal, smoothing.r));
+    surface.diffuseG = normalize(lerp(n, geometricNormal, smoothing.g));
+    surface.diffuseB = normalize(lerp(n, geometricNormal, smoothing.b));
+  } else if (surface.model == ShadingHair) {
+    // Strands along the tangent frame's V axis, the bitangent, or U, across the mapped normal.
+    const float3 axis = (material.flags & MaterialHairAxisU) != 0 ? t : b;
+    const float3 across = axis - n * dot(n, axis);
+    const float3 strand = dot(across, across) > 1.0e-8 ? normalize(across) : t;
+    // Scheuermann breaks the band up with a per-strand shift texture. Without one, the painted
+    // strands' brightness stands in: lighter strands shift one way, darker the other.
+    const float jitter = clamp((dot(baseColor.rgb, float3(0.2126, 0.7152, 0.0722)) - 0.08) * 4.0, -0.3, 0.3);
+    surface.strand1 = normalize(strand + n * (material.shading.x + jitter));
+    surface.strand2 = normalize(strand + n * (material.shading.y + jitter));
+    surface.hairWidth = material.shading.z;
+  }
+
   const float3 v = frame.cameraForward.w != 0.0 ? -frame.cameraForward.xyz : normalize(frame.cameraPosition.xyz - input.worldPosition);
   const float3 albedo = baseColor.rgb;
   const float3 f0 = lerp(float3(0.04), albedo, metallic);
@@ -358,7 +475,7 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
       // The minimum, not the product, of two estimates of the same partial shadow (ADR-0039); past
       // the cascades' reach theirs is 1, so a nearby occluder still casts its contact.
       shadow = min(sunShadow(input.worldPosition, viewDepth, geometricNormal), contactShadow(input.position.xy, material));
-      sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0, diffuseWeight);
+      sunDirect = shadeSurface(surface, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0, diffuseWeight);
       color += sunDirect * shadow;
     }
 
@@ -383,20 +500,35 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
         } else if (light.type == LightPoint && light.shadow != 0xFFFFFFFF) {
           attenuation *= pointShadow(light, input.worldPosition, geometricNormal, l);
         }
-        color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0, diffuseWeight);
+        color += shadeSurface(surface, v, l, light.color * attenuation, albedo, metallic, roughness, f0, diffuseWeight);
       }
     }
 
     // Image-based lighting through the split-sum approximation, or a flat ambient term.
     const float nDotV = max(dot(n, v), 1.0e-4);
     if (frame.environment.w > 0.0) {
-      const float3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
+      float3 irradiance = cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], n, 0.0).rgb;
+      float3 r = reflect(-v, n);
+      float specularRoughness = roughness;
+      float specularNDotV = nDotV;
+      if (surface.model == ShadingSkin) {
+        // Each channel's irradiance at its own diffuse normal.
+        irradiance = float3(cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], surface.diffuseR, 0.0).r,
+                            cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], surface.diffuseG, 0.0).g,
+                            cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], surface.diffuseB, 0.0).b);
+      } else if (surface.model == ShadingHair) {
+        // The reflection off the normal across the strand that faces the viewer, rougher.
+        const float3 across = v - surface.strand1 * dot(v, surface.strand1);
+        const float3 bent = dot(across, across) > 1.0e-8 ? normalize(across) : n;
+        r = reflect(-v, bent);
+        specularRoughness = saturate(roughness + 0.25);
+        specularNDotV = max(dot(bent, v), 1.0e-4);
+      }
+      const float3 f = fresnelSchlickRoughness(specularNDotV, f0, specularRoughness);
       const float3 kd = (1.0 - f) * (1.0 - metallic);
-      const float3 irradiance = cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], n, 0.0).rgb;
-      const float3 r = reflect(-v, n);
-      const float lod = roughness * (frame.environment.y - 1.0);
+      const float lod = specularRoughness * (frame.environment.y - 1.0);
       const float3 prefiltered = cubes[frame.prefilteredCube].SampleLevel(samplers[frame.linearSampler], r, lod).rgb;
-      brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
+      brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(specularNDotV, specularRoughness), 0.0).rg;
       iblDiffuse = diffuseWeight * kd * irradiance * albedo * frame.environment.x * occlusion;
       iblSpecular = prefiltered * (f * brdf.x + brdf.y) * frame.environment.x * occlusion;
       color += iblDiffuse + iblSpecular;
@@ -433,6 +565,11 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
     break;
   }
   case 9: color = float3(screenOcclusion); break;
+  case 10:
+    color = surface.model == ShadingSkin   ? float3(surface.skinRow, 0.0, 0.0)
+            : surface.model == ShadingHair ? surface.strand1 * 0.5 + 0.5
+                                           : float3(0.0);
+    break;
   default: break;
   }
 

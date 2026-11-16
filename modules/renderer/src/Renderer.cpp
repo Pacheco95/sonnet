@@ -22,8 +22,8 @@ namespace sonnet::renderer {
 
 const char *debugViewName(DebugView view) noexcept {
   static constexpr std::array<const char *, DebugViewCount> Names{
-      "Final",       "Albedo",       "Normal",   "Sun direct", "Shadow factor",
-      "IBL diffuse", "IBL specular", "BRDF LUT", "Cascade",    "Ambient occlusion"};
+      "Final",        "Albedo",   "Normal",  "Sun direct",        "Shadow factor", "IBL diffuse",
+      "IBL specular", "BRDF LUT", "Cascade", "Ambient occlusion", "Curvature"};
   const auto index = static_cast<std::size_t>(view);
   return index < Names.size() ? Names[index] : "";
 }
@@ -52,6 +52,12 @@ constexpr std::uint32_t AlphaBlend = 2;
 constexpr std::uint32_t MaterialDoubleSided = 1u << 8;
 constexpr std::uint32_t MaterialUnlit = 1u << 9;
 constexpr std::uint32_t MaterialTransmissive = 1u << 10; // mayTransmit: on the transmission path (ADR-0033)
+// Spike (#502): the shading model in bits 11-12, and the TAA-dithered mask.
+constexpr std::uint32_t MaterialDithered = 1u << 13;
+constexpr std::uint32_t MaterialHairAxisU = 1u << 14;
+constexpr std::uint32_t SkinLutSize = 128;
+// The skin's scatter radius: the metres one millimetre of d'Eon's profile stands for, 1 mm for skin.
+constexpr float SpikeSkinRadius = 0.001f;
 // A material's texture slots, as the bits of GpuMaterial::uvSets. Mirror of shaders/sonnet.slang.
 constexpr std::uint32_t SlotBaseColor = 0;
 constexpr std::uint32_t SlotMetallicRoughness = 1;
@@ -117,8 +123,11 @@ struct GpuMaterial {
   glm::vec2 occlusionUvOffset;
   glm::vec2 emissiveUvOffset;
   glm::vec2 transmissionUvOffset;
+  // Spike (#502): the shading model's row. Skin: subsurface weight, scatter radius in metres. Hair:
+  // primary shift, secondary shift, secondary width.
+  glm::vec4 shading;
 };
-static_assert(sizeof(GpuMaterial) == 240);
+static_assert(sizeof(GpuMaterial) == 256);
 
 struct FrameConstants {
   glm::mat4 view;
@@ -156,7 +165,9 @@ struct FrameConstants {
   std::uint32_t transmissionImage;     // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
   std::uint32_t contactShadowImage;    // the sun's contact visibility mask, InvalidBindlessIndex without one (ADR-0039)
   std::uint32_t ambientOcclusionImage; // the R8 visibility mask, InvalidBindlessIndex without one (ADR-0039)
-  std::uint32_t ambientOcclusionPadding;
+  std::uint32_t skinLut;               // spike (#502)
+  std::uint32_t ditherPhase;           // spike (#502): the TAA jitter phase of a dithered mask, 0xFFFFFFFF without TAA
+  std::uint32_t framePadding;
   std::uint64_t visible; // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
@@ -164,7 +175,7 @@ struct FrameConstants {
   std::uint64_t localShadows;    // GpuLocalShadow per local shadow map, 0 without any
   std::uint64_t previousObjects; // PreviousObject per draw, 0 without TAA
 };
-static_assert(sizeof(FrameConstants) == 1000);
+static_assert(sizeof(FrameConstants) == 1008);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -685,6 +696,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineCompute(m_irradiancePipeline, "ibl", "irradiance", "irradiance");
   defineCompute(m_prefilterPipeline, "ibl", "prefilter", "prefilter");
   defineCompute(m_brdfLutPipeline, "ibl", "brdfLut", "brdf lut");
+  defineCompute(m_skinLutPipeline, "ibl", "skinLut", "skin lut");
   defineCompute(m_skinPipeline, "skin", "computeMain", "skinning");
   defineCompute(m_transmissionCopyPipeline, "transmission", "transmissionCopy", "transmission copy");
   defineCompute(m_transmissionMipPipeline, "transmission", "transmissionMip", "transmission mip");
@@ -751,6 +763,7 @@ Renderer::~Renderer() {
     }
   }
   m_device.destroyImage(m_brdfLut);
+  m_device.destroyImage(m_skinLut);
   m_device.destroySampler(m_shadowSampler);
   m_device.destroySampler(m_linearClampSampler);
   for (const auto &[description, sampler] : m_materialSamplers) {
@@ -764,6 +777,7 @@ Renderer::~Renderer() {
                                              m_particleDrawPipelines[0],
                                              m_particleDrawPipelines[1],
                                              m_brdfLutPipeline,
+                                             m_skinLutPipeline,
                                              m_prefilterPipeline,
                                              m_irradiancePipeline,
                                              m_cubeMipPipeline,
@@ -934,6 +948,10 @@ void Renderer::createDefaults() {
                                     .format = HdrFormat,
                                     .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage,
                                     .debugName = "brdf lut"});
+  m_skinLut = m_device.createImage({.size = {SkinLutSize, SkinLutSize},
+                                    .format = HdrFormat,
+                                    .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage,
+                                    .debugName = "skin lut"});
   const std::array<std::uint32_t, 6> quad{0, 1, 2, 2, 1, 3};
   m_particleQuad = m_device.createBuffer({.size = sizeof(quad),
                                           .usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst,
@@ -1192,8 +1210,10 @@ std::uint32_t Renderer::packSamplers(const MaterialDesc &desc) {
 
 MaterialHandle Renderer::createMaterial(const MaterialDesc &desc, std::string debugName) {
   const auto samplers = packSamplers(desc);
-  const MaterialHandle handle =
-      m_materials.emplace(Material{std::move(debugName), desc, samplers, materialSampler(desc.transmissionSampler)});
+  // Spike (#502): the humanoid's Skin and Hair, by the "<model>/<material>" debug name.
+  const std::uint32_t spikeModel = debugName.ends_with("/Skin") ? 1u : debugName.ends_with("/Hair") ? 2u : 0u;
+  const MaterialHandle handle = m_materials.emplace(
+      Material{std::move(debugName), desc, samplers, materialSampler(desc.transmissionSampler), spikeModel});
   m_materialSlots = std::max(m_materialSlots, handle.index + 1);
   return handle;
 }
@@ -1319,9 +1339,30 @@ void Renderer::addPrecomputePasses(RenderGraph &graph, const SceneView &view) {
     m_environmentImports.clear();
     m_lutImport = graph.importImage(m_brdfLut, rhi::ImageLayout::General,
                                     m_brdfLutPending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General);
+    m_skinLutImport = graph.importImage(m_skinLut, rhi::ImageLayout::General,
+                                        m_skinLutPending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General);
   }
   m_frameImages = {};
   m_frameImages.lut = m_lutImport;
+  m_frameImages.skinLut = m_skinLutImport;
+  if (m_skinLutPending) {
+    m_skinLutPending = false;
+    const GraphImage lut = m_frameImages.skinLut;
+    graph.addPass(
+        "skin lut", [&](PassBuilder &builder) { builder.storage(lut); },
+        [this](rhi::ICommandList &commands, const PassResources &) {
+          const IblConstants push{.source = rhi::InvalidBindlessIndex,
+                                  .destination = m_device.storageImageIndex(m_skinLut, 0),
+                                  .size = SkinLutSize,
+                                  .sampleCount = 512,
+                                  .roughness = 0.0f,
+                                  .sourceLod = 0.0f,
+                                  .sampler = 0};
+          commands.bindPipeline(m_skinLutPipeline);
+          commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+          commands.dispatch(groups(SkinLutSize, 8), groups(SkinLutSize, 8), 1);
+        });
+  }
   if (const Environment *environment = m_environments.find(view.environment)) {
     const EnvironmentImport imports = importEnvironment(graph, view.environment, *environment);
     m_frameImages.skybox = imports.equirectangular;
@@ -2986,48 +3027,59 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
 
   // Materials: slot 0 the default, then every live material by pool index.
   auto *gpuMaterials = reinterpret_cast<GpuMaterial *>(materials.data.data());
-  const auto encode = [this](const MaterialDesc &desc, std::uint32_t samplers, std::uint32_t transmissionSampler) {
+  const auto encode = [this](const MaterialDesc &desc, std::uint32_t samplers, std::uint32_t transmissionSampler,
+                             std::uint32_t spikeModel = 0) {
+    // Spike (#502): Skin and Hair by name, with the sample's parameters.
+    const std::uint32_t model = m_settings.characterShading ? spikeModel : 0u;
+    const glm::vec4 shadingRow = model == 1   ? glm::vec4{1.0f, SpikeSkinRadius, 0.0f, 0.0f}
+                                 : model == 2 ? glm::vec4{-0.08f, 0.12f, 0.5f, 0.0f}
+                                              : glm::vec4{0.0f};
+    const std::uint32_t spikeFlags =
+        (model << 11u) |
+        (model == 2 ? MaterialDithered | (m_settings.characterShadingHairU ? MaterialHairAxisU : 0u) : 0u);
     const std::uint32_t mode = desc.alphaMode == AlphaMode::Blend  ? AlphaBlend
                                : desc.alphaMode == AlphaMode::Mask ? AlphaMask
                                                                    : AlphaOpaque;
     const Texture *normal = m_textures.find(desc.normalTexture);
-    return GpuMaterial{.baseColor = desc.baseColor,
-                       .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
-                       .metallic = desc.metallic,
-                       .roughness = desc.roughness,
-                       .normalScale = desc.normalScale,
-                       .occlusionStrength = desc.occlusionStrength,
-                       .baseColorTexture = textureIndex(desc.baseColorTexture),
-                       .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
-                       .normalTexture = normal != nullptr ? m_device.sampledImageIndex(normal->image)
-                                                          : textureIndex(m_flatNormalTexture),
-                       .occlusionTexture = textureIndex(desc.occlusionTexture),
-                       .emissiveTexture = textureIndex(desc.emissiveTexture),
-                       .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) |
-                                (desc.unlit ? MaterialUnlit : 0u) | (mayTransmit(desc) ? MaterialTransmissive : 0u),
-                       .sampler = samplers,
-                       .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
-                                 uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
-                                 uvSetBit(desc.normalTransform, SlotNormal) |
-                                 uvSetBit(desc.occlusionTransform, SlotOcclusion) |
-                                 uvSetBit(desc.emissiveTransform, SlotEmissive) |
-                                 uvSetBit(desc.transmissionTransform, SlotTransmission),
-                       .transmission = desc.transmission,
-                       .transmissionTexture = textureIndex(desc.transmissionTexture),
-                       .transmissionSampler = transmissionSampler,
-                       .reserved = 0,
-                       .baseColorUv = uvMatrix(desc.baseColorTransform),
-                       .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
-                       .normalUv = uvMatrix(desc.normalTransform),
-                       .occlusionUv = uvMatrix(desc.occlusionTransform),
-                       .emissiveUv = uvMatrix(desc.emissiveTransform),
-                       .transmissionUv = uvMatrix(desc.transmissionTransform),
-                       .baseColorUvOffset = desc.baseColorTransform.offset,
-                       .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
-                       .normalUvOffset = desc.normalTransform.offset,
-                       .occlusionUvOffset = desc.occlusionTransform.offset,
-                       .emissiveUvOffset = desc.emissiveTransform.offset,
-                       .transmissionUvOffset = desc.transmissionTransform.offset};
+    return GpuMaterial{
+        .baseColor = desc.baseColor,
+        .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
+        .metallic = desc.metallic,
+        // Spike (#502): a strand's lobe wants a narrower roughness than the card's GGX value.
+        .roughness = model == 2 ? 0.35f : desc.roughness,
+        .normalScale = desc.normalScale,
+        .occlusionStrength = desc.occlusionStrength,
+        .baseColorTexture = textureIndex(desc.baseColorTexture),
+        .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
+        .normalTexture =
+            normal != nullptr ? m_device.sampledImageIndex(normal->image) : textureIndex(m_flatNormalTexture),
+        .occlusionTexture = textureIndex(desc.occlusionTexture),
+        .emissiveTexture = textureIndex(desc.emissiveTexture),
+        .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) | (desc.unlit ? MaterialUnlit : 0u) |
+                 (mayTransmit(desc) ? MaterialTransmissive : 0u) | spikeFlags,
+        .sampler = samplers,
+        .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
+                  uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
+                  uvSetBit(desc.normalTransform, SlotNormal) | uvSetBit(desc.occlusionTransform, SlotOcclusion) |
+                  uvSetBit(desc.emissiveTransform, SlotEmissive) |
+                  uvSetBit(desc.transmissionTransform, SlotTransmission),
+        .transmission = desc.transmission,
+        .transmissionTexture = textureIndex(desc.transmissionTexture),
+        .transmissionSampler = transmissionSampler,
+        .reserved = 0,
+        .baseColorUv = uvMatrix(desc.baseColorTransform),
+        .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
+        .normalUv = uvMatrix(desc.normalTransform),
+        .occlusionUv = uvMatrix(desc.occlusionTransform),
+        .emissiveUv = uvMatrix(desc.emissiveTransform),
+        .transmissionUv = uvMatrix(desc.transmissionTransform),
+        .baseColorUvOffset = desc.baseColorTransform.offset,
+        .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
+        .normalUvOffset = desc.normalTransform.offset,
+        .occlusionUvOffset = desc.occlusionTransform.offset,
+        .emissiveUvOffset = desc.emissiveTransform.offset,
+        .transmissionUvOffset = desc.transmissionTransform.offset,
+        .shading = shadingRow};
   };
   MaterialDesc defaultMaterial;
   defaultMaterial.metallic = 0.0f;
@@ -3048,7 +3100,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       skippedSlot = skippedSlot == 0 ? slot : std::min(skippedSlot, slot);
       return;
     }
-    gpuMaterials[slot] = encode(material.desc, material.samplers, material.transmissionSampler);
+    gpuMaterials[slot] = encode(material.desc, material.samplers, material.transmissionSampler, material.spikeModel);
   });
   if (skippedSlot != 0) {
     SONNET_LOG_ERROR("material slot {} was created after the frame sized its {} material slots; it is drawn "
@@ -3146,7 +3198,11 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
           v.contactShadows.isValid() ? sampledIndex(resources.image(v.contactShadows)) : rhi::InvalidBindlessIndex,
       .ambientOcclusionImage =
           v.ambientOcclusion.isValid() ? sampledIndex(resources.image(v.ambientOcclusion)) : rhi::InvalidBindlessIndex,
-      .ambientOcclusionPadding = 0,
+      .skinLut = sampledIndex(m_skinLut),
+      .ditherPhase = m_settings.characterShading && v.taa && m_settings.debugView == DebugView::Final
+                         ? jitterPhase(v.jitter)
+                         : 0xFFFFFFFFu,
+      .framePadding = 0,
       .visible = m_visibleBuffer ? m_device.bufferAddress(m_visibleBuffer) : 0,
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
@@ -3645,6 +3701,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       builder.sample(v.contactShadows);
     }
     builder.sample(m_frameImages.lut);
+    builder.sample(m_frameImages.skinLut);
     if (v.ambientOcclusion.isValid()) {
       builder.sample(v.ambientOcclusion);
     }

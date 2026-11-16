@@ -97,6 +97,12 @@ public static const uint MaterialUnlit = 1u << 9; // KHR_materials_unlit: no lig
 // On the transmission path (ADR-0033): lit, transmission above 0, and not provably metal. The draw is
 // blended, and its coverage is a * (1 - T) in the forward pass and the shadows.
 public static const uint MaterialTransmissive = 1u << 10;
+// Spike (#502): the shading model in bits 11-12, and a mask resolved by TAA instead of cut.
+public static const uint ShadingStandard = 0;
+public static const uint ShadingSkin = 1;
+public static const uint ShadingHair = 2;
+public static const uint MaterialDithered = 1u << 13;
+public static const uint MaterialHairAxisU = 1u << 14;
 // A material's texture slots, as the bits of MaterialData::uvSets.
 public static const uint SlotBaseColor = 0;
 public static const uint SlotMetallicRoughness = 1;
@@ -137,7 +143,12 @@ public struct MaterialData {
   public float2 occlusionUvOffset;
   public float2 emissiveUvOffset;
   public float2 transmissionUvOffset;
+  public float4 shading; // spike (#502): skin (weight, radius m), hair (shift, secondary shift, secondary width)
 };
+
+public uint shadingModel(MaterialData material) {
+  return (material.flags >> 11) & 3u;
+}
 
 // A texture slot's UV: its 2x2 matrix by rows, then its offset (KHR_texture_transform).
 public float2 uvTransform(float4 rows, float2 offset, float2 uv) {
@@ -210,7 +221,9 @@ public struct FrameConstants {
   public uint transmissionImage; // the opaque scene's mip chain for transmissive surfaces, 0xFFFFFFFF without one
   public uint contactShadowImage; // the sun's contact visibility mask (ADR-0039), 0xFFFFFFFF without one
   public uint ambientOcclusionImage; // the R8 visibility mask of screen-space ambient occlusion, 0xFFFFFFFF without one
-  public uint ambientOcclusionPadding;
+  public uint skinLut;     // spike (#502): pre-integrated skin diffuse, n.l by curvature
+  public uint ditherPhase; // spike (#502): the TAA phase a dithered mask shifts its threshold by; 0xFFFFFFFF without TAA
+  public uint framePadding;
   // The object index of every instance a draw submits, at its first instance plus its instance
   // index: the culling pass's runs for the indirect draws, the direct range for the rest
   // (ADR-0016). A pointer is allowed here, in a uniform block, and not in a storage-buffer struct.
@@ -330,6 +343,21 @@ public float orderedThreshold(float2 pixel) {
   static const uint bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
   const uint2 cell = uint2(pixel) & 3;
   return (float(bayer[cell.y * 4 + cell.x]) + 0.5) / 16.0;
+}
+
+// Spike (#502): a dithered mask under TAA. Below a small alpha it is cut as before; above it, alpha
+// is tested against the pixel's ordered threshold moved on by an eighth each TAA phase, so the eight
+// phases the resolve averages give each pixel eight thresholds and the coverage comes out partial.
+// The pre-pass decides; the forward pass draws only where the pre-pass depth is equal.
+public static const float DitherFloor = 0.05;
+
+public bool dithered(MaterialData material) {
+  return (material.flags & 0xFF) == AlphaMask && (material.flags & MaterialDithered) != 0 &&
+         frame.ditherPhase != 0xFFFFFFFF;
+}
+
+public bool ditheredOut(float alpha, float2 pixel) {
+  return alpha < DitherFloor || alpha <= frac(orderedThreshold(pixel) + float(frame.ditherPhase) * 0.125);
 }
 
 // An opaque draw fades by its tint's alpha alone (MeshRenderer::color.a), screen-door style: the

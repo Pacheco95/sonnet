@@ -614,9 +614,19 @@ function Character:animate(dt, state, ground)
     layers[index].playing = true
   end
   self.restartLayer = {}
+  -- Spike (#502), not for merge: the pose holds from 0.25 s, so captures of a moving camera compare
+  -- against a still one.
+  self.spikeTime = (self.spikeTime or 0) + dt
+  local frozen = self.spikeTime >= 0.25
+  if frozen then
+    for _, layer in ipairs(layers) do
+      layer.playing = false
+    end
+  end
   self.model:set("Animator", {
     weight = locomotion * moving * (1 - self.gait),
     speed = self.playback,
+    playing = not frozen,
     layers = layers,
   })
 end

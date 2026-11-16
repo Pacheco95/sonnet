@@ -54,7 +54,15 @@ void alphaTest(uint objectIndex, float4 uvs, float vertexAlpha) {
 // The camera's pre-pass: the alpha test, and the dither of an opaque draw faded by its tint. The
 // shadow passes take neither, so a faded draw still casts its whole shadow.
 void prePassTest(uint objectIndex, float4 uvs, float vertexAlpha, float2 pixel) {
-  alphaTest(objectIndex, uvs, vertexAlpha);
+  const MaterialData material = frame.materials[objects[objectIndex].material];
+  if (dithered(material)) {
+    // Spike (#502): the tint's alpha is in surfaceAlpha, so a faded masked draw fades here too.
+    if (ditheredOut(surfaceAlpha(material, objectIndex, uvs, vertexAlpha), pixel)) {
+      discard;
+    }
+  } else {
+    alphaTest(objectIndex, uvs, vertexAlpha);
+  }
   if (fadedOut(objectIndex, frame.materials[objects[objectIndex].material], pixel)) {
     discard;
   }

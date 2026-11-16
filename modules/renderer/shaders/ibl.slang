@@ -156,3 +156,43 @@ void brdfLut(uint3 id : SV_DispatchThreadID) {
   }
   storageImages[ibl.destination][uint3(id.xy, 0)] = float4(a / float(ibl.sampleCount), b / float(ibl.sampleCount), 0.0, 1.0);
 }
+
+// Spike (#502): pre-integrated skin diffuse (Penner 2011). x: n.l from -1 to 1; y: the curvature
+// as (one profile millimetre) / (surface radius), 0 to 0.5, so a row is flat at the bottom and a
+// 2 mm radius at the top. Each texel integrates the clamped cosine around a ring of that radius,
+// weighted per channel by d'Eon and Luebke's six-Gaussian skin profile at the chord's distance.
+// A narrow Gaussian is undersampled on a wide ring, so the ring is only integrated over the arc
+// where the widest Gaussian still weighs.
+float skinGaussian(float variance, float distance2) {
+  return exp(-distance2 / (2.0 * variance)) / (2.0 * Pi * variance);
+}
+
+float3 skinProfile(float distance) {
+  const float d2 = distance * distance;
+  return float3(0.233, 0.455, 0.649) * skinGaussian(0.0064, d2) + float3(0.100, 0.336, 0.344) * skinGaussian(0.0484, d2) +
+         float3(0.118, 0.198, 0.000) * skinGaussian(0.187, d2) + float3(0.113, 0.007, 0.007) * skinGaussian(0.567, d2) +
+         float3(0.358, 0.004, 0.000) * skinGaussian(1.99, d2) + float3(0.078, 0.000, 0.000) * skinGaussian(7.41, d2);
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void skinLut(uint3 id : SV_DispatchThreadID) {
+  if (id.x >= ibl.size || id.y >= ibl.size) {
+    return;
+  }
+  const float cosTheta = (float(id.x) + 0.5) / float(ibl.size) * 2.0 - 1.0;
+  const float theta = acos(clamp(cosTheta, -1.0, 1.0));
+  const float inverseRadius = (float(id.y) + 0.5) / float(ibl.size) * 0.5;
+  const float radius = 1.0 / inverseRadius; // profile millimetres
+  // Three standard deviations of the widest Gaussian, as an angle on the ring.
+  const float span = min(Pi, 3.0 * sqrt(7.41) / radius);
+  float3 lit = float3(0.0);
+  float3 weight = float3(0.0);
+  for (uint i = 0; i < ibl.sampleCount; ++i) {
+    const float x = ((float(i) + 0.5) / float(ibl.sampleCount) * 2.0 - 1.0) * span;
+    const float3 r = skinProfile(2.0 * radius * sin(abs(x) * 0.5));
+    lit += saturate(cos(theta + x)) * r;
+    weight += r;
+  }
+  storageImages[ibl.destination][uint3(id.xy, 0)] = float4(lit / max(weight, float3(1.0e-8)), 1.0);
+}

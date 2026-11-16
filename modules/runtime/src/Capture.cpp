@@ -53,7 +53,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 18> Options{{
+constexpr std::array<CommandLineOption, 19> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -88,6 +88,8 @@ constexpr std::array<CommandLineOption, 18> Options{{
     {"--ambient-occlusion", "on|reduced|off",
      "permit the camera's ambient occlusion, 2 slices of 3 steps if reduced, or none; else the platform's default",
      "off", true, ""},
+    {"--character-shading", "on|off",
+     "spike (#502): shade the humanoid's Skin and Hair with the prototype models (off)", "on", true, ""},
     {"--headless", "on|off",
      "draw offscreen with no window, so no display paces the frames, for timing runs; the desktop's only (off)", "on",
      true, ""},
@@ -353,6 +355,12 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
       }
       capture.ambientOcclusion = value != "off";
       capture.ambientOcclusionReduced = value == "reduced";
+    } else if (arg == "--character-shading") {
+      if (value != "on" && value != "hair-u" && value != "off") {
+        return std::unexpected(captureError("--character-shading takes on, hair-u or off"));
+      }
+      capture.characterShading = value != "off";
+      capture.characterShadingHairU = value == "hair-u";
     } else if (arg == "--headless") {
       if (value != "on" && value != "off") {
         return std::unexpected(captureError("--headless takes on or off"));
@@ -514,8 +522,14 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
     SONNET_LOG_INFO("capture draws at {}x{}, scaled to the window", options.renderSize->x, options.renderSize->y);
     m_game.setRenderSize(options.renderSize);
   }
-  if (options.transmission || options.transmissionDownscale || options.contactShadows || options.ambientOcclusion) {
+  if (options.transmission || options.transmissionDownscale || options.contactShadows || options.ambientOcclusion ||
+      options.characterShading) {
     renderer::RendererSettings settings = m_game.renderer().settings();
+    if (options.characterShading) {
+      SONNET_LOG_INFO("capture draws with character shading {}", *options.characterShading ? "on" : "off");
+      settings.characterShading = *options.characterShading;
+      settings.characterShadingHairU = options.characterShadingHairU;
+    }
     // `reduced` is ADR-0039's Reduced candidate, which a phone measures when the standard counts miss
     // its budget.
     if (options.contactShadows) {

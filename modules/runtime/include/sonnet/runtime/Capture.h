@@ -58,6 +58,9 @@ struct CaptureOptions {
   // ambientOcclusionReduced.
   std::optional<bool> ambientOcclusion;
   bool ambientOcclusionReduced{false};
+  // --character-shading: spike (#502), RendererSettings::characterShading for the run.
+  std::optional<bool> characterShading;
+  bool characterShadingHairU{false};
   // --headless: the player draws through SDL's offscreen video driver into an OffscreenSwapchain, so
   // no window shows and no display or compositor paces the frames (docs/player.md, "Headless runs");
   // the player's only, on the desktop.

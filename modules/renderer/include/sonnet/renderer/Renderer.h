@@ -70,8 +70,9 @@ enum class DebugView : std::uint32_t {
   BrdfLut,          // the split-sum scale and bias at the fragment's n.v and roughness, in red and green
   Cascade,          // the view-depth cascade, red, green, blue, then yellow
   AmbientOcclusion, // the screen-space visibility the indirect light takes, after the camera's strength
+  Curvature,        // spike (#502): a Skin material's derivative curvature, the skin LUT's row, in red
 };
-constexpr std::uint32_t DebugViewCount = 10;
+constexpr std::uint32_t DebugViewCount = 11;
 // What the editor's View > Shading term menu calls a term: "Final", "Sun direct", "BRDF LUT".
 [[nodiscard]] const char *debugViewName(DebugView view) noexcept;
 
@@ -140,6 +141,10 @@ struct RendererSettings {
   // Permits the sun's screen-space contact shadows a scene asks for (DirectionalLight::contactShadows,
   // ADR-0039); off, no view traces them whatever the scene says. The phone players turn it off.
   bool contactShadows{true};
+  // Spike (#502), not for merge: the humanoid's materials named Skin and Hair shade with the
+  // prototype skin and hair models, and Hair takes the TAA-dithered mask. Off renders as today.
+  bool characterShading{false};
+  bool characterShadingHairU{false}; // spike (#502): the hair's strands along U instead of V
   // The march's steps per pixel, 1 to 32: 16 is the standard quality and 8 the reduced one.
   std::uint32_t contactShadowSteps{16};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
@@ -465,6 +470,7 @@ private:
     MaterialDesc desc;
     std::uint32_t samplers;            // the first five slots' bindless sampler indices (packSamplers)
     std::uint32_t transmissionSampler; // the sixth's, which does not fit beside them
+    std::uint32_t spikeModel{0};       // spike (#502): 0 standard, 1 skin, 2 hair, from the debug name
   };
   struct Environment {
     std::string debugName;
@@ -563,6 +569,7 @@ private:
   // The persistent images the forward pass reads, imported into the frame's graph.
   struct FrameImages {
     GraphImage lut;
+    GraphImage skinLut;
     GraphImage skybox;
     GraphImage irradiance;
     GraphImage prefiltered;
@@ -818,6 +825,7 @@ private:
   rhi::PipelineHandle m_irradiancePipeline;
   rhi::PipelineHandle m_prefilterPipeline;
   rhi::PipelineHandle m_brdfLutPipeline;
+  rhi::PipelineHandle m_skinLutPipeline; // spike (#502)
   rhi::PipelineHandle m_skinPipeline;
   rhi::PipelineHandle m_transmissionCopyPipeline;
   rhi::PipelineHandle m_transmissionMipPipeline;
@@ -834,6 +842,8 @@ private:
   TextureHandle m_flatNormalTexture;
   rhi::ImageHandle m_brdfLut;
   bool m_brdfLutPending{true};
+  rhi::ImageHandle m_skinLut; // spike (#502): pre-integrated skin diffuse, n.l by curvature
+  bool m_skinLutPending{true};
   rhi::BufferHandle m_clusterBuffer;
   // The draw commands the culling pass writes, one per batch per job, and the visible list of
   // object indices their instances read: a run per job, then the direct range with one slot per
@@ -881,6 +891,7 @@ private:
   FrameImages m_frameImages;       // the view being declared's
   std::uint64_t m_importSerial{0}; // the graph frame the imports below belong to
   GraphImage m_lutImport;
+  GraphImage m_skinLutImport;
   std::vector<EnvironmentImport> m_environmentImports;
   std::unordered_map<const SceneView *, History> m_histories;
   std::uint64_t m_frameNumber{0};        // graph frames prepared so far, which a history's age is counted in
