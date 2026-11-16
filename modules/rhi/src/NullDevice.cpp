@@ -1,4 +1,5 @@
 #include <sonnet/rhi/NullDevice.h>
+#include <sonnet/rhi/OffscreenSwapchain.h>
 
 #include "OwnerThread.h"
 
@@ -154,103 +155,6 @@ private:
   bool m_compute{false};
 };
 
-namespace {
-
-class NullSwapchain final : public ISwapchain {
-public:
-  NullSwapchain(NullDevice &device, platform::IWindow &window) : m_device(device), m_window(window) {
-    create();
-  }
-  ~NullSwapchain() override {
-    release();
-  }
-  NullSwapchain(const NullSwapchain &) = delete;
-  NullSwapchain &operator=(const NullSwapchain &) = delete;
-
-  std::optional<SwapchainImage> acquire() override {
-    if (m_suspended) {
-      return std::nullopt;
-    }
-    if (m_needsRecreate) {
-      release();
-      create();
-    }
-    if (m_extent.x == 0 || m_extent.y == 0) {
-      return std::nullopt;
-    }
-    const std::uint32_t index = m_next;
-    m_next = (m_next + 1) % static_cast<std::uint32_t>(m_images.size());
-    return SwapchainImage{m_images[index], m_extent, index};
-  }
-  void requestResize() override {
-    if (m_window.pixelSize() != m_extent) {
-      m_needsRecreate = true;
-    }
-  }
-  // The Vulkan swapchain's rules without a surface: the images go on suspend and come back at
-  // the window's size on resume.
-  void suspend() override {
-    if (!m_suspended) {
-      release();
-      m_suspended = true;
-    }
-  }
-  core::Result<void> resume() override {
-    if (m_suspended) {
-      m_suspended = false;
-      create();
-    }
-    return {};
-  }
-  bool suspended() const override {
-    return m_suspended;
-  }
-  Format format() const override {
-    return Format::B8G8R8A8Unorm;
-  }
-  glm::uvec2 extent() const override {
-    return m_extent;
-  }
-  std::uint32_t imageCount() const override {
-    return static_cast<std::uint32_t>(m_images.size());
-  }
-  bool readable() const override {
-    return true;
-  }
-
-private:
-  void release() {
-    for (const ImageHandle image : m_images) {
-      m_device.destroyImage(image);
-    }
-    m_images.clear();
-  }
-  void create() {
-    m_extent = m_window.pixelSize();
-    m_needsRecreate = false;
-    if (m_extent.x == 0 || m_extent.y == 0) {
-      return;
-    }
-    for (std::uint32_t i = 0; i < 3; ++i) {
-      m_images.push_back(m_device.createImage(
-          {.size = m_extent,
-           .format = format(),
-           .usage = ImageUsage::ColorAttachment | ImageUsage::TransferDst | ImageUsage::TransferSrc,
-           .debugName = std::format("swapchain image {}", i)}));
-    }
-  }
-
-  NullDevice &m_device;
-  platform::IWindow &m_window;
-  std::vector<ImageHandle> m_images;
-  glm::uvec2 m_extent{0, 0};
-  std::uint32_t m_next{0};
-  bool m_needsRecreate{false};
-  bool m_suspended{false};
-};
-
-} // namespace
-
 NullDevice::NullDevice() : m_commandList(std::make_unique<NullCommandList>(*this)) {
   m_info.deviceName = "null";
   m_info.driverName = "null";
@@ -284,7 +188,7 @@ NullDevice::~NullDevice() {
 
 std::unique_ptr<ISwapchain> NullDevice::createSwapchain(platform::IWindow &window) {
   assertOwnerThread("createSwapchain");
-  return std::make_unique<NullSwapchain>(*this, window);
+  return std::make_unique<OffscreenSwapchain>(*this, window);
 }
 
 BufferHandle NullDevice::createBuffer(const BufferDesc &desc) {
