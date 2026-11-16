@@ -182,6 +182,13 @@ public:
   [[nodiscard]] ApplyTarget
   applyTarget(flecs::entity entity, const ComponentInfo &component,
               const nlohmann::json::json_pointer &member = nlohmann::json::json_pointer{}) const;
+  // Every prefab entity applying could write to instead (docs/editor.md, "Applying to a prefab"):
+  // each level applyTarget's walk reaches whose prefab has a file, since the value written to any
+  // of them reaches the entity unchanged. applyTarget's pick comes first, then the outer prefabs
+  // that place it, outwards. Empty where applyTarget is null.
+  [[nodiscard]] std::vector<ApplyTarget>
+  applyTargets(flecs::entity entity, const ComponentInfo &component,
+               const nlohmann::json::json_pointer &member = nlohmann::json::json_pointer{}) const;
   // Turns an instance into ordinary entities ("Make local"): the instance and every instance copied
   // inside it take their own copy of each component they inherit and drop their IsA, and their
   // descendants drop their PrefabSource. Every entity keeps its identity.

@@ -974,6 +974,12 @@ bool within(const nlohmann::json::json_pointer &pointer, const std::string &list
 
 ApplyTarget World::applyTarget(flecs::entity entity, const ComponentInfo &component,
                                const nlohmann::json::json_pointer &member) const {
+  const std::vector<ApplyTarget> targets = applyTargets(entity, component, member);
+  return targets.empty() ? ApplyTarget{} : targets.front();
+}
+
+std::vector<ApplyTarget> World::applyTargets(flecs::entity entity, const ComponentInfo &component,
+                                             const nlohmann::json::json_pointer &member) const {
   // An instance root's transform places it, at every level of the chain.
   const auto placement = [&](flecs::entity level) {
     return component.name == "Transform" && isInstance(level) && !level.has<PrefabSource>();
@@ -1005,14 +1011,16 @@ ApplyTarget World::applyTarget(flecs::entity entity, const ComponentInfo &compon
   if (!entity || placement(entity)) {
     return {};
   }
-  ApplyTarget target;
+  // Every level the walk reaches gives the instance the value written to it, so each one with a
+  // file is a target; the walk runs outer to inner and the list the other way round.
+  std::vector<ApplyTarget> targets;
   for (flecs::entity level = next(entity); level;) {
     flecs::entity root = level;
     while (root.parent()) {
       root = root.parent();
     }
     if (root.has<PrefabFile>()) {
-      target = {.entity = level, .root = root};
+      targets.push_back({.entity = level, .root = root});
     }
     const flecs::entity deeper = next(level);
     if (!deeper || placement(level) || !same(level, deeper)) {
@@ -1020,7 +1028,8 @@ ApplyTarget World::applyTarget(flecs::entity entity, const ComponentInfo &compon
     }
     level = deeper;
   }
-  return target;
+  std::ranges::reverse(targets);
+  return targets;
 }
 
 nlohmann::json World::valueToJson(flecs::entity_t component, const void *value) const {

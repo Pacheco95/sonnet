@@ -112,6 +112,19 @@ enum class TreeRow {
 // was clicked.
 [[nodiscard]] bool rowButton(const char *label);
 
+// Which part of a split row button was clicked.
+enum class SplitButtonPart {
+  None,
+  Action, // the button itself: its usual action
+  Menu,   // the arrow: the caller opens its menu of alternatives
+};
+
+// A row button with an arrow joined to its right, for an action that has alternatives (Apply, and the prefabs it can
+// apply to). The button keeps the ID `rowButton(label)` gives it; the arrow is "menu" under `label`, as tall as the
+// button and one text height wide. `tooltip` is shown over the button and `menuTooltip` over the arrow when given.
+[[nodiscard]] SplitButtonPart splitRowButton(const char *label, const char *tooltip = nullptr,
+                                             const char *menuTooltip = nullptr);
+
 // -- Field widths ------------------------------------------------------------------------------------------------
 
 enum class FieldWidth {

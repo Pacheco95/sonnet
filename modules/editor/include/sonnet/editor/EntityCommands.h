@@ -71,13 +71,20 @@ namespace sonnet::editor {
 // prefab"): one component of `entity`, the member at `member` (a pointer into the value
 // componentToJson writes), or the whole component when `member` is empty, the entity holding it or
 // not (one it removed). A script property names its slot and property, with `member` pointing at
-// the property in the slot.
+// the property in the slot. `prefab` names the root of the prefab to write to, one of
+// Editor::applyChoices; without it the apply goes where World::applyTarget picks.
 struct ApplyRequest {
   core::Uuid entity;
   std::string component;
   nlohmann::json::json_pointer member = nlohmann::json::json_pointer{};
   std::optional<std::size_t> slot = std::nullopt;
   std::string property = std::string{};
+  std::optional<core::Uuid> prefab = std::nullopt;
+};
+// A prefab an apply can write to (Editor::applyChoices): its root's identity and its name.
+struct ApplyChoice {
+  core::Uuid prefab;
+  std::string name;
 };
 // A prefab file an apply writes, with its text before and after.
 struct PrefabFileEdit {

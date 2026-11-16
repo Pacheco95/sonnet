@@ -781,8 +781,8 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
   // Apply to prefab: offered on what differs, and on a component an instance root added.
   const bool rootAdded = !source && prefab && !inherited && !prefab.has(info.id) && info.name != "Transform";
   const ApplyRequest wholeRequest{.entity = uuid, .component = info.name};
-  const std::optional<std::string> applyTo =
-      changed || rootAdded ? applyTarget(wholeRequest) : std::optional<std::string>{};
+  const std::vector<ApplyChoice> applyTo =
+      changed || rootAdded ? applyChoices(wholeRequest) : std::vector<ApplyChoice>{};
   const std::string label = inherited ? std::format("{} (inherited)", info.name)
                             : changed ? std::format("{} (changed)", info.name)
                                       : info.name;
@@ -811,13 +811,11 @@ void InspectorPanel::drawComponent(flecs::entity entity, flecs::entity source, c
     ImGui::PopID();
     return;
   }
-  if (opened && applyTo) {
+  if (opened && !applyTo.empty()) {
     if (changed) {
       ImGui::SameLine();
     }
-    if (ui::rowButton(std::format("Apply to {}", *applyTo).c_str())) {
-      m_apply(wholeRequest);
-    }
+    drawApply(std::format("Apply to {}", applyTo.front().name), wholeRequest, applyTo, {});
   }
   if (opened && !info.tag) {
     // What the pending command restores: captured before any widget of this frame ran.
@@ -900,14 +898,9 @@ void InspectorPanel::drawRemovedComponents(flecs::entity entity, flecs::entity s
           m_world);
     } else {
       const ApplyRequest request{.entity = m_world.uuidOf(entity), .component = info.name};
-      if (const auto target = applyTarget(request)) {
+      if (const std::vector<ApplyChoice> choices = applyChoices(request); !choices.empty()) {
         ImGui::SameLine();
-        if (ui::rowButton(std::format("Apply to {}", *target).c_str())) {
-          m_apply(request);
-        }
-        if (ImGui::IsItemHovered()) {
-          ImGui::SetTooltip("Remove it from the prefab too");
-        }
+        drawApply(std::format("Apply to {}", choices.front().name), request, choices, "Remove it from the prefab too");
       }
     }
     ImGui::PopID();
@@ -1124,14 +1117,9 @@ void InspectorPanel::drawProperty(scripting::ScriptSlot &slot, const scripting::
   // Apply writes the value into the prefab slot this one follows. Revert goes to the script's
   // default or to the prefab slot's value, a menu when both are offered.
   std::optional<bool> revertTo; // true: the prefab's value
-  const std::optional<std::string> applyTo = overridden ? applyTarget(request) : std::nullopt;
-  if (applyTo) {
-    if (ui::rowButton("Apply")) {
-      m_apply(request);
-    }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("Apply this value to %s", applyTo->c_str());
-    }
+  const std::vector<ApplyChoice> applyTo = overridden ? applyChoices(request) : std::vector<ApplyChoice>{};
+  if (!applyTo.empty()) {
+    drawApply("Apply", request, applyTo, std::format("Apply this value to {}", applyTo.front().name));
     ImGui::SameLine();
   }
   if (changedBefore && overridden) {
@@ -1391,14 +1379,9 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     const ApplyRequest request{
         .entity = m_drawnEntity, .component = m_drawnComponent, .member = m_memberPath / member.name};
     // Apply, when the change can be written to a prefab, beside Revert.
-    const std::optional<std::string> applyTo = overridden != nullptr ? applyTarget(request) : std::nullopt;
-    if (applyTo) {
-      if (ui::rowButton("Apply")) {
-        m_apply(request);
-      }
-      if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Apply this value to %s", applyTo->c_str());
-      }
+    const std::vector<ApplyChoice> applyTo = overridden != nullptr ? applyChoices(request) : std::vector<ApplyChoice>{};
+    if (!applyTo.empty()) {
+      drawApply("Apply", request, applyTo, std::format("Apply this value to {}", applyTo.front().name));
       ImGui::SameLine();
     }
     if (overridden != nullptr) {
@@ -1413,8 +1396,48 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
   ui::endPropertyTable();
 }
 
-std::optional<std::string> InspectorPanel::applyTarget(const ApplyRequest &request) const {
-  return m_applyTarget && m_apply ? m_applyTarget(request) : std::nullopt;
+std::vector<ApplyChoice> InspectorPanel::applyChoices(const ApplyRequest &request) const {
+  return m_applyChoices && m_apply ? m_applyChoices(request) : std::vector<ApplyChoice>{};
+}
+
+void InspectorPanel::drawApply(const std::string &label, const ApplyRequest &request,
+                               std::span<const ApplyChoice> choices, const std::string &tooltip) {
+  const auto applyTo = [&](const ApplyChoice &choice) {
+    ApplyRequest chosen = request;
+    chosen.prefab = choice.prefab;
+    m_apply(std::move(chosen));
+  };
+  if (choices.size() == 1) {
+    if (ui::rowButton(label.c_str())) {
+      applyTo(choices.front());
+    }
+    if (!tooltip.empty() && ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("%s", tooltip.c_str());
+    }
+    return;
+  }
+  // Nested prefabs (#549): the button keeps the rule's pick, the arrow offers the outer prefabs.
+  switch (ui::splitRowButton(label.c_str(), tooltip.empty() ? nullptr : tooltip.c_str(), "Apply to another prefab")) {
+  case ui::SplitButtonPart::Action:
+    applyTo(choices.front());
+    break;
+  case ui::SplitButtonPart::Menu:
+    ImGui::OpenPopup("apply to");
+    break;
+  case ui::SplitButtonPart::None:
+    break;
+  }
+  if (ImGui::BeginPopup("apply to")) {
+    ui::mutedText("Apply to");
+    for (std::size_t i = 0; i < choices.size(); ++i) {
+      ImGui::PushID(static_cast<int>(i));
+      if (ImGui::MenuItem(choices[i].name.c_str(), i == 0 ? "default" : nullptr)) {
+        applyTo(choices[i]);
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndPopup();
+  }
 }
 
 void InspectorPanel::drawMemberLabel(const char *name, bool overridden) {

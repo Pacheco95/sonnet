@@ -128,7 +128,7 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
     }
   });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
-  m_inspectorPanel.setApplyHandlers([this](const ApplyRequest &request) { return applyTargetName(request); },
+  m_inspectorPanel.setApplyHandlers([this](const ApplyRequest &request) { return applyChoices(request); },
                                     [this](ApplyRequest request) { requestApplyToPrefab(std::move(request)); });
   const auto applyAllOffered = [this](core::Uuid instance) { return this->applyAllOffered(instance); };
   const auto applyAll = [this](core::Uuid instance) { requestApplyAllOverrides(instance); };
@@ -2359,8 +2359,17 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
   if (!entity || info == nullptr) {
     return std::nullopt;
   }
-  const world::ApplyTarget target = m_world.applyTarget(entity, *info, request.member);
-  const auto *file = target.root ? target.root.try_get<world::PrefabFile>() : nullptr;
+  const std::vector<world::ApplyTarget> targets = m_world.applyTargets(entity, *info, request.member);
+  const auto chosen = request.prefab ? std::ranges::find_if(targets,
+                                                            [&](const world::ApplyTarget &target) {
+                                                              return m_world.uuidOf(target.root) == *request.prefab;
+                                                            })
+                                     : targets.begin();
+  if (chosen == targets.end()) {
+    return std::nullopt;
+  }
+  const world::ApplyTarget target = *chosen;
+  const auto *file = target.root.try_get<world::PrefabFile>();
   if (file == nullptr) {
     return std::nullopt;
   }
@@ -2390,6 +2399,25 @@ std::optional<std::string> Editor::applyTargetName(const ApplyRequest &request) 
   }
   const auto *name = resolved->target.root.try_get<world::Name>();
   return name != nullptr && !name->value.empty() ? name->value : resolved->file.filename().string();
+}
+
+std::vector<ApplyChoice> Editor::applyChoices(const ApplyRequest &request) const {
+  ApplyRequest choice = request;
+  choice.prefab.reset();
+  std::vector<ApplyChoice> choices;
+  // The rule's pick decides whether apply is offered at all, as it does for Apply all overrides.
+  if (!resolveApply(choice)) {
+    return choices;
+  }
+  const flecs::entity entity = m_world.find(request.entity);
+  const world::ComponentInfo &info = *m_world.findComponent(request.component);
+  for (const world::ApplyTarget &target : m_world.applyTargets(entity, info, request.member)) {
+    choice.prefab = m_world.uuidOf(target.root);
+    if (auto name = applyTargetName(choice)) {
+      choices.push_back({.prefab = *choice.prefab, .name = std::move(*name)});
+    }
+  }
+  return choices;
 }
 
 void Editor::requestApplyToPrefab(ApplyRequest request) {

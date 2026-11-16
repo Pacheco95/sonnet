@@ -119,8 +119,9 @@ struct Theme {
   float narrowFieldWidth{5.5f}; // a short number: a time, a tile size
   float fieldWidth{8.5f};       // a number, a name, a combo of short choices
   float wideFieldWidth{11.5f};  // a filter or a longer text
-  // The action column of the inspector's property tables: Apply and Revert side by side (`ui::beginPropertyTable`).
-  float propertyActionWidth{9.5f};
+  // The action column of the inspector's property tables: Apply, with its arrow, and Revert side by side
+  // (`ui::beginPropertyTable`).
+  float propertyActionWidth{10.5f};
 };
 
 // Overwrites `style` with the theme's, from the base values every time, so a change of scale never compounds the
