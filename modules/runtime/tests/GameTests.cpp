@@ -1640,6 +1640,43 @@ TEST_CASE("the HUD stress scene builds two hundred elements of which a third are
   core::Log::removeSink(sink);
 }
 
+// Issue #559: the stress scene's ambient-occlusion variant is the scene whose camera asks for it,
+// so the player's --ambient-occlusion on|off pair times the effect on the performance target. The
+// game plays, so the script builds its grid: a view with nothing in its pre-pass declares no
+// ambient-occlusion passes whatever its camera asks.
+TEST_CASE("the stress scene's ambient-occlusion variant asks for it and the stress scene does not",
+          "[runtime][samples][ao][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = sampleProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the basic sample was not found in a checkout above the test binary");
+  }
+  const auto sink = std::make_shared<ProblemSink>();
+  core::Log::addSink(sink);
+  const auto drawsAmbientOcclusion = [&](std::string_view scene, bool permitted) {
+    runtime::GameDesc desc = fixture.desc();
+    desc.renderer.ambientOcclusion = permitted;
+    runtime::Game game{*fixture.window, *fixture.device, *fixture.swapchain, desc};
+    REQUIRE(game.open(project).has_value());
+    REQUIRE(game.openScene(scene).has_value());
+    for (int i = 0; i < 2; ++i) {
+      fixture.frame(game);
+    }
+    const auto camera = world::sceneCamera(game.world());
+    REQUIRE(camera.has_value());
+    const bool requested = camera->ambientOcclusion;
+    const bool drawn = std::ranges::any_of(game.graph().statistics().passes,
+                                           [](const auto &pass) { return pass.name == "ao search"; });
+    fixture.device->waitIdle();
+    return std::pair{requested, drawn};
+  };
+  REQUIRE(drawsAmbientOcclusion("scenes/stress_ao.scene.json", true) == std::pair{true, true});
+  REQUIRE(drawsAmbientOcclusion("scenes/stress_ao.scene.json", false) == std::pair{true, false});
+  REQUIRE(drawsAmbientOcclusion("scenes/stress.scene.json", true) == std::pair{false, false});
+  REQUIRE(sink->problems.empty());
+  core::Log::removeSink(sink);
+}
+
 // Issue #490: the character sample's obstacle course, from the project and from its bundle. Rays
 // down onto every step, the deck, both ramps and the ledge block, and sideways and up in the
 // narrow passage and under the low ceiling, land on the surfaces the meshes draw; the crate comes
