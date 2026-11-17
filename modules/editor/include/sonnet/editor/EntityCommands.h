@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -67,12 +68,19 @@ namespace sonnet::editor {
 // one undo step.
 [[nodiscard]] std::unique_ptr<ICommand> replaceWithInstanceCommand(const world::World &world, core::Uuid entity,
                                                                    core::Uuid prefab);
+// What of an entity "Apply to prefab" applies: one of its components, or its name, which is
+// structural data rather than a registered component (World::nameTargets).
+enum class ApplyKind : std::uint8_t {
+  Component,
+  Name,
+};
 // What "Apply to prefab" applies of an instance's change (docs/editor.md, "Applying to a
 // prefab"): one component of `entity`, the member at `member` (a pointer into the value
 // componentToJson writes), or the whole component when `member` is empty, the entity holding it or
 // not (one it removed). A script property names its slot and property, with `member` pointing at
 // the property in the slot. `prefab` names the root of the prefab to write to, one of
-// Editor::applyChoices; without it the apply goes where World::applyTarget picks.
+// Editor::applyChoices; without it the apply goes where World::applyTarget picks. With `kind`
+// Name it is the entity's name instead, and `component` is empty.
 struct ApplyRequest {
   core::Uuid entity;
   std::string component;
@@ -80,6 +88,7 @@ struct ApplyRequest {
   std::optional<std::size_t> slot = std::nullopt;
   std::string property = std::string{};
   std::optional<core::Uuid> prefab = std::nullopt;
+  ApplyKind kind = ApplyKind::Component;
 };
 // A prefab an apply can write to (Editor::applyChoices): its root's identity and its name.
 struct ApplyChoice {
@@ -92,21 +101,21 @@ struct PrefabFileEdit {
   std::string before;
   std::string after;
 };
-// An instance's component as it was before an apply: its value, or absent when empty.
-struct InstanceValue {
+// An instance's component that an apply writes to a prefab.
+struct AppliedComponent {
   core::Uuid entity;
   std::string component;
-  std::optional<nlohmann::json> value;
 };
-// "Apply to prefab", and "Apply all overrides", as one undo step: apply writes every file's
-// `after` and runs `rebuild` once, which reloads every prefab and the scene's instances from the
-// files; revert writes every `before`, rebuilds once, and sets each of `values` back to what the
-// instance held before the apply, since the rebuild made it follow the prefab. An instance root
-// whose component then equals its prefab's drops the override. Not applied again by play's Keep:
-// apply is not offered while playing.
+// "Apply to prefab", and "Apply all overrides", as one undo step: apply saves the scene as it is,
+// writes every file's `after` and runs `rebuild` with null once, which reloads every prefab and the
+// scene's instances from the files, the scene saved against the prefabs as they were. An instance
+// root whose component of `applied` then equals its prefab's drops the override. Revert writes
+// every `before` and runs `rebuild` with the scene saved by apply, so every instance, the applying
+// one and any other whose override became equal to the prefab, is as it was. Not applied again by
+// play's Keep: apply is not offered while playing.
 [[nodiscard]] std::unique_ptr<ICommand> applyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files,
-                                                             std::vector<InstanceValue> values,
-                                                             std::function<void()> rebuild);
+                                                             std::vector<AppliedComponent> applied,
+                                                             std::function<void(const nlohmann::json *scene)> rebuild);
 // Several commands as one undo step, applied in order and reverted in reverse.
 [[nodiscard]] std::unique_ptr<ICommand> compositeCommand(std::string description,
                                                          std::vector<std::unique_ptr<ICommand>> commands);

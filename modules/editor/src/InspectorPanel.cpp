@@ -754,10 +754,29 @@ void InspectorPanel::drawName(flecs::entity entity) {
     m_nameBuffer = current;
     m_nameEntity = uuid;
   }
-  ImGui::SetNextItemWidth(-1.0f);
+  // Apply to prefab: offered on a part of an instance renamed from its source, and on an instance
+  // root named differently from its prefab's root (World::nameTargets).
+  const ApplyRequest request{.entity = uuid, .component = {}, .kind = ApplyKind::Name};
+  const std::vector<ApplyChoice> applyTo = applyChoices(request);
+  float applyWidth = 0.0f;
+  if (!applyTo.empty()) {
+    const ImGuiStyle &style = ImGui::GetStyle();
+    // rowButton's width, and with several choices the arrow splitRowButton joins to it.
+    applyWidth = ImGui::CalcTextSize("Apply").x + (style.FramePadding.x * 2.0f) + style.ItemSpacing.x;
+    if (applyTo.size() > 1) {
+      applyWidth += ui::scaled(1.0f) + ImGui::GetFontSize();
+    }
+  }
+  ImGui::SetNextItemWidth(-1.0f - applyWidth);
   ImGui::InputText("##name", &m_nameBuffer);
   if (ImGui::IsItemDeactivatedAfterEdit() && m_nameBuffer != current) {
     m_commands.push(renameCommand(uuid, current, m_nameBuffer), m_world);
+  }
+  if (!applyTo.empty()) {
+    ImGui::SameLine();
+    ImGui::PushID("name");
+    drawApply("Apply", request, applyTo, std::format("Apply this name to {}", applyTo.front().name));
+    ImGui::PopID();
   }
 }
 
