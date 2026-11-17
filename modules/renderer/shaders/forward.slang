@@ -11,7 +11,7 @@ struct VertexOutput {
   float3 normal : NORMAL0;
   float4 tangent : TANGENT0;
   float4 uvs : TEXCOORD0; // Vertex::uv, then Vertex::uv1
-  float4 color : COLOR0;
+  float4 color : COLOR0; // Vertex::color; the draw's tint is read per pixel
   nointerpolation uint objectIndex : OBJECT0;
 };
 
@@ -30,7 +30,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint startInstance : SV_Sta
   output.normal = transformNormal(basis, vertex.normal);
   output.tangent = float4(transformDirection(basis, vertex.tangent.xyz), vertex.tangent.w * mirrorSign(basis));
   output.uvs = float4(vertex.uv, vertex.uv1);
-  output.color = objects[objectIndex].color * vertexColor(vertex);
+  output.color = vertexColor(vertex);
   return output;
 }
 
@@ -288,7 +288,11 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   const uint alphaMode = material.flags & 0xFF;
 
   const float2 baseColorUv = uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, input.uvs));
-  float4 baseColor = material.baseColor * input.color * sampleMaterial(material.baseColorTexture, materialSampler(material, SlotBaseColor), baseColorUv);
+  // The tint's alpha joins the blend, and a masked draw's cutoff only on the transmission path:
+  // an opaque or masked draw elsewhere dithers by it (fadedOut).
+  const float4 tint = objects[input.objectIndex].color;
+  float4 baseColor = material.baseColor * float4(tint.rgb, tintAlpha(input.objectIndex, material)) * input.color *
+                     sampleMaterial(material.baseColorTexture, materialSampler(material, SlotBaseColor), baseColorUv);
   if ((alphaMode == AlphaMask && baseColor.a < material.emissive.a) || fadedOut(input.objectIndex, material, input.position.xy)) {
     discard;
   }
