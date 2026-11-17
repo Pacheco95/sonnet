@@ -23,6 +23,7 @@ sonnet_add_module_test(world
     tests/NestedInstanceTests.cpp
     tests/RepeatedMembersTests.cpp
     tests/SceneTests.cpp
+    tests/SlotMaterialsTests.cpp
     tests/WorldTests.cpp
 )
 if(TARGET world_tests)

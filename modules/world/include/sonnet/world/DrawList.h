@@ -7,6 +7,7 @@
 #include <sonnet/renderer/Renderer.h>
 #include <sonnet/renderer/SceneView.h>
 
+#include <cstddef>
 #include <optional>
 #include <vector>
 
@@ -28,6 +29,10 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, flecs::ent
                    std::vector<float> &morphWeights);
 // The items of one mesh by asset identity, with its own materials, white and at the origin.
 void buildDrawList(assets::AssetDatabase &assets, const core::Uuid &mesh, std::vector<renderer::DrawItem> &draws);
+// The material slots of a mesh, which MeshRenderer::slotMaterials indexes: its default materials,
+// and at least one past the highest slot a submesh reads. Loads the mesh; 0 when it does not load
+// and has no default materials.
+[[nodiscard]] std::size_t materialSlotCount(assets::AssetDatabase &assets, const core::Uuid &mesh);
 // One item per enabled ParticleEmitter with a world transform, keyed by its entity's id, with its
 // texture resolved through the database. `simulate` follows the emitter's `playing` in play mode
 // and is false in edit mode, where a tool that previews an emitter turns it on (ADR-0023).
