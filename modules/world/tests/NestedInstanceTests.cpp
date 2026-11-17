@@ -698,7 +698,6 @@ TEST_CASE("applying an order of children goes to the prefab files whose children
     }
     return out;
   };
-  using Names = std::vector<std::string>;
 
   // A plain instance: its prefab's root, with the children translated to the prefab's.
   const flecs::entity loose = world.instantiate(cratePrefab, "Loose");
