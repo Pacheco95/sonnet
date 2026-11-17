@@ -53,6 +53,24 @@ constexpr const char *ModalId = "Project";
 constexpr std::string_view RenameWarning =
     "Scripts find entities by name: a path such as entity:child(\"Axle/Hub\") in a scene or prefab that places "
     "this prefab may no longer find the renamed entity.";
+// What they say about an order of children.
+constexpr std::string_view OrderWarning =
+    "Scripts find a child by name, the first of that name in sibling order: reordering children that share a name "
+    "can change which one a path such as entity:child(\"Wheel\") finds.";
+
+// What an apply of `request` applies, for the dialogs and the history.
+std::string appliedWhat(const ApplyRequest &request, const std::string &entity) {
+  switch (request.kind) {
+  case ApplyKind::Name:
+    return std::format("the name \"{}\"", entity);
+  case ApplyKind::ChildOrder:
+    return std::format("the order of {}'s children", entity);
+  case ApplyKind::Component:
+    break;
+  }
+  return request.slot ? std::format("the property {}", request.property)
+                      : std::format("{}{}", request.component, request.member.to_string());
+}
 
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity ? entity.try_get<world::Name>() : nullptr;
@@ -2369,9 +2387,9 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
     return std::nullopt;
   }
   const flecs::entity entity = m_world.find(request.entity);
-  const bool name = request.kind == ApplyKind::Name;
-  const world::ComponentInfo *info = name ? nullptr : m_world.findComponent(request.component);
-  if (!entity || (!name && info == nullptr)) {
+  const bool structural = request.kind != ApplyKind::Component;
+  const world::ComponentInfo *info = structural ? nullptr : m_world.findComponent(request.component);
+  if (!entity || (!structural && info == nullptr)) {
     return std::nullopt;
   }
   const std::vector<world::ApplyTarget> targets = applyTargetsOf(entity, request);
@@ -2388,9 +2406,14 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
   if (file == nullptr) {
     return std::nullopt;
   }
-  if (name) {
+  if (request.kind == ApplyKind::Name) {
     // A rename: only of a name the target does not have already.
     if (nameOf(entity) == nameOf(target.entity)) {
+      return std::nullopt;
+    }
+  } else if (request.kind == ApplyKind::ChildOrder) {
+    // A reorder: only of an order the target does not have already.
+    if (m_world.childOrderIn(entity, target.entity) == m_world.children(target.entity)) {
       return std::nullopt;
     }
   } else if (!entity.has(info->id)) {
@@ -2415,6 +2438,9 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
 std::vector<world::ApplyTarget> Editor::applyTargetsOf(flecs::entity entity, const ApplyRequest &request) const {
   if (request.kind == ApplyKind::Name) {
     return m_world.nameTargets(entity);
+  }
+  if (request.kind == ApplyKind::ChildOrder) {
+    return m_world.orderTargets(entity);
   }
   return m_world.applyTargets(entity, *m_world.findComponent(request.component), request.member);
 }
@@ -2491,19 +2517,19 @@ void Editor::cancelApply() {
 core::Result<void> Editor::applyToPrefab(const ApplyRequest &request) {
   const auto resolved = resolveApply(request);
   if (!resolved) {
-    return std::unexpected(core::Error{std::format("{} of {} cannot be applied to a prefab",
-                                                   request.kind == ApplyKind::Name ? "the name" : request.component,
-                                                   request.entity.toString()),
-                                       core::ErrorCategory::Unknown});
+    return std::unexpected(
+        core::Error{std::format("{} of {} cannot be applied to a prefab",
+                                appliedWhat(request, nameOf(m_world.find(request.entity))), request.entity.toString()),
+                    core::ErrorCategory::Unknown});
   }
   const std::vector<ApplyAllPlan::File> files{
       {.path = resolved->file, .prefab = applyTargetName(request).value_or(std::string{}), .changes = {request}}};
-  const std::string what = request.kind == ApplyKind::Name ? "the name" : request.component;
+  const std::string what = appliedWhat(request, nameOf(m_world.find(request.entity)));
   if (auto pushed = pushApply(std::format("apply {} to {}", what, resolved->file.filename().string()), files);
       !pushed) {
     return pushed;
   }
-  SONNET_LOG_INFO("applied {}{} to {}", what, request.member.to_string(), resolved->file.string());
+  SONNET_LOG_INFO("applied {} to {}", what, resolved->file.string());
   return {};
 }
 
@@ -2529,13 +2555,21 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
     std::optional<nlohmann::json> value;
   };
   std::vector<Original> originals;
-  // The names of the targets a rename changes, put back the same way.
+  // The names of the targets a rename changes, and the order of the children of those a reorder
+  // changes, put back the same way.
   std::vector<std::pair<flecs::entity, std::string>> names;
+  std::vector<std::pair<flecs::entity, std::vector<flecs::entity>>> orders;
   for (const auto &[request, apply] : resolved) {
     const flecs::entity target = apply.target.entity;
     if (request->kind == ApplyKind::Name) {
       if (std::ranges::none_of(names, [&](const auto &name) { return name.first == target; })) {
         names.emplace_back(target, nameOf(target));
+      }
+      continue;
+    }
+    if (request->kind == ApplyKind::ChildOrder) {
+      if (std::ranges::none_of(orders, [&](const auto &order) { return order.first == target; })) {
+        orders.emplace_back(target, m_world.children(target));
       }
       continue;
     }
@@ -2552,6 +2586,13 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
     const flecs::entity target = apply.target.entity;
     if (request->kind == ApplyKind::Name) {
       target.set<world::Name>({nameOf(entity)}); // the same entity renamed, never a new one
+      continue;
+    }
+    if (request->kind == ApplyKind::ChildOrder) {
+      // The same children in the instance's order: renumbered, never replaced or reparented.
+      for (const flecs::entity child : m_world.childOrderIn(entity, target)) {
+        m_world.assignOrder(child);
+      }
       continue;
     }
     const world::ComponentInfo &info = *apply.info;
@@ -2581,6 +2622,11 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
   }
   for (const auto &[target, name] : names) {
     target.set<world::Name>({name});
+  }
+  for (const auto &[target, order] : orders) {
+    for (const flecs::entity child : order) {
+      m_world.assignOrder(child);
+    }
   }
   return after;
 }
@@ -2672,6 +2718,9 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
     if (request.kind == ApplyKind::Name) {
       return std::format("the name {}", nameOf(m_world.find(request.entity)));
     }
+    if (request.kind == ApplyKind::ChildOrder) {
+      return std::string{"the order of its children"};
+    }
     return request.slot ? std::format("{} property {}", request.component, request.property)
                         : std::format("{}{}", request.component, request.member.to_string());
   };
@@ -2693,12 +2742,20 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
     }
     keep(entity, [&] {
       const std::vector<world::ApplyTarget> targets = applyTargetsOf(entity, request);
-      const bool noFile = targets.empty() || !targets.front().root.has<world::PrefabFile>();
       const world::ComponentInfo *info =
-          request.kind == ApplyKind::Name ? nullptr : m_world.findComponent(request.component);
-      const std::string reason = noFile                                     ? "no prefab along the way has a file"
-                                 : info != nullptr && !entity.has(info->id) ? "removes a component the prefab inherits"
-                                                                            : "the prefab cannot take it";
+          request.kind == ApplyKind::Component ? m_world.findComponent(request.component) : nullptr;
+      const bool added = request.kind == ApplyKind::ChildOrder &&
+                         std::ranges::any_of(m_world.children(entity), [](flecs::entity child) {
+                           return isSavedChild(child) && !child.has<world::PrefabSource>();
+                         });
+      std::string reason = "the prefab cannot take it";
+      if (added) {
+        reason = "it has a child the prefab lacks";
+      } else if (targets.empty() || !targets.front().root.has<world::PrefabFile>()) {
+        reason = "no prefab along the way has a file";
+      } else if (info != nullptr && !entity.has(info->id)) {
+        reason = "removes a component the prefab inherits";
+      }
       return std::format("{} ({})", describe(request), reason);
     });
   };
@@ -2778,12 +2835,8 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
     // What the single apply does not offer either stays on the instance (docs/editor.md).
     std::vector<flecs::entity> children = m_world.children(entity);
     std::erase_if(children, std::not_fn(isSavedChild));
-    if (plan != nullptr) {
-      std::vector<flecs::entity> standard = m_world.defaultChildren(entity);
-      std::erase_if(standard, std::not_fn(isSavedChild));
-      if (children != standard) {
-        keep(entity, [] { return "the order of its children"; });
-      }
+    if (!m_world.inDefaultOrder(children)) {
+      add(entity, {.entity = uuid, .component = {}, .kind = ApplyKind::ChildOrder});
     }
     for (const flecs::entity child : children) {
       if (done()) {
@@ -3074,18 +3127,19 @@ void Editor::drawApplyModal() {
   }
   const ApplyRequest &request = *m_pendingApply;
   const bool rename = request.kind == ApplyKind::Name;
+  const bool reorder = request.kind == ApplyKind::ChildOrder;
   const flecs::entity entity = m_world.find(request.entity);
-  const std::string what = rename         ? std::format("the name \"{}\"", nameOf(entity))
-                           : request.slot ? std::format("the property {}", request.property)
-                           : request.member.empty()
-                               ? request.component
-                               : std::format("{}{}", request.component, request.member.to_string());
+  const std::string what = appliedWhat(request, nameOf(entity));
   const std::string target = applyTargetName(request).value_or(std::string{});
   const auto relative = [&](const std::filesystem::path &path) {
     return path.lexically_relative(m_project->root).generic_string();
   };
   ImGui::TextWrapped("Apply %s to %s? This writes %s.", what.c_str(), target.c_str(), relative(resolved->file).c_str());
-  if (!rename) {
+  if (reorder) {
+    ImGui::TextWrapped("The children of \"%s\" are reordered, nothing else. Every instance that keeps the prefab's "
+                       "order takes the new one; one that orders them itself keeps its order.",
+                       nameOf(resolved->target.entity).c_str());
+  } else if (!rename) {
     ImGui::TextWrapped("Every instance that does not change it takes the new value; one that sets its own keeps it.");
   } else if (resolved->target.entity == resolved->target.root) {
     ImGui::TextWrapped("The prefab's root is renamed from \"%s\"; every instance keeps its own name.",
@@ -3097,6 +3151,8 @@ void Editor::drawApplyModal() {
   }
   if (rename) {
     ui::statusText(ui::Status::Warning, RenameWarning);
+  } else if (reorder) {
+    ui::statusText(ui::Status::Warning, OrderWarning);
   }
   const auto list = [&](const char *heading, const auto &items, const auto &label) {
     if (items.empty()) {
@@ -3145,11 +3201,16 @@ void Editor::drawApplyAllModal() {
                       count == 1 ? "change" : "changes");
   }
   ImGui::TextWrapped("Every instance that does not change them takes the new values; one that sets its own keeps it.");
-  const bool renames = std::ranges::any_of(m_applyAllPlan.files, [](const ApplyAllPlan::File &file) {
-    return std::ranges::any_of(file.changes, [](const ApplyRequest &change) { return change.kind == ApplyKind::Name; });
-  });
-  if (renames) {
+  const auto applies = [&](ApplyKind kind) {
+    return std::ranges::any_of(m_applyAllPlan.files, [&](const ApplyAllPlan::File &file) {
+      return std::ranges::any_of(file.changes, [&](const ApplyRequest &change) { return change.kind == kind; });
+    });
+  };
+  if (applies(ApplyKind::Name)) {
     ui::statusText(ui::Status::Warning, RenameWarning);
+  }
+  if (applies(ApplyKind::ChildOrder)) {
+    ui::statusText(ui::Status::Warning, OrderWarning);
   }
   if (!m_applyAllPlan.kept.empty()) {
     ui::sectionBreak();

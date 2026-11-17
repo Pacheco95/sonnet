@@ -1026,3 +1026,49 @@ TEST_CASE("a renamed part of an instance offers to apply its name beside the nam
   CHECK(!commands.canUndo());
   CHECK(bulb.get<world::Name>().value == "Globe");
 }
+
+TEST_CASE("an instance whose children are in an order of its own offers to apply the order",
+          "[editor][inspector][prefab][apply][order]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const flecs::entity prefab = world.createEntity("Crate");
+  world.createEntity("A", prefab);
+  world.createEntity("B", prefab);
+  world.makePrefab(prefab);
+  const flecs::entity crate = world.instantiate(prefab, "Crate 1");
+  world.setSiblingIndex(world.findByPath(crate, "B"), 0);
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  // The handler stands in for Editor::applyChoices: only the order is offered.
+  const core::Uuid cratePrefab = world.uuidOf(prefab);
+  std::vector<editor::ApplyRequest> applied;
+  panel.setApplyHandlers(
+      [&](const editor::ApplyRequest &request) {
+        return request.kind == editor::ApplyKind::ChildOrder
+                   ? std::vector<editor::ApplyChoice>{{.prefab = cratePrefab, .name = "Crate"}}
+                   : std::vector<editor::ApplyChoice>{};
+      },
+      [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
+  const InspectorDriver driver{panel, {}};
+  selection.select(world.uuidOf(crate));
+  driver.frame();
+
+  const ImGuiID button = ImHashStr("Apply order", 0, ImHashStr("order", 0, InspectorDriver::inspector()->ID));
+  bool found = false;
+  for (float x = 20.0f; x < 494.0f && !found; x += 8.0f) {
+    found = driver.hover(InspectorDriver::inspector(), button, x);
+  }
+  REQUIRE(found);
+  driver.click();
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0].kind == editor::ApplyKind::ChildOrder);
+  CHECK(applied[0].entity == world.uuidOf(crate));
+  CHECK(applied[0].prefab == cratePrefab);
+  CHECK(!commands.canUndo());
+}
