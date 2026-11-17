@@ -203,8 +203,9 @@ public:
   // undoable command. The target's name when the inspector offers it, nothing when it does not:
   // while playing, in a project opened from a bundle, outside an instance, on an instance root's
   // Transform, when the chain has no prefab file, for a script property whose slot list the
-  // target runs differently, for a removal the target cannot make (a component it inherits), and
-  // for a name the target already has.
+  // target runs differently, for a removal the target cannot make (a component it inherits), for
+  // a name the target already has, and for an order of children the target already has or cannot
+  // take (a child it has no counterpart for).
   [[nodiscard]] std::optional<std::string> applyTargetName(const ApplyRequest &request) const;
   // The prefabs the inspector offers to apply `request` to (World::applyTargets): the rule's pick
   // first, then each outer prefab with a file that the value would reach the entity unchanged
@@ -679,7 +680,7 @@ private:
   };
   [[nodiscard]] std::optional<ResolvedApply> resolveApply(const ApplyRequest &request) const;
   // The prefab entities `request` could be written to, the rule's pick first: World::applyTargets
-  // for a component, World::nameTargets for a name.
+  // for a component, World::nameTargets for a name, World::orderTargets for an order of children.
   [[nodiscard]] std::vector<world::ApplyTarget> applyTargetsOf(flecs::entity entity, const ApplyRequest &request) const;
   // applyAllPlan's walk; with `plan` null it only finds whether a change can be applied, stopping
   // at the first one.

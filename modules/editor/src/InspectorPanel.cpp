@@ -729,6 +729,17 @@ void InspectorPanel::drawEntity(flecs::entity entity) {
       m_applyAll(uuid);
     }
   }
+  // Apply to prefab for the order of the children (World::orderTargets): offered on an instance
+  // root or a part of one whose children are in an order of its own that the prefab can take.
+  const ApplyRequest orderRequest{.entity = uuid, .component = {}, .kind = ApplyKind::ChildOrder};
+  if (const std::vector<ApplyChoice> orderTo = applyChoices(orderRequest); !orderTo.empty()) {
+    ui::mutedText("Children in an order of its own");
+    ImGui::SameLine();
+    ImGui::PushID("order");
+    drawApply("Apply order", orderRequest, orderTo,
+              std::format("Apply this order of the children to {}", orderTo.front().name));
+    ImGui::PopID();
+  }
   {
     const ScopedMono mono;
     ui::mutedText("%s", uuid.toString().c_str());

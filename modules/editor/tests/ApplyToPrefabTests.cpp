@@ -1203,3 +1203,291 @@ TEST_CASE("applying a rename inside a prefab of prefabs offers the files the nam
   CHECK(name(world::World::instancedIdentity(other, crateB)) == "Crate X");
   CHECK(text(crateFile) == crateText);
 }
+
+namespace {
+
+// Crate: a root with the children A, B and C.
+struct Crate {
+  core::Uuid root = core::Uuid::generate();
+
+  [[nodiscard]] core::Uuid child(const char *name) const {
+    return core::Uuid::derive(root, name);
+  }
+  [[nodiscard]] json entities() const {
+    json out = json::array({{{"uuid", root.toString()}, {"name", "Crate"}, {"components", json::object()}}});
+    for (const char *name : {"A", "B", "C"}) {
+      out.push_back({{"uuid", child(name).toString()},
+                     {"name", name},
+                     {"parent", root.toString()},
+                     {"components", json::object()}});
+    }
+    return out;
+  }
+};
+
+// The names of an entity's children in sibling order.
+std::vector<std::string> childNames(const world::World &world, const core::Uuid &parent) {
+  std::vector<std::string> names;
+  for (const flecs::entity child : world.children(world.find(parent))) {
+    names.push_back(child.get<world::Name>().value);
+  }
+  return names;
+}
+
+// The identities a document lists, in file order, of the entities whose parent is `parent`.
+std::vector<std::string> filedChildren(const std::filesystem::path &file, const core::Uuid &parent) {
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  const json document = assets::parseJson(*bytes);
+  std::vector<std::string> out;
+  for (const json &entry : document["entities"]) {
+    if (entry.contains("parent") && entry["parent"] == parent.toString()) {
+      out.push_back(entry["uuid"].get<std::string>());
+    }
+  }
+  return out;
+}
+
+// Whether the scene stores an order for the entity.
+bool storesOrder(const world::World &world, const core::Uuid &uuid) {
+  const json entry = entryOf(world::saveScene(world), uuid);
+  return entry.is_object() && entry.contains("order");
+}
+
+editor::ApplyRequest orderRequest(const core::Uuid &entity) {
+  return {.entity = entity, .component = {}, .kind = editor::ApplyKind::ChildOrder};
+}
+
+using Names = std::vector<std::string>;
+
+} // namespace
+
+TEST_CASE("applying an instance's child order reorders the prefab and the instances that follow it, undoably",
+          "[editor][gpu][prefab][apply][order]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-order");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Crate crate;
+  const std::filesystem::path file = directory / "prefabs" / "crate.prefab.json";
+  writeDocument(file, crate.entities());
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  // X reorders its children C, A, B; Y keeps the prefab's order; Z has an order of its own, B, C, A;
+  // W adds a child and reorders.
+  const core::Uuid x = core::Uuid::generate();
+  const core::Uuid y = core::Uuid::generate();
+  const core::Uuid z = core::Uuid::generate();
+  const core::Uuid w = core::Uuid::generate();
+  for (const core::Uuid &uuid : {x, y, z, w}) {
+    editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", {}, uuid), world);
+  }
+  const auto part = [&](const core::Uuid &instance, const char *name) {
+    return world::World::instancedIdentity(instance, crate.child(name));
+  };
+  const auto move = [&](const core::Uuid &instance, const char *name, std::size_t index) {
+    editor.commands().push(editor::reparentCommand(part(instance, name), instance, index), world);
+  };
+  move(x, "C", 0);
+  move(z, "B", 0);
+  move(z, "A", 2);
+  editor.commands().push(editor::createEntityCommand("Extra", w), world);
+  move(w, "C", 0);
+  REQUIRE(childNames(world, x) == Names{"C", "A", "B"});
+  REQUIRE(childNames(world, z) == Names{"B", "C", "A"});
+  REQUIRE(editor.saveSceneAs(directory / "scenes" / "crates.scene.json").has_value());
+  fixture.frame(editor);
+  const std::string original = text(file);
+  editor.selection().select(part(x, "C"));
+
+  const editor::ApplyRequest request = orderRequest(x);
+  REQUIRE(editor.applyTargetName(request) == "Crate");
+  REQUIRE(editor.applyChoices(request).size() == 1);
+  // Y is in the prefab's order: nothing to apply. A part without children has none either.
+  CHECK(!editor.applyTargetName(orderRequest(y)));
+  CHECK(!editor.applyTargetName(orderRequest(part(x, "A"))));
+  // W's added child has no counterpart in the prefab: refused, not filtered out, and Apply all
+  // keeps the order on the instance with the reason.
+  CHECK(!editor.applyTargetName(orderRequest(w)));
+  CHECK(editor.applyChoices(orderRequest(w)).empty());
+  const editor::ApplyAllPlan kept = editor.applyAllPlan(w);
+  CHECK(kept.files.empty());
+  CHECK(lists(kept, "the order of its children (it has a child the prefab lacks)"));
+  CHECK(lists(kept, "the added child Extra"));
+
+  // The confirmation names the scene and the open tab; cancelling writes nothing.
+  editor.requestApplyToPrefab(request);
+  REQUIRE(editor.applyDialogOpen());
+  REQUIRE(editor.applyUsers().scenes.size() == 1);
+  CHECK(editor.applyUsers().scenes[0].filename() == "crates.scene.json");
+  CHECK(editor.applyUsers().tabs.size() == 1);
+  fixture.frame(editor); // the dialog draws, with the warning about same-name siblings
+  editor.cancelApply();
+  CHECK(text(file) == original);
+  CHECK(childNames(world, y) == Names{"A", "B", "C"});
+
+  const std::size_t undoBefore = editor.commands().size();
+  editor.requestApplyToPrefab(request);
+  REQUIRE(editor.applyDialogOpen());
+  editor.confirmApply();
+  CHECK(editor.commands().size() == undoBefore + 1);
+  // The prefab's children are reordered in place, with their identities and parent.
+  CHECK(filedChildren(file, crate.root) == std::vector<std::string>{crate.child("C").toString(),
+                                                                    crate.child("A").toString(),
+                                                                    crate.child("B").toString()});
+  // Y follows; X follows the prefab now and stores no order; Z keeps its own; the identities stay.
+  CHECK(childNames(world, x) == Names{"C", "A", "B"});
+  CHECK(childNames(world, y) == Names{"C", "A", "B"});
+  CHECK(childNames(world, z) == Names{"B", "C", "A"});
+  CHECK(!storesOrder(world, x));
+  CHECK(!storesOrder(world, y));
+  CHECK(storesOrder(world, z));
+  CHECK(world.find(part(y, "C")).parent() == world.find(y));
+  CHECK(editor.selection().contains(part(x, "C")));
+  CHECK(!editor.applyTargetName(request));
+  CHECK(editor.isDirty());
+
+  // Undo puts the file and every instance back; redo applies again.
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(file) == original);
+  CHECK(childNames(world, x) == Names{"C", "A", "B"});
+  CHECK(storesOrder(world, x));
+  CHECK(childNames(world, y) == Names{"A", "B", "C"});
+  CHECK(childNames(world, z) == Names{"B", "C", "A"});
+  CHECK(editor.selection().contains(part(x, "C")));
+  CHECK(!editor.isDirty());
+  REQUIRE(editor.commands().redo(world));
+  CHECK(childNames(world, y) == Names{"C", "A", "B"});
+  CHECK(!storesOrder(world, x));
+
+  // Saved and opened again, the instances read the reordered prefab.
+  REQUIRE(editor.saveScene().has_value());
+  REQUIRE(editor.openProject(directory).has_value());
+  REQUIRE(editor.openScene(directory / "scenes" / "crates.scene.json").has_value());
+  CHECK(childNames(editor.world(), y) == Names{"C", "A", "B"});
+  CHECK(childNames(editor.world(), z) == Names{"B", "C", "A"});
+  CHECK(childNames(editor.world(), w) == Names{"C", "A", "B", "Extra"});
+  CHECK(!storesOrder(editor.world(), x));
+
+  // Not offered while playing.
+  move(x, "B", 0);
+  REQUIRE(editor.applyTargetName(request));
+  editor.play();
+  fixture.frame(editor);
+  CHECK(!editor.applyTargetName(request));
+  CHECK(!editor.applyToPrefab(request).has_value());
+  editor.stop();
+}
+
+TEST_CASE("applying a descendant's child order inside a prefab of prefabs offers the files the order reaches it from",
+          "[editor][gpu][prefab][apply][order][nested]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-order-nested");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  // The pallet holds Crate B, a crate whose children it leaves in the crate's order, and a Board.
+  const Crate crate;
+  const core::Uuid pallet = core::Uuid::generate();
+  const core::Uuid crateB = core::Uuid::derive(pallet, "b");
+  const core::Uuid board = core::Uuid::derive(pallet, "board");
+  const std::filesystem::path crateFile = directory / "prefabs" / "crate.prefab.json";
+  const std::filesystem::path palletFile = directory / "prefabs" / "pallet.prefab.json";
+  writeDocument(crateFile, crate.entities());
+  writeDocument(palletFile,
+                json::array({{{"uuid", pallet.toString()}, {"name", "Pallet"}, {"components", json::object()}},
+                             {{"uuid", crateB.toString()},
+                              {"name", "Crate B"},
+                              {"parent", pallet.toString()},
+                              {"prefab", crate.root.toString()},
+                              {"components", json::object()}},
+                             {{"uuid", board.toString()},
+                              {"name", "Board"},
+                              {"parent", pallet.toString()},
+                              {"components", json::object()}}}));
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid placed = core::Uuid::generate();
+  const core::Uuid other = core::Uuid::generate();
+  const core::Uuid loose = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(pallet, "Pallet", {}, placed), world);
+  editor.commands().push(editor::instantiatePrefabCommand(pallet, "Pallet", {}, other), world);
+  editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", {}, loose), world);
+  const auto sceneCrate = [&](const core::Uuid &instance) { return world::World::instancedIdentity(instance, crateB); };
+  const auto palletPart = [&](const char *name) { return world::World::instancedIdentity(crateB, crate.child(name)); };
+  const auto move = [&](const core::Uuid &parent, const core::Uuid &child, std::size_t index) {
+    editor.commands().push(editor::reparentCommand(child, parent, index), world);
+  };
+  const core::Uuid parent = sceneCrate(placed);
+  REQUIRE(world.find(parent));
+  move(parent, world::World::instancedIdentity(placed, palletPart("B")), 2);
+  REQUIRE(childNames(world, parent) == Names{"A", "C", "B"});
+  fixture.frame(editor);
+  const std::string crateText = text(crateFile);
+  const std::string palletText = text(palletFile);
+
+  // The pallet leaves the order to the crate, so both can take it, the crate first.
+  const editor::ApplyRequest request = orderRequest(parent);
+  const std::vector<editor::ApplyChoice> choices = editor.applyChoices(request);
+  REQUIRE(choices.size() == 2);
+  CHECK(choices[0].prefab == crate.root);
+  CHECK(choices[1].prefab == pallet);
+
+  // The default goes to the crate: every crate follows, the loose one included.
+  REQUIRE(editor.applyToPrefab(request).has_value());
+  CHECK(filedChildren(crateFile, crate.root) == std::vector<std::string>{crate.child("A").toString(),
+                                                                         crate.child("C").toString(),
+                                                                         crate.child("B").toString()});
+  CHECK(text(palletFile) == palletText);
+  CHECK(childNames(world, sceneCrate(other)) == Names{"A", "C", "B"});
+  CHECK(childNames(world, loose) == Names{"A", "C", "B"});
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(crateFile) == crateText);
+  CHECK(childNames(world, sceneCrate(other)) == Names{"A", "B", "C"});
+  CHECK(childNames(world, parent) == Names{"A", "C", "B"});
+
+  // The pallet instead: it stores the order, translated to its own identities for Crate B's
+  // children, and only the pallets follow.
+  editor::ApplyRequest outer = request;
+  outer.prefab = pallet;
+  editor.requestApplyToPrefab(outer);
+  REQUIRE(editor.applyDialogOpen());
+  fixture.frame(editor);
+  editor.confirmApply();
+  CHECK(text(crateFile) == crateText);
+  CHECK(entryOf(palletFile, crateB)["order"] ==
+        json::array({palletPart("A").toString(), palletPart("C").toString(), palletPart("B").toString()}));
+  CHECK(childNames(world, sceneCrate(other)) == Names{"A", "C", "B"});
+  CHECK(childNames(world, loose) == Names{"A", "B", "C"});
+  CHECK(!storesOrder(world, parent));
+
+  // Now the pallet orders the crate's children itself, so a further reorder stops there.
+  move(parent, world::World::instancedIdentity(placed, palletPart("A")), 2);
+  REQUIRE(childNames(world, parent) == Names{"C", "B", "A"});
+  REQUIRE(editor.applyChoices(request).size() == 1);
+  CHECK(editor.applyChoices(request)[0].prefab == pallet);
+  // The pallet's root orders its own children: only the pallet's file takes that.
+  move(placed, world::World::instancedIdentity(placed, board), 0);
+  REQUIRE(editor.applyChoices(orderRequest(placed)).size() == 1);
+  CHECK(editor.applyChoices(orderRequest(placed))[0].prefab == pallet);
+  // Apply all writes both orders to the pallet, the root's and Crate B's, in one undo step.
+  const editor::ApplyAllPlan plan = editor.applyAllPlan(placed);
+  REQUIRE(plan.files.size() == 1);
+  CHECK(changesTo(plan, palletFile) == 2);
+  editor.requestApplyAllOverrides(placed);
+  REQUIRE(editor.applyAllDialogOpen());
+  fixture.frame(editor); // the dialog draws, with the warning about same-name siblings
+  editor.confirmApply();
+  CHECK(filedChildren(palletFile, pallet) == std::vector<std::string>{board.toString(), crateB.toString()});
+  CHECK(entryOf(palletFile, crateB)["order"] ==
+        json::array({palletPart("C").toString(), palletPart("B").toString(), palletPart("A").toString()}));
+  CHECK(childNames(world, other) == Names{"Board", "Crate B"});
+  CHECK(childNames(world, sceneCrate(other)) == Names{"C", "B", "A"});
+  CHECK(text(crateFile) == crateText);
+  CHECK(!storesOrder(world, placed));
+  CHECK(!storesOrder(world, parent));
+  REQUIRE(editor.commands().undo(world));
+  CHECK(childNames(world, other) == Names{"Crate B", "Board"});
+  CHECK(childNames(world, sceneCrate(other)) == Names{"A", "C", "B"});
+  CHECK(childNames(world, placed) == Names{"Board", "Crate B"});
+  CHECK(childNames(world, parent) == Names{"C", "B", "A"});
+}

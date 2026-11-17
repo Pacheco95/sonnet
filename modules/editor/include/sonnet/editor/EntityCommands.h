@@ -68,11 +68,13 @@ namespace sonnet::editor {
 // one undo step.
 [[nodiscard]] std::unique_ptr<ICommand> replaceWithInstanceCommand(const world::World &world, core::Uuid entity,
                                                                    core::Uuid prefab);
-// What of an entity "Apply to prefab" applies: one of its components, or its name, which is
-// structural data rather than a registered component (World::nameTargets).
+// What of an entity "Apply to prefab" applies: one of its components, or its name or the order of
+// its children, which are structural data rather than registered components (World::nameTargets,
+// World::orderTargets).
 enum class ApplyKind : std::uint8_t {
   Component,
   Name,
+  ChildOrder,
 };
 // What "Apply to prefab" applies of an instance's change (docs/editor.md, "Applying to a
 // prefab"): one component of `entity`, the member at `member` (a pointer into the value
@@ -80,7 +82,8 @@ enum class ApplyKind : std::uint8_t {
 // not (one it removed). A script property names its slot and property, with `member` pointing at
 // the property in the slot. `prefab` names the root of the prefab to write to, one of
 // Editor::applyChoices; without it the apply goes where World::applyTarget picks. With `kind`
-// Name it is the entity's name instead, and `component` is empty.
+// Name it is the entity's name instead, and with ChildOrder the order of its children; `component`
+// is then empty.
 struct ApplyRequest {
   core::Uuid entity;
   std::string component;
