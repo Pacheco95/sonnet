@@ -83,7 +83,7 @@ struct PreviousWorldTransform {
 struct MeshRenderer {
   core::Uuid mesh{assets::builtin::box()};
   core::Uuid material{};
-  std::vector<core::Uuid> slotMaterials;   // empty by default, and left out of a file while empty
+  std::vector<core::Uuid> slotMaterials{}; // empty by default, and left out of a file while empty
   glm::vec4 color{0.8f, 0.8f, 0.8f, 1.0f}; // multiplies the material's base colour
   bool visible{true};
 };
