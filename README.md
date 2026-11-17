@@ -181,7 +181,7 @@ ctest --preset linux-debug
 | [0005](docs/decisions/0005-slang.md) | Slang as the only shading language | Accepted |
 | [0006](docs/decisions/0006-vulkan-object-ownership.md) | vk-bootstrap creates, Vulkan-HPP RAII owns | Accepted |
 | [0007](docs/decisions/0007-data-driven-game-structure.md) | Games are data-driven projects run by a generic player | Accepted |
-| [0008](docs/decisions/0008-clustered-forward-rendering.md) | Clustered forward rendering as the main pipeline | Accepted, amended by 0039 |
+| [0008](docs/decisions/0008-clustered-forward-rendering.md) | Clustered forward rendering as the main pipeline | Accepted, amended by 0039 and 0041 |
 | [0009](docs/decisions/0009-physics-and-scripting.md) | Physics and scripting as world subsystems | Accepted, amended by 0038 |
 | [0010](docs/decisions/0010-audio-and-animation.md) | Audio on miniaudio, animation in `world`, skinning in compute | Accepted |
 | [0011](docs/decisions/0011-cooked-bundles-and-the-player.md) | Cooked bundles, the `runtime` module and what export assembles | Accepted |
@@ -214,6 +214,7 @@ ctest --preset linux-debug
 | [0038](docs/decisions/0038-character-controller.md) | A character controller on Jolt's CharacterVirtual, its frame order and animation weights | Accepted |
 | [0039](docs/decisions/0039-screen-space-ambient-occlusion-and-contact-shadows.md) | Depth-based GTAO and sun contact shadows, their saved controls and mobile budget | Accepted |
 | [0040](docs/decisions/0040-fbx-import-with-ufbx.md) | FBX source import with ufbx through the existing model and cooking pipeline | Proposed |
+| [0041](docs/decisions/0041-skin-shading.md) | Pre-integrated skin shading in its own forward pipeline, per-submesh material slots, and masked draws that fade | Accepted |
 
 ## License
 
