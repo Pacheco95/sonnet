@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <iterator>
 #include <optional>
 #include <string>
@@ -986,7 +987,6 @@ std::vector<ApplyTarget> World::applyTargets(flecs::entity entity, const Compone
   const auto placement = [&](flecs::entity level) {
     return component.name == "Transform" && isInstance(level) && !level.has<PrefabSource>();
   };
-  const auto next = [&](flecs::entity level) { return level.has<PrefabSource>() ? sourceOf(level) : prefabOf(level); };
   // Whether the value `level` holds at the member is the one `deeper` gives it.
   const auto same = [&](flecs::entity level, flecs::entity deeper) {
     if (level.has(component.id) != deeper.has(component.id)) {
@@ -1013,6 +1013,27 @@ std::vector<ApplyTarget> World::applyTargets(flecs::entity entity, const Compone
   if (!entity || placement(entity)) {
     return {};
   }
+  return walkTargets(
+      entity, [&](flecs::entity level, flecs::entity deeper) { return !placement(level) && same(level, deeper); });
+}
+
+std::vector<ApplyTarget> World::nameTargets(flecs::entity entity) const {
+  const auto nameOf = [](flecs::entity level) {
+    const Name *name = level.try_get<Name>();
+    return name != nullptr ? name->value : std::string{};
+  };
+  if (!entity || (!entity.has<PrefabSource>() && !isInstance(entity))) {
+    return {};
+  }
+  // An instance root inside a prefab stores its own name, so a deeper name does not reach it.
+  return walkTargets(entity, [&](flecs::entity level, flecs::entity deeper) {
+    return (level.has<PrefabSource>() || !isInstance(level)) && nameOf(level) == nameOf(deeper);
+  });
+}
+
+std::vector<ApplyTarget> World::walkTargets(flecs::entity entity,
+                                            const std::function<bool(flecs::entity, flecs::entity)> &reaches) const {
+  const auto next = [&](flecs::entity level) { return level.has<PrefabSource>() ? sourceOf(level) : prefabOf(level); };
   // Every level the walk reaches gives the instance the value written to it, so each one with a
   // file is a target; the walk runs outer to inner and the list the other way round.
   std::vector<ApplyTarget> targets;
@@ -1025,7 +1046,7 @@ std::vector<ApplyTarget> World::applyTargets(flecs::entity entity, const Compone
       targets.push_back({.entity = level, .root = root});
     }
     const flecs::entity deeper = next(level);
-    if (!deeper || placement(level) || !same(level, deeper)) {
+    if (!deeper || !reaches(level, deeper)) {
       break;
     }
     level = deeper;

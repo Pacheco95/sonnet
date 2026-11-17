@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -189,6 +190,12 @@ public:
   [[nodiscard]] std::vector<ApplyTarget>
   applyTargets(flecs::entity entity, const ComponentInfo &component,
                const nlohmann::json::json_pointer &member = nlohmann::json::json_pointer{}) const;
+  // The prefab entities applying `entity`'s name could write to (docs/editor.md, "Applying to a
+  // prefab"), ordered as applyTargets: the walk is the same, through sourceOf and an instance root's
+  // prefabOf, going deeper while the deeper entity has the same name. An instance root inside a
+  // prefab stores its name whatever its prefab's root is called, so the walk stops there. Empty for
+  // an entity outside an instance and a chain with no file.
+  [[nodiscard]] std::vector<ApplyTarget> nameTargets(flecs::entity entity) const;
   // Turns an instance into ordinary entities ("Make local"): the instance and every instance copied
   // inside it take their own copy of each component they inherit and drop their IsA, and their
   // descendants drop their PrefabSource. Every entity keeps its identity.
@@ -292,6 +299,10 @@ public:
 private:
   void registerComponents();
   void registerSystems();
+  // applyTargets' and nameTargets' walk from `entity`'s source inwards: each level whose prefab has
+  // a file is a target, and the walk goes on to the deeper entity while `reaches(level, deeper)`.
+  [[nodiscard]] std::vector<ApplyTarget>
+  walkTargets(flecs::entity entity, const std::function<bool(flecs::entity, flecs::entity)> &reaches) const;
 
   // Declared before m_world: its OnRemove observer runs while the world is torn down
   // (World::~World()), so the index must still be alive when the world is destroyed first.

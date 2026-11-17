@@ -585,6 +585,58 @@ TEST_CASE("applying a change goes to the deepest prefab file the value reaches t
   CHECK(!world.applyTarget(hub, meshRenderer, color).entity);
 }
 
+TEST_CASE("applying a name goes to the deepest prefab file it reaches the instance from",
+          "[world][prefab][nested][apply][name]") {
+  const Prefabs files;
+  world::World world;
+  files.load(world);
+  const flecs::entity wheelPrefab = world.find(files.wheel);
+  const flecs::entity cartPrefab = world.find(files.cart);
+  wheelPrefab.set<world::PrefabFile>({"wheel.prefab.json"});
+  cartPrefab.set<world::PrefabFile>({"cart.prefab.json"});
+  const flecs::entity wheelHub = childNamed(world, wheelPrefab, "Hub");
+  const flecs::entity cartAxle = childNamed(world, cartPrefab, "Axle");
+  const flecs::entity cartHub = childNamed(world, cartAxle, "Hub");
+  const auto entities = [](const std::vector<world::ApplyTarget> &targets) {
+    std::vector<flecs::entity> out;
+    out.reserve(targets.size());
+    for (const world::ApplyTarget &target : targets) {
+      out.push_back(target.entity);
+    }
+    return out;
+  };
+  using Entities = std::vector<flecs::entity>;
+
+  // A plain instance: a descendant's name goes to its source, the root's to the prefab's root.
+  const flecs::entity wheel = world.instantiate(wheelPrefab, "Wheel 1");
+  CHECK(entities(world.nameTargets(childNamed(world, wheel, "Hub"))) == Entities{wheelHub});
+  CHECK(entities(world.nameTargets(wheel)) == Entities{wheelPrefab});
+  CHECK(world.nameTargets(wheel)[0].root == wheelPrefab);
+  // An entity outside any instance has nowhere to go.
+  CHECK(world.nameTargets(world.createEntity("Loose")).empty());
+
+  // Nested: the cart leaves the hub's name to the wheel, so either file can take it, the wheel first.
+  const flecs::entity cart = world.instantiate(cartPrefab, "Cart 1");
+  const flecs::entity axle = childNamed(world, cart, "Axle");
+  const flecs::entity hub = childNamed(world, axle, "Hub");
+  CHECK(entities(world.nameTargets(hub)) == Entities{wheelHub, cartHub});
+  CHECK(world.nameTargets(hub)[1].root == cartPrefab);
+  // The axle is an instance root inside the cart and stores its own name, which the wheel's root
+  // name never reaches: only the cart's file can take it.
+  CHECK(entities(world.nameTargets(axle)) == Entities{cartAxle});
+  // A name the cart gives the hub stops the walk there.
+  cartHub.set<world::Name>({"Cap"});
+  CHECK(entities(world.nameTargets(hub)) == Entities{cartHub});
+  cartHub.set<world::Name>({"Hub"});
+
+  // Without a file at the inner level the outer one is the only target; with none, nothing.
+  wheelPrefab.remove<world::PrefabFile>();
+  CHECK(entities(world.nameTargets(hub)) == Entities{cartHub});
+  CHECK(world.nameTargets(wheel).empty());
+  cartPrefab.remove<world::PrefabFile>();
+  CHECK(world.nameTargets(hub).empty());
+}
+
 TEST_CASE("applying a change to a model node inside a prefab goes to the prefab's file",
           "[world][prefab][nested][apply]") {
   const core::Uuid modelUuid = core::Uuid::generate();
