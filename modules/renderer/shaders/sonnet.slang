@@ -332,14 +332,27 @@ public float orderedThreshold(float2 pixel) {
   return (float(bayer[cell.y * 4 + cell.x]) + 0.5) / 16.0;
 }
 
-// An opaque draw fades by its tint's alpha alone (MeshRenderer::color.a), screen-door style: the
-// pre-pass and the forward pass drop the pixels under the threshold, so what is left keeps its
-// depth, motion and shading, and the shadow passes never ask. The material's, the texture's and
-// the vertices' alpha stay ignored on an opaque material, and a draw on the transmission path is
-// blended, so neither is touched.
+// An opaque or masked draw fades by its tint's alpha (MeshRenderer::color.a) screen-door style
+// rather than by blending it (ADR-0041, "Fade on masked draws"). A draw on the transmission path is
+// blended, so it keeps the tint in its alpha.
+public bool fadesByDither(MaterialData material) {
+  const uint alphaMode = material.flags & 0xFF;
+  return (alphaMode == AlphaOpaque || alphaMode == AlphaMask) && (material.flags & MaterialTransmissive) == 0;
+}
+
+// The tint's alpha that a draw multiplies into its own: into a masked draw's cutoff, a blended draw's
+// blend and the hashed shadow alpha. A draw that fades by dithering takes 1, so a faded masked draw
+// keeps its cutoff and casts its whole shadow.
+public float tintAlpha(uint objectIndex, MaterialData material) {
+  return fadesByDither(material) ? 1.0 : objects[objectIndex].color.a;
+}
+
+// The pre-pass and the forward pass drop the pixels of a dithered draw under the threshold, so what
+// is left keeps its depth, motion and shading, and the shadow passes never ask. A masked draw tests
+// its cutoff first, on the material's, the texture's and the vertices' alpha; those stay ignored on
+// an opaque material.
 public bool fadedOut(uint objectIndex, MaterialData material, float2 pixel) {
-  return (material.flags & 0xFF) == AlphaOpaque && (material.flags & MaterialTransmissive) == 0 &&
-         objects[objectIndex].color.a <= orderedThreshold(pixel);
+  return fadesByDither(material) && objects[objectIndex].color.a <= orderedThreshold(pixel);
 }
 
 public static const float Pi = 3.14159265359;

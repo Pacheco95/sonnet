@@ -1,5 +1,5 @@
 // The depth pre-pass and the shadow cascades: positions only, with the alpha test of masked
-// materials and, in the pre-pass, the dither of a faded opaque draw. Entry points share the vertex shader; the shadow variant projects with a cascade's or
+// materials and, in the pre-pass, the dither of a faded opaque or masked draw. Entry points share the vertex shader; the shadow variant projects with a cascade's or
 // a spot light's matrix, chosen by the push constants, instead of the camera's. The draw's object comes from the
 // visible list and is carried to the fragment stage uninterpolated (ADR-0016).
 import sonnet;
@@ -37,7 +37,7 @@ VertexOutput shadowVertexMain(uint vertexId : SV_VertexID, uint startInstance : 
 }
 
 float surfaceAlpha(MaterialData material, uint objectIndex, float4 uvs, float vertexAlpha) {
-  return material.baseColor.a * objects[objectIndex].color.a * vertexAlpha *
+  return material.baseColor.a * tintAlpha(objectIndex, material) * vertexAlpha *
          textures[material.baseColorTexture]
              .Sample(samplers[materialSampler(material, SlotBaseColor)], uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, uvs)))
              .a;
@@ -51,8 +51,9 @@ void alphaTest(uint objectIndex, float4 uvs, float vertexAlpha) {
   }
 }
 
-// The camera's pre-pass: the alpha test, and the dither of an opaque draw faded by its tint. The
-// shadow passes take neither, so a faded draw still casts its whole shadow.
+// The camera's pre-pass: the alpha test, and the dither of an opaque or masked draw faded by its
+// tint. The shadow passes take the cutoff without the tint and no dither, so a faded draw still
+// casts its whole shadow.
 void prePassTest(uint objectIndex, float4 uvs, float vertexAlpha, float2 pixel) {
   alphaTest(objectIndex, uvs, vertexAlpha);
   if (fadedOut(objectIndex, frame.materials[objects[objectIndex].material], pixel)) {
@@ -76,7 +77,8 @@ float transmittance(MaterialData material, float4 uvs) {
   return t * (1.0 - metallic);
 }
 
-// The shadow maps' fragment stage. A masked material keeps its cutoff; a blended one discards
+// The shadow maps' fragment stage. A masked material keeps its cutoff, without the tint's alpha
+// unless it is on the transmission path; a blended one discards
 // under the pixel's threshold, so the 3x3 comparison of the receiver averages the survivors into a
 // partial shadow whose darkness follows alpha. A draw on the transmission path takes the same
 // hashed test on its coverage a * (1 - T), after a masked material's cutoff (ADR-0033, "Shadows").

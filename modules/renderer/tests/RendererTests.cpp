@@ -1090,6 +1090,136 @@ TEST_CASE("an opaque draw's tint alpha dithers it in the camera's passes and not
   REQUIRE(device->validationMessageCount() == 0);
 }
 
+// Issue #544 (ADR-0041, "Fade on masked draws"): a masked draw's cutoff tests the material's,
+// texture's and vertices' alpha without the tint's, and the tint's alpha dithers it as it does an
+// opaque draw. The pre-pass and the forward pass must agree pixel for pixel, or the equal depth test
+// leaves holes of clear colour where the pre-pass kept a pixel the forward pass dropped.
+TEST_CASE("a masked draw's tint alpha dithers it past its cutoff and not in its shadow on a GPU",
+          "[renderer][gpu][shadow]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    Renderer renderer{*device, shaderDir(platform), testSettings()};
+    const MeshHandle ground = renderer.createMesh(primitives::plane({10.0f, 10.0f}), "ground");
+    const MeshHandle panel = renderer.createMesh(primitives::plane({4.0f, 4.0f}), "panel");
+    // Base alpha 0.8 passes the 0.5 cutoff; times a tint alpha of a half or less it would not.
+    const auto masked = [&](float baseAlpha, AlphaMode mode = AlphaMode::Mask) {
+      MaterialDesc desc;
+      desc.alphaMode = mode;
+      desc.alphaCutoff = 0.5f;
+      desc.baseColor = {1.0f, 1.0f, 1.0f, baseAlpha};
+      return renderer.createMaterial(desc, "masked");
+    };
+    const MaterialHandle passes = masked(0.8f);
+    const MaterialHandle cut = masked(0.3f);
+    // The opaque test's red panel a metre over the ground, the sun almost overhead; more ambient
+    // light keeps the shadowed ground well clear of the black a hole would leave.
+    const glm::mat4 raised = glm::translate(glm::mat4{1.0f}, {0.0f, 1.0f, 0.0f});
+    struct Block {
+      int red{0};
+      int holes{0}; // neither the panel nor the ground: the clear colour
+      float groundRed{0.0f};
+    };
+    const auto render = [&](MaterialHandle material, std::optional<float> alpha, int frames = 1) {
+      std::vector<DrawItem> draws{DrawItem{.mesh = ground}};
+      if (alpha.has_value()) {
+        draws.push_back(
+            DrawItem{.mesh = panel, .material = material, .transform = raised, .color = {1.0f, 0.0f, 0.0f, *alpha}});
+      }
+      SceneView view = topDownScene(draws);
+      view.sun.direction = glm::normalize(glm::vec3{0.1f, -1.0f, 0.05f});
+      view.sun.intensity = 3.0f;
+      view.ambient = {0.1f, 0.1f, 0.1f};
+      GpuScene scene{*device, renderer, {64, 64}};
+      scene.render(view, frames);
+      Block block;
+      int groundPixels = 0;
+      for (unsigned y = 24; y < 40; ++y) {
+        for (unsigned x = 24; x < 40; ++x) {
+          const Pixel pixel = scene.pixel(x, y);
+          if (pixel.r > pixel.g + 60) {
+            ++block.red;
+          } else if (pixel.g < 8) {
+            ++block.holes;
+          } else {
+            block.groundRed += static_cast<float>(pixel.r);
+            ++groundPixels;
+          }
+        }
+      }
+      block.groundRed = groundPixels > 0 ? block.groundRed / static_cast<float>(groundPixels) : 0.0f;
+      return block;
+    };
+    const Block none = render(passes, std::nullopt);
+    const Block clear = render(passes, 0.0f);
+    const Block quarter = render(passes, 0.25f);
+    const Block half = render(passes, 0.5f);
+    const Block solid = render(passes, 1.0f);
+    const Block cutSolid = render(cut, 1.0f);
+    WARN(std::format("masked red pixels of 256 at tint alpha 0 / 0.25 / 0.5 / 1: {} {} {} {}; holes {} {} {} {}; "
+                     "ground lit {}, under the faded panel {}",
+                     clear.red, quarter.red, half.red, solid.red, clear.holes, quarter.holes, half.holes, solid.holes,
+                     none.groundRed, clear.groundRed));
+    REQUIRE(none.red == 0);
+    REQUIRE(none.holes == 0);
+    // The shadowed ground is far from black, so a hole cannot pass for it.
+    REQUIRE(clear.groundRed > 20.0f);
+    REQUIRE(clear.groundRed * 2.0f < none.groundRed);
+    // The tint's alpha keeps exactly its share of each 4x4 block, though 0.8 times 0.25 or 0.5 is
+    // under the cutoff: the cutoff ignores the tint.
+    REQUIRE(clear.red == 0);
+    REQUIRE(quarter.red == 64);
+    REQUIRE(half.red == 128);
+    REQUIRE(solid.red == 256);
+    // No pixel the pre-pass kept is dropped by the forward pass: every other pixel is ground.
+    REQUIRE(clear.holes == 0);
+    REQUIRE(quarter.holes == 0);
+    REQUIRE(half.holes == 0);
+    REQUIRE(solid.holes == 0);
+    REQUIRE(std::abs(quarter.groundRed - clear.groundRed) < 2.0f);
+    REQUIRE(std::abs(half.groundRed - clear.groundRed) < 2.0f);
+    // The cutoff still applies to the material's own alpha.
+    REQUIRE(cutSolid.red == 0);
+    REQUIRE(cutSolid.holes == 0);
+
+    // The pre-pass that also writes motion, under temporal anti-aliasing, dithers the same way.
+    RendererSettings taa = testSettings();
+    taa.antialiasing = AntiAliasing::Taa;
+    renderer.setSettings(taa);
+    REQUIRE(render(passes, 0.0f, 4).red == 0);
+    REQUIRE(render(passes, 1.0f, 4).red == 256);
+    renderer.setSettings(testSettings());
+
+    // Seen edge-on, a masked wall at tint alpha 0 or 0.5 casts its whole shadow, the opaque wall's
+    // pixel for pixel: the shadow passes test the cutoff without the tint. A blended wall keeps the
+    // tint in its hashed shadow alpha, so at tint alpha 0 it casts nothing.
+    const MeshHandle wall = renderer.createMesh(primitives::plane({2.0f, 4.0f}), "wall");
+    const MaterialHandle glass = masked(1.0f, AlphaMode::Blend);
+    const WallShadow opaque = wallShadow(*device, renderer, ground, wall, {});
+    const WallShadow maskedSolid = wallShadow(*device, renderer, ground, wall, passes);
+    const WallShadow maskedHalf = wallShadow(*device, renderer, ground, wall, passes, 0.0f, true, {1, 1, 1, 0.5f});
+    const WallShadow maskedClear = wallShadow(*device, renderer, ground, wall, passes, 0.0f, true, {1, 1, 1, 0.0f});
+    const WallShadow maskedCut = wallShadow(*device, renderer, ground, wall, cut);
+    const WallShadow glassClear = wallShadow(*device, renderer, ground, wall, glass, 0.0f, true, {1, 1, 1, 0.0f});
+    REQUIRE(opaque.shadowed * 3.0f < opaque.lit);
+    REQUIRE(maskedSolid.shadowed == opaque.shadowed);
+    REQUIRE(maskedHalf.shadowed == opaque.shadowed);
+    REQUIRE(maskedClear.shadowed == opaque.shadowed);
+    REQUIRE(maskedClear.lit == opaque.lit);
+    REQUIRE(std::abs(maskedCut.shadowed - maskedCut.lit) < 1.0f);
+    REQUIRE(std::abs(glassClear.shadowed - glassClear.lit) < 1.0f);
+    REQUIRE(device->validationMessageCount() == 0);
+
+    renderer.destroyMaterial(glass);
+    renderer.destroyMaterial(cut);
+    renderer.destroyMaterial(passes);
+    renderer.destroyMesh(wall);
+    renderer.destroyMesh(panel);
+    renderer.destroyMesh(ground);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
 TEST_CASE("a lit box renders into the viewport target on a GPU", "[renderer][gpu]") {
   sonnet::platform::Platform platform{{.headless = true}};
   std::unique_ptr<IDevice> device = gpuDevice(platform);
