@@ -1,6 +1,6 @@
 # Skin and hair shading spike
 
-Measured 2026-11-16 for [#502](https://github.com/Pacheco95/sonnet/issues/502), the spike behind [ADR-0041](../decisions/0041-skin-shading.md). The prototype is the unmerged branch `spike/skin-hair-shading` (`b0f8ff8`, on `main` at `8174469`). These are desktop results only. The Galaxy S25 and iPad were not measured, and nothing here stands in for their gates.
+Measured 2026-11-16 (desktop) and 2026-11-17 (Galaxy S25 Ultra) for [#502](https://github.com/Pacheco95/sonnet/issues/502), the spike behind [ADR-0041](../decisions/0041-skin-shading.md). The prototype is the unmerged branch `spike/skin-hair-shading` (`b0f8ff8` for the desktop, `80d2e1e` for the phone; on `main` at `8174469`). The iPad was not measured.
 
 ## The prototype
 
@@ -107,9 +107,47 @@ Milliseconds. Each cell is the median over three paired runs of the run's GPU-fr
 - **The branch costs standard draws.** It adds 0.040 ms on the showcase and 0.022 ms on the stress scene, 12 % and 8 % of `forward`, with no skin or hair in either scene. Specialising the model away removes all of it; the material and frame growth cost nothing measurable. The same fraction of the S25's forward pass would be well over the 0.1 ms standard-scene gate, so the per-draw branch fails here, before any phone measurement.
 - **Skin and hair cost.** On the RTX 4090 they add 0.006 ms with the head at about half the frame. This says nothing about the S25's 0.5 ms and 0.3 ms budgets, which remain unmeasured.
 
+## Galaxy S25 Ultra
+
+- **Device and build.** Galaxy S25 Ultra, Adreno 830, Android 17, Vulkan 1.3.284 on ADR-0019's 1.4-extensions path, driver build `0603ba43d2`. `android-release` (RelWithDebInfo) APK of `80d2e1e`, which adds two things to `b0f8ff8`: the name match a cooked bundle needs, since it names a material `Skin` rather than `humanoid/Skin`, and `--character-shading skin`, which shades Skin alone.
+- **Content.** The character sample cooked with `sonnet_cook --platform android` and run from the app's data. The Android player's renderer settings apply, so AO and contact shadows are off.
+- **Conditions.** Unplugged, on wireless debugging, screen on, FIFO at the player's 60 fps request. `--render-size 1920x1080` scaled to the portrait window, `spike_half`, head at about half the frame.
+- **Cooldown.** Every run started with the HAL's skin reading at or below 31.0 °C and thermal status 0, re-read every 20 s. With the phone charging over USB the skin settled at 31.9 °C and never reached 31 °C, so the runs were made unplugged.
+
+**Cold.** Each run is a fresh process with `--play 5`, timed over its last 100 frames, and every frame was complete. There are three rounds of off, skin, and skin with the spike's hair, in reverse order in round 2. Milliseconds, GPU frame median / p95.
+
+| Round | Off | Skin | Skin + hair |
+|---|---|---|---|
+| 1 | 14.397 / 14.464 | 14.529 / 14.593 | 14.795 / 14.919 |
+| 2 | 14.383 / 14.423 | 14.494 / 14.544 | 13.354 / 14.889 |
+| 3 | 14.402 / 14.447 | 14.528 / 14.576 | 13.264 / 14.913 |
+
+- **Skin adds 0.111 to 0.132 ms to the median and 0.121 to 0.129 ms to the p95**, against ADR-0041's 0.5 ms. Medians over the rounds: +0.126 and +0.129. `forward` grows by 0.06 to 0.12 ms.
+- **The clock held.** The frame is under the 60 fps cap (14.4 ms of GPU work in 16.65 ms), but unlike the [AO runs](s25-ao-contact-shadows.md) the passes skin does not touch moved by at most 0.04 ms. So the raw figures need no clock correction; the correction gives +0.09 ms.
+- **Skin with hair** is bimodal in rounds 2 and 3: the median falls 1 ms below off while the p95 rises 0.47 ms, as the clock switched levels within the window. Hair shading is deferred, so only its p95 (+0.47 ms) is recorded.
+
+**Sustained.** Each half ran `--play 600` (600 s at 60 fps) from a cool start, with the skin temperature and thermal status sampled every 20 s. The off half ran in the morning, the skin half in the afternoon, after the phone had been in use; both started within the cooldown rule.
+
+| 600 s | Off | Skin |
+|---|---|---|
+| Start → end skin | 30.5 → 36.2 °C (peak 36.4) | 31.0 → 36.6 °C (peak 36.6) |
+| Thermal status | 0 at every sample | 0 at every sample |
+| GPU frame median / p95, last 100 frames | 14.399 / 14.452 | 14.545 / 14.586 |
+| Interval median / p95 | 16.64 / 16.94 | 16.62 / 17.42 |
+
+- **Sustained cost.** Skin adds **0.146 / 0.134 ms** sustained. The p95 frame interval stays far under 33 ms, neither half throttles, and the end temperatures are within 0.4 °C.
+- **Clock.** The passes skin does not touch took 0.20 ms more in the skin half, so its clock ran slightly lower. A correction would make the added cost smaller, so the raw figure is the conservative one.
+
+**What this does not cover.**
+- **Standard-scene gate.** Both halves of each pair ran the per-draw branch, so this isolates skin's cost and says nothing about the branch's cost to standard draws. The showcase and stress scene were not run on the phone. ADR-0041's separate pipelines make that gate a property of the shader, which #543 checks.
+- **Native resolution.** Only 1920×1080 was measured, not the phone's native extent.
+
 ## Not measured
 
-- **Galaxy S25 Ultra.** No phone was connected. The skin (≤ 0.5 ms) and hair (≤ 0.3 ms) budgets, the 33 ms sustained interval, the thermal comparison and the standard-scene gate on the phone are all unmeasured. So are the cooldown rule and the sustained runs.
-- **iPad.** Not measured.
+- **iPad.** Not measured; iOS keeps skin off until it is.
+- **S25, not measured:**
+  - the standard scenes;
+  - the native resolution;
+  - the hair budget (hair shading is deferred).
 - **Without TAA.** Hair coverage with None or FXAA was not captured (in the code it is the plain cutoff); the spike's dither applies only under TAA.
-- **Separate costs.** Skin and hair were not timed apart (the RTX figure is both), and the `hair-u` variant was not timed.
+- **Separate costs on the RTX.** Skin and hair were not timed apart there (the RTX figure is both), and the `hair-u` variant was not timed.

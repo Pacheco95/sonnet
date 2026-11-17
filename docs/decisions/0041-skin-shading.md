@@ -1,8 +1,8 @@
 # ADR-0041: Pre-integrated skin shading, and masked draws that fade
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Amends:** [ADR-0008](0008-clustered-forward-rendering.md)
-- **Date:** 2026-11-16
+- **Date:** 2026-11-17
 
 ## Context
 
@@ -16,7 +16,7 @@ What the renderer does today:
 - **Material overrides.** `MeshRenderer::material` overrides every slot of a mesh, and a glTF material can be edited in memory only. A submesh of the humanoid therefore cannot get a material of its own today.
 - **The character fade.** The fade of [#529](https://github.com/Pacheco95/sonnet/issues/529) screen-doors `AlphaOpaque` draws only. A masked draw multiplies the tint's alpha into its cutoff, so the hair, eyebrows and eyelashes do not fade with the body.
 
-A forward-shader spike measured the agreed design on the humanoid. It ran on the RTX 4090 and on Lavapipe; the phones were not connected ([report](../reports/skin-hair-spike.md)). Five results changed the design:
+A forward-shader spike measured the agreed design on the humanoid. It ran on the RTX 4090 and on Lavapipe, then for skin's cost on the Galaxy S25 Ultra; the iPad was not measured ([report](../reports/skin-hair-spike.md)). Five results changed the design:
 
 1. **Skin works within the forward pass.** Pre-integration red-shifts the falloff (red over green 1.59 to 1.75 at the cheek's quarter-lit level) and softens the normal map's detail on the diffuse.
    - Derivative curvature is faceted per triangle, but at a 1 mm scatter radius the facets do not show.
@@ -88,7 +88,9 @@ A forward-shader spike measured the agreed design on the humanoid. It ran on the
   - Standard-material scenes (the showcase and the stress scene) regress by at most **0.1 ms**. The Standard pipeline must compile to the same code as today's shader, and the Lavapipe goldens must not change.
 - **Method.** Follow ADR-0039's measurement method and the repository's temperature-based S25 cooldown rule.
 - **Phones.** The iPad is measured separately before iOS changes its default. An unmeasured or failing platform keeps `characterShading` off. Desktop results do not validate a phone.
-- **Before this ADR is accepted.** An S25 run of the spike branch records the skin cost against the 0.5 ms budget in the [report](../reports/skin-hair-spike.md). If skin misses it, the ADR is revised before acceptance, for example to one LUT sample a light from the green channel's normal.
+- **The spike's S25 result.** With the head at about half a 1920×1080 frame, skin added 0.126 ms to the median and 0.129 ms to the p95 GPU frame over three cold pairs. Over a sustained 600 s pair it added 0.146 / 0.134 ms, with a p95 interval of 17.4 ms and thermal status 0 throughout, never throttling, as with it off ([report](../reports/skin-hair-spike.md#galaxy-s25-ultra)).
+  - This was measured on the spike's per-draw branch, which both halves of each pair ran, so it isolates skin's own cost.
+  - It does not enable Android. #543 measures the production pipelines against the same gates, including the standard-scene gate, before the Android player changes its default.
 
 ### Hair
 
