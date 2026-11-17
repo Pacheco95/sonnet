@@ -49,6 +49,11 @@ namespace {
 
 constexpr const char *ModalId = "Project";
 
+// What the apply confirmations say about a rename (docs/editor.md, "Applying to a prefab").
+constexpr std::string_view RenameWarning =
+    "Scripts find entities by name: a path such as entity:child(\"Axle/Hub\") in a scene or prefab that places "
+    "this prefab may no longer find the renamed entity.";
+
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity ? entity.try_get<world::Name>() : nullptr;
   return name != nullptr ? name->value : std::string{};
@@ -2333,14 +2338,14 @@ void Editor::refreshModelPrefabs() {
   rebuildPrefabs();
 }
 
-void Editor::rebuildPrefabs() {
+void Editor::rebuildPrefabs(const nlohmann::json *saved) {
   m_prefabsStale = false;
   ++m_prefabRebuilds;
   // The round trip a tab switch makes, with the prefabs rebuilt in between: instances copy their
   // prefab's tree (ADR-0028), so they are made again from the saved scene, which keeps the
   // overrides by identity (ADR-0030). Every prefab is rebuilt, not only the models', because a
   // prefab file that nests a model holds a copy of the old tree.
-  const nlohmann::json scene = world::saveScene(m_world);
+  const nlohmann::json scene = saved != nullptr ? *saved : world::saveScene(m_world);
   // What each prefab file holds now, to keep in place of a file edited into one that does not load.
   std::map<std::filesystem::path, nlohmann::json> previous;
   for (const flecs::entity prefab : m_world.prefabs()) {
@@ -2364,11 +2369,12 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
     return std::nullopt;
   }
   const flecs::entity entity = m_world.find(request.entity);
-  const world::ComponentInfo *info = m_world.findComponent(request.component);
-  if (!entity || info == nullptr) {
+  const bool name = request.kind == ApplyKind::Name;
+  const world::ComponentInfo *info = name ? nullptr : m_world.findComponent(request.component);
+  if (!entity || (!name && info == nullptr)) {
     return std::nullopt;
   }
-  const std::vector<world::ApplyTarget> targets = m_world.applyTargets(entity, *info, request.member);
+  const std::vector<world::ApplyTarget> targets = applyTargetsOf(entity, request);
   const auto chosen = request.prefab ? std::ranges::find_if(targets,
                                                             [&](const world::ApplyTarget &target) {
                                                               return m_world.uuidOf(target.root) == *request.prefab;
@@ -2382,7 +2388,12 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
   if (file == nullptr) {
     return std::nullopt;
   }
-  if (!entity.has(info->id)) {
+  if (name) {
+    // A rename: only of a name the target does not have already.
+    if (nameOf(entity) == nameOf(target.entity)) {
+      return std::nullopt;
+    }
+  } else if (!entity.has(info->id)) {
     // A removal: only of a component the target holds itself, not one it inherits.
     const flecs::entity base =
         target.entity.has<world::PrefabSource>() ? flecs::entity{} : m_world.prefabOf(target.entity);
@@ -2399,6 +2410,13 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
     }
   }
   return ResolvedApply{.target = target, .info = info, .file = file->path};
+}
+
+std::vector<world::ApplyTarget> Editor::applyTargetsOf(flecs::entity entity, const ApplyRequest &request) const {
+  if (request.kind == ApplyKind::Name) {
+    return m_world.nameTargets(entity);
+  }
+  return m_world.applyTargets(entity, *m_world.findComponent(request.component), request.member);
 }
 
 std::optional<std::string> Editor::applyTargetName(const ApplyRequest &request) const {
@@ -2418,9 +2436,7 @@ std::vector<ApplyChoice> Editor::applyChoices(const ApplyRequest &request) const
   if (!resolveApply(choice)) {
     return choices;
   }
-  const flecs::entity entity = m_world.find(request.entity);
-  const world::ComponentInfo &info = *m_world.findComponent(request.component);
-  for (const world::ApplyTarget &target : m_world.applyTargets(entity, info, request.member)) {
+  for (const world::ApplyTarget &target : applyTargetsOf(m_world.find(request.entity), request)) {
     choice.prefab = m_world.uuidOf(target.root);
     if (auto name = applyTargetName(choice)) {
       choices.push_back({.prefab = *choice.prefab, .name = std::move(*name)});
@@ -2475,18 +2491,19 @@ void Editor::cancelApply() {
 core::Result<void> Editor::applyToPrefab(const ApplyRequest &request) {
   const auto resolved = resolveApply(request);
   if (!resolved) {
-    return std::unexpected(
-        core::Error{std::format("{} of {} cannot be applied to a prefab", request.component, request.entity.toString()),
-                    core::ErrorCategory::Unknown});
+    return std::unexpected(core::Error{std::format("{} of {} cannot be applied to a prefab",
+                                                   request.kind == ApplyKind::Name ? "the name" : request.component,
+                                                   request.entity.toString()),
+                                       core::ErrorCategory::Unknown});
   }
   const std::vector<ApplyAllPlan::File> files{
       {.path = resolved->file, .prefab = applyTargetName(request).value_or(std::string{}), .changes = {request}}};
-  if (auto pushed =
-          pushApply(std::format("apply {} to {}", request.component, resolved->file.filename().string()), files);
+  const std::string what = request.kind == ApplyKind::Name ? "the name" : request.component;
+  if (auto pushed = pushApply(std::format("apply {} to {}", what, resolved->file.filename().string()), files);
       !pushed) {
     return pushed;
   }
-  SONNET_LOG_INFO("applied {}{} to {}", request.component, request.member.to_string(), resolved->file.string());
+  SONNET_LOG_INFO("applied {}{} to {}", what, request.member.to_string(), resolved->file.string());
   return {};
 }
 
@@ -2512,8 +2529,16 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
     std::optional<nlohmann::json> value;
   };
   std::vector<Original> originals;
+  // The names of the targets a rename changes, put back the same way.
+  std::vector<std::pair<flecs::entity, std::string>> names;
   for (const auto &[request, apply] : resolved) {
     const flecs::entity target = apply.target.entity;
+    if (request->kind == ApplyKind::Name) {
+      if (std::ranges::none_of(names, [&](const auto &name) { return name.first == target; })) {
+        names.emplace_back(target, nameOf(target));
+      }
+      continue;
+    }
     const world::ComponentInfo *info = apply.info;
     if (std::ranges::none_of(originals, [&](const Original &o) { return o.entity == target && o.info == info; })) {
       originals.push_back({target, info, target.owns(info->id), valueOf(target, *info)});
@@ -2523,9 +2548,13 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
   // then put back: the rebuild saves the scene against the prefabs in the world first, and an
   // instance that follows the prefab would otherwise be saved as overriding the old value.
   for (const auto &[request, apply] : resolved) {
-    const world::ComponentInfo &info = *apply.info;
     const flecs::entity entity = m_world.find(request->entity);
     const flecs::entity target = apply.target.entity;
+    if (request->kind == ApplyKind::Name) {
+      target.set<world::Name>({nameOf(entity)}); // the same entity renamed, never a new one
+      continue;
+    }
+    const world::ComponentInfo &info = *apply.info;
     const std::optional<nlohmann::json> value = valueOf(entity, info);
     const std::optional<nlohmann::json> targetValue = valueOf(target, info);
     if (request->slot) {
@@ -2550,12 +2579,15 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
       m_world.componentFromJson(original.entity, original.info->id, *original.value);
     }
   }
+  for (const auto &[target, name] : names) {
+    target.set<world::Name>({name});
+  }
   return after;
 }
 
 core::Result<void> Editor::pushApply(std::string description, const std::vector<ApplyAllPlan::File> &files) {
   std::vector<PrefabFileEdit> edits;
-  std::vector<InstanceValue> values;
+  std::vector<AppliedComponent> applied;
   for (const ApplyAllPlan::File &file : files) {
     const auto first = file.changes.empty() ? std::nullopt : resolveApply(file.changes.front());
     if (!first) {
@@ -2571,26 +2603,19 @@ core::Result<void> Editor::pushApply(std::string description, const std::vector<
     edits.push_back(
         {.file = file.path, .before = std::move(text), .after = appliedPrefabText(first->target.root, file.changes)});
     for (const ApplyRequest &request : file.changes) {
-      if (std::ranges::any_of(values, [&](const InstanceValue &value) {
-            return value.entity == request.entity && value.component == request.component;
+      if (request.kind == ApplyKind::Component && std::ranges::none_of(applied, [&](const AppliedComponent &component) {
+            return component.entity == request.entity && component.component == request.component;
           })) {
-        continue;
+        applied.push_back({.entity = request.entity, .component = request.component});
       }
-      const flecs::entity entity = m_world.find(request.entity);
-      const world::ComponentInfo *info = m_world.findComponent(request.component);
-      std::optional<nlohmann::json> value;
-      if (entity.has(info->id)) {
-        value = info->tag ? nlohmann::json{} : m_world.componentToJson(entity, info->id);
-      }
-      values.push_back({.entity = request.entity, .component = request.component, .value = std::move(value)});
     }
   }
   if (edits.empty()) {
     return std::unexpected(core::Error{"nothing to apply to a prefab", core::ErrorCategory::Unknown});
   }
-  m_commands.push(
-      applyToPrefabCommand(std::move(description), std::move(edits), std::move(values), [this] { rebuildPrefabs(); }),
-      m_world);
+  m_commands.push(applyToPrefabCommand(std::move(description), std::move(edits), std::move(applied),
+                                       [this](const nlohmann::json *scene) { rebuildPrefabs(scene); }),
+                  m_world);
   return {};
 }
 
@@ -2643,7 +2668,10 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
       plan->kept.push_back(std::format("{}: {}", nameOf(entity), what()));
     }
   };
-  const auto describe = [](const ApplyRequest &request) {
+  const auto describe = [&](const ApplyRequest &request) {
+    if (request.kind == ApplyKind::Name) {
+      return std::format("the name {}", nameOf(m_world.find(request.entity)));
+    }
     return request.slot ? std::format("{} property {}", request.component, request.property)
                         : std::format("{}{}", request.component, request.member.to_string());
   };
@@ -2664,12 +2692,13 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
       return;
     }
     keep(entity, [&] {
-      const world::ComponentInfo *info = m_world.findComponent(request.component);
-      const world::ApplyTarget target = m_world.applyTarget(entity, *info, request.member);
-      const std::string reason = !target.root || !target.root.has<world::PrefabFile>()
-                                     ? "no prefab along the way has a file"
-                                 : !entity.has(info->id) ? "removes a component the prefab inherits"
-                                                         : "the prefab cannot take it";
+      const std::vector<world::ApplyTarget> targets = applyTargetsOf(entity, request);
+      const bool noFile = targets.empty() || !targets.front().root.has<world::PrefabFile>();
+      const world::ComponentInfo *info =
+          request.kind == ApplyKind::Name ? nullptr : m_world.findComponent(request.component);
+      const std::string reason = noFile                                     ? "no prefab along the way has a file"
+                                 : info != nullptr && !entity.has(info->id) ? "removes a component the prefab inherits"
+                                                                            : "the prefab cannot take it";
       return std::format("{} ({})", describe(request), reason);
     });
   };
@@ -2677,6 +2706,10 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
   visit = [&](flecs::entity entity, flecs::entity source) {
     const core::Uuid uuid = m_world.uuidOf(entity);
     const bool isRoot = entity == root;
+    // A rename, of a descendant or of the root, which always stores its own name.
+    if (nameOf(entity) != nameOf(source)) {
+      add(entity, {.entity = uuid, .component = {}, .kind = ApplyKind::Name});
+    }
     for (const world::ComponentInfo &info : m_world.components()) {
       if (done()) {
         return;
@@ -2746,9 +2779,6 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
     std::vector<flecs::entity> children = m_world.children(entity);
     std::erase_if(children, std::not_fn(isSavedChild));
     if (plan != nullptr) {
-      if (!isRoot && nameOf(entity) != nameOf(source)) {
-        keep(entity, [&] { return std::format("the name {}", nameOf(entity)); });
-      }
       std::vector<flecs::entity> standard = m_world.defaultChildren(entity);
       std::erase_if(standard, std::not_fn(isSavedChild));
       if (children != standard) {
@@ -3043,7 +3073,10 @@ void Editor::drawApplyModal() {
     return;
   }
   const ApplyRequest &request = *m_pendingApply;
-  const std::string what = request.slot ? std::format("the property {}", request.property)
+  const bool rename = request.kind == ApplyKind::Name;
+  const flecs::entity entity = m_world.find(request.entity);
+  const std::string what = rename         ? std::format("the name \"{}\"", nameOf(entity))
+                           : request.slot ? std::format("the property {}", request.property)
                            : request.member.empty()
                                ? request.component
                                : std::format("{}{}", request.component, request.member.to_string());
@@ -3052,7 +3085,19 @@ void Editor::drawApplyModal() {
     return path.lexically_relative(m_project->root).generic_string();
   };
   ImGui::TextWrapped("Apply %s to %s? This writes %s.", what.c_str(), target.c_str(), relative(resolved->file).c_str());
-  ImGui::TextWrapped("Every instance that does not change it takes the new value; one that sets its own keeps it.");
+  if (!rename) {
+    ImGui::TextWrapped("Every instance that does not change it takes the new value; one that sets its own keeps it.");
+  } else if (resolved->target.entity == resolved->target.root) {
+    ImGui::TextWrapped("The prefab's root is renamed from \"%s\"; every instance keeps its own name.",
+                       nameOf(resolved->target.entity).c_str());
+  } else {
+    ImGui::TextWrapped("\"%s\" is renamed. Every instance that does not rename it takes the new name; one that "
+                       "names it itself keeps its name.",
+                       nameOf(resolved->target.entity).c_str());
+  }
+  if (rename) {
+    ui::statusText(ui::Status::Warning, RenameWarning);
+  }
   const auto list = [&](const char *heading, const auto &items, const auto &label) {
     if (items.empty()) {
       return;
@@ -3100,6 +3145,12 @@ void Editor::drawApplyAllModal() {
                       count == 1 ? "change" : "changes");
   }
   ImGui::TextWrapped("Every instance that does not change them takes the new values; one that sets its own keeps it.");
+  const bool renames = std::ranges::any_of(m_applyAllPlan.files, [](const ApplyAllPlan::File &file) {
+    return std::ranges::any_of(file.changes, [](const ApplyRequest &change) { return change.kind == ApplyKind::Name; });
+  });
+  if (renames) {
+    ui::statusText(ui::Status::Warning, RenameWarning);
+  }
   if (!m_applyAllPlan.kept.empty()) {
     ui::sectionBreak();
     ImGui::TextUnformatted("These cannot be applied and stay on the instance:");

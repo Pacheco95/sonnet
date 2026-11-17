@@ -972,3 +972,57 @@ TEST_CASE("the mesh renderer lists its mesh's slots, with a picker and an editab
   assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
   sonnet::test::removeScratch(root);
 }
+
+TEST_CASE("a renamed part of an instance offers to apply its name beside the name field",
+          "[editor][inspector][prefab][apply][name]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const flecs::entity prefab = world.createEntity("Lamp");
+  world.createEntity("Bulb", prefab);
+  world.makePrefab(prefab);
+  const flecs::entity lamp = world.instantiate(prefab, "Lamp 1");
+  const flecs::entity bulb = world.findByPath(lamp, "Bulb");
+  REQUIRE(bulb);
+  bulb.set<world::Name>({"Globe"});
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  // The handler stands in for Editor::applyChoices: a name is offered, a component is not.
+  const core::Uuid lampPrefab = world.uuidOf(prefab);
+  std::vector<editor::ApplyRequest> asked;
+  std::vector<editor::ApplyRequest> applied;
+  panel.setApplyHandlers(
+      [&](const editor::ApplyRequest &request) {
+        asked.push_back(request);
+        return request.kind == editor::ApplyKind::Name
+                   ? std::vector<editor::ApplyChoice>{{.prefab = lampPrefab, .name = "Lamp"}}
+                   : std::vector<editor::ApplyChoice>{};
+      },
+      [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
+  const InspectorDriver driver{panel, {}};
+  selection.select(world.uuidOf(bulb));
+  driver.frame();
+  CHECK(std::ranges::any_of(asked, [&](const editor::ApplyRequest &request) {
+    return request.kind == editor::ApplyKind::Name && request.entity == world.uuidOf(bulb);
+  }));
+
+  // Apply sits at the right end of the name's row and asks for the name, pushing no command.
+  const ImGuiID button = ImHashStr("Apply", 0, ImHashStr("name", 0, InspectorDriver::inspector()->ID));
+  bool found = false;
+  for (float x = 494.0f; x > 300.0f && !found; x -= 6.0f) {
+    found = driver.hover(InspectorDriver::inspector(), button, x);
+  }
+  REQUIRE(found);
+  driver.click();
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0].kind == editor::ApplyKind::Name);
+  CHECK(applied[0].entity == world.uuidOf(bulb));
+  CHECK(applied[0].prefab == lampPrefab);
+  CHECK(!commands.canUndo());
+  CHECK(bulb.get<world::Name>().value == "Globe");
+}

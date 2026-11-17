@@ -709,7 +709,7 @@ TEST_CASE("apply all overrides lists what it cannot apply and leaves it on the i
   editor.commands().push(editor::instantiatePrefabCommand(beacon.root, "Beacon", {}, a), world);
   const flecs::entity root = world.find(a);
   const auto bulb = [&] { return world.findByPath(world.find(a), "Bulb"); };
-  // Applicable: the light's intensity. Not: the root's place, the bulb's new name, an added child.
+  // Applicable: the light's intensity and the bulb's new name. Not: the root's place, an added child.
   const auto lightId = world.findComponent("PointLight")->id;
   json light = world.componentToJson(root, lightId);
   const json lightBefore = light;
@@ -727,9 +727,9 @@ TEST_CASE("apply all overrides lists what it cannot apply and leaves it on the i
 
   const editor::ApplyAllPlan plan = editor.applyAllPlan(a);
   REQUIRE(plan.files.size() == 1);
-  CHECK(changesTo(plan, file) == 1);
+  CHECK(changesTo(plan, file) == 2);
   CHECK(lists(plan, "Transform"));
-  CHECK(lists(plan, "the name Lamp bulb"));
+  CHECK(!lists(plan, "the name Lamp bulb"));
   CHECK(lists(plan, "the added child Antenna"));
   editor.requestApplyAllOverrides(a);
   REQUIRE(editor.applyAllDialogOpen());
@@ -746,7 +746,7 @@ TEST_CASE("apply all overrides lists what it cannot apply and leaves it on the i
     }
     return json{};
   }();
-  CHECK(bulbEntry["name"] == "Bulb");
+  CHECK(bulbEntry["name"] == "Lamp bulb");
   CHECK(world.find(a).get<world::Transform>().position.x == Approx(4.0f));
   CHECK(world.findByPath(world.find(a), "Lamp bulb"));
   CHECK(world.findByPath(world.find(a), "Antenna"));
@@ -788,13 +788,18 @@ TEST_CASE("apply all is offered exactly when its plan lists a file", "[editor][g
                            world);
   };
 
-  // Untouched, and with only what stays on the instance (its place, a rename, an added child).
+  // Untouched, and with only what stays on the instance (its place, an added child).
   CHECK(!editor.applyAllOffered(a));
   edit(world.find(a), "Transform", [](json &value) { value["position"] = json::array({4.0, 0.0, 0.0}); });
-  editor.commands().push(editor::renameCommand(bulb, "Bulb", "Lamp bulb"), world);
   world.createEntity("Antenna", world.find(a));
   CHECK(!editor.applyAllOffered(a));
   CHECK(!editor.applyAllPlan(a).kept.empty());
+  // A rename is offered (#550); undoing it takes the offer back.
+  editor.commands().push(editor::renameCommand(bulb, "Bulb", "Lamp bulb"), world);
+  CHECK(editor.applyAllOffered(a));
+  CHECK(agrees(a));
+  REQUIRE(editor.commands().undo(world));
+  CHECK(!editor.applyAllOffered(a));
   // A descendant's change is offered; undoing it takes the offer back, redoing brings it again.
   edit(world.find(bulb), "MeshRenderer", [](json &value) { value["visible"] = false; });
   CHECK(editor.applyAllOffered(a));
@@ -878,4 +883,323 @@ TEST_CASE("the cost of deciding whether to offer apply all on a large instance",
   WARN(std::format("{} parts: offered untouched {:.3f} ms, last part changed {:.3f} ms, every part changed {:.3f} ms; "
                    "full plan with every part changed {:.3f} ms",
                    parts, untouched, lastChanged, allChanged, plan));
+}
+
+namespace {
+
+// The entry a document stores for the entity with that identity, null when it stores none.
+json entryOf(const json &document, const core::Uuid &uuid) {
+  for (const json &entry : document["entities"]) {
+    if (entry["uuid"] == uuid.toString()) {
+      return entry;
+    }
+  }
+  return nullptr;
+}
+
+json entryOf(const std::filesystem::path &file, const core::Uuid &uuid) {
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  return entryOf(assets::parseJson(*bytes), uuid);
+}
+
+// Whether the scene stores a name of its own for the entity: a rename of a descendant, or an
+// instance root's name, which it always stores.
+bool storesName(const world::World &world, const core::Uuid &uuid) {
+  const json entry = entryOf(world::saveScene(world), uuid);
+  return entry.is_object() && entry.contains("name");
+}
+
+editor::ApplyRequest nameRequest(const core::Uuid &entity) {
+  return {.entity = entity, .component = {}, .kind = editor::ApplyKind::Name};
+}
+
+} // namespace
+
+TEST_CASE("applying a descendant's rename renames the prefab entity and the instances that follow it, undoably",
+          "[editor][gpu][prefab][apply][name]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-rename");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Lamp lamp;
+  const std::filesystem::path file = directory / "prefabs" / "lamp.prefab.json";
+  lamp.write(file);
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid a = core::Uuid::generate();
+  const core::Uuid b = core::Uuid::generate();
+  const core::Uuid c = core::Uuid::generate();
+  const core::Uuid d = core::Uuid::generate();
+  for (const core::Uuid &uuid : {a, b, c, d}) {
+    editor.commands().push(editor::instantiatePrefabCommand(lamp.root, "Lamp", {}, uuid), world);
+  }
+  const auto bulbOf = [&](const core::Uuid &instance) { return world::World::instancedIdentity(instance, lamp.bulb); };
+  const auto nameOf = [&](const core::Uuid &instance) { return world.find(bulbOf(instance)).get<world::Name>().value; };
+  // A renames its bulb Globe; C names its own Lightbulb, and D happens to name its own Globe too.
+  editor.commands().push(editor::renameCommand(bulbOf(a), "Bulb", "Globe"), world);
+  editor.commands().push(editor::renameCommand(bulbOf(c), "Bulb", "Lightbulb"), world);
+  editor.commands().push(editor::renameCommand(bulbOf(d), "Bulb", "Globe"), world);
+  REQUIRE(editor.saveSceneAs(directory / "scenes" / "lamps.scene.json").has_value());
+  fixture.frame(editor);
+  const std::string original = text(file);
+  editor.selection().select(bulbOf(a));
+
+  const editor::ApplyRequest request = nameRequest(bulbOf(a));
+  REQUIRE(editor.applyTargetName(request) == "Lamp");
+  REQUIRE(editor.applyChoices(request).size() == 1);
+  // B's bulb has the prefab's name, so it has nothing to apply.
+  CHECK(!editor.applyTargetName(nameRequest(bulbOf(b))));
+  // An entity outside any instance has nowhere to go.
+  const flecs::entity loose = world.createEntity("Loose");
+  CHECK(!editor.applyTargetName(nameRequest(world.uuidOf(loose))));
+  world.destroyEntity(loose);
+
+  // The confirmation names the scene and the open tab placing the prefab; cancelling writes nothing.
+  editor.requestApplyToPrefab(request);
+  REQUIRE(editor.applyDialogOpen());
+  CHECK(editor.applyUsers().tabs.size() == 1);
+  REQUIRE(editor.applyUsers().scenes.size() == 1);
+  CHECK(editor.applyUsers().scenes[0].filename() == "lamps.scene.json");
+  fixture.frame(editor); // the dialog draws, with the warning about script paths
+  editor.cancelApply();
+  CHECK(text(file) == original);
+  CHECK(nameOf(b) == "Bulb");
+
+  const std::size_t undoBefore = editor.commands().size();
+  editor.requestApplyToPrefab(request);
+  REQUIRE(editor.applyDialogOpen());
+  editor.confirmApply();
+  CHECK(editor.commands().size() == undoBefore + 1);
+  // The prefab's bulb is renamed in place: same identity and parent, its components as they were.
+  CHECK(entryOf(file, lamp.bulb)["name"] == "Globe");
+  CHECK(entryOf(file, lamp.bulb)["parent"] == lamp.root.toString());
+  CHECK(stored(file, lamp.bulb)["PointLight"]["intensity"] == 5.0);
+  CHECK(stored(file, lamp.bulb).contains("Static"));
+  CHECK(entryOf(file, lamp.root)["name"] == "Lamp");
+  // B follows, A follows the prefab now and stores no rename, C keeps its own, and D's equal
+  // rename becomes the inherited name.
+  CHECK(nameOf(a) == "Globe");
+  CHECK(nameOf(b) == "Globe");
+  CHECK(nameOf(c) == "Lightbulb");
+  CHECK(nameOf(d) == "Globe");
+  CHECK(!storesName(world, bulbOf(a)));
+  CHECK(!storesName(world, bulbOf(b)));
+  CHECK(storesName(world, bulbOf(c)));
+  CHECK(!storesName(world, bulbOf(d)));
+  // Identity and selection stay, and a path finds the bulb by its new name.
+  CHECK(editor.selection().contains(bulbOf(a)));
+  CHECK(world.findByPath(world.find(b), "Globe") == world.find(bulbOf(b)));
+  CHECK(!editor.applyTargetName(request));
+  CHECK(editor.isDirty());
+
+  // Undo puts the file and every instance back, D's own rename included.
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(file) == original);
+  CHECK(nameOf(a) == "Globe");
+  CHECK(nameOf(b) == "Bulb");
+  CHECK(nameOf(c) == "Lightbulb");
+  CHECK(nameOf(d) == "Globe");
+  CHECK(storesName(world, bulbOf(a)));
+  CHECK(storesName(world, bulbOf(d)));
+  CHECK(editor.selection().contains(bulbOf(a)));
+  CHECK(!editor.isDirty());
+  // Redo applies again.
+  REQUIRE(editor.commands().redo(world));
+  CHECK(entryOf(file, lamp.bulb)["name"] == "Globe");
+  CHECK(nameOf(b) == "Globe");
+  CHECK(nameOf(c) == "Lightbulb");
+
+  // Saved and opened again, the instances read the renamed prefab.
+  REQUIRE(editor.saveScene().has_value());
+  REQUIRE(editor.openProject(directory).has_value());
+  REQUIRE(editor.openScene(directory / "scenes" / "lamps.scene.json").has_value());
+  world::World &reloaded = editor.world();
+  CHECK(reloaded.find(bulbOf(b)).get<world::Name>().value == "Globe");
+  CHECK(reloaded.find(bulbOf(c)).get<world::Name>().value == "Lightbulb");
+  CHECK(reloaded.find(bulbOf(d)).get<world::Name>().value == "Globe");
+  CHECK(!storesName(reloaded, bulbOf(a)));
+}
+
+TEST_CASE("applying an instance root's name renames the prefab's root and every instance keeps its own",
+          "[editor][gpu][prefab][apply][name]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-root-name");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Lamp lamp;
+  const std::filesystem::path file = directory / "prefabs" / "lamp.prefab.json";
+  lamp.write(file);
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  // A is renamed Desk lamp, B keeps the prefab's name, C has a name of its own and renames its bulb.
+  const core::Uuid a = core::Uuid::generate();
+  const core::Uuid b = core::Uuid::generate();
+  const core::Uuid c = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(lamp.root, "Lamp", {}, a), world);
+  editor.commands().push(editor::instantiatePrefabCommand(lamp.root, "Lamp", {}, b), world);
+  editor.commands().push(editor::instantiatePrefabCommand(lamp.root, "Floor lamp", {}, c), world);
+  editor.commands().push(editor::renameCommand(a, "Lamp", "Desk lamp"), world);
+  const core::Uuid bulbB = world::World::instancedIdentity(b, lamp.bulb);
+  const core::Uuid bulbC = world::World::instancedIdentity(c, lamp.bulb);
+  editor.commands().push(editor::renameCommand(bulbC, "Bulb", "Globe"), world);
+  fixture.frame(editor);
+  const std::string original = text(file);
+  const auto name = [&](const core::Uuid &uuid) { return world.find(uuid).get<world::Name>().value; };
+
+  const editor::ApplyRequest request = nameRequest(a);
+  REQUIRE(editor.applyTargetName(request) == "Lamp");
+  // B is named like the prefab's root: nothing to apply.
+  CHECK(!editor.applyTargetName(nameRequest(b)));
+  // Apply all takes the root's name and the descendant's rename alike.
+  const editor::ApplyAllPlan plan = editor.applyAllPlan(c);
+  REQUIRE(plan.files.size() == 1);
+  CHECK(changesTo(plan, file) == 2);
+
+  editor.requestApplyToPrefab(request);
+  REQUIRE(editor.applyDialogOpen());
+  fixture.frame(editor); // the dialog draws, saying instances keep their names
+  editor.confirmApply();
+  CHECK(entryOf(file, lamp.root)["name"] == "Desk lamp");
+  CHECK(world.find(lamp.root).get<world::Name>().value == "Desk lamp");
+  // Unlike a descendant's name, a root's is the instance's own: B and C keep theirs, B's even
+  // though it was the prefab's old name, and every root still stores its name.
+  CHECK(name(a) == "Desk lamp");
+  CHECK(name(b) == "Lamp");
+  CHECK(name(c) == "Floor lamp");
+  CHECK(storesName(world, a));
+  CHECK(storesName(world, b));
+  CHECK(name(bulbC) == "Globe");
+  CHECK(name(bulbB) == "Bulb");
+
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(file) == original);
+  CHECK(world.find(lamp.root).get<world::Name>().value == "Lamp");
+  CHECK(name(a) == "Desk lamp");
+  CHECK(name(b) == "Lamp");
+  REQUIRE(editor.commands().redo(world));
+  CHECK(entryOf(file, lamp.root)["name"] == "Desk lamp");
+  CHECK(name(b) == "Lamp");
+
+  // Apply all on C writes both of its names in one step: the root's and the bulb's.
+  editor.requestApplyAllOverrides(c);
+  REQUIRE(editor.applyAllDialogOpen());
+  fixture.frame(editor); // the dialog draws, with the warning about script paths
+  editor.confirmApply();
+  CHECK(entryOf(file, lamp.root)["name"] == "Floor lamp");
+  CHECK(entryOf(file, lamp.bulb)["name"] == "Globe");
+  CHECK(name(a) == "Desk lamp");
+  CHECK(name(b) == "Lamp");
+  CHECK(name(bulbB) == "Globe");
+  REQUIRE(editor.commands().undo(world));
+  CHECK(entryOf(file, lamp.root)["name"] == "Desk lamp");
+  CHECK(entryOf(file, lamp.bulb)["name"] == "Bulb");
+  CHECK(name(bulbC) == "Globe");
+  CHECK(name(bulbB) == "Bulb");
+
+  // Not offered while playing.
+  editor.play();
+  fixture.frame(editor);
+  CHECK(!editor.applyTargetName(nameRequest(c)));
+  CHECK(!editor.applyToPrefab(nameRequest(c)).has_value());
+  CHECK(editor.applyAllPlan(c).files.empty());
+  editor.stop();
+}
+
+TEST_CASE("applying a rename inside a prefab of prefabs offers the files the name reaches the instance from",
+          "[editor][gpu][prefab][apply][name][nested]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-rename-nested");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  // The crate and pallet of the nested cases: the pallet holds Crate B and leaves its lid's name alone.
+  const core::Uuid crate = core::Uuid::generate();
+  const core::Uuid lid = core::Uuid::generate();
+  const core::Uuid pallet = core::Uuid::generate();
+  const core::Uuid crateB = core::Uuid::derive(pallet, "b");
+  const core::Uuid palletLid = world::World::instancedIdentity(crateB, lid);
+  const std::filesystem::path crateFile = directory / "prefabs" / "crate.prefab.json";
+  const std::filesystem::path palletFile = directory / "prefabs" / "pallet.prefab.json";
+  writeDocument(crateFile, json::array({{{"uuid", crate.toString()}, {"name", "Crate"}, {"components", json::object()}},
+                                        {{"uuid", lid.toString()},
+                                         {"name", "Lid"},
+                                         {"parent", crate.toString()},
+                                         {"components", {{"MeshRenderer", {{"visible", true}}}}}}}));
+  writeDocument(palletFile,
+                json::array({{{"uuid", pallet.toString()}, {"name", "Pallet"}, {"components", json::object()}},
+                             {{"uuid", crateB.toString()},
+                              {"name", "Crate B"},
+                              {"parent", pallet.toString()},
+                              {"prefab", crate.toString()},
+                              {"components", json::object()}}}));
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid placed = core::Uuid::generate();
+  const core::Uuid other = core::Uuid::generate();
+  const core::Uuid loose = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(pallet, "Pallet", {}, placed), world);
+  editor.commands().push(editor::instantiatePrefabCommand(pallet, "Pallet", {}, other), world);
+  editor.commands().push(editor::instantiatePrefabCommand(crate, "Crate", {}, loose), world);
+  const auto sceneLid = [&](const core::Uuid &instance) {
+    return world::World::instancedIdentity(instance, palletLid);
+  };
+  const core::Uuid looseLid = world::World::instancedIdentity(loose, lid);
+  const auto name = [&](const core::Uuid &uuid) { return world.find(uuid).get<world::Name>().value; };
+  REQUIRE(world.find(sceneLid(placed)));
+  editor.commands().push(editor::renameCommand(sceneLid(placed), "Lid", "Cover"), world);
+  fixture.frame(editor);
+  const std::string crateText = text(crateFile);
+  const std::string palletText = text(palletFile);
+
+  // The pallet leaves the name to the crate, so both can take it, the crate first.
+  const editor::ApplyRequest request = nameRequest(sceneLid(placed));
+  const std::vector<editor::ApplyChoice> choices = editor.applyChoices(request);
+  REQUIRE(choices.size() == 2);
+  CHECK(choices[0].prefab == crate);
+  CHECK(choices[1].prefab == pallet);
+
+  // The default goes to the crate: every crate's lid follows, the loose one included.
+  REQUIRE(editor.applyToPrefab(request).has_value());
+  CHECK(entryOf(crateFile, lid)["name"] == "Cover");
+  CHECK(text(palletFile) == palletText);
+  CHECK(name(sceneLid(other)) == "Cover");
+  CHECK(name(looseLid) == "Cover");
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(crateFile) == crateText);
+  CHECK(name(sceneLid(other)) == "Lid");
+  CHECK(name(sceneLid(placed)) == "Cover");
+
+  // The pallet instead: only the pallets' lids follow, and the pallet stores the rename.
+  editor::ApplyRequest outer = request;
+  outer.prefab = pallet;
+  editor.requestApplyToPrefab(outer);
+  REQUIRE(editor.applyDialogOpen());
+  CHECK(editor.applyUsers().tabs.size() == 1);
+  fixture.frame(editor);
+  editor.confirmApply();
+  CHECK(text(crateFile) == crateText);
+  CHECK(entryOf(palletFile, palletLid)["name"] == "Cover");
+  CHECK(name(sceneLid(other)) == "Cover");
+  CHECK(name(looseLid) == "Lid");
+  CHECK(!storesName(world, sceneLid(placed)));
+
+  // Now the pallet names the lid, so a further rename stops there: the crate's name no longer reaches it.
+  editor.commands().push(editor::renameCommand(sceneLid(placed), "Cover", "Top"), world);
+  REQUIRE(editor.applyChoices(request).size() == 1);
+  CHECK(editor.applyChoices(request)[0].prefab == pallet);
+  // Crate B is an instance root inside the pallet and stores its own name: only the pallet takes it.
+  const core::Uuid sceneCrate = world::World::instancedIdentity(placed, crateB);
+  editor.commands().push(editor::renameCommand(sceneCrate, "Crate B", "Crate X"), world);
+  REQUIRE(editor.applyChoices(nameRequest(sceneCrate)).size() == 1);
+  CHECK(editor.applyChoices(nameRequest(sceneCrate))[0].prefab == pallet);
+  // Apply all uses the default target for each: both renames go to the pallet's file.
+  const editor::ApplyAllPlan plan = editor.applyAllPlan(placed);
+  REQUIRE(plan.files.size() == 1);
+  CHECK(changesTo(plan, palletFile) == 2);
+  REQUIRE(editor.applyAllOverrides(placed).has_value());
+  CHECK(entryOf(palletFile, palletLid)["name"] == "Top");
+  CHECK(entryOf(palletFile, crateB)["name"] == "Crate X");
+  CHECK(name(sceneLid(other)) == "Top");
+  CHECK(name(world::World::instancedIdentity(other, crateB)) == "Crate X");
+  CHECK(text(crateFile) == crateText);
 }

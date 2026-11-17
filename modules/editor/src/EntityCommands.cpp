@@ -507,22 +507,25 @@ namespace {
 
 class ApplyToPrefabCommand final : public ICommand {
 public:
-  ApplyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files, std::vector<InstanceValue> values,
-                       std::function<void()> rebuild)
-      : m_files(std::move(files)), m_values(std::move(values)), m_rebuild(std::move(rebuild)),
+  ApplyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files,
+                       std::vector<AppliedComponent> applied, std::function<void(const json *)> rebuild)
+      : m_files(std::move(files)), m_applied(std::move(applied)), m_rebuild(std::move(rebuild)),
         m_description(std::move(description)) {
   }
 
   void apply(world::World &world) override {
+    // The scene as it is now, which undo loads back against the old prefabs: every instance that
+    // followed the change by value, a name or a member equal to the new one, is put back too.
+    m_scene = world::saveScene(world);
     for (const PrefabFileEdit &file : m_files) {
       write(file.file, file.after);
     }
-    m_rebuild();
+    m_rebuild(nullptr);
     // An instance root that now equals its prefab inherits the component again rather than
     // keeping an override that changes nothing.
-    for (const InstanceValue &value : m_values) {
-      const flecs::entity entity = world.find(value.entity);
-      const world::ComponentInfo *info = world.findComponent(value.component);
+    for (const AppliedComponent &applied : m_applied) {
+      const flecs::entity entity = world.find(applied.entity);
+      const world::ComponentInfo *info = world.findComponent(applied.component);
       const flecs::entity prefab =
           entity && !entity.has<world::PrefabSource>() ? world.prefabOf(entity) : flecs::entity{};
       if (prefab && info != nullptr && info->name != "Transform" && entity.owns(info->id) && prefab.has(info->id) &&
@@ -531,23 +534,11 @@ public:
       }
     }
   }
-  void revert(world::World &world) override {
+  void revert(world::World & /*world*/) override {
     for (const PrefabFileEdit &file : m_files) {
       write(file.file, file.before);
     }
-    m_rebuild();
-    for (const InstanceValue &value : m_values) {
-      const flecs::entity entity = require(world, value.entity, m_description);
-      const world::ComponentInfo *info = world.findComponent(value.component);
-      if (!entity || info == nullptr) {
-        continue;
-      }
-      if (value.value) {
-        world.componentFromJson(entity, info->id, *value.value);
-      } else if (entity.owns(info->id)) {
-        entity.remove(info->id);
-      }
-    }
+    m_rebuild(&m_scene);
   }
   // Play mode has its own history and no apply, so there is nothing to apply again.
   bool reapply(world::World & /*world*/) override {
@@ -565,16 +556,18 @@ private:
   }
 
   std::vector<PrefabFileEdit> m_files;
-  std::vector<InstanceValue> m_values;
-  std::function<void()> m_rebuild;
+  std::vector<AppliedComponent> m_applied;
+  std::function<void(const json *)> m_rebuild;
+  json m_scene;
   std::string m_description;
 };
 
 } // namespace
 
 std::unique_ptr<ICommand> applyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files,
-                                               std::vector<InstanceValue> values, std::function<void()> rebuild) {
-  return std::make_unique<ApplyToPrefabCommand>(std::move(description), std::move(files), std::move(values),
+                                               std::vector<AppliedComponent> applied,
+                                               std::function<void(const json *scene)> rebuild) {
+  return std::make_unique<ApplyToPrefabCommand>(std::move(description), std::move(files), std::move(applied),
                                                 std::move(rebuild));
 }
 
