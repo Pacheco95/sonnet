@@ -144,6 +144,10 @@ private:
   bool drawEntityPicker(core::Uuid &value);
   void drawStruct(flecs::entity type, void *data);
   void drawMember(const ecs_member_t &member, void *data);
+  // A MeshRenderer's `slotMaterials` (ADR-0041): one row per slot of its mesh, naming the mesh's
+  // own material, with a material picker and "Make editable copy" for a glTF material, edited on
+  // `meshRenderer` as the other members are.
+  void drawSlotMaterials(world::MeshRenderer &meshRenderer);
   // A member's or a script property's name, marked when it differs from the prefab.
   void drawMemberLabel(const char *name, bool overridden);
   bool drawEnum(flecs::entity type, void *data);

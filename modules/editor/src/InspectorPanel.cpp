@@ -6,11 +6,13 @@
 #include <sonnet/editor/Fonts.h>
 #include <sonnet/editor/HierarchyPanel.h>
 #include <sonnet/editor/ScriptSlots.h>
+#include <sonnet/editor/SlotMaterials.h>
 
 #include <sonnet/core/Log.h>
 #include <sonnet/scripting/Components.h>
 #include <sonnet/ui/Theme.h>
 #include <sonnet/ui/Widgets.h>
+#include <sonnet/world/DrawList.h>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -1311,6 +1313,9 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     if (identity.isNil() && assetType == assets::AssetType::Font) {
       ui::statusText(ui::Status::Warning, "No font: the text is not drawn", false);
     }
+  } else if (member.type == ecs.id<std::vector<core::Uuid>>() && name == "slotMaterials" &&
+             m_drawnComponent == "MeshRenderer") {
+    drawSlotMaterials(*static_cast<world::MeshRenderer *>(data));
   } else if (type.has<flecs::Primitive>()) {
     switch (scalarWidget(ecs, member)) {
     case ScalarWidget::Checkbox:
@@ -1394,6 +1399,51 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     }
   }
   ui::endPropertyTable();
+}
+
+void InspectorPanel::drawSlotMaterials(world::MeshRenderer &meshRenderer) {
+  const std::size_t count = world::materialSlotCount(m_assets, meshRenderer.mesh);
+  const assets::AssetInfo *mesh = m_assets.find(meshRenderer.mesh);
+  if (count == 0) {
+    ui::mutedText("(no slots)");
+  }
+  for (std::size_t slot = 0; slot < count; ++slot) {
+    ImGui::PushID(static_cast<int>(slot));
+    // The mesh's own material, which the slot draws with while it is nil and `material` is too.
+    const core::Uuid own = mesh != nullptr && slot < mesh->materials.size() ? mesh->materials[slot] : core::Uuid{};
+    const assets::AssetInfo *ownInfo = m_assets.find(own);
+    ui::mutedText("%zu: %s", slot, ownInfo != nullptr ? ownInfo->name.c_str() : "(no material)");
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("The mesh's own material; a material here replaces it in this slot");
+    }
+    core::Uuid value = slot < meshRenderer.slotMaterials.size() ? meshRenderer.slotMaterials[slot] : core::Uuid{};
+    if (drawAssetPicker(value, assets::AssetType::Material)) {
+      meshRenderer.slotMaterials = setSlotMaterial(std::move(meshRenderer.slotMaterials), slot, value);
+      m_activated = m_deactivatedAfterEdit = true; // a pick is one edit
+    }
+    if (ownInfo != nullptr && !ownInfo->parent.isNil()) {
+      const bool pressed = ui::rowButton("Make editable copy");
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Write this glTF material into a .material.json beside the model and use it here");
+      }
+      // The file is written now and stays; the assignment is the edit, undone like a pick.
+      if (pressed) {
+        if (const auto copy = makeEditableCopy(m_assets, own); copy) {
+          SONNET_LOG_INFO("wrote {}", m_assets.find(*copy)->source.string());
+          meshRenderer.slotMaterials = setSlotMaterial(std::move(meshRenderer.slotMaterials), slot, *copy);
+          m_activated = m_deactivatedAfterEdit = true;
+        } else {
+          SONNET_LOG_ERROR("{}", copy.error().toString());
+        }
+      }
+    }
+    ImGui::PopID();
+  }
+  for (std::size_t slot = count; slot < meshRenderer.slotMaterials.size(); ++slot) {
+    if (!meshRenderer.slotMaterials[slot].isNil()) {
+      ui::statusText(ui::Status::Warning, std::format("{}: past the mesh's {} slots, ignored", slot, count), false);
+    }
+  }
 }
 
 std::vector<ApplyChoice> InspectorPanel::applyChoices(const ApplyRequest &request) const {

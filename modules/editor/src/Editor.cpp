@@ -695,8 +695,17 @@ void Editor::update(float dt) {
   } else if (dressing) {
     const renderer::MaterialHandle material = m_assets.material(m_drop.asset);
     const std::uint32_t id = world::World::pickId(m_drop.target);
+    const world::MeshRenderer *target = m_drop.target.try_get<world::MeshRenderer>();
     for (renderer::DrawItem &item : m_viewportDraws) {
-      if (item.id == id) {
+      if (item.id != id) {
+        continue;
+      }
+      // A slot with a material of its own keeps it after the drop, so the preview keeps it too.
+      const std::span<const renderer::Submesh> submeshes = m_assets.renderer().submeshes(item.mesh);
+      const std::uint32_t slot = item.submesh < submeshes.size() ? submeshes[item.submesh].materialSlot : 0;
+      const bool own = target != nullptr && slot < target->slotMaterials.size() &&
+                       m_assets.material(target->slotMaterials[slot]).isValid();
+      if (!own) {
         item.material = material;
       }
     }
