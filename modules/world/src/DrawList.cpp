@@ -55,12 +55,12 @@ void warnPastSlots(flecs::entity entity, const MeshRenderer &meshRenderer, std::
   if (past == meshRenderer.slotMaterials.end()) {
     return; // nil entries ask for nothing
   }
-  static std::mutex mutex;
-  static std::set<std::pair<core::Uuid, core::Uuid>> warned;
+  static std::mutex s_mutex;
+  static std::set<std::pair<core::Uuid, core::Uuid>> s_warned;
   const Identity *identity = entity ? entity.try_get<Identity>() : nullptr;
   const core::Uuid owner = identity != nullptr ? identity->uuid : core::Uuid{};
-  const std::scoped_lock lock{mutex};
-  if (!warned.emplace(owner, meshRenderer.mesh).second) {
+  const std::scoped_lock lock{s_mutex};
+  if (!s_warned.emplace(owner, meshRenderer.mesh).second) {
     return;
   }
   const Name *name = entity ? entity.try_get<Name>() : nullptr;

@@ -30,9 +30,9 @@ std::vector<core::Uuid> setSlotMaterial(std::vector<core::Uuid> slots, std::size
 std::filesystem::path editableCopyPath(const assets::AssetInfo &material) {
   std::string name;
   for (const char character : material.name) {
-    constexpr std::string_view Unsafe = "<>:\"/\\|?*";
+    constexpr std::string_view unsafe = "<>:\"/\\|?*";
     const auto byte = static_cast<unsigned char>(character);
-    name += byte < 0x20 || Unsafe.find(character) != std::string_view::npos ? '_' : character;
+    name += byte < 0x20 || unsafe.find(character) != std::string_view::npos ? '_' : character;
   }
   if (name.empty() || name.find_first_not_of(". ") == std::string::npos) {
     name = "material";
