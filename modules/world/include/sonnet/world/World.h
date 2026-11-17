@@ -119,6 +119,10 @@ public:
   // copies of its prefab's children in the prefab's order, then the others in sibling order
   // (ADR-0032).
   [[nodiscard]] std::vector<flecs::entity> defaultChildren(flecs::entity node) const;
+  // Whether `children`, the children of one entity in sibling order (children()), are in
+  // defaultChildren's order as far as a document saves them (with an Identity, not EditorOnly),
+  // read in one pass rather than by sorting.
+  [[nodiscard]] bool inDefaultOrder(std::span<const flecs::entity> children) const;
   // The entity's position among its siblings in roots() or children(), and a move to `index`
   // there (past the end puts it last); the others keep their order. Renumbers the siblings'
   // SiblingOrder, so a save and a load keep the new order through file order.
@@ -196,6 +200,18 @@ public:
   // prefab stores its name whatever its prefab's root is called, so the walk stops there. Empty for
   // an entity outside an instance and a chain with no file.
   [[nodiscard]] std::vector<ApplyTarget> nameTargets(flecs::entity entity) const;
+  // The prefab entities applying the order of `entity`'s children could write to (docs/editor.md,
+  // "Applying to a prefab"), ordered as applyTargets. A level is one only while every child of
+  // `entity` has its counterpart among that level's children and the level has no other
+  // (childOrderIn); the walk goes deeper while the level keeps the order its sources give it
+  // (defaultChildren), so it stops at a level that orders them itself. Empty for an entity outside
+  // an instance, one without children, one with a child its prefab lacks, and a chain with no file.
+  [[nodiscard]] std::vector<ApplyTarget> orderTargets(flecs::entity entity) const;
+  // The children of `target` in the order of `entity`'s children: each one's counterpart, the
+  // entity along its chain of sources (sourceOf) that is a child of `target`. Empty when a child of
+  // `entity` has none, or when `target` has a child no child of `entity` maps to. Children are
+  // those a document saves: with an Identity and not EditorOnly.
+  [[nodiscard]] std::vector<flecs::entity> childOrderIn(flecs::entity entity, flecs::entity target) const;
   // Turns an instance into ordinary entities ("Make local"): the instance and every instance copied
   // inside it take their own copy of each component they inherit and drop their IsA, and their
   // descendants drop their PrefabSource. Every entity keeps its identity.
@@ -299,10 +315,12 @@ public:
 private:
   void registerComponents();
   void registerSystems();
-  // applyTargets' and nameTargets' walk from `entity`'s source inwards: each level whose prefab has
+  // applyTargets', nameTargets' and orderTargets' walk from `entity`'s source inwards: each level whose prefab has
   // a file is a target, and the walk goes on to the deeper entity while `reaches(level, deeper)`.
   [[nodiscard]] std::vector<ApplyTarget>
   walkTargets(flecs::entity entity, const std::function<bool(flecs::entity, flecs::entity)> &reaches) const;
+  // The next level of the walk: a copy's source, or an instance root's prefab.
+  [[nodiscard]] flecs::entity nextLevel(flecs::entity level) const;
 
   // Declared before m_world: its OnRemove observer runs while the world is torn down
   // (World::~World()), so the index must still be alive when the world is destroyed first.

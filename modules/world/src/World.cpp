@@ -12,6 +12,7 @@
 #include <functional>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -410,6 +411,27 @@ std::vector<flecs::entity> World::defaultChildren(flecs::entity node) const {
   });
   copies.insert(copies.end(), added.begin(), added.end());
   return copies;
+}
+
+bool World::inDefaultOrder(std::span<const flecs::entity> children) const {
+  // The copies first, each one's source after the one before's, then the others.
+  flecs::entity previous;
+  bool others = false;
+  for (const flecs::entity child : children) {
+    if (!child.has<Identity>() || child.has<EditorOnly>()) {
+      continue;
+    }
+    if (!child.has<PrefabSource>()) {
+      others = true;
+      continue;
+    }
+    const flecs::entity source = sourceOf(child);
+    if (others || !source || (previous && !siblingBefore(previous, source))) {
+      return false;
+    }
+    previous = source;
+  }
+  return true;
 }
 
 std::size_t World::siblingIndex(flecs::entity entity) const {
@@ -1031,13 +1053,53 @@ std::vector<ApplyTarget> World::nameTargets(flecs::entity entity) const {
   });
 }
 
+std::vector<ApplyTarget> World::orderTargets(flecs::entity entity) const {
+  if (!entity || (!entity.has<PrefabSource>() && !isInstance(entity))) {
+    return {};
+  }
+  const flecs::entity first = nextLevel(entity);
+  if (!first || childOrderIn(entity, first).empty()) {
+    return {};
+  }
+  return walkTargets(entity, [&](flecs::entity level, flecs::entity deeper) {
+    return inDefaultOrder(children(level)) && !childOrderIn(entity, deeper).empty();
+  });
+}
+
+std::vector<flecs::entity> World::childOrderIn(flecs::entity entity, flecs::entity target) const {
+  const auto saved = [](flecs::entity child) { return child.has<Identity>() && !child.has<EditorOnly>(); };
+  std::vector<flecs::entity> own = children(target);
+  std::erase_if(own, std::not_fn(saved));
+  std::vector<flecs::entity> order;
+  for (const flecs::entity child : children(entity)) {
+    if (!saved(child)) {
+      continue;
+    }
+    flecs::entity counterpart = child;
+    while (counterpart && counterpart.parent() != target) {
+      counterpart = counterpart.has<PrefabSource>() ? sourceOf(counterpart) : flecs::entity{};
+    }
+    if (!counterpart || std::ranges::contains(order, counterpart)) {
+      return {};
+    }
+    order.push_back(counterpart);
+  }
+  if (order.size() != own.size()) {
+    return {};
+  }
+  return order;
+}
+
+flecs::entity World::nextLevel(flecs::entity level) const {
+  return level.has<PrefabSource>() ? sourceOf(level) : prefabOf(level);
+}
+
 std::vector<ApplyTarget> World::walkTargets(flecs::entity entity,
                                             const std::function<bool(flecs::entity, flecs::entity)> &reaches) const {
-  const auto next = [&](flecs::entity level) { return level.has<PrefabSource>() ? sourceOf(level) : prefabOf(level); };
   // Every level the walk reaches gives the instance the value written to it, so each one with a
   // file is a target; the walk runs outer to inner and the list the other way round.
   std::vector<ApplyTarget> targets;
-  for (flecs::entity level = next(entity); level;) {
+  for (flecs::entity level = nextLevel(entity); level;) {
     flecs::entity root = level;
     while (root.parent()) {
       root = root.parent();
@@ -1045,7 +1107,7 @@ std::vector<ApplyTarget> World::walkTargets(flecs::entity entity,
     if (root.has<PrefabFile>()) {
       targets.push_back({.entity = level, .root = root});
     }
-    const flecs::entity deeper = next(level);
+    const flecs::entity deeper = nextLevel(level);
     if (!deeper || !reaches(level, deeper)) {
       break;
     }

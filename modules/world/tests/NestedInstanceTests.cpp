@@ -637,6 +637,122 @@ TEST_CASE("applying a name goes to the deepest prefab file it reaches the instan
   CHECK(world.nameTargets(hub).empty());
 }
 
+TEST_CASE("applying an order of children goes to the prefab files whose children map to the instance's",
+          "[world][prefab][nested][apply][order]") {
+  // Crate: a root with A, B and C. Pallet: a root holding Crate B, a crate, a Board, and Crate L, a
+  // crate to which the pallet adds a Label.
+  const core::Uuid crate = core::Uuid::generate();
+  const core::Uuid pallet = core::Uuid::generate();
+  const core::Uuid crateB = core::Uuid::derive(pallet, "b");
+  const core::Uuid crateL = core::Uuid::derive(pallet, "l");
+  json crateEntities = {{{"uuid", crate.toString()}, {"name", "Crate"}, {"components", json::object()}}};
+  for (const char *name : {"A", "B", "C"}) {
+    crateEntities.push_back({{"uuid", core::Uuid::derive(crate, name).toString()},
+                             {"name", name},
+                             {"parent", crate.toString()},
+                             {"components", json::object()}});
+  }
+  const json crateFile = {{"version", world::SceneVersion}, {"entities", crateEntities}};
+  const json palletFile = {{"version", world::SceneVersion},
+                           {"entities",
+                            {{{"uuid", pallet.toString()}, {"name", "Pallet"}, {"components", json::object()}},
+                             {{"uuid", crateB.toString()},
+                              {"name", "Crate B"},
+                              {"parent", pallet.toString()},
+                              {"prefab", crate.toString()},
+                              {"components", json::object()}},
+                             {{"uuid", core::Uuid::derive(pallet, "board").toString()},
+                              {"name", "Board"},
+                              {"parent", pallet.toString()},
+                              {"components", json::object()}},
+                             {{"uuid", crateL.toString()},
+                              {"name", "Crate L"},
+                              {"parent", pallet.toString()},
+                              {"prefab", crate.toString()},
+                              {"components", json::object()}},
+                             {{"uuid", core::Uuid::derive(pallet, "label").toString()},
+                              {"name", "Label"},
+                              {"parent", crateL.toString()},
+                              {"components", json::object()}}}}};
+  world::World world;
+  REQUIRE(world::loadPrefabs(world, {{"crate", crateFile, {}}, {"pallet", palletFile, {}}}).empty());
+  const flecs::entity cratePrefab = world.find(crate);
+  const flecs::entity palletPrefab = world.find(pallet);
+  cratePrefab.set<world::PrefabFile>({"crate.prefab.json"});
+  palletPrefab.set<world::PrefabFile>({"pallet.prefab.json"});
+  const flecs::entity palletCrate = world.find(crateB);
+  const auto entities = [](const std::vector<world::ApplyTarget> &targets) {
+    std::vector<flecs::entity> out;
+    out.reserve(targets.size());
+    for (const world::ApplyTarget &target : targets) {
+      out.push_back(target.entity);
+    }
+    return out;
+  };
+  using Entities = std::vector<flecs::entity>;
+  const auto names = [&](const std::vector<flecs::entity> &list) {
+    std::vector<std::string> out;
+    out.reserve(list.size());
+    for (const flecs::entity entity : list) {
+      out.push_back(entity.get<world::Name>().value);
+    }
+    return out;
+  };
+  using Names = std::vector<std::string>;
+
+  // A plain instance: its prefab's root, with the children translated to the prefab's.
+  const flecs::entity loose = world.instantiate(cratePrefab, "Loose");
+  CHECK(world.inDefaultOrder(world.children(loose)));
+  world.setSiblingIndex(childNamed(world, loose, "C"), 0);
+  CHECK(!world.inDefaultOrder(world.children(loose)));
+  CHECK(entities(world.orderTargets(loose)) == Entities{cratePrefab});
+  CHECK(world.childOrderIn(loose, cratePrefab) == Entities{childNamed(world, cratePrefab, "C"),
+                                                           childNamed(world, cratePrefab, "A"),
+                                                           childNamed(world, cratePrefab, "B")});
+  // An entity outside any instance, and a part without children, have nowhere to go.
+  CHECK(world.orderTargets(world.createEntity("Plain")).empty());
+  CHECK(world.orderTargets(childNamed(world, loose, "A")).empty());
+  // A child the prefab lacks makes every level ineligible rather than being left out. Last, it is
+  // where the default order puts it; first, it is not.
+  const flecs::entity extra = world.createEntity("Extra", loose);
+  world.setSiblingIndex(childNamed(world, loose, "C"), 2);
+  CHECK(world.inDefaultOrder(world.children(loose)));
+  world.setSiblingIndex(extra, 0);
+  CHECK(!world.inDefaultOrder(world.children(loose)));
+  world.setSiblingIndex(childNamed(world, loose, "C"), 0);
+  CHECK(world.orderTargets(loose).empty());
+  CHECK(world.childOrderIn(loose, cratePrefab).empty());
+  world.destroyEntity(extra);
+
+  // Nested: the pallet keeps its crate's children in the crate's order, so both files can take it.
+  const flecs::entity placed = world.instantiate(palletPrefab, "Pallet 1");
+  const flecs::entity sceneCrate = childNamed(world, placed, "Crate B");
+  world.setSiblingIndex(childNamed(world, sceneCrate, "B"), 2);
+  CHECK(entities(world.orderTargets(sceneCrate)) == Entities{cratePrefab, palletCrate});
+  CHECK(names(world.childOrderIn(sceneCrate, palletCrate)) == Names{"A", "C", "B"});
+  CHECK(world.childOrderIn(sceneCrate, palletCrate)[0] == childNamed(world, palletCrate, "A"));
+  // The pallet's own children are its own entities: only the pallet takes their order.
+  world.setSiblingIndex(childNamed(world, placed, "Board"), 0);
+  CHECK(entities(world.orderTargets(placed)) == Entities{palletPrefab});
+  // A pallet that orders its crate's children itself stops the walk there.
+  world.setSiblingIndex(childNamed(world, palletCrate, "C"), 0);
+  CHECK(entities(world.orderTargets(sceneCrate)) == Entities{palletCrate});
+  world.setSiblingIndex(childNamed(world, palletCrate, "C"), 2);
+  CHECK(entities(world.orderTargets(sceneCrate)) == Entities{cratePrefab, palletCrate});
+  // A child the pallet adds to its crate maps into the pallet, not into the crate.
+  const flecs::entity sceneCrateL = childNamed(world, placed, "Crate L");
+  world.setSiblingIndex(childNamed(world, sceneCrateL, "Label"), 0);
+  CHECK(entities(world.orderTargets(sceneCrateL)) == Entities{world.find(crateL)});
+  CHECK(names(world.childOrderIn(sceneCrateL, world.find(crateL))) == Names{"Label", "A", "B", "C"});
+
+  // Without a file at the inner level the outer one is the only target; with none, nothing.
+  cratePrefab.remove<world::PrefabFile>();
+  CHECK(entities(world.orderTargets(sceneCrate)) == Entities{palletCrate});
+  CHECK(world.orderTargets(loose).empty());
+  palletPrefab.remove<world::PrefabFile>();
+  CHECK(world.orderTargets(sceneCrate).empty());
+}
+
 TEST_CASE("applying a change to a model node inside a prefab goes to the prefab's file",
           "[world][prefab][nested][apply]") {
   const core::Uuid modelUuid = core::Uuid::generate();
