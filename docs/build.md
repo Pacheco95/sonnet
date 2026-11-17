@@ -274,6 +274,8 @@ What this saves is runner time and queueing, not test time: a desktop matrix job
 
 ### Linux packages
 
+All Linux jobs (lint, the desktop build matrix and Android) set APT's `Acquire::Retries` to `5` before updating package indexes. Index and package downloads then retry transient failures, including HTTP 503 responses from the Kisak PPA, instead of failing the job on the first exhausted download attempt. Persistent download failures still fail the job.
+
 Each Linux job installs only the tools it runs ([#471](https://github.com/Pacheco95/sonnet/issues/471)). Before, every build job ran apt.llvm.org's `llvm.sh`, which installs `clang-20`, `lldb-20`, `lld-20` and `clangd-20` with their recommends (`llvm-20-dev`, `clang-tools-20` and more: 158 MB, 765 MB unpacked), then `clang-20` and `clang-tidy-20` again, in the GCC jobs too, and lint ran `llvm.sh` for `clang-format-20` alone. Now apt.llvm.org's source is added only where an LLVM package is installed, the LLVM packages go in without recommends, and apt reads its indexes once per job instead of three times (`add-apt-repository --no-update`):
 
 | Job | Mesa (kisak PPA) and `vulkan-tools` | From apt.llvm.org | Why |
