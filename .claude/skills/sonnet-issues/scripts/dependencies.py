@@ -10,7 +10,8 @@ Usage (from the repository root):
 An edge A -> B means "A is blocked by B". Two sources feed the graph:
   - GitHub's native blocked-by links (the source of truth), and
   - "Depends on #N" / "Blocked by #N" in an issue body (everything up to the end of the
-    sentence, so "Depends on #66, #67 (step 2)." yields both).
+    sentence, so "Depends on #66, #67 (step 2)." yields both). A sentence that negates it
+    earlier ("no longer depends on #543", "is not blocked by #12") yields nothing.
 Only edges between two open issues count; a closed blocker is already satisfied.
 
 This never touches a card's Status. --apply only adds native links, and skips any link that
@@ -25,6 +26,19 @@ import sys
 
 TEXT_EDGE = re.compile(r"(?i)\b(?:depends\s+on|blocked\s+by)\b([^.\n]*)")
 ISSUE_REF = re.compile(r"#(\d+)")
+# A negation earlier in the same sentence turns the dependency off: "This card no longer depends
+# on #543", "It is not blocked by #12".
+NEGATION = re.compile(r"(?i)\b(?:no\s+longer|not|never|nor)\b|n't\b")
+
+
+def text_blockers(body):
+    """The issues a body says it depends on or is blocked by, leaving out negated sentences."""
+    found = set()
+    for match in TEXT_EDGE.finditer(body):
+        start = max(body.rfind(".", 0, match.start()), body.rfind("\n", 0, match.start())) + 1
+        if not NEGATION.search(body[start:match.start()]):
+            found |= {int(r) for r in ISSUE_REF.findall(match.group(1))}
+    return found
 
 
 def gh(*args):
@@ -118,10 +132,7 @@ def main():
         ids[n] = json.loads(gh("api", f"repos/{repo}/issues/{n}"))["id"]
         blockers = json.loads(gh("api", f"repos/{repo}/issues/{n}/dependencies/blocked_by"))
         native[n] = {b["number"] for b in blockers if b["number"] in titles}
-        found = set()
-        for match in TEXT_EDGE.finditer(issue["body"] or ""):
-            found |= {int(r) for r in ISSUE_REF.findall(match.group(1))}
-        text[n] = {b for b in found if b in titles and b != n}
+        text[n] = {b for b in text_blockers(issue["body"] or "") if b in titles and b != n}
 
     edges = {n: native[n] | text[n] for n in titles}
     missing = sorted((n, b) for n in titles for b in text[n] - native[n])
