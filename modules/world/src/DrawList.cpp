@@ -1,6 +1,13 @@
 #include <sonnet/world/DrawList.h>
 
+#include <sonnet/core/Log.h>
 #include <sonnet/core/Profile.h>
+
+#include <algorithm>
+#include <iterator>
+#include <mutex>
+#include <set>
+#include <utility>
 
 namespace sonnet::world {
 
@@ -28,7 +35,47 @@ renderer::Camera placedCamera(const WorldTransform &transform, const Camera &cam
           .ambientOcclusionStrength = camera.ambientOcclusionStrength};
 }
 
+// The number of material slots of a mesh: its default materials, and at least one past the
+// highest slot a submesh reads (a built-in mesh has no default material but one slot).
+std::size_t slotCount(const assets::AssetInfo *info, std::span<const renderer::Submesh> submeshes) {
+  std::size_t count = info != nullptr ? info->materials.size() : 0;
+  for (const renderer::Submesh &submesh : submeshes) {
+    count = std::max<std::size_t>(count, std::size_t{submesh.materialSlot} + 1);
+  }
+  return count;
+}
+
+// Warns once per entity and mesh that `slotMaterials` names a slot the mesh does not have. The
+// draw list runs every frame, so the set remembers what was said; it is touched only when an
+// entry is out of range.
+void warnPastSlots(flecs::entity entity, const MeshRenderer &meshRenderer, std::size_t count) {
+  const auto first = meshRenderer.slotMaterials.begin() + static_cast<std::ptrdiff_t>(count);
+  const auto past = std::find_if(first, meshRenderer.slotMaterials.end(),
+                                 [](const core::Uuid &material) { return !material.isNil(); });
+  if (past == meshRenderer.slotMaterials.end()) {
+    return; // nil entries ask for nothing
+  }
+  static std::mutex s_mutex;
+  static std::set<std::pair<core::Uuid, core::Uuid>> s_warned;
+  const Identity *identity = entity ? entity.try_get<Identity>() : nullptr;
+  const core::Uuid owner = identity != nullptr ? identity->uuid : core::Uuid{};
+  const std::scoped_lock lock{s_mutex};
+  if (!s_warned.emplace(owner, meshRenderer.mesh).second) {
+    return;
+  }
+  const Name *name = entity ? entity.try_get<Name>() : nullptr;
+  SONNET_LOG_WARN("{}: slot material {} is past the {} slots of mesh {} and is ignored",
+                  name != nullptr ? name->value : owner.toString(),
+                  std::distance(meshRenderer.slotMaterials.begin(), past), count, meshRenderer.mesh.toString());
+}
+
 } // namespace
+
+std::size_t materialSlotCount(assets::AssetDatabase &assets, const core::Uuid &mesh) {
+  const renderer::MeshHandle handle = assets.mesh(mesh);
+  return slotCount(assets.find(mesh),
+                   handle ? assets.renderer().submeshes(handle) : std::span<const renderer::Submesh>{});
+}
 
 namespace {
 
@@ -46,6 +93,10 @@ void appendDraws(assets::AssetDatabase &assets, flecs::entity entity, const Mesh
   const assets::AssetInfo *info = assets.find(meshRenderer.mesh);
   const renderer::MaterialHandle override = assets.material(meshRenderer.material);
   const std::span<const renderer::Submesh> submeshes = assets.renderer().submeshes(mesh);
+  const std::span<const core::Uuid> slots = meshRenderer.slotMaterials;
+  if (const std::size_t count = slotCount(info, submeshes); slots.size() > count) {
+    warnPastSlots(entity, meshRenderer, count);
+  }
   // A skinned mesh's pose is shared by its submeshes; without one it draws in its bind pose.
   const auto firstJoint = static_cast<std::uint32_t>(joints.size());
   std::uint32_t jointCount = 0;
@@ -66,9 +117,17 @@ void appendDraws(assets::AssetDatabase &assets, flecs::entity entity, const Mesh
     previousTransform = *previous;
   }
   for (std::uint32_t i = 0; i < submeshes.size(); ++i) {
-    renderer::MaterialHandle material = override;
-    if (!material && info != nullptr && submeshes[i].materialSlot < info->materials.size()) {
-      material = assets.material(info->materials[submeshes[i].materialSlot]);
+    // The slot's own entry, then the override of every slot, then the mesh's default.
+    const std::uint32_t slot = submeshes[i].materialSlot;
+    renderer::MaterialHandle material;
+    if (slot < slots.size() && !slots[slot].isNil()) {
+      material = assets.material(slots[slot]);
+    }
+    if (!material) {
+      material = override;
+    }
+    if (!material && info != nullptr && slot < info->materials.size()) {
+      material = assets.material(info->materials[slot]);
     }
     draws.push_back({.mesh = mesh,
                      .submesh = i,

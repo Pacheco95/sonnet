@@ -396,6 +396,34 @@ TEST_CASE("repeated members read as arrays and an array replaces the list", "[sc
   REQUIRE(entity.get<world::MorphWeights>().weights == std::vector{0.5f, 1.0f});
 }
 
+TEST_CASE("a list of identities reads an unset entry as the nil identity, so it sets back whole",
+          "[scripting][vectors][slots]") {
+  Fixture fixture{{"slots.lua", R"lua(
+    local Nil = "00000000-0000-0000-0000-000000000000"
+    local Green = "c0000000-0000-4000-8000-000000000002"
+    local Slots = {}
+    function Slots:start()
+      local e = self.entity
+      local renderer = e:get("MeshRenderer")
+      assert(#renderer.slotMaterials == 2, #renderer.slotMaterials)
+      assert(renderer.slotMaterials[1] == Nil and renderer.slotMaterials[2] == Green, renderer.slotMaterials[1])
+      -- A copy with another colour goes back whole, its slots with it.
+      renderer.color = { x = 1, y = 0, z = 0, w = 1 }
+      e:set("MeshRenderer", renderer)
+      e:set("MeshRenderer", { slotMaterials = { Green } })
+    end
+    return Slots
+  )lua"}};
+  const flecs::entity entity = fixture.scripted("Figure", "slots.lua");
+  const core::Uuid green = *core::Uuid::parse("c0000000-0000-4000-8000-000000000002");
+  entity.set<world::MeshRenderer>({.slotMaterials = {core::Uuid{}, green}});
+  fixture.world.setPlaying(true);
+  fixture.run(1);
+  REQUIRE(fixture.sink->find("stops on") == nullptr);
+  REQUIRE(entity.get<world::MeshRenderer>().color.r == 1.0f);
+  REQUIRE(entity.get<world::MeshRenderer>().slotMaterials == std::vector{green});
+}
+
 TEST_CASE("scripts find, create, instantiate and destroy entities", "[scripting]") {
   Fixture fixture{{"spawner.lua", R"lua(
     local Spawner = {}

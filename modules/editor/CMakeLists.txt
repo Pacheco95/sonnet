@@ -31,6 +31,7 @@ sonnet_add_module(editor
     src/Project.cpp
     src/Recovery.cpp
     src/ScriptSlots.cpp
+    src/SlotMaterials.cpp
     src/Selection.cpp
     src/ShaderCompiler.cpp
     src/StatisticsPanel.cpp

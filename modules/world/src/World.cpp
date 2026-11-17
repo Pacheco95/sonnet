@@ -186,10 +186,12 @@ void World::registerComponents() {
       });
   registerComponent<Transform>("Transform");
   m_world.component<Transform>().member<glm::vec3>("position").member<glm::quat>("rotation").member<glm::vec3>("scale");
+  registerVector<core::Uuid>();
   registerComponent<MeshRenderer>("MeshRenderer");
   m_world.component<MeshRenderer>()
       .member<core::Uuid>("mesh")
       .member<core::Uuid>("material")
+      .member<std::vector<core::Uuid>>("slotMaterials")
       .member<glm::vec4>("color")
       .member<bool>("visible");
   m_world.component<renderer::ProjectionKind>("ProjectionKind");

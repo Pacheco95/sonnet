@@ -1,6 +1,7 @@
 #include <sonnet/editor/CommandStack.h>
 #include <sonnet/editor/InspectorPanel.h>
 #include <sonnet/editor/Selection.h>
+#include <sonnet/editor/SlotMaterials.h>
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/core/File.h>
@@ -854,4 +855,120 @@ TEST_CASE("an instance root offers to apply all of its overrides", "[editor][ins
   REQUIRE(applied.size() == 1);
   CHECK(applied[0] == world.uuidOf(lamp));
   CHECK(!commands.canUndo());
+}
+
+TEST_CASE("a slot's material is set by its own value, past slots dropped from the end", "[editor][inspector][slots]") {
+  const core::Uuid red = core::Uuid::generate();
+  const core::Uuid green = core::Uuid::generate();
+  // Nil entries fill the slots before the one set.
+  REQUIRE(editor::setSlotMaterial({}, 2, red) == std::vector<core::Uuid>{{}, {}, red});
+  REQUIRE(editor::setSlotMaterial({red, green}, 0, green) == std::vector<core::Uuid>{green, green});
+  // Clearing the last slot drops the trailing nils, down to the empty list a file leaves out.
+  REQUIRE(editor::setSlotMaterial({{}, {}, red}, 2, {}).empty());
+  REQUIRE(editor::setSlotMaterial({red, {}, green}, 2, {}) == std::vector<core::Uuid>{red});
+}
+
+TEST_CASE("the mesh renderer lists its mesh's slots, with a picker and an editable copy each, with undo",
+          "[editor][inspector][slots]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_slot_materials";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets" / "figure");
+  // One mesh of two primitives, the first with the material "Body", the second with "Skin/Face",
+  // whose slash a file name cannot hold.
+  constexpr std::string_view model =
+      R"json({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"Figure","mesh":0}],)json"
+      R"json("meshes":[{"name":"FigureMesh","primitives":[{"attributes":{"POSITION":0},"indices":1,"material":0},)json"
+      R"json({"attributes":{"POSITION":0},"indices":1,"material":1}]}],)json"
+      R"json("materials":[{"name":"Body"},{"name":"Skin/Face","pbrMetallicRoughness":{"roughnessFactor":0.3}}],)json"
+      R"json("buffers":[{"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAEAAAACAAAA","byteLength":48}],)json"
+      R"json("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":12}],)json"
+      R"json("accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},)json"
+      R"json({"bufferView":1,"componentType":5125,"count":3,"type":"SCALAR"}]})json";
+  const std::filesystem::path file = root / "assets" / "figure" / "figure.gltf";
+  REQUIRE(core::writeFile(file, model).has_value());
+  // A copy made earlier holds the plain name, so this one is numbered.
+  REQUIRE(core::writeFile(root / "assets" / "figure" / "Skin_Face.material.json", std::string_view{"{}"}).has_value());
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  core::Uuid mesh;
+  for (const assets::AssetInfo *info : assets.assets(assets::AssetType::Mesh)) {
+    if (info->name == "FigureMesh") {
+      mesh = info->uuid;
+    }
+  }
+  REQUIRE_FALSE(mesh.isNil());
+  const core::Uuid skin = assets.find(mesh)->materials[1];
+  assets::MaterialSource redSource;
+  redSource.baseColor = {1.0f, 0.0f, 0.0f, 1.0f};
+  const auto red = assets.createMaterial(root / "assets" / "red.material.json", redSource);
+  REQUIRE(red.has_value());
+
+  world::World world;
+  const flecs::entity figure = world.createEntity("Figure");
+  figure.set<world::MeshRenderer>({.mesh = mesh});
+  const core::Uuid figureUuid = world.uuidOf(figure);
+  const auto slots = [&] { return world.find(figureUuid).get<world::MeshRenderer>().slotMaterials; };
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  {
+    const InspectorDriver driver{panel, {}};
+    selection.select(figureUuid);
+    driver.frame();
+    ImGuiWindow *window = InspectorDriver::inspector();
+    // Each slot is a block in the value cell of the slotMaterials row, inside its property table.
+    const flecs::entity type = world.ecs().component<world::MeshRenderer>();
+    const ecs_member_t *members = ecs_vec_first_t(&type.get<flecs::Struct>().members, ecs_member_t);
+    const int memberIndex = static_cast<int>(&memberOf(world, type, "slotMaterials") - members);
+    const ImGuiID row = ImHashData(&memberIndex, sizeof(memberIndex), ImHashStr("MeshRenderer", 0, window->ID));
+    const auto slotWidget = [&](int slot, const char *label) {
+      return ImHashStr(label, 0, ImHashData(&slot, sizeof(slot), ImHashStr("member", 0, row)));
+    };
+
+    // "Make editable copy" on the second slot writes the glTF material beside the model and uses it.
+    REQUIRE(driver.hover(window, slotWidget(1, "Make editable copy"), 130.0f));
+    driver.click();
+    REQUIRE(commands.size() == 1);
+    const std::filesystem::path written = root / "assets" / "figure" / "Skin_Face 2.material.json";
+    REQUIRE(std::filesystem::is_regular_file(written));
+    const assets::AssetInfo *copy = assets.findByPath(written);
+    REQUIRE(copy != nullptr);
+    const core::Uuid copyUuid = copy->uuid;
+    REQUIRE(slots() == std::vector<core::Uuid>{{}, copyUuid});
+    REQUIRE(*assets.materialSource(copyUuid) == *assets.materialSource(skin));
+    REQUIRE(assets.materialSource(copyUuid)->roughness == Catch::Approx(0.3f));
+
+    // The first slot's picker, then the red material in its list: one more command.
+    REQUIRE(driver.hover(window, slotWidget(0, "(none)"), 130.0f));
+    driver.click();
+    driver.frame(); // the popup measures itself hidden for a frame
+    const ImGuiWindow *popup = nullptr;
+    for (const ImGuiWindow *candidate : ImGui::GetCurrentContext()->Windows) {
+      if (candidate->Active && std::string_view{candidate->Name}.starts_with("##Popup")) {
+        popup = candidate;
+      }
+    }
+    REQUIRE(popup != nullptr);
+    REQUIRE(driver.hover(popup, ImHashStr("red", 0, ImHashStr(red->toString().c_str(), 0, popup->ID))));
+    driver.click();
+    REQUIRE(commands.size() == 2);
+    REQUIRE(slots() == std::vector<core::Uuid>{*red, copyUuid});
+
+    // Undo takes the pick back, then the copy's assignment; the file stays, as a new material does.
+    REQUIRE(commands.undo(world));
+    REQUIRE(slots() == std::vector<core::Uuid>{{}, copyUuid});
+    REQUIRE(commands.undo(world));
+    REQUIRE(slots().empty());
+    REQUIRE(std::filesystem::is_regular_file(written));
+    REQUIRE(commands.redo(world));
+    REQUIRE(commands.redo(world));
+    REQUIRE(slots() == std::vector<core::Uuid>{*red, copyUuid});
+  }
+  assets.close(); // finishes an import on a worker still holding a file open, which Windows will not delete
+  sonnet::test::removeScratch(root);
 }

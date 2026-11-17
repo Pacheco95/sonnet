@@ -133,7 +133,7 @@ Components are read and written through reflection, generically ([world.md](worl
 | asset identity (`core::Uuid`) | the canonical string, or `nil` for none |
 | `vec3`, `quat` | tables `{x, y, z}` and `{x, y, z, w}` with the `vec3` and `quat` metatables below |
 | other structs, `vec4` | tables of their members |
-| repeated members (`World::registerVector`), such as `Animator`'s `layers` and `Scripts`' `slots` | arrays of their elements, counting from one |
+| repeated members (`World::registerVector`), such as `Animator`'s `layers` and `Scripts`' `slots` | arrays of their elements, counting from one; in a list of identities (`MeshRenderer`'s `slotMaterials`) an unset entry is the nil identity's string, `"00000000-0000-0000-0000-000000000000"`, since a `nil` would leave a gap |
 
 `get` returns a copy; `set` writes the fields present in the table and leaves the others, so `entity:set("RigidBody", { mass = 3 })` changes the mass only, and a component it writes to is added when absent. Tags read as `true` when present.
 

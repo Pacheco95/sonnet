@@ -77,10 +77,13 @@ struct PreviousWorldTransform {
 };
 
 // A mesh by asset identity (docs/assets.md, "Identity"): a built-in primitive or a glTF mesh.
-// `material` overrides every slot of the mesh; nil keeps the mesh's own materials.
+// A submesh's material is its slot's entry in `slotMaterials` (indexed by Submesh::materialSlot),
+// then `material`, which overrides every slot, then the mesh's own; a nil entry falls through, and
+// an entry past the mesh's slots is ignored with one warning (ADR-0041, "Per-submesh slots").
 struct MeshRenderer {
   core::Uuid mesh{assets::builtin::box()};
   core::Uuid material{};
+  std::vector<core::Uuid> slotMaterials{}; // empty by default, and left out of a file while empty
   glm::vec4 color{0.8f, 0.8f, 0.8f, 1.0f}; // multiplies the material's base colour
   bool visible{true};
 };

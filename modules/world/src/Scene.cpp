@@ -50,16 +50,30 @@ json childOrder(const World &world, flecs::entity node, bool prefab) {
   return order;
 }
 
+// A whole component as the file stores it. A MeshRenderer that overrides no slot leaves out
+// `slotMaterials`, so a scene that does not use it reads as it did before it existed (#542); the
+// entity it loads into is new, so the member keeps its empty default. A patch keeps an empty list,
+// which is a value there: the instance cleared the prefab's slots.
+json wholeComponent(const World &world, flecs::entity entity, const ComponentInfo &component) {
+  json value = world.componentToJson(entity, component.id);
+  if (component.name == "MeshRenderer") {
+    if (const auto slots = value.find("slotMaterials"); slots != value.end() && slots->empty()) {
+      value.erase(slots);
+    }
+  }
+  return value;
+}
+
 // A component of an instance or of a copy in one, as the file stores it: what differs from the
 // value of its `source`, or the whole value when the source has none (ADR-0037).
 json changedComponent(const World &world, flecs::entity entity, flecs::entity source, const ComponentInfo &component) {
   if (component.tag) {
     return nullptr;
   }
-  json value = world.componentToJson(entity, component.id);
   if (!source.has(component.id)) {
-    return value;
+    return wholeComponent(world, entity, component);
   }
+  json value = world.componentToJson(entity, component.id);
   return componentPatch(component, value, world.componentToJson(source, component.id));
 }
 
@@ -88,7 +102,7 @@ json saveEntity(const World &world, flecs::entity entity, flecs::entity parent, 
     const bool patched = instance && !isPlacement(instance, component);
     json value = patched         ? changedComponent(world, entity, world.prefabOf(entity), component)
                  : component.tag ? json{}
-                                 : world.componentToJson(entity, component.id);
+                                 : wholeComponent(world, entity, component);
     if (patched && !component.tag && value.empty() && world.prefabOf(entity).has(component.id)) {
       continue; // an override equal to the prefab's value: loading inherits the same value
     }

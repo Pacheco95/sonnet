@@ -144,7 +144,11 @@ sol::object toLua(sol::state_view lua, const flecs::world &world, const LuaTypes
     sol::table array = lua.create_table(static_cast<int>(count), 0);
     for (std::size_t index = 0; index < count; ++index) {
       // Below the count, ensure_element only returns the element's address.
-      array[index + 1] = toLua(lua, world, types, element, opaque->ensure_element(const_cast<void *>(data), index));
+      void *item = opaque->ensure_element(const_cast<void *>(data), index);
+      // A nil identity in a list (an unset MeshRenderer slot) is its string, which parses back to
+      // nil: a Lua nil would leave a gap, and the list could not be set back.
+      array[index + 1] = element == types.uuid ? sol::make_object(lua, read<core::Uuid>(item).toString())
+                                               : toLua(lua, world, types, element, item);
     }
     return array;
   }
