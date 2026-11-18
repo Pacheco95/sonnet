@@ -1,16 +1,20 @@
 -- A kinematic platform that shuttles between where it starts and `travel` metres away, easing in and
--- out and resting `pause` seconds at each end. It moves in fixedUpdate, once per physics step, so the
--- body follows it with MoveKinematic and carries what stands on it (docs/physics.md).
+-- out and resting `pause` seconds at each end, and turns at `spin` degrees per second about +Y (a
+-- turntable, #499). It moves in fixedUpdate, once per physics step, so the body follows it with
+-- MoveKinematic and carries what stands on it (docs/physics.md).
 local Platform = {
   properties = {
     travel = { type = "vec3", default = { x = 0, y = 0, z = -3 } }, -- metres from the start to the far end
     period = { type = "number", default = 8, min = 1, max = 60 }, -- seconds for a round trip, pauses included
     pause = { type = "number", default = 1, min = 0, max = 30 }, -- seconds resting at each end
+    spin = { type = "number", default = 0, min = -360, max = 360 }, -- degrees per second about +Y
   },
 }
 
 function Platform:start()
-  self.origin = self.entity:get("Transform").position
+  local transform = self.entity:get("Transform")
+  self.origin = transform.position
+  self.orientation = transform.rotation
   self.time = 0
 end
 
@@ -37,6 +41,9 @@ function Platform:fixedUpdate(dt)
   self.time = self.time + dt
   local transform = self.entity:get("Transform")
   transform.position = self.origin + self.travel * self:progress()
+  if self.spin ~= 0 then
+    transform.rotation = quat.axisAngle(vec3(0, 1, 0), math.rad(self.spin) * self.time) * self.orientation
+  end
   self.entity:set("Transform", transform)
 end
 

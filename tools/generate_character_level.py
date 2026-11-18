@@ -346,6 +346,32 @@ def wedge_mesh(width, rise, run, origin):
     return m
 
 
+def disc_mesh(radius, height, origin, segments=48):
+    """A flat cylinder centred on its entity, its top and bottom textured from where it stands (`origin`) and its
+    rim by the length round it, so the texture is not stretched; the rim's normals are smooth."""
+    m = Mesh()
+    hy = height / 2
+    ox, _, oz = origin
+    ring = [(radius * math.cos(2 * math.pi * k / segments), radius * math.sin(2 * math.pi * k / segments))
+            for k in range(segments + 1)]
+    for k in range(segments):
+        (x0, z0), (x1, z1) = ring[k], ring[k + 1]
+        top = [(0.0, hy, 0.0), (x1, hy, z1), (x0, hy, z0)]
+        m.tri(top, (0, 1, 0), [planar_uv((c[0] + ox, 0, c[2] + oz), (0, 1, 0)) for c in top])
+        bottom = [(0.0, -hy, 0.0), (x0, -hy, z0), (x1, -hy, z1)]
+        m.tri(bottom, (0, -1, 0), [planar_uv((c[0] + ox, 0, c[2] + oz), (0, -1, 0)) for c in bottom])
+        base = len(m.p)
+        arc = 2 * math.pi * radius / segments
+        for (x, z), u in (((x0, z0), k * arc), ((x1, z1), (k + 1) * arc)):
+            for y in (-hy, hy):
+                m.p.append([x, y, z])
+                m.n.append([x / radius, 0.0, z / radius])
+                m.t.append([u, -y])
+        # bottom k, top k, top k+1, bottom k+1: counter-clockwise seen from outside
+        m.i += [base, base + 1, base + 3, base, base + 3, base + 2]
+    return m
+
+
 # ---------------------------------------------------------------------------------------------
 # The course
 # ---------------------------------------------------------------------------------------------
@@ -410,6 +436,9 @@ def course():
 PLATFORM = {"size": (3.0, 0.3, 2.6), "start": (0.0, -0.15, -5.45), "travel": (0.0, 0.0, -3.1), "period": 8.0, "pause": 1.5}
 CRATE = {"size": (0.9, 0.9, 0.9), "position": (3.0, 0.45, 7.0), "mass": 30.0}
 RESPAWN = (0.0, 0.0, 10.0)
+# A turntable beside the start, off the route (issue #499): a 0.2 m disc to step onto, turning at `spin` degrees
+# per second about +Y, so a full turn is 12 s.
+TURNTABLE = {"radius": 1.75, "height": 0.2, "centre": (-11.0, 0.1, 11.5), "spin": 30.0}
 
 
 def mesh_for(piece):
@@ -455,6 +484,8 @@ def write_model(pieces):
     entries = [(piece[0], *mesh_for(piece)) for piece in pieces]
     entries.append(("Platform", box_mesh(PLATFORM["size"], PLATFORM["start"]), list(PLATFORM["start"]), None, [0, 0, 0, 1]))
     entries.append(("Crate", crate_mesh(CRATE["size"]), list(CRATE["position"]), None, [0, 0, 0, 1]))
+    entries.append(("Turntable", disc_mesh(TURNTABLE["radius"], TURNTABLE["height"], TURNTABLE["centre"]),
+                     list(TURNTABLE["centre"]), None, [0, 0, 0, 1]))
     for index, (name, m, centre, _, rotation) in enumerate(entries):
         attributes = {
             "POSITION": g.floats(m.p, "VEC3", 34962),
@@ -658,6 +689,10 @@ CAPTURES = {
     "capture_hands": {"start": RESPAWN, "camera": {"yaw": 140.0, "pitch": -15.0, "distance": 0.9, "height": 0.85,
                                                    "minDistance": 0.5, "fadeStart": 0.0, "fadeEnd": 0.0},
                       "seconds": 3},
+    # Standing on the turntable a metre from its axis (issue #499), seen from the south-east as the camera, which
+    # does not turn with it, follows: after 3 s, a quarter turn, the model has turned with the deck.
+    "capture_turntable": {"start": (TURNTABLE["centre"][0] + 1.0, TURNTABLE["height"], TURNTABLE["centre"][2]),
+                          "camera": {"yaw": 140.0, "pitch": -18.0, "distance": 4.5}, "seconds": 3},
 }
 
 CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with a mouse button    look\nWheel    zoom\n"
@@ -669,9 +704,10 @@ def write_scene(meshes, materials, character_prefab, file_name="main.scene.json"
     entities = []
     counter = [0]
 
-    def entity(name, position=(0, 0, 0), rotation=None, parent=None, **components):
-        counter[0] += 1
-        identity = f"c4a20000-0000-4000-8000-{counter[0]:012x}"
+    def entity(name, position=(0, 0, 0), rotation=None, parent=None, identity=None, **components):
+        if identity is None:
+            counter[0] += 1
+            identity = f"c4a20000-0000-4000-8000-{counter[0]:012x}"
         record = {"uuid": identity, "name": name}
         if parent:
             record["parent"] = parent
@@ -735,6 +771,14 @@ def write_scene(meshes, materials, character_prefab, file_name="main.scene.json"
            MeshRenderer=renderer(meshes["Crate"], materials["worn_planks"]),
            RigidBody=rigid("Dynamic", CRATE["mass"]),
            BoxCollider={"halfExtents": [s / 2 for s in CRATE["size"]], "offset": [0, 0, 0]})
+    # Its identity is fixed rather than counted, so the entities after it keep theirs. Its collider is its mesh,
+    # which a kinematic body keeps triangle for triangle (docs/physics.md).
+    entity("Turntable", TURNTABLE["centre"], None, level, identity="c4a20000-0000-4000-8000-000000000f01",
+           MeshRenderer=renderer(meshes["Turntable"], materials["painted_metal"]),
+           RigidBody=rigid("Kinematic", 500.0, friction=0.9),
+           MeshCollider={"mesh": NIL},
+           Scripts={"slots": [{"script": asset_uuid(SCRIPTS["platform"]), "properties": {
+               "travel": {"x": 0.0, "y": 0.0, "z": 0.0}, "spin": TURNTABLE["spin"]}}]})
     respawn = entity("Respawn", RESPAWN)
     entity("Kill volume", (0.0, -12.0, -5.0), None, None,
            BoxCollider={"halfExtents": [80.0, 2.0, 80.0], "offset": [0, 0, 0]}, Trigger=None,
