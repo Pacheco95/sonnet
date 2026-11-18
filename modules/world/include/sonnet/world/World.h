@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <concepts>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -231,6 +232,9 @@ public:
   template <typename T> flecs::component<T> registerComponent(const char *name, bool tag = false) {
     flecs::component<T> component = m_world.component<T>(name);
     component.add(flecs::OnInstantiate, flecs::Inherit);
+    if constexpr (std::equality_comparable<T>) {
+      component.on_equals(); // what World::differs asks before comparing bytes or JSON
+    }
     m_components.push_back({name, component.id(), tag, {}, {}});
     return component;
   }

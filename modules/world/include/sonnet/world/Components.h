@@ -86,6 +86,7 @@ struct MeshRenderer {
   std::vector<core::Uuid> slotMaterials{}; // empty by default, and left out of a file while empty
   glm::vec4 color{0.8f, 0.8f, 0.8f, 1.0f}; // multiplies the material's base colour
   bool visible{true};
+  bool operator==(const MeshRenderer &) const = default;
 };
 
 // Looks down the entity's -Z. The first camera in the scene is the one the player renders from.
@@ -193,6 +194,7 @@ struct Animator {
   bool rootMotion{false};
   std::string rootBone{};
   std::vector<AnimationLayer> layers{};
+  bool operator==(const Animator &) const = default;
 };
 
 // The weights of the morph targets of the entity's MeshRenderer mesh, in the mesh's order
