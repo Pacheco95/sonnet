@@ -1452,7 +1452,8 @@ private:
       }
       sol::table result = m_lua.create_table_with(
           "velocity", makeVec3(character->velocity), "grounded", character->grounded, "sliding", character->sliding,
-          "groundNormal", makeVec3(character->groundNormal), "supportVelocity", makeVec3(character->supportVelocity));
+          "groundNormal", makeVec3(character->groundNormal), "supportVelocity", makeVec3(character->supportVelocity),
+          "supportAngularVelocity", makeVec3(character->supportAngularVelocity));
       result["support"] = entityObject(character->support);
       return result;
     });

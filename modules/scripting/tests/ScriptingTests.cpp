@@ -1356,6 +1356,7 @@ TEST_CASE("scripts move, jump and teleport a character and read its state", "[sc
     assert(state.support:name() == "Floor")
     assert(math.abs(state.groundNormal.y - 1) < 1e-3)
     assert(state.supportVelocity.x == 0)
+    assert(state.supportAngularVelocity:length() == 0, "a static floor does not turn")
     assert(physics.teleportCharacter(hero, vec3(5, 0, 3), math.pi / 2))
   )lua");
   // A teleport writes the Transform at once, so this frame draws it there.
