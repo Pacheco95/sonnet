@@ -140,6 +140,10 @@ struct RendererSettings {
   // Permits the sun's screen-space contact shadows a scene asks for (DirectionalLight::contactShadows,
   // ADR-0039); off, no view traces them whatever the scene says. The phone players turn it off.
   bool contactShadows{true};
+  // Draws Skin materials with the skin pipelines (ADR-0041): pre-integrated subsurface scattering in
+  // the forward pass. Off, a Skin material is drawn by the Standard pipelines, so one bundle runs
+  // everywhere. The Android and iOS players turn it off until their devices pass ADR-0041's budgets.
+  bool characterShading{true};
   // The march's steps per pixel, 1 to 32: 16 is the standard quality and 8 the reduced one.
   std::uint32_t contactShadowSteps{16};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
@@ -508,6 +512,7 @@ private:
     bool blended;
     bool transmissive; // on the transmission path (ADR-0033), and so in `blended` too
     bool masked;
+    bool skin; // drawn by the skin pipelines: a Skin material, opaque or masked, with characterShading on (ADR-0041)
     float viewDepth;
   };
   // A run of draws in one order list sharing a pipeline, a front face, a mesh and a submesh,
@@ -516,7 +521,7 @@ private:
   struct Batch {
     const Mesh *mesh;
     Submesh submesh;
-    std::uint32_t pipeline;  // index into a pipeline pair: 1 for double-sided
+    std::uint32_t pipeline;  // 1 for double-sided, plus 2 for skin (pipelineIndex); a pair reads only the first bit
     bool mirrored;           // drawn with a clockwise front face
     bool coarse;             // its draws may use the coarse shadow range; part of the key so a command's range is one
     std::uint32_t firstDraw; // into the order list, and into a job's run of the visible list
@@ -750,11 +755,11 @@ private:
   // One indirect command per batch, the job's own, whose instances are the batch's survivors
   // (ADR-0016). `late` draws the occlusion job's late commands instead (ADR-0024).
   void recordIndirect(rhi::ICommandList &commands, ViewState &v, const CullJob &job, std::span<const Batch> batches,
-                      std::span<const rhi::PipelineHandle, 2> pipelines, std::uint32_t shadow = 0, bool late = false);
+                      std::span<const rhi::PipelineHandle> pipelines, std::uint32_t shadow = 0, bool late = false);
   // The direct path, which the blended draws keep because their order is view-dependent. Each
   // draw names its slot in the visible list's direct range as its first instance.
   void recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<const std::uint32_t> order,
-                   std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t shadow = 0);
+                   std::span<const rhi::PipelineHandle> pipelines, bool count, std::uint32_t shadow = 0);
   void recordClustering(rhi::ICommandList &commands, const ViewState &v);
   void recordPost(rhi::ICommandList &commands, const SceneView *view, rhi::PipelineHandle pipeline,
                   rhi::ImageHandle source, rhi::ImageHandle secondary, glm::uvec2 targetSize);
@@ -785,7 +790,7 @@ private:
   std::array<rhi::PipelineHandle, 2> m_depthPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_depthMotionPipelines; // the pre-pass that also writes motion (TAA)
   std::array<rhi::PipelineHandle, 2> m_shadowPipelines;      // both cull nothing; kept as a pair for recordDraws
-  std::array<rhi::PipelineHandle, 2> m_forwardPipelines;     // by doubleSided
+  std::array<rhi::PipelineHandle, 4> m_forwardPipelines;     // by doubleSided, then Standard and Skin (ADR-0041)
   std::array<rhi::PipelineHandle, 2> m_blendPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_glassMotionPipelines; // the blended draws' motion, tested against the depth
   std::array<rhi::PipelineHandle, 2> m_idPipelines;

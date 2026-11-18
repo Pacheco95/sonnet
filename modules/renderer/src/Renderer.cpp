@@ -13,6 +13,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <format>
 #include <type_traits>
@@ -52,6 +53,7 @@ constexpr std::uint32_t AlphaBlend = 2;
 constexpr std::uint32_t MaterialDoubleSided = 1u << 8;
 constexpr std::uint32_t MaterialUnlit = 1u << 9;
 constexpr std::uint32_t MaterialTransmissive = 1u << 10; // mayTransmit: on the transmission path (ADR-0033)
+constexpr std::uint32_t MaterialShadingShift = 11;       // the shading model in bits 11-12 (ADR-0041)
 // The skin lookup table (ADR-0041): n.l by curvature, and the ring samples each texel integrates.
 constexpr std::uint32_t SkinLutSize = 128;
 constexpr std::uint32_t SkinLutSamples = 512;
@@ -120,8 +122,13 @@ struct GpuMaterial {
   glm::vec2 occlusionUvOffset;
   glm::vec2 emissiveUvOffset;
   glm::vec2 transmissionUvOffset;
+  // The shading model's row (ADR-0041). Skin: the subsurface weight and the radius in metres per
+  // profile millimetre; the last two words are reserved for a later model.
+  glm::vec4 shading;
 };
-static_assert(sizeof(GpuMaterial) == 240);
+static_assert(sizeof(GpuMaterial) == 256);
+static_assert(sizeof(GpuMaterial) % 16 == 0 && offsetof(GpuMaterial, shading) % 16 == 0,
+              "every vec4 of a material stays 16-byte aligned for Metal");
 
 struct FrameConstants {
   glm::mat4 view;
@@ -503,6 +510,25 @@ std::uint32_t uvSetBit(const TextureTransform &transform, std::uint32_t slot) {
   return transform.texCoord == 1 ? 1u << slot : 0u;
 }
 
+// Whether a draw takes the skin pipelines (ADR-0041): a lit Skin material with some scattering, opaque
+// or masked, while the setting allows it. A blended or transmissive one shades as Standard, and so
+// does a weight of 0, which the Skin shader would only reproduce at a higher cost.
+bool shadesAsSkin(const MaterialDesc &desc, const RendererSettings &settings) {
+  return settings.characterShading && desc.shading == ShadingModel::Skin && desc.subsurface > 0.0f && !desc.unlit &&
+         desc.alphaMode != AlphaMode::Blend && !mayTransmit(desc);
+}
+
+// A draw's index into a set of pipelines: 1 for double-sided, plus 2 for the skin pipelines.
+template <class Draw> std::uint32_t pipelineIndex(const Draw &draw) {
+  return (draw.doubleSided ? 1u : 0u) | (draw.skin ? 2u : 0u);
+}
+
+// The pipeline of an index in a set: the forward pass's four take it whole, a pair by double-sidedness
+// alone, since the skin's depth, shadow and id passes are the Standard ones.
+rhi::PipelineHandle pipelineOf(std::span<const rhi::PipelineHandle> pipelines, std::uint32_t index) {
+  return pipelines[index % pipelines.size()];
+}
+
 std::uint32_t groups(std::uint32_t size, std::uint32_t threads) {
   return (size + threads - 1) / threads;
 }
@@ -543,13 +569,21 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depth = {.test = true, .write = true},
                     .cullMode = rhi::CullMode::None,
                     .debugName = "shadow"});
-    // Equal against the pre-pass's depth: exactly the visible surface is shaded once.
+    // Equal against the pre-pass's depth: exactly the visible surface is shaded once. Skin's are
+    // the same pass through the shader's second entry point (ADR-0041), never a per-draw branch.
     defineGraphics(m_forwardPipelines[i], "forward",
                    {.colorFormats = {HdrFormat},
                     .depthFormat = DepthFormat,
                     .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
                     .cullMode = cullModes[i],
                     .debugName = std::format("forward{}", side)});
+    defineGraphics(m_forwardPipelines[2 + i], "forward",
+                   {.fragmentEntry = "skinFragmentMain",
+                    .colorFormats = {HdrFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("forward skin{}", side)});
     // The glass's motion for the experiment of #352: the pre-pass's shader on the blended draws, kept where
     // they are in front of the opaque depth; the draws arrive back to front, so the nearest layer is last.
     defineGraphics(m_glassMotionPipelines[i], "depth",
@@ -803,10 +837,13 @@ Renderer::~Renderer() {
       m_device.destroyPipeline(pipeline);
     }
   }
-  for (const auto &pair : {m_maskPipelines, m_idPipelines, m_blendPipelines, m_glassMotionPipelines, m_forwardPipelines,
-                           m_shadowPipelines, m_depthMotionPipelines, m_depthPipelines}) {
+  for (const auto &pair : {m_maskPipelines, m_idPipelines, m_blendPipelines, m_glassMotionPipelines, m_shadowPipelines,
+                           m_depthMotionPipelines, m_depthPipelines}) {
     m_device.destroyPipeline(pair[1]);
     m_device.destroyPipeline(pair[0]);
+  }
+  for (const rhi::PipelineHandle pipeline : m_forwardPipelines) {
+    m_device.destroyPipeline(pipeline);
   }
 }
 
@@ -1758,6 +1795,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
                                       .blended = desc.alphaMode == AlphaMode::Blend || mayTransmit(desc),
                                       .transmissive = mayTransmit(desc),
                                       .masked = desc.alphaMode == AlphaMode::Mask,
+                                      .skin = shadesAsSkin(desc, m_settings),
                                       .viewDepth = -viewPosition.z});
   }
   for (std::uint32_t i = 0; i < v.resolved.size(); ++i) {
@@ -1772,6 +1810,9 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     const ResolvedDraw &db = v.resolved[b];
     if (da.doubleSided != db.doubleSided) {
       return !da.doubleSided;
+    }
+    if (da.skin != db.skin) {
+      return !da.skin;
     }
     if (da.mirrored != db.mirrored) {
       return !da.mirrored;
@@ -2165,7 +2206,7 @@ void Renderer::buildBatches(const ViewState &v, std::span<const std::uint32_t> o
   batches.clear();
   for (std::uint32_t position = 0; position < order.size(); ++position) {
     const ResolvedDraw &draw = v.resolved[order[position]];
-    const std::uint32_t pipeline = draw.doubleSided ? 1u : 0u;
+    const std::uint32_t pipeline = pipelineIndex(draw);
     if (!batches.empty()) {
       Batch &last = batches.back();
       if (last.mesh == draw.mesh && last.submesh.firstIndex == draw.submesh.firstIndex &&
@@ -2511,7 +2552,7 @@ void Renderer::recordLateCulling(rhi::ICommandList &commands, ViewState &v, cons
 }
 
 void Renderer::recordIndirect(rhi::ICommandList &commands, ViewState &v, const CullJob &job,
-                              std::span<const Batch> batches, std::span<const rhi::PipelineHandle, 2> pipelines,
+                              std::span<const Batch> batches, std::span<const rhi::PipelineHandle> pipelines,
                               std::uint32_t shadow, bool late) {
   if (batches.empty() || !v.frameBuffers.valid()) {
     return;
@@ -2521,7 +2562,7 @@ void Renderer::recordIndirect(rhi::ICommandList &commands, ViewState &v, const C
   const Mesh *boundMesh = nullptr;
   for (std::uint32_t index = 0; index < batches.size(); ++index) {
     const Batch &batch = batches[index];
-    const rhi::PipelineHandle pipeline = pipelines[batch.pipeline];
+    const rhi::PipelineHandle pipeline = pipelineOf(pipelines, batch.pipeline);
     if (pipeline != bound) {
       commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
       bindFrame(commands, v);
@@ -3035,7 +3076,8 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                        .occlusionTexture = textureIndex(desc.occlusionTexture),
                        .emissiveTexture = textureIndex(desc.emissiveTexture),
                        .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) |
-                                (desc.unlit ? MaterialUnlit : 0u) | (mayTransmit(desc) ? MaterialTransmissive : 0u),
+                                (desc.unlit ? MaterialUnlit : 0u) | (mayTransmit(desc) ? MaterialTransmissive : 0u) |
+                                (static_cast<std::uint32_t>(desc.shading) << MaterialShadingShift),
                        .sampler = samplers,
                        .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
                                  uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
@@ -3058,7 +3100,9 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                        .normalUvOffset = desc.normalTransform.offset,
                        .occlusionUvOffset = desc.occlusionTransform.offset,
                        .emissiveUvOffset = desc.emissiveTransform.offset,
-                       .transmissionUvOffset = desc.transmissionTransform.offset};
+                       .transmissionUvOffset = desc.transmissionTransform.offset,
+                       .shading = glm::vec4{std::clamp(desc.subsurface, 0.0f, 1.0f),
+                                            std::clamp(desc.subsurfaceRadius, 0.0f, MaxSubsurfaceRadius), 0.0f, 0.0f}};
   };
   MaterialDesc defaultMaterial;
   defaultMaterial.metallic = 0.0f;
@@ -3213,7 +3257,7 @@ void Renderer::bindFrame(rhi::ICommandList &commands, const ViewState &v) {
 }
 
 void Renderer::recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<const std::uint32_t> order,
-                           std::span<const rhi::PipelineHandle, 2> pipelines, bool count, std::uint32_t shadow) {
+                           std::span<const rhi::PipelineHandle> pipelines, bool count, std::uint32_t shadow) {
   if (order.empty() || !v.frameBuffers.valid() || !m_visibleBuffer) {
     return;
   }
@@ -3233,7 +3277,7 @@ void Renderer::recordDraws(rhi::ICommandList &commands, ViewState &v, std::span<
   const Mesh *boundMesh = nullptr;
   for (const std::uint32_t index : order) {
     const ResolvedDraw &draw = v.resolved[index];
-    const rhi::PipelineHandle pipeline = pipelines[draw.doubleSided ? 1 : 0];
+    const rhi::PipelineHandle pipeline = pipelineOf(pipelines, pipelineIndex(draw));
     if (pipeline != bound) {
       commands.bindPipeline(pipeline); // which resets the front face to counter-clockwise
       bindFrame(commands, v);

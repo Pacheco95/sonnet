@@ -76,6 +76,63 @@ float3 shade(float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float
   return (diffuseWeight * kd * albedo / Pi + specular) * radiance * nDotL;
 }
 
+// ---- Skin (ADR-0041): pre-integrated subsurface scattering, for skinFragmentMain only ----
+
+// What a Skin fragment shades with besides the mapped normal: each colour channel's diffuse normal,
+// between the mapped and the smooth one with red the smoothest, the lookup table's curvature row and
+// the subsurface weight.
+struct SkinSurface {
+  float3 diffuseR;
+  float3 diffuseG;
+  float3 diffuseB;
+  float row;
+  float subsurface;
+};
+
+// The curvature 1/r from the screen derivatives of the interpolated normal and position, in the
+// table's units: (one profile millimetre) / r, with the material's metres per profile millimetre.
+SkinSurface skinSurface(MaterialData material, float3 mapped, float3 smooth, float3 worldPosition) {
+  SkinSurface skin;
+  const float curvature = length(fwidth(smooth)) / max(length(fwidth(worldPosition)), 1.0e-6);
+  skin.row = saturate(curvature * material.shading.y * 2.0);
+  skin.subsurface = saturate(material.shading.x);
+  const float3 smoothing = skin.subsurface * float3(0.9, 0.6, 0.3);
+  skin.diffuseR = normalize(lerp(mapped, smooth, smoothing.r));
+  skin.diffuseG = normalize(lerp(mapped, smooth, smoothing.g));
+  skin.diffuseB = normalize(lerp(mapped, smooth, smoothing.b));
+  return skin;
+}
+
+float3 skinLutAt(float nDotL, float row) {
+  return textures[frame.skinLut].SampleLevel(samplers[frame.linearSampler], float2(nDotL * 0.5 + 0.5, row), 0.0).rgb;
+}
+
+// Penner's pre-integrated skin: the Standard specular on the mapped normal, and a diffuse whose cosine
+// per channel is the table's at that channel's normal and the curvature, blended with the clamped
+// cosine by the subsurface weight. Skin never transmits, so there is no diffuse weight.
+float3 shadeSkin(SkinSurface skin, float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float metallic,
+                 float roughness, float3 f0) {
+  const float3 h = normalize(v + l);
+  const float nDotL = saturate(dot(n, l));
+  const float nDotV = max(dot(n, v), 1.0e-4);
+  const float d = distributionGgx(saturate(dot(n, h)), roughness);
+  const float g = geometrySmith(nDotV, nDotL, roughness);
+  const float3 f = fresnelSchlick(saturate(dot(h, v)), f0);
+  const float3 specular = (d * g * f) / max(4.0 * nDotV * nDotL, 1.0e-4) * nDotL;
+  const float3 cosines = float3(dot(skin.diffuseR, l), dot(skin.diffuseG, l), dot(skin.diffuseB, l));
+  const float3 scattered =
+      float3(skinLutAt(cosines.r, skin.row).r, skinLutAt(cosines.g, skin.row).g, skinLutAt(cosines.b, skin.row).b);
+  const float3 kd = (1.0 - f) * (1.0 - metallic);
+  return (kd * albedo / Pi * lerp(saturate(cosines), scattered, skin.subsurface) + specular) * radiance;
+}
+
+// The irradiance cube once per channel, each at that channel's diffuse normal.
+float3 skinIrradiance(SkinSurface skin) {
+  return float3(cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], skin.diffuseR, 0.0).r,
+                cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], skin.diffuseG, 0.0).g,
+                cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], skin.diffuseB, 0.0).b);
+}
+
 uint shadowCascade(float viewDepth) {
   return uint(viewDepth >= frame.cascadeSplits[0]) + uint(viewDepth >= frame.cascadeSplits[1]) +
          uint(viewDepth >= frame.cascadeSplits[2]);
@@ -282,8 +339,9 @@ float transmissionLod(float r) {
   return float(levels - 1);
 }
 
-[shader("fragment")]
-float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+// The body of both fragment entry points, with the shading model a compile-time parameter, so the
+// Standard entry compiles to the Standard shading alone and no draw branches on its model (ADR-0041).
+float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
   const MaterialData material = frame.materials[objects[input.objectIndex].material];
   const uint alphaMode = material.flags & 0xFF;
 
@@ -337,6 +395,10 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   float3 tangentNormal = sampleMaterial(material.normalTexture, materialSampler(material, SlotNormal), normalUv).xyz * 2.0 - 1.0;
   tangentNormal.xy = textureToMeshFrame(material.normalUv, tangentNormal.xy) * material.normalScale;
   n = normalize(t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z);
+  SkinSurface skin = {};
+  if (Model == ShadingSkin) {
+    skin = skinSurface(material, n, geometricNormal, input.worldPosition);
+  }
 
   const float3 v = frame.cameraForward.w != 0.0 ? -frame.cameraForward.xyz : normalize(frame.cameraPosition.xyz - input.worldPosition);
   const float3 albedo = baseColor.rgb;
@@ -362,7 +424,11 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
       // The minimum, not the product, of two estimates of the same partial shadow (ADR-0039); past
       // the cascades' reach theirs is 1, so a nearby occluder still casts its contact.
       shadow = min(sunShadow(input.worldPosition, viewDepth, geometricNormal), contactShadow(input.position.xy, material));
-      sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0, diffuseWeight);
+      if (Model == ShadingSkin) {
+        sunDirect = shadeSkin(skin, n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0);
+      } else {
+        sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0, diffuseWeight);
+      }
       color += sunDirect * shadow;
     }
 
@@ -387,7 +453,11 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
         } else if (light.type == LightPoint && light.shadow != 0xFFFFFFFF) {
           attenuation *= pointShadow(light, input.worldPosition, geometricNormal, l);
         }
-        color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0, diffuseWeight);
+        if (Model == ShadingSkin) {
+          color += shadeSkin(skin, n, v, l, light.color * attenuation, albedo, metallic, roughness, f0);
+        } else {
+          color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0, diffuseWeight);
+        }
       }
     }
 
@@ -396,7 +466,12 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
     if (frame.environment.w > 0.0) {
       const float3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
       const float3 kd = (1.0 - f) * (1.0 - metallic);
-      const float3 irradiance = cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], n, 0.0).rgb;
+      float3 irradiance;
+      if (Model == ShadingSkin) {
+        irradiance = skinIrradiance(skin);
+      } else {
+        irradiance = cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], n, 0.0).rgb;
+      }
       const float3 r = reflect(-v, n);
       const float lod = roughness * (frame.environment.y - 1.0);
       const float3 prefiltered = cubes[frame.prefilteredCube].SampleLevel(samplers[frame.linearSampler], r, lod).rgb;
@@ -444,4 +519,15 @@ float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_
   // light the surface lets through shows what is behind it (ADR-0033, "Off and mobile").
   const float coverage = alphaMode == AlphaBlend ? baseColor.a : 1.0;
   return float4(color, copied ? coverage : coverage * (1.0 - transmittance));
+}
+
+[shader("fragment")]
+float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+  return shadeFragment<ShadingStandard>(input, frontFacing);
+}
+
+// The Skin model's entry point, which only the skin pipelines run (ADR-0041).
+[shader("fragment")]
+float4 skinFragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+  return shadeFragment<ShadingSkin>(input, frontFacing);
 }
