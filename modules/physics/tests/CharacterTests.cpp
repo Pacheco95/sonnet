@@ -654,8 +654,9 @@ glm::mat4 drawnOf(flecs::entity entity) {
 
 // A kinematic platform moved as a script's fixedUpdate moves it, after the physics step, by
 // `pose(time)`; it returns the platform.
-flecs::entity scriptedPlatform(Fixture &fixture, std::function<world::Transform(float)> pose) {
-  const flecs::entity platform = fixture.box("Platform", {3.0f, 0.1f, 3.0f}, {0.0f, 1.0f, 0.0f});
+flecs::entity scriptedPlatform(Fixture &fixture, std::function<world::Transform(float)> pose,
+                               glm::vec3 half = {3.0f, 0.1f, 3.0f}) {
+  const flecs::entity platform = fixture.box("Platform", half, {0.0f, 1.0f, 0.0f});
   platform.set<physics::RigidBody>({.type = physics::BodyType::Kinematic});
   auto time = std::make_shared<float>(0.0f);
   fixture.world.ecs()
@@ -728,6 +729,259 @@ TEST_CASE("a kinematic body is drawn between its steps and snaps when it is plac
   fixture.world.progress(Step * 0.25f);
   REQUIRE(drawnOf(platform)[3].x == Approx(-20.0f).margin(1e-4f));
   REQUIRE(platform.get<world::Transform>().position.x == Approx(-20.0f).margin(1e-4f));
+}
+
+// Rotating supports (ADR-0043): a kinematic platform turning at Spin about +Y.
+constexpr float Spin = 1.0f;
+
+glm::vec3 horizontal(glm::vec3 v) {
+  return {v.x, 0.0f, v.z};
+}
+
+// A platform turning at `spin` about +Y through `centre(time)`, moved as a script moves it.
+flecs::entity turntable(Fixture &fixture, glm::vec3 half, std::function<glm::vec3(float)> centre = {},
+                        float spin = Spin) {
+  return scriptedPlatform(
+      fixture,
+      [centre = std::move(centre), spin](float time) {
+        return world::Transform{.position = centre ? centre(time) : glm::vec3{0.0f, 1.0f, 0.0f},
+                                .rotation = glm::angleAxis(spin * time, glm::vec3{0.0f, 1.0f, 0.0f})};
+      },
+      half);
+}
+
+// Where the last step left the character: the drawn position is between its last two steps by
+// the world's fixedAlpha, and the last of those steps moved it by its state's velocity.
+glm::vec3 steppedPosition(Fixture &fixture, flecs::entity character) {
+  return positionOf(character) + (1.0f - fixture.world.fixedAlpha()) * fixture.state(character).velocity * Step;
+}
+
+// The velocity one step of a spin about +Y through `centre` gives the point `p`: the chord it is
+// carried along, divided by the step. It tends to the tangent spin x r as the step tends to zero.
+glm::vec3 chordVelocity(glm::vec3 p, glm::vec3 centre, float spin = Spin) {
+  const glm::vec3 r = horizontal(p - centre);
+  return (glm::angleAxis(spin * Step, glm::vec3{0.0f, 1.0f, 0.0f}) * r - r) / Step;
+}
+
+glm::vec3 tangentVelocity(glm::vec3 p, glm::vec3 centre, float spin = Spin) {
+  return glm::cross(glm::vec3{0.0f, spin, 0.0f}, horizontal(p - centre));
+}
+
+TEST_CASE("a character stands still on a turning platform at any radius", "[physics][character]") {
+  const auto still = [](float) { return glm::vec3{0.0f, 1.0f, 0.0f}; };
+  const auto sliding = [](float time) { return glm::vec3{std::sin(time) * 1.5f, 1.0f, 0.0f}; };
+  for (const bool translating : {false, true}) {
+    for (const float radius : {0.0f, 1.0f, 3.0f}) {
+      CAPTURE(translating, radius);
+      Fixture fixture;
+      fixture.ground();
+      const flecs::entity platform =
+          translating ? turntable(fixture, {4.0f, 0.1f, 4.0f}, sliding) : turntable(fixture, {4.0f, 0.1f, 4.0f}, still);
+      const flecs::entity character = fixture.character({radius, 1.1f, 0.0f});
+      fixture.play();
+      settle(fixture, character);
+      REQUIRE(fixture.state(character).support == platform);
+
+      // The point of the platform the character stands on, as both are drawn.
+      const auto local = [&] { return glm::vec3{glm::inverse(drawnOf(platform)) * drawnOf(character)[3]}; };
+      const glm::vec3 start = local();
+      float relative = 0.0f;
+      float spinError = 0.0f;
+      for (int i = 0; i < 600; ++i) { // 10 s, about 1.6 turns
+        fixture.step();
+        const physics::CharacterState state = fixture.state(character);
+        REQUIRE(state.grounded);
+        relative = std::max(relative, glm::length(horizontal(state.velocity - state.supportVelocity)));
+        spinError = std::max(spinError, glm::length(state.supportAngularVelocity - glm::vec3{0.0f, Spin, 0.0f}));
+      }
+      const float drift = glm::length(local() - start);
+      CAPTURE(drift, relative, spinError);
+      REQUIRE(drift < 0.01f);
+      REQUIRE(relative < 0.05f);
+      REQUIRE(spinError < 1e-3f);
+      REQUIRE(fixture.state(character).support == platform);
+    }
+  }
+}
+
+TEST_CASE("a character walks across a turning platform at its intent plus the chord velocity", "[physics][character]") {
+  Fixture fixture;
+  fixture.ground();
+  turntable(fixture, {4.0f, 0.1f, 4.0f});
+  const flecs::entity character = fixture.character({-2.0f, 1.1f, 0.5f});
+  fixture.play();
+  settle(fixture, character);
+
+  // World-space intent, as a camera that does not turn with the platform gives it.
+  const glm::vec3 intent{1.0f, 0.0f, 0.0f};
+  REQUIRE(fixture.physics->setCharacterMove(character, intent));
+  float error = 0.0f;
+  for (int i = 0; i < 150; ++i) {
+    const glm::vec3 before = steppedPosition(fixture, character);
+    fixture.step();
+    const physics::CharacterState state = fixture.state(character);
+    REQUIRE(state.grounded);
+    error = std::max(error, glm::length(horizontal(state.velocity) - intent - chordVelocity(before, {})));
+  }
+  CAPTURE(error);
+  REQUIRE(error < 1e-3f);
+}
+
+TEST_CASE("a character leaving a turning platform keeps the velocity of its last step there", "[physics][character]") {
+  // A turning bar 0.4 m wide, so the character leaves it quickly, onto the static ground 1.1 m below.
+  for (const bool jump : {true, false}) {
+    CAPTURE(jump);
+    Fixture fixture;
+    fixture.ground();
+    const flecs::entity platform = turntable(fixture, {3.5f, 0.1f, 0.2f});
+    const flecs::entity character = fixture.character({3.0f, 1.1f, 0.0f});
+    fixture.play();
+    settle(fixture, character);
+    REQUIRE(fixture.state(character).support == platform);
+
+    glm::vec3 intent{0.0f};
+    // The chord velocity of the last grounded step, from where that step started, and the
+    // velocity the character inherited on its last step with a support.
+    glm::vec3 lastChord{0.0f};
+    glm::vec3 lastTangent{0.0f};
+    glm::vec3 inherited{0.0f};
+    int slidingSteps = 0;
+    if (jump) {
+      lastChord = chordVelocity(steppedPosition(fixture, character), {});
+      lastTangent = tangentVelocity(steppedPosition(fixture, character), {});
+      inherited = lastChord;
+      // High enough that the bar has turned on and the character is past its end when it comes down.
+      REQUIRE(fixture.physics->jumpCharacter(character, 5.0f));
+      fixture.step();
+    } else {
+      // Off the side of the bar, as the camera would ask: across it in world space.
+      intent = 2.0f * glm::normalize(horizontal(glm::vec3{drawnOf(platform) * glm::vec4{0, 0, 1, 0}}));
+      REQUIRE(fixture.physics->setCharacterMove(character, intent));
+      for (int i = 0; i < 60 && fixture.state(character).support; ++i) {
+        const glm::vec3 before = steppedPosition(fixture, character);
+        const bool grounded = fixture.state(character).grounded;
+        fixture.step();
+        const physics::CharacterState state = fixture.state(character);
+        if (grounded) {
+          lastChord = chordVelocity(before, {});
+          lastTangent = tangentVelocity(before, {});
+        }
+        if (state.sliding) {
+          // Past the rounded edge (ADR-0038): the edge's own velocity, at the contact.
+          ++slidingSteps;
+          inherited = horizontal(state.supportVelocity);
+        } else if (state.grounded) {
+          inherited = lastChord;
+        }
+      }
+    }
+    REQUIRE_FALSE(fixture.state(character).support);
+    REQUIRE(fixture.state(character).supportAngularVelocity == glm::vec3{0.0f});
+
+    // In the air the horizontal velocity is the intent plus what the last supported step left.
+    float error = 0.0f;
+    for (int i = 0; i < 10; ++i) {
+      fixture.step();
+      error = std::max(error, glm::length(horizontal(fixture.state(character).velocity) - intent - inherited));
+    }
+    // What a walk off the edge keeps differs from the last grounded chord by the spin times the
+    // capsule's reach past the edge, since sliding steps take the velocity of the contact point.
+    const float fromChord = glm::length(inherited - lastChord);
+    const float fromTangent = glm::length(lastChord - lastTangent) / glm::length(lastTangent);
+    CAPTURE(error, glm::length(lastChord), fromTangent, slidingSteps, fromChord);
+    REQUIRE_FALSE(fixture.state(character).grounded);
+    REQUIRE(error < 1e-3f);
+    REQUIRE(fromTangent < 0.02f);
+    if (jump) {
+      REQUIRE(fromChord == 0.0f);
+    }
+
+    // Landing on the static ground replaces it.
+    REQUIRE(fixture.physics->setCharacterMove(character, glm::vec3{0.0f}));
+    for (int i = 0; i < 180 && !fixture.state(character).grounded; ++i) {
+      fixture.step();
+    }
+    fixture.step(2);
+    REQUIRE(fixture.state(character).grounded);
+    REQUIRE(fixture.state(character).support != platform);
+    REQUIRE(glm::length(horizontal(fixture.state(character).velocity)) < 1e-3f);
+  }
+}
+
+TEST_CASE("a character on a turning platform is drawn along its arc at 30, 60 and 144 frames per second",
+          "[physics][character]") {
+  for (const float rate : {30.0f, 60.0f, 144.0f}) {
+    CAPTURE(rate);
+    Fixture fixture;
+    fixture.ground();
+    turntable(fixture, {4.0f, 0.1f, 4.0f});
+    const flecs::entity character = fixture.character({1.5f, 1.1f, 0.0f});
+    fixture.play();
+    settle(fixture, character);
+
+    const auto drawn = [&] { return glm::vec3{drawnOf(character)[3]}; };
+    const float frame = 1.0f / rate;
+    fixture.world.progress(frame);
+    const float arc = glm::length(horizontal(drawn()));
+    float previous = std::atan2(-drawn().z, drawn().x);
+    float offArc = 0.0f;
+    float slowest = std::numeric_limits<float>::max();
+    for (int i = 0; i < static_cast<int>(rate); ++i) {
+      fixture.world.progress(frame);
+      const float angle = std::atan2(-drawn().z, drawn().x);
+      // Counter-clockwise seen from above, wrapping at pi.
+      float advance = angle - previous;
+      if (advance < -std::numbers::pi_v<float>) {
+        advance += 2.0f * std::numbers::pi_v<float>;
+      }
+      slowest = std::min(slowest, advance / frame);
+      offArc = std::max(offArc, std::abs(glm::length(horizontal(drawn())) - arc));
+      previous = angle;
+    }
+    CAPTURE(offArc, slowest);
+    REQUIRE(slowest > 0.0f);
+    REQUIRE(offArc < 0.001f);
+  }
+}
+
+TEST_CASE("teleports on and off a turning platform carry no spin and pick it up on the next step",
+          "[physics][character]") {
+  Fixture fixture;
+  fixture.ground();
+  const flecs::entity platform = turntable(fixture, {4.0f, 0.1f, 4.0f});
+  const flecs::entity character = fixture.character({2.0f, 1.1f, 0.0f});
+  fixture.play();
+  settle(fixture, character);
+  REQUIRE(glm::length(horizontal(fixture.state(character).velocity)) > 1.9f);
+
+  // Off it while supported: nothing of the spin is carried.
+  REQUIRE(fixture.physics->teleportCharacter(character, {10.0f, 0.0f, 0.0f}, 0.0f));
+  fixture.step(30);
+  REQUIRE(fixture.state(character).grounded);
+  REQUIRE(fixture.state(character).supportAngularVelocity == glm::vec3{0.0f});
+  REQUIRE(positionOf(character).x == Approx(10.0f).margin(1e-3f));
+  REQUIRE(positionOf(character).z == Approx(0.0f).margin(1e-3f));
+
+  // Onto it: the first step carries the character with the spin.
+  REQUIRE(fixture.physics->teleportCharacter(character, {2.0f, 1.1f, 0.0f}, 0.0f));
+  fixture.step();
+  physics::CharacterState state = fixture.state(character);
+  REQUIRE(state.grounded);
+  REQUIRE(state.support == platform);
+  REQUIRE(state.supportAngularVelocity.y == Approx(Spin).margin(1e-3f));
+  const glm::vec3 expected = chordVelocity({2.0f, 1.1f, 0.0f}, {});
+  CAPTURE(state.velocity.x, state.velocity.z, expected.x, expected.z);
+  REQUIRE(glm::length(horizontal(state.velocity) - expected) < 1e-3f);
+
+  // An outside write off it while supported carries nothing either.
+  character.get_mut<world::Transform>().position = {-10.0f, 0.0f, 0.0f};
+  fixture.step(30);
+  state = fixture.state(character);
+  REQUIRE(state.grounded);
+  REQUIRE(state.supportAngularVelocity == glm::vec3{0.0f});
+  REQUIRE(glm::length(state.velocity) < 1e-3f);
+  REQUIRE(positionOf(character).x == Approx(-10.0f).margin(1e-3f));
+  REQUIRE(positionOf(character).z == Approx(0.0f).margin(1e-3f));
 }
 
 TEST_CASE("commands wait for a step and a jump is consumed by the first of several", "[physics][character]") {

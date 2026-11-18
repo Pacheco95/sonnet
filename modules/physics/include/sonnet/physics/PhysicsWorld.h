@@ -55,6 +55,9 @@ struct SphereCastHit {
 // `sliding` on ground too steep to stand on; while either holds, `groundNormal` is the ground's
 // normal, `support` the entity whose body is stood on (which may since have gone) and
 // `supportVelocity` that body's velocity at the contact. In the air they are zero and none.
+// `supportAngularVelocity` is the support's angular velocity (world, rad/s) while grounded, and
+// zero in the air and while sliding: a script that turns its character with a rotating support
+// adds its +Y part times the step to its facing (ADR-0043).
 struct CharacterState {
   glm::vec3 velocity{0.0f};
   bool grounded{false};
@@ -62,6 +65,7 @@ struct CharacterState {
   glm::vec3 groundNormal{0.0f};
   flecs::entity support;
   glm::vec3 supportVelocity{0.0f};
+  glm::vec3 supportAngularVelocity{0.0f};
 };
 
 enum class ContactEventKind : std::uint8_t {

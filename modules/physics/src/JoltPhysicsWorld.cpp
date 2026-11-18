@@ -1377,10 +1377,20 @@ private:
     }
     if (state.grounded || state.sliding) {
       state.groundNormal = fromJolt(jolt.GetGroundNormal());
-      state.supportVelocity = fromJolt(jolt.GetGroundVelocity());
+      // The velocity the support carried the character with this step, so standing on a support
+      // reads as no ground speed of its own. After the update Jolt's ground velocity is the chord at
+      // the new position, which on a spin turns by spin * dt and differs by about spin^2 * r * dt
+      // (ADR-0043); on the step that lands there was no carrying velocity yet, so it is that one.
+      state.supportVelocity = state.grounded && walkable ? ground : fromJolt(jolt.GetGroundVelocity());
       if (const JPH::uint64 support = jolt.GetGroundUserData(); support != 0) {
         state.support = flecs::entity{m_world.ecs(), support};
       }
+    }
+    if (state.grounded) {
+      // The spin this step moved the support by (MoveKinematic in step 2 set it), for a script that
+      // turns its character with the support (ADR-0043); the position needs nothing, since Jolt's
+      // ground velocity is already the chord a point of the support moves along in one step.
+      state.supportAngularVelocity = fromJolt(bodies().GetAngularVelocity(jolt.GetGroundBodyID()));
     }
   }
 
