@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -236,6 +237,74 @@ TEST_CASE("a Skin draw takes the skin pipeline and a batch of its own", "[render
   renderer.destroyMesh(box);
 }
 
+TEST_CASE("the skin pipelines are built only once characterShading is on", "[renderer][null][skin]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  // Two renderers on devices of their own, one on and one off: the pipelines each leaves on its device.
+  std::size_t withSkin = 0;
+  {
+    const auto device = createNullDevice();
+    const Renderer renderer{*device, shaderDir(platform), skinSettings()};
+    withSkin = device->pipelineCount();
+  }
+  const auto device = createNullDevice();
+  RendererSettings settings = skinSettings();
+  settings.characterShading = false;
+  {
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const std::size_t withoutSkin = device->pipelineCount();
+    REQUIRE(withSkin == withoutSkin + 2);
+
+    const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+    const MaterialHandle skin = renderer.createMaterial(skinMaterial(), "skin");
+    const std::array draws{DrawItem{.mesh = box, .material = skin}};
+    SceneView view;
+    view.camera.position = {0.0f, 0.0f, 6.0f};
+    view.draws = draws;
+    RenderGraph graph{*device};
+    RenderTarget target{*device, "viewport"};
+    target.resize({64, 64});
+    // How many times one frame binds the skin pipeline.
+    const auto skinBinds = [&] {
+      ICommandList &commands = device->beginFrame();
+      graph.reset();
+      renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+      graph.execute(commands);
+      const std::size_t binds = countLines(*device, "bindPipeline \"forward skin\"");
+      device->endFrame();
+      return binds;
+    };
+    REQUIRE(skinBinds() == 0);
+
+    // Other settings and a hot reload of their module leave them unbuilt.
+    settings.debugView = DebugView::SunDirect;
+    renderer.setSettings(settings);
+    const std::vector<std::byte> spirv(16);
+    REQUIRE(renderer.reloadShader("forward", spirv));
+    REQUIRE(device->pipelineCount() == withoutSkin);
+
+    // Turned on, they are built and the Skin draw takes them.
+    settings.characterShading = true;
+    renderer.setSettings(settings);
+    REQUIRE(renderer.settings().characterShading);
+    REQUIRE(device->pipelineCount() == withSkin);
+    REQUIRE(skinBinds() == 1);
+
+    // Off again, they stay built for the next time and the draw is the Standard pipeline's.
+    settings.characterShading = false;
+    renderer.setSettings(settings);
+    REQUIRE(device->pipelineCount() == withSkin);
+    REQUIRE(skinBinds() == 0);
+    settings.characterShading = true;
+    renderer.setSettings(settings);
+    REQUIRE(device->pipelineCount() == withSkin);
+    REQUIRE(skinBinds() == 1);
+
+    renderer.destroyMaterial(skin);
+    renderer.destroyMesh(box);
+  }
+  REQUIRE(device->pipelineCount() == 0);
+}
+
 TEST_CASE("a Skin sphere lit at 90 degrees has a redder, wider terminator than a Standard one on a GPU",
           "[renderer][gpu][skin]") {
   sonnet::platform::Platform platform{{.headless = true}};
@@ -305,6 +374,38 @@ TEST_CASE("a Skin material draws as Standard with characterShading off on a GPU"
     const std::vector<glm::vec3> skin = sunDirect(*device, renderer, skinMaterial());
     REQUIRE(std::ranges::equal(standard, skin));
     REQUIRE(std::ranges::any_of(standard, [](const glm::vec3 &p) { return p.r > 0.1f; }));
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("turning characterShading on and off again switches a Skin draw on a GPU", "[renderer][gpu][skin]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    // Started off, as the phone players are: the skin pipelines are built by setSettings, between
+    // frames the device may still be running.
+    RendererSettings settings = skinSettings();
+    settings.debugView = DebugView::SunDirect;
+    settings.characterShading = false;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const std::vector<glm::vec3> standard = sunDirect(*device, renderer, standardMaterial());
+    REQUIRE(std::ranges::equal(sunDirect(*device, renderer, skinMaterial()), standard));
+
+    settings.characterShading = true;
+    renderer.setSettings(settings);
+    REQUIRE(renderer.settings().characterShading);
+    const std::vector<glm::vec3> skin = sunDirect(*device, renderer, skinMaterial());
+    // Skin's red reaches past Standard's terminator.
+    const auto litRed = [](const std::vector<glm::vec3> &pixels) {
+      return std::ranges::count_if(pixels, [](const glm::vec3 &p) { return p.r > 1.0e-3f; });
+    };
+    CAPTURE(litRed(standard), litRed(skin));
+    REQUIRE(litRed(skin) > litRed(standard));
+
+    settings.characterShading = false;
+    renderer.setSettings(settings);
+    REQUIRE(std::ranges::equal(sunDirect(*device, renderer, skinMaterial()), standard));
     REQUIRE(device->validationMessageCount() == 0);
   }
   REQUIRE(device->validationMessageCount() == 0);

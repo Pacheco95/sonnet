@@ -541,7 +541,7 @@ glm::mat4 orthoReversedZ(float left, float right, float bottom, float top, float
 } // namespace
 
 Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir, const RendererSettings &settings)
-    : m_device(device), m_settings(settings) {
+    : m_device(device), m_settings(settings), m_shaderDir(shaderDir) {
   const std::array cullModes{rhi::CullMode::Back, rhi::CullMode::None};
   for (std::size_t i = 0; i < 2; ++i) {
     const char *side = i == 0 ? "" : " double sided";
@@ -570,7 +570,8 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .cullMode = rhi::CullMode::None,
                     .debugName = "shadow"});
     // Equal against the pre-pass's depth: exactly the visible surface is shaded once. Skin's are
-    // the same pass through the shader's second entry point (ADR-0041), never a per-draw branch.
+    // the same pass through the shader's second entry point (ADR-0041), never a per-draw branch,
+    // and are built only while characterShading is on.
     defineGraphics(m_forwardPipelines[i], "forward",
                    {.colorFormats = {HdrFormat},
                     .depthFormat = DepthFormat,
@@ -583,7 +584,8 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depthFormat = DepthFormat,
                     .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
                     .cullMode = cullModes[i],
-                    .debugName = std::format("forward skin{}", side)});
+                    .debugName = std::format("forward skin{}", side)},
+                   true);
     // The glass's motion for the experiment of #352: the pre-pass's shader on the blended draws, kept where
     // they are in front of the opaque depth; the draws arrive back to front, so the nearest layer is last.
     defineGraphics(m_glassMotionPipelines[i], "depth",
@@ -726,7 +728,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineCompute(m_skinPipeline, "skin", "computeMain", "skinning");
   defineCompute(m_transmissionCopyPipeline, "transmission", "transmissionCopy", "transmission copy");
   defineCompute(m_transmissionMipPipeline, "transmission", "transmissionMip", "transmission mip");
-  createPipelines(shaderDir);
+  createPipelines();
   createDefaults();
   for (CounterSlot &slot : m_counterSlots) {
     slot.buffer = m_device.createBuffer({.size = std::uint64_t{CounterWords} * sizeof(std::uint32_t),
@@ -843,7 +845,10 @@ Renderer::~Renderer() {
     m_device.destroyPipeline(pair[0]);
   }
   for (const rhi::PipelineHandle pipeline : m_forwardPipelines) {
-    m_device.destroyPipeline(pipeline);
+    // The skin pair is there only once characterShading has been on.
+    if (pipeline) {
+      m_device.destroyPipeline(pipeline);
+    }
   }
 }
 
@@ -866,8 +871,9 @@ std::span<const std::string_view> Renderer::shaderNames() noexcept {
   return Names;
 }
 
-void Renderer::defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc) {
-  m_pipelineSlots.push_back(PipelineSlot{std::move(shader), std::move(desc), &target});
+void Renderer::defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc,
+                              bool skin) {
+  m_pipelineSlots.push_back(PipelineSlot{std::move(shader), std::move(desc), &target, skin});
 }
 
 void Renderer::defineCompute(rhi::PipelineHandle &target, std::string shader, const char *entry, const char *name) {
@@ -881,7 +887,7 @@ rhi::PipelineDesc Renderer::pipelineDesc(const PipelineSlot &slot, rhi::ShaderHa
   return desc;
 }
 
-void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
+void Renderer::createPipelines() {
   // Every module first, then every pipeline in one call, so the device can build them side by side
   // on the job system: built one after another they were most of a renderer's start-up on Lavapipe,
   // the four forward variants alone half of it (docs/reports/renderer-init-in-tests.md).
@@ -896,7 +902,7 @@ void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
   try {
     for (const std::string_view name : shaderNames()) {
       // Through the platform's content, so a relative shaderDir is read from the APK on Android.
-      auto stream = platform::Platform::openContent(shaderDir / std::format("{}.spv", name));
+      auto stream = platform::Platform::openContent(m_shaderDir / std::format("{}.spv", name));
       const auto spirv = stream ? stream->readAll() : std::unexpected(stream.error());
       if (!spirv) {
         throw core::Exception{spirv.error()};
@@ -906,7 +912,8 @@ void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
       SONNET_LOG_DEBUG("shader module {}: {} bytes", name, spirv->size());
       shaders.push_back(m_device.createShader({.spirv = *spirv, .debugName = std::string{name}}));
       for (const PipelineSlot &slot : m_pipelineSlots) {
-        if (slot.shader == name) {
+        // The skin slots wait for characterShading (#610): setSettings builds them when it turns on.
+        if (slot.shader == name && (!slot.skin || m_settings.characterShading)) {
           SONNET_LOG_DEBUG(
               "pipeline \"{}\" from {}",
               std::visit([](const auto &desc) -> const std::string & { return desc.debugName; }, slot.desc), name);
@@ -926,6 +933,73 @@ void Renderer::createPipelines(const std::filesystem::path &shaderDir) {
   destroyShaders();
 }
 
+bool Renderer::createSkinPipelines() {
+  const auto unbuilt = [](const PipelineSlot &slot) { return slot.skin && !*slot.target; };
+  if (std::ranges::none_of(m_pipelineSlots, unbuilt)) {
+    return true;
+  }
+  if (m_skinPipelinesRejected) {
+    return false;
+  }
+  for (const std::string_view name : shaderNames()) {
+    std::vector<PipelineSlot *> slots;
+    for (PipelineSlot &slot : m_pipelineSlots) {
+      if (slot.shader == name && unbuilt(slot)) {
+        slots.push_back(&slot);
+      }
+    }
+    if (slots.empty()) {
+      continue;
+    }
+    // Built like a reload: the device makes them outside any frame's recording, and no frame in
+    // flight has bound them. A rejected module or pipeline leaves the slots empty.
+    rhi::ShaderHandle shader;
+    try {
+      std::vector<std::byte> read;
+      std::span<const std::byte> spirv;
+      if (const auto reloaded = m_reloadedModules.find(std::string{name}); reloaded != m_reloadedModules.end()) {
+        spirv = reloaded->second;
+      } else {
+        auto stream = platform::Platform::openContent(m_shaderDir / std::format("{}.spv", name));
+        auto bytes = stream ? stream->readAll() : std::unexpected(stream.error());
+        if (!bytes) {
+          throw core::Exception{bytes.error()};
+        }
+        read = std::move(*bytes);
+        spirv = read;
+      }
+      shader = m_device.createShader({.spirv = spirv, .debugName = std::string{name}});
+      std::vector<rhi::PipelineDesc> descs;
+      descs.reserve(slots.size());
+      for (const PipelineSlot *slot : slots) {
+        descs.push_back(pipelineDesc(*slot, shader));
+      }
+      const std::vector<rhi::PipelineHandle> pipelines = m_device.createPipelines(descs, m_settings.jobs);
+      for (std::size_t i = 0; i < slots.size(); ++i) {
+        *slots[i]->target = pipelines[i];
+      }
+    } catch (const core::Exception &exception) {
+      if (shader) {
+        m_device.destroyShader(shader);
+      }
+      m_skinPipelinesRejected = true;
+      SONNET_LOG_ERROR("the skin pipelines were not built, character shading stays off: {}", exception.what());
+      return false;
+    }
+    m_device.destroyShader(shader);
+    m_reloadedModules.erase(std::string{name});
+    SONNET_LOG_INFO("built the skin pipelines from {}: {} pipelines", name, slots.size());
+  }
+  return true;
+}
+
+void Renderer::setSettings(const RendererSettings &settings) {
+  m_settings = settings;
+  if (m_settings.characterShading && !createSkinPipelines()) {
+    m_settings.characterShading = false;
+  }
+}
+
 core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const std::byte> spirv) {
   if (std::ranges::find(shaderNames(), name) == shaderNames().end()) {
     return std::unexpected(core::Error{std::format("{} is not an engine shader", name), core::ErrorCategory::Shader});
@@ -935,11 +1009,17 @@ core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const
   std::vector<PipelineSlot *> slots;
   std::vector<rhi::PipelineHandle> rebuilt;
   rhi::ShaderHandle shader;
+  bool deferred = false;
   try {
     shader = m_device.createShader({.spirv = spirv, .debugName = std::string{name}});
     std::vector<rhi::PipelineDesc> descs;
     for (PipelineSlot &slot : m_pipelineSlots) {
       if (slot.shader == name) {
+        // A skin slot not built yet stays so; the module is kept below for when it is.
+        if (slot.skin && !*slot.target) {
+          deferred = true;
+          continue;
+        }
         slots.push_back(&slot);
         descs.push_back(pipelineDesc(slot, shader));
       }
@@ -956,6 +1036,11 @@ core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const
   for (std::size_t i = 0; i < slots.size(); ++i) {
     m_device.destroyPipeline(*slots[i]->target);
     *slots[i]->target = rebuilt[i];
+  }
+  if (deferred) {
+    m_reloadedModules.insert_or_assign(std::string{name}, std::vector<std::byte>(spirv.begin(), spirv.end()));
+    // The skin pipelines the driver rejected may build from this module: the next turn on retries.
+    m_skinPipelinesRejected = false;
   }
   SONNET_LOG_INFO("reloaded shader {}: {} pipelines rebuilt", name, rebuilt.size());
   return {};

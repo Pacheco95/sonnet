@@ -38,6 +38,8 @@ struct Shape {
   glm::vec4 tint{};
   glm::quat turn{1.0f, 0.0f, 0.0f, 0.0f};
   std::vector<glm::vec3> path{};
+
+  bool operator==(const Shape &) const = default;
 };
 
 void registerShape(world::World &world) {

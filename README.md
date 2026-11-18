@@ -196,7 +196,7 @@ ctest --preset linux-debug
 | [0020](docs/decisions/0020-linux-runtime-libraries.md) | Linux runtime libraries beside the editor | Accepted |
 | [0021](docs/decisions/0021-two-views-in-one-frame.md) | Several views in one graph frame | Accepted |
 | [0022](docs/decisions/0022-gameplay-events-and-script-properties.md) | Physics events, script properties and several scripts per entity | Accepted, amended by 0038 |
-| [0023](docs/decisions/0023-animation-blending-morph-targets-and-particles.md) | Animation blending, morph targets and GPU particles | Accepted, amended by 0038 |
+| [0023](docs/decisions/0023-animation-blending-morph-targets-and-particles.md) | Animation blending, morph targets and GPU particles | Accepted, amended by 0038 and 0042 |
 | [0024](docs/decisions/0024-temporal-anti-aliasing-and-occlusion-culling.md) | Temporal anti-aliasing, occlusion culling and compressed HDR environments | Accepted |
 | [0025](docs/decisions/0025-shadow-levels-of-detail.md) | A coarser index range for the far shadow cascades | Accepted |
 | [0026](docs/decisions/0026-game-ui.md) | Game UI is scene entities drawn by a `gui` module | Accepted |
@@ -211,10 +211,11 @@ ctest --preset linux-debug
 | [0035](docs/decisions/0035-moltenvk-stays-pinned.md) | MoltenVK is deprecated upstream and stays pinned | Accepted |
 | [0036](docs/decisions/0036-dear-imgui-stays-the-editor-ui.md) | Dear ImGui stays the editor's UI library | Accepted |
 | [0037](docs/decisions/0037-per-field-instance-overrides.md) | An instance stores the fields it changed, and the rest follow the prefab | Accepted |
-| [0038](docs/decisions/0038-character-controller.md) | A character controller on Jolt's CharacterVirtual, its frame order and animation weights | Accepted, amended by 0043 |
+| [0038](docs/decisions/0038-character-controller.md) | A character controller on Jolt's CharacterVirtual, its frame order and animation weights | Accepted, amended by 0042 and 0043 |
 | [0039](docs/decisions/0039-screen-space-ambient-occlusion-and-contact-shadows.md) | Depth-based GTAO and sun contact shadows, their saved controls and mobile budget | Accepted |
 | [0040](docs/decisions/0040-fbx-import-with-ufbx.md) | FBX source import with ufbx through the existing model and cooking pipeline | Proposed |
 | [0041](docs/decisions/0041-skin-shading.md) | Pre-integrated skin shading in its own forward pipeline, per-submesh material slots, and masked draws that fade | Accepted |
+| [0042](docs/decisions/0042-leg-ik.md) | Leg IK as a world-matrix pass before the skin palette, fed by the game's ground query | Accepted |
 | [0043](docs/decisions/0043-rotating-supports.md) | Characters ride supports that turn about +Y, and scripts read the support's spin | Accepted |
 
 ## License

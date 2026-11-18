@@ -69,6 +69,8 @@ struct GuiText {
   GuiAlignment horizontal{GuiAlignment::Start};
   GuiAlignment vertical{GuiAlignment::Start};
   bool wrap{false};
+
+  bool operator==(const GuiText &) const = default;
 };
 
 // Makes the element take pointer events. Its tints multiply the `tint` of the GuiImage on the same

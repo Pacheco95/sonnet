@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -382,9 +383,10 @@ public:
   [[nodiscard]] const rhi::DeviceInfo &deviceInfo() const noexcept {
     return m_device.info();
   }
-  void setSettings(const RendererSettings &settings) {
-    m_settings = settings;
-  }
+  // Takes effect from the next frame. Turning characterShading on builds the skin pipelines if they are
+  // not built yet (they are left out while it is off); a driver that rejects them is logged and leaves
+  // the setting off, so Skin materials keep drawing as Standard.
+  void setSettings(const RendererSettings &settings);
 
   // The entry-point files the engine pipelines are built from, without the extension.
   [[nodiscard]] static std::span<const std::string_view> shaderNames() noexcept;
@@ -666,12 +668,18 @@ private:
     std::string shader;
     rhi::PipelineDesc desc;
     rhi::PipelineHandle *target;
+    // Built only once characterShading is on (ADR-0041): a player with it off never asks its driver
+    // for them. Until then the target stays empty, and a reload of its module skips it.
+    bool skin{false};
   };
 
-  void defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc);
+  void defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc,
+                      bool skin = false);
   void defineCompute(rhi::PipelineHandle &target, std::string shader, const char *entry, const char *name);
   [[nodiscard]] static rhi::PipelineDesc pipelineDesc(const PipelineSlot &slot, rhi::ShaderHandle shader);
-  void createPipelines(const std::filesystem::path &shaderDir);
+  void createPipelines();
+  // Builds the skin slots not built yet; false, logged, when the driver rejects them.
+  bool createSkinPipelines();
   void createDefaults();
   std::uint32_t materialSampler(const TextureSampler &desc);
   std::uint32_t packSamplers(const MaterialDesc &desc);
@@ -787,6 +795,11 @@ private:
   rhi::IDevice &m_device;
   RendererSettings m_settings;
   std::vector<PipelineSlot> m_pipelineSlots;
+  std::filesystem::path m_shaderDir;
+  // The last hot-reloaded SPIR-V of a module with skin slots not built yet, which they are built from
+  // instead of the module on disk, so turning characterShading on keeps the reload.
+  std::unordered_map<std::string, std::vector<std::byte>> m_reloadedModules;
+  bool m_skinPipelinesRejected{false}; // not retried until a reload of their module succeeds
 
   std::array<rhi::PipelineHandle, 2> m_depthPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_depthMotionPipelines; // the pre-pass that also writes motion (TAA)
