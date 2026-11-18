@@ -803,6 +803,51 @@
       }
     },
     {
+      "uuid": "c4a20000-0000-4000-8000-000000000f01",
+      "name": "Turntable",
+      "parent": "c4a20000-0000-4000-8000-000000000004",
+      "components": {
+        "Transform": {
+          "position": [-11.0, 0.1, 11.5],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "ac648fe4-5b4a-8772-95a2-ba827626f7ca",
+          "material": "d5015c73-0e65-87f2-a2fb-4324b5dde89e",
+          "color": [1, 1, 1, 1],
+          "visible": true
+        },
+        "RigidBody": {
+          "type": "Kinematic",
+          "mass": 500.0,
+          "friction": 0.9,
+          "restitution": 0.0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1.0
+        },
+        "MeshCollider": {
+          "mesh": "00000000-0000-0000-0000-000000000000"
+        },
+        "Scripts": {
+          "slots": [
+            {
+              "script": "75e22043-648b-8bf9-aa8b-66c01e0d635d",
+              "properties": {
+                "travel": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "spin": 30.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
       "uuid": "c4a20000-0000-4000-8000-000000000024",
       "name": "Respawn",
       "components": {

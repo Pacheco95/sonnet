@@ -1,6 +1,6 @@
 # Character sample
 
-A third-person character on an obstacle course, in the spirit of Unreal's Third Person template: a motion-captured humanoid that walks, runs, jumps and lands without its feet sliding, a follow camera that never goes through a wall, footsteps that sound like what they land on, and a course of steps, ramps, a narrow passage, a low tunnel, a moving platform over a pit and a ledge to jump onto. It plays in the editor's play mode, in the player from this folder and from a cooked bundle.
+A third-person character on an obstacle course, in the spirit of Unreal's Third Person template: a motion-captured humanoid that walks, runs, jumps and lands without its feet sliding, a follow camera that never goes through a wall, footsteps that sound like what they land on, and a course of steps, ramps, a narrow passage, a low tunnel, a moving platform over a pit, a ledge to jump onto and a turntable beside the start. It plays in the editor's play mode, in the player from this folder and from a cooked bundle.
 
 ```bash
 ./build/linux-debug/apps/editor/sonnet_editor apps/samples/character      # then Play (Ctrl+P)
@@ -32,13 +32,13 @@ The camera asks for the pointer to be locked to the game when play starts (`inpu
 |---|---|
 | `scenes/main.scene.json` | The start scene: the course, its sky and sun, the character at the start, the camera and the controls overlay |
 | `scenes/route.scene.json` | The same, with a `Route` the character follows instead of the keys, for captures and tests |
-| `scenes/capture_*.scene.json` | Six stills of the character, below ([Captures](#captures)) |
+| `scenes/capture_*.scene.json` | Stills of the character, below ([Captures](#captures)) |
 | `prefabs/character.prefab.json` | The character: the root with the `CharacterController` and `character.lua`, the humanoid as its `Model` child with `footsteps.lua`, and three sound sources (`Left foot`, `Right foot`, `Landing`) |
 | `scripts/character.lua` | Movement, jumping, facing and the animation weights |
 | `scripts/camera.lua` | The follow camera, on the scene's `Camera` |
 | `scripts/footsteps.lua` | Footstep and landing sounds from the clips' events |
 | `scripts/controls.lua` | The controls overlay, on its canvas |
-| `scripts/platform.lua`, `scripts/kill_volume.lua` | The platform over the pit and the trigger under the course that puts what falls back at `Respawn` |
+| `scripts/platform.lua`, `scripts/kill_volume.lua` | The platform over the pit and the turntable, and the trigger under the course that puts what falls back at `Respawn` |
 | `assets/character/humanoid.glb` | The humanoid and its clips ([LICENSES.md](LICENSES.md)) |
 | `assets/character/Skin.material.json` | The humanoid's `Skin` glTF material as "Make editable copy" writes it, with the Skin shading model ([ADR-0041](../../../docs/decisions/0041-skin-shading.md)); the prefab gives it to the `Body` mesh's slot 0 through `slotMaterials` |
 | `assets/level/`, `assets/audio/footsteps/` | The course's geometry, materials and sky; the foley |
@@ -72,8 +72,15 @@ The model turns towards the intended velocity once per rendered frame, smoothly 
 | `turnThreshold` | 60° | From standing, an input further off than this turns on the spot; 180 never does |
 | `turnSpeed` | 1.25 | The turn clips' playback rate |
 | `turnHold` | 0.6 s | The longest a turn on the spot holds the move back |
+| `turnWithSupport` | true | The model turns with what it stands on ([The turntable](#the-turntable)) |
 | `camera` | the scene's `Camera` | Whose yaw turns the keys |
 | `route`, `routeTolerance` | none, 0.4 m | Below |
+
+## The turntable
+
+West of the start, off the route, a disc 3.5 m across and 0.2 m high (a step up) turns at 30° a second about its axis, a full turn in 12 s. It is a kinematic body with its mesh as its collider and `platform.lua` with `spin` set to 30 and no `travel`, so it turns in `fixedUpdate` and carries what stands on it ([docs/physics.md](../../../docs/physics.md#rotating-supports)). A character standing on it keeps its place on the deck at any radius, walks on it where the camera points (the intent is in world space and the camera does not turn with the deck), and leaves it, by a jump or off its edge, with the deck's velocity where it stood.
+
+The controller never turns. With `turnWithSupport` on (the default), `character.lua` turns the model with the deck: each rendered frame it adds the support's yaw rate, `supportAngularVelocity.y` from `physics.character`, times the frame's time to the model's heading, to a turn on the spot's start and end, and to what a finished turn fell short of, so a character standing on it keeps facing the same way relative to the deck. Turned off, the model keeps its heading in the world while the deck turns under it. The camera never inherits the spin.
 
 ## Animation
 
@@ -127,6 +134,7 @@ Each `capture_*` scene is the course with the character started somewhere else, 
 | `capture_contact_shadows` | 3 | Standing at the start, close and from the south-west with the sun on the right: the sun's contact shadows (ADR-0039) at the feet, the only scene of the sample that asks for them. `--contact-shadows off` on the player draws the same frame without them |
 | `capture_face` | 3 | Standing at the start, the head at about half of the frame from the front, not faded: the skin's shading ([ADR-0041](../../../docs/decisions/0041-skin-shading.md)), and the view its phone budget is measured in. `--character-shading off` on the player draws it as Standard, `--shading-term curvature` the skin's lookup row |
 | `capture_hands` | 3 | Standing at the start, close on the hands at the hips from the front and a little to the right: the skin's shading on the hands |
+| `capture_turntable` | 3 | Standing on the turntable a metre from its axis, from the south-east, after a quarter turn: the model has turned with the deck and the camera has not |
 
 ```bash
 ./build/linux-debug/apps/player/sonnet_player apps/samples/character --scene scenes/capture_jump.scene.json \
@@ -141,7 +149,7 @@ The editor's `--screenshot` is its Viewport, through the editor's own camera, so
 
 `runtime_tests` plays the course from this folder: its colliders lie where it draws them, the platform shuttles, and the character stands at the start and comes back there when it falls into the pit. From the keyboard, the character reaches the run speed and no more on a diagonal, stops, walks with Shift, faces the way it goes and jumps 1.27 m; a Space press just before landing jumps again and one long before is dropped. Walking off the ledge block, a jump 0.03 s after the feet leave it is taken and one 0.2 s after is not; a 0.25 m hop picks no landing clip, a 1 m drop the soft one at about three quarters of its weight and a 4.5 m drop the hard one; running off a hard landing starts at once and fades it faster than standing through it, and a jump pressed during it fades it out without starting its clip again. Tapping a key a quarter turn and then a half turn off the model's heading plays `TurnRight90` and then a half turn to the end, the model ends facing the key's direction within 1°, the capsule does not move, and each foot's toes, while planted (within 2.5 cm of their lowest and slower than 0.6 m/s), travel under 0.7 of the arc they would sweep if the idle were swung round on them (0.5 to 0.6 measured); an input 45° off plays no turn clip. The route scene runs the course to the end without a respawn or a warning; on the way the planted toes move at a median of 0.16 m/s while running at 4.8 m/s and 0.08 m/s while walking, no foot sounds twice for one step, and the camera's near-plane sphere never overlaps the course. The route starts over after a respawn and when the scene is opened again.
 
-The same route plays from this folder and from the bundle the tests cook from it, and the two runs agree to the step: the frame the route ends on, where the character ends, the number of footsteps and the highest weight each clip reached (Run, JumpStart, Fall, Land and the quarter turn on the spot the route starts with; never HardLand). The bundle also runs `capture_landing` with the player's own flags. Rendered at 30, 60 and 144 frames a second, two seconds of running east, from standing already turned east, cover 8.52 m (8.60 m at 144, where a key can land up to a step before the step that reads it), a Space press in a frame without a step still jumps, 1.23 m high at every rate (1.27 m in closed form, less what steps of 1/60 s lose), and the camera moves by the same distance every frame, within 0.02 %, while the character runs at a steady speed. From a gamepad, the left stick runs at 4.8 m/s, at 2.4 m/s pushed half of the way past its dead zone, and stops inside it; South jumps 1.27 m; the right stick held for half a second turns the view a quarter turn; and the overlay shows the gamepad's lines while one is connected and the keys' again once it goes.
+The same route plays from this folder and from the bundle the tests cook from it, and the two runs agree to the step: the frame the route ends on, where the character ends, the number of footsteps and the highest weight each clip reached (Run, JumpStart, Fall, Land and the quarter turn on the spot the route starts with; never HardLand). The bundle also runs `capture_landing` with the player's own flags. Rendered at 30, 60 and 144 frames a second, two seconds of running east, from standing already turned east, cover 8.52 m (8.60 m at 144, where a key can land up to a step before the step that reads it), a Space press in a frame without a step still jumps, 1.23 m high at every rate (1.27 m in closed form, less what steps of 1/60 s lose), and the camera moves by the same distance every frame, within 0.02 %, while the character runs at a steady speed. From a gamepad, the left stick runs at 4.8 m/s, at 2.4 m/s pushed half of the way past its dead zone, and stops inside it; South jumps 1.27 m; the right stick held for half a second turns the view a quarter turn; and the overlay shows the gamepad's lines while one is connected and the keys' again once it goes. In `capture_turntable`, a full turn of the turntable keeps the character on it, within 1 cm of its point on the deck, with the model's facing relative to the deck within 2° and the camera's yaw unchanged.
 
 The tests' copy of this folder has 1×1 textures and a 4×2 sky in place of the real ones, so the humanoid's images, the course's textures and the sky are not cooked on every run (the colours are nothing the tests check). The captures above are where the real ones are looked at.
 

@@ -43,6 +43,7 @@ local Character = {
     turnThreshold = { type = "number", default = 60, min = 0, max = 180 }, -- degrees; 180 turns no clip
     turnSpeed = { type = "number", default = 1.25, min = 0.1, max = 4 }, -- the turn clips' playback rate
     turnHold = { type = "number", default = 0.6, min = 0, max = 5 }, -- s a turn may hold the move back
+    turnWithSupport = { type = "boolean", default = true }, -- the model turns with a turning platform (#499)
   },
 }
 
@@ -173,6 +174,7 @@ function Character:restart()
   self.turnWeight = 0
   self.settle = nil -- the yaw a finished turn fell short of, turned to smoothly while standing
   self.turnFirst = false -- a route's "turn" cue: stand until the turn has played
+  self.supportSpin = 0 -- the yaw rate of what the character stands on, rad/s
   self.waypoint = 1
   self.waitUntil = nil
   self.riding = nil
@@ -205,7 +207,27 @@ function Character:update(dt)
   if #self.waypoints == 0 and (input.keyPressed("Space") or input.gamepadPressed("South")) then
     self.jumpPressedAt = self.clock
   end
+  if self.turnWithSupport and self.supportSpin ~= 0 then
+    self:turnWithGround(self.supportSpin * dt)
+  end
   self:turn(dt)
+end
+
+-- Turns the model with what it stands on by `angle` radians: its heading, and the yaws a turn on the
+-- spot starts from and goes to, so it keeps facing the same way on a turntable (ADR-0043). Rendered
+-- frame by rendered frame, as the turntable is drawn, so the two turn together; the camera does not.
+function Character:turnWithGround(angle)
+  self.facing = wrapAngle(self.facing + angle)
+  if self.turning ~= nil then
+    self.turning.from = wrapAngle(self.turning.from + angle)
+    self.turning.target = wrapAngle(self.turning.target + angle)
+  end
+  if self.settle ~= nil then
+    self.settle = wrapAngle(self.settle + angle)
+  end
+  if self.model ~= nil then
+    self:faceModel()
+  end
 end
 
 -- The camera's yaw as a forward direction on the ground, kept while the camera looks straight down.
@@ -332,6 +354,7 @@ function Character:fixedUpdate(dt)
   if grounded then
     self.lastGroundedAt = self.clock
   end
+  self.supportSpin = grounded and state.supportAngularVelocity.y or 0
   local ground = horizontal(state.velocity - state.supportVelocity):length()
 
   -- Movement intent.

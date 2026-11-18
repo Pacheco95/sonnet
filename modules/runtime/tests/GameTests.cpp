@@ -2421,6 +2421,101 @@ TEST_CASE("the character sample's camera fades the character as it closes in and
 // the capsule's axis, as the script did before; 0.5 to 0.6 measured, the rest being the capture's
 // own shuffle and pivots on the ball of the foot). An input less than `turnThreshold` off still
 // turns the model smoothly as the character moves off, with no turn clip.
+// Issue #499: the character sample's turntable, beside the route. Standing on it a metre from its
+// axis for a full turn, the character stays on its point of the deck, and with `turnWithSupport`
+// (the default) the model keeps facing the same way relative to the deck while the follow camera,
+// which does not inherit the spin, keeps its yaw.
+TEST_CASE("the character sample's turntable carries the character round and turns its model with it",
+          "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const auto problems = std::make_shared<ProblemSink>();
+  core::Log::addSink(problems);
+  // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+  test::RelativeModeWindow window{*fixture.window};
+  runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  REQUIRE(game.openScene("scenes/capture_turntable.scene.json").has_value());
+  world::World &world = game.world();
+  flecs::entity character;
+  flecs::entity course;
+  flecs::entity camera;
+  for (const flecs::entity entity : world.roots()) {
+    const world::Name *named = entity.try_get<world::Name>();
+    if (named == nullptr) {
+      continue;
+    }
+    if (named->value == "Character") {
+      character = entity;
+    } else if (named->value == "Course") {
+      course = entity;
+    } else if (named->value == "Camera") {
+      camera = entity;
+    }
+  }
+  REQUIRE(character.is_valid());
+  REQUIRE(course.is_valid());
+  REQUIRE(camera.is_valid());
+  const flecs::entity model = world.findByPath(character, "Model");
+  const flecs::entity turntable = world.findByPath(course, "Turntable");
+  REQUIRE(model.is_valid());
+  REQUIRE(turntable.is_valid());
+  const auto frames = [&](int count) {
+    for (int i = 0; i < count; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+  };
+  // Yaws about +Y as drawn, 0 facing -Z.
+  const auto yaw = [](flecs::entity entity) {
+    const glm::vec3 forward{entity.get<world::WorldTransform>().matrix * glm::vec4{0.0f, 0.0f, -1.0f, 0.0f}};
+    return std::atan2(-forward.x, -forward.z);
+  };
+  const auto wrap = [](float angle) { return std::remainder(angle, 2.0f * glm::pi<float>()); };
+  const auto onDeck = [&] {
+    return glm::vec3{glm::inverse(turntable.get<world::WorldTransform>().matrix) *
+                     character.get<world::WorldTransform>().matrix[3]};
+  };
+
+  // Half a second to stand: the character starts on the deck, a metre from its axis.
+  frames(30);
+  physics::IPhysicsWorld &physics = game.physics();
+  const auto standing = physics.character(character);
+  REQUIRE(standing.has_value());
+  REQUIRE(standing->grounded);
+  REQUIRE(standing->support == turntable);
+  REQUIRE(standing->supportAngularVelocity.y == Approx(glm::radians(30.0f)).margin(1e-3f));
+  const glm::vec3 start = onDeck();
+  const float relative = wrap(yaw(model) - yaw(turntable));
+  const float cameraYaw = yaw(camera);
+  const float deckStart = yaw(turntable);
+
+  // A full turn: 12 s at 30 degrees a second.
+  float drift = 0.0f;
+  float facing = 0.0f;
+  float cameraTurn = 0.0f;
+  for (int i = 0; i < 720; ++i) {
+    frames(1);
+    const auto state = physics.character(character);
+    REQUIRE(state.has_value());
+    REQUIRE(state->grounded);
+    REQUIRE(state->support == turntable);
+    drift = std::max(drift, glm::length(onDeck() - start));
+    facing = std::max(facing, std::abs(wrap(yaw(model) - yaw(turntable) - relative)));
+    cameraTurn = std::max(cameraTurn, std::abs(wrap(yaw(camera) - cameraYaw)));
+  }
+  const float turned = wrap(yaw(turntable) - deckStart);
+  core::Log::removeSink(problems);
+  CAPTURE(drift, glm::degrees(facing), glm::degrees(turned), glm::degrees(cameraTurn));
+  REQUIRE(std::abs(turned) < glm::radians(1.0f)); // a whole turn, back where it started
+  REQUIRE(drift < 0.01f);
+  REQUIRE(facing < glm::radians(2.0f));
+  REQUIRE(cameraTurn < glm::radians(0.1f));
+  REQUIRE(problems->problems.empty());
+}
+
 TEST_CASE("the character sample turns on the spot with a turn clip, its planted feet staying put",
           "[runtime][samples][gpu]") {
   Fixture fixture;

@@ -1064,6 +1064,13 @@ private:
     if (settings.type == BodyType::Dynamic && settings.mass > 0.0f) {
       creation.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
       creation.mMassPropertiesOverride.mMass = settings.mass;
+    } else if (settings.type == BodyType::Kinematic && shape->GetMassProperties().mMass <= 0.0f) {
+      // A mesh has no volume to weigh, and Jolt asserts on a moving body without mass even though a
+      // kinematic one never uses it, so it is given one.
+      const float mass = settings.mass > 0.0f ? settings.mass : 1.0f;
+      creation.mOverrideMassProperties = JPH::EOverrideMassProperties::MassAndInertiaProvided;
+      creation.mMassPropertiesOverride.mMass = mass;
+      creation.mMassPropertiesOverride.mInertia = JPH::Mat44::sScale(mass);
     }
     body.id = bodies().CreateAndAddBody(creation, settings.type == BodyType::Static ? JPH::EActivation::DontActivate
                                                                                     : JPH::EActivation::Activate);
@@ -1377,10 +1384,20 @@ private:
     }
     if (state.grounded || state.sliding) {
       state.groundNormal = fromJolt(jolt.GetGroundNormal());
-      state.supportVelocity = fromJolt(jolt.GetGroundVelocity());
+      // The velocity the support carried the character with this step, so standing on a support
+      // reads as no ground speed of its own. After the update Jolt's ground velocity is the chord at
+      // the new position, which on a spin turns by spin * dt and differs by about spin^2 * r * dt
+      // (ADR-0043); on the step that lands there was no carrying velocity yet, so it is that one.
+      state.supportVelocity = state.grounded && walkable ? ground : fromJolt(jolt.GetGroundVelocity());
       if (const JPH::uint64 support = jolt.GetGroundUserData(); support != 0) {
         state.support = flecs::entity{m_world.ecs(), support};
       }
+    }
+    if (state.grounded) {
+      // The spin this step moved the support by (MoveKinematic in step 2 set it), for a script that
+      // turns its character with the support (ADR-0043); the position needs nothing, since Jolt's
+      // ground velocity is already the chord a point of the support moves along in one step.
+      state.supportAngularVelocity = fromJolt(bodies().GetAngularVelocity(jolt.GetGroundBodyID()));
     }
   }
 
