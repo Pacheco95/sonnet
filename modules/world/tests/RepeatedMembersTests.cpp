@@ -17,20 +17,28 @@ namespace {
 struct Slot {
   core::Uuid script{};
   std::string properties{};
+
+  bool operator==(const Slot &) const = default;
 };
 
 struct Slots {
   std::vector<Slot> slots{};
+
+  bool operator==(const Slots &) const = default;
 };
 
 struct Waypoint {
   glm::vec3 position{0.0f};
   float wait{0.0f};
+
+  bool operator==(const Waypoint &) const = default;
 };
 
 struct Route {
   std::vector<Waypoint> points{};
   std::vector<Slot> unused{};
+
+  bool operator==(const Route &) const = default;
 };
 
 void registerTypes(world::World &world) {

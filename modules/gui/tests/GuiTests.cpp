@@ -512,6 +512,29 @@ TEST_CASE("every component round-trips through the scene file", "[gui][scene]") 
   REQUIRE(loaded.get<gui::GuiButton>().hovered == glm::vec4{0.15f, 0.15f, 0.15f, 1.0f});
 }
 
+// Issue #611: GuiText owns a string, so its bytes never match a copy's and World::differs would
+// compare it as JSON every time without the operator== registerComponent registers.
+TEST_CASE("a text override equal to its prefab's value does not differ", "[gui][scene][differs]") {
+  world::World world;
+  gui::registerComponents(world);
+  const world::ComponentInfo &guiText = *world.findComponent("GuiText");
+  const ecs_type_info_t *type = ecs_get_type_info(world.ecs().c_ptr(), guiText.id);
+  REQUIRE(type != nullptr);
+  CHECK(type->hooks.equals != nullptr);
+
+  const flecs::entity prefab = world.createEntity("Label");
+  prefab.set<gui::GuiText>({.text = "a label long enough to live on the heap", .size = 24.0f});
+  world.makePrefab(prefab);
+  const flecs::entity instance = world.instantiate(prefab, "Label 1");
+  // Overridden with the same value: a copy with a string of its own.
+  instance.set<gui::GuiText>(gui::GuiText{prefab.get<gui::GuiText>()});
+  REQUIRE(instance.owns<gui::GuiText>());
+  CHECK_FALSE(world.differs(instance, prefab, guiText));
+
+  instance.ensure<gui::GuiText>().text = "another label";
+  CHECK(world.differs(instance, prefab, guiText));
+}
+
 TEST_CASE("a button saved before the hovered tint loads the default", "[gui][scene]") {
   Fixture f;
   const flecs::entity canvas = f.canvas();
