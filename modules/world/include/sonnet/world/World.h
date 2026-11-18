@@ -10,10 +10,13 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <mutex>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace sonnet::world {
@@ -138,7 +141,8 @@ public:
   // Whether the entity or one of its ancestors has Disabled: a disabled entity takes its subtree
   // with it. A query asks the same with `.without<Disabled>().self().up(flecs::ChildOf)`.
   [[nodiscard]] static bool isDisabled(flecs::entity entity);
-  // Deletes every scene entity; prefabs and editor-only entities stay.
+  // Deletes every scene entity; prefabs and editor-only entities stay. What the scene was warned
+  // about goes with it (firstPastSlotsWarning), so a reloaded scene warns again.
   void clearScene();
   // Deletes every prefab, for switching projects. Instances lose their base first: clear the
   // scene before the prefabs.
@@ -150,6 +154,10 @@ public:
   // The low 32 bits of a flecs id, what the id pass writes; resolves to the live entity or null.
   [[nodiscard]] static std::uint32_t pickId(flecs::entity entity) noexcept;
   [[nodiscard]] flecs::entity fromPickId(std::uint32_t id) const;
+  // True the first time it is asked for this entity and mesh, false after, until clearScene: the
+  // draw list warns once about a MeshRenderer slot material past the mesh's slots instead of every
+  // frame, and once more after the scene is loaded again. Callable while drawing from any thread.
+  [[nodiscard]] bool firstPastSlotsWarning(const core::Uuid &entity, const core::Uuid &mesh) const;
 
   // A prefab instance: IsA the prefab, with its own Identity (`uuid`, or a fresh one when nil),
   // Name and Transform. The instantiated descendants take identities derived from `uuid` and
@@ -336,6 +344,10 @@ private:
   flecs::entity m_transformSystem;
   std::vector<ComponentInfo> m_components;
   float m_fixedDelta;
+  // The entity and mesh pairs firstPastSlotsWarning has answered for the scene loaded now; asked
+  // through a const World while drawing, so it is mutable and has a lock of its own.
+  mutable std::mutex m_warnedMutex;
+  mutable std::set<std::pair<core::Uuid, core::Uuid>> m_warnedPastSlots;
   std::uint32_t m_maxFixedSteps;
   float m_accumulator{0.0f};
   float m_timeScale{1.0f};

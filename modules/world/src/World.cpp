@@ -11,6 +11,7 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -503,6 +504,13 @@ void World::clearScene() {
       root.destruct();
     }
   }
+  const std::scoped_lock lock{m_warnedMutex};
+  m_warnedPastSlots.clear();
+}
+
+bool World::firstPastSlotsWarning(const core::Uuid &entity, const core::Uuid &mesh) const {
+  const std::scoped_lock lock{m_warnedMutex};
+  return m_warnedPastSlots.emplace(entity, mesh).second;
 }
 
 void World::clearPrefabs() {
