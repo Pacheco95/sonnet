@@ -337,3 +337,24 @@ TEST_CASE("the skin lookup table's flat row is the clamped cosine on a GPU", "[r
   }
   REQUIRE(device->validationMessageCount() == 0);
 }
+
+TEST_CASE("the Curvature term shows a Skin draw's lookup row in red and Standard in black on a GPU",
+          "[renderer][gpu][skin]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = skinSettings();
+    settings.debugView = DebugView::Curvature;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const glm::vec3 skin = sunDirect(*device, renderer, skinMaterial())[(Size.y / 2) * Size.x + Size.x / 2];
+    const glm::vec3 standard = sunDirect(*device, renderer, standardMaterial())[(Size.y / 2) * Size.x + Size.x / 2];
+    CAPTURE(skin.r, skin.g, skin.b);
+    // 2 * 0.01 / 0.05 on the sphere, within its tessellation's facets.
+    REQUIRE(skin.r == Catch::Approx(0.4f).margin(0.1f));
+    REQUIRE(skin.g == 0.0f);
+    REQUIRE(skin.b == 0.0f);
+    REQUIRE(standard == glm::vec3{0.0f});
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}

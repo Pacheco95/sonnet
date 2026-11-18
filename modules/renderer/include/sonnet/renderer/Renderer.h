@@ -70,8 +70,9 @@ enum class DebugView : std::uint32_t {
   BrdfLut,          // the split-sum scale and bias at the fragment's n.v and roughness, in red and green
   Cascade,          // the view-depth cascade, red, green, blue, then yellow
   AmbientOcclusion, // the screen-space visibility the indirect light takes, after the camera's strength
+  Curvature,        // a Skin draw's row of the skin lookup table, its curvature, in red; black elsewhere (ADR-0041)
 };
-constexpr std::uint32_t DebugViewCount = 10;
+constexpr std::uint32_t DebugViewCount = 11;
 // What the editor's View > Shading term menu calls a term: "Final", "Sun direct", "BRDF LUT".
 [[nodiscard]] const char *debugViewName(DebugView view) noexcept;
 

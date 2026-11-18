@@ -512,6 +512,13 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
     break;
   }
   case 9: color = float3(screenOcclusion); break;
+  case 10: {
+    color = float3(0.0);
+    if (Model == ShadingSkin) {
+      color.r = skin.row;
+    }
+    break;
+  }
   default: break;
   }
 

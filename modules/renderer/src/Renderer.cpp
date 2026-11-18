@@ -23,8 +23,8 @@ namespace sonnet::renderer {
 
 const char *debugViewName(DebugView view) noexcept {
   static constexpr std::array<const char *, DebugViewCount> Names{
-      "Final",       "Albedo",       "Normal",   "Sun direct", "Shadow factor",
-      "IBL diffuse", "IBL specular", "BRDF LUT", "Cascade",    "Ambient occlusion"};
+      "Final",        "Albedo",   "Normal",  "Sun direct",        "Shadow factor", "IBL diffuse",
+      "IBL specular", "BRDF LUT", "Cascade", "Ambient occlusion", "Curvature"};
   const auto index = static_cast<std::size_t>(view);
   return index < Names.size() ? Names[index] : "";
 }
