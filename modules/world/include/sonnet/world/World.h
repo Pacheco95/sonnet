@@ -16,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -228,8 +229,12 @@ public:
 
   // Registers a component with reflection under the name scene files use, inherited by prefab
   // instances; the caller adds the members on the returned component. `tag` for a component
-  // without data.
+  // without data. A component that owns memory has to have an operator== (docs/world.md,
+  // "Components").
   template <typename T> flecs::component<T> registerComponent(const char *name, bool tag = false) {
+    static_assert(std::is_trivially_copyable_v<T> || std::equality_comparable<T>,
+                  "a registered component that is not trivially copyable needs an operator==: its bytes never "
+                  "match another value's, so World::differs would compare it as JSON every time (#602)");
     flecs::component<T> component = m_world.component<T>(name);
     component.add(flecs::OnInstantiate, flecs::Inherit);
     if constexpr (std::equality_comparable<T>) {

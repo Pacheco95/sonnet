@@ -21,10 +21,14 @@ namespace {
 struct Slot {
   core::Uuid script{};
   std::string properties{};
+
+  bool operator==(const Slot &) const = default;
 };
 
 struct Slots {
   std::vector<Slot> slots{};
+
+  bool operator==(const Slots &) const = default;
 };
 
 void registerSlots(world::World &world) {
