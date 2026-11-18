@@ -41,10 +41,41 @@
           "rotation": [0, 0, 0, 1],
           "scale": [1, 1, 1]
         },
+        "LegIk": {
+          "weight": 0.0,
+          "pelvis": "Armature/Root/pelvis",
+          "maxPelvisDrop": 0.3,
+          "maxFootAngle": 0.5236,
+          "plantHeight": 0.025,
+          "liftHeight": 0.1,
+          "smoothing": 0.08,
+          "legs": [
+            {
+              "thigh": "Armature/Root/pelvis/thigh_l",
+              "calf": "Armature/Root/pelvis/thigh_l/calf_l",
+              "foot": "Armature/Root/pelvis/thigh_l/calf_l/foot_l",
+              "groundPoint": [0, 0, 0],
+              "groundNormal": [0, 1, 0],
+              "grounded": false
+            },
+            {
+              "thigh": "Armature/Root/pelvis/thigh_r",
+              "calf": "Armature/Root/pelvis/thigh_r/calf_r",
+              "foot": "Armature/Root/pelvis/thigh_r/calf_r/foot_r",
+              "groundPoint": [0, 0, 0],
+              "groundNormal": [0, 1, 0],
+              "grounded": false
+            }
+          ]
+        },
         "Scripts": {
           "slots": [
             {
               "script": "754e2e08-a8e0-8a64-94cc-7f3f20b5c016",
+              "properties": {}
+            },
+            {
+              "script": "c6e7395d-76fd-819b-8de1-129d925cb415",
               "properties": {}
             }
           ]

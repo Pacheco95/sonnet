@@ -2516,6 +2516,177 @@ TEST_CASE("the character sample's turntable carries the character round and turn
   REQUIRE(problems->problems.empty());
 }
 
+// Issue #500 (ADR-0042): leg IK on the character sample. `feet.lua` casts a ray under each foot in
+// `lateUpdate` and the engine reaches the legs to it in PreRender. Calibrated on the flat start, where
+// the idle's soles are on the floor (leg IK changes nothing there), a heel and a toe point are fixed
+// to each foot and ball; on the 0.2 m step's edge and on the 20 degree ramp each lies within 2 cm of
+// the surface under it, where the clip's pose alone, which the local Transforms still hold, is off
+// by more. In a jump the weight fades out and back in, and the pelvis does not pop.
+TEST_CASE("the character sample's feet meet the step edge and the ramp, and leg IK fades in a jump",
+          "[runtime][samples][gpu]") {
+  Fixture fixture;
+  const std::filesystem::path project = characterProject(fixture.platform);
+  if (project.empty()) {
+    SKIP("the character sample was not found in a checkout above the test binary");
+  }
+  const auto problems = std::make_shared<ProblemSink>();
+  core::Log::addSink(problems);
+  // The camera asks for the pointer lock, which the offscreen driver would refuse with a warning.
+  test::RelativeModeWindow window{*fixture.window};
+  runtime::Game game{window, *fixture.device, *fixture.swapchain, fixture.desc()};
+  REQUIRE(game.open(project).has_value());
+  world::World &world = game.world();
+  struct Stage {
+    flecs::entity character;
+    flecs::entity model;
+    std::array<flecs::entity, 2> feet; // foot_l, foot_r
+    std::array<flecs::entity, 2> toes; // ball_l, ball_r
+    flecs::entity pelvis;
+  };
+  const auto frames = [&](int count) {
+    for (int i = 0; i < count; ++i) {
+      game.update(1.0f / 60.0f);
+    }
+  };
+  // Opens a capture scene and plays until its clips have loaded and the character has settled.
+  const auto stand = [&](const char *scene) {
+    REQUIRE(game.openScene(scene).has_value());
+    Stage stage;
+    for (const flecs::entity entity : world.roots()) {
+      const world::Name *named = entity.try_get<world::Name>();
+      if (named != nullptr && named->value == "Character") {
+        stage.character = entity;
+      }
+    }
+    REQUIRE(stage.character.is_valid());
+    stage.model = world.findByPath(stage.character, "Model");
+    REQUIRE(stage.model.is_valid());
+    for (std::size_t side = 0; side < 2; ++side) {
+      const std::string name = side == 0 ? "l" : "r";
+      const std::string foot = std::format("Armature/Root/pelvis/thigh_{0}/calf_{0}/foot_{0}", name);
+      stage.feet[side] = world.findByPath(stage.model, foot);
+      stage.toes[side] = world.findByPath(stage.model, foot + "/ball_" + name);
+      REQUIRE(stage.feet[side].is_valid());
+      REQUIRE(stage.toes[side].is_valid());
+    }
+    stage.pelvis = world.findByPath(stage.model, "Armature/Root/pelvis");
+    REQUIRE(stage.pelvis.is_valid());
+    // The humanoid's clips import on the asset workers the first time an Animator asks.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
+    while (stage.model.get<world::Animator>().time == 0.0f && std::chrono::steady_clock::now() < deadline) {
+      game.update(1.0f / 60.0f);
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(stage.model.get<world::Animator>().time > 0.0f);
+    frames(180);
+    REQUIRE(game.physics().character(stage.character)->grounded);
+    return stage;
+  };
+  const auto place = [](flecs::entity entity) { return glm::vec3{entity.get<world::WorldTransform>().matrix[3]}; };
+  const auto drawn = [](flecs::entity entity) { return entity.get<world::WorldTransform>().matrix; };
+  // The pose the clips left, before the pass: the world matrix from the local Transforms.
+  const auto animated = [](flecs::entity entity) { return world::World::worldMatrix(entity); };
+  const auto heights = [&](const glm::vec3 &from, flecs::entity character) {
+    const auto hit = game.physics().raycast(from + glm::vec3{0.0f, 0.5f, 0.0f}, {0.0f, -1.0f, 0.0f}, 2.0f, character);
+    REQUIRE(hit.has_value());
+    return hit->point.y;
+  };
+
+  // The flat start: where each foot's heel (under the ankle) and toe (under the ball) are in the
+  // foot's and the ball's own frames, from the soles standing on the floor at y = 0.
+  struct Sole {
+    glm::vec3 heel; // in the foot's frame
+    glm::vec3 toe;  // in the ball's frame
+  };
+  std::array<Sole, 2> soles;
+  {
+    const Stage flat = stand("scenes/capture_idle.scene.json");
+    REQUIRE(game.physics().character(flat.character)->grounded);
+    for (std::size_t side = 0; side < 2; ++side) {
+      const glm::vec3 foot = place(flat.feet[side]);
+      const glm::vec3 toe = place(flat.toes[side]);
+      REQUIRE(heights(foot, flat.character) == Approx(0.0f).margin(1e-3f));
+      soles[side].heel = glm::vec3{glm::inverse(drawn(flat.feet[side])) * glm::vec4{foot.x, 0.0f, foot.z, 1.0f}};
+      soles[side].toe = glm::vec3{glm::inverse(drawn(flat.toes[side])) * glm::vec4{toe.x, 0.0f, toe.z, 1.0f}};
+    }
+  }
+
+  // The height of a sole point above the surface under it, drawn (with the pass) or as animated.
+  struct Errors {
+    float drawn{0.0f};    // the farthest of the four points, with leg IK
+    float animated{0.0f}; // the same for the clip's pose alone
+  };
+  const auto measure = [&](const Stage &stage) {
+    Errors errors;
+    for (std::size_t side = 0; side < 2; ++side) {
+      for (const bool toe : {false, true}) {
+        const flecs::entity joint = toe ? stage.toes[side] : stage.feet[side];
+        const glm::vec3 local = toe ? soles[side].toe : soles[side].heel;
+        const glm::vec3 now{drawn(joint) * glm::vec4{local, 1.0f}};
+        const glm::vec3 before{animated(joint) * glm::vec4{local, 1.0f}};
+        errors.drawn = std::max(errors.drawn, std::abs(now.y - heights(now, stage.character)));
+        errors.animated = std::max(errors.animated, std::abs(before.y - heights(before, stage.character)));
+      }
+    }
+    return errors;
+  };
+
+  const Stage step = stand("scenes/capture_step.scene.json");
+  REQUIRE(game.physics().character(step.character)->grounded);
+  // The left foot is on the step, the right on the floor in front of it: 20 cm apart under the ankles.
+  const float stepLeft = heights(place(step.feet[0]), step.character);
+  const float stepRight = heights(place(step.feet[1]), step.character);
+  CAPTURE(stepLeft, stepRight);
+  const Errors onStep = measure(step);
+  CAPTURE(onStep.drawn, onStep.animated);
+  REQUIRE(std::abs(stepLeft - stepRight) > 0.15f);
+  REQUIRE(onStep.drawn < 0.02f);
+  REQUIRE(onStep.animated > 0.05f);
+
+  const Stage ramp = stand("scenes/capture_ramp.scene.json");
+  const Errors onRamp = measure(ramp);
+  CAPTURE(onRamp.drawn, onRamp.animated);
+  REQUIRE(onRamp.drawn < 0.02f);
+  REQUIRE(onRamp.animated > 0.02f);
+
+  // A jump on the step's edge: the weight goes to 0 in the air and back to 1 on landing, and the
+  // pass's correction of the pelvis, the drawn height less the clip's, changes by no more per frame
+  // than the smoothing allows.
+  const Stage again = stand("scenes/capture_step.scene.json");
+  const auto weight = [&] { return again.model.get<world::LegIk>().weight; };
+  REQUIRE(weight() == Approx(1.0f).margin(1e-4f));
+  const auto pelvisCorrection = [&] { return place(again.pelvis).y - glm::vec3{animated(again.pelvis)[3]}.y; };
+  const float planted = pelvisCorrection();
+  REQUIRE(planted < -0.1f); // dropped to the foot on the floor
+  game.event(platform::KeyPressed{.key = platform::Key::Space, .modifiers = {}, .repeat = false});
+  frames(1);
+  game.event(platform::KeyReleased{.key = platform::Key::Space, .modifiers = {}});
+  float lowest = weight();
+  float biggestStep = 0.0f;
+  float last = pelvisCorrection();
+  bool airborne = false;
+  bool returned = false;
+  for (int frame = 0; frame < 150; ++frame) {
+    frames(1);
+    const auto state = game.physics().character(again.character);
+    REQUIRE(state.has_value());
+    airborne = airborne || !state->grounded;
+    lowest = std::min(lowest, weight());
+    biggestStep = std::max(biggestStep, std::abs(pelvisCorrection() - last));
+    last = pelvisCorrection();
+    returned = returned || (airborne && state->grounded && weight() > 0.99f);
+  }
+  CAPTURE(lowest, biggestStep, planted, last);
+  REQUIRE(airborne);
+  REQUIRE(lowest < 0.05f);
+  REQUIRE(returned);
+  // 20 cm in 80 ms is 4.2 cm in the first frame of an ease; a pop would be the whole drop at once.
+  REQUIRE(biggestStep < 0.06f);
+  REQUIRE(last == Approx(planted).margin(0.02f));
+  core::Log::removeSink(problems);
+  REQUIRE(problems->problems.empty());
+}
+
 TEST_CASE("the character sample turns on the spot with a turn clip, its planted feet staying put",
           "[runtime][samples][gpu]") {
   Fixture fixture;
