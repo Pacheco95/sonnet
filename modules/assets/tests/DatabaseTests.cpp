@@ -451,7 +451,7 @@ TEST_CASE("material files carry transmission from version 6", "[assets][material
                                 .minFilter = renderer::TextureFilter::Nearest,
                                 .mipFilter = renderer::TextureMipFilter::Nearest};
   const nlohmann::json document = saveMaterial(source);
-  REQUIRE(document["version"] == 6);
+  REQUIRE(document["version"] == MaterialFileVersion);
   REQUIRE(document["transmission"] == 0.6f);
   REQUIRE(document["textures"]["transmission"] == source.transmissionTexture.toString());
   REQUIRE(document["transforms"].contains("transmission"));
@@ -465,6 +465,37 @@ TEST_CASE("material files carry transmission from version 6", "[assets][material
   REQUIRE(older->transmissionTexture.isNil());
   REQUIRE(older->transmissionTransform == renderer::TextureTransform{});
   REQUIRE(older->transmissionSampler == renderer::TextureSampler{});
+}
+
+TEST_CASE("material files carry the shading model from version 7 and read version 6 as Standard",
+          "[assets][material]") {
+  MaterialSource source;
+  source.shading = renderer::ShadingModel::Skin;
+  source.subsurface = 0.75f;
+  source.subsurfaceRadius = 0.002f;
+  const nlohmann::json document = saveMaterial(source);
+  REQUIRE(document["version"] == 7);
+  REQUIRE(document["shading"] == "Skin");
+  REQUIRE(document["subsurface"] == 0.75f);
+  REQUIRE(document["subsurfaceRadius"] == 0.002f);
+  REQUIRE(loadMaterial(document).value() == source);
+
+  // Out of range, the fields are clamped to ADR-0041's bounds.
+  nlohmann::json wide = document;
+  wide["subsurface"] = 3.0;
+  wide["subsurfaceRadius"] = 0.5;
+  const auto clamped = loadMaterial(wide).value();
+  REQUIRE(clamped.subsurface == 1.0f);
+  REQUIRE(clamped.subsurfaceRadius == renderer::MaxSubsurfaceRadius);
+
+  // A version 6 file is Standard with the defaults, whatever it holds under the new keys.
+  nlohmann::json older = document;
+  older["version"] = 6;
+  const auto standard = loadMaterial(older).value();
+  REQUIRE(standard.shading == renderer::ShadingModel::Standard);
+  REQUIRE(standard.subsurface == 1.0f);
+  REQUIRE(standard.subsurfaceRadius == 0.001f);
+  REQUIRE(loadMaterial(nlohmann::json{{"version", 6}, {"metallic", 0.0}})->shading == renderer::ShadingModel::Standard);
 }
 
 TEST_CASE("material files round-trip texture transforms and read version 1", "[assets][material]") {

@@ -114,14 +114,18 @@ struct MaterialSource {
   renderer::TextureSampler transmissionSampler{};
   bool doubleSided{false};
   bool unlit{false};
+  renderer::ShadingModel shading{renderer::ShadingModel::Standard}; // ADR-0041; never set by the glTF importer
+  float subsurface{1.0f};
+  float subsurfaceRadius{0.001f};
 
   bool operator==(const MaterialSource &) const = default;
 };
 
 // The .material.json format, versioned like the scene files (docs/assets.md, "Materials").
 // Version 2 adds the texture transforms, version 3 the UV set each slot reads, version 4 unlit, version 5 per-slot
-// samplers, version 6 transmission and its texture slot (ADR-0033).
-constexpr int MaterialFileVersion = 6;
+// samplers, version 6 transmission and its texture slot (ADR-0033), version 7 the shading model and Skin's
+// subsurface fields (ADR-0041).
+constexpr int MaterialFileVersion = 7;
 [[nodiscard]] nlohmann::json saveMaterial(const MaterialSource &material);
 [[nodiscard]] core::Result<MaterialSource> loadMaterial(const nlohmann::json &document);
 

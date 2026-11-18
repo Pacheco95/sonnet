@@ -56,6 +56,18 @@ struct TextureTransform {
   bool operator==(const TextureTransform &) const = default;
 };
 
+// How a lit material shades (ADR-0041). Skin is pre-integrated subsurface scattering in the forward
+// pass, drawn by a forward pipeline of its own; an opaque or masked draw only, so a blended or
+// transmissive Skin material shades as Standard, and so does every Skin material while
+// RendererSettings::characterShading is off. glTF materials are always Standard.
+enum class ShadingModel : std::uint8_t {
+  Standard,
+  Skin,
+};
+
+// The bounds of MaterialDesc::subsurfaceRadius, in metres per millimetre of the skin profile.
+constexpr float MaxSubsurfaceRadius = 0.01f;
+
 // The glTF metallic-roughness model. An invalid texture handle means the neutral default:
 // white for colours and factors, a flat normal for the normal map.
 struct MaterialDesc {
@@ -88,6 +100,11 @@ struct MaterialDesc {
   TextureSampler transmissionSampler{};
   bool doubleSided{false};
   bool unlit{false}; // KHR_materials_unlit: base colour plus emissive, no lighting
+  ShadingModel shading{ShadingModel::Standard};
+  // Skin's: the weight of the scattering, 0 to 1 (0 shades as Standard), and the metres one
+  // millimetre of d'Eon's skin profile stands for, 0 to MaxSubsurfaceRadius (0.001 is human skin).
+  float subsurface{1.0f};
+  float subsurfaceRadius{0.001f};
 };
 
 // Whether a material's draws can let light through, and so take the transmission path (ADR-0033,
