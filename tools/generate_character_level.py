@@ -507,6 +507,42 @@ def write_materials():
     return out
 
 
+# The humanoid's skin (ADR-0041, issue #543): the glTF's Skin material as the inspector's "Make editable copy"
+# writes it beside the model, the same values and the glTF's own images, with the Skin shading model. The
+# prefab assigns it to the Body mesh's slot 0, the slot the glTF's Skin material is in.
+SKIN_MATERIAL = "assets/character/Skin.material.json"
+SKIN_SLOT_IMAGES = {"baseColor": "Skin_BaseColor", "metallicRoughness": "Skin_ORM", "normal": "Skin_Normal",
+                    "occlusion": "Skin_ORM"}
+
+
+def write_skin_material():
+    model = json.loads((PROJECT / (HUMANOID + ".meta")).read_text())
+    images = {entry["name"]: entry["uuid"] for entry in model["subAssets"] if entry["type"] == "Texture"}
+    document = {
+        "version": 7,
+        "alphaCutoff": 0.5,
+        "alphaMode": "Opaque",
+        "baseColor": [1.0, 1.0, 1.0, 1.0],
+        "doubleSided": False,
+        "emissive": [0.0, 0.0, 0.0],
+        "metallic": 1.0,
+        "normalScale": 0.5,
+        "occlusionStrength": 1.0,
+        "roughness": 1.0,
+        "samplers": {},
+        "shading": "Skin",
+        "subsurface": 1.0,
+        "subsurfaceRadius": 0.001,
+        "textures": {slot: images[image] for slot, image in SKIN_SLOT_IMAGES.items()},
+        "transforms": {},
+        "transmission": 0.0,
+        "unlit": False,
+    }
+    (PROJECT / SKIN_MATERIAL).write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
+    write_sidecar(SKIN_MATERIAL, "Material", 2, {})
+    return asset_uuid(SKIN_MATERIAL)
+
+
 def quat_yaw_pitch(yaw, pitch=0.0):
     """Yaw about Y, then pitch about X: the entity's -Z ends up along (-sin y cos p, sin p, -cos y cos p)."""
     cy, sy, cp, sp = math.cos(yaw / 2), math.sin(yaw / 2), math.cos(pitch / 2), math.sin(pitch / 2)
@@ -551,8 +587,13 @@ def write_prefab():
                                 "groundSnap": CHARACTER["groundSnap"], "mass": CHARACTER["mass"],
                                 "pushStrength": CHARACTER["pushStrength"]},
         "Scripts": {"slots": [slot("character")]}}}]
-    entities.append({"uuid": prefab_identity(2), "name": "Model", "parent": root, "prefab": asset_uuid(HUMANOID),
+    model = prefab_identity(2)
+    entities.append({"uuid": model, "name": "Model", "parent": root, "prefab": asset_uuid(HUMANOID),
                      "components": {"Transform": transform(), "Scripts": {"slots": [slot("footsteps")]}}})
+    # The model's Body node (ADR-0030's name path) as this instance's descendant, its skin slot overridden.
+    body = derive(model, derive(asset_uuid(HUMANOID), "path/Armature/Body"))
+    entities.append({"uuid": body, "instanced": True,
+                     "components": {"MeshRenderer": {"slotMaterials": [write_skin_material()]}}})
     for index, (name, x) in enumerate((("Left foot", -0.1), ("Right foot", 0.1), ("Landing", 0.0))):
         entities.append({"uuid": prefab_identity(3 + index), "name": name, "parent": root, "components": {
             "Transform": transform((x, 0.05, 0.0)),
@@ -607,6 +648,16 @@ CAPTURES = {
     # for them; `--contact-shadows off` on the player draws the same frame without.
     "capture_contact_shadows": {"start": RESPAWN, "camera": {"yaw": -45.0, "pitch": -25.0, "distance": 2.2, "height": 0.7},
                                 "seconds": 3, "contact_shadows": True},
+    # Standing at the start, the head at about half of the frame from the front, not faded: the skin's face
+    # (ADR-0041, issue #543) and the view its phone budget is measured in.
+    "capture_face": {"start": RESPAWN, "camera": {"yaw": 180.0, "pitch": -2.0, "distance": 0.55, "height": 1.68,
+                                                  "minDistance": 0.5, "fadeStart": 0.0, "fadeEnd": 0.0},
+                     "seconds": 3},
+    # Standing at the start, close on the right hand at the hip from the front and a little to the right: the
+    # skin's hands (ADR-0041).
+    "capture_hands": {"start": RESPAWN, "camera": {"yaw": 140.0, "pitch": -15.0, "distance": 0.9, "height": 0.85,
+                                                   "minDistance": 0.5, "fadeStart": 0.0, "fadeEnd": 0.0},
+                      "seconds": 3},
 }
 
 CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with a mouse button    look\nWheel    zoom\n"

@@ -40,10 +40,11 @@ The camera asks for the pointer to be locked to the game when play starts (`inpu
 | `scripts/controls.lua` | The controls overlay, on its canvas |
 | `scripts/platform.lua`, `scripts/kill_volume.lua` | The platform over the pit and the trigger under the course that puts what falls back at `Respawn` |
 | `assets/character/humanoid.glb` | The humanoid and its clips ([LICENSES.md](LICENSES.md)) |
+| `assets/character/Skin.material.json` | The humanoid's `Skin` glTF material as "Make editable copy" writes it, with the Skin shading model ([ADR-0041](../../../docs/decisions/0041-skin-shading.md)); the prefab gives it to the `Body` mesh's slot 0 through `slotMaterials` |
 | `assets/level/`, `assets/audio/footsteps/` | The course's geometry, materials and sky; the foley |
 | `assets/fonts/` | Noto Sans for the overlay ([its README](assets/fonts/README.md)) |
 
-`tools/generate_character_level.py level` writes the scenes, the prefab, the course's geometry and the materials, so a change to any of them goes there and the files are written again; the scripts are written by hand.
+`tools/generate_character_level.py level` writes the scenes, the prefab, the course's geometry and the materials, the skin's included, so a change to any of them goes there and the files are written again; the scripts are written by hand.
 
 ## The character
 
@@ -124,6 +125,8 @@ Each `capture_*` scene is the course with the character started somewhere else, 
 | `capture_turn` | 0.6 | Standing at the start, from the front and a little to the right, a quarter turn to the left on the spot (`TurnLeft90`) halfway, the left foot stepping round |
 | `capture_camera_obstruction` | 4 | Walking south into the low tunnel with the camera behind and above: the ceiling holds the camera under it, about 1.2 m from the pivot, and the character stays in view |
 | `capture_contact_shadows` | 3 | Standing at the start, close and from the south-west with the sun on the right: the sun's contact shadows (ADR-0039) at the feet, the only scene of the sample that asks for them. `--contact-shadows off` on the player draws the same frame without them |
+| `capture_face` | 3 | Standing at the start, the head at about half of the frame from the front, not faded: the skin's shading ([ADR-0041](../../../docs/decisions/0041-skin-shading.md)), and the view its phone budget is measured in. `--character-shading off` on the player draws it as Standard, `--shading-term curvature` the skin's lookup row |
+| `capture_hands` | 3 | Standing at the start, close on the hands at the hips from the front and a little to the right: the skin's shading on the hands |
 
 ```bash
 ./build/linux-debug/apps/player/sonnet_player apps/samples/character --scene scenes/capture_jump.scene.json \

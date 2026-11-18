@@ -52,6 +52,17 @@
       }
     },
     {
+      "uuid": "55f2bb1a-104f-82b1-8a94-99d401ed902e",
+      "instanced": true,
+      "components": {
+        "MeshRenderer": {
+          "slotMaterials": [
+            "ffa8942d-6033-8a8d-aa33-0ea8f4c20c51"
+          ]
+        }
+      }
+    },
+    {
       "uuid": "c4a20001-0000-4000-8000-000000000003",
       "name": "Left foot",
       "parent": "c4a20001-0000-4000-8000-000000000001",
