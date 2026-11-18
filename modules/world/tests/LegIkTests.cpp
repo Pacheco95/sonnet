@@ -3,8 +3,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <bit>
 #include <cmath>
-#include <cstring>
+#include <cstdint>
 
 using namespace sonnet;
 using Catch::Approx;
@@ -26,7 +27,9 @@ float leans(const glm::vec3 &hip, const glm::vec3 &knee, const glm::vec3 &target
 }
 
 bool sameBits(const glm::vec3 &a, const glm::vec3 &b) {
-  return std::memcmp(&a, &b, sizeof(glm::vec3)) == 0;
+  return std::bit_cast<std::uint32_t>(a.x) == std::bit_cast<std::uint32_t>(b.x) &&
+         std::bit_cast<std::uint32_t>(a.y) == std::bit_cast<std::uint32_t>(b.y) &&
+         std::bit_cast<std::uint32_t>(a.z) == std::bit_cast<std::uint32_t>(b.z);
 }
 
 } // namespace
