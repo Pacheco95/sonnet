@@ -357,6 +357,39 @@ TEST_CASE("a prefab instance shares components until it overrides them", "[world
   REQUIRE(world.prefabs().empty());
 }
 
+// Issue #602: a component holding owned memory (MeshRenderer's slot materials since #594) never
+// compares equal byte by byte, so World::differs asks its operator==, registered as the flecs
+// equals hook, before falling back to writing both values as JSON.
+TEST_CASE("an override equal to its prefab's value does not differ, through the component's equality",
+          "[world][prefab][differs]") {
+  world::World world;
+  const world::ComponentInfo &meshRenderer = *world.findComponent("MeshRenderer");
+  const world::ComponentInfo &animator = *world.findComponent("Animator");
+  for (const world::ComponentInfo *info : {&meshRenderer, &animator}) {
+    const ecs_type_info_t *type = ecs_get_type_info(world.ecs().c_ptr(), info->id);
+    REQUIRE(type != nullptr);
+    CHECK(type->hooks.equals != nullptr);
+  }
+
+  const flecs::entity prefab = world.createEntity("Crate");
+  prefab.set<world::MeshRenderer>({.slotMaterials = {core::Uuid::generate(), core::Uuid::generate()}});
+  prefab.set<world::Animator>({.rootBone = "a bone name long enough to live on the heap"});
+  world.makePrefab(prefab);
+  const flecs::entity instance = world.instantiate(prefab, "Crate 1");
+  // Overridden with the same values: copies with memory of their own.
+  instance.set<world::MeshRenderer>(world::MeshRenderer{prefab.get<world::MeshRenderer>()});
+  instance.set<world::Animator>(world::Animator{prefab.get<world::Animator>()});
+  REQUIRE(instance.owns<world::MeshRenderer>());
+  REQUIRE(instance.owns<world::Animator>());
+  CHECK_FALSE(world.differs(instance, prefab, meshRenderer));
+  CHECK_FALSE(world.differs(instance, prefab, animator));
+
+  instance.ensure<world::MeshRenderer>().slotMaterials[1] = core::Uuid::generate();
+  instance.ensure<world::Animator>().rootBone = "another bone";
+  CHECK(world.differs(instance, prefab, meshRenderer));
+  CHECK(world.differs(instance, prefab, animator));
+}
+
 // What the transform hierarchy costs a frame, measured rather than asserted: hidden from the
 // default run, `world_tests "[benchmark]"` prints World::progress in edit mode, which is the
 // TransformSystem and flecs' iteration of it, for ten thousand entities in three shapes, next to

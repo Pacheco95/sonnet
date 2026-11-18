@@ -619,15 +619,23 @@ bool World::differs(flecs::entity entity, flecs::entity source, const ComponentI
   if (component.tag) {
     return false;
   }
-  // Equal bytes are an equal value (a pointer in both points at the same thing), and comparing
-  // them is far cheaper than writing both as JSON; unequal bytes (padding, owned memory, -0 and
-  // 0) say nothing, so those are compared as JSON.
+  // Comparing in place is far cheaper than writing both as JSON. A component with an operator== has it
+  // as its equals hook (World::registerComponent), which answers for owned memory (a vector of
+  // slot materials, a string) and padding the copy did not carry; for the others, equal bytes are
+  // an equal value (a pointer in both points at the same thing). A no says nothing (a NaN, unequal
+  // padding, -0 and 0 in bytes), so those are compared as JSON.
   const void *value = entity.get(component.id);
   const void *sourceValue = source.get(component.id);
-  const ecs_type_info_t *type = ecs_get_type_info(m_world.c_ptr(), component.id);
-  if (value == sourceValue ||
-      (type != nullptr && std::memcmp(value, sourceValue, static_cast<std::size_t>(type->size)) == 0)) {
+  if (value == sourceValue) {
     return false;
+  }
+  if (const ecs_type_info_t *type = ecs_get_type_info(m_world.c_ptr(), component.id)) {
+    const ecs_type_hooks_t &hooks = type->hooks;
+    const bool equals = hooks.equals != nullptr && (hooks.flags & ECS_TYPE_HOOK_EQUALS_ILLEGAL) == 0;
+    if (equals ? hooks.equals(value, sourceValue, type)
+               : std::memcmp(value, sourceValue, static_cast<std::size_t>(type->size)) == 0) {
+      return false;
+    }
   }
   return componentToJson(entity, component.id) != componentToJson(source, component.id);
 }
