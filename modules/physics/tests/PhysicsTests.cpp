@@ -582,6 +582,25 @@ TEST_CASE("scale, offsets, compounds and mesh colliders shape the bodies", "[phy
   REQUIRE(positionOf(crate).y == Approx(0.49f).margin(0.03f));
 }
 
+TEST_CASE("a kinematic mesh body keeps its triangles and carries what it moves", "[physics]") {
+  // The built-in plane has no volume, so Jolt cannot weigh it; a kinematic body of it is built anyway
+  // and moved like any kinematic body.
+  Fixture fixture;
+  const flecs::entity lift = fixture.world.createEntity("Lift");
+  lift.set<world::Transform>({.position = {0.0f, 0.0f, 0.0f}, .scale = {4.0f, 1.0f, 4.0f}});
+  lift.set<world::MeshRenderer>({.mesh = assets::builtin::plane()});
+  lift.set<physics::MeshCollider>({});
+  lift.set<physics::RigidBody>({.type = physics::BodyType::Kinematic});
+  fixture.world.setPlaying(true);
+  fixture.world.progress(Step);
+  REQUIRE(fixture.physics->bodyCount() == 1);
+  lift.get_mut<world::Transform>().position.y = 1.0f;
+  fixture.run(0.5f);
+  const auto hit = fixture.physics->raycast({1.5f, 5.0f, 1.5f}, {0.0f, -1.0f, 0.0f}, 10.0f);
+  REQUIRE((hit && hit->entity == lift));
+  REQUIRE(hit->point.y == Approx(1.0f).margin(1e-3f));
+}
+
 TEST_CASE("a collider that cannot be built gives no body and is not retried until it changes", "[physics]") {
   Fixture fixture;
   const flecs::entity entity = fixture.world.createEntity("Missing mesh");

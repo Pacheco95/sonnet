@@ -1064,6 +1064,13 @@ private:
     if (settings.type == BodyType::Dynamic && settings.mass > 0.0f) {
       creation.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
       creation.mMassPropertiesOverride.mMass = settings.mass;
+    } else if (settings.type == BodyType::Kinematic && shape->GetMassProperties().mMass <= 0.0f) {
+      // A mesh has no volume to weigh, and Jolt asserts on a moving body without mass even though a
+      // kinematic one never uses it, so it is given one.
+      const float mass = settings.mass > 0.0f ? settings.mass : 1.0f;
+      creation.mOverrideMassProperties = JPH::EOverrideMassProperties::MassAndInertiaProvided;
+      creation.mMassPropertiesOverride.mMass = mass;
+      creation.mMassPropertiesOverride.mInertia = JPH::Mat44::sScale(mass);
     }
     body.id = bodies().CreateAndAddBody(creation, settings.type == BodyType::Static ? JPH::EActivation::DontActivate
                                                                                     : JPH::EActivation::Activate);
