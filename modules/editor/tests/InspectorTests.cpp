@@ -372,6 +372,88 @@ TEST_CASE("the material view edits emissive as a colour and a strength, each edi
   sonnet::test::removeScratch(root);
 }
 
+TEST_CASE("the material view picks the Skin model and edits its fields, each edit one command",
+          "[editor][inspector][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_skin";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  const auto material = assets.createMaterial(root / "assets" / "face.material.json", assets::MaterialSource{});
+  REQUIRE(material.has_value());
+  const auto source = [&] { return *assets.materialSource(*material); };
+
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  {
+    const InspectorDriver driver{panel, *material};
+    driver.frame();
+    const ImGuiWindow *window = InspectorDriver::inspector();
+
+    // Standard shows no skin fields.
+    REQUIRE_FALSE(driver.hover(window, InspectorDriver::widget("Subsurface")));
+
+    // Picking Skin in the combo is one command.
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Shading")));
+    driver.click();
+    driver.frame(); // the popup opens on the release and measures itself hidden for a frame
+    const ImGuiWindow *popup = nullptr;
+    for (const ImGuiWindow *candidate : ImGui::GetCurrentContext()->Windows) {
+      if (candidate->Active && std::string_view{candidate->Name}.starts_with("##Combo")) {
+        popup = candidate;
+      }
+    }
+    REQUIRE(popup != nullptr);
+    REQUIRE(driver.hover(popup, ImHashStr("Skin", 0, popup->ID)));
+    driver.click();
+    REQUIRE(commands.size() == 1);
+    REQUIRE(source().shading == renderer::ShadingModel::Skin);
+    REQUIRE(source().subsurface == 1.0f);
+
+    // A drag of the weight is one command, pushed on release; the radius is shown in millimetres.
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Subsurface")));
+    driver.drag(-40.0f);
+    REQUIRE(commands.size() == 2);
+    const float weight = source().subsurface;
+    REQUIRE(weight < 1.0f);
+    REQUIRE(weight >= 0.0f);
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Scatter radius")));
+    driver.drag(40.0f);
+    REQUIRE(commands.size() == 3);
+    const float radius = source().subsurfaceRadius;
+    REQUIRE(radius > 0.001f);
+    REQUIRE(radius <= renderer::MaxSubsurfaceRadius);
+
+    REQUIRE(commands.undo(world));
+    REQUIRE(commands.undo(world));
+    REQUIRE(source().subsurface == 1.0f);
+    REQUIRE(commands.undo(world));
+    REQUIRE(source().shading == renderer::ShadingModel::Standard);
+    REQUIRE(commands.redo(world));
+    REQUIRE(commands.redo(world));
+    REQUIRE(commands.redo(world));
+    REQUIRE(source().shading == renderer::ShadingModel::Skin);
+    REQUIRE(source().subsurface == Catch::Approx(weight));
+    REQUIRE(source().subsurfaceRadius == Catch::Approx(radius));
+    REQUIRE(renderer.material(assets.material(*material)).shading == renderer::ShadingModel::Skin);
+
+    // Save writes version 7, and the reopened database reads the same values back.
+    REQUIRE(assets.saveMaterial(*material).has_value());
+    const assets::MaterialSource saved = source();
+    assets.open(root, roots);
+    REQUIRE(source() == saved);
+  }
+  assets.close();
+  sonnet::test::removeScratch(root);
+}
+
 TEST_CASE("the model view edits the light scale, rewriting the sidecar and the lights, with undo",
           "[editor][inspector][assets]") {
   platform::Platform platform{{.headless = true}};
