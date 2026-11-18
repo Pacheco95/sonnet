@@ -309,6 +309,155 @@ TEST_CASE("the context menu offers to apply all of an instance's overrides", "[e
   CHECK(std::ranges::all_of(asked, [&](const core::Uuid &uuid) { return uuid == world.uuidOf(instance); }));
 }
 
+// The menu's Apply order and Apply name ask the inspector's handlers (Editor::applyChoices), so they
+// are offered where the inspector offers them and go to the same confirmation.
+TEST_CASE("the context menu offers to apply an order of children", "[editor][hierarchy][prefab][apply]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const flecs::entity prefab = world.createEntity("Crate");
+  world.createEntity("A", prefab);
+  world.createEntity("B", prefab);
+  world.makePrefab(prefab);
+  const flecs::entity crate = world.instantiate(prefab, "Crate 1");
+  world.setSiblingIndex(world.findByPath(crate, "B"), 0);
+  // The handler stands in for Editor::applyChoices: only the order is offered.
+  const core::Uuid cratePrefab = world.uuidOf(prefab);
+  std::vector<editor::ApplyRequest> asked;
+  std::vector<editor::ApplyRequest> applied;
+  panel.setApplyHandlers(
+      [&](const editor::ApplyRequest &request) {
+        asked.push_back(request);
+        return request.kind == editor::ApplyKind::ChildOrder
+                   ? std::vector<editor::ApplyChoice>{{.prefab = cratePrefab, .name = "Crate"}}
+                   : std::vector<editor::ApplyChoice>{};
+      },
+      [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
+  frame(panel);
+
+  ImGuiIO &io = ImGui::GetIO();
+  const auto hover = [&](const ImGuiWindow *window, ImGuiID id) {
+    for (float y = window->Pos.y; y < window->Pos.y + window->Size.y; y += 2.0f) {
+      io.AddMousePosEvent(window->Pos.x + 40.0f, y);
+      frame(panel);
+      if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const auto click = [&](ImGuiMouseButton button) {
+    io.AddMouseButtonEvent(button, true);
+    frame(panel);
+    io.AddMouseButtonEvent(button, false);
+    frame(panel);
+  };
+  ImGuiWindow *hierarchy = ImGui::FindWindowByName("Hierarchy");
+  REQUIRE(hierarchy != nullptr);
+  const int pick = static_cast<int>(world::World::pickId(crate));
+  REQUIRE(hover(hierarchy, ImHashStr("node", 0, ImHashData(&pick, sizeof(pick), hierarchy->ID))));
+  CHECK(asked.empty()); // asked only while the menu is open
+  click(ImGuiMouseButton_Right);
+  REQUIRE(!ImGui::GetCurrentContext()->OpenPopupStack.empty());
+  ImGuiWindow *menu = ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  REQUIRE(menu != nullptr);
+  CHECK(!hover(menu, ImHashStr("Apply name", 0, menu->ID))); // no target, not offered
+  REQUIRE(hover(menu, ImHashStr("Apply order", 0, menu->ID)));
+  click(ImGuiMouseButton_Left);
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0].kind == editor::ApplyKind::ChildOrder);
+  CHECK(applied[0].entity == world.uuidOf(crate));
+  CHECK(applied[0].prefab == cratePrefab);
+  CHECK(!commands.canUndo()); // the confirmation pushes the command, not the menu
+  CHECK(std::ranges::all_of(asked, [&](const editor::ApplyRequest &request) {
+    return request.entity == world.uuidOf(crate) && request.component.empty();
+  }));
+}
+
+TEST_CASE("the context menu's apply name lists every prefab a nested part's name can go to",
+          "[editor][hierarchy][prefab][apply]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const flecs::entity lamp = world.createEntity("Lamp");
+  world.createEntity("Bulb", lamp);
+  world.makePrefab(lamp);
+  const flecs::entity instance = world.instantiate(lamp, "Lamp 1");
+  const flecs::entity bulb = world.findByPath(instance, "Bulb");
+  REQUIRE(bulb);
+  // Two targets, as a lamp inside a room prefab has: the rule's pick first, then the outer one.
+  const core::Uuid lampPrefab = world.uuidOf(lamp);
+  const core::Uuid roomPrefab = core::Uuid::generate();
+  std::vector<editor::ApplyRequest> applied;
+  panel.setApplyHandlers(
+      [&](const editor::ApplyRequest &request) {
+        return request.kind == editor::ApplyKind::Name
+                   ? std::vector<editor::ApplyChoice>{{.prefab = lampPrefab, .name = "Lamp"},
+                                                      {.prefab = roomPrefab, .name = "Room"}}
+                   : std::vector<editor::ApplyChoice>{};
+      },
+      [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
+  panel.setOpenRecursive({}, true);
+  frame(panel);
+  frame(panel);
+
+  ImGuiIO &io = ImGui::GetIO();
+  const auto hover = [&](const ImGuiWindow *window, ImGuiID id) {
+    for (float y = window->Pos.y; y < window->Pos.y + window->Size.y; y += 2.0f) {
+      io.AddMousePosEvent(window->Pos.x + 40.0f, y);
+      frame(panel);
+      if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const auto click = [&](ImGuiMouseButton button) {
+    io.AddMouseButtonEvent(button, true);
+    frame(panel);
+    io.AddMouseButtonEvent(button, false);
+    frame(panel);
+  };
+  ImGuiWindow *hierarchy = ImGui::FindWindowByName("Hierarchy");
+  REQUIRE(hierarchy != nullptr);
+  const int instancePick = static_cast<int>(world::World::pickId(instance));
+  const int bulbPick = static_cast<int>(world::World::pickId(bulb));
+  const ImGuiID instanceNode = ImHashStr("node", 0, ImHashData(&instancePick, sizeof(instancePick), hierarchy->ID));
+  REQUIRE(hover(hierarchy, ImHashStr("node", 0, ImHashData(&bulbPick, sizeof(bulbPick), instanceNode))));
+  click(ImGuiMouseButton_Right);
+  REQUIRE(!ImGui::GetCurrentContext()->OpenPopupStack.empty());
+  ImGuiWindow *menu = ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  REQUIRE(menu != nullptr);
+  REQUIRE(hover(menu, ImHashStr("Apply name", 0, menu->ID)));
+  // Hovering opens the submenu of targets; the second is the outer prefab.
+  ImGuiWindow *targets = nullptr;
+  for (int i = 0; i < 10 && targets == nullptr; ++i) {
+    frame(panel);
+    if (ImGui::GetCurrentContext()->OpenPopupStack.size() > 1) {
+      targets = ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+    }
+  }
+  REQUIRE(targets != nullptr);
+  const int second = 1;
+  const ImGuiID room = ImHashStr("Room", 0, ImHashData(&second, sizeof(second), targets->ID));
+  bool found = false;
+  for (float y = targets->Pos.y; y < targets->Pos.y + targets->Size.y && !found; y += 2.0f) {
+    io.AddMousePosEvent(targets->Pos.x + 20.0f, y);
+    frame(panel);
+    found = ImGui::GetCurrentContext()->HoveredIdPreviousFrame == room;
+  }
+  REQUIRE(found);
+  click(ImGuiMouseButton_Left);
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0].kind == editor::ApplyKind::Name);
+  CHECK(applied[0].entity == world.uuidOf(bulb));
+  CHECK(applied[0].prefab == roomPrefab);
+}
+
 TEST_CASE("a row moves among its siblings, an instance's own children included", "[editor][hierarchy]") {
   world::World world;
   editor::Selection selection;

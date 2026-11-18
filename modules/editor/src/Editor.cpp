@@ -151,8 +151,10 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
     }
   });
   m_inspectorPanel.setOpenHandler([this](const std::string &path, int line) { openLocation(path, line); });
-  m_inspectorPanel.setApplyHandlers([this](const ApplyRequest &request) { return applyChoices(request); },
-                                    [this](ApplyRequest request) { requestApplyToPrefab(std::move(request)); });
+  const auto choices = [this](const ApplyRequest &request) { return applyChoices(request); };
+  const auto apply = [this](ApplyRequest request) { requestApplyToPrefab(std::move(request)); };
+  m_inspectorPanel.setApplyHandlers(choices, apply);
+  m_hierarchyPanel.setApplyHandlers(choices, apply);
   const auto applyAllOffered = [this](core::Uuid instance) { return this->applyAllOffered(instance); };
   const auto applyAll = [this](core::Uuid instance) { requestApplyAllOverrides(instance); };
   m_inspectorPanel.setApplyAllHandlers(applyAllOffered, applyAll);

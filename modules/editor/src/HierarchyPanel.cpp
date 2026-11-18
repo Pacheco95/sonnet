@@ -438,6 +438,8 @@ void HierarchyPanel::drawContextMenu(flecs::entity entity) {
       ImGui::MenuItem("Apply all overrides")) {
     m_afterTree = [this, uuid] { m_applyAll(uuid); };
   }
+  drawApplyItem("Apply name", ApplyRequest{.entity = uuid, .component = {}, .kind = ApplyKind::Name});
+  drawApplyItem("Apply order", ApplyRequest{.entity = uuid, .component = {}, .kind = ApplyKind::ChildOrder});
   if (m_saveAsPrefab && !part && ImGui::MenuItem("Save as prefab")) {
     m_afterTree = [this, uuid] { m_saveAsPrefab(uuid); };
   }
@@ -447,6 +449,37 @@ void HierarchyPanel::drawContextMenu(flecs::entity entity) {
   }
   if (ImGui::MenuItem(part ? "Hide" : "Delete", "Del")) {
     m_afterTree = [this] { deleteSelection(); };
+  }
+}
+
+void HierarchyPanel::drawApplyItem(const char *label, const ApplyRequest &request) {
+  if (!m_applyChoices || !m_apply) {
+    return;
+  }
+  // Asked only while the menu is open, so the walk does not run every frame.
+  const std::vector<ApplyChoice> choices = m_applyChoices(request);
+  const auto applyTo = [&](const ApplyChoice &choice) {
+    ApplyRequest chosen = request;
+    chosen.prefab = choice.prefab;
+    m_afterTree = [this, chosen = std::move(chosen)] { m_apply(chosen); };
+  };
+  if (choices.size() == 1) {
+    if (ImGui::MenuItem(label)) {
+      applyTo(choices.front());
+    }
+    return;
+  }
+  // Nested prefabs (#549): the inspector's split button, as a submenu of every target.
+  if (choices.size() > 1 && ImGui::BeginMenu(label)) {
+    ui::mutedText("Apply to");
+    for (std::size_t i = 0; i < choices.size(); ++i) {
+      ImGui::PushID(static_cast<int>(i));
+      if (ImGui::MenuItem(choices[i].name.c_str(), i == 0 ? "default" : nullptr)) {
+        applyTo(choices[i]);
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndMenu();
   }
 }
 
