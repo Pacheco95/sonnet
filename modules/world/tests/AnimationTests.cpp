@@ -137,6 +137,98 @@ void writeRig(const std::filesystem::path &gltf) {
   REQUIRE(core::writeFile(gltf, document.dump()).has_value());
 }
 
+// A humanoid's legs (ADR-0042): Rig/pelvis a metre up with thigh_l and thigh_r under it, each with a
+// calf 0.5 m down and a bit forward (-Z), a foot 0.42 m below that, back at 8 cm, and a ball under
+// the foot. The skin binds every one of them, so a foot's bind-pose height is 8 cm, and a quad is
+// skinned to the pelvis. There is no clip.
+void writeLegRig(const std::filesystem::path &gltf) {
+  using nlohmann::json;
+  struct Joint {
+    const char *name;
+    glm::vec3 local;
+    std::vector<int> children;
+  };
+  // Node indices: 0 Rig, 1 pelvis, 2 thigh_l, 3 calf_l, 4 foot_l, 5 ball_l, 6 thigh_r, 7 calf_r, 8 foot_r,
+  // 9 ball_r, 10 Mesh.
+  const std::vector<Joint> joints{{"Rig", {0.0f, 0.0f, 0.0f}, {1, 10}},  {"pelvis", {0.0f, 1.0f, 0.0f}, {2, 6}},
+                                  {"thigh_l", {-0.1f, 0.0f, 0.0f}, {3}}, {"calf_l", {0.0f, -0.5f, -0.1f}, {4}},
+                                  {"foot_l", {0.0f, -0.42f, 0.1f}, {5}}, {"ball_l", {0.0f, -0.05f, -0.1f}, {}},
+                                  {"thigh_r", {0.1f, 0.0f, 0.0f}, {7}},  {"calf_r", {0.0f, -0.5f, -0.1f}, {8}},
+                                  {"foot_r", {0.0f, -0.42f, 0.1f}, {9}}, {"ball_r", {0.0f, -0.05f, -0.1f}, {}}};
+  std::vector<glm::vec3> global(joints.size(), glm::vec3{0.0f});
+  for (std::size_t i = 0; i < joints.size(); ++i) {
+    global[i] += joints[i].local;
+    for (const int child : joints[i].children) {
+      if (child < static_cast<int>(joints.size())) {
+        global[static_cast<std::size_t>(child)] = global[i];
+      }
+    }
+  }
+  std::vector<std::byte> bin;
+  json views = json::array();
+  json accessors = json::array();
+  const auto add = [&](const void *data, std::size_t bytes, std::size_t count, const char *type, int component) {
+    views.push_back(json{{"buffer", 0}, {"byteOffset", bin.size()}, {"byteLength", bytes}});
+    const auto *begin = static_cast<const std::byte *>(data);
+    bin.insert(bin.end(), begin, begin + bytes);
+    accessors.push_back(
+        json{{"bufferView", views.size() - 1}, {"componentType", component}, {"count", count}, {"type", type}});
+    return accessors.size() - 1;
+  };
+  constexpr int floatType = 5126;
+  // The skin's joints: pelvis, the left leg, the right leg, in node order 1 to 9.
+  std::vector<float> inverseBinds;
+  for (std::size_t i = 1; i < joints.size(); ++i) {
+    const glm::mat4 inverse = glm::translate(glm::mat4{1.0f}, -global[i]);
+    inverseBinds.insert(inverseBinds.end(), glm::value_ptr(inverse), glm::value_ptr(inverse) + 16);
+  }
+  const std::vector<float> positions{-0.5f, 0, 0, 0.5f, 0, 0, -0.5f, 2, 0, 0.5f, 2, 0};
+  const std::vector<float> weights{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
+  const std::vector<std::uint16_t> skinJoints(16, 0);
+  const std::vector<std::uint32_t> indices{0, 1, 3, 0, 3, 2};
+  const auto position = add(positions.data(), 48, 4, "VEC3", floatType);
+  accessors.back()["min"] = json::array({-0.5, 0, 0});
+  accessors.back()["max"] = json::array({0.5, 2, 0});
+  const auto weight = add(weights.data(), 64, 4, "VEC4", floatType);
+  const auto joint = add(skinJoints.data(), 32, 4, "VEC4", 5123);
+  const auto index = add(indices.data(), 24, 6, "SCALAR", 5125);
+  const auto inverseBind =
+      add(inverseBinds.data(), inverseBinds.size() * sizeof(float), joints.size() - 1, "MAT4", floatType);
+  json nodes = json::array();
+  for (const Joint &entry : joints) {
+    json node{{"name", entry.name}, {"translation", json::array({entry.local.x, entry.local.y, entry.local.z})}};
+    if (!entry.children.empty()) {
+      node["children"] = entry.children;
+    }
+    nodes.push_back(node);
+  }
+  nodes[0].erase("translation");
+  nodes.push_back(json{{"name", "Mesh"}, {"mesh", 0}, {"skin", 0}});
+  json skinJointNodes = json::array();
+  for (int i = 1; i < static_cast<int>(joints.size()); ++i) {
+    skinJointNodes.push_back(i);
+  }
+  const std::string binName = gltf.stem().string() + ".bin";
+  REQUIRE(core::writeFile(gltf.parent_path() / binName, bin).has_value());
+  const json document{
+      {"asset", {{"version", "2.0"}}},
+      {"scene", 0},
+      {"scenes", json::array({json{{"nodes", json::array({0})}}})},
+      {"nodes", nodes},
+      {"meshes",
+       json::array({json{
+           {"name", "Quad"},
+           {"primitives",
+            json::array({json{{"attributes", {{"POSITION", position}, {"JOINTS_0", joint}, {"WEIGHTS_0", weight}}},
+                              {"indices", index}}})}}})},
+      {"skins", json::array({json{{"joints", skinJointNodes}, {"inverseBindMatrices", inverseBind}}})},
+      {"buffers", json::array({json{{"uri", binName}, {"byteLength", bin.size()}}})},
+      {"bufferViews", views},
+      {"accessors", accessors},
+  };
+  REQUIRE(core::writeFile(gltf, document.dump()).has_value());
+}
+
 struct Fixture {
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<rhi::NullDevice> device = rhi::createNullDevice();
@@ -148,10 +240,15 @@ struct Fixture {
   core::Uuid model;
   flecs::entity prefab;
 
-  Fixture() {
+  // `legs` swaps the bending strip for writeLegRig's humanoid legs.
+  explicit Fixture(bool legs = false) {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "assets");
-    writeRig(root / "assets" / "rig.gltf");
+    if (legs) {
+      writeLegRig(root / "assets" / "rig.gltf");
+    } else {
+      writeRig(root / "assets" / "rig.gltf");
+    }
     const std::vector<std::string> roots{"assets"};
     assets.open(root, roots);
     const auto models = assets.assets(assets::AssetType::Model);
@@ -828,4 +925,322 @@ TEST_CASE("a crossfade's outgoing clip and the incoming one both fire their even
   REQUIRE(arguments() == Events{"left@0.6"});
   world.progress(0.4f); // Bend, at 0.1, still crosses its 0.8
   REQUIRE(arguments() == Events{"right@0.8"});
+}
+
+namespace {
+
+// Leg IK (ADR-0042) on the leg rig: a model standing at `origin`, turned 30 degrees about Y, with
+// the pass's component on it. `ground` writes what a game's query would, as heights above the
+// model's origin under each foot.
+struct LegRig {
+  Fixture fixture{true};
+  world::World &world = fixture.world;
+  world::AnimationSystem animation{fixture.world, fixture.assets};
+  glm::vec3 origin{1.0f, 0.5f, -2.0f};
+  flecs::entity instance;
+  flecs::entity pelvis, thighL, calfL, footL, ballL, thighR, calfR, footR, strip;
+
+  explicit LegRig(float weight = 1.0f) {
+    fixture.loadPayloads();
+    instance = world.instantiate(fixture.prefab, "Humanoid");
+    instance.set<world::Transform>(
+        {.position = origin, .rotation = glm::angleAxis(glm::radians(30.0f), glm::vec3{0.0f, 1.0f, 0.0f})});
+    pelvis = fixture.node(instance, "Rig/pelvis");
+    thighL = fixture.node(instance, "Rig/pelvis/thigh_l");
+    calfL = fixture.node(instance, "Rig/pelvis/thigh_l/calf_l");
+    footL = fixture.node(instance, "Rig/pelvis/thigh_l/calf_l/foot_l");
+    ballL = fixture.node(instance, "Rig/pelvis/thigh_l/calf_l/foot_l/ball_l");
+    thighR = fixture.node(instance, "Rig/pelvis/thigh_r");
+    calfR = fixture.node(instance, "Rig/pelvis/thigh_r/calf_r");
+    footR = fixture.node(instance, "Rig/pelvis/thigh_r/calf_r/foot_r");
+    strip = fixture.node(instance, "Rig/Mesh");
+    world::LegIk ik{.weight = weight, .pelvis = "Rig/pelvis"};
+    ik.legs = {{.thigh = "Rig/pelvis/thigh_l",
+                .calf = "Rig/pelvis/thigh_l/calf_l",
+                .foot = "Rig/pelvis/thigh_l/calf_l/foot_l"},
+               {.thigh = "Rig/pelvis/thigh_r",
+                .calf = "Rig/pelvis/thigh_r/calf_r",
+                .foot = "Rig/pelvis/thigh_r/calf_r/foot_r"}};
+    instance.set<world::LegIk>(ik);
+    world.progress(1.0f / 60.0f);
+  }
+
+  void ground(float left, float right, const glm::vec3 &leftNormal = {0.0f, 1.0f, 0.0f},
+              const glm::vec3 &rightNormal = {0.0f, 1.0f, 0.0f}, bool leftGrounded = true, bool rightGrounded = true) {
+    world::LegIk ik = instance.get<world::LegIk>();
+    ik.legs[0].groundPoint = {origin.x - 0.1f, origin.y + left, origin.z};
+    ik.legs[0].groundNormal = leftNormal;
+    ik.legs[0].grounded = leftGrounded;
+    ik.legs[1].groundPoint = {origin.x + 0.1f, origin.y + right, origin.z};
+    ik.legs[1].groundNormal = rightNormal;
+    ik.legs[1].grounded = rightGrounded;
+    instance.set<world::LegIk>(ik);
+  }
+  void frames(int count, float dt = 1.0f / 60.0f) {
+    for (int i = 0; i < count; ++i) {
+      world.progress(dt);
+    }
+  }
+  // The joint's place in the world, and its height above the model's origin.
+  static glm::vec3 at(flecs::entity joint) {
+    return glm::vec3{joint.get<world::WorldTransform>().matrix[3]};
+  }
+  float height(flecs::entity joint) const {
+    return at(joint).y - origin.y;
+  }
+  // The way the model faces, on the ground: its -Z turned 30 degrees.
+  glm::vec3 forward() const {
+    return glm::vec3{instance.get<world::WorldTransform>().matrix * glm::vec4{0.0f, 0.0f, -1.0f, 0.0f}};
+  }
+  // How far in front of its hip a leg's knee is, along the model's forward.
+  float kneeForward(flecs::entity thigh, flecs::entity calf) const {
+    return glm::dot(at(calf) - at(thigh), forward());
+  }
+  std::vector<flecs::entity> joints() const {
+    return {pelvis, thighL, calfL, footL, ballL, thighR, calfR, footR};
+  }
+  std::vector<glm::mat4> matrices() const {
+    std::vector<glm::mat4> result;
+    for (const flecs::entity joint : joints()) {
+      result.push_back(joint.get<world::WorldTransform>().matrix);
+    }
+    return result;
+  }
+};
+
+bool sameBits(const std::vector<glm::mat4> &a, const std::vector<glm::mat4> &b) {
+  return a.size() == b.size() && std::memcmp(a.data(), b.data(), a.size() * sizeof(glm::mat4)) == 0;
+}
+
+} // namespace
+
+TEST_CASE("leg IK with a weight of 0, or on flat ground, leaves every world matrix and the palette as they were",
+          "[world][animation][legik]") {
+  LegRig rig{0.0f};
+  rig.frames(2);
+  REQUIRE(rig.strip.has<world::SkinPose>());
+  const std::vector<glm::mat4> before = rig.matrices();
+  const std::vector<glm::mat4> palette = rig.strip.get<world::SkinPose>().joints;
+  REQUIRE(palette.size() == 9);
+
+  // Ground 10 cm down and tilted, with a weight of 0: nothing.
+  rig.ground(-0.1f, 0.05f, glm::normalize(glm::vec3{0.3f, 1.0f, 0.0f}));
+  rig.frames(30);
+  REQUIRE(sameBits(rig.matrices(), before));
+  REQUIRE(std::memcmp(rig.strip.get<world::SkinPose>().joints.data(), palette.data(),
+                      palette.size() * sizeof(glm::mat4)) == 0);
+
+  // A weight of 1 on level ground at the model's feet: the same, bit for bit.
+  world::LegIk ik = rig.instance.get<world::LegIk>();
+  ik.weight = 1.0f;
+  rig.instance.set<world::LegIk>(ik);
+  rig.ground(0.0f, 0.0f);
+  rig.frames(120);
+  REQUIRE(sameBits(rig.matrices(), before));
+  REQUIRE(std::memcmp(rig.strip.get<world::SkinPose>().joints.data(), palette.data(),
+                      palette.size() * sizeof(glm::mat4)) == 0);
+
+  // And ground that the query missed counts for nothing, whatever its point says.
+  rig.ground(-0.2f, -0.2f, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, false, false);
+  rig.frames(30);
+  REQUIRE(sameBits(rig.matrices(), before));
+}
+
+TEST_CASE("leg IK puts a foot on higher ground, bending the knee the way the clip bent it",
+          "[world][animation][legik]") {
+  LegRig rig;
+  const glm::mat4 flat = rig.footL.get<world::WorldTransform>().matrix;
+  rig.ground(0.1f, 0.0f);
+  rig.frames(60);
+  // The foot keeps the orientation the animation gave it in the world, whatever the shin does: a
+  // flat sole stays flat when the knee bends.
+  const glm::mat4 raised = rig.footL.get<world::WorldTransform>().matrix;
+  for (int column = 0; column < 3; ++column) {
+    REQUIRE(glm::length(glm::vec3{raised[column]} - glm::vec3{flat[column]}) < 1e-4f);
+  }
+  // The raised foot reaches the ground within a millimetre; the other stays; the pelvis does not rise.
+  REQUIRE(rig.height(rig.footL) == Approx(0.18f).margin(1e-3f));
+  REQUIRE(rig.height(rig.footR) == Approx(0.08f).margin(1e-3f));
+  REQUIRE(rig.height(rig.pelvis) == Approx(1.0f).margin(1e-4f));
+  // The knee stays in front, bent further than before (it was 10 cm ahead of the hip).
+  REQUIRE(rig.kneeForward(rig.thighL, rig.calfL) > 0.1f + 0.02f);
+  REQUIRE(rig.kneeForward(rig.thighR, rig.calfR) == Approx(0.1f).margin(1e-3f));
+  // The bones keep their lengths.
+  REQUIRE(glm::length(LegRig::at(rig.calfL) - LegRig::at(rig.thighL)) ==
+          Approx(glm::length(glm::vec3{0.0f, 0.5f, 0.1f})).margin(1e-4f));
+  REQUIRE(glm::length(LegRig::at(rig.footL) - LegRig::at(rig.calfL)) ==
+          Approx(glm::length(glm::vec3{0.0f, 0.42f, 0.1f})).margin(1e-4f));
+
+  // A clip that bent the knee backwards is followed: the pole is the animated knee.
+  LegRig backwards;
+  backwards.calfL.set<world::Transform>({.position = {0.0f, -0.5f, 0.1f}});
+  backwards.footL.set<world::Transform>({.position = {0.0f, -0.42f, -0.1f}});
+  backwards.ground(0.1f, 0.0f);
+  backwards.frames(60);
+  REQUIRE(backwards.height(backwards.footL) == Approx(0.18f).margin(1e-3f));
+  REQUIRE(backwards.kneeForward(backwards.thighL, backwards.calfL) < -0.1f - 0.02f);
+}
+
+TEST_CASE("leg IK lowers the pelvis to the lower foot, never raises it, and caps the drop",
+          "[world][animation][legik]") {
+  LegRig rig;
+  rig.ground(-0.1f, 0.0f);
+  rig.frames(60);
+  REQUIRE(rig.height(rig.pelvis) == Approx(0.9f).margin(1e-3f));
+  REQUIRE(rig.height(rig.footL) == Approx(-0.02f).margin(1e-3f)); // 8 cm up from a ground 10 cm down
+  REQUIRE(rig.height(rig.footR) == Approx(0.08f).margin(1e-3f));  // the raised foot bends its knee instead
+  REQUIRE(rig.kneeForward(rig.thighR, rig.calfR) > 0.1f + 0.01f);
+
+  // Both feet on ground above the model's origin: the pelvis stays.
+  rig.ground(0.05f, 0.08f);
+  rig.frames(60);
+  REQUIRE(rig.height(rig.pelvis) == Approx(1.0f).margin(1e-4f));
+
+  // Ground half a metre down: the drop stops at 30 cm, and a foot the leg cannot reach even so is
+  // left as animated, 8 cm above the model's origin, not claiming ground it cannot touch.
+  rig.ground(-0.5f, 0.0f);
+  rig.frames(60);
+  REQUIRE(rig.height(rig.pelvis) == Approx(0.7f).margin(1e-3f));
+  REQUIRE(rig.height(rig.footL) == Approx(0.08f).margin(2e-3f));
+  REQUIRE(std::isfinite(LegRig::at(rig.calfL).x));
+  REQUIRE(rig.kneeForward(rig.thighL, rig.calfL) > 0.0f); // no flip
+  REQUIRE(rig.height(rig.footR) == Approx(0.08f).margin(1e-3f));
+}
+
+TEST_CASE("leg IK turns a foot to the ground's normal, held to the limit", "[world][animation][legik]") {
+  LegRig rig;
+  const auto normal = [](float degrees) {
+    return glm::vec3{std::sin(glm::radians(degrees)), std::cos(glm::radians(degrees)), 0.0f};
+  };
+  const auto tilt = [&](flecs::entity foot) {
+    const glm::vec3 up{foot.get<world::WorldTransform>().matrix[1]};
+    return glm::degrees(std::acos(glm::dot(glm::normalize(up), glm::vec3{0.0f, 1.0f, 0.0f})));
+  };
+  rig.ground(0.0f, 0.0f, normal(20.0f));
+  rig.frames(60);
+  const glm::vec3 up{rig.footL.get<world::WorldTransform>().matrix[1]};
+  REQUIRE(glm::dot(glm::normalize(up), glm::normalize(normal(20.0f))) > std::cos(glm::radians(0.5f)));
+  REQUIRE(tilt(rig.footR) == Approx(0.0f).margin(1e-3f));
+  // The ball goes with the foot.
+  REQUIRE(LegRig::at(rig.ballL).x > LegRig::at(rig.footL).x - 0.2f);
+
+  // Ground steeper than maxFootAngle (30 degrees) turns the foot that far and no further.
+  rig.ground(0.0f, 0.0f, normal(50.0f));
+  rig.frames(60);
+  REQUIRE(tilt(rig.footL) == Approx(30.0f).margin(0.3f));
+}
+
+TEST_CASE("leg IK leaves a foot the animation lifted to the animation", "[world][animation][legik]") {
+  LegRig rig;
+  // The left foot swings 20 cm above its planted height, past the 10 cm where it lets go.
+  rig.footL.set<world::Transform>({.position = {0.0f, -0.42f + 0.2f, 0.1f}});
+  rig.ground(-0.05f, -0.05f);
+  rig.frames(60);
+  // The right foot, planted, goes down 5 cm with the pelvis; the lifted one stays where it was.
+  REQUIRE(rig.height(rig.footR) == Approx(0.03f).margin(1e-3f));
+  REQUIRE(rig.height(rig.pelvis) == Approx(0.95f).margin(1e-3f));
+  REQUIRE(rig.height(rig.footL) == Approx(0.28f).margin(1e-3f));
+}
+
+TEST_CASE("leg IK eases at the same rate at any frame rate and holds when no time passes",
+          "[world][animation][legik]") {
+  LegRig rig;
+  rig.ground(0.0f, 0.0f);
+  rig.frames(30);
+
+  // A sixth of a second after the ground drops 10 cm, at 30 and at 144 frames a second.
+  const auto settle = [&](int frames, float dt) {
+    rig.ground(0.0f, 0.0f);
+    rig.frames(120);
+    rig.ground(-0.1f, 0.0f);
+    rig.frames(frames, dt);
+    return rig.height(rig.pelvis);
+  };
+  const float slow = settle(5, 1.0f / 30.0f);
+  const float fast = settle(24, 1.0f / 144.0f);
+  CAPTURE(slow, fast);
+  // Eased: 1 - exp(-1/6 / 0.08) = 0.875 of the way, 12.5 mm short.
+  REQUIRE(slow == Approx(1.0f - 0.1f * (1.0f - std::exp(-(1.0f / 6.0f) / 0.08f))).margin(1e-3f));
+  REQUIRE(slow == Approx(fast).margin(1e-3f));
+
+  // No game time (a time scale of 0, which gives the systems a zero delta): the eased values stay,
+  // whatever the ground does.
+  const float held = rig.height(rig.pelvis);
+  rig.ground(-0.3f, -0.2f);
+  rig.world.setTimeScale(0.0f);
+  rig.frames(10);
+  REQUIRE(rig.height(rig.pelvis) == held);
+  rig.world.setTimeScale(1.0f);
+  rig.frames(1);
+  REQUIRE(rig.height(rig.pelvis) < held);
+}
+
+TEST_CASE("leg IK moves world matrices and the palette, never the local Transforms", "[world][animation][legik]") {
+  LegRig rig;
+  rig.frames(2);
+  const auto locals = [&] {
+    std::vector<world::Transform> result;
+    for (const flecs::entity joint : rig.joints()) {
+      result.push_back(joint.get<world::Transform>());
+    }
+    return result;
+  };
+  const std::vector<world::Transform> before = locals();
+  const std::vector<glm::mat4> world = rig.matrices();
+  const glm::mat4 bindFoot = rig.strip.get<world::SkinPose>().joints[3];
+
+  rig.ground(-0.1f, 0.05f, glm::normalize(glm::vec3{0.2f, 1.0f, 0.1f}));
+  rig.frames(60);
+  const std::vector<world::Transform> after = locals();
+  REQUIRE(after.size() == before.size());
+  for (std::size_t i = 0; i < before.size(); ++i) {
+    REQUIRE(after[i].position == before[i].position);
+    REQUIRE(after[i].rotation == before[i].rotation);
+    REQUIRE(after[i].scale == before[i].scale);
+  }
+  REQUIRE_FALSE(sameBits(rig.matrices(), world));
+
+  // The skin pose is built from the rewritten world matrices: each joint's matrix times its inverse
+  // bind, brought into the mesh's space.
+  const glm::mat4 toMesh = glm::inverse(rig.strip.get<world::WorldTransform>().matrix);
+  const std::vector<glm::mat4> &palette = rig.strip.get<world::SkinPose>().joints;
+  // The skin's joints are the nodes 1 to 9: pelvis, thigh_l, calf_l, foot_l, ball_l, thigh_r, ...
+  const glm::mat4 footBind = glm::translate(glm::mat4{1.0f}, glm::vec3{0.1f, -0.08f, 0.0f});
+  const glm::mat4 expected = toMesh * rig.footL.get<world::WorldTransform>().matrix * footBind;
+  for (int c = 0; c < 4; ++c) {
+    for (int r = 0; r < 4; ++r) {
+      REQUIRE(palette[3][c][r] == Approx(expected[c][r]).margin(1e-5f));
+    }
+  }
+  REQUIRE(palette[3] != bindFoot);
+  // The pelvis moved with the drop; the bind pose put a vertex of the foot at the foot, so it is
+  // not where it was.
+  REQUIRE(glm::length(glm::vec3{palette[3] * glm::vec4{-0.1f, 0.08f, 0.0f, 1.0f}} - glm::vec3{-0.1f, 0.08f, 0.0f}) >
+          0.01f);
+}
+
+TEST_CASE("leg IK skips a leg whose bones are not there and carries on with the others", "[world][animation][legik]") {
+  LegRig rig;
+  world::LegIk ik = rig.instance.get<world::LegIk>();
+  ik.legs[0].calf = "Rig/pelvis/nowhere";
+  rig.instance.set<world::LegIk>(ik);
+  rig.ground(0.0f, -0.1f);
+  rig.frames(60);
+  // The right foot and the pelvis follow the lower ground; the unresolved leg is not touched.
+  REQUIRE(rig.height(rig.pelvis) == Approx(0.9f).margin(1e-3f));
+  REQUIRE(rig.height(rig.footR) == Approx(-0.02f).margin(1e-3f));
+  // The skipped leg is only carried down by the pelvis, finite and in one piece.
+  REQUIRE(rig.height(rig.footL) == Approx(-0.02f).margin(1e-3f));
+
+  // Fixing the path binds the leg again, which bends to keep its foot where it was, and a pelvis
+  // that is not there moves nothing.
+  ik.legs[0].calf = "Rig/pelvis/thigh_l/calf_l";
+  rig.instance.set<world::LegIk>(ik);
+  rig.frames(60);
+  REQUIRE(rig.height(rig.footL) == Approx(0.08f).margin(1e-3f));
+  ik.pelvis = "Rig/missing";
+  rig.instance.set<world::LegIk>(ik);
+  rig.frames(10);
+  REQUIRE(rig.height(rig.pelvis) == Approx(1.0f).margin(1e-4f)); // back to the animated pose
+  REQUIRE(rig.height(rig.footL) == Approx(0.08f).margin(1e-4f));
 }

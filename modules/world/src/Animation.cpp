@@ -1,6 +1,7 @@
 #include <sonnet/world/Animation.h>
 
 #include <sonnet/world/Components.h>
+#include <sonnet/world/LegIk.h>
 
 #include <sonnet/assets/AssetDatabase.h>
 #include <sonnet/core/Log.h>
@@ -43,6 +44,41 @@ void advance(float &time, bool &playing, float speed, bool loop, float duration,
 // A layer under this weight is fading out of earshot: its events are not worth a footstep.
 constexpr float EventWeight = 0.05f;
 
+// A model that moves further than this in a frame was teleported (the character sample's rule), so
+// what leg IK had eased starts over there.
+constexpr float TeleportDistance = 2.5f;
+
+// What the pass counts as nothing: a weight, and a shift or a turn, small enough that rewriting the
+// pose would only add rounding.
+constexpr float IkMinWeight = 1.0e-4f;
+constexpr float IkMinShift = 1.0e-5f;
+constexpr float IkMinAngle = 1.0e-4f;
+
+// The share of the way an exponential ease over `seconds` covers in `dt`: the same however the time
+// is cut into frames, 0 for no time and 1 for no ease.
+float easing(float dt, float seconds) {
+  if (!(dt > 0.0f)) {
+    return 0.0f;
+  }
+  if (!(seconds > 1.0e-6f)) {
+    return 1.0f;
+  }
+  return 1.0f - std::exp(-dt / seconds);
+}
+
+float smoothStep(float low, float high, float x) {
+  if (!(high > low)) {
+    return x >= high ? 1.0f : 0.0f;
+  }
+  const float t = std::clamp((x - low) / (high - low), 0.0f, 1.0f);
+  return t * t * (3.0f - 2.0f * t);
+}
+
+// A rotation of `rotation` about a point, as a world-space transform.
+glm::mat4 turnAbout(const glm::quat &rotation, const glm::vec3 &pivot) {
+  return glm::translate(glm::mat4{1.0f}, pivot) * glm::mat4_cast(rotation) * glm::translate(glm::mat4{1.0f}, -pivot);
+}
+
 } // namespace
 
 AnimationSystem::AnimationSystem(World &world, assets::AssetDatabase &assets) : m_world(world), m_assets(assets) {
@@ -57,7 +93,13 @@ AnimationSystem::AnimationSystem(World &world, assets::AssetDatabase &assets) : 
         play(it.delta_time());
       });
   world.addToSimulation(m_playback);
-  // Declared after the transform system, so the joints' world transforms are this frame's.
+  m_legged = ecs.query_builder<>("LegIks").with<LegIk>().without<Disabled>().self().up(flecs::ChildOf).build();
+  // Declared after the transform system, so the joints' world transforms are this frame's, and
+  // before the palette, which then builds from the world matrices this rewrites (ADR-0042). In edit
+  // mode too: with a weight of 0, what a game that is not running leaves, it does nothing.
+  m_legIk = ecs.system("LegIkPass").kind(world.phase(Phase::PreRender)).immediate().run([this](flecs::iter &it) {
+    legIk(it.delta_time());
+  });
   m_palette =
       ecs.system("SkinPalette").kind(world.phase(Phase::PreRender)).immediate().run([this](flecs::iter &) { pose(); });
   SONNET_LOG_DEBUG("animation ready");
@@ -65,7 +107,9 @@ AnimationSystem::AnimationSystem(World &world, assets::AssetDatabase &assets) : 
 
 AnimationSystem::~AnimationSystem() {
   m_palette.destruct();
+  m_legIk.destruct();
   m_playback.destruct();
+  m_legged.destruct();
   m_skinned.destruct();
   m_animators.destruct();
 }
@@ -432,6 +476,296 @@ void AnimationSystem::collectEvents(flecs::entity entity, const Active &active) 
     }
     if (crossed) {
       m_events.push_back({.entity = entity.id(), .time = t, .name = event.name, .argument = event.argument});
+    }
+  }
+}
+
+void AnimationSystem::legIk(float dt) {
+  SONNET_ZONE();
+  flecs::world &ecs = m_world.ecs();
+  ++m_legFrame;
+  ecs.defer_suspend();
+  m_entities.clear();
+  m_legged.each([&](flecs::entity entity) { m_entities.push_back(entity); });
+  for (const flecs::entity entity : m_entities) {
+    // A copy: the pass writes other entities' world transforms while it reads this.
+    const LegIk *current = entity.try_get<LegIk>();
+    if (current != nullptr) {
+      const LegIk ik = *current;
+      legIkOf(entity, ik, dt);
+    }
+  }
+  ecs.defer_resume();
+  prune(m_legStates, m_legFrame);
+}
+
+bool AnimationSystem::bindLegs(flecs::entity entity, const LegIk &ik, LegState &state) {
+  const flecs::world &ecs = m_world.ecs();
+  const auto matches = [&] {
+    if (state.paths.size() != 1 + 3 * ik.legs.size() || state.legs.size() != ik.legs.size() ||
+        state.paths[0] != ik.pelvis || (state.pelvis != 0 && !ecs.is_alive(state.pelvis))) {
+      return false;
+    }
+    for (std::size_t i = 0; i < ik.legs.size(); ++i) {
+      const LegBinding &leg = state.legs[i];
+      if (state.paths[1 + 3 * i] != ik.legs[i].thigh || state.paths[2 + 3 * i] != ik.legs[i].calf ||
+          state.paths[3 + 3 * i] != ik.legs[i].foot ||
+          (leg.usable && (!ecs.is_alive(leg.thigh) || !ecs.is_alive(leg.calf) || !ecs.is_alive(leg.foot)))) {
+        return false;
+      }
+    }
+    return true;
+  };
+  if (matches()) {
+    return state.pelvis != 0;
+  }
+
+  state.paths.clear();
+  state.paths.push_back(ik.pelvis);
+  for (const IkLeg &leg : ik.legs) {
+    state.paths.insert(state.paths.end(), {leg.thigh, leg.calf, leg.foot});
+  }
+  state.known = false; // what eased is not for these bones
+  state.legs.assign(ik.legs.size(), LegBinding{});
+  const flecs::entity pelvis = ik.pelvis.empty() ? flecs::entity{} : m_world.findByPath(entity, ik.pelvis);
+  state.pelvis = pelvis ? pelvis.id() : 0;
+  if (!pelvis) {
+    SONNET_LOG_WARN("{}: leg IK: the pelvis \"{}\" is not under it, no leg is moved", describe(entity), ik.pelvis);
+    return false;
+  }
+  const auto find = [&](const std::string &path) {
+    return path.empty() ? flecs::entity{} : m_world.findByPath(entity, path);
+  };
+  for (std::size_t i = 0; i < ik.legs.size(); ++i) {
+    const IkLeg &source = ik.legs[i];
+    const flecs::entity thigh = find(source.thigh);
+    const flecs::entity calf = find(source.calf);
+    const flecs::entity foot = find(source.foot);
+    if (!thigh || !calf || !foot || !m_world.isDescendant(thigh, pelvis) || !m_world.isDescendant(calf, thigh) ||
+        !m_world.isDescendant(foot, calf)) {
+      SONNET_LOG_WARN(
+          "{}: leg IK: leg {} (\"{}\", \"{}\", \"{}\") does not resolve to a thigh, a calf under it and a foot "
+          "under that, below the pelvis; it is skipped",
+          describe(entity), i, source.thigh, source.calf, source.foot);
+      continue;
+    }
+    state.legs[i].thigh = thigh.id();
+    state.legs[i].calf = calf.id();
+    state.legs[i].foot = foot.id();
+    state.legs[i].usable = true;
+  }
+  return true;
+}
+
+AnimationSystem::Rest AnimationSystem::restHeight(flecs::entity root, const std::string &foot, float &height) {
+  bool waiting = false;
+  bool found = false;
+  m_skinned.each([&](flecs::entity mesh) {
+    if (found || !m_world.isDescendant(mesh, root)) {
+      return;
+    }
+    const SkinnedMesh *skinned = mesh.try_get<SkinnedMesh>();
+    const assets::Skin *skin = skinned != nullptr ? m_assets.requestSkin(skinned->skin) : nullptr;
+    if (skin == nullptr) {
+      waiting = true;
+      return;
+    }
+    const auto joint = std::ranges::find(skin->joints, foot);
+    if (joint == skin->joints.end()) {
+      return;
+    }
+    const auto index = static_cast<std::size_t>(joint - skin->joints.begin());
+    if (index < skin->inverseBindMatrices.size()) {
+      height = glm::inverse(skin->inverseBindMatrices[index])[3].y;
+      found = true;
+    }
+  });
+  return found ? Rest::Known : waiting ? Rest::Waiting : Rest::Missing;
+}
+
+// ADR-0042. The pass reads the joints' world matrices the transform system just wrote and the
+// ground the game wrote into the component, eases what it keeps, and moves the pelvis subtree's
+// world matrices; the local Transforms stay as the clips posed them.
+void AnimationSystem::legIkOf(flecs::entity entity, const LegIk &ik, float dt) {
+  flecs::world &ecs = m_world.ecs();
+  LegState &state = m_legStates[entity.id()];
+  state.frame = m_legFrame;
+  const WorldTransform *rootWorld = entity.try_get<WorldTransform>();
+  if (rootWorld == nullptr) {
+    return;
+  }
+  const glm::vec3 origin{rootWorld->matrix[3]};
+  if (!bindLegs(entity, ik, state)) {
+    state.weight = 0.0f;
+    return;
+  }
+  // The first frame, a rebound set of bones and a teleport take their values at once.
+  const bool fresh = !state.known || glm::distance(origin, state.origin) > TeleportDistance;
+  state.known = true;
+  state.origin = origin;
+  const float alpha = fresh ? 1.0f : easing(dt, ik.smoothing);
+  const glm::vec3 up{0.0f, 1.0f, 0.0f};
+
+  // Written as a negation so a NaN weight counts as none.
+  const float wanted = !(ik.weight > 0.0f) ? 0.0f : std::min(ik.weight, 1.0f);
+  state.weight += (wanted - state.weight) * alpha;
+
+  m_legWork.clear();
+  float dropWanted = 0.0f;
+  for (std::size_t i = 0; i < ik.legs.size(); ++i) {
+    LegBinding &leg = state.legs[i];
+    const IkLeg &source = ik.legs[i];
+    if (!leg.usable) {
+      continue;
+    }
+    const WorldTransform *thigh = flecs::entity{ecs, leg.thigh}.try_get<WorldTransform>();
+    const WorldTransform *calf = flecs::entity{ecs, leg.calf}.try_get<WorldTransform>();
+    const WorldTransform *foot = flecs::entity{ecs, leg.foot}.try_get<WorldTransform>();
+    if (thigh == nullptr || calf == nullptr || foot == nullptr) {
+      continue;
+    }
+    LegWork work{.index = i,
+                 .hip = glm::vec3{thigh->matrix[3]},
+                 .knee = glm::vec3{calf->matrix[3]},
+                 .ankle = glm::vec3{foot->matrix[3]}};
+
+    // Planted: the animated ankle within `plantHeight` of its bind-pose height, off by `liftHeight`.
+    if (!leg.restKnown && !leg.restMissing) {
+      float height = 0.0f;
+      switch (restHeight(entity, source.foot, height)) {
+      case Rest::Known:
+        leg.restHeight = height;
+        leg.restKnown = true;
+        break;
+      case Rest::Missing:
+        leg.restMissing = true;
+        SONNET_LOG_WARN("{}: leg IK: no skin under it has \"{}\", so that foot counts as planted all the time",
+                        describe(entity), source.foot);
+        break;
+      case Rest::Waiting:
+        break;
+      }
+    }
+    if (leg.restKnown) {
+      const float lift = work.ankle.y - origin.y - leg.restHeight;
+      work.contact = 1.0f - smoothStep(ik.plantHeight, ik.liftHeight, lift);
+    }
+
+    // The ground: what the game's query found, eased. A foot with no ground keeps what it had while
+    // its trust fades, and one that comes back after being gone takes the new ground at once.
+    const bool grounded =
+        source.grounded && std::isfinite(source.groundPoint.y) && std::isfinite(glm::length(source.groundNormal));
+    float rawOffset = leg.offset;
+    if (grounded) {
+      rawOffset = source.groundPoint.y - origin.y;
+      const float normalLength = glm::length(source.groundNormal);
+      const glm::vec3 normal = normalLength > 1.0e-4f ? source.groundNormal / normalLength : up;
+      if (fresh || leg.ground < 0.01f) {
+        leg.offset = rawOffset;
+        leg.normal = normal;
+      } else {
+        leg.offset += (rawOffset - leg.offset) * alpha;
+        const glm::vec3 eased = leg.normal + (normal - leg.normal) * alpha;
+        const float easedLength = glm::length(eased);
+        leg.normal = easedLength > 1.0e-4f ? eased / easedLength : up;
+      }
+    }
+    leg.ground = fresh ? (grounded ? 1.0f : 0.0f) : leg.ground + ((grounded ? 1.0f : 0.0f) - leg.ground) * alpha;
+    dropWanted = std::max(dropWanted, std::max(0.0f, -rawOffset) * work.contact * leg.ground);
+    m_legWork.push_back(work);
+  }
+  const float dropLimit = ik.maxPelvisDrop > 0.0f ? ik.maxPelvisDrop : 0.0f;
+  state.drop += (std::min(dropWanted, dropLimit) - state.drop) * alpha;
+
+  if (!(state.weight >= IkMinWeight)) {
+    state.weight = wanted > 0.0f ? state.weight : 0.0f;
+    return;
+  }
+
+  // The pelvis drops by the lower foot's offset; it never rises, the raised foot bends instead.
+  const float drop = state.weight * state.drop > IkMinShift ? state.weight * state.drop : 0.0f;
+  const glm::mat4 dropped = glm::translate(glm::mat4{1.0f}, -up * drop);
+  const glm::vec3 forward = glm::normalize(glm::vec3{rootWorld->matrix * glm::vec4{0.0f, 0.0f, -1.0f, 0.0f}});
+  std::size_t kept = 0;
+  for (LegWork &work : m_legWork) {
+    const LegBinding &leg = state.legs[work.index];
+    const glm::vec3 hip = work.hip - up * drop;
+    const glm::vec3 knee = work.knee - up * drop;
+    const glm::vec3 ankle = work.ankle - up * drop;
+    // The foot asks for its ground's height above where the animation planted it, by how much it
+    // is planted and trusted; ground the leg cannot reach, even with the pelvis dropped, is faded
+    // out and the foot left as animated (the solver would only clamp it).
+    const float planted = state.weight * work.contact * leg.ground;
+    float offset = planted * leg.offset;
+    const float length = glm::length(work.knee - work.hip) + glm::length(work.ankle - work.knee);
+    const float distance = glm::distance(work.ankle + up * offset, hip);
+    const float reach = 1.0f - smoothStep(0.999f * length, 1.04f * length, distance);
+    offset *= reach;
+    const glm::quat tilt = footTilt(up, leg.normal, ik.maxFootAngle, planted * reach);
+    const bool shifted = drop > 0.0f || std::abs(offset) > IkMinShift;
+    if (!shifted && !(glm::angle(tilt) > IkMinAngle)) {
+      continue;
+    }
+    TwoBone solved{.knee = knee, .ankle = ankle};
+    if (shifted) {
+      const glm::vec3 target = work.ankle + up * offset;
+      solved = solveTwoBone(hip, knee, ankle, target, kneePole(hip, knee, target, forward), 1.0f);
+    }
+    work.thigh = turnAbout(solved.upper, hip) * dropped;
+    work.calf = turnAbout(solved.lower, solved.knee) * work.thigh;
+    // The foot keeps the orientation the animation gave it in the world, not the shin's turn: it only
+    // moves to the new ankle and then tilts to the ground, so a sole that was flat stays flat.
+    work.foot = turnAbout(tilt, solved.ankle) * glm::translate(glm::mat4{1.0f}, solved.ankle - ankle) * dropped;
+    m_legWork[kept++] = work;
+  }
+  m_legWork.resize(kept);
+  if (drop == 0.0f && m_legWork.empty()) {
+    return;
+  }
+
+  // The pelvis' subtree, parents first, then each node's move: the pelvis' drop, which every
+  // node below inherits, and a leg's own bones on top of it.
+  m_legNodes.clear();
+  const flecs::entity pelvis{ecs, state.pelvis};
+  const WorldTransform *pelvisWorld = pelvis.try_get<WorldTransform>();
+  if (pelvisWorld == nullptr) {
+    return;
+  }
+  m_legNodes.push_back({.entity = pelvis.id(), .parent = 0, .matrix = pelvisWorld->matrix});
+  for (std::size_t i = 0; i < m_legNodes.size(); ++i) {
+    flecs::entity{ecs, m_legNodes[i].entity}.children([&](flecs::entity child) {
+      const WorldTransform *world = child.try_get<WorldTransform>();
+      if (world != nullptr) {
+        m_legNodes.push_back({.entity = child.id(), .parent = static_cast<std::uint32_t>(i), .matrix = world->matrix});
+      }
+    });
+  }
+  for (std::size_t i = 0; i < m_legNodes.size(); ++i) {
+    LegNode &node = m_legNodes[i];
+    if (i == 0) {
+      node.delta = dropped;
+      node.moved = drop > 0.0f;
+    } else {
+      node.delta = m_legNodes[node.parent].delta;
+      node.moved = m_legNodes[node.parent].moved;
+    }
+    for (const LegWork &work : m_legWork) {
+      const LegBinding &leg = state.legs[work.index];
+      if (node.entity == leg.thigh) {
+        node.delta = work.thigh;
+      } else if (node.entity == leg.calf) {
+        node.delta = work.calf;
+      } else if (node.entity == leg.foot) {
+        node.delta = work.foot;
+      } else {
+        continue;
+      }
+      node.moved = true;
+    }
+  }
+  for (const LegNode &node : m_legNodes) {
+    if (node.moved) {
+      flecs::entity{ecs, node.entity}.set<WorldTransform>(WorldTransform{node.delta * node.matrix});
     }
   }
 }
