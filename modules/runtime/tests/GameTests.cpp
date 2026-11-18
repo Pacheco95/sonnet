@@ -2565,7 +2565,7 @@ TEST_CASE("the character sample's feet meet the step edge and the ramp, and leg 
       const std::string name = side == 0 ? "l" : "r";
       const std::string foot = std::format("Armature/Root/pelvis/thigh_{0}/calf_{0}/foot_{0}", name);
       stage.feet[side] = world.findByPath(stage.model, foot);
-      stage.toes[side] = world.findByPath(stage.model, foot + "/ball_" + name);
+      stage.toes[side] = world.findByPath(stage.model, std::format("{}/ball_{}", foot, name));
       REQUIRE(stage.feet[side].is_valid());
       REQUIRE(stage.toes[side].is_valid());
     }
