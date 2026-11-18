@@ -788,6 +788,9 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   desc.transmissionSampler = source.transmissionSampler;
   desc.doubleSided = source.doubleSided;
   desc.unlit = source.unlit;
+  desc.shading = source.shading;
+  desc.subsurface = source.subsurface;
+  desc.subsurfaceRadius = source.subsurfaceRadius;
   return desc;
 }
 

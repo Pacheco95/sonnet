@@ -441,6 +441,45 @@ TEST_CASE("a transmissive material cooks with its transmission slot and resolves
   REQUIRE(renderer::mayTransmit(desc));
 }
 
+TEST_CASE("a Skin material cooks with its shading fields and resolves in the player", "[assets][cook][material]") {
+  ProjectFixture fixture;
+  const std::filesystem::path out = fixture.root / "export";
+  core::Uuid skinId;
+  MaterialSource skin;
+  skin.metallic = 0.0f;
+  skin.shading = renderer::ShadingModel::Skin;
+  skin.subsurface = 0.6f;
+  skin.subsurfaceRadius = 0.0025f;
+  {
+    AssetDatabase database{fixture.renderer, fixture.jobs};
+    database.open(fixture.root, fixture.project.assetRoots);
+    const auto created = database.createMaterial(fixture.root / "assets" / "skin.material.json", skin);
+    REQUIRE(created.has_value());
+    skinId = *created;
+    REQUIRE(database.saveMaterial(skinId).has_value());
+    REQUIRE(cook(database, fixture.project, {.outputDirectory = out, .platform = CookPlatform::Linux}).has_value());
+  }
+  {
+    // The file it was cooked from reads back the same.
+    AssetDatabase reopened{fixture.renderer, fixture.jobs};
+    reopened.open(fixture.root, fixture.project.assetRoots);
+    REQUIRE(*reopened.materialSource(skinId) == skin);
+  }
+
+  AssetDatabase player{fixture.renderer, fixture.jobs};
+  REQUIRE(player.openBundle(out / "game.sbundle").has_value());
+  const MaterialSource *cooked = player.materialSource(skinId);
+  REQUIRE(cooked != nullptr);
+  REQUIRE(*cooked == skin);
+  const renderer::MaterialHandle handle = player.material(skinId);
+  REQUIRE(fixture.renderer.isValid(handle));
+  player.waitForLoads();
+  const renderer::MaterialDesc &desc = fixture.renderer.material(handle);
+  REQUIRE(desc.shading == renderer::ShadingModel::Skin);
+  REQUIRE(desc.subsurface == Approx(0.6f));
+  REQUIRE(desc.subsurfaceRadius == Approx(0.0025f));
+}
+
 TEST_CASE("a font cooks as the file itself, with its preload ranges, into the current bundle version",
           "[assets][cook][font]") {
   ProjectFixture fixture;
@@ -490,8 +529,8 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
   // The header says version 20.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 20);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 20);
+  REQUIRE(BundleVersion == 21);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 21);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {

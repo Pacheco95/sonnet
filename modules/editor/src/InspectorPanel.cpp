@@ -79,6 +79,9 @@ bool containsIgnoringCase(std::string_view text, std::string_view needle) {
 }
 
 constexpr std::array<const char *, 3> AlphaModeNames{"Opaque", "Mask", "Blend"};
+constexpr std::array<const char *, 2> ShadingModelNames{"Standard", "Skin"};
+// Skin's radius is shown in millimetres of surface per millimetre of the skin profile.
+constexpr float MillimetresPerMetre = 1000.0f;
 constexpr std::array<const char *, 3> WrapNames{"Repeat", "ClampToEdge", "MirroredRepeat"};
 constexpr std::array<const char *, 2> UvSetNames{"0", "1"};
 constexpr float UvDragSpeed = 0.01f;
@@ -461,6 +464,18 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   }
   if (ImGui::Checkbox("Unlit", &edited.unlit)) {
     picked = true;
+  }
+  // ADR-0041: the model, and Skin's two fields while it is Skin.
+  picked = drawEnumCombo("Shading", edited.shading, ShadingModelNames) || picked;
+  if (edited.shading == renderer::ShadingModel::Skin) {
+    ImGui::SliderFloat("Subsurface", &edited.subsurface, 0.0f, 1.0f);
+    track();
+    float radius = edited.subsurfaceRadius * MillimetresPerMetre;
+    if (ImGui::SliderFloat("Scatter radius", &radius, 0.0f, renderer::MaxSubsurfaceRadius * MillimetresPerMetre,
+                           "%.2f mm")) {
+      edited.subsurfaceRadius = radius / MillimetresPerMetre;
+    }
+    track();
   }
   const auto texture = [&](const char *label, core::Uuid &value, renderer::TextureTransform &transform,
                            renderer::TextureSampler &sampler) {

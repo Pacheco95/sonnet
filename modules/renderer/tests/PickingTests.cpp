@@ -126,9 +126,9 @@ TEST_CASE("the id and outline passes record over the scene and the picker copies
   REQUIRE(countLines(*device, "barrier \"mask\" ColorAttachment->ShaderReadOnly") == 1);
   REQUIRE(renderer.statistics().drawCount == 2);         // the id and mask passes are not counted
   REQUIRE(renderer.statistics().indirectCallCount == 2); // nor are their indirect calls
-  // The lookup table, the scene's cull, depth, clustering, forward, tonemap, the id cull and the
-  // id pass, the mask cull and the mask pass, the outline and the readback.
-  REQUIRE(graph.statistics().passes.size() == 12);
+  // The BRDF and skin lookup tables, the scene's cull, depth, clustering, forward, tonemap, the id
+  // cull and the id pass, the mask cull and the mask pass, the outline and the readback.
+  REQUIRE(graph.statistics().passes.size() == 13);
 
   // The answer arrives when the slot comes round, FramesInFlight frames later; the null device's
   // memory reads as zero.

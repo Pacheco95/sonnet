@@ -97,6 +97,10 @@ public static const uint MaterialUnlit = 1u << 9; // KHR_materials_unlit: no lig
 // On the transmission path (ADR-0033): lit, transmission above 0, and not provably metal. The draw is
 // blended, and its coverage is a * (1 - T) in the forward pass and the shadows.
 public static const uint MaterialTransmissive = 1u << 10;
+// The shading model in bits 11-12 (ADR-0041). The forward pass does not read it: each model has an
+// entry point and pipelines of its own.
+public static const uint ShadingStandard = 0;
+public static const uint ShadingSkin = 1;
 // A material's texture slots, as the bits of MaterialData::uvSets.
 public static const uint SlotBaseColor = 0;
 public static const uint SlotMetallicRoughness = 1;
@@ -137,6 +141,9 @@ public struct MaterialData {
   public float2 occlusionUvOffset;
   public float2 emissiveUvOffset;
   public float2 transmissionUvOffset;
+  // The shading model's row (ADR-0041). Skin: x the subsurface weight, y the radius in metres per
+  // millimetre of the skin profile; z and w are reserved.
+  public float4 shading;
 };
 
 // A texture slot's UV: its 2x2 matrix by rows, then its offset (KHR_texture_transform).
@@ -210,7 +217,7 @@ public struct FrameConstants {
   public uint transmissionImage; // the opaque scene's mip chain for transmissive surfaces, 0xFFFFFFFF without one
   public uint contactShadowImage; // the sun's contact visibility mask (ADR-0039), 0xFFFFFFFF without one
   public uint ambientOcclusionImage; // the R8 visibility mask of screen-space ambient occlusion, 0xFFFFFFFF without one
-  public uint ambientOcclusionPadding;
+  public uint skinLut; // the pre-integrated skin diffuse, n.l by curvature (ADR-0041)
   // The object index of every instance a draw submits, at its first instance plus its instance
   // index: the culling pass's runs for the indirect draws, the direct range for the rest
   // (ADR-0016). A pointer is allowed here, in a uniform block, and not in a storage-buffer struct.

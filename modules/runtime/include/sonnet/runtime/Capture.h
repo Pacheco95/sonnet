@@ -58,6 +58,9 @@ struct CaptureOptions {
   // ambientOcclusionReduced.
   std::optional<bool> ambientOcclusion;
   bool ambientOcclusionReduced{false};
+  // --character-shading: RendererSettings::characterShading for the run, over the player's platform
+  // default; the player's only. Off draws Skin materials as Standard (ADR-0041).
+  std::optional<bool> characterShading;
   // --headless: the player draws through SDL's offscreen video driver into an OffscreenSwapchain, so
   // no window shows and no display or compositor paces the frames (docs/player.md, "Headless runs");
   // the player's only, on the desktop.

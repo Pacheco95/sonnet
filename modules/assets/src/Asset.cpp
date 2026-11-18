@@ -1,5 +1,6 @@
 #include <sonnet/assets/Asset.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <format>
@@ -283,6 +284,9 @@ json saveMaterial(const MaterialSource &material) {
       {"samplers", std::move(samplers)},
       {"doubleSided", material.doubleSided},
       {"unlit", material.unlit},
+      {"shading", material.shading == renderer::ShadingModel::Skin ? "Skin" : "Standard"},
+      {"subsurface", material.subsurface},
+      {"subsurfaceRadius", material.subsurfaceRadius},
       {"textures", std::move(textures)},
       {"transforms", std::move(transforms)},
   };
@@ -313,6 +317,14 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
   material.transmission = document.value("transmission", material.transmission);
   material.doubleSided = document.value("doubleSided", material.doubleSided);
   material.unlit = document.value("unlit", material.unlit);
+  // Version 7 adds the shading model (ADR-0041); an older file is Standard, with the defaults.
+  if (version >= 7) {
+    material.shading = document.value("shading", std::string{"Standard"}) == "Skin" ? renderer::ShadingModel::Skin
+                                                                                    : renderer::ShadingModel::Standard;
+    material.subsurface = std::clamp(document.value("subsurface", material.subsurface), 0.0f, 1.0f);
+    material.subsurfaceRadius =
+        std::clamp(document.value("subsurfaceRadius", material.subsurfaceRadius), 0.0f, renderer::MaxSubsurfaceRadius);
+  }
   const std::string alphaMode = document.value("alphaMode", std::string{"Opaque"});
   material.alphaMode = alphaMode == "Blend"  ? renderer::AlphaMode::Blend
                        : alphaMode == "Mask" ? renderer::AlphaMode::Mask
