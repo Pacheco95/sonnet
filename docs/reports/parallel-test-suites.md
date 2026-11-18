@@ -92,3 +92,28 @@ From the jobs' timing artifacts (`tools/test_timings.py --baseline`):
 - **The net is within the noise.** The three Linux Test steps averaged 840 s sharded against 921 s unsharded (−9%), but the unsharded side is one run, and Linux GCC was slower in all three sharded runs. That does not pay for two more test registrations, `COST` values that drift as the suites grow, and a suite that no longer runs as one CTest test.
 
 The measurement logs are in `~/sonnet-measurements/469-editor-shards/` on the measuring machine. Shortening `editor_tests` itself, or finding what its two processes contend for, would come before trying the split again. The first of those is done: building a renderer's pipelines side by side took 13% off `editor_tests` in Debug and 18% under ASan ([renderer-init-in-tests](renderer-init-in-tests.md), [#470](https://github.com/Pacheco95/sonnet/issues/470)).
+
+## Sanitizer limits
+
+[#619](https://github.com/Pacheco95/sonnet/issues/619). With two suites at a time, ASan's `editor_tests` runs beside another suite for its whole length, and on 2026-11-18 it timed out twice at its 600 s limit on commits that had not made it slower: PR #615 (run 44316520676, 600 s; a rerun of the same commit passed in 396 s) and PR #618, a documentation change (job 135021332764, 601 s). Runner speed moved every suite in that job by about 1.6 times, the ones without a GPU included. The runner image differed (20261111.370.1 against 20261111.127.1), but the Mesa version did not explain it: the #615 rerun and the #618 job both used Ubuntu's Mesa 25.2.8 and one passed, one timed out.
+
+| Suite | `main` (job 134505770055), s | #615 rerun (134914238612), s | #618 (135021332764), s |
+|---|--:|--:|--:|
+| `core_tests` | 0.41 | 0.38 | 0.47 |
+| `world_tests` | 4.9 | 5.3 | 8.6 |
+| `gui_tests` | 2.1 | 2.0 | 3.3 |
+| `renderer_tests` | 134 | 187 | 273 |
+| `runtime_tests` | 218 | 215 | 341 |
+| `editor_tests` | 371 | 396 | 601 (timeout) |
+
+Decision, the issue's first option only: a build with `SONNET_SANITIZERS` or `SONNET_THREAD_SANITIZER` multiplies every suite's CTest `TIMEOUT` by `SONNET_SANITIZER_TIMEOUT_FACTOR`, 2, set in `cmake/SonnetOptions.cmake` and applied in `sonnet_add_module_test`. One factor in the helper, not a per-suite condition, because the table shows the same exposure elsewhere: `renderer_tests` took 273 s of its 300 s default and `runtime_tests` 341 s of 600 s in the slow job. The limits become:
+
+| Suite | Debug limit, s | Sanitizer limit, s | Slowest run, s | Headroom |
+|---|--:|--:|--:|--:|
+| `editor_tests` | 600 | 1200 | 601 | 2.0 times |
+| `runtime_tests` | 600 | 1200 | 341 | 3.5 times |
+| `renderer_tests` | 300 | 600 | 273 | 2.2 times |
+
+Why 2, not the 1.5 of 900 s the issue named: 900 s is 1.5 times the 601 s that a bad runner needed, and that run was cut off by the limit, so it needed at least that long. 1200 s keeps the 2 times that the limits beside `editor_tests` and `runtime_tests` have always claimed, measured against the slowest run seen, and 3 times the typical 371 to 396 s. The Debug limits are unchanged, so a Debug or Release job still fails at 600 s: they are the regression guard for the suite's own speed, and the Linux GCC and Clang jobs run `editor_tests` in about 195 to 360 s. The price is that a real hang in a sanitizer job takes ten minutes longer to fail; the job's 60 minute `timeout-minutes` is far above it. The TSan job skips the GPU cases and runs its suites in under a minute, so its factor changes nothing in practice.
+
+Not done: making `editor_tests` faster under ASan (the issue's second option, a measured change of its own, continuing [renderer-init-in-tests](renderer-init-in-tests.md)) and sharding it again (the third, see [Editor shards](#editor-shards)).
