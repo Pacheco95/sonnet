@@ -159,7 +159,7 @@ The array must be a sequence: a key that is not a whole number from 1 up (`name`
 | `has(component)`, `add(component)`, `remove(component)` | Presence, adding with default values, removal |
 | `parent()`, `children()` | The parent or `nil`; an array of the children |
 | `child(path)` | The descendant at a `/`-separated path of names (`cart:child("Axle/Hub")`), the first child of each name in sibling order, or `nil`; an instance's parts keep their prefab names unless renamed, so a path written against a prefab works on every instance of it ([ADR-0028](decisions/0028-nested-scene-instances.md)); reordering two children of the same name on an instance, or applying such an order to its prefab, changes which one a path finds ([ADR-0032](decisions/0032-instance-child-order.md)), and applying a rename to a prefab ([editor.md](editor.md#applying-to-a-prefab)) changes the path on every instance that follows it |
-| `worldPosition()` | A `vec3` from the hierarchy, current even before the transform system has run |
+| `worldPosition()` | A `vec3` from the hierarchy's local `Transform`s, current even before the transform system has run. It is the animated pose: leg IK rewrites the world matrices of a model's pelvis subtree in `PreRender` and leaves the `Transform`s alone, so a foot's `worldPosition()` is where the clip put it, before the pass, which is where a ground query for it should start ([Sound and animation](#sound-and-animation)) |
 | `destroy()` | Destroys it and its children |
 
 Entities compare equal when they are the same entity. An unknown component name raises an error.
@@ -235,6 +235,26 @@ Commands take effect in the next fixed step, wherever they are called. A move se
 ### Sound and animation
 
 `audio` and the animation systems are driven by components, so a script reaches them through `get` and `set` like anything else (ADR-0010): `self.entity:set("AudioSource", { playing = true })` rings a sound that has ended, and `set("Animator", { clip = ..., time = 0 })` switches or restarts a clip; with a `fade` above zero in the same `set`, the clip it replaces fades out over that many seconds instead of cutting. There is no table for either, only the `onAnimationEvent` hook.
+
+Leg IK is the same: the game's half is data written into the `LegIk` component, and the engine's half is a pass in `PreRender` ([world.md](world.md#leg-ik), [ADR-0042](decisions/0042-leg-ik.md)). In `lateUpdate`, after the animated pose is final and before the pass, a script casts a ray under each foot and writes where it hit, so the ground query, and what it ignores, stays the game's:
+
+```lua
+local ik = self.entity:get("LegIk")
+ik.weight = grounded and 1 or 0 -- the engine eases it, so IK fades out in a jump and back in on landing
+for i, foot in ipairs(feet) do
+  local ankle = foot:worldPosition() -- the animated foot: the pass rewrites world matrices, not Transforms
+  local hit = physics.raycast(vec3(ankle.x, top, ankle.z), vec3(0, -1, 0), reach, self.character)
+  local leg = ik.legs[i]
+  if hit ~= nil then
+    leg.groundPoint, leg.groundNormal, leg.grounded = hit.point, hit.normal, true
+  else
+    leg.grounded = false
+  end
+end
+self.entity:set("LegIk", ik)
+```
+
+The character sample's `feet.lua` is this, on the humanoid.
 
 ### Game UI
 

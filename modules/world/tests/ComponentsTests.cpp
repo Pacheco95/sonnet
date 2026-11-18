@@ -1,4 +1,5 @@
 #include <sonnet/world/Components.h>
+#include <sonnet/world/Scene.h>
 #include <sonnet/world/World.h>
 
 #include <catch2/catch_approx.hpp>
@@ -108,4 +109,56 @@ TEST_CASE("angle members carry the radians unit for the inspector", "[world][com
   REQUIRE(members[0].type == world.ecs().id<float>());
   REQUIRE(std::string_view{members[1].name} == "nearPlane");
   REQUIRE(members[1].unit == 0);
+}
+
+TEST_CASE("leg IK components round-trip through JSON and a scene with the foot angle in radians",
+          "[world][components][legik]") {
+  world::World world;
+  const world::ComponentInfo *info = world.findComponent("LegIk");
+  REQUIRE(info != nullptr);
+  const flecs::entity entity = world.createEntity("model");
+  world::LegIk ik{.weight = 0.75f, .pelvis = "Armature/pelvis", .maxPelvisDrop = 0.2f, .smoothing = 0.1f};
+  ik.legs = {{.thigh = "Armature/pelvis/thigh_l",
+              .calf = "Armature/pelvis/thigh_l/calf_l",
+              .foot = "Armature/pelvis/thigh_l/calf_l/foot_l",
+              .groundPoint = {1.0f, 0.2f, 3.0f},
+              .groundNormal = {0.0f, 0.8f, 0.6f},
+              .grounded = true},
+             {.thigh = "Armature/pelvis/thigh_r"}};
+  entity.set<world::LegIk>(ik);
+
+  const nlohmann::json json = world.componentToJson(entity, info->id);
+  REQUIRE(json["weight"].get<float>() == Approx(0.75f));
+  REQUIRE(json["pelvis"] == "Armature/pelvis");
+  REQUIRE(json["maxFootAngle"].get<float>() == Approx(0.5236f)); // radians in the file
+  REQUIRE(json["legs"].size() == 2);
+  REQUIRE(json["legs"][0]["groundPoint"][2].get<float>() == Approx(3.0f));
+  REQUIRE(json["legs"][0]["grounded"] == true);
+  REQUIRE(json["legs"][1]["groundNormal"][1].get<float>() == Approx(1.0f)); // the default
+  REQUIRE(json["legs"][1]["grounded"] == false);
+
+  const flecs::entity other = world.createEntity("copy");
+  world.componentFromJson(other, info->id, json);
+  REQUIRE(other.get<world::LegIk>() == ik);
+
+  // The inspector shows the angle in degrees through its unit.
+  const flecs::entity type{world.ecs(), info->id};
+  const flecs::Struct &layout = type.get<flecs::Struct>();
+  const auto *members = ecs_vec_first_t(&layout.members, ecs_member_t);
+  bool found = false;
+  for (std::int32_t i = 0; i < ecs_vec_count(&layout.members); ++i) {
+    if (std::string_view{members[i].name} == "maxFootAngle") {
+      REQUIRE(members[i].unit == world.ecs().id<flecs::units::angle::Radians>());
+      found = true;
+    }
+  }
+  REQUIRE(found);
+
+  // A scene keeps it, the legs' paths and the ground included.
+  const nlohmann::json scene = world::saveScene(world);
+  world::World loaded;
+  REQUIRE(world::loadScene(loaded, scene).has_value());
+  const flecs::entity model = loaded.find(world.uuidOf(entity));
+  REQUIRE(model);
+  REQUIRE(model.get<world::LegIk>() == ik);
 }

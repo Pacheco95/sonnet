@@ -464,7 +464,8 @@ def mesh_for(piece):
 # ---------------------------------------------------------------------------------------------
 
 MODEL = "assets/level/course.glb"
-SCRIPTS = {name: f"scripts/{name}.lua" for name in ("platform", "kill_volume", "character", "footsteps", "camera", "controls")}
+SCRIPTS = {name: f"scripts/{name}.lua"
+           for name in ("platform", "kill_volume", "character", "footsteps", "feet", "camera", "controls")}
 FONT = "assets/fonts/NotoSans-Regular.ttf"  # the basic sample's subset of Noto Sans (OFL 1.1), copied
 HUMANOID = "assets/character/humanoid.glb"
 CHARACTER_PREFAB = "prefabs/character.prefab.json"
@@ -603,6 +604,24 @@ def prefab_identity(index):
     return f"c4a20001-0000-4000-8000-{index:012x}"
 
 
+# Leg IK on the model (ADR-0042, issue #500): the humanoid's pelvis and legs as paths under it, which the engine
+# solves in PreRender, and the ground under each foot that scripts/feet.lua writes every frame. The ground's
+# fields start at their defaults; the limits are the component's own. The model carries the Animator, so the
+# paths are the ones its clips use.
+LEG_IK_ROOT = "Armature/Root/pelvis"
+
+
+def leg_ik():
+    def leg(side):
+        thigh = f"{LEG_IK_ROOT}/thigh_{side}"
+        calf = f"{thigh}/calf_{side}"
+        return {"thigh": thigh, "calf": calf, "foot": f"{calf}/foot_{side}", "groundPoint": [0, 0, 0],
+                "groundNormal": [0, 1, 0], "grounded": False}
+
+    return {"weight": 0.0, "pelvis": LEG_IK_ROOT, "maxPelvisDrop": 0.3, "maxFootAngle": 0.5236, "plantHeight": 0.025,
+            "liftHeight": 0.1, "smoothing": 0.08, "legs": [leg("l"), leg("r")]}
+
+
 def write_prefab():
     def slot(script, **properties):
         return {"script": asset_uuid(SCRIPTS[script]), "properties": properties}
@@ -620,7 +639,8 @@ def write_prefab():
         "Scripts": {"slots": [slot("character")]}}}]
     model = prefab_identity(2)
     entities.append({"uuid": model, "name": "Model", "parent": root, "prefab": asset_uuid(HUMANOID),
-                     "components": {"Transform": transform(), "Scripts": {"slots": [slot("footsteps")]}}})
+                     "components": {"Transform": transform(), "LegIk": leg_ik(),
+                                    "Scripts": {"slots": [slot("footsteps"), slot("feet")]}}})
     # The model's Body node (ADR-0030's name path) as this instance's descendant, its skin slot overridden.
     body = derive(model, derive(asset_uuid(HUMANOID), "path/Armature/Body"))
     entities.append({"uuid": body, "instanced": True,
@@ -693,6 +713,17 @@ CAPTURES = {
     # does not turn with it, follows: after 3 s, a quarter turn, the model has turned with the deck.
     "capture_turntable": {"start": (TURNTABLE["centre"][0] + 1.0, TURNTABLE["height"], TURNTABLE["centre"][2]),
                           "camera": {"yaw": 140.0, "pitch": -18.0, "distance": 4.5}, "seconds": 3},
+    # Leg IK (ADR-0042, issue #500). Straddling the edge of the first 0.2 m step, facing east: the left foot on the
+    # step, the right on the floor in front of it, seen from the south-east.
+    "capture_step": {"start": (-11.25, 0.2, 8.0), "yaw": -90.0, "camera": {"yaw": 65.0, "pitch": -6.0, "distance": 3.0,
+                                                                        "height": 0.8}, "seconds": 3},
+    # Standing across the 20 degree ramp, facing up it, seen from the east: both soles on the slope.
+    "capture_ramp": {"start": (-1.5, 0.8, 3.0), "camera": {"yaw": 90.0, "pitch": -6.0, "distance": 3.5, "height": 0.9},
+                     "seconds": 3},
+    # On the tread of the first 0.5 m step, facing its edge, seen from the south: ground a foot cannot reach is not
+    # claimed, and both soles are on the tread.
+    "capture_step_tall": {"start": (-7.8, 0.5, -1.0), "yaw": 90.0, "camera": {"yaw": 180.0, "pitch": -6.0, "distance": 3.0,
+                                                                              "height": 0.8}, "seconds": 3},
 }
 
 CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with a mouse button    look\nWheel    zoom\n"
@@ -700,7 +731,7 @@ CONTROLS = ("W A S D or arrows    move\nShift    walk\nSpace    jump\nDrag with 
 
 
 def write_scene(meshes, materials, character_prefab, file_name="main.scene.json", route=None, start=RESPAWN,
-                camera_properties=None, controls=True, contact_shadows=False):
+                camera_properties=None, controls=True, contact_shadows=False, yaw=None):
     entities = []
     counter = [0]
 
@@ -783,7 +814,8 @@ def write_scene(meshes, materials, character_prefab, file_name="main.scene.json"
     entity("Kill volume", (0.0, -12.0, -5.0), None, None,
            BoxCollider={"halfExtents": [80.0, 2.0, 80.0], "offset": [0, 0, 0]}, Trigger=None,
            Scripts={"slots": [{"script": asset_uuid(SCRIPTS["kill_volume"]), "properties": {"respawn": respawn}}]})
-    character = entity("Character", start)
+    # The capsule's yaw is where the model starts facing (scripts/character.lua reads it).
+    character = entity("Character", start, quat_yaw_pitch(math.radians(yaw)) if yaw is not None else None)
     entities[-1]["prefab"] = character_prefab
     for record in entities:
         if record["uuid"] == camera:
@@ -842,7 +874,7 @@ def write_level():
     for name, capture in CAPTURES.items():
         write_scene(meshes, materials, character, f"{name}.scene.json", route=capture.get("route"), start=capture["start"],
                     camera_properties=capture["camera"], controls=False,
-                    contact_shadows=capture.get("contact_shadows", False))
+                    contact_shadows=capture.get("contact_shadows", False), yaw=capture.get("yaw"))
     project = {"version": 2, "name": "Character", "engineVersion": engine_version(), "startScene": "scenes/main.scene.json",
                "assetRoots": ["assets", "scripts"]}
     (PROJECT / "project.json").write_text(json.dumps(project, indent=2) + "\n")
