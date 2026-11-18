@@ -63,6 +63,10 @@ public:
       return std::unexpected(
           captureError("--ambient-occlusion is the player's: the editor always permits what the camera asks"));
     }
+    if (options.characterShading) {
+      return std::unexpected(
+          captureError("--character-shading is the player's: the editor always draws the skin shading"));
+    }
     if (options.headless) {
       return std::unexpected(
           captureError("--headless is the player's: the editor's capture lays its panels out in a real window"));

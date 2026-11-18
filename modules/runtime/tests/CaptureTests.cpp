@@ -112,7 +112,7 @@ TEST_CASE("the editor and the player share one table", "[runtime][capture]") {
     REQUIRE(line.has_value() == option.player);
     players += option.player ? 1 : 0;
   }
-  REQUIRE(players == 11);
+  REQUIRE(players == 12);
   // The player's window is its scene, which its line for --screenshot says.
   REQUIRE(usage.contains("the scene, at the window's size"));
   REQUIRE(!usage.contains("viewport"));
@@ -158,6 +158,15 @@ TEST_CASE("--ambient-occlusion takes on, reduced or off", "[runtime][capture]") 
   const auto bad = player({"--ambient-occlusion", "yes", "--screenshot", "a.png"});
   REQUIRE_FALSE(bad.has_value());
   REQUIRE(bad.error().message.find("--ambient-occlusion") != std::string::npos);
+}
+
+TEST_CASE("--character-shading takes on or off", "[runtime][capture]") {
+  REQUIRE(player({"--character-shading", "on", "--screenshot", "a.png"})->capture->characterShading == true);
+  REQUIRE(player({"--character-shading", "off", "--screenshot", "a.png"})->capture->characterShading == false);
+  REQUIRE_FALSE(player({"--screenshot", "a.png"})->capture->characterShading.has_value());
+  const auto bad = player({"--character-shading", "skin", "--screenshot", "a.png"});
+  REQUIRE_FALSE(bad.has_value());
+  REQUIRE(bad.error().message.find("--character-shading") != std::string::npos);
 }
 
 TEST_CASE("--transmission takes on or off", "[runtime][capture]") {
