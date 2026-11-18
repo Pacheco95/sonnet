@@ -197,6 +197,38 @@ struct Animator {
   bool operator==(const Animator &) const = default;
 };
 
+// One leg of a LegIk (ADR-0042): the paths, under the Animator's entity, of its thigh, calf and
+// foot, and the ground under that foot, which the game writes every frame in world space.
+// `grounded` says the game's ground query hit; without it the foot is left as animated.
+struct IkLeg {
+  std::string thigh{};
+  std::string calf{};
+  std::string foot{};
+  glm::vec3 groundPoint{0.0f};
+  glm::vec3 groundNormal{0.0f, 1.0f, 0.0f};
+  bool grounded{false};
+  bool operator==(const IkLeg &) const = default;
+};
+
+// Leg IK for the humanoid under this entity, which carries the Animator (ADR-0042). In PreRender,
+// after the transform system and before the skin palettes, AnimationSystem rewrites the world
+// matrices (never the local Transforms) of the `pelvis` subtree: the pelvis drops to the lower
+// foot, each leg's two bones reach the foot's ground, and the foot turns to the ground's normal.
+// `weight` (0 to 1) is the overall weight, which a game fades towards 0 in the air. A foot counts
+// as planted while the animated ankle is within `plantHeight` of its height in the skin's bind
+// pose, and not at all from `liftHeight`. Everything eases over `smoothing` seconds of game time.
+struct LegIk {
+  float weight{0.0f};
+  std::string pelvis{};
+  float maxPelvisDrop{0.3f};   // m
+  float maxFootAngle{0.5236f}; // radians; the inspector shows degrees (30)
+  float plantHeight{0.025f};   // m
+  float liftHeight{0.1f};      // m
+  float smoothing{0.08f};      // s
+  std::vector<IkLeg> legs{};
+  bool operator==(const LegIk &) const = default;
+};
+
 // The weights of the morph targets of the entity's MeshRenderer mesh, in the mesh's order
 // (ADR-0023): the mesh draws deformed by each target's deltas times its weight. Animated by clips
 // with a Weights channel; a model's prefab starts them at the glTF file's weights.

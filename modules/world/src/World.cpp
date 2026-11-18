@@ -255,6 +255,23 @@ void World::registerComponents() {
       .member<bool>("rootMotion")
       .member<std::string>("rootBone")
       .member<std::vector<AnimationLayer>>("layers");
+  m_world.component<IkLeg>("IkLeg")
+      .member<std::string>("thigh")
+      .member<std::string>("calf")
+      .member<std::string>("foot")
+      .member<glm::vec3>("groundPoint")
+      .member<glm::vec3>("groundNormal")
+      .member<bool>("grounded");
+  registerVector<IkLeg>();
+  registerComponent<LegIk>("LegIk")
+      .member<float>("weight")
+      .member<std::string>("pelvis")
+      .member<float>("maxPelvisDrop")
+      .member<float, Radians>("maxFootAngle")
+      .member<float>("plantHeight")
+      .member<float>("liftHeight")
+      .member<float>("smoothing")
+      .member<std::vector<IkLeg>>("legs");
   m_world.component<ParticleBlendMode>("ParticleBlendMode");
   m_world.component<ParticleSpace>("ParticleSpace");
   registerComponent<ParticleEmitter>("ParticleEmitter")

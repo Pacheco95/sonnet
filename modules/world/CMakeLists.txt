@@ -6,6 +6,7 @@ sonnet_add_module(world
     src/Animation.cpp
     src/Components.cpp
     src/DrawList.cpp
+    src/LegIk.cpp
     src/Scene.cpp
     src/World.cpp
   PUBLIC_DEPENDS
@@ -19,6 +20,7 @@ sonnet_add_module_test(world
     tests/AnimationTests.cpp
     tests/ComponentsTests.cpp
     tests/DrawListTests.cpp
+    tests/LegIkTests.cpp
     tests/InstanceOverrideTests.cpp
     tests/NestedInstanceTests.cpp
     tests/RepeatedMembersTests.cpp
