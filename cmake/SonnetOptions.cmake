@@ -52,6 +52,15 @@ if(SONNET_THREAD_SANITIZER)
   add_link_options(-fsanitize=thread)
 endif()
 
+# A sanitizer build runs the test suites two to three times slower than the same build without one, and a hosted
+# runner another 1.6 times slower on a bad day (issue #619). sonnet_add_module_test multiplies each suite's CTest
+# TIMEOUT by this factor, so the Debug limit stays the regression guard and a sanitizer job's limit keeps twice
+# the headroom of the slowest run seen: ASan's editor_tests took 371 to 601 s against 600 s before it.
+set(SONNET_SANITIZER_TIMEOUT_FACTOR 1)
+if(SONNET_SANITIZERS OR SONNET_THREAD_SANITIZER)
+  set(SONNET_SANITIZER_TIMEOUT_FACTOR 2)
+endif()
+
 message(STATUS "Sonnet ${PROJECT_VERSION}: rhi=${SONNET_RHI} editor=${SONNET_BUILD_EDITOR} "
                "player=${SONNET_BUILD_PLAYER} tests=${SONNET_BUILD_TESTS} samples=${SONNET_BUILD_SAMPLES} "
                "tracy=${SONNET_ENABLE_TRACY} validation=${SONNET_ENABLE_VALIDATION} "

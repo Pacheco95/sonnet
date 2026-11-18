@@ -63,8 +63,9 @@ endfunction()
 #
 # Creates <name>_tests linked against sonnet::<name> and Catch2, registers it with CTest under the
 # label <name>, and allows including the module's src/ for white-box tests and tests/support for the
-# shared helpers in TestSupport.h. TIMEOUT (default 300) is the suite's limit; only a suite measured
-# to need more passes it, with the numbers beside it. COST is CTest's COST property: `ctest
+# shared helpers in TestSupport.h. TIMEOUT (default 300) is the suite's limit in a build without a
+# sanitizer; only a suite measured to need more passes it, with the numbers beside it. A sanitizer
+# build multiplies it by SONNET_SANITIZER_TIMEOUT_FACTOR (cmake/SonnetOptions.cmake). COST is CTest's COST property: `ctest
 # --parallel` starts the costliest suites first when it has no timings of its own from an earlier
 # run, which a CI build directory never has, so a suite that takes most of the run passes its
 # measured seconds and does not start last (docs/build.md, "Continuous integration").
@@ -77,6 +78,7 @@ function(sonnet_add_module_test NAME)
   if(NOT ARG_TIMEOUT)
     set(ARG_TIMEOUT 300)
   endif()
+  math(EXPR ARG_TIMEOUT "${ARG_TIMEOUT} * ${SONNET_SANITIZER_TIMEOUT_FACTOR}")
 
   find_package(Catch2 CONFIG REQUIRED)
   # TestSupport.cpp is compiled in rather than linked from a library so its static initialiser
