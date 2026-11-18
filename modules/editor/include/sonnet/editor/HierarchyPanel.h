@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sonnet/editor/CommandStack.h>
+#include <sonnet/editor/EntityCommands.h>
 #include <sonnet/editor/Selection.h>
 #include <sonnet/editor/TypeFilter.h>
 
@@ -52,6 +53,16 @@ public:
   void setApplyAllHandlers(std::function<bool(core::Uuid)> offered, std::function<void(core::Uuid)> apply) {
     m_applyAllOffered = std::move(offered);
     m_applyAll = std::move(apply);
+  }
+
+  // "Apply name" and "Apply order" on an entity (docs/editor.md, "Applying to a prefab"): the
+  // inspector's handlers (InspectorPanel::setApplyHandlers), so the menu offers them on the same
+  // entities, with the same targets, the same confirmation and the same undo. With several targets
+  // the item is a submenu of them, the rule's pick first. Without them neither is offered.
+  void setApplyHandlers(std::function<std::vector<ApplyChoice>(const ApplyRequest &)> choices,
+                        std::function<void(ApplyRequest)> apply) {
+    m_applyChoices = std::move(choices);
+    m_apply = std::move(apply);
   }
 
   void draw(bool &open);
@@ -106,6 +117,9 @@ private:
   void drawBackgroundMenu();
   void drawCreateMenu(core::Uuid parent);
   void drawContextMenu(flecs::entity entity);
+  // A context-menu item for `request`, offered when it has a target: one item, or a submenu of the
+  // targets when there are several.
+  void drawApplyItem(const char *label, const ApplyRequest &request);
   // `row` is the row the drop target belongs to, null for the empty area below the tree; `openParent`
   // says the row shows its children, so a drop on its lower edge goes first among them.
   void acceptDrop(flecs::entity row, bool openParent);
@@ -120,6 +134,8 @@ private:
   std::function<void(core::Uuid)> m_saveAsPrefab;
   std::function<bool(core::Uuid)> m_applyAllOffered;
   std::function<void(core::Uuid)> m_applyAll;
+  std::function<std::vector<ApplyChoice>(const ApplyRequest &)> m_applyChoices;
+  std::function<void(ApplyRequest)> m_apply;
   // A context-menu action that changes the tree, run after the tree is drawn.
   std::function<void()> m_afterTree;
   struct PendingOpen {
