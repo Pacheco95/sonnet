@@ -970,6 +970,7 @@ bool Renderer::createSkinPipelines() {
       }
       shader = m_device.createShader({.spirv = spirv, .debugName = std::string{name}});
       std::vector<rhi::PipelineDesc> descs;
+      descs.reserve(slots.size());
       for (const PipelineSlot *slot : slots) {
         descs.push_back(pipelineDesc(*slot, shader));
       }
