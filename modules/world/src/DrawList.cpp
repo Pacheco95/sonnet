@@ -5,8 +5,6 @@
 
 #include <algorithm>
 #include <iterator>
-#include <mutex>
-#include <set>
 #include <utility>
 
 namespace sonnet::world {
@@ -46,21 +44,18 @@ std::size_t slotCount(const assets::AssetInfo *info, std::span<const renderer::S
 }
 
 // Warns once per entity and mesh that `slotMaterials` names a slot the mesh does not have. The
-// draw list runs every frame, so the set remembers what was said; it is touched only when an
-// entry is out of range.
-void warnPastSlots(flecs::entity entity, const MeshRenderer &meshRenderer, std::size_t count) {
+// draw list runs every frame, so `world` remembers what was said until its scene is cleared
+// (World::firstPastSlotsWarning); it is asked only when an entry is out of range.
+void warnPastSlots(const World &world, flecs::entity entity, const MeshRenderer &meshRenderer, std::size_t count) {
   const auto first = meshRenderer.slotMaterials.begin() + static_cast<std::ptrdiff_t>(count);
   const auto past = std::find_if(first, meshRenderer.slotMaterials.end(),
                                  [](const core::Uuid &material) { return !material.isNil(); });
   if (past == meshRenderer.slotMaterials.end()) {
     return; // nil entries ask for nothing
   }
-  static std::mutex s_mutex;
-  static std::set<std::pair<core::Uuid, core::Uuid>> s_warned;
   const Identity *identity = entity ? entity.try_get<Identity>() : nullptr;
   const core::Uuid owner = identity != nullptr ? identity->uuid : core::Uuid{};
-  const std::scoped_lock lock{s_mutex};
-  if (!s_warned.emplace(owner, meshRenderer.mesh).second) {
+  if (!world.firstPastSlotsWarning(owner, meshRenderer.mesh)) {
     return;
   }
   const Name *name = entity ? entity.try_get<Name>() : nullptr;
@@ -80,10 +75,12 @@ std::size_t materialSlotCount(assets::AssetDatabase &assets, const core::Uuid &m
 namespace {
 
 // One mesh renderer's items at `transform`. `entity`, when it is one, names the skinned or morphed instance, takes
-// the pose and weights it has and writes its pick id; without it the mesh is drawn as it is.
-void appendDraws(assets::AssetDatabase &assets, flecs::entity entity, const MeshRenderer &meshRenderer,
-                 const glm::mat4 &transform, const glm::mat4 *previous, std::vector<renderer::DrawItem> &draws,
-                 std::vector<glm::mat4> &joints, std::vector<float> &morphWeights) {
+// the pose and weights it has and writes its pick id; without it the mesh is drawn as it is. `world`, when given,
+// is the entity's, which warns about a slot material past the mesh's slots.
+void appendDraws(const World *world, assets::AssetDatabase &assets, flecs::entity entity,
+                 const MeshRenderer &meshRenderer, const glm::mat4 &transform, const glm::mat4 *previous,
+                 std::vector<renderer::DrawItem> &draws, std::vector<glm::mat4> &joints,
+                 std::vector<float> &morphWeights) {
   // Requested rather than loaded: an asset that is not in memory yet imports on the job system
   // and draws on a later frame, instead of stalling this one (ADR-0013).
   const renderer::MeshHandle mesh = assets.requestMesh(meshRenderer.mesh);
@@ -94,8 +91,8 @@ void appendDraws(assets::AssetDatabase &assets, flecs::entity entity, const Mesh
   const renderer::MaterialHandle override = assets.material(meshRenderer.material);
   const std::span<const renderer::Submesh> submeshes = assets.renderer().submeshes(mesh);
   const std::span<const core::Uuid> slots = meshRenderer.slotMaterials;
-  if (const std::size_t count = slotCount(info, submeshes); slots.size() > count) {
-    warnPastSlots(entity, meshRenderer, count);
+  if (const std::size_t count = slotCount(info, submeshes); world != nullptr && slots.size() > count) {
+    warnPastSlots(*world, entity, meshRenderer, count);
   }
   // A skinned mesh's pose is shared by its submeshes; without one it draws in its bind pose.
   const auto firstJoint = static_cast<std::uint32_t>(joints.size());
@@ -155,7 +152,7 @@ void appendSubtree(const World &world, assets::AssetDatabase &assets, flecs::ent
   const glm::mat4 matrix = local != nullptr ? parent * local->matrix() : parent;
   if (const MeshRenderer *meshRenderer = entity.try_get<MeshRenderer>();
       meshRenderer != nullptr && meshRenderer->visible) {
-    appendDraws(assets, entity, *meshRenderer, matrix, nullptr, draws, joints, morphWeights);
+    appendDraws(&world, assets, entity, *meshRenderer, matrix, nullptr, draws, joints, morphWeights);
   }
   for (const flecs::entity child : world.children(entity)) {
     appendSubtree(world, assets, child, matrix, draws, joints, morphWeights);
@@ -176,8 +173,8 @@ void buildDrawList(const World &world, assets::AssetDatabase &assets, std::vecto
       return;
     }
     const PreviousWorldTransform *previous = entity.try_get<PreviousWorldTransform>();
-    appendDraws(assets, entity, meshRenderer, transform.matrix, previous != nullptr ? &previous->matrix : nullptr,
-                draws, joints, morphWeights);
+    appendDraws(&world, assets, entity, meshRenderer, transform.matrix,
+                previous != nullptr ? &previous->matrix : nullptr, draws, joints, morphWeights);
   });
 }
 
@@ -198,8 +195,8 @@ void buildDrawList(assets::AssetDatabase &assets, const core::Uuid &mesh, std::v
   draws.clear();
   std::vector<glm::mat4> joints;
   std::vector<float> morphWeights;
-  appendDraws(assets, {}, {.mesh = mesh, .color = {1.0f, 1.0f, 1.0f, 1.0f}}, glm::mat4{1.0f}, nullptr, draws, joints,
-              morphWeights);
+  appendDraws(nullptr, assets, {}, {.mesh = mesh, .color = {1.0f, 1.0f, 1.0f, 1.0f}}, glm::mat4{1.0f}, nullptr, draws,
+              joints, morphWeights);
 }
 
 void buildParticleList(const World &world, assets::AssetDatabase &assets,

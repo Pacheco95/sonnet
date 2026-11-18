@@ -190,6 +190,44 @@ TEST_CASE("a slot material past the mesh's slots is ignored with one warning", "
   REQUIRE(text.find("Quiet: slot material") == std::string::npos);
 }
 
+TEST_CASE("a reloaded scene warns about a past slot material once more", "[world][drawlist][slots]") {
+  // Issue #601: what was warned about belongs to the scene loaded in the world, not to the process, so
+  // reloading the scene, as the editor does for another tab, a stop or a prefab change, warns once again.
+  Fixture fixture{"sonnet_world_slot_past_reload"};
+  world::World world;
+  const flecs::entity figure = world.createEntity("Figure");
+  figure.set<world::MeshRenderer>({.mesh = fixture.mesh, .slotMaterials = {fixture.red, {}, fixture.blue}});
+  const core::Uuid identity = world.uuidOf(figure);
+  const nlohmann::json scene = world::saveScene(world);
+
+  std::ostringstream log;
+  const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log, true);
+  core::Log::addSink(sink);
+  const auto draw = [&] {
+    for (int frame = 0; frame < 3; ++frame) {
+      REQUIRE(fixture.drawn(world, world.find(identity)).size() == 2);
+    }
+  };
+  draw();
+  world.clearScene();
+  REQUIRE(world::loadScene(world, scene).has_value());
+  draw();
+  // A second world, such as the player's, has its own record from the start.
+  world::World other;
+  REQUIRE(world::loadScene(other, scene).has_value());
+  for (int frame = 0; frame < 3; ++frame) {
+    REQUIRE(fixture.drawn(other, other.find(identity)).size() == 2);
+  }
+  core::Log::removeSink(sink);
+  const std::string text = log.str();
+  const std::string warning = "Figure: slot material 2 is past the 2 slots of mesh";
+  std::size_t count = 0;
+  for (auto at = text.find(warning); at != std::string::npos; at = text.find(warning, at + 1)) {
+    ++count;
+  }
+  REQUIRE(count == 3); // once per load and world, not every frame
+}
+
 TEST_CASE("slot materials are left out of a file while empty and round-trip through it and a bundle",
           "[world][scene][slots]") {
   Fixture fixture{"sonnet_world_slot_scene"};
