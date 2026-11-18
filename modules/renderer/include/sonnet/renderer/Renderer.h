@@ -563,6 +563,7 @@ private:
   // The persistent images the forward pass reads, imported into the frame's graph.
   struct FrameImages {
     GraphImage lut;
+    GraphImage skinLut;
     GraphImage skybox;
     GraphImage irradiance;
     GraphImage prefiltered;
@@ -818,6 +819,7 @@ private:
   rhi::PipelineHandle m_irradiancePipeline;
   rhi::PipelineHandle m_prefilterPipeline;
   rhi::PipelineHandle m_brdfLutPipeline;
+  rhi::PipelineHandle m_skinLutPipeline;
   rhi::PipelineHandle m_skinPipeline;
   rhi::PipelineHandle m_transmissionCopyPipeline;
   rhi::PipelineHandle m_transmissionMipPipeline;
@@ -834,6 +836,8 @@ private:
   TextureHandle m_flatNormalTexture;
   rhi::ImageHandle m_brdfLut;
   bool m_brdfLutPending{true};
+  rhi::ImageHandle m_skinLut; // pre-integrated skin diffuse by n.l and curvature (ADR-0041)
+  bool m_skinLutPending{true};
   rhi::BufferHandle m_clusterBuffer;
   // The draw commands the culling pass writes, one per batch per job, and the visible list of
   // object indices their instances read: a run per job, then the direct range with one slot per
@@ -881,6 +885,7 @@ private:
   FrameImages m_frameImages;       // the view being declared's
   std::uint64_t m_importSerial{0}; // the graph frame the imports below belong to
   GraphImage m_lutImport;
+  GraphImage m_skinLutImport;
   std::vector<EnvironmentImport> m_environmentImports;
   std::unordered_map<const SceneView *, History> m_histories;
   std::uint64_t m_frameNumber{0};        // graph frames prepared so far, which a history's age is counted in

@@ -52,6 +52,9 @@ constexpr std::uint32_t AlphaBlend = 2;
 constexpr std::uint32_t MaterialDoubleSided = 1u << 8;
 constexpr std::uint32_t MaterialUnlit = 1u << 9;
 constexpr std::uint32_t MaterialTransmissive = 1u << 10; // mayTransmit: on the transmission path (ADR-0033)
+// The skin lookup table (ADR-0041): n.l by curvature, and the ring samples each texel integrates.
+constexpr std::uint32_t SkinLutSize = 128;
+constexpr std::uint32_t SkinLutSamples = 512;
 // A material's texture slots, as the bits of GpuMaterial::uvSets. Mirror of shaders/sonnet.slang.
 constexpr std::uint32_t SlotBaseColor = 0;
 constexpr std::uint32_t SlotMetallicRoughness = 1;
@@ -156,7 +159,7 @@ struct FrameConstants {
   std::uint32_t transmissionImage;     // the copy of the opaque scene, InvalidBindlessIndex without one (ADR-0033)
   std::uint32_t contactShadowImage;    // the sun's contact visibility mask, InvalidBindlessIndex without one (ADR-0039)
   std::uint32_t ambientOcclusionImage; // the R8 visibility mask, InvalidBindlessIndex without one (ADR-0039)
-  std::uint32_t ambientOcclusionPadding;
+  std::uint32_t skinLut;               // the pre-integrated skin lookup table (ADR-0041)
   std::uint64_t visible; // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
@@ -685,6 +688,7 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
   defineCompute(m_irradiancePipeline, "ibl", "irradiance", "irradiance");
   defineCompute(m_prefilterPipeline, "ibl", "prefilter", "prefilter");
   defineCompute(m_brdfLutPipeline, "ibl", "brdfLut", "brdf lut");
+  defineCompute(m_skinLutPipeline, "ibl", "skinLut", "skin lut");
   defineCompute(m_skinPipeline, "skin", "computeMain", "skinning");
   defineCompute(m_transmissionCopyPipeline, "transmission", "transmissionCopy", "transmission copy");
   defineCompute(m_transmissionMipPipeline, "transmission", "transmissionMip", "transmission mip");
@@ -751,6 +755,7 @@ Renderer::~Renderer() {
     }
   }
   m_device.destroyImage(m_brdfLut);
+  m_device.destroyImage(m_skinLut);
   m_device.destroySampler(m_shadowSampler);
   m_device.destroySampler(m_linearClampSampler);
   for (const auto &[description, sampler] : m_materialSamplers) {
@@ -764,6 +769,7 @@ Renderer::~Renderer() {
                                              m_particleDrawPipelines[0],
                                              m_particleDrawPipelines[1],
                                              m_brdfLutPipeline,
+                                             m_skinLutPipeline,
                                              m_prefilterPipeline,
                                              m_irradiancePipeline,
                                              m_cubeMipPipeline,
@@ -934,6 +940,10 @@ void Renderer::createDefaults() {
                                     .format = HdrFormat,
                                     .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage,
                                     .debugName = "brdf lut"});
+  m_skinLut = m_device.createImage({.size = {SkinLutSize, SkinLutSize},
+                                    .format = HdrFormat,
+                                    .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage,
+                                    .debugName = "skin lut"});
   const std::array<std::uint32_t, 6> quad{0, 1, 2, 2, 1, 3};
   m_particleQuad = m_device.createBuffer({.size = sizeof(quad),
                                           .usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst,
@@ -1319,9 +1329,12 @@ void Renderer::addPrecomputePasses(RenderGraph &graph, const SceneView &view) {
     m_environmentImports.clear();
     m_lutImport = graph.importImage(m_brdfLut, rhi::ImageLayout::General,
                                     m_brdfLutPending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General);
+    m_skinLutImport = graph.importImage(m_skinLut, rhi::ImageLayout::General,
+                                        m_skinLutPending ? rhi::ImageLayout::Undefined : rhi::ImageLayout::General);
   }
   m_frameImages = {};
   m_frameImages.lut = m_lutImport;
+  m_frameImages.skinLut = m_skinLutImport;
   if (const Environment *environment = m_environments.find(view.environment)) {
     const EnvironmentImport imports = importEnvironment(graph, view.environment, *environment);
     m_frameImages.skybox = imports.equirectangular;
@@ -1344,6 +1357,24 @@ void Renderer::addPrecomputePasses(RenderGraph &graph, const SceneView &view) {
           commands.bindPipeline(m_brdfLutPipeline);
           commands.pushConstants(std::as_bytes(std::span{&push, 1}));
           commands.dispatch(groups(m_settings.brdfLutSize, 8), groups(m_settings.brdfLutSize, 8), 1);
+        });
+  }
+  if (m_skinLutPending) {
+    m_skinLutPending = false;
+    const GraphImage lut = m_frameImages.skinLut;
+    graph.addPass(
+        "skin lut", [&](PassBuilder &builder) { builder.storage(lut); },
+        [this](rhi::ICommandList &commands, const PassResources &) {
+          const IblConstants push{.source = rhi::InvalidBindlessIndex,
+                                  .destination = m_device.storageImageIndex(m_skinLut, 0),
+                                  .size = SkinLutSize,
+                                  .sampleCount = SkinLutSamples,
+                                  .roughness = 0.0f,
+                                  .sourceLod = 0.0f,
+                                  .sampler = 0};
+          commands.bindPipeline(m_skinLutPipeline);
+          commands.pushConstants(std::as_bytes(std::span{&push, 1}));
+          commands.dispatch(groups(SkinLutSize, 8), groups(SkinLutSize, 8), 1);
         });
   }
   m_environments.forEach([&](EnvironmentHandle handle, Environment &environment) {
@@ -3146,7 +3177,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
           v.contactShadows.isValid() ? sampledIndex(resources.image(v.contactShadows)) : rhi::InvalidBindlessIndex,
       .ambientOcclusionImage =
           v.ambientOcclusion.isValid() ? sampledIndex(resources.image(v.ambientOcclusion)) : rhi::InvalidBindlessIndex,
-      .ambientOcclusionPadding = 0,
+      .skinLut = sampledIndex(m_skinLut),
       .visible = m_visibleBuffer ? m_device.bufferAddress(m_visibleBuffer) : 0,
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
@@ -3645,6 +3676,7 @@ void Renderer::addScenePasses(RenderGraph &graph, const SceneView &view, GraphIm
       builder.sample(v.contactShadows);
     }
     builder.sample(m_frameImages.lut);
+    builder.sample(m_frameImages.skinLut);
     if (v.ambientOcclusion.isValid()) {
       builder.sample(v.ambientOcclusion);
     }

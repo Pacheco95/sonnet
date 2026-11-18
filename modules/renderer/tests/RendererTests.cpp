@@ -1683,7 +1683,7 @@ TEST_CASE("skinned draws are deformed once per instance before the passes that d
 
   frame(false);
   REQUIRE(hasPass(graph, "skinning"));
-  REQUIRE(graph.statistics().passes[1].name == "skinning");               // after the lookup table, before the shadows
+  REQUIRE(graph.statistics().passes[2].name == "skinning");               // after the lookup tables, before the shadows
   REQUIRE(countLines(*device, "uploadBuffer \"skinned box skin\"") == 0); // uploaded before the frame
   REQUIRE(countLines(*device, "bindPipeline \"skinning\"") == 1);
   // One dispatch for the instance, 24 vertices in one group of 64, between the barriers that
