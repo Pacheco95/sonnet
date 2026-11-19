@@ -48,6 +48,13 @@ JPH::JobHandle JoltJobSystem::CreateJob(const char *name, JPH::ColorArg color, c
   return handle;
 }
 
+void JoltJobSystem::CreateJobs(const char *name, JPH::ColorArg color, const JobFunction &function, JPH::JobHandle *jobs,
+                               JPH::uint32 count, JPH::uint32 dependencies) {
+  for (JPH::uint32 i = 0; i < count; ++i) {
+    jobs[i] = CreateJob(name, color, function, dependencies);
+  }
+}
+
 void JoltJobSystem::QueueJob(Job *job) {
   // With no workers there is nothing to queue onto, and scheduling anyway would leave a job in a
   // queue nothing drains. Jolt's own thread pool does the same when it has no threads: the job is

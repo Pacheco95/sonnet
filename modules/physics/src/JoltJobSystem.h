@@ -31,6 +31,8 @@ public:
 
   JPH::JobHandle CreateJob(const char *name, JPH::ColorArg color, const JobFunction &function,
                            JPH::uint32 dependencies) override;
+  void CreateJobs(const char *name, JPH::ColorArg color, const JobFunction &function, JPH::JobHandle *jobs,
+                  JPH::uint32 count, JPH::uint32 dependencies) override;
   void WaitForJobs(Barrier *barrier) override;
 
 protected:
