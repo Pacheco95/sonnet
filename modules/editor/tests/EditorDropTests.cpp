@@ -478,13 +478,18 @@ TEST_CASE("a material dropped on one submesh sets its slot, and with Ctrl the wh
     const auto slots = [&] { return figure.get<world::MeshRenderer>().slotMaterials; };
     // The draw of one of the figure's submeshes in the viewport's list.
     const auto draw = [&](std::uint32_t submesh) {
+      renderer::DrawItem found{};
+      bool seen = false;
       for (const renderer::DrawItem &item : editor.viewportDraws()) {
         if (item.mesh == editor.assets().mesh(mesh) && item.submesh == submesh) {
-          return item;
+          found = item;
+          seen = true;
+          break;
         }
       }
-      FAIL("no draw of submesh " << submesh);
-      return renderer::DrawItem{};
+      INFO("submesh " << submesh);
+      REQUIRE(seen);
+      return found;
     };
     const auto own = [&](std::uint32_t slot) { return editor.assets().material(ownMaterials[slot]); };
     std::size_t history = editor.commands().size();
