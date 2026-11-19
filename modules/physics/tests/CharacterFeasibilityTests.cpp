@@ -624,3 +624,51 @@ TEST_CASE("a trigger sees a character's inner body enter and leave", "[physics][
           std::ranges::contains(character.contacts.removed, trigger));
   REQUIRE(std::ranges::contains(character.contacts.added, trigger));
 }
+
+// Jolt's quaternion arithmetic, through the library: a kinematic body turned to a new pose takes
+// the angular velocity that carries it there in one step (ADR-0043 reads it for a character's
+// support). Jolt 5.6.0 built by MSVC 14.52 with /fp:fast folded the sign-bit constants of
+// `Quat::operator*` and `FlipSign` (`-0.0f` as `0.0f`), so every product came out with a wrong
+// sign: the platform's velocity was a hundred rad/s off and the turning-platform tests failed on
+// that toolset only (issue 622). This checks the arithmetic itself, not the engine on top of it,
+// so a toolset or a Jolt build that breaks it is named here and not found through a character.
+TEST_CASE("a kinematic body's angular velocity is the turn that carries it to its next pose", "[physics][jolt]") {
+  Scene scene;
+  const JPH::BodyID platform =
+      scene.box({3.0f, 0.1f, 2.0f}, {0.0f, 1.0f, 0.0f}, JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic);
+  const JPH::RVec3 at{0.0f, 1.0f, 0.0f};
+  const JPH::Vec3 axes[] = {JPH::Vec3::sAxisY(), JPH::Vec3{1.0f, 2.0f, 3.0f}.Normalized(),
+                            JPH::Vec3{-1.0f, 0.5f, 0.25f}.Normalized()};
+  constexpr float spin = 1.0f;
+
+  for (const JPH::Vec3 axis : axes) {
+    // Back to the identity, which is where each axis starts its turn.
+    scene.bodies().SetPositionAndRotation(platform, at, JPH::Quat::sIdentity(), JPH::EActivation::Activate);
+    float worst = 0.0f;
+    float worstTurn = 0.0f;
+    // 400 steps turn it through 6.7 rad: past a half turn, where the quaternion's w changes sign,
+    // and past the point where a matrix-built target changes its largest component.
+    for (int i = 1; i <= 400; ++i) {
+      const JPH::Quat target = JPH::Quat::sRotation(axis, spin * static_cast<float>(i) * Step);
+      // The same rotation as q and as -q, which is how a target built from a matrix arrives.
+      scene.bodies().MoveKinematic(platform, at, i % 2 == 0 ? target : -target, Step);
+      worst = std::max(worst, (scene.bodies().GetAngularVelocity(platform) - spin * axis).Length());
+      scene.stepBodies();
+      const JPH::Quat turned = scene.bodies().GetRotation(platform);
+      worstTurn = std::max(worstTurn, 1.0f - std::abs(turned.Dot(target)));
+    }
+    CAPTURE(axis.GetX(), axis.GetY(), axis.GetZ(), worst, worstTurn);
+    REQUIRE(worst < 1e-3f);
+    // The integrated rotation is the target, not merely close in velocity.
+    REQUIRE(worstTurn < 1e-5f);
+  }
+
+  // A quarter turn in one step takes Jolt's other branch, away from the small-angle one.
+  scene.bodies().SetPositionAndRotation(platform, at, JPH::Quat::sIdentity(), JPH::EActivation::Activate);
+  const float quarter = std::numbers::pi_v<float> * 0.5f;
+  scene.bodies().MoveKinematic(platform, at, JPH::Quat::sRotation(JPH::Vec3::sAxisY(), quarter), Step);
+  CAPTURE(scene.bodies().GetAngularVelocity(platform).GetY());
+  REQUIRE(scene.bodies().GetAngularVelocity(platform).GetY() == Approx(quarter / Step).epsilon(1e-3));
+  REQUIRE(scene.bodies().GetAngularVelocity(platform).GetX() == Approx(0.0f).margin(1e-3f));
+  REQUIRE(scene.bodies().GetAngularVelocity(platform).GetZ() == Approx(0.0f).margin(1e-3f));
+}
