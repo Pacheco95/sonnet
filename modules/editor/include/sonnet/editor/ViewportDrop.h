@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sonnet/world/Components.h>
 #include <sonnet/world/World.h>
 
 #include <sonnet/assets/AssetDatabase.h>
@@ -34,10 +35,12 @@ enum class DropAction : std::uint8_t {
 [[nodiscard]] DropAction dropAction(const world::World &world, const assets::AssetDatabase &assets,
                                     const core::Uuid &uuid);
 
-// The nearest triangle under a ray: the entity it belongs to, the point, and the triangle's normal in
-// world space, facing the ray.
+// The nearest triangle under a ray: the entity it belongs to, the submesh the triangle is in and that
+// submesh's material slot, the point, and the triangle's normal in world space, facing the ray.
 struct SceneHit {
   flecs::entity entity;
+  std::uint32_t submesh{0};
+  std::uint32_t materialSlot{0};
   glm::vec3 point{0.0f};
   glm::vec3 normal{0.0f, 1.0f, 0.0f};
 };
@@ -48,6 +51,13 @@ struct SceneHit {
 // targets are ignored. Every triangle of a mesh whose bounds the ray crosses is tested.
 [[nodiscard]] std::optional<SceneHit> raycastScene(const world::World &world, assets::AssetDatabase &assets,
                                                    const renderer::Ray &ray);
+
+// The material slot a material dropped on `hit` sets (docs/editor.md, "Dropping assets on the viewport"):
+// the slot of the submesh under the cursor when the mesh has more than one slot, and nothing when it has
+// one, or when `wholeMesh` is set: the drop then sets `MeshRenderer::material`, for every slot.
+[[nodiscard]] std::optional<std::uint32_t> materialDropSlot(assets::AssetDatabase &assets,
+                                                            const world::MeshRenderer &meshRenderer,
+                                                            const SceneHit &hit, bool wholeMesh);
 
 // Where a dropped object lands, and the normal of the surface it landed on, facing the camera; no normal
 // in the air.

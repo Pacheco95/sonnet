@@ -2,10 +2,13 @@
 
 #include <sonnet/editor/Gizmo.h>
 
+#include <sonnet/world/DrawList.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <span>
 #include <utility>
 
 namespace sonnet::editor {
@@ -99,58 +102,83 @@ std::optional<SceneHit> raycastScene(const world::World &world, assets::AssetDat
                           .self()
                           .up(flecs::ChildOf)
                           .build();
-  meshes.each(
-      [&](flecs::entity entity, const world::WorldTransform &transform, const world::MeshRenderer &meshRenderer) {
-        if (!meshRenderer.visible) {
-          return;
+  meshes.each([&](flecs::entity entity, const world::WorldTransform &transform,
+                  const world::MeshRenderer &meshRenderer) {
+    if (!meshRenderer.visible) {
+      return;
+    }
+    // Requested rather than loaded, so a mesh still importing is skipped instead of stalling the frame.
+    const renderer::MeshHandle mesh = assets.requestMesh(meshRenderer.mesh);
+    if (!mesh) {
+      return;
+    }
+    const glm::mat3 linear{transform.matrix};
+    if (std::abs(glm::determinant(linear)) < 1e-12f) {
+      return; // scaled flat: nothing to hit
+    }
+    // An affine map keeps the ray's parameter, so distances compare across meshes in world units.
+    const glm::mat4 inverse = glm::inverse(transform.matrix);
+    const glm::vec3 origin{inverse * glm::vec4{ray.origin, 1.0f}};
+    const glm::vec3 direction{inverse * glm::vec4{ray.direction, 0.0f}};
+    if (!crossesBounds(origin, direction, assets.renderer().meshBounds(mesh), bestDistance)) {
+      return;
+    }
+    const renderer::MeshData *data = assets.meshData(meshRenderer.mesh);
+    if (data == nullptr) {
+      return;
+    }
+    std::optional<glm::vec3> localNormal;
+    std::uint32_t hitSubmesh = 0;
+    std::uint32_t hitSlot = 0;
+    const std::size_t vertexCount = data->vertices.size();
+    // A mesh without submeshes is one over all its indices in slot 0, as the renderer takes it.
+    renderer::Submesh whole;
+    whole.indexCount = static_cast<std::uint32_t>(data->indices.size());
+    const std::span<const renderer::Submesh> ranges =
+        data->submeshes.empty() ? std::span{&whole, 1} : std::span<const renderer::Submesh>{data->submeshes};
+    for (std::uint32_t range = 0; range < ranges.size(); ++range) {
+      const std::size_t end =
+          std::min<std::size_t>(std::size_t{ranges[range].firstIndex} + ranges[range].indexCount, data->indices.size());
+      for (std::size_t i = ranges[range].firstIndex; i + 3 <= end; i += 3) {
+        const std::uint32_t ia = data->indices[i];
+        const std::uint32_t ib = data->indices[i + 1];
+        const std::uint32_t ic = data->indices[i + 2];
+        if (ia >= vertexCount || ib >= vertexCount || ic >= vertexCount) {
+          continue;
         }
-        // Requested rather than loaded, so a mesh still importing is skipped instead of stalling the frame.
-        const renderer::MeshHandle mesh = assets.requestMesh(meshRenderer.mesh);
-        if (!mesh) {
-          return;
+        const glm::vec3 a = data->vertices[ia].position;
+        const glm::vec3 b = data->vertices[ib].position;
+        const glm::vec3 c = data->vertices[ic].position;
+        if (const std::optional<float> t = triangleHit(origin, direction, a, b, c); t && *t < bestDistance) {
+          bestDistance = *t;
+          localNormal = glm::cross(b - a, c - a);
+          hitSubmesh = range;
+          hitSlot = ranges[range].materialSlot;
         }
-        const glm::mat3 linear{transform.matrix};
-        if (std::abs(glm::determinant(linear)) < 1e-12f) {
-          return; // scaled flat: nothing to hit
-        }
-        // An affine map keeps the ray's parameter, so distances compare across meshes in world units.
-        const glm::mat4 inverse = glm::inverse(transform.matrix);
-        const glm::vec3 origin{inverse * glm::vec4{ray.origin, 1.0f}};
-        const glm::vec3 direction{inverse * glm::vec4{ray.direction, 0.0f}};
-        if (!crossesBounds(origin, direction, assets.renderer().meshBounds(mesh), bestDistance)) {
-          return;
-        }
-        const renderer::MeshData *data = assets.meshData(meshRenderer.mesh);
-        if (data == nullptr) {
-          return;
-        }
-        std::optional<glm::vec3> localNormal;
-        const std::size_t vertexCount = data->vertices.size();
-        for (std::size_t i = 0; i + 2 < data->indices.size(); i += 3) {
-          const std::uint32_t ia = data->indices[i];
-          const std::uint32_t ib = data->indices[i + 1];
-          const std::uint32_t ic = data->indices[i + 2];
-          if (ia >= vertexCount || ib >= vertexCount || ic >= vertexCount) {
-            continue;
-          }
-          const glm::vec3 a = data->vertices[ia].position;
-          const glm::vec3 b = data->vertices[ib].position;
-          const glm::vec3 c = data->vertices[ic].position;
-          if (const std::optional<float> t = triangleHit(origin, direction, a, b, c); t && *t < bestDistance) {
-            bestDistance = *t;
-            localNormal = glm::cross(b - a, c - a);
-          }
-        }
-        if (!localNormal) {
-          return;
-        }
-        glm::vec3 normal = glm::normalize(glm::transpose(glm::inverse(linear)) * *localNormal);
-        if (glm::dot(normal, ray.direction) > 0.0f) {
-          normal = -normal;
-        }
-        best = SceneHit{.entity = entity, .point = ray.origin + ray.direction * bestDistance, .normal = normal};
-      });
+      }
+    }
+    if (!localNormal) {
+      return;
+    }
+    glm::vec3 normal = glm::normalize(glm::transpose(glm::inverse(linear)) * *localNormal);
+    if (glm::dot(normal, ray.direction) > 0.0f) {
+      normal = -normal;
+    }
+    best = SceneHit{.entity = entity,
+                    .submesh = hitSubmesh,
+                    .materialSlot = hitSlot,
+                    .point = ray.origin + ray.direction * bestDistance,
+                    .normal = normal};
+  });
   return best;
+}
+
+std::optional<std::uint32_t> materialDropSlot(assets::AssetDatabase &assets, const world::MeshRenderer &meshRenderer,
+                                              const SceneHit &hit, bool wholeMesh) {
+  if (wholeMesh || world::materialSlotCount(assets, meshRenderer.mesh) < 2) {
+    return std::nullopt;
+  }
+  return hit.materialSlot;
 }
 
 Landing land(const renderer::Ray &ray, const std::optional<SceneHit> &hit, glm::vec3 gridNormal, float fallback,

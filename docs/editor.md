@@ -130,7 +130,7 @@ Anything else (an input, a drag, a combo, a plain tree node, a picker, a table t
 | `AssetCommands.h` | The material edit and the texture and model import settings commands |
 | `GamePanel.h` | The dockable game view: a `renderer::RenderTarget` of its own, sized to the panel and displayed with `ImGui::Image`, drawn through the scene's `Camera` entity; it has no camera, gizmo or picking, and its `ViewportInput` is the game's input while playing. The target exists only while the panel is on screen |
 | `Gizmo.h` | Translate, rotate and scale handles drawn over the viewport |
-| `ViewportDrop.h` | The pure parts of a drop on the viewport, testable without Dear ImGui or a GPU: what a dragged asset does (`dropAction`), the nearest triangle under a ray among the shown meshes (`raycastScene`), the landing point with snapping (`land`) and where the object rests on it (`restingPosition`) ([Dropping assets on the viewport](#dropping-assets-on-the-viewport)) |
+| `ViewportDrop.h` | The pure parts of a drop on the viewport, testable without Dear ImGui or a GPU: what a dragged asset does (`dropAction`), the nearest triangle under a ray among the shown meshes with its submesh and material slot (`raycastScene`), the slot a dropped material sets (`materialDropSlot`), the landing point with snapping (`land`) and where the object rests on it (`restingPosition`) ([Dropping assets on the viewport](#dropping-assets-on-the-viewport)) |
 | `Selection.h` | The selected entities by identity; the last one is primary |
 | `CommandStack.h`, `EntityCommands.h` | `ICommand`, the undo history, and the commands every edit goes through |
 | `Project.h`, `Preferences.h` | Creating a project with its starter scene, and the per-user settings; the project file itself is `assets::Project` |
@@ -192,12 +192,19 @@ An asset row or tile dragged from the Assets panel can be let go on the viewport
 |---|---|---|
 | Model, prefab | Its meshes, drawn where it would stand | An instance there (`instantiate X`) |
 | Mesh (built-in or glTF) | The mesh, drawn there with `MeshRenderer` defaults | An entity with that `MeshRenderer` there (`create X`) |
-| Material | The object under the cursor drawn with it, outlined in the accent colour | That object's `MeshRenderer.material`; a slot with a material of its own (`slotMaterials`) keeps it, in the preview too |
+| Material | On a mesh with one slot, or with Ctrl held: the object under the cursor drawn with it, outlined in the accent colour. On a mesh with several slots, without Ctrl: the submesh under the cursor, and the others of its slot, drawn with it and outlined, the rest of the object as it is | On a mesh with one slot, or with Ctrl held: that object's `MeshRenderer.material`; a slot with a material of its own (`slotMaterials`) keeps it, in the preview too. Otherwise that slot's entry in `slotMaterials`, as the inspector's slot picker sets it (see below) |
 | Script | The object under the cursor, outlined in the accent colour | One more `Scripts` slot on it (`appendScriptCommand`) |
 | Environment | The viewport's sky shows it | The scene's sky, as a drop on the hierarchy does (`useEnvironment`) |
 | Anything else (textures, sounds, ...) | Nothing | Nothing |
 
 Nothing touches the world, the hierarchy or the history before the release. Leaving the viewport removes the preview, and letting go elsewhere does nothing. The Game view never shows the preview. A drop that does something selects what it made or changed and gives the viewport the keyboard focus, so Delete, Ctrl+D and F act on it rather than on the Assets panel's rows. During the drag the gizmo, picking, the camera and W/E/R/F stay idle, because the dragged row is Dear ImGui's active item and the image is not hovered.
+
+A material has two targets, chosen by the mesh under the cursor and the Ctrl key (Cmd on macOS), read every frame like the snapping decision, so pressing or releasing it mid-drag switches the preview at once:
+
+- **One submesh's slot** is the default on a mesh with more than one material slot (`world::materialSlotCount`, [Material slots](#material-slots)). The cursor's ray picks the nearest triangle (`raycastScene`), which reports its submesh and that submesh's `materialSlot`; the drop sets that slot's entry in `slotMaterials` with `setSlotMaterial`, the inspector's slot picker's operation, so earlier slots are filled with nil entries and the member is written as the picker would. It is one component edit (`set material slot 1 of Figure`) and one undo step; `material` and the other slots are untouched. The preview draws the material on every submesh of that slot, and outlines only those: the entity's other submeshes keep what they draw and are left out of the outline's mask.
+- **The whole mesh** is the default on a mesh with one slot, such as a built-in primitive or a single-material glTF mesh, where a slot is the whole mesh, and with Ctrl held on any mesh. The drop sets `MeshRenderer.material`, which every slot without an entry of its own follows, and the preview shows it on those slots only.
+
+Ctrl is the modifier that also inverts snapping, and that cannot clash: a material has no landing point to snap. Dropping on a slot is the default because it is the narrower edit, and the one the pointer already chose by pointing at a submesh; the whole-mesh drop stays one keypress away, and is what the inspector's `material` member also does. On a part of a prefab instance the drop writes the whole `slotMaterials` list, as the inspector does ([Material slots](#material-slots)).
 
 A model, a prefab or a mesh is placed in three steps:
 
@@ -286,7 +293,7 @@ nothing checked means All and Clear unchecks everything. Folders remain availabl
 Clicking an imported asset inspects it without touching the entity selection or gizmo.
 Asset and prefab rows remain drag sources for inspector pickers, the hierarchy and the viewport;
 a model or prefab dropped on the hierarchy becomes an instance, and an environment sets the scene's sky.
-What a drop on the viewport does is in [Dropping assets on the viewport](#dropping-assets-on-the-viewport).
+What a drop on the viewport does, including a material dropped on one submesh to set its slot, is in [Dropping assets on the viewport](#dropping-assets-on-the-viewport).
 
 Ctrl-click (Command-click on macOS) toggles rows and Shift-click selects a range using ImGui multi-select.
 The New asset menu's New folder entry and the background menu create an empty folder in

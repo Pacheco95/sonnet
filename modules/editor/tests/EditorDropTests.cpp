@@ -7,12 +7,15 @@
 
 #include <sonnet/assets/Asset.h>
 #include <sonnet/core/Error.h>
+#include <sonnet/core/File.h>
 #include <sonnet/platform/Platform.h>
 #include <sonnet/rhi/Device.h>
 #include <sonnet/rhi/Swapchain.h>
 #include <sonnet/scripting/Components.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/DrawList.h>
+
+#include "TwoSlotFigure.h"
 
 #include <TestSupport.h>
 
@@ -431,6 +434,152 @@ TEST_CASE("a material dropped on the box outlines it while held and is assigned 
     CHECK(viewportFocused());
     REQUIRE(editor.commands().undo(world));
     CHECK(box.get<world::MeshRenderer>().material == before);
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  sonnet::test::removeScratch(directory);
+}
+
+TEST_CASE("a material dropped on one submesh sets its slot, and with Ctrl the whole mesh's material",
+          "[editor][gpu][drop]") {
+  Fixture fixture;
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "drop_material_slot";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    const DropProject project = makeProject(fixture, editor, directory);
+    world::World &world = editor.world();
+    // A figure of two flat triangles in two slots, one left and one right of centre, above the ground.
+    std::filesystem::create_directories(project.root / "assets" / "figure");
+    REQUIRE(core::writeFile(project.root / "assets" / "figure" / "figure.gltf", std::string_view{TwoSlotFigure})
+                .has_value());
+    static_cast<void>(editor.assets().rescan());
+    core::Uuid mesh;
+    for (const assets::AssetInfo *info : editor.assets().assets(assets::AssetType::Mesh)) {
+      if (info->name == "FigureMesh") {
+        mesh = info->uuid;
+      }
+    }
+    REQUIRE_FALSE(mesh.isNil());
+    const std::vector<core::Uuid> ownMaterials = editor.assets().find(mesh)->materials;
+    REQUIRE(ownMaterials.size() == 2);
+    const flecs::entity figure = world.createEntity("Figure");
+    figure.set<world::Transform>({.position = {0.0f, 1.0f, 3.0f}});
+    figure.set<world::MeshRenderer>({.mesh = mesh});
+    const core::Uuid figureId = world.uuidOf(figure);
+    editor.assetBrowser().navigate(project.root / "assets");
+    fixture.settle(editor);
+    const std::uint32_t id = world::World::pickId(figure);
+    const renderer::MaterialHandle dropped = editor.assets().material(project.material);
+    REQUIRE(dropped.isValid());
+    const glm::vec2 body = screenOf(editor, {-1.4f, 1.0f, 2.67f});
+    const glm::vec2 skin = screenOf(editor, {1.4f, 1.0f, 2.67f});
+    const auto slots = [&] { return figure.get<world::MeshRenderer>().slotMaterials; };
+    // The draw of one of the figure's submeshes in the viewport's list.
+    const auto draw = [&](std::uint32_t submesh) {
+      renderer::DrawItem found{};
+      bool seen = false;
+      for (const renderer::DrawItem &item : editor.viewportDraws()) {
+        if (item.mesh == editor.assets().mesh(mesh) && item.submesh == submesh) {
+          found = item;
+          seen = true;
+          break;
+        }
+      }
+      INFO("submesh " << submesh);
+      REQUIRE(seen);
+      return found;
+    };
+    const auto own = [&](std::uint32_t slot) { return editor.assets().material(ownMaterials[slot]); };
+    std::size_t history = editor.commands().size();
+
+    SECTION("a drop on a submesh sets that slot, in one undoable step") {
+      fixture.hold(editor, tileOf(editor, project.material), skin, project.material);
+      // Held, the target slot shows the material and is the only thing outlined; the other submesh keeps its own.
+      CHECK(editor.outlineIds().size() == 1);
+      CHECK(draw(1).material == dropped);
+      CHECK(draw(1).id == id);
+      CHECK(draw(0).material == own(0));
+      CHECK(draw(0).id == 0);
+      CHECK(slots().empty());
+      CHECK(editor.commands().size() == history);
+      fixture.release(editor);
+
+      REQUIRE(editor.commands().size() == history + 1);
+      CHECK(editor.commands().undoDescription() == "set material slot 1 of Figure");
+      CHECK(slots() == std::vector<core::Uuid>{core::Uuid{}, project.material});
+      CHECK(figure.get<world::MeshRenderer>().material.isNil());
+      CHECK(editor.selection().primary() == figureId);
+      fixture.frames(editor, 2);
+      // Not held any more: the scene's own draws, the slot's material in one and the mesh's own in the other.
+      CHECK(draw(1).material == dropped);
+      CHECK(draw(1).id == id);
+      CHECK(draw(0).material == own(0));
+      CHECK(draw(0).id == id);
+
+      REQUIRE(editor.commands().undo(world));
+      CHECK(slots().empty());
+      REQUIRE(editor.commands().redo(world));
+      CHECK(slots() == std::vector<core::Uuid>{core::Uuid{}, project.material});
+      REQUIRE(editor.commands().undo(world));
+      CHECK(slots().empty());
+
+      // The first slot, then, fills the entry before the second's.
+      editor.selection().clear();
+      fixture.hold(editor, tileOf(editor, project.material), body, project.material);
+      CHECK(draw(0).material == dropped);
+      CHECK(draw(0).id == id);
+      CHECK(draw(1).id == 0);
+      fixture.release(editor);
+      CHECK(editor.commands().undoDescription() == "set material slot 0 of Figure");
+      CHECK(slots() == std::vector<core::Uuid>{project.material});
+    }
+
+    SECTION("a drop with Ctrl held sets the whole mesh's material") {
+      ImGuiIO &io = ImGui::GetIO();
+      const ImGuiKey modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+      fixture.hold(editor, tileOf(editor, project.material), skin, project.material);
+      io.AddKeyEvent(modifier, true);
+      fixture.frames(editor, 2);
+      REQUIRE(io.KeyCtrl);
+      // Both submeshes show the material and are outlined together.
+      CHECK(draw(0).material == dropped);
+      CHECK(draw(1).material == dropped);
+      CHECK(draw(0).id == id);
+      CHECK(draw(1).id == id);
+      fixture.release(editor);
+      io.AddKeyEvent(modifier, false);
+      fixture.frame(editor);
+
+      REQUIRE(editor.commands().size() == history + 1);
+      CHECK(editor.commands().undoDescription() == "set material of Figure");
+      CHECK(figure.get<world::MeshRenderer>().material == project.material);
+      CHECK(slots().empty());
+      REQUIRE(editor.commands().undo(world));
+      CHECK(figure.get<world::MeshRenderer>().material.isNil());
+    }
+
+    SECTION("the whole-mesh drop leaves a slot with a material of its own, in the preview too") {
+      assets::MaterialSource redSource;
+      redSource.baseColor = {1.0f, 0.0f, 0.0f, 1.0f};
+      const auto red = editor.assets().createMaterial(project.root / "assets" / "red.material.json", redSource);
+      REQUIRE(red.has_value());
+      figure.set<world::MeshRenderer>({.mesh = mesh, .slotMaterials = {core::Uuid{}, *red}});
+      fixture.frames(editor, 2);
+      ImGuiIO &io = ImGui::GetIO();
+      const ImGuiKey modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+      fixture.hold(editor, tileOf(editor, project.material), body, project.material);
+      io.AddKeyEvent(modifier, true);
+      fixture.frames(editor, 2);
+      CHECK(draw(0).material == dropped);
+      CHECK(draw(1).material == editor.assets().material(*red));
+      fixture.release(editor);
+      io.AddKeyEvent(modifier, false);
+      fixture.frame(editor);
+      CHECK(figure.get<world::MeshRenderer>().material == project.material);
+      CHECK(slots() == std::vector<core::Uuid>{core::Uuid{}, *red});
+    }
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
