@@ -5,6 +5,8 @@
 #include <sonnet/rhi/NullDevice.h>
 #include <sonnet/world/Scene.h>
 
+#include "TwoSlotFigure.h"
+
 #include <TestSupport.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -13,6 +15,7 @@
 #include <cmath>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -44,6 +47,8 @@ struct DropFixture {
     for (const char *model : {"crate/crate.gltf", "barrel/barrel.gltf"}) {
       REQUIRE(core::writeFile(folder / model, std::string_view{R"({"asset": {"version": "2.0"}})"}).has_value());
     }
+    std::filesystem::create_directories(folder / "figure");
+    REQUIRE(core::writeFile(folder / "figure" / "figure.gltf", std::string_view{TwoSlotFigure}).has_value());
     REQUIRE(core::writeFile(folder / "steel.material.json", std::string_view{R"({"version": 1})"}).has_value());
     REQUIRE(core::writeFile(folder / "turret.lua", std::string_view{"return {}"}).has_value());
     REQUIRE(core::writeFile(folder / "sky.hdr", std::string_view{"hdr"}).has_value());
@@ -89,6 +94,25 @@ renderer::DrawItem drawItem(renderer::MeshHandle mesh, const glm::mat4 &transfor
   item.mesh = mesh;
   item.transform = transform;
   return item;
+}
+
+// An entity with the two-slot figure's mesh at `position`.
+flecs::entity figure(DropFixture &fixture, glm::vec3 position) {
+  core::Uuid mesh;
+  for (const assets::AssetInfo *info : fixture.database.assets(assets::AssetType::Mesh)) {
+    if (info->name == "FigureMesh") {
+      mesh = info->uuid;
+    }
+  }
+  REQUIRE_FALSE(mesh.isNil());
+  const flecs::entity entity = fixture.world.createEntity("Figure");
+  const world::Transform transform{.position = position, .rotation = {1.0f, 0.0f, 0.0f, 0.0f}, .scale = glm::vec3{1.0f}};
+  entity.set(transform);
+  entity.set(world::WorldTransform{transform.matrix()});
+  world::MeshRenderer renderer;
+  renderer.mesh = mesh;
+  entity.set(renderer);
+  return entity;
 }
 
 const renderer::Ray Forward{.origin = {0.0f, 0.0f, 0.0f}, .direction = {0.0f, 0.0f, -1.0f}};
@@ -300,4 +324,52 @@ TEST_CASE("restingPosition pushes an object out until its bounds touch the surfa
     const std::vector<renderer::DrawItem> pending{drawItem(renderer::MeshHandle{})};
     CHECK(approxEqual(editor::restingPosition(floor, fixture.renderer, pending, glm::mat4{1.0f}), floor.point));
   }
+}
+
+TEST_CASE("raycastScene reports the submesh and the material slot under the ray", "[editor][drop]") {
+  DropFixture fixture;
+  const flecs::entity entity = figure(fixture, {0.0f, 0.0f, 0.0f});
+  const auto down = [](float x, float z) {
+    return renderer::Ray{.origin = {x, 3.0f, z}, .direction = {0.0f, -1.0f, 0.0f}};
+  };
+
+  SECTION("each submesh of a two-slot mesh is its own hit") {
+    const auto body = fixture.cast(down(-1.5f, -0.5f));
+    REQUIRE(body.has_value());
+    CHECK(body->entity == entity);
+    CHECK(body->submesh == 0);
+    CHECK(body->materialSlot == 0);
+    const auto skin = fixture.cast(down(1.5f, -0.5f));
+    REQUIRE(skin.has_value());
+    CHECK(skin->entity == entity);
+    CHECK(skin->submesh == 1);
+    CHECK(skin->materialSlot == 1);
+    // Between the two triangles is a miss.
+    CHECK_FALSE(fixture.cast(down(0.0f, 0.0f)).has_value());
+  }
+
+  SECTION("a built-in mesh is one submesh in slot 0") {
+    const flecs::entity box = fixture.box("Box", {0.0f, 0.0f, -5.0f});
+    const auto hit = fixture.cast(Forward);
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == box);
+    CHECK(hit->submesh == 0);
+    CHECK(hit->materialSlot == 0);
+  }
+}
+
+TEST_CASE("materialDropSlot is the slot of a mesh with several, unless the whole mesh is asked for", "[editor][drop]") {
+  DropFixture fixture;
+  const flecs::entity entity = figure(fixture, {0.0f, 0.0f, 0.0f});
+  const auto skin = fixture.cast({.origin = {1.5f, 3.0f, -0.5f}, .direction = {0.0f, -1.0f, 0.0f}});
+  REQUIRE(skin.has_value());
+  const world::MeshRenderer &meshRenderer = entity.get<world::MeshRenderer>();
+  CHECK(editor::materialDropSlot(fixture.database, meshRenderer, *skin, false) == std::optional<std::uint32_t>{1});
+  CHECK_FALSE(editor::materialDropSlot(fixture.database, meshRenderer, *skin, true).has_value());
+
+  // A built-in mesh has the one slot, which is the whole mesh.
+  const flecs::entity box = fixture.box("Box", {0.0f, 0.0f, -5.0f});
+  const auto hit = fixture.cast(Forward);
+  REQUIRE(hit.has_value());
+  CHECK_FALSE(editor::materialDropSlot(fixture.database, box.get<world::MeshRenderer>(), *hit, false).has_value());
 }

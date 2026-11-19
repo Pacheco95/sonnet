@@ -557,6 +557,11 @@ public:
   [[nodiscard]] std::span<const std::uint32_t> outlineIds() const noexcept {
     return m_outlineIds;
   }
+  // The viewport's draw items of the last update, with a held asset's preview in them (the Game view's are the
+  // scene's). For tests: a preview is a change to these items and the outline ids.
+  [[nodiscard]] std::span<const renderer::DrawItem> viewportDraws() const noexcept {
+    return m_view.draws;
+  }
 
 private:
   enum class Modal : std::uint8_t {
@@ -761,6 +766,8 @@ private:
     DropAction action{DropAction::None};
     core::Uuid asset{};
     flecs::entity target;               // Material, Script: the object under the cursor
+    // Material: the slot of the submesh under the cursor that the drop sets; unset, the whole mesh's `material`.
+    std::optional<std::uint32_t> slot;
     std::optional<glm::mat4> placement; // Instance, Mesh: where the object would stand
     // Instance, Mesh: the object's draws, joints and morph weights, relative to its origin.
     std::vector<renderer::DrawItem> draws;

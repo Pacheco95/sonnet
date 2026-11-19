@@ -7,6 +7,7 @@
 #include <sonnet/editor/Icons.h>
 #include <sonnet/editor/LightLines.h>
 #include <sonnet/editor/ScriptSlots.h>
+#include <sonnet/editor/SlotMaterials.h>
 
 #include <sonnet/assets/Json.h>
 #include <sonnet/core/File.h>
@@ -553,6 +554,7 @@ void Editor::update(float dt) {
   m_drop.action = DropAction::None;
   m_drop.asset = {};
   m_drop.target = {};
+  m_drop.slot.reset();
   m_drop.placement.reset();
   m_drop.draws.clear();
   m_drop.joints.clear();
@@ -725,9 +727,19 @@ void Editor::update(float dt) {
       if (item.id != id) {
         continue;
       }
-      // A slot with a material of its own keeps it after the drop, so the preview keeps it too.
       const std::span<const renderer::Submesh> submeshes = m_assets.renderer().submeshes(item.mesh);
       const std::uint32_t slot = item.submesh < submeshes.size() ? submeshes[item.submesh].materialSlot : 0;
+      if (m_drop.slot) {
+        // The drop sets one slot: the preview shows the material there and leaves the entity's other submeshes
+        // as they are, unoutlined (the outline is of the ids the mask draws).
+        if (slot == *m_drop.slot) {
+          item.material = material;
+        } else {
+          item.id = 0;
+        }
+        continue;
+      }
+      // A slot with a material of its own keeps it after the drop, so the preview keeps it too.
       const bool own = target != nullptr && slot < target->slotMaterials.size() &&
                        m_assets.material(target->slotMaterials[slot]).isValid();
       if (!own) {
@@ -938,15 +950,35 @@ void Editor::dragOverViewport(const ViewportInput &input, const GizmoView &view)
         return;
       }
       m_drop.target = hit->entity;
+      if (action == DropAction::Material) {
+        // On a mesh with several slots the submesh under the cursor is the target, unless Ctrl (Cmd on macOS) asks
+        // for the whole mesh. Snapping, which Ctrl also inverts, does not apply to a material.
+        if (const auto *meshRenderer = hit->entity.try_get<world::MeshRenderer>()) {
+          m_drop.slot = materialDropSlot(m_assets, *meshRenderer, *hit, ImGui::GetIO().KeyCtrl);
+        }
+      }
       if (input.assetDropped) {
         if (action == DropAction::Material) {
           const world::ComponentInfo *info = m_world.findComponent("MeshRenderer");
           const nlohmann::json before = m_world.componentToJson(hit->entity, info->id);
           nlohmann::json after = before;
-          after["material"] = asset.toString();
+          std::string description;
+          if (m_drop.slot) {
+            // The same edit as the inspector's slot picker (docs/editor.md, "Material slots").
+            nlohmann::json slots = nlohmann::json::array();
+            for (const core::Uuid &entry :
+                 setSlotMaterial(hit->entity.get<world::MeshRenderer>().slotMaterials, *m_drop.slot, asset)) {
+              slots.push_back(entry.toString());
+            }
+            after["slotMaterials"] = std::move(slots);
+            description = std::format("set material slot {} of {}", *m_drop.slot, nameOf(hit->entity));
+          } else {
+            after["material"] = asset.toString();
+            description = std::format("set material of {}", nameOf(hit->entity));
+          }
           if (after != before) {
             m_commands.push(componentCommand(target, info->name, std::make_optional(before), std::make_optional(after),
-                                             std::format("set material of {}", nameOf(hit->entity))),
+                                             std::move(description)),
                             m_world);
           }
         } else if (auto command = appendScriptCommand(m_world, target, asset)) {
