@@ -217,6 +217,9 @@ ctest --preset linux-debug
 | [0041](docs/decisions/0041-skin-shading.md) | Pre-integrated skin shading in its own forward pipeline, per-submesh material slots, and masked draws that fade | Accepted |
 | [0042](docs/decisions/0042-leg-ik.md) | Leg IK as a world-matrix pass before the skin palette, fed by the game's ground query | Accepted |
 | [0043](docs/decisions/0043-rotating-supports.md) | Characters ride supports that turn about +Y, and scripts read the support's spin | Accepted |
+| [0044](docs/decisions/0044-apply-added-children-to-prefabs.md) | Apply an instance's added children to its prefab | Accepted |
+| [0045](docs/decisions/0045-positional-slot-material-overrides.md) | An instance overrides material slots one by one | Accepted |
+| [0046](docs/decisions/0046-hair-strand-shading-and-coverage.md) | Hair strand shading and TAA-resolved coverage | Proposed |
 
 ## License
 
