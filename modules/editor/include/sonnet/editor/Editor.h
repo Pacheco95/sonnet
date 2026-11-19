@@ -765,7 +765,7 @@ private:
   struct DropPreview {
     DropAction action{DropAction::None};
     core::Uuid asset{};
-    flecs::entity target;               // Material, Script: the object under the cursor
+    flecs::entity target; // Material, Script: the object under the cursor
     // Material: the slot of the submesh under the cursor that the drop sets; unset, the whole mesh's `material`.
     std::optional<std::uint32_t> slot;
     std::optional<glm::mat4> placement; // Instance, Mesh: where the object would stand

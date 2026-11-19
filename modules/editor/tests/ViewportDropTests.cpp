@@ -106,7 +106,8 @@ flecs::entity figure(DropFixture &fixture, glm::vec3 position) {
   }
   REQUIRE_FALSE(mesh.isNil());
   const flecs::entity entity = fixture.world.createEntity("Figure");
-  const world::Transform transform{.position = position, .rotation = {1.0f, 0.0f, 0.0f, 0.0f}, .scale = glm::vec3{1.0f}};
+  const world::Transform transform{
+      .position = position, .rotation = {1.0f, 0.0f, 0.0f, 0.0f}, .scale = glm::vec3{1.0f}};
   entity.set(transform);
   entity.set(world::WorldTransform{transform.matrix()});
   world::MeshRenderer renderer;
