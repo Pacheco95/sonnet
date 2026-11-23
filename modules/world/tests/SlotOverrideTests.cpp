@@ -352,6 +352,7 @@ TEST_CASE("Apply compares an indexed list through its padding", "[world][prefab]
 
   const auto entities = [](const std::vector<world::ApplyTarget> &targets) {
     std::vector<flecs::entity> out;
+    out.reserve(targets.size());
     for (const world::ApplyTarget &target : targets) {
       out.push_back(target.entity);
     }

@@ -252,7 +252,7 @@ public:
     if constexpr (std::equality_comparable<T>) {
       component.on_equals(); // what World::differs asks before comparing bytes or JSON
     }
-    m_components.push_back({name, component.id(), tag, {}, {}});
+    m_components.push_back({name, component.id(), tag, {}, {}, {}});
     return component;
   }
   // Teaches reflection std::vector<Elem> as a member type, through flecs' opaque collections, so
