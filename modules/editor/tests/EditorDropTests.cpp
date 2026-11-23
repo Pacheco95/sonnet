@@ -14,6 +14,7 @@
 #include <sonnet/scripting/Components.h>
 #include <sonnet/world/Components.h>
 #include <sonnet/world/DrawList.h>
+#include <sonnet/world/Scene.h>
 
 #include "TwoSlotFigure.h"
 
@@ -24,8 +25,10 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -297,6 +300,22 @@ DropProject makeProject(Fixture &fixture, editor::Editor &editor, const std::fil
   return project;
 }
 
+// Imports TwoSlotFigure into the project and returns its mesh.
+core::Uuid importTwoSlotFigure(editor::Editor &editor, const DropProject &project) {
+  std::filesystem::create_directories(project.root / "assets" / "figure");
+  REQUIRE(
+      core::writeFile(project.root / "assets" / "figure" / "figure.gltf", std::string_view{TwoSlotFigure}).has_value());
+  static_cast<void>(editor.assets().rescan());
+  core::Uuid mesh;
+  for (const assets::AssetInfo *info : editor.assets().assets(assets::AssetType::Mesh)) {
+    if (info->name == "FigureMesh") {
+      mesh = info->uuid;
+    }
+  }
+  REQUIRE_FALSE(mesh.isNil());
+  return mesh;
+}
+
 } // namespace
 
 TEST_CASE("a prefab dropped on the viewport previews there, snaps with Ctrl and lands as one step",
@@ -485,17 +504,7 @@ TEST_CASE("a material dropped on one submesh sets its slot, and with Ctrl the wh
     const DropProject project = makeProject(fixture, editor, directory);
     world::World &world = editor.world();
     // A figure of two flat triangles in two slots, one left and one right of centre, above the ground.
-    std::filesystem::create_directories(project.root / "assets" / "figure");
-    REQUIRE(core::writeFile(project.root / "assets" / "figure" / "figure.gltf", std::string_view{TwoSlotFigure})
-                .has_value());
-    static_cast<void>(editor.assets().rescan());
-    core::Uuid mesh;
-    for (const assets::AssetInfo *info : editor.assets().assets(assets::AssetType::Mesh)) {
-      if (info->name == "FigureMesh") {
-        mesh = info->uuid;
-      }
-    }
-    REQUIRE_FALSE(mesh.isNil());
+    const core::Uuid mesh = importTwoSlotFigure(editor, project);
     const std::vector<core::Uuid> ownMaterials = editor.assets().find(mesh)->materials;
     REQUIRE(ownMaterials.size() == 2);
     const flecs::entity figure = world.createEntity("Figure");
@@ -614,6 +623,107 @@ TEST_CASE("a material dropped on one submesh sets its slot, and with Ctrl the wh
       CHECK(figure.get<world::MeshRenderer>().material == project.material);
       CHECK(slots() == std::vector<core::Uuid>{core::Uuid{}, *red});
     }
+  }
+  fixture.device->waitIdle();
+  REQUIRE(fixture.device->validationMessageCount() == 0);
+  sonnet::test::removeScratch(directory);
+}
+
+TEST_CASE("a material dropped on one submesh of a prefab instance overrides that slot only",
+          "[editor][gpu][drop][prefab]") {
+  Fixture fixture;
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "sonnet_editor_tests" / "drop_material_instance";
+  std::filesystem::remove_all(directory);
+  {
+    editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+    const DropProject project = makeProject(fixture, editor, directory);
+    world::World &world = editor.world();
+    const core::Uuid mesh = importTwoSlotFigure(editor, project);
+    assets::MaterialSource redSource;
+    redSource.baseColor = {1.0f, 0.0f, 0.0f, 1.0f};
+    const auto red = editor.assets().createMaterial(project.root / "assets" / "red.material.json", redSource);
+    REQUIRE(red.has_value());
+    // The figure becomes a prefab whose file has no slot materials, and the scene's entity an instance of it.
+    const flecs::entity placed = world.createEntity("Figure");
+    placed.set<world::Transform>({.position = {0.0f, 1.0f, 3.0f}});
+    placed.set<world::MeshRenderer>({.mesh = mesh});
+    const core::Uuid figureId = world.uuidOf(placed);
+    const auto prefabFile = editor.saveAsPrefab(figureId);
+    REQUIRE(prefabFile.has_value());
+    editor.assetBrowser().navigate(project.root / "assets");
+    fixture.settle(editor);
+    const auto figure = [&] { return world.find(figureId); };
+    REQUIRE(world.isInstance(figure()));
+    const auto slots = [&] { return figure().get<world::MeshRenderer>().slotMaterials; };
+    const auto fileText = [&] {
+      const auto bytes = core::readFile(*prefabFile);
+      REQUIRE(bytes.has_value());
+      return std::string{reinterpret_cast<const char *>(bytes->data()), bytes->size()};
+    };
+    const std::string original = fileText();
+    // What the instance stores: its MeshRenderer against the prefab's.
+    const world::ComponentInfo &info = *world.findComponent("MeshRenderer");
+    const auto overrides = [&] {
+      return world::componentPatch(info, world.componentToJson(figure(), info.id),
+                                   world.componentToJson(world.prefabOf(figure()), info.id));
+    };
+    const auto draw = [&](std::uint32_t submesh) {
+      renderer::DrawItem found{};
+      bool seen = false;
+      for (const renderer::DrawItem &item : editor.viewportDraws()) {
+        if (item.mesh == editor.assets().mesh(mesh) && item.submesh == submesh) {
+          found = item;
+          seen = true;
+          break;
+        }
+      }
+      INFO("submesh " << submesh);
+      REQUIRE(seen);
+      return found;
+    };
+    const renderer::MaterialHandle dropped = editor.assets().material(project.material);
+    REQUIRE(dropped.isValid());
+    REQUIRE(slots().empty());
+    REQUIRE(overrides().empty());
+    const std::size_t history = editor.commands().size();
+
+    fixture.hold(editor, tileOf(editor, project.material), screenOf(editor, {1.4f, 1.0f, 2.67f}), project.material);
+    CHECK(draw(1).material == dropped);
+    CHECK(slots().empty());
+    fixture.release(editor);
+
+    // One step, and the instance stores the one slot it changed, not a list of both.
+    REQUIRE(editor.commands().size() == history + 1);
+    CHECK(editor.commands().undoDescription() == "set material slot 1 of Figure");
+    CHECK(slots() == std::vector<core::Uuid>{core::Uuid{}, project.material});
+    CHECK(overrides() == nlohmann::json{{"slotMaterials", {{"1", project.material.toString()}}}});
+    CHECK(fileText() == original);
+    fixture.frames(editor, 2);
+    CHECK(draw(1).material == dropped);
+
+    REQUIRE(editor.commands().undo(world));
+    CHECK(slots().empty());
+    CHECK(overrides().empty());
+    CHECK(fileText() == original);
+    REQUIRE(editor.commands().redo(world));
+    CHECK(slots() == std::vector<core::Uuid>{core::Uuid{}, project.material});
+    CHECK(overrides() == nlohmann::json{{"slotMaterials", {{"1", project.material.toString()}}}});
+    CHECK(fileText() == original);
+
+    // The prefab later gives slot 0 a material: the instance follows it and keeps the slot it changed.
+    nlohmann::json document = nlohmann::json::parse(original);
+    document.at("entities").at(0).at("components").at("MeshRenderer")["slotMaterials"] =
+        nlohmann::json::array({red->toString()});
+    REQUIRE(core::writeFile(*prefabFile, world::sceneText(document)).has_value());
+    std::filesystem::last_write_time(*prefabFile,
+                                     std::filesystem::file_time_type::clock::now() + std::chrono::seconds{60});
+    editor.event(platform::WindowFocusChanged{.focused = true});
+    fixture.frames(editor, 3);
+    CHECK(slots() == std::vector<core::Uuid>{*red, project.material});
+    CHECK(overrides() == nlohmann::json{{"slotMaterials", {{"1", project.material.toString()}}}});
+    CHECK(draw(0).material == editor.assets().material(*red));
+    CHECK(draw(1).material == dropped);
   }
   fixture.device->waitIdle();
   REQUIRE(fixture.device->validationMessageCount() == 0);
