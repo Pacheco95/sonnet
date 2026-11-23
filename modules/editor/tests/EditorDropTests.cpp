@@ -42,6 +42,26 @@ using Catch::Approx;
 
 namespace {
 
+class PlatformFocus {
+public:
+  PlatformFocus() {
+    s_requested = 0;
+    ImGui::GetPlatformIO().Platform_SetWindowFocus = [](ImGuiViewport *viewport) { s_requested = viewport->ID; };
+  }
+
+  ~PlatformFocus() {
+    ImGui::GetPlatformIO().Platform_SetWindowFocus = m_previous;
+  }
+
+  ImGuiID requested() const {
+    return s_requested;
+  }
+
+private:
+  void (*m_previous)(ImGuiViewport *) = ImGui::GetPlatformIO().Platform_SetWindowFocus;
+  static inline ImGuiID s_requested = 0;
+};
+
 struct Fixture {
   platform::Platform platform{{.headless = true}};
   std::unique_ptr<platform::IWindow> window;
@@ -425,14 +445,28 @@ TEST_CASE("a material dropped on the box outlines it while held and is assigned 
     CHECK(outlined == std::vector<std::uint32_t>{world::World::pickId(box)});
     CHECK(box.get<world::MeshRenderer>().material == before);
     CHECK(editor.commands().size() == history);
-    fixture.release(editor);
+    {
+      PlatformFocus focus;
+      fixture.release(editor);
+      const ImGuiWindow *viewport = ImGui::FindWindowByName("Viewport");
+      REQUIRE(viewport != nullptr);
+      CHECK(focus.requested() == viewport->Viewport->ID);
+    }
 
     REQUIRE(editor.commands().size() == history + 1);
     CHECK(editor.commands().undoDescription() == "set material of Box");
     CHECK(box.get<world::MeshRenderer>().material == project.material);
     CHECK(editor.selection().primary() == world.uuidOf(box));
     CHECK(viewportFocused());
-    REQUIRE(editor.commands().undo(world));
+    // Undo through the keyboard without a click after the drop (issue #632).
+    ImGuiIO &io = ImGui::GetIO();
+    const ImGuiKey modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+    io.AddKeyEvent(modifier, true);
+    io.AddKeyEvent(ImGuiKey_Z, true);
+    fixture.frames(editor, 2);
+    io.AddKeyEvent(ImGuiKey_Z, false);
+    io.AddKeyEvent(modifier, false);
+    fixture.frames(editor, 2);
     CHECK(box.get<world::MeshRenderer>().material == before);
   }
   fixture.device->waitIdle();
