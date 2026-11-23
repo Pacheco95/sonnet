@@ -1023,6 +1023,11 @@ void Editor::dragOverViewport(const ViewportInput &input, const GizmoView &view)
     // What was made or changed is in the scene now; the viewport takes the keys, so Delete, Ctrl+D and F act on it.
     m_drop = {};
     ImGui::SetWindowFocus();
+    // ImGui focus alone does not restore the native keyboard focus after a drag on macOS.
+    // Focus the viewport's platform window, which may be detached from the editor's main window.
+    if (const auto focus = ImGui::GetPlatformIO().Platform_SetWindowFocus; focus != nullptr) {
+      focus(ImGui::GetWindowViewport());
+    }
   }
 }
 
