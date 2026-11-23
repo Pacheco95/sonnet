@@ -6,49 +6,16 @@
 #include <sonnet/world/Scene.h>
 
 #include <format>
+#include <functional>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace sonnet::editor {
 
 namespace {
 
 using nlohmann::json;
-
-// Every identity in a saved subtree replaced by a fresh one, parents included, so a copy
-// coexists with the original. An instance's descendant takes the identity the copied instance
-// will derive for it from the same source (ADR-0028). Done once so redo recreates the same copy.
-json withFreshIdentities(const world::World &world, json document, core::Uuid root) {
-  std::unordered_map<std::string, std::string> mapping;
-  bool first = true;
-  for (json &entry : document["entities"]) {
-    if (!entry.value("instanced", false)) {
-      const std::string old = entry["uuid"].get<std::string>();
-      mapping[old] = (first && !root.isNil() ? root : core::Uuid::generate()).toString();
-      entry["uuid"] = mapping[old];
-      first = false;
-    }
-  }
-  for (json &entry : document["entities"]) {
-    if (entry.value("instanced", false)) {
-      const flecs::entity original = world.find(*core::Uuid::parse(entry["uuid"].get<std::string>()));
-      const std::string instance = world.uuidOf(world.instanceOf(original)).toString();
-      const core::Uuid copy = world::World::instancedIdentity(*core::Uuid::parse(mapping.at(instance)),
-                                                              original.get<world::PrefabSource>().uuid);
-      mapping[entry["uuid"].get<std::string>()] = copy.toString();
-      entry["uuid"] = copy.toString();
-    }
-  }
-  for (json &entry : document["entities"]) {
-    if (entry.contains("parent")) {
-      const auto it = mapping.find(entry["parent"].get<std::string>());
-      if (it != mapping.end()) {
-        entry["parent"] = it->second;
-      }
-    }
-  }
-  return document;
-}
 
 flecs::entity require(world::World &world, const core::Uuid &uuid, std::string_view what) {
   const flecs::entity entity = world.find(uuid);
@@ -174,7 +141,7 @@ public:
       if (!source) {
         return;
       }
-      m_copy = withFreshIdentities(world, world::saveSubtree(world, source), m_root);
+      m_copy = withFreshIdentities(world, world::saveSubtree(world, source), m_root).document;
       json &root = m_copy["entities"][0];
       root["name"] = root["name"].get<std::string>() + " copy";
       m_root = *core::Uuid::parse(root["uuid"].get<std::string>());
@@ -483,6 +450,70 @@ private:
 
 } // namespace
 
+// Every identity in a saved subtree replaced by a fresh one, parents and `order` entries
+// included, so a copy coexists with the original. An instance's descendant takes the identity the
+// copied instance will derive for it from the same source (ADR-0028). Done once so redo recreates
+// the same copy.
+FreshIdentities withFreshIdentities(const world::World &world, json document, core::Uuid root) {
+  std::unordered_map<std::string, std::string> mapping;
+  std::vector<std::string> instances;
+  bool first = true;
+  for (json &entry : document["entities"]) {
+    if (!entry.value("instanced", false)) {
+      const std::string old = entry["uuid"].get<std::string>();
+      mapping[old] = (first && !root.isNil() ? root : core::Uuid::generate()).toString();
+      entry["uuid"] = mapping[old];
+      first = false;
+      if (entry.contains("prefab")) {
+        instances.push_back(old);
+      }
+    }
+  }
+  // Every part of an instance takes the identity the copy derives for it, also a part the
+  // document has no entry for (an unchanged source child), since an `order` names those too.
+  const std::function<void(flecs::entity, flecs::entity, const std::string &)> deriveParts =
+      [&](flecs::entity node, flecs::entity instance, const std::string &copy) {
+        for (const flecs::entity child : world.children(node)) {
+          if (child.has<world::PrefabSource>() && world.instanceOf(child) == instance) {
+            mapping[world.uuidOf(child).toString()] =
+                world::World::instancedIdentity(*core::Uuid::parse(copy), child.get<world::PrefabSource>().uuid)
+                    .toString();
+          }
+          deriveParts(child, instance, copy);
+        }
+      };
+  for (const std::string &old : instances) {
+    const flecs::entity instance = world.find(*core::Uuid::parse(old));
+    deriveParts(instance, instance, mapping.at(old));
+  }
+  for (json &entry : document["entities"]) {
+    if (entry.value("instanced", false)) {
+      entry["uuid"] = mapping.at(entry["uuid"].get<std::string>());
+    }
+  }
+  for (json &entry : document["entities"]) {
+    if (entry.contains("parent")) {
+      const auto it = mapping.find(entry["parent"].get<std::string>());
+      if (it != mapping.end()) {
+        entry["parent"] = it->second;
+      }
+    }
+    // An instance's `order` lists its children's identities (ADR-0032), which the copy changed.
+    if (entry.contains("order")) {
+      for (json &child : entry["order"]) {
+        if (const auto it = mapping.find(child.get<std::string>()); it != mapping.end()) {
+          child = it->second;
+        }
+      }
+    }
+  }
+  FreshIdentities result{.document = std::move(document), .identities = {}};
+  for (const auto &[old, fresh] : mapping) {
+    result.identities.emplace(*core::Uuid::parse(old), *core::Uuid::parse(fresh));
+  }
+  return result;
+}
+
 std::unique_ptr<ICommand> createEntityCommand(std::string name, core::Uuid parent, json components, core::Uuid uuid) {
   return std::make_unique<CreateEntityCommand>(std::move(name), parent, std::move(components), uuid);
 }
@@ -587,7 +618,7 @@ std::unique_ptr<ICommand> makeLocalCommand(core::Uuid instance) {
 }
 
 json prefabFromSubtree(const world::World &world, core::Uuid entity) {
-  return withFreshIdentities(world, world::saveSubtree(world, world.find(entity)), {});
+  return withFreshIdentities(world, world::saveSubtree(world, world.find(entity)), {}).document;
 }
 
 nlohmann::json revertMember(const world::ComponentInfo &info, const nlohmann::json &value, const nlohmann::json &source,

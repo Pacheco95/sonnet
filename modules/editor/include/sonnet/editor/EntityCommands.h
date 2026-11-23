@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace sonnet::editor {
@@ -60,6 +61,18 @@ namespace sonnet::editor {
 // "Make local" on a prefab instance (ADR-0028): its entities become ordinary ones with the same
 // identities (World::makeLocal); undo brings the instance back.
 [[nodiscard]] std::unique_ptr<ICommand> makeLocalCommand(core::Uuid instance);
+// A saved subtree (world::saveSubtree) with fresh identities, and what each old identity became.
+// `identities` holds every entity of the subtree, instance parts without an entry in the
+// document included; Save as prefab, Duplicate and applying an added child use it.
+struct FreshIdentities {
+  nlohmann::json document;
+  std::unordered_map<core::Uuid, core::Uuid> identities;
+};
+// Gives every identity in `document` a fresh one: `uuid`, `parent` and the entries of an instance's
+// `order` (ADR-0032), so the copy keeps its authored child order. An instance's parts take the
+// identities the copy derives for them (ADR-0028). The first root takes `root` when it is not nil.
+// Decided once by the caller, so redo recreates the same copy.
+[[nodiscard]] FreshIdentities withFreshIdentities(const world::World &world, nlohmann::json document, core::Uuid root);
 // "Save as prefab": the subtree under `entity` as a prefab document, with fresh identities so the
 // prefab and the instance that replaces the subtree can both be loaded. Not for part of an instance.
 [[nodiscard]] nlohmann::json prefabFromSubtree(const world::World &world, core::Uuid entity);
