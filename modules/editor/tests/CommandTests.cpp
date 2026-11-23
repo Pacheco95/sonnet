@@ -25,7 +25,9 @@
 
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace sonnet;
@@ -697,6 +699,141 @@ TEST_CASE("an instance's duplicate keeps what its descendants changed, under ide
   REQUIRE(world.children(wheel).size() == 1);
   REQUIRE(commands.undo(world));
   REQUIRE(!world.find(copy));
+}
+
+namespace {
+
+// A prefab "Cart" with children A, B, C, where B has the children B1 and B2.
+flecs::entity makeCartPrefab(world::World &world) {
+  const flecs::entity prefab = world.createEntity("Cart");
+  world.createEntity("A", prefab);
+  const flecs::entity b = world.createEntity("B", prefab);
+  world.createEntity("B1", b);
+  world.createEntity("B2", b);
+  world.createEntity("C", prefab);
+  world.makePrefab(prefab);
+  return prefab;
+}
+
+flecs::entity childNamed(const world::World &world, flecs::entity parent, std::string_view name) {
+  for (const flecs::entity child : world.children(parent)) {
+    if (child.get<world::Name>().value == name) {
+      return child;
+    }
+  }
+  return {};
+}
+
+std::vector<std::string> childNames(const world::World &world, flecs::entity parent) {
+  std::vector<std::string> names;
+  for (const flecs::entity child : world.children(parent)) {
+    names.push_back(child.get<world::Name>().value);
+  }
+  return names;
+}
+
+// Under "Holder" an instance "Cart 1" of the prefab with its children as C, A, B and B's as B2, B1:
+// one order on the instance's own entry, one on an `instanced` entry of an unchanged part.
+flecs::entity makeReorderedHolder(world::World &world, flecs::entity prefab) {
+  const flecs::entity holder = world.createEntity("Holder");
+  const flecs::entity cart = world.instantiate(prefab, "Cart 1", holder);
+  world.setSiblingIndex(childNamed(world, cart, "C"), 0);
+  world.setSiblingIndex(childNamed(world, childNamed(world, cart, "B"), "B2"), 0);
+  return holder;
+}
+
+} // namespace
+
+TEST_CASE("duplicate keeps the reordered children of a nested instance", "[editor][commands][prefab][order]") {
+  world::World world;
+  editor::CommandStack commands;
+  const flecs::entity holder = makeReorderedHolder(world, makeCartPrefab(world));
+  const flecs::entity cart = childNamed(world, holder, "Cart 1");
+  REQUIRE(childNames(world, cart) == std::vector<std::string>{"C", "A", "B"});
+
+  const core::Uuid copy = core::Uuid::generate();
+  commands.push(editor::duplicateEntityCommand(world.uuidOf(holder), copy), world);
+  const flecs::entity copyCart = childNamed(world, world.find(copy), "Cart 1");
+  REQUIRE(copyCart);
+  REQUIRE(copyCart != cart);
+  REQUIRE(childNames(world, copyCart) == std::vector<std::string>{"C", "A", "B"});
+  REQUIRE(childNames(world, childNamed(world, copyCart, "B")) == std::vector<std::string>{"B2", "B1"});
+  // The original is untouched, and redo recreates the same order.
+  REQUIRE(childNames(world, cart) == std::vector<std::string>{"C", "A", "B"});
+  REQUIRE(commands.undo(world));
+  REQUIRE(commands.redo(world));
+  REQUIRE(childNames(world, childNamed(world, world.find(copy), "Cart 1")) == std::vector<std::string>{"C", "A", "B"});
+}
+
+TEST_CASE("duplicate of an instance itself keeps its own reordered children", "[editor][commands][prefab][order]") {
+  world::World world;
+  editor::CommandStack commands;
+  const flecs::entity cart = world.instantiate(makeCartPrefab(world), "Cart 1", {});
+  world.setSiblingIndex(childNamed(world, cart, "C"), 0);
+
+  const core::Uuid copy = core::Uuid::generate();
+  commands.push(editor::duplicateEntityCommand(world.uuidOf(cart), copy), world);
+  REQUIRE(childNames(world, world.find(copy)) == std::vector<std::string>{"C", "A", "B"});
+}
+
+TEST_CASE("save as prefab keeps the reordered children of a nested instance", "[editor][commands][prefab][order]") {
+  world::World world;
+  editor::CommandStack commands;
+  const flecs::entity holder = makeReorderedHolder(world, makeCartPrefab(world));
+  const core::Uuid holderUuid = world.uuidOf(holder);
+  std::set<std::string> oldIdentities;
+  for (const flecs::entity part : world.children(childNamed(world, holder, "Cart 1"))) {
+    oldIdentities.insert(world.uuidOf(part).toString());
+  }
+
+  const nlohmann::json document = editor::prefabFromSubtree(world, holderUuid);
+  const auto prefab = world::loadPrefab(world, document);
+  REQUIRE(prefab.has_value());
+  commands.push(editor::replaceWithInstanceCommand(world, holderUuid, world.uuidOf(*prefab)), world);
+
+  const flecs::entity instance = world.find(holderUuid);
+  REQUIRE(world.prefabOf(instance) == *prefab);
+  const flecs::entity cart = childNamed(world, instance, "Cart 1");
+  REQUIRE(cart);
+  REQUIRE(childNames(world, cart) == std::vector<std::string>{"C", "A", "B"});
+  REQUIRE(childNames(world, childNamed(world, cart, "B")) == std::vector<std::string>{"B2", "B1"});
+  // The prefab document names the prefab's own identities, none of the subtree's.
+  bool ordered = false;
+  for (const nlohmann::json &entry : document["entities"]) {
+    for (const nlohmann::json &child : entry.value("order", nlohmann::json::array())) {
+      ordered = true;
+      REQUIRE(oldIdentities.count(child.get<std::string>()) == 0);
+    }
+  }
+  REQUIRE(ordered);
+}
+
+TEST_CASE("withFreshIdentities maps every old identity of the subtree, instance parts included",
+          "[editor][commands][prefab][order]") {
+  world::World world;
+  const flecs::entity holder = makeReorderedHolder(world, makeCartPrefab(world));
+  const flecs::entity cart = childNamed(world, holder, "Cart 1");
+  const core::Uuid root = core::Uuid::generate();
+
+  const editor::FreshIdentities fresh = editor::withFreshIdentities(world, world::saveSubtree(world, holder), root);
+  // Holder, Cart 1 and its five parts.
+  REQUIRE(fresh.identities.size() == 7);
+  REQUIRE(fresh.identities.at(world.uuidOf(holder)) == root);
+  const core::Uuid newCart = fresh.identities.at(world.uuidOf(cart));
+  REQUIRE(newCart != world.uuidOf(cart));
+  for (const flecs::entity part : world.children(cart)) {
+    // A and C have no entry in the document; their copies still derive from the new instance.
+    REQUIRE(fresh.identities.at(world.uuidOf(part)) ==
+            world::World::instancedIdentity(newCart, part.get<world::PrefabSource>().uuid));
+  }
+  REQUIRE(fresh.document["entities"][0]["uuid"] == root.toString());
+  for (const nlohmann::json &entry : fresh.document["entities"]) {
+    if (entry.contains("order")) {
+      for (const nlohmann::json &child : entry["order"]) {
+        REQUIRE_FALSE(world.find(*core::Uuid::parse(child.get<std::string>())));
+      }
+    }
+  }
 }
 
 TEST_CASE("reverting one member of an instance's component keeps its other changes", "[editor][commands][prefab]") {
