@@ -529,8 +529,8 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
   // The header says version 20.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 21);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 21);
+  REQUIRE(BundleVersion == 22);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 22);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {

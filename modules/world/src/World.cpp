@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <system_error>
 #include <functional>
 #include <iterator>
 #include <mutex>
@@ -197,6 +199,7 @@ void World::registerComponents() {
       .member<std::vector<core::Uuid>>("slotMaterials")
       .member<glm::vec4>("color")
       .member<bool>("visible");
+  matchByIndex("MeshRenderer", "slotMaterials", core::Uuid{}.toString()); // ADR-0045
   m_world.component<renderer::ProjectionKind>("ProjectionKind");
   registerComponent<Camera>("Camera");
   m_world.component<Camera>()
@@ -841,6 +844,12 @@ void World::matchBy(std::string_view component, std::string_view member, std::st
   it->matchedMembers.push_back({std::string{member}, std::string{key}});
 }
 
+void World::matchByIndex(std::string_view component, std::string_view member, nlohmann::json padding) {
+  const auto it = std::ranges::find(m_components, component, &ComponentInfo::name);
+  SONNET_ASSERT(it != m_components.end(), "component {} is not registered", component);
+  it->indexedMembers.push_back({std::string{member}, std::move(padding)});
+}
+
 namespace {
 
 // The members of an object that a value lacks and its source has (ADR-0037). No C++ member or
@@ -850,6 +859,35 @@ constexpr const char *RemovedKey = "$removed";
 const MatchedMember *matchedMember(const ComponentInfo &info, const std::string &key) {
   const auto it = std::ranges::find(info.matchedMembers, key, &MatchedMember::member);
   return it != info.matchedMembers.end() ? &*it : nullptr;
+}
+
+const IndexedMember *indexedMember(const ComponentInfo &info, const std::string &key) {
+  const auto it = std::ranges::find(info.indexedMembers, key, &IndexedMember::member);
+  return it != info.indexedMembers.end() ? &*it : nullptr;
+}
+
+// The length of `list` without its trailing elements equal to `padding`.
+std::size_t significantLength(const nlohmann::json &list, const nlohmann::json &padding) {
+  std::size_t length = list.size();
+  while (length > 0 && list[length - 1] == padding) {
+    --length;
+  }
+  return length;
+}
+
+// An indexed member whose lists differ: an object keyed by the decimal index, holding the value
+// of each element where the lists differ, an absent one being the padding (ADR-0045). Empty when
+// the lists are equal once their trailing paddings are dropped.
+nlohmann::json patchIndexed(const nlohmann::json &value, const nlohmann::json &source, const nlohmann::json &padding) {
+  nlohmann::json patch = nlohmann::json::object();
+  const std::size_t length = std::max(significantLength(value, padding), significantLength(source, padding));
+  for (std::size_t i = 0; i < length; ++i) {
+    const nlohmann::json &element = i < value.size() ? value[i] : padding;
+    if (element != (i < source.size() ? source[i] : padding)) {
+      patch[std::to_string(i)] = element;
+    }
+  }
+  return patch;
 }
 
 // The key an element of a matched member is paired by, as the patch's object key; nothing when
@@ -918,8 +956,14 @@ nlohmann::json patchObject(const ComponentInfo &info, const nlohmann::json &valu
       continue;
     }
     const MatchedMember *matched = leaves ? nullptr : matchedMember(info, key);
+    const IndexedMember *indexed = leaves ? nullptr : indexedMember(info, key);
     if (inSource && !leaves && member.is_object() && it->is_object()) {
       patch[key] = patchObject(info, member, *it, isJsonMember(info, key));
+    } else if (inSource && indexed != nullptr && member.is_array() && it->is_array()) {
+      nlohmann::json changes = patchIndexed(member, *it, indexed->padding);
+      if (!changes.empty()) {
+        patch[key] = std::move(changes);
+      }
     } else if (inSource && matched != nullptr && member.is_array() && it->is_array()) {
       patch[key] = patchMatched(info, member, *it, matched->key);
     } else {
@@ -971,6 +1015,39 @@ void mergeMatched(const ComponentInfo &info, nlohmann::json &target, const nlohm
   }
 }
 
+// The highest index an indexed member's patch may name: a key past it is skipped, so a hostile
+// file cannot allocate a large list.
+constexpr std::size_t MaxIndexedKey = 1024;
+
+// Sets the elements of the list `target` the patch's keys name, growing it with the padding, and
+// drops the trailing paddings. A key that is not a decimal index up to MaxIndexedKey, and a value
+// that is not a UUID string, are skipped with a warning.
+void mergeIndexed(const ComponentInfo &info, nlohmann::json &target, const nlohmann::json &patch,
+                  const IndexedMember &indexed, std::string_view entity) {
+  for (const auto &[key, element] : patch.items()) {
+    std::size_t index = 0;
+    const char *const end = key.data() + key.size();
+    const auto [stop, error] = std::from_chars(key.data(), end, index);
+    if (key.empty() || error != std::errc{} || stop != end || index > MaxIndexedKey) {
+      SONNET_LOG_WARN("entity {}: key \"{}\" of {} {} is not an index from 0 to {}, skipped", entity, key, info.name,
+                      indexed.member, MaxIndexedKey);
+      continue;
+    }
+    if (!element.is_string() || !core::Uuid::parse(element.get_ref<const std::string &>())) {
+      SONNET_LOG_WARN("entity {}: the value at key \"{}\" of {} {} is not a UUID, skipped", entity, key, info.name,
+                      indexed.member);
+      continue;
+    }
+    while (target.size() <= index) {
+      target.push_back(indexed.padding);
+    }
+    target[index] = element;
+  }
+  while (!target.empty() && target.back() == indexed.padding) {
+    target.erase(target.size() - 1);
+  }
+}
+
 void mergeObject(const ComponentInfo &info, nlohmann::json &target, const nlohmann::json &patch, bool leaves,
                  std::string_view entity) {
   for (const auto &[key, member] : patch.items()) {
@@ -986,7 +1063,17 @@ void mergeObject(const ComponentInfo &info, nlohmann::json &target, const nlohma
     }
     const auto it = target.find(key);
     const MatchedMember *matched = leaves ? nullptr : matchedMember(info, key);
-    if (matched != nullptr && member.is_object()) {
+    const IndexedMember *indexed = leaves ? nullptr : indexedMember(info, key);
+    if (indexed != nullptr && !member.is_array()) {
+      if (!member.is_object()) {
+        SONNET_LOG_WARN("entity {}: {} {} is neither a list nor an object of slots, skipped", entity, info.name, key);
+      } else if (it != target.end() && it->is_array()) {
+        mergeIndexed(info, *it, member, *indexed, entity);
+      } else {
+        SONNET_LOG_WARN("entity {}: changes to {} {} skipped, the prefab has no list to apply them to", entity,
+                        info.name, key);
+      }
+    } else if (matched != nullptr && member.is_object()) {
       if (it != target.end() && it->is_array()) {
         mergeMatched(info, *it, member, *matched, entity);
       } else {
@@ -1050,8 +1137,23 @@ std::vector<ApplyTarget> World::applyTargets(flecs::entity entity, const Compone
     if (!level.has(component.id) || component.tag) {
       return true;
     }
-    const nlohmann::json value = componentToJson(level, component.id);
-    const nlohmann::json source = componentToJson(deeper, component.id);
+    nlohmann::json value = componentToJson(level, component.id);
+    nlohmann::json source = componentToJson(deeper, component.id);
+    // An indexed list's absent element is its padding (ADR-0045): the shorter list is padded, so
+    // an index past the end of one holds what the other holds there.
+    for (const IndexedMember &indexed : component.indexedMembers) {
+      const nlohmann::json::json_pointer list{"/" + indexed.member};
+      if (value.contains(list) && source.contains(list) && value.at(list).is_array() && source.at(list).is_array()) {
+        nlohmann::json &first = value.at(list);
+        nlohmann::json &second = source.at(list);
+        const std::size_t length = std::max(first.size(), second.size());
+        for (nlohmann::json *padded : {&first, &second}) {
+          while (padded->size() < length) {
+            padded->push_back(indexed.padding);
+          }
+        }
+      }
+    }
     if (member.empty()) {
       return value == source;
     }

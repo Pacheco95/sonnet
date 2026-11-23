@@ -26,7 +26,8 @@ namespace sonnet::world {
 // Version 7 adds camera projection kind, orthographic height and far plane.
 // Version 8 adds "order" to an instance's entries: the order of its children (ADR-0032).
 // Version 9 stores only the members an instance changed in a component (ADR-0037).
-constexpr int SceneVersion = 9;
+// Version 10 stores an instance's MeshRenderer::slotMaterials by slot index (ADR-0045).
+constexpr int SceneVersion = 10;
 
 // Every scene entity, parents before children, prefab instances as their overrides and what
 // their descendants changed.

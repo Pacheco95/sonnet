@@ -41,6 +41,14 @@ struct MatchedMember {
   std::string key;
 };
 
+// A repeated member of values whose elements a patch pairs by position (ADR-0045): the patch is an
+// object keyed by the decimal index of each element that differs. `padding` is the JSON value of an
+// element that is absent, which a list's trailing entries equal to it do not count against.
+struct IndexedMember {
+  std::string member;
+  nlohmann::json padding;
+};
+
 // A component the inspector and the serializer know about: everything registered with
 // reflection in World, by the name used in scene files.
 struct ComponentInfo {
@@ -51,6 +59,8 @@ struct ComponentInfo {
   std::vector<std::string> jsonMembers;
   // Repeated members whose elements a patch pairs by one of their members (World::matchBy).
   std::vector<MatchedMember> matchedMembers;
+  // Repeated members whose elements a patch pairs by position (World::matchByIndex).
+  std::vector<IndexedMember> indexedMembers;
 };
 
 // What a scene or prefab file stores of an instance's component that differs from its source
@@ -58,12 +68,13 @@ struct ComponentInfo {
 // "$removed" listing the members of an embedded JSON object the value lacks. Leaves are written
 // whole: numbers, strings, booleans, null, arrays and the values inside embedded JSON. A matched
 // member (World::matchBy) whose elements pair up is an object keyed by the matching member, one
-// patch per element in order. Empty when the two are equal.
+// patch per element in order, and an indexed member (World::matchByIndex) whose lists differ is an
+// object keyed by the index of each element that differs (ADR-0045). Empty when the two are equal.
 [[nodiscard]] nlohmann::json componentPatch(const ComponentInfo &info, const nlohmann::json &value,
                                             const nlohmann::json &source);
 // `target` with `patch` applied, the inverse of componentPatch: what the patch leaves out keeps
-// the target's value. A patch for a matched element the target no longer has is skipped with a
-// warning naming `entity`.
+// the target's value. A patch for a matched element the target no longer has, and a malformed key
+// of an indexed member, are skipped with a warning naming `entity`.
 [[nodiscard]] nlohmann::json mergePatch(const ComponentInfo &info, nlohmann::json target, const nlohmann::json &patch,
                                         std::string_view entity);
 
@@ -191,8 +202,9 @@ public:
   // instance. It goes deeper while the deeper entity holds the same member (or, for the whole
   // component, the same value or the same absence), so it stops at the first level that changes
   // it; of the levels it reaches, the deepest whose prefab has a file is the target. A matched list
-  // (matchBy) pairs its elements only while both levels run the same keys in the same order, and
-  // an instance root's Transform is its own at every level. Null for an entity outside an
+  // (matchBy) pairs its elements only while both levels run the same keys in the same order, an
+  // indexed list (matchByIndex) compares an absent element as its padding, and an instance root's
+  // Transform is its own at every level. Null for an entity outside an
   // instance, an instance root's Transform, and a chain with no file.
   [[nodiscard]] ApplyTarget
   applyTarget(flecs::entity entity, const ComponentInfo &component,
@@ -277,6 +289,11 @@ public:
   // A repeated member whose elements a patch pairs by their `key` member, the n-th element with
   // a key to the n-th with the same key (a script slot by its script, ADR-0037).
   void matchBy(std::string_view component, std::string_view member, std::string_view key);
+  // A repeated member whose elements a patch pairs by position, as an object keyed by the decimal
+  // index (a MeshRenderer's slot materials, ADR-0045). `padding` is the JSON value of an absent
+  // element: a list's trailing entries equal to it are insignificant, and an element past the end
+  // of one list is compared as it.
+  void matchByIndex(std::string_view component, std::string_view member, nlohmann::json padding);
   // Marks a system as simulation: it runs in play mode only.
   void addToSimulation(flecs::entity system);
 

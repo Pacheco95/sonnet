@@ -315,6 +315,8 @@ core::Result<json> migrate(const json &input, std::string_view source) {
   // Version 8 adds "order" to instance entries: a file without it keeps the default order.
   // Version 9 stores an instance's changed components as patches; an older file's whole values
   // replace instead (setComponents, ADR-0037).
+  // Version 10 lets an instance's slotMaterials be an object keyed by slot index (ADR-0045): a
+  // file written before it holds arrays, which still replace, so nothing changes.
   document["version"] = SceneVersion;
   return document;
 }

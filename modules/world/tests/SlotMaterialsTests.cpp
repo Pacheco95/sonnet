@@ -244,7 +244,7 @@ TEST_CASE("slot materials are left out of a file while empty and round-trip thro
   REQUIRE(world.componentToJson(plain, meshRenderer).at("slotMaterials") == nlohmann::json::array());
 
   const nlohmann::json saved = world::saveScene(world);
-  REQUIRE(saved["version"] == 9); // an additive member: the version stays (ADR-0029)
+  REQUIRE(saved["version"] == 10); // an instance stores the list by slot index (ADR-0045)
   const auto entry = [&](const nlohmann::json &document, const core::Uuid &uuid) {
     const auto found = std::ranges::find_if(
         document["entities"], [&](const nlohmann::json &entity) { return entity["uuid"] == uuid.toString(); });
@@ -343,9 +343,9 @@ TEST_CASE("a prefab instance overrides one slot and follows the prefab's other c
   const auto instanceEntry = std::ranges::find_if(
       scene["entities"], [&](const nlohmann::json &entity) { return entity["uuid"] == instanceUuid.toString(); });
   REQUIRE(instanceEntry != scene["entities"].end());
-  // The slot list alone, written whole as any list is (ADR-0037).
+  // The one slot it set, by index (ADR-0045); the nil entry before it equals the prefab's absent one.
   REQUIRE((*instanceEntry)["components"]["MeshRenderer"] ==
-          nlohmann::json{{"slotMaterials", {core::Uuid{}.toString(), fixture.green.toString()}}});
+          nlohmann::json{{"slotMaterials", {{"1", fixture.green.toString()}}}});
 
   // The prefab later overrides every slot and recolours: the instance keeps its slot and takes the rest.
   prefabFile["entities"][0]["components"]["MeshRenderer"]["material"] = fixture.red.toString();
@@ -365,7 +365,7 @@ TEST_CASE("a prefab instance overrides one slot and follows the prefab's other c
             std::vector{fixture.assets.material(fixture.red), fixture.assets.material(fixture.green)});
   }
 
-  // A prefab with slots, and an instance that clears them: the empty list is the instance's value.
+  // A prefab with slots, and an instance that clears them: a nil for each slot the prefab has.
   prefabFile["entities"][0]["components"]["MeshRenderer"]["slotMaterials"] = {fixture.blue.toString()};
   {
     world::World editing;
@@ -376,7 +376,7 @@ TEST_CASE("a prefab instance overrides one slot and follows the prefab's other c
     scene = world::saveScene(editing);
   }
   REQUIRE(scene["entities"][0]["components"]["MeshRenderer"] ==
-          nlohmann::json{{"slotMaterials", nlohmann::json::array()}});
+          nlohmann::json{{"slotMaterials", {{"0", core::Uuid{}.toString()}}}});
   world::World playing;
   REQUIRE(world::loadPrefab(playing, prefabFile).has_value());
   REQUIRE(world::loadScene(playing, scene).has_value());
