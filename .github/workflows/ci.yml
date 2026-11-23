@@ -206,8 +206,10 @@ jobs:
       # Vulkan tests run on Lavapipe; tests that need a window use SDL's offscreen driver. A Vulkan test
       # skips itself without a device, so the job stops here if Lavapipe is missing or below 1.4 rather
       # than pass with the GPU cases skipped.
+      # bash: a container job's default shell is sh, which has no `<<<`.
       - name: Select Lavapipe and print the tool versions
         if: runner.os == 'Linux'
+        shell: bash
         env:
           LAVAPIPE: ${{ matrix.lavapipe }}
         run: |
