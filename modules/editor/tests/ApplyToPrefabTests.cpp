@@ -1491,3 +1491,74 @@ TEST_CASE("applying a descendant's child order inside a prefab of prefabs offers
   CHECK(childNames(world, placed) == Names{"Board", "Crate B"});
   CHECK(childNames(world, parent) == Names{"C", "B", "A"});
 }
+
+TEST_CASE("applying one material slot writes that slot and leaves the others on the instance, undoably",
+          "[editor][gpu][prefab][apply][slots]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-slot");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const core::Uuid root = core::Uuid::generate();
+  const core::Uuid red = core::Uuid::generate();
+  const core::Uuid green = core::Uuid::generate();
+  const core::Uuid blue = core::Uuid::generate();
+  const core::Uuid grey = core::Uuid::generate();
+  const std::filesystem::path file = directory / "prefabs" / "figure.prefab.json";
+  writeDocument(
+      file,
+      json::array({{{"uuid", root.toString()},
+                    {"name", "Figure"},
+                    {"components",
+                     {{"MeshRenderer",
+                       {{"slotMaterials", json::array({red.toString(), green.toString(), blue.toString()})}}}}}}}));
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid a = core::Uuid::generate();
+  const core::Uuid b = core::Uuid::generate();
+  for (const core::Uuid &uuid : {a, b}) {
+    editor.commands().push(editor::instantiatePrefabCommand(root, "Figure", {}, uuid), world);
+  }
+  const auto slots = [&](const core::Uuid &instance) {
+    return world.find(instance).get<world::MeshRenderer>().slotMaterials;
+  };
+  const world::ComponentInfo &info = *world.findComponent("MeshRenderer");
+  const auto overrides = [&](const core::Uuid &instance) {
+    return world::componentPatch(info, world.componentToJson(world.find(instance), info.id),
+                                 world.componentToJson(world.find(root), info.id));
+  };
+  // A gives slots 0 and 2 a material of its own and keeps the prefab's slot 1.
+  const json before = world.componentToJson(world.find(a), info.id);
+  json after = before;
+  after["slotMaterials"] = json::array({grey.toString(), green.toString(), grey.toString()});
+  editor.commands().push(
+      editor::componentCommand(a, "MeshRenderer", std::optional{before}, std::optional{after}, "slots"), world);
+  CHECK(overrides(a) == json{{"slotMaterials", {{"0", grey.toString()}, {"2", grey.toString()}}}});
+  fixture.frame(editor);
+  const std::string original = text(file);
+
+  const editor::ApplyRequest request{
+      .entity = a, .component = "MeshRenderer", .member = json::json_pointer{"/slotMaterials/0"}};
+  REQUIRE(editor.applyTargetName(request) == "Figure");
+  REQUIRE(editor.applyToPrefab(request).has_value());
+  // The file holds slot 0 only, B follows it, and A still marks slot 2.
+  CHECK(stored(file, root)["MeshRenderer"]["slotMaterials"] ==
+        json::array({grey.toString(), green.toString(), blue.toString()}));
+  CHECK(slots(b) == std::vector<core::Uuid>{grey, green, blue});
+  CHECK(overrides(a) == json{{"slotMaterials", {{"2", grey.toString()}}}});
+
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(file) == original);
+  CHECK(slots(b) == std::vector<core::Uuid>{red, green, blue});
+  CHECK(overrides(a) == json{{"slotMaterials", {{"0", grey.toString()}, {"2", grey.toString()}}}});
+  REQUIRE(editor.commands().redo(world));
+  CHECK(slots(b) == std::vector<core::Uuid>{grey, green, blue});
+
+  // Apply all offers the one slot left and writes it.
+  const editor::ApplyAllPlan plan = editor.applyAllPlan(a);
+  CHECK(changesTo(plan, file) == 1);
+  REQUIRE(editor.applyAllOverrides(a).has_value());
+  CHECK(stored(file, root)["MeshRenderer"]["slotMaterials"] ==
+        json::array({grey.toString(), green.toString(), grey.toString()}));
+  CHECK(slots(b) == std::vector<core::Uuid>{grey, green, grey});
+  CHECK(editor.applyAllPlan(a).files.empty());
+}

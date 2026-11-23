@@ -644,14 +644,14 @@ def write_prefab():
     # The model's Body node (ADR-0030's name path) as this instance's descendant, its skin slot overridden.
     body = derive(model, derive(asset_uuid(HUMANOID), "path/Armature/Body"))
     entities.append({"uuid": body, "instanced": True,
-                     "components": {"MeshRenderer": {"slotMaterials": [write_skin_material()]}}})
+                     "components": {"MeshRenderer": {"slotMaterials": {"0": write_skin_material()}}}})
     for index, (name, x) in enumerate((("Left foot", -0.1), ("Right foot", 0.1), ("Landing", 0.0))):
         entities.append({"uuid": prefab_identity(3 + index), "name": name, "parent": root, "components": {
             "Transform": transform((x, 0.05, 0.0)),
             "AudioSource": {"sound": NIL, "volume": 1.0, "pitch": 1.0, "playing": False, "loop": False, "spatial": True,
                             "minDistance": 2.0, "maxDistance": 40.0}}})
     (PROJECT / "prefabs").mkdir(parents=True, exist_ok=True)
-    (PROJECT / CHARACTER_PREFAB).write_text(scene_json.dumps({"version": 9, "entities": entities}) + "\n")
+    (PROJECT / CHARACTER_PREFAB).write_text(scene_json.dumps({"version": 10, "entities": entities}) + "\n")
     return root
 
 

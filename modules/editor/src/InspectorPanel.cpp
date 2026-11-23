@@ -1360,7 +1360,7 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
     }
   } else if (member.type == ecs.id<std::vector<core::Uuid>>() && name == "slotMaterials" &&
              m_drawnComponent == "MeshRenderer") {
-    drawSlotMaterials(*static_cast<world::MeshRenderer *>(data));
+    drawSlotMaterials(*static_cast<world::MeshRenderer *>(data), overridden);
   } else if (type.has<flecs::Primitive>()) {
     switch (scalarWidget(ecs, member)) {
     case ScalarWidget::Checkbox:
@@ -1446,7 +1446,7 @@ void InspectorPanel::drawMember(const ecs_member_t &member, void *data) {
   ui::endPropertyTable();
 }
 
-void InspectorPanel::drawSlotMaterials(world::MeshRenderer &meshRenderer) {
+void InspectorPanel::drawSlotMaterials(world::MeshRenderer &meshRenderer, const nlohmann::json *overridden) {
   const std::size_t count = world::materialSlotCount(m_assets, meshRenderer.mesh);
   const assets::AssetInfo *mesh = m_assets.find(meshRenderer.mesh);
   if (count == 0) {
@@ -1457,9 +1457,36 @@ void InspectorPanel::drawSlotMaterials(world::MeshRenderer &meshRenderer) {
     // The mesh's own material, which the slot draws with while it is nil and `material` is too.
     const core::Uuid own = mesh != nullptr && slot < mesh->materials.size() ? mesh->materials[slot] : core::Uuid{};
     const assets::AssetInfo *ownInfo = m_assets.find(own);
-    ui::mutedText("%zu: %s", slot, ownInfo != nullptr ? ownInfo->name.c_str() : "(no material)");
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("The mesh's own material; a material here replaces it in this slot");
+    const std::string slotLabel =
+        std::format("{}: {}", slot, ownInfo != nullptr ? ownInfo->name.c_str() : "(no material)");
+    // A slot the instance overrides (ADR-0045) is marked and reverts or applies alone.
+    const std::string slotKey = std::to_string(slot);
+    const bool slotOverridden = overridden != nullptr && overridden->is_object() && overridden->contains(slotKey);
+    if (slotOverridden) {
+      ui::markedText(slotLabel);
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Differs from the prefab");
+      }
+    } else {
+      ui::mutedText("%s", slotLabel.c_str());
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("The mesh's own material; a material here replaces it in this slot");
+      }
+    }
+    if (slotOverridden) {
+      const ApplyRequest request{
+          .entity = m_drawnEntity, .component = m_drawnComponent, .member = m_memberPath / "slotMaterials" / slotKey};
+      const std::vector<ApplyChoice> applyTo = applyChoices(request);
+      if (!applyTo.empty()) {
+        drawApply("Apply", request, applyTo, std::format("Apply this slot to {}", applyTo.front().name));
+        ImGui::SameLine();
+      }
+      if (ui::rowButton("Revert")) {
+        m_revertMember = request.member;
+      }
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Revert this slot to the prefab's");
+      }
     }
     core::Uuid value = slot < meshRenderer.slotMaterials.size() ? meshRenderer.slotMaterials[slot] : core::Uuid{};
     if (drawAssetPicker(value, assets::AssetType::Material)) {

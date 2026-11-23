@@ -1055,6 +1055,89 @@ TEST_CASE("the mesh renderer lists its mesh's slots, with a picker and an editab
   sonnet::test::removeScratch(root);
 }
 
+TEST_CASE("an instance's overridden slot is marked and reverts alone, with undo",
+          "[editor][inspector][slots][prefab]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_slot_revert";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  constexpr std::string_view model =
+      R"json({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"Figure","mesh":0}],)json"
+      R"json("meshes":[{"name":"FigureMesh","primitives":[{"attributes":{"POSITION":0},"indices":1,"material":0},)json"
+      R"json({"attributes":{"POSITION":0},"indices":1,"material":1}]}],)json"
+      R"json("materials":[{"name":"Body"},{"name":"Skin"}],)json"
+      R"json("buffers":[{"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAEAAAACAAAA","byteLength":48}],)json"
+      R"json("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":12}],)json"
+      R"json("accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},)json"
+      R"json({"bufferView":1,"componentType":5125,"count":3,"type":"SCALAR"}]})json";
+  REQUIRE(core::writeFile(root / "assets" / "figure.gltf", model).has_value());
+  assets.open(root, std::vector<std::string>{"assets"});
+  core::Uuid mesh;
+  for (const assets::AssetInfo *info : assets.assets(assets::AssetType::Mesh)) {
+    mesh = info->uuid;
+  }
+  REQUIRE_FALSE(mesh.isNil());
+
+  world::World world;
+  const core::Uuid red = core::Uuid::generate();
+  const core::Uuid green = core::Uuid::generate();
+  const core::Uuid blue = core::Uuid::generate();
+  const flecs::entity prefab = world.createEntity("Figure");
+  prefab.set<world::MeshRenderer>({.mesh = mesh, .slotMaterials = {red, green}});
+  world.makePrefab(prefab);
+  const flecs::entity instance = world.instantiate(prefab, "Figure 1");
+  instance.ensure<world::MeshRenderer>().slotMaterials = {blue, blue};
+  const core::Uuid instanceUuid = world.uuidOf(instance);
+  const auto slots = [&] { return world.find(instanceUuid).get<world::MeshRenderer>().slotMaterials; };
+  // The instance's patch names both slots, so each is marked and reverts alone.
+  const world::ComponentInfo &info = *world.findComponent("MeshRenderer");
+  REQUIRE(world::componentPatch(info, world.componentToJson(instance, info.id), world.componentToJson(prefab, info.id))
+              .at("slotMaterials")
+              .size() == 2);
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  {
+    const InspectorDriver driver{panel, {}};
+    selection.select(instanceUuid);
+    driver.frame();
+    ImGuiWindow *window = InspectorDriver::inspector();
+    const flecs::entity type = world.ecs().component<world::MeshRenderer>();
+    const ecs_member_t *members = ecs_vec_first_t(&type.get<flecs::Struct>().members, ecs_member_t);
+    const int memberIndex = static_cast<int>(&memberOf(world, type, "slotMaterials") - members);
+    const ImGuiID row = ImHashData(&memberIndex, sizeof(memberIndex), ImHashStr("MeshRenderer", 0, window->ID));
+    const auto slotWidget = [&](int slot, const char *label) {
+      return ImHashStr(label, 0, ImHashData(&slot, sizeof(slot), ImHashStr("member", 0, row)));
+    };
+
+    // Revert on the first slot puts the prefab's material there and leaves the second.
+    bool found = false;
+    for (float x = 20.0f; x < 480.0f && !found; x += 10.0f) {
+      found = driver.hover(window, slotWidget(0, "Revert"), x);
+    }
+    REQUIRE(found);
+    driver.click();
+    REQUIRE(commands.size() == 1);
+    REQUIRE(slots() == std::vector<core::Uuid>{red, blue});
+    // The second is still marked, the first no longer is.
+    REQUIRE(world::componentPatch(info, world.componentToJson(world.find(instanceUuid), info.id),
+                                  world.componentToJson(prefab, info.id)) ==
+            nlohmann::json{{"slotMaterials", {{"1", blue.toString()}}}});
+
+    REQUIRE(commands.undo(world));
+    REQUIRE(slots() == std::vector<core::Uuid>{blue, blue});
+    REQUIRE(commands.redo(world));
+    REQUIRE(slots() == std::vector<core::Uuid>{red, blue});
+  }
+  assets.close();
+  sonnet::test::removeScratch(root);
+}
+
 TEST_CASE("a renamed part of an instance offers to apply its name beside the name field",
           "[editor][inspector][prefab][apply][name]") {
   platform::Platform platform{{.headless = true}};

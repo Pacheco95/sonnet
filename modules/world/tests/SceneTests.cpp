@@ -499,7 +499,7 @@ TEST_CASE("a sun's contact shadows survive source and cooked scenes and prefab o
       {.intensity = 4.0f, .contactShadows = true, .contactShadowLength = 0.35f, .contactShadowThickness = 0.05f});
   const core::Uuid sunUuid = source.uuidOf(sun);
   const nlohmann::json scene = world::saveScene(source);
-  REQUIRE(scene["version"] == 9);
+  REQUIRE(scene["version"] == 10);
   for (const nlohmann::json &document : {scene, cooked(scene)}) {
     world::World target;
     REQUIRE(world::loadScene(target, document));
@@ -859,7 +859,7 @@ TEST_CASE("a camera's ambient occlusion request round trips, cooked too, and def
     REQUIRE(drawn->ambientOcclusionRadius == Approx(0.8f));
     REQUIRE(drawn->ambientOcclusionStrength == Approx(0.6f));
   }
-  REQUIRE(saved["version"] == 9);
+  REQUIRE(saved["version"] == 10);
 
   // A scene saved before the fields existed draws as it did: no occlusion.
   auto old = saved;
