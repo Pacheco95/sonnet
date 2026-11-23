@@ -9,7 +9,7 @@ C++23 is required. Minimum compilers, chosen for `std::expected`, `std::print`, 
 | Platform | Compiler |
 |---|---|
 | Linux | GCC 14+, or Clang 19+ with libstdc++ 14+, or Clang 18+ with libc++ 18+ (libstdc++ hides `std::expected` from Clang 18 because it reports `__cpp_concepts` below 202002L) |
-| Windows | MSVC 17.10+ (Visual Studio 2022) or clang-cl of the same LLVM version |
+| Windows | MSVC 17.10+ (Visual Studio 2022) or clang-cl of the same LLVM version. MSVC STL 14.52 (Visual Studio 18) refuses Clang older than 22 (`STL1000`), and the clang-cl bundled with Visual Studio is older, so CI installs LLVM 22.1.8 from Chocolatey for its clang-cl job; the version is the matrix's `clang-cl` field in `ci.yml` |
 | macOS, iOS | Apple Clang from Xcode 16.3+. On macOS the configure uses the toolchain's own `clang++` (from `xcrun --find`) rather than the `/usr/bin/clang++` shim, which would add `-I/usr/local/include` and let a system-wide Vulkan SDK's headers shadow vcpkg's ([the diagnosis](reports/macos-vulkan-header-search.md)); a compiler chosen through `CMAKE_CXX_COMPILER`, `CXX` or a local preset is kept |
 | Android | NDK r30+ (Clang 21), the first NDK whose sysroot reaches API 36 (Android 16); r27 to r29 stop at 35 |
 

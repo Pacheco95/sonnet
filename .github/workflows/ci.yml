@@ -69,6 +69,8 @@ jobs:
         # `llvm` lists the LLVM 20 packages a Linux job installs from apt.llvm.org, `tidy` adds clang-tidy 20
         # on pull requests, and `lavapipe: false` leaves Mesa out (docs/build.md, "Linux packages").
         # `build-only: true` skips the Test step and the test reports.
+        # `clang-cl` is the LLVM version the Windows clang-cl job installs from Chocolatey: the MSVC 14.52 STL
+        # needs Clang 22 or newer (STL1000), which the clang-cl bundled with Visual Studio is not.
         include:
           - name: Linux GCC
             cache: linux-gcc
@@ -154,6 +156,7 @@ jobs:
             build-type: Release
             cc: clang-cl
             cxx: clang-cl
+            clang-cl: 22.1.8
           - name: macOS Clang Release
             cache: macos
             os: macos-latest
@@ -268,6 +271,18 @@ jobs:
       - name: Set up MSVC
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+
+      # After the MSVC environment, so LLVM's folder lands ahead of the Visual Studio copy of clang-cl that
+      # msvc-dev-cmd put on PATH. The INCLUDE and LIB it set are what the new clang-cl reads to find the STL.
+      - name: Install clang-cl ${{ matrix.clang-cl }}
+        if: matrix.clang-cl
+        shell: pwsh
+        env:
+          CLANG_CL_VERSION: ${{ matrix.clang-cl }}
+        run: |
+          choco install llvm --version=$env:CLANG_CL_VERSION --allow-downgrade --no-progress -y
+          "PATH=C:\Program Files\LLVM\bin;$env:PATH" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          & "C:\Program Files\LLVM\bin\clang-cl.exe" --version
 
       - name: Set up vcpkg
         shell: bash
