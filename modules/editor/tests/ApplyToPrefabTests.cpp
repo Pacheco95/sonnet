@@ -1504,12 +1504,13 @@ TEST_CASE("applying one material slot writes that slot and leaves the others on 
   const core::Uuid blue = core::Uuid::generate();
   const core::Uuid grey = core::Uuid::generate();
   const std::filesystem::path file = directory / "prefabs" / "figure.prefab.json";
-  writeDocument(file, json::array({{{"uuid", root.toString()},
-                                    {"name", "Figure"},
-                                    {"components",
-                                     {{"MeshRenderer",
-                                       {{"slotMaterials",
-                                         json::array({red.toString(), green.toString(), blue.toString()})}}}}}}}));
+  writeDocument(
+      file,
+      json::array({{{"uuid", root.toString()},
+                    {"name", "Figure"},
+                    {"components",
+                     {{"MeshRenderer",
+                       {{"slotMaterials", json::array({red.toString(), green.toString(), blue.toString()})}}}}}}}));
   REQUIRE(editor.openProject(directory).has_value());
   world::World &world = editor.world();
   const core::Uuid a = core::Uuid::generate();

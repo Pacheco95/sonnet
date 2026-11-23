@@ -10,7 +10,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <system_error>
 #include <functional>
 #include <iterator>
 #include <mutex>
@@ -18,6 +17,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 namespace sonnet::world {

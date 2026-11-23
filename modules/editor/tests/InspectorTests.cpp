@@ -1055,7 +1055,8 @@ TEST_CASE("the mesh renderer lists its mesh's slots, with a picker and an editab
   sonnet::test::removeScratch(root);
 }
 
-TEST_CASE("an instance's overridden slot is marked and reverts alone, with undo", "[editor][inspector][slots][prefab]") {
+TEST_CASE("an instance's overridden slot is marked and reverts alone, with undo",
+          "[editor][inspector][slots][prefab]") {
   platform::Platform platform{{.headless = true}};
   const auto device = rhi::createNullDevice();
   renderer::Renderer renderer{*device, platform.basePath() / "shaders"};

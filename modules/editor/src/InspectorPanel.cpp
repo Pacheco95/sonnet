@@ -1474,9 +1474,8 @@ void InspectorPanel::drawSlotMaterials(world::MeshRenderer &meshRenderer, const 
       }
     }
     if (slotOverridden) {
-      const ApplyRequest request{.entity = m_drawnEntity,
-                                 .component = m_drawnComponent,
-                                 .member = m_memberPath / "slotMaterials" / slotKey};
+      const ApplyRequest request{
+          .entity = m_drawnEntity, .component = m_drawnComponent, .member = m_memberPath / "slotMaterials" / slotKey};
       const std::vector<ApplyChoice> applyTo = applyChoices(request);
       if (!applyTo.empty()) {
         drawApply("Apply", request, applyTo, std::format("Apply this slot to {}", applyTo.front().name));

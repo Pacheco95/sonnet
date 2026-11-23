@@ -141,7 +141,7 @@ TEST_CASE("an object of slots merges by position and an array replaces", "[world
   // A patch and the merge of it are inverse, whatever the lists.
   const core::Uuid none;
   const std::vector<std::pair<Slots, Slots>> cases = {
-      {Slots{Red, Green}, Slots{Blue, Green}}, {Slots{Red}, Slots{Red, Green}}, {Slots{}, Slots{Red, Green}},
+      {Slots{Red, Green}, Slots{Blue, Green}}, {Slots{Red}, Slots{Red, Green}},   {Slots{}, Slots{Red, Green}},
       {Slots{none, Green}, Slots{Red}},        {Slots{Red, none, Blue}, Slots{}}, {Slots{}, Slots{}},
   };
   for (const auto &[value, source] : cases) {
@@ -338,7 +338,8 @@ TEST_CASE("Apply compares an indexed list through its padding", "[world][prefab]
                             {"prefab", wheel.toString()},
                             {"components", json::object()}}}}};
   world::World world;
-  REQUIRE(world::loadPrefabs(world, {{"cart.prefab.json", cartFile, {}}, {"wheel.prefab.json", wheelFile, {}}}).empty());
+  REQUIRE(
+      world::loadPrefabs(world, {{"cart.prefab.json", cartFile, {}}, {"wheel.prefab.json", wheelFile, {}}}).empty());
   const flecs::entity wheelPrefab = world.find(wheel);
   const flecs::entity cartPrefab = world.find(cart);
   wheelPrefab.set<world::PrefabFile>({"wheel.prefab.json"});
