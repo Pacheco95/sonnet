@@ -146,8 +146,9 @@ private:
   void drawMember(const ecs_member_t &member, void *data);
   // A MeshRenderer's `slotMaterials` (ADR-0041): one row per slot of its mesh, naming the mesh's
   // own material, with a material picker and "Make editable copy" for a glTF material, edited on
-  // `meshRenderer` as the other members are.
-  void drawSlotMaterials(world::MeshRenderer &meshRenderer);
+  // `meshRenderer` as the other members are. `overridden` is the patch of the member from the prefab's
+  // (an object keyed by slot index, or null): each slot it names is marked and has its own Revert and Apply.
+  void drawSlotMaterials(world::MeshRenderer &meshRenderer, const nlohmann::json *overridden);
   // A member's or a script property's name, marked when it differs from the prefab.
   void drawMemberLabel(const char *name, bool overridden);
   bool drawEnum(flecs::entity type, void *data);
