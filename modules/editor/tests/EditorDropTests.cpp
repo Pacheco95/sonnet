@@ -666,8 +666,8 @@ TEST_CASE("capture drops on the viewport for visual review", "[.drop-captures][e
         fixture.frame(editor);
         result = editor.takeScreenshotResult();
       }
-      REQUIRE(result);
-      REQUIRE(*result);
+      REQUIRE(result.has_value());
+      REQUIRE(result->has_value());
     };
 
     // The crate prefab, snapped on the ground with Ctrl held.
@@ -738,8 +738,8 @@ TEST_CASE("capture moving and skinned drop previews for visual review", "[.drop-
         fixture.frame(editor);
         result = editor.takeScreenshotResult();
       }
-      REQUIRE(result);
-      REQUIRE(*result);
+      REQUIRE(result.has_value());
+      REQUIRE(result->has_value());
     };
     capture("scene-before.png");
 

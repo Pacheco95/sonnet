@@ -453,8 +453,8 @@ TEST_CASE("the orthographic sample plays through the Game camera", "[editor][gpu
     editor.requestScreenshots({}, output);
     fixture.frame(editor);
     const auto result = editor.takeScreenshotResult();
-    REQUIRE(result);
-    REQUIRE(*result);
+    REQUIRE(result.has_value());
+    REQUIRE(result->has_value());
     editor.stop();
   }
   fixture.device->waitIdle();
