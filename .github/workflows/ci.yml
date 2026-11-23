@@ -52,13 +52,51 @@ jobs:
           git log --format=%s "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
             | python3 tools/check_commit_msg.py --stdin
 
+  # The image the Linux jobs run in (docker/ci-linux, docs/build.md, "Linux packages"). It is tagged with a hash
+  # of its folder and built only when GHCR has no image with that tag, so most runs only look it up.
+  image:
+    name: Linux image
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Name the image
+        id: ref
+        run: |
+          hash=${{ hashFiles('docker/ci-linux/**') }}
+          echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sonnet-ci-linux:${hash:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push the image if GHCR has none
+        env:
+          IMAGE: ${{ steps.ref.outputs.ref }}
+        run: |
+          if docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "$IMAGE exists"
+          else
+            docker build --tag "$IMAGE" docker/ci-linux
+            docker push "$IMAGE"
+          fi
+
   build:
     name: ${{ matrix.name }}
-    needs: lint
+    needs: [lint, image]
     permissions:
       contents: read
       actions: write # deletes the vcpkg binary cache entries a new one replaces
+      packages: read # pulls the Linux image
     runs-on: ${{ matrix.os }}
+    # The Linux jobs run in the image, with every package installed; the other systems run on the runner.
+    # `container` takes the image and its credentials as one object, null for a job with none.
+    container: ${{ startsWith(matrix.os, 'ubuntu') && needs.image.outputs.ref && fromJSON(format('{{"image":"{0}","credentials":{{"username":"{1}","password":"{2}"}}}}', needs.image.outputs.ref, github.actor, github.token)) || null }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -66,8 +104,8 @@ jobs:
         # `cache` names the job's vcpkg binary cache group. vcpkg builds every port in Debug and Release
         # whatever CMAKE_BUILD_TYPE is, and the sanitizer flags do not reach the ports, so the jobs that
         # share a triplet and a compiler share a group.
-        # `llvm` lists the LLVM 20 packages a Linux job installs from apt.llvm.org, `tidy` adds clang-tidy 20
-        # on pull requests, and `lavapipe: false` leaves Mesa out (docs/build.md, "Linux packages").
+        # `tidy` runs clang-tidy 20 on pull requests, and `lavapipe: false` leaves Lavapipe unselected
+        # (docs/build.md, "Linux packages").
         # `build-only: true` skips the Test step and the test reports.
         # `clang-cl` is the LLVM version the Windows clang-cl job installs from Chocolatey: the MSVC 14.52 STL
         # needs Clang 22 or newer (STL1000), which the clang-cl bundled with Visual Studio is not.
@@ -84,7 +122,6 @@ jobs:
             preset: linux-debug
             cc: clang-20
             cxx: clang++-20
-            llvm: clang-20 llvm-20
             tidy: true
           - name: Linux ASan
             cache: linux-clang
@@ -92,14 +129,12 @@ jobs:
             preset: linux-asan
             cc: clang-20
             cxx: clang++-20
-            llvm: clang-20 llvm-20 libclang-rt-20-dev
           - name: Linux TSan
             cache: linux-tsan
             os: ubuntu-24.04
             preset: linux-tsan
             cc: clang-20
             cxx: clang++-20
-            llvm: clang-20 llvm-20 libclang-rt-20-dev
             lavapipe: false
           - name: Windows MSVC
             cache: windows-msvc
@@ -142,7 +177,6 @@ jobs:
             build-type: Release
             cc: clang-20
             cxx: clang++-20
-            llvm: clang-20 llvm-20
           - name: Windows MSVC Release
             cache: windows-msvc
             os: windows-latest
@@ -169,63 +203,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Linux packages (docs/build.md, "Linux packages"): each job installs what it uses, in steps of their own
-      # so each one's time shows. Mesa comes from the kisak PPA, recent enough for Lavapipe to expose Vulkan
-      # 1.4, in every job but TSan, whose test preset runs with no Vulkan driver. Only the Clang jobs add
-      # apt.llvm.org, because Clang 18 with libstdc++ hides std::expected (docs/build.md, "Toolchains"). The
-      # sources are added without an index update of their own, so apt reads the indexes once.
-      - name: Add the Linux package sources
-        if: runner.os == 'Linux'
-        env:
-          LAVAPIPE: ${{ matrix.lavapipe }}
-          LLVM: ${{ matrix.llvm }}
-        run: |
-          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
-          if [ "$LAVAPIPE" != false ]; then
-            sudo add-apt-repository -y --no-update ppa:kisak/kisak-mesa
-          fi
-          if [ -n "$LLVM" ]; then
-            sudo install -d -m 0755 /etc/apt/keyrings
-            sudo wget -qO /etc/apt/keyrings/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.gpg.key
-            codename=$(lsb_release -cs)
-            echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-20 main" \
-              | sudo tee /etc/apt/sources.list.d/apt.llvm.org.list
-          fi
-          sudo apt-get update
-
-      # GCC 14 is the GCC jobs' compiler and the libstdc++ 14 Clang picks up on its own. SDL3 and miniaudio
-      # compile against the system's window and audio headers.
-      - name: Install the Linux packages
-        if: runner.os == 'Linux'
-        env:
-          LAVAPIPE: ${{ matrix.lavapipe }}
-        run: |
-          mesa=
-          if [ "$LAVAPIPE" != false ]; then
-            mesa="mesa-vulkan-drivers vulkan-tools"
-          fi
-          sudo apt-get install -y ninja-build gcc-14 g++-14 libvulkan1 $mesa \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
-            libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl-dev libdrm-dev libgbm-dev \
-            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
-
-      # Without recommends, which for clang-20 are llvm-20-dev and clang-tools-20, used by no job. llvm-20
-      # holds the llvm-ar-20 and llvm-ranlib-20 CMake picks for Clang, and the llvm-symbolizer-20 the
-      # sanitizer runtimes run to name a report's frames, which tools/tsan.supp matches. The sanitizer jobs
-      # add libclang-rt-20-dev, the runtimes, which clang-20 only recommends; the clang-tidy step's job adds
-      # clang-tidy 20 on pull requests, the only time that step runs.
-      - name: Install LLVM 20
-        if: matrix.llvm
-        env:
-          LLVM: ${{ matrix.llvm }}
-          TIDY: ${{ matrix.tidy && github.event_name == 'pull_request' }}
-        run: |
-          packages="$LLVM"
-          if [ "$TIDY" = true ]; then
-            packages="$packages clang-tidy-20"
-          fi
-          sudo apt-get install -y --no-install-recommends $packages
-
       # Vulkan tests run on Lavapipe; tests that need a window use SDL's offscreen driver. A Vulkan test
       # skips itself without a device, so the job stops here if Lavapipe is missing or below 1.4 rather
       # than pass with the GPU cases skipped.
@@ -233,7 +210,6 @@ jobs:
         if: runner.os == 'Linux'
         env:
           LAVAPIPE: ${{ matrix.lavapipe }}
-          LLVM: ${{ matrix.llvm }}
         run: |
           echo "ninja $(ninja --version)"
           "$CC" --version | head -1
@@ -241,11 +217,9 @@ jobs:
             gcc-14 --version | head -1
             "$CXX" -v -E -x c++ /dev/null 2>&1 | grep 'Selected GCC installation' || true
           fi
-          if command -v clang-tidy-20 > /dev/null; then
-            clang-tidy-20 --version | grep version
-          fi
+          clang-tidy-20 --version | grep version
           dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' \
-            $LLVM clang-tidy-20 libllvm20 mesa-vulkan-drivers 2> /dev/null | grep '^ii' || true
+            clang-20 llvm-20 clang-tidy-20 libllvm20 mesa-vulkan-drivers | grep '^ii'
           if [ "$LAVAPIPE" = false ]; then
             echo "No Lavapipe: this job runs no Vulkan test"
             exit 0
@@ -302,7 +276,8 @@ jobs:
       # The runner image version is part of the key: hosted runners serve two image versions at the same
       # time while one rolls out, and their compilers and SDKs give the ports different ABI hashes. The
       # runner sets `ImageVersion` as an environment variable, which expressions cannot read, so it goes
-      # through GITHUB_ENV first.
+      # through GITHUB_ENV first. A Linux job's compilers come from the container image instead, so its tag
+      # stands for the version.
       # SCCACHE_GROUP names the job's compiler cache: one per preset and compiler, or the matrix's `sccache`
       # where two jobs share both, since each job builds with its own flags and objects never carry over
       # between them.
@@ -310,8 +285,13 @@ jobs:
         shell: bash
         env:
           SCCACHE_NAME: ${{ matrix.sccache }}
+          LINUX_IMAGE: ${{ needs.image.outputs.ref }}
         run: |
-          echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = Linux ]; then
+            echo "RUNNER_IMAGE=${LINUX_IMAGE##*:}" >> "$GITHUB_ENV"
+          else
+            echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+          fi
           echo "SCCACHE_GROUP=sccache-${SCCACHE_NAME:-${{ matrix.preset }}-${CC:-default}}" >> "$GITHUB_ENV"
 
       - name: Restore the vcpkg binary cache
