@@ -45,21 +45,21 @@ namespace {
 class PlatformFocus {
 public:
   PlatformFocus() {
-    s_requested = 0;
-    ImGui::GetPlatformIO().Platform_SetWindowFocus = [](ImGuiViewport *viewport) { s_requested = viewport->ID; };
+    requested() = 0;
+    ImGui::GetPlatformIO().Platform_SetWindowFocus = [](ImGuiViewport *viewport) { requested() = viewport->ID; };
   }
 
   ~PlatformFocus() {
     ImGui::GetPlatformIO().Platform_SetWindowFocus = m_previous;
   }
 
-  ImGuiID requested() const {
+  static ImGuiID &requested() {
+    static ImGuiID s_requested = 0;
     return s_requested;
   }
 
 private:
   void (*m_previous)(ImGuiViewport *) = ImGui::GetPlatformIO().Platform_SetWindowFocus;
-  static inline ImGuiID s_requested = 0;
 };
 
 struct Fixture {
