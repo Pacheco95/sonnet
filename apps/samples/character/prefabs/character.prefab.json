@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "entities": [
     {
       "uuid": "c4a20001-0000-4000-8000-000000000001",
@@ -87,9 +87,9 @@
       "instanced": true,
       "components": {
         "MeshRenderer": {
-          "slotMaterials": [
-            "ffa8942d-6033-8a8d-aa33-0ea8f4c20c51"
-          ]
+          "slotMaterials": {
+            "0": "ffa8942d-6033-8a8d-aa33-0ea8f4c20c51"
+          }
         }
       }
     },
