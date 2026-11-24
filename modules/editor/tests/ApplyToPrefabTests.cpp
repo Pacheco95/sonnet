@@ -1847,3 +1847,190 @@ TEST_CASE("applying an added child inside a prefab of prefabs goes to the file c
   CHECK(text(crateFile) == crateText);
   CHECK(world.find(label));
 }
+
+namespace {
+
+// Gives the entity a script slot whose properties hold `properties`, as an entity property would,
+// through the history, as an edit does.
+void holdProperties(editor::Editor &editor, const core::Uuid &entity, const json &properties) {
+  world::World &world = editor.world();
+  const world::ComponentInfo &info = *world.findComponent("Scripts");
+  std::optional<json> before;
+  if (world.find(entity).has(info.id)) {
+    before = world.componentToJson(world.find(entity), info.id);
+  }
+  scripting::Scripts scripts;
+  scripts.slots.push_back({.script = {}, .properties = properties.dump()});
+  editor.commands().push(editor::componentCommand(entity, "Scripts", before,
+                                                  std::optional<json>{world.valueToJson(info.id, &scripts)},
+                                                  "properties"),
+                         world);
+}
+
+bool reasonHas(const std::optional<std::string> &reason, std::string_view text) {
+  return reason && reason->find(text) != std::string::npos;
+}
+
+} // namespace
+
+TEST_CASE(
+    "an added child is refused with the reason when a reference crosses its subtree or it would contain its prefab",
+    "[editor][gpu][prefab][apply][added]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-added-refused");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Crate crate;
+  const Lamp lamp;
+  // A rack places a crate, so a crate that held a rack would hold itself.
+  const core::Uuid rack = core::Uuid::generate();
+  writeDocument(directory / "prefabs" / "crate.prefab.json", crate.entities());
+  lamp.write(directory / "prefabs" / "lamp.prefab.json");
+  writeDocument(directory / "prefabs" / "rack.prefab.json",
+                json::array({{{"uuid", rack.toString()}, {"name", "Rack"}, {"components", json::object()}},
+                             {{"uuid", core::Uuid::derive(rack, "crate").toString()},
+                              {"name", "Shelf"},
+                              {"parent", rack.toString()},
+                              {"prefab", crate.root.toString()},
+                              {"components", json::object()}}}));
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid x = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", {}, x), world);
+  const auto add = [&](const char *name, const core::Uuid &parent) {
+    const core::Uuid uuid = core::Uuid::generate();
+    editor.commands().push(editor::createEntityCommand(name, parent, {}, uuid), world);
+    return uuid;
+  };
+  const core::Uuid mast = add("Mast", {});
+  const core::Uuid antenna = add("Antenna", x);
+  const core::Uuid tip = add("Tip", antenna);
+  const core::Uuid asset = core::Uuid::generate(); // names no entity, as an asset's identity
+
+  // Nothing refers to anything: offered, and the tip, a node inside the subtree, says where to look.
+  CHECK(!editor.applyRefusal(addedRequest(antenna)));
+  CHECK(editor.applyTargetName(addedRequest(antenna)).has_value());
+  CHECK(reasonHas(editor.applyRefusal(addedRequest(tip)), "Antenna"));
+  CHECK(!editor.applyChoices(addedRequest(tip)).size());
+  // A part, an instance root without a parent and an entity outside any instance have no item.
+  CHECK(!editor.applyRefusal(addedRequest(world::World::instancedIdentity(x, crate.child("A")))));
+  CHECK(!editor.applyRefusal(addedRequest(x)));
+  CHECK(!editor.applyRefusal(addedRequest(mast)));
+
+  // Null and an asset's identity are no references.
+  holdProperties(editor, antenna, {{"target", core::Uuid{}.toString()}, {"material", asset.toString()}, {"count", 3}});
+  CHECK(!editor.applyRefusal(addedRequest(antenna)));
+  // One that points outside the subtree is refused, naming the entity, the component and the member.
+  holdProperties(editor, tip, {{"target", mast.toString()}});
+  fixture.frame(editor);
+  const auto outward = editor.applyRefusal(addedRequest(antenna));
+  REQUIRE(outward.has_value());
+  CHECK(reasonHas(outward, "Scripts"));
+  CHECK(reasonHas(outward, "target"));
+  CHECK(reasonHas(outward, "Tip"));
+  CHECK(reasonHas(outward, "Mast"));
+  CHECK(reasonHas(outward, "outside"));
+  CHECK(!editor.applyTargetName(addedRequest(antenna)).has_value());
+  CHECK(!editor.applyToPrefab(addedRequest(antenna)).has_value());
+  CHECK(world.find(antenna));
+  // One that points inside it is refused too: the copies would hold the prefab's own identity.
+  holdProperties(editor, tip, {{"target", antenna.toString()}});
+  fixture.frame(editor);
+  CHECK(reasonHas(editor.applyRefusal(addedRequest(antenna)), "inside"));
+  holdProperties(editor, tip, json::object());
+  fixture.frame(editor);
+  CHECK(!editor.applyRefusal(addedRequest(antenna)));
+
+  // A reference from outside to the subtree is allowed and follows the copy.
+  holdProperties(editor, mast, {{"watching", tip.toString()}});
+  const std::filesystem::path file = directory / "prefabs" / "crate.prefab.json";
+  REQUIRE(editor.applyToPrefab(addedRequest(antenna)).has_value());
+  const core::Uuid copyTip = world::World::instancedIdentity(x, filedIdentity(file, "Tip"));
+  REQUIRE(world.find(copyTip));
+  CHECK(json::parse(world.find(mast).get<scripting::Scripts>().slots[0].properties)["watching"] == copyTip.toString());
+  REQUIRE(editor.commands().undo(world));
+  CHECK(json::parse(world.find(mast).get<scripting::Scripts>().slots[0].properties)["watching"] == tip.toString());
+
+  // A nested instance of the prefab it would go into, or of one that places it, is refused; any
+  // other prefab is not.
+  const core::Uuid lampInstance = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(lamp.root, "Lamp", antenna, lampInstance), world);
+  CHECK(!editor.applyRefusal(addedRequest(antenna)));
+  const core::Uuid selfInstance = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", tip, selfInstance), world);
+  const auto self = editor.applyRefusal(addedRequest(antenna));
+  CHECK(reasonHas(self, "the prefab it would go into"));
+  editor.commands().undo(world);
+  editor.commands().push(editor::instantiatePrefabCommand(rack, "Rack", tip, selfInstance), world);
+  CHECK(reasonHas(editor.applyRefusal(addedRequest(antenna)), "which places"));
+  CHECK(!editor.applyToPrefab(addedRequest(antenna)).has_value());
+  CHECK(world.find(antenna));
+  CHECK(!world.find(world::World::instancedIdentity(x, filedIdentity(file, "Antenna"))));
+  CHECK(editor.applyChoices(addedRequest(antenna)).empty());
+}
+
+TEST_CASE("an apply whose rebuild loses a copy puts the files and the scene back and says why",
+          "[editor][prefab][apply][added]") {
+  const std::filesystem::path directory = scratch("apply-added-lost");
+  std::filesystem::create_directories(directory);
+  const std::filesystem::path file = directory / "a.prefab.json";
+  REQUIRE(core::writeFile(file, "before").has_value());
+  world::World world;
+  const core::Uuid old = core::Uuid::generate();
+  const core::Uuid copy = core::Uuid::generate();
+  std::vector<bool> loaded; // whether each rebuild was given a scene to load
+  std::vector<editor::IdentityMap> moves;
+  auto command = editor::applyToPrefabCommand("apply", {{.file = file, .before = "before", .after = "after"}}, {},
+                                              [&](const json *scene, const editor::IdentityMap &moved) {
+                                                loaded.push_back(scene != nullptr);
+                                                moves.push_back(moved);
+                                                // A refused document leaves the rebuild without the copy: nothing is
+                                                // created here.
+                                              },
+                                              {{old, copy}});
+  command->apply(world);
+  CHECK(!editor::applyFailure(*command).empty());
+  CHECK(text(file) == "before");
+  // The rebuild ran with the edited scene and the map, then with the saved scene and its inverse.
+  REQUIRE(loaded.size() == 2);
+  CHECK(loaded[0]);
+  CHECK(loaded[1]);
+  CHECK(moves[0] == editor::IdentityMap{{old, copy}});
+  CHECK(moves[1] == editor::IdentityMap{{copy, old}});
+
+  // One that finds its copies has nothing to say, and undo returns the inverse.
+  auto fine = editor::applyToPrefabCommand("apply", {{.file = file, .before = "before", .after = "after"}}, {},
+                                           [&](const json *, const editor::IdentityMap &moved) {
+                                             if (!moved.empty() && moved.begin()->first == old) {
+                                               static_cast<void>(world.createEntity("Copy", {}, copy));
+                                             }
+                                           },
+                                           {{old, copy}});
+  fine->apply(world);
+  CHECK(editor::applyFailure(*fine).empty());
+  CHECK(text(file) == "after");
+  fine->revert(world);
+  CHECK(text(file) == "before");
+}
+
+TEST_CASE("a prefab without a file takes no added child", "[editor][gpu][prefab][apply][added]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-added-nofile");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  // A prefab loaded from a document in memory, as a model's is, has no file to write.
+  const Crate crate;
+  const auto prefab = world::loadPrefab(world, {{"version", world::SceneVersion}, {"entities", crate.entities()}});
+  REQUIRE(prefab.has_value());
+  const core::Uuid x = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", {}, x), world);
+  const core::Uuid added = core::Uuid::generate();
+  editor.commands().push(editor::createEntityCommand("Antenna", x, {}, added), world);
+  CHECK(reasonHas(editor.applyRefusal(addedRequest(added)), "no prefab along the way has a file"));
+  CHECK(!editor.applyTargetName(addedRequest(added)).has_value());
+  CHECK(editor.applyChoices(addedRequest(added)).empty());
+  CHECK(!editor.applyToPrefab(addedRequest(added)).has_value());
+  CHECK(world.find(added).parent() == world.find(x));
+}

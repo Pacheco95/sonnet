@@ -212,6 +212,13 @@ public:
   // from, outwards. Each one, set as the request's `prefab`, is applied like the rule's pick. Empty
   // when applyTargetName offers nothing; `request.prefab` is ignored.
   [[nodiscard]] std::vector<ApplyChoice> applyChoices(const ApplyRequest &request) const;
+  // Why applyChoices offers nothing for `request`, as the hierarchy menu shows a disabled item and
+  // Apply all lists a change it keeps: empty when it can be applied, and when apply is not offered
+  // at all (playing, a bundle, an entity outside an instance). For an added child (ADR-0044) the
+  // reason is a part of an instance, a node inside an added subtree (naming its root), a chain
+  // with no prefab file, a reference that crosses the subtree, or a prefab the subtree would
+  // contain; the checks of the last two are cached per history position.
+  [[nodiscard]] std::optional<std::string> applyRefusal(const ApplyRequest &request) const;
   // Opens the confirmation, which lists prefabUsers for the target; Apply there is applyToPrefab.
   void requestApplyToPrefab(ApplyRequest request);
   [[nodiscard]] bool applyDialogOpen() const noexcept {
@@ -692,6 +699,18 @@ private:
   // applyAllPlan's walk; with `plan` null it only finds whether a change can be applied, stopping
   // at the first one.
   bool walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const;
+  // What stops the subtree under `entity`, an added child, from moving into the prefab `target`
+  // is in: a reference to an entity of the world from inside it (refused whether the entity is in
+  // the subtree or outside, since a copy in another instance could not follow either), or a nested
+  // instance of a prefab that is the target's or places it. The scan and the walk are cached by
+  // the history's revision, since the offered check asks every frame.
+  [[nodiscard]] std::optional<std::string> addedChildRefusal(flecs::entity entity,
+                                                             const world::ApplyTarget &target) const;
+  [[nodiscard]] std::optional<std::string> referenceRefusal(flecs::entity root) const;
+  [[nodiscard]] std::optional<std::string> cycleRefusal(flecs::entity root, flecs::entity prefab) const;
+  // Loads the prefabs as the files will hold them, structure only, in a world of their own, so a
+  // document the loader would refuse is found before anything is written.
+  [[nodiscard]] core::Result<void> checkPrefabDocuments(const std::vector<PrefabFileEdit> &edits) const;
   // An added subtree an apply moves into a prefab (ADR-0044): its document with the fresh
   // identities the prefab gives it, and what each identity it has in the scene becomes once the
   // instance holds the copy. Decided once per apply, since the document and the command's map must
@@ -836,6 +855,14 @@ private:
   std::optional<core::Uuid> m_pendingApplyAll; // the instance the Apply all overrides confirmation applies
   ApplyAllPlan m_applyAllPlan;
   std::size_t m_prefabRebuilds{0};
+  // addedChildRefusal's answers for the history position they were made at, by subtree and prefab.
+  struct AddedChecks {
+    std::uint64_t revision = 0;
+    std::size_t rebuilds = 0;
+    std::size_t tab = 0;
+    std::map<std::pair<core::Uuid, core::Uuid>, std::optional<std::string>> answers;
+  };
+  mutable AddedChecks m_addedChecks;
   bool m_dirtyBeforePlay{false}; // stop puts the snapshot back, so the scene is as saved as it was
   bool m_playLeftScene{false};   // a script loaded another scene: the play's edits are not the snapshot's
   std::unique_ptr<ShaderCompiler> m_shaderCompiler;

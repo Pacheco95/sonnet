@@ -15,6 +15,7 @@ void CommandStack::push(std::unique_ptr<ICommand> command, world::World &world) 
 }
 
 void CommandStack::record(std::unique_ptr<ICommand> command) {
+  ++m_revision;
   // A save that sat in the redo list about to be dropped can no longer be returned to.
   if (m_saved && *m_saved > m_done.size()) {
     m_saved.reset();
@@ -53,6 +54,7 @@ bool CommandStack::undo(world::World &world) {
   }
   std::unique_ptr<ICommand> command = std::move(m_done.back());
   m_done.pop_back();
+  ++m_revision;
   command->revert(world);
   SONNET_LOG_DEBUG("undo {}", command->description());
   m_undone.push_back(std::move(command));
@@ -65,6 +67,7 @@ bool CommandStack::redo(world::World &world) {
   }
   std::unique_ptr<ICommand> command = std::move(m_undone.back());
   m_undone.pop_back();
+  ++m_revision;
   command->apply(world);
   SONNET_LOG_DEBUG("redo {}", command->description());
   m_done.push_back(std::move(command));
@@ -72,12 +75,14 @@ bool CommandStack::redo(world::World &world) {
 }
 
 std::vector<std::unique_ptr<ICommand>> CommandStack::takeDone() {
+  ++m_revision;
   m_undone.clear();
   m_saved.reset();
   return std::exchange(m_done, {});
 }
 
 void CommandStack::clear() {
+  ++m_revision;
   m_trimmed = 0;
   m_done.clear();
   m_undone.clear();
