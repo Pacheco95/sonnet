@@ -676,7 +676,9 @@ private:
   // world, every prefab is loaded again from its file, and the scene is loaded back, so instances
   // keep their overrides by identity. Undo history and selection stay. With `scene`, that scene is
   // loaded instead of the one in the world: undoing an apply loads the scene from before it.
-  void rebuildPrefabs(const nlohmann::json *scene = nullptr);
+  // With `moved`, the entities that changed identity (an apply promoting an added subtree): the
+  // selection follows them before what no longer exists is dropped from it.
+  void rebuildPrefabs(const nlohmann::json *scene = nullptr, const IdentityMap *moved = nullptr);
   // Where an apply goes and what it writes, when applyTargetName offers it.
   struct ResolvedApply {
     world::ApplyTarget target;
@@ -690,10 +692,21 @@ private:
   // applyAllPlan's walk; with `plan` null it only finds whether a change can be applied, stopping
   // at the first one.
   bool walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const;
+  // An added subtree an apply moves into a prefab (ADR-0044): its document with the fresh
+  // identities the prefab gives it, and what each identity it has in the scene becomes once the
+  // instance holds the copy. Decided once per apply, since the document and the command's map must
+  // agree.
+  struct Promotion {
+    core::Uuid entity; // the subtree's root in the scene
+    nlohmann::json document;
+    IdentityMap copies;
+  };
   // The document `root`, a prefab with a file, saves with every request's change made on its
   // target, which is then put back so the rebuild still saves the scene against the old prefab.
-  // Every request must resolve to `root`.
-  [[nodiscard]] std::string appliedPrefabText(flecs::entity root, std::span<const ApplyRequest> requests);
+  // Every request must resolve to `root`. An added child is loaded as temporary prefab entities
+  // under its target and destroyed again; an error when it cannot be.
+  [[nodiscard]] core::Result<std::string> appliedPrefabText(flecs::entity root, std::span<const ApplyRequest> requests,
+                                                            std::span<const Promotion> promotions);
   // Pushes the one command that writes every file of `files`, each with its changes, and rebuilds
   // once; the single apply is a plan of one file with one change.
   [[nodiscard]] core::Result<void> pushApply(std::string description, const std::vector<ApplyAllPlan::File> &files);

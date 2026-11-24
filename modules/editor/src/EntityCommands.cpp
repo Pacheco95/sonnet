@@ -5,6 +5,7 @@
 #include <sonnet/world/Components.h>
 #include <sonnet/world/Scene.h>
 
+#include <algorithm>
 #include <format>
 #include <functional>
 #include <unordered_map>
@@ -539,19 +540,41 @@ namespace {
 class ApplyToPrefabCommand final : public ICommand {
 public:
   ApplyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files,
-                       std::vector<AppliedComponent> applied, std::function<void(const json *)> rebuild)
+                       std::vector<AppliedComponent> applied,
+                       std::function<void(const json *, const IdentityMap &)> rebuild, IdentityMap promoted)
       : m_files(std::move(files)), m_applied(std::move(applied)), m_rebuild(std::move(rebuild)),
-        m_description(std::move(description)) {
+        m_promoted(std::move(promoted)), m_description(std::move(description)) {
+    for (const auto &[old, copy] : m_promoted) {
+      m_returned.emplace(copy, old);
+    }
   }
 
   void apply(world::World &world) override {
+    m_failure.clear();
     // The scene as it is now, which undo loads back against the old prefabs: every instance that
     // followed the change by value, a name or a member equal to the new one, is put back too.
     m_scene = world::saveScene(world);
+    json edited;
+    if (!m_promoted.empty()) {
+      // The promoted subtrees leave the scene: their copies come with the prefab, under the
+      // identities derived for them, which what named the old ones follows.
+      edited = m_scene;
+      world::replaceIdentities(edited, m_promoted);
+    }
     for (const PrefabFileEdit &file : m_files) {
       write(file.file, file.after);
     }
-    m_rebuild(nullptr);
+    m_rebuild(m_promoted.empty() ? nullptr : &edited, m_promoted);
+    if (const auto lost = std::ranges::find_if(
+            m_promoted, [&](const auto &identity) { return !world.find(identity.second).is_valid(); });
+        lost != m_promoted.end()) {
+      // The rebuild did not give the entity back (the prefab was refused, say): the files and the
+      // scene are put back, which still holds the local subtree.
+      m_failure = std::format("{} has no copy {} after the rebuild", lost->first.toString(), lost->second.toString());
+      SONNET_LOG_ERROR("{}: {}; reverted", m_description, m_failure);
+      revert(world);
+      return;
+    }
     // An instance root that now equals its prefab inherits the component again rather than
     // keeping an override that changes nothing.
     for (const AppliedComponent &applied : m_applied) {
@@ -569,7 +592,11 @@ public:
     for (const PrefabFileEdit &file : m_files) {
       write(file.file, file.before);
     }
-    m_rebuild(&m_scene);
+    // The saved scene holds the original local identities, so nothing is edited back.
+    m_rebuild(&m_scene, m_returned);
+  }
+  const std::string &failure() const {
+    return m_failure;
   }
   // Play mode has its own history and no apply, so there is nothing to apply again.
   bool reapply(world::World & /*world*/) override {
@@ -588,8 +615,11 @@ private:
 
   std::vector<PrefabFileEdit> m_files;
   std::vector<AppliedComponent> m_applied;
-  std::function<void(const json *)> m_rebuild;
+  std::function<void(const json *, const IdentityMap &)> m_rebuild;
+  IdentityMap m_promoted;
+  IdentityMap m_returned; // the inverse, for undo's selection
   json m_scene;
+  std::string m_failure;
   std::string m_description;
 };
 
@@ -597,9 +627,15 @@ private:
 
 std::unique_ptr<ICommand> applyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files,
                                                std::vector<AppliedComponent> applied,
-                                               std::function<void(const json *scene)> rebuild) {
+                                               std::function<void(const json *scene, const IdentityMap &moved)> rebuild,
+                                               IdentityMap promoted) {
   return std::make_unique<ApplyToPrefabCommand>(std::move(description), std::move(files), std::move(applied),
-                                                std::move(rebuild));
+                                                std::move(rebuild), std::move(promoted));
+}
+
+std::string applyFailure(const ICommand &command) {
+  const auto *apply = dynamic_cast<const ApplyToPrefabCommand *>(&command);
+  return apply != nullptr ? apply->failure() : std::string{};
 }
 
 std::unique_ptr<ICommand> componentCommand(core::Uuid entity, std::string component, std::optional<json> before,

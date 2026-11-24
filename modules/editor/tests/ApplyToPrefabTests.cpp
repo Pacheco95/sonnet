@@ -1562,3 +1562,288 @@ TEST_CASE("applying one material slot writes that slot and leaves the others on 
   CHECK(slots(b) == std::vector<core::Uuid>{grey, green, grey});
   CHECK(editor.applyAllPlan(a).files.empty());
 }
+
+namespace {
+
+editor::ApplyRequest addedRequest(const core::Uuid &entity) {
+  return {.entity = entity, .component = {}, .kind = editor::ApplyKind::AddedChild};
+}
+
+// The identity a document gives the first entity with that name, nil when it has none.
+core::Uuid filedIdentity(const std::filesystem::path &file, std::string_view name) {
+  const auto bytes = core::readFile(file);
+  REQUIRE(bytes.has_value());
+  const json document = assets::parseJson(*bytes);
+  for (const json &entry : document["entities"]) {
+    if (entry["name"].get<std::string>() == name) {
+      return *core::Uuid::parse(entry["uuid"].get<std::string>());
+    }
+  }
+  return {};
+}
+
+// The children of an entity as the named entities, so a test compares identities and not only names.
+flecs::entity childCalled(const world::World &world, const core::Uuid &parent, std::string_view name,
+                          std::size_t occurrence = 0) {
+  for (const flecs::entity child : world.children(world.find(parent))) {
+    if (child.get<world::Name>().value == name && occurrence-- == 0) {
+      return child;
+    }
+  }
+  return {};
+}
+
+// Whether the scene stores an entry for the identity.
+bool storesEntry(const world::World &world, const core::Uuid &uuid) {
+  return entryOf(world::saveScene(world), uuid).is_object();
+}
+
+} // namespace
+
+TEST_CASE("applying an added child moves its subtree into the prefab under new identities, undoably",
+          "[editor][gpu][prefab][apply][added]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-added");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Crate crate;
+  const std::filesystem::path file = directory / "prefabs" / "crate.prefab.json";
+  writeDocument(file, crate.entities());
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  // X adds an Antenna with a Tip under it; Y has none; Z has an Antenna of its own, which is
+  // another entity whatever its name.
+  const core::Uuid x = core::Uuid::generate();
+  const core::Uuid y = core::Uuid::generate();
+  const core::Uuid z = core::Uuid::generate();
+  for (const core::Uuid &uuid : {x, y, z}) {
+    editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", {}, uuid), world);
+  }
+  const core::Uuid antenna = core::Uuid::generate();
+  const core::Uuid tip = core::Uuid::generate();
+  const core::Uuid ownAntenna = core::Uuid::generate();
+  editor.commands().push(editor::createEntityCommand("Antenna", x, {{"PointLight", {{"intensity", 7.0}}}}, antenna),
+                         world);
+  editor.commands().push(editor::createEntityCommand("Tip", antenna, {{"Static", nullptr}}, tip), world);
+  editor.commands().push(editor::createEntityCommand("Antenna", z, {}, ownAntenna), world);
+  REQUIRE(childNames(world, x) == Names{"A", "B", "C", "Antenna"});
+  REQUIRE(editor.saveSceneAs(directory / "scenes" / "crates.scene.json").has_value());
+  fixture.frame(editor);
+  const std::string original = text(file);
+  editor.selection().select(antenna);
+  editor.selection().select(tip, editor::Selection::Mode::Add);
+
+  const editor::ApplyRequest request = addedRequest(antenna);
+  REQUIRE(editor.applyTargetName(request) == "Crate");
+  REQUIRE(editor.applyChoices(request).size() == 1);
+  // Only the root of the subtree is offered; the tip, a part and an instance itself are not.
+  CHECK(!editor.applyTargetName(addedRequest(tip)));
+  CHECK(!editor.applyTargetName(addedRequest(crate.child("A"))));
+  CHECK(!editor.applyTargetName(addedRequest(world::World::instancedIdentity(x, crate.child("A")))));
+  CHECK(!editor.applyTargetName(addedRequest(x)));
+
+  // The confirmation lists the scene and the open tab, and cancelling writes nothing.
+  editor.requestApplyToPrefab(request);
+  REQUIRE(editor.applyDialogOpen());
+  CHECK(editor.applyUsers().scenes.size() == 1);
+  fixture.frame(editor);
+  editor.cancelApply();
+  CHECK(text(file) == original);
+  CHECK(world.find(antenna));
+
+  const std::size_t undoBefore = editor.commands().size();
+  REQUIRE(editor.applyToPrefab(request).has_value());
+  CHECK(editor.commands().size() == undoBefore + 1);
+  // The prefab holds the subtree under identities of its own, the child last.
+  const core::Uuid filedAntenna = filedIdentity(file, "Antenna");
+  const core::Uuid filedTip = filedIdentity(file, "Tip");
+  REQUIRE(!filedAntenna.isNil());
+  REQUIRE(!filedTip.isNil());
+  CHECK(filedAntenna != antenna);
+  CHECK(filedTip != tip);
+  CHECK(entryOf(file, filedAntenna)["parent"] == crate.root.toString());
+  CHECK(entryOf(file, filedTip)["parent"] == filedAntenna.toString());
+  CHECK(stored(file, filedAntenna)["PointLight"]["intensity"] == 7.0);
+  CHECK(filedChildren(file, crate.root).back() == filedAntenna.toString());
+  // The instance's copies derive from the instance's identity and the file's.
+  const core::Uuid copy = world::World::instancedIdentity(x, filedAntenna);
+  const core::Uuid copyTip = world::World::instancedIdentity(x, filedTip);
+  CHECK(!world.find(antenna));
+  CHECK(!world.find(tip));
+  REQUIRE(world.find(copy));
+  REQUIRE(world.find(copyTip));
+  CHECK(world.find(copyTip).parent() == world.find(copy));
+  CHECK(world.find(copy).parent() == world.find(x));
+  CHECK(world.find(copy).get<world::PointLight>().intensity == Approx(7.0f));
+  CHECK(childNames(world, x) == Names{"A", "B", "C", "Antenna"});
+  // Y gains the child; Z gains it next to the one it added itself, which keeps its identity.
+  CHECK(childNames(world, y) == Names{"A", "B", "C", "Antenna"});
+  CHECK(world.find(world::World::instancedIdentity(y, filedAntenna)));
+  CHECK(childNames(world, z) == Names{"A", "B", "C", "Antenna", "Antenna"});
+  CHECK(world.find(ownAntenna).parent() == world.find(z));
+  CHECK(childCalled(world, z, "Antenna", 0).get<world::PrefabSource>().uuid == filedAntenna);
+  CHECK(!childCalled(world, z, "Antenna", 1).has<world::PrefabSource>());
+  // The selection followed the subtree, and the scene stores no entry for it any more.
+  CHECK(editor.selection().contains(copy));
+  CHECK(editor.selection().contains(copyTip));
+  CHECK(!editor.selection().contains(antenna));
+  CHECK(!storesEntry(world, copy));
+  CHECK(!storesEntry(world, antenna));
+  CHECK(editor.isDirty());
+  // What is applied is not offered again, since the child is a part now.
+  CHECK(!editor.applyTargetName(addedRequest(copy)));
+
+  // Undo gives the file and the local subtree back with its identities; redo gives the same copies.
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(file) == original);
+  CHECK(world.find(antenna).parent() == world.find(x));
+  CHECK(world.find(tip).parent() == world.find(antenna));
+  CHECK(!world.find(copy));
+  CHECK(childNames(world, y) == Names{"A", "B", "C"});
+  CHECK(childNames(world, z) == Names{"A", "B", "C", "Antenna"});
+  CHECK(editor.selection().contains(antenna));
+  CHECK(editor.selection().contains(tip));
+  CHECK(!editor.selection().contains(copy));
+  CHECK(!editor.isDirty());
+  REQUIRE(editor.commands().redo(world));
+  CHECK(filedIdentity(file, "Antenna") == filedAntenna);
+  CHECK(world.find(copy));
+  CHECK(world.find(copyTip));
+  CHECK(!world.find(antenna));
+  CHECK(editor.selection().contains(copy));
+
+  // Rebuilt more, saved and opened again, no entity is twice.
+  fixture.frame(editor);
+  editor.event(platform::WindowFocusChanged{.focused = true});
+  fixture.frame(editor);
+  REQUIRE(editor.saveScene().has_value());
+  REQUIRE(editor.openProject(directory).has_value());
+  REQUIRE(editor.openScene(directory / "scenes" / "crates.scene.json").has_value());
+  CHECK(childNames(editor.world(), x) == Names{"A", "B", "C", "Antenna"});
+  CHECK(childNames(editor.world(), z) == Names{"A", "B", "C", "Antenna", "Antenna"});
+  CHECK(editor.world().find(copyTip).parent() == editor.world().find(copy));
+}
+
+TEST_CASE("applying an added child inside a prefab of prefabs goes to the file chosen and keeps a nested instance",
+          "[editor][gpu][prefab][apply][added][nested]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-added-nested");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  // The pallet holds Crate B, a crate; the scene places two pallets and a loose crate.
+  const Crate crate;
+  const core::Uuid pallet = core::Uuid::generate();
+  const core::Uuid crateB = core::Uuid::derive(pallet, "b");
+  const std::filesystem::path crateFile = directory / "prefabs" / "crate.prefab.json";
+  const std::filesystem::path palletFile = directory / "prefabs" / "pallet.prefab.json";
+  writeDocument(crateFile, crate.entities());
+  writeDocument(palletFile,
+                json::array({{{"uuid", pallet.toString()}, {"name", "Pallet"}, {"components", json::object()}},
+                             {{"uuid", crateB.toString()},
+                              {"name", "Crate B"},
+                              {"parent", pallet.toString()},
+                              {"prefab", crate.root.toString()},
+                              {"components", json::object()}}}));
+  const Lamp lamp;
+  lamp.write(directory / "prefabs" / "lamp.prefab.json");
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid placed = core::Uuid::generate();
+  const core::Uuid other = core::Uuid::generate();
+  const core::Uuid loose = core::Uuid::generate();
+  editor.commands().push(editor::instantiatePrefabCommand(pallet, "Pallet", {}, placed), world);
+  editor.commands().push(editor::instantiatePrefabCommand(pallet, "Pallet", {}, other), world);
+  editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", {}, loose), world);
+  const core::Uuid anchor = world::World::instancedIdentity(placed, crateB);
+  REQUIRE(world.find(anchor));
+  // A label under Crate B of the first pallet, holding a crate of its own whose part A has a tag.
+  const core::Uuid label = core::Uuid::generate();
+  const core::Uuid inner = core::Uuid::generate();
+  const core::Uuid innerA = world::World::instancedIdentity(inner, lamp.bulb);
+  editor.commands().push(editor::createEntityCommand("Label", anchor, {}, label), world);
+  editor.commands().push(editor::instantiatePrefabCommand(lamp.root, "Inner", label, inner), world);
+  const auto bulbLight = [&](const core::Uuid &part) { return world.find(part).get<world::PointLight>().intensity; };
+  const json lightBefore = world.componentToJson(world.find(innerA), world.findComponent("PointLight")->id);
+  json lightAfter = lightBefore;
+  lightAfter["intensity"] = 9.0;
+  editor.commands().push(editor::componentCommand(innerA, "PointLight", std::optional<json>{lightBefore},
+                                                  std::optional<json>{lightAfter}, "light"),
+                         world);
+  REQUIRE(bulbLight(innerA) == Approx(9.0f));
+  editor.selection().select(innerA);
+  fixture.frame(editor);
+  const std::string crateText = text(crateFile);
+  const std::string palletText = text(palletFile);
+
+  // Both prefabs can take it, the crate first.
+  const editor::ApplyRequest request = addedRequest(label);
+  const std::vector<editor::ApplyChoice> choices = editor.applyChoices(request);
+  REQUIRE(choices.size() == 2);
+  CHECK(choices[0].prefab == crate.root);
+  CHECK(choices[1].prefab == pallet);
+
+  // To the pallet: its file holds the label under Crate B, the inner crate with the tag kept as a
+  // change of its part, and nothing else is written.
+  editor::ApplyRequest toPallet = request;
+  toPallet.prefab = pallet;
+  REQUIRE(editor.applyToPrefab(toPallet).has_value());
+  CHECK(text(crateFile) == crateText);
+  const core::Uuid filedLabel = filedIdentity(palletFile, "Label");
+  const core::Uuid filedInner = filedIdentity(palletFile, "Inner");
+  REQUIRE(!filedLabel.isNil());
+  REQUIRE(!filedInner.isNil());
+  CHECK(entryOf(palletFile, filedLabel)["parent"] == crateB.toString());
+  CHECK(entryOf(palletFile, filedInner)["parent"] == filedLabel.toString());
+  CHECK(entryOf(palletFile, filedInner)["prefab"] == lamp.root.toString());
+  const core::Uuid filedInnerA = world::World::instancedIdentity(filedInner, lamp.bulb);
+  const json tagged = entryOf(palletFile, filedInnerA);
+  REQUIRE(tagged.is_object());
+  CHECK(tagged["instanced"] == true);
+  CHECK(tagged["components"]["PointLight"]["intensity"] == 9.0);
+  // The first pallet's copy derives from its own identity; the other pallet gains the label and
+  // the inner crate with the tag, and the loose crate nothing.
+  const auto copyIn = [&](const core::Uuid &instance, const core::Uuid &filed) {
+    return world::World::instancedIdentity(instance, filed);
+  };
+  REQUIRE(world.find(copyIn(placed, filedLabel)));
+  CHECK(world.find(copyIn(placed, filedLabel)).parent() == world.find(anchor));
+  CHECK(!world.find(label));
+  CHECK(!world.find(inner));
+  CHECK(world.find(copyIn(placed, filedInner)).parent() == world.find(copyIn(placed, filedLabel)));
+  CHECK(bulbLight(copyIn(placed, filedInnerA)) == Approx(9.0f));
+  CHECK(bulbLight(copyIn(other, filedInnerA)) == Approx(9.0f));
+  CHECK(world.find(copyIn(other, filedLabel)).parent() == world.find(world::World::instancedIdentity(other, crateB)));
+  CHECK(childNames(world, loose) == Names{"A", "B", "C"});
+  CHECK(editor.selection().contains(copyIn(placed, filedInnerA)));
+  CHECK(!editor.selection().contains(innerA));
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(palletFile) == palletText);
+  CHECK(bulbLight(innerA) == Approx(9.0f));
+  CHECK(world.find(label).parent() == world.find(anchor));
+  CHECK(!world.find(copyIn(other, filedLabel)));
+  CHECK(editor.selection().contains(innerA));
+  REQUIRE(editor.commands().redo(world));
+  CHECK(filedIdentity(palletFile, "Label") == filedLabel);
+  CHECK(bulbLight(copyIn(placed, filedInnerA)) == Approx(9.0f));
+  REQUIRE(editor.commands().undo(world));
+
+  // To the crate, the default: every crate gets it, the loose one included, and the pallets through
+  // Crate B, with the identity folded through the pallet's.
+  REQUIRE(editor.applyToPrefab(request).has_value());
+  CHECK(text(palletFile) == palletText);
+  const core::Uuid inCrate = filedIdentity(crateFile, "Label");
+  const core::Uuid inCrateInner = filedIdentity(crateFile, "Inner");
+  REQUIRE(!inCrate.isNil());
+  CHECK(entryOf(crateFile, inCrate)["parent"] == crate.root.toString());
+  CHECK(world.find(copyIn(loose, inCrate)).parent() == world.find(loose));
+  const core::Uuid viaPallet = copyIn(placed, copyIn(crateB, inCrate));
+  REQUIRE(world.find(viaPallet));
+  CHECK(world.find(viaPallet).parent() == world.find(anchor));
+  CHECK(world.find(copyIn(placed, copyIn(crateB, inCrateInner))).parent() == world.find(viaPallet));
+  CHECK(world.find(copyIn(other, copyIn(crateB, inCrate))));
+  CHECK(editor.selection().contains(
+      copyIn(placed, copyIn(crateB, world::World::instancedIdentity(inCrateInner, lamp.bulb)))));
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(crateFile) == crateText);
+  CHECK(world.find(label));
+}

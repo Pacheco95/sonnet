@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace sonnet::editor {
@@ -31,6 +32,9 @@ public:
     return m_items;
   }
   [[nodiscard]] core::Uuid primary() const;
+  // Swaps each selected identity that has an entry for the entry's value, keeping the order and
+  // the primary: what an apply that gives entities new identities does (ADR-0044).
+  void replace(const std::unordered_map<core::Uuid, core::Uuid> &identities);
   // Drops what no longer exists in the world.
   void prune(const world::World &world);
   // Counts the calls that touched the selection (even one that left it as it was), so a panel can tell that
