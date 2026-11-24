@@ -1722,6 +1722,16 @@ TEST_CASE("applying an added child moves its subtree into the prefab under new i
   CHECK(childNames(editor.world(), x) == Names{"A", "B", "C", "Antenna"});
   CHECK(childNames(editor.world(), z) == Names{"A", "B", "C", "Antenna", "Antenna"});
   CHECK(editor.world().find(copyTip).parent() == editor.world().find(copy));
+
+  // A child named like one the prefab has is allowed: the confirmation warns, nothing refuses it.
+  const core::Uuid twin = core::Uuid::generate();
+  editor.commands().push(editor::createEntityCommand("A", y, {}, twin), editor.world());
+  REQUIRE(editor.applyTargetName(addedRequest(twin)).has_value());
+  editor.requestApplyToPrefab(addedRequest(twin));
+  REQUIRE(editor.applyDialogOpen());
+  fixture.frame(editor);
+  editor.cancelApply();
+  CHECK(editor.world().find(twin));
 }
 
 TEST_CASE("applying an added child inside a prefab of prefabs goes to the file chosen and keeps a nested instance",

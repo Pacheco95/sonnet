@@ -204,6 +204,9 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   const auto apply = [this](ApplyRequest request) { requestApplyToPrefab(std::move(request)); };
   m_inspectorPanel.setApplyHandlers(choices, apply);
   m_hierarchyPanel.setApplyHandlers(choices, apply);
+  const auto refusal = [this](const ApplyRequest &request) { return applyRefusal(request); };
+  m_inspectorPanel.setApplyRefusal(refusal);
+  m_hierarchyPanel.setApplyRefusal(refusal);
   const auto applyAllOffered = [this](core::Uuid instance) { return this->applyAllOffered(instance); };
   const auto applyAll = [this](core::Uuid instance) { requestApplyAllOverrides(instance); };
   m_inspectorPanel.setApplyAllHandlers(applyAllOffered, applyAll);
