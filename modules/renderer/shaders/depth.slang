@@ -55,7 +55,15 @@ void alphaTest(uint objectIndex, float4 uvs, float vertexAlpha) {
 // tint. The shadow passes take the cutoff without the tint and no dither, so a faded draw still
 // casts its whole shadow.
 void prePassTest(uint objectIndex, float4 uvs, float vertexAlpha, float2 pixel) {
-  alphaTest(objectIndex, uvs, vertexAlpha);
+  const MaterialData material = frame.materials[objects[objectIndex].material];
+  if (hairStochastic(material)) {
+    const float2 baseUv = uvTransform(material.baseColorUv, material.baseColorUvOffset, uvSet(material, SlotBaseColor, uvs));
+    if (hairCoverageOut(material, surfaceAlpha(material, objectIndex, uvs, vertexAlpha), baseUv, pixel)) {
+      discard;
+    }
+  } else {
+    alphaTest(objectIndex, uvs, vertexAlpha);
+  }
   if (fadedOut(objectIndex, frame.materials[objects[objectIndex].material], pixel)) {
     discard;
   }

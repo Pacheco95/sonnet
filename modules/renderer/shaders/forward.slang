@@ -133,6 +133,68 @@ float3 skinIrradiance(SkinSurface skin) {
                 cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], skin.diffuseB, 0.0).b);
 }
 
+// ---- Hair (spike #591): two shifted Kajiya-Kay lobes along a baked flow map, for hairFragmentMain only ----
+
+// The two lobes' strand directions, shifted along the normal, and the secondary's exponent as a
+// fraction of the primary's. `flagged` is whether this pixel's coverage is stochastic.
+struct HairSurface {
+  float3 strand1;
+  float3 strand2;
+  float3 bent;
+  float width;
+};
+
+// The flow map is in the emissive slot (a linear data texture; the emissive factor is 0): the strand's
+// axis as a doubled angle in the texture's own UV frame, and a shift. The image's x runs along the
+// tangent, its y (down, v) against the bitangent; the axis is made to point tip down in the world.
+HairSurface hairSurface(MaterialData material, float3 n, float3 t, float3 b, float3 v, float2 emissiveUv) {
+  const float4 flow = sampleMaterial(material.emissiveTexture, materialSampler(material, SlotEmissive), emissiveUv);
+  const float2 doubled = flow.xy * 2.0 - 1.0;
+  const float2 c2 = doubled / max(length(doubled), 1.0e-4);
+  const float2 d = float2(sqrt(saturate((1.0 + c2.x) * 0.5)), (c2.y >= 0.0 ? 1.0 : -1.0) * sqrt(saturate((1.0 - c2.x) * 0.5)));
+  float3 strand = d.x * t - d.y * b;
+  strand -= n * dot(n, strand);
+  strand = dot(strand, strand) > 1.0e-8 ? normalize(strand) : t;
+  if (strand.y > 0.0) {
+    strand = -strand;
+  }
+  const float jitter = (flow.b * 2.0 - 1.0) * 0.3;
+  HairSurface hair;
+  hair.strand1 = normalize(strand + n * (material.shading.x + jitter));
+  hair.strand2 = normalize(strand + n * (material.shading.y + jitter));
+  hair.width = material.shading.z;
+  // The normal across the strand that faces the viewer, which the specular image-based lighting reads.
+  const float3 across = v - strand * dot(v, strand);
+  hair.bent = dot(across, across) > 1.0e-8 ? normalize(across) : n;
+  return hair;
+}
+
+// Kajiya-Kay's strand lobe, sin(T, H) to the exponent, normalised by about sqrt(e), not a 2D lobe's
+// (e + 2) / 2 pi, which made a white band where the strands of a cap turn slowly.
+float strandLobe(float3 strand, float3 h, float exponent) {
+  const float th = dot(strand, h);
+  return pow(sqrt(saturate(1.0 - th * th)), exponent) * (sqrt(exponent) + 1.0) / (2.0 * Pi);
+}
+
+float hairExponent(float roughness) {
+  const float a = roughness * roughness;
+  return clamp(2.0 / max(a * a, 1.0e-4) - 2.0, 2.0, 2048.0);
+}
+
+// Scheuermann's lobes: the primary untinted, the secondary tinted by the base colour and wider; a
+// wrapped diffuse. No Schlick term: without a geometry term to damp it a backlit half vector took the
+// lobe to white.
+float3 shadeHair(HairSurface hair, float3 n, float3 v, float3 l, float3 radiance, float3 albedo, float roughness,
+                 float3 f0) {
+  const float3 h = normalize(v + l);
+  const float nDotL = dot(n, l);
+  const float exponent = hairExponent(roughness);
+  const float3 specular =
+      f0 * strandLobe(hair.strand1, h, exponent) + 0.5 * albedo * strandLobe(hair.strand2, h, exponent * hair.width);
+  const float3 diffuse = (1.0 - f0) * albedo / Pi * saturate((nDotL + 0.5) / 1.5);
+  return (diffuse + specular * saturate(nDotL * 0.75 + 0.25)) * radiance;
+}
+
 uint shadowCascade(float viewDepth) {
   return uint(viewDepth >= frame.cascadeSplits[0]) + uint(viewDepth >= frame.cascadeSplits[1]) +
          uint(viewDepth >= frame.cascadeSplits[2]);
@@ -351,7 +413,11 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
   const float4 tint = objects[input.objectIndex].color;
   float4 baseColor = material.baseColor * float4(tint.rgb, tintAlpha(input.objectIndex, material)) * input.color *
                      sampleMaterial(material.baseColorTexture, materialSampler(material, SlotBaseColor), baseColorUv);
-  if ((alphaMode == AlphaMask && baseColor.a < material.emissive.a) || fadedOut(input.objectIndex, material, input.position.xy)) {
+  // A stochastic hair coverage is decided by the pre-pass alone: the equal depth test keeps this pass to
+  // its pixels, where the two passes' alpha samples might disagree.
+  const bool stochastic = Model == ShadingHair && hairStochastic(material);
+  if ((alphaMode == AlphaMask && !stochastic && baseColor.a < material.emissive.a) ||
+      fadedOut(input.objectIndex, material, input.position.xy)) {
     discard;
   }
   const float4 metallicRoughness =
@@ -401,6 +467,10 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
   }
 
   const float3 v = frame.cameraForward.w != 0.0 ? -frame.cameraForward.xyz : normalize(frame.cameraPosition.xyz - input.worldPosition);
+  HairSurface hair = {};
+  if (Model == ShadingHair) {
+    hair = hairSurface(material, n, t, b, v, emissiveUv);
+  }
   const float3 albedo = baseColor.rgb;
   const float3 f0 = lerp(float3(0.04), albedo, metallic);
   // With the copy of the opaque scene (ADR-0033) transmission replaces the diffuse lobe; without it
@@ -426,6 +496,8 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
       shadow = min(sunShadow(input.worldPosition, viewDepth, geometricNormal), contactShadow(input.position.xy, material));
       if (Model == ShadingSkin) {
         sunDirect = shadeSkin(skin, n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0);
+      } else if (Model == ShadingHair) {
+        sunDirect = shadeHair(hair, n, v, l, frame.sunColor.rgb, albedo, roughness, f0);
       } else {
         sunDirect = shade(n, v, l, frame.sunColor.rgb, albedo, metallic, roughness, f0, diffuseWeight);
       }
@@ -455,6 +527,8 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
         }
         if (Model == ShadingSkin) {
           color += shadeSkin(skin, n, v, l, light.color * attenuation, albedo, metallic, roughness, f0);
+        } else if (Model == ShadingHair) {
+          color += shadeHair(hair, n, v, l, light.color * attenuation, albedo, roughness, f0);
         } else {
           color += shade(n, v, l, light.color * attenuation, albedo, metallic, roughness, f0, diffuseWeight);
         }
@@ -464,7 +538,11 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
     // Image-based lighting through the split-sum approximation, or a flat ambient term.
     const float nDotV = max(dot(n, v), 1.0e-4);
     if (frame.environment.w > 0.0) {
-      const float3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
+      // Hair reflects off the normal across its strand, rougher; the other models off the mapped normal.
+      const float3 specularNormal = Model == ShadingHair ? hair.bent : n;
+      const float specularRoughness = Model == ShadingHair ? saturate(roughness + 0.25) : roughness;
+      const float specularNDotV = Model == ShadingHair ? max(dot(hair.bent, v), 1.0e-4) : nDotV;
+      const float3 f = fresnelSchlickRoughness(specularNDotV, f0, specularRoughness);
       const float3 kd = (1.0 - f) * (1.0 - metallic);
       float3 irradiance;
       if (Model == ShadingSkin) {
@@ -472,10 +550,10 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
       } else {
         irradiance = cubes[frame.irradianceCube].SampleLevel(samplers[frame.linearSampler], n, 0.0).rgb;
       }
-      const float3 r = reflect(-v, n);
-      const float lod = roughness * (frame.environment.y - 1.0);
+      const float3 r = reflect(-v, specularNormal);
+      const float lod = specularRoughness * (frame.environment.y - 1.0);
       const float3 prefiltered = cubes[frame.prefilteredCube].SampleLevel(samplers[frame.linearSampler], r, lod).rgb;
-      brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(nDotV, roughness), 0.0).rg;
+      brdf = textures[frame.brdfLut].SampleLevel(samplers[frame.linearSampler], float2(specularNDotV, specularRoughness), 0.0).rg;
       iblDiffuse = diffuseWeight * kd * irradiance * albedo * frame.environment.x * occlusion;
       iblSpecular = prefiltered * (f * brdf.x + brdf.y) * frame.environment.x * occlusion;
       color += iblDiffuse + iblSpecular;
@@ -516,6 +594,8 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
     color = float3(0.0);
     if (Model == ShadingSkin) {
       color.r = skin.row;
+    } else if (Model == ShadingHair) {
+      color = hair.strand1 * 0.5 + 0.5;
     }
     break;
   }
@@ -524,13 +604,24 @@ float4 shadeFragment<let Model : uint>(VertexOutput input, bool frontFacing) {
 
   // The coverage a. Without the copy a transmissive draw is a plain blend, a times 1 - T, so the
   // light the surface lets through shows what is behind it (ADR-0033, "Off and mobile").
-  const float coverage = alphaMode == AlphaBlend ? baseColor.a : 1.0;
+  float coverage = alphaMode == AlphaBlend ? baseColor.a : 1.0;
+  // Spike (#591): the resolve's flag. A hair pixel whose coverage was stochastic writes 0.75, which the
+  // resolve reads as neither opaque (1) nor glass (below 0.5).
+  if (stochastic && frame.hairCoverage == 2 && baseColor.a < HairSolid) {
+    coverage = 0.75;
+  }
   return float4(color, copied ? coverage : coverage * (1.0 - transmittance));
 }
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
   return shadeFragment<ShadingStandard>(input, frontFacing);
+}
+
+// The Hair model's entry point (spike #591), which only the hair pipelines run.
+[shader("fragment")]
+float4 hairFragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) : SV_Target {
+  return shadeFragment<ShadingHair>(input, frontFacing);
 }
 
 // The Skin model's entry point, which only the skin pipelines run (ADR-0041).

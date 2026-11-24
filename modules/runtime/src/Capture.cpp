@@ -53,7 +53,7 @@ std::string shadingTerms() {
   return terms;
 }
 
-constexpr std::array<CommandLineOption, 19> Options{{
+constexpr std::array<CommandLineOption, 22> Options{{
     {"--screenshot", "FILE", "the viewport's scene, at the viewport's size, as a PNG", "shots/view.png", true,
      "the scene, at the window's size, as a PNG"},
     {"--screenshot-window", "FILE", "the whole editor window, with its panels, as a PNG", "shots/window.png", false,
@@ -88,9 +88,13 @@ constexpr std::array<CommandLineOption, 19> Options{{
     {"--ambient-occlusion", "on|reduced|off",
      "permit the camera's ambient occlusion, 2 slices of 3 steps if reduced, or none; else the platform's default",
      "off", true, ""},
-    {"--character-shading", "on|off",
-     "draw Skin materials with the skin shading (ADR-0041), or as Standard; else the platform's default", "off", true,
-     ""},
+    {"--character-shading", "on|skin|hair|off",
+     "draw Skin (ADR-0041) and Hair (spike #591) with their shading, one of them only, or neither; else the default",
+     "off", true, ""},
+    {"--hair-coverage", "cutoff|dither|flagged|hashed|ordered|hashed-texel",
+     "spike (#591): how a Hair draw's alpha becomes coverage under TAA (cutoff)", "flagged", true, ""},
+    {"--hair-box", "SCALE", "spike (#591): the flagged resolve's clip-box scale (2.5)", "2.5", true, ""},
+    {"--hair-age", "FRAMES", "spike (#591): the flagged resolve's history age cap (8)", "8", true, ""},
     {"--headless", "on|off",
      "draw offscreen with no window, so no display paces the frames, for timing runs; the desktop's only (off)", "on",
      true, ""},
@@ -357,10 +361,27 @@ core::Result<CommandLine> parseCommandLine(std::span<const std::string_view> arg
       capture.ambientOcclusion = value != "off";
       capture.ambientOcclusionReduced = value == "reduced";
     } else if (arg == "--character-shading") {
-      if (value != "on" && value != "off") {
-        return std::unexpected(captureError("--character-shading takes on or off"));
+      if (value != "on" && value != "skin" && value != "hair" && value != "off") {
+        return std::unexpected(captureError("--character-shading takes on, skin, hair or off"));
       }
-      capture.characterShading = value == "on";
+      capture.characterShading = value != "off";
+      capture.characterShadingSkin = value == "on" || value == "skin";
+      capture.characterShadingHair = value == "on" || value == "hair";
+    } else if (arg == "--hair-coverage") {
+      const std::array<std::string_view, 6> names{"cutoff", "dither", "flagged", "hashed", "ordered", "hashed-texel"};
+      const auto found = std::ranges::find(names, value);
+      if (found == names.end()) {
+        return std::unexpected(
+            captureError("--hair-coverage takes cutoff, dither, flagged, hashed, ordered or hashed-texel"));
+      }
+      capture.hairCoverage = static_cast<std::uint32_t>(found - names.begin());
+    } else if (arg == "--hair-box" || arg == "--hair-age") {
+      float number = 0.0f;
+      const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+      if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !(number > 0.0f)) {
+        return std::unexpected(captureError(std::format("{} takes a positive number", arg)));
+      }
+      (arg == "--hair-box" ? capture.hairBoxScale : capture.hairAgeCap) = number;
     } else if (arg == "--headless") {
       if (value != "on" && value != "off") {
         return std::unexpected(captureError("--headless takes on or off"));
@@ -523,11 +544,22 @@ core::Result<void> GameCaptureTarget::begin(const CaptureOptions &options) {
     m_game.setRenderSize(options.renderSize);
   }
   if (options.transmission || options.transmissionDownscale || options.contactShadows || options.ambientOcclusion ||
-      options.characterShading) {
+      options.characterShading || options.hairCoverage || options.hairBoxScale || options.hairAgeCap) {
     renderer::RendererSettings settings = m_game.renderer().settings();
     if (options.characterShading) {
       SONNET_LOG_INFO("capture draws with character shading {}", *options.characterShading ? "on" : "off");
       settings.characterShading = *options.characterShading;
+      settings.characterShadingSkin = options.characterShadingSkin;
+      settings.characterShadingHair = options.characterShadingHair;
+    }
+    if (options.hairCoverage) {
+      settings.hairCoverage = *options.hairCoverage;
+    }
+    if (options.hairBoxScale) {
+      settings.hairBoxScale = *options.hairBoxScale;
+    }
+    if (options.hairAgeCap) {
+      settings.hairAgeCap = *options.hairAgeCap;
     }
     // `reduced` is ADR-0039's Reduced candidate, which a phone measures when the standard counts miss
     // its budget.

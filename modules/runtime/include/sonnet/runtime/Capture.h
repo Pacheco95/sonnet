@@ -61,6 +61,13 @@ struct CaptureOptions {
   // --character-shading: RendererSettings::characterShading for the run, over the player's platform
   // default; the player's only. Off draws Skin materials as Standard (ADR-0041).
   std::optional<bool> characterShading;
+  // Spike (#591), not for merge: `skin` and `hair` draw one model only; --hair-coverage and the resolve's
+  // exception parameters (docs/reports/hair-strand-spike.md).
+  bool characterShadingSkin{true};
+  bool characterShadingHair{true};
+  std::optional<std::uint32_t> hairCoverage;
+  std::optional<float> hairBoxScale;
+  std::optional<float> hairAgeCap;
   // --headless: the player draws through SDL's offscreen video driver into an OffscreenSwapchain, so
   // no window shows and no display or compositor paces the frames (docs/player.md, "Headless runs");
   // the player's only, on the desktop.

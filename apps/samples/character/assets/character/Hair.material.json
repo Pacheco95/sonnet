@@ -1,0 +1,33 @@
+{
+  "alphaCutoff": 0.35,
+  "alphaMode": "Mask",
+  "baseColor": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "doubleSided": true,
+  "emissive": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "metallic": 0.0,
+  "normalScale": 1.0,
+  "occlusionStrength": 1.0,
+  "roughness": 0.62,
+  "samplers": {},
+  "shading": "Hair",
+  "subsurface": 1.0,
+  "subsurfaceRadius": 0.001,
+  "textures": {
+    "baseColor": "3cd7a204-48c9-8e44-89eb-a24043ec8714",
+    "normal": "efd8a204-48ca-8e44-96e9-a24043eb8714",
+    "emissive": "4a5b7c1e-6d2f-4e8a-9b13-5c0d7e2f8a61"
+  },
+  "transforms": {},
+  "transmission": 0.0,
+  "unlit": false,
+  "version": 7
+}

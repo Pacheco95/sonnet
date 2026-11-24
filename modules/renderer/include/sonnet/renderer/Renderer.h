@@ -146,6 +146,16 @@ struct RendererSettings {
   // the forward pass. Off, a Skin material is drawn by the Standard pipelines, so one bundle runs
   // everywhere. The Android and iOS players turn it off until their devices pass ADR-0041's budgets.
   bool characterShading{true};
+  // Spike (#591), not for merge: which of the character models draw while characterShading is on, and how
+  // hair's coverage is decided. Coverage: 0 plain cutoff, 1 per-pixel dither under today's resolve,
+  // 2 the same dither with the resolve's flagged-pixel exception, 3 hashed alpha on a pixel-sized cell of
+  // the surface, 4 a fixed 4x4 ordered threshold, 5 hashed on the texture's texels. The resolve exception's box scale
+  // and history age cap are fitted by the spike.
+  bool characterShadingSkin{true};
+  bool characterShadingHair{true};
+  std::uint32_t hairCoverage{0};
+  float hairBoxScale{2.5f};
+  float hairAgeCap{8.0f};
   // The march's steps per pixel, 1 to 32: 16 is the standard quality and 8 the reduced one.
   std::uint32_t contactShadowSteps{16};
   // The format `addPresentPass` writes into, typically a swapchain's. Undefined leaves the
@@ -516,6 +526,7 @@ private:
     bool transmissive; // on the transmission path (ADR-0033), and so in `blended` too
     bool masked;
     bool skin; // drawn by the skin pipelines: a Skin material, opaque or masked, with characterShading on (ADR-0041)
+    bool hair; // spike (#591): drawn by the hair pipelines, likewise
     float viewDepth;
   };
   // A run of draws in one order list sharing a pipeline, a front face, a mesh and a submesh,
@@ -804,7 +815,8 @@ private:
   std::array<rhi::PipelineHandle, 2> m_depthPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_depthMotionPipelines; // the pre-pass that also writes motion (TAA)
   std::array<rhi::PipelineHandle, 2> m_shadowPipelines;      // both cull nothing; kept as a pair for recordDraws
-  std::array<rhi::PipelineHandle, 4> m_forwardPipelines;     // by doubleSided, then Standard and Skin (ADR-0041)
+  std::array<rhi::PipelineHandle, 6>
+      m_forwardPipelines; // by doubleSided, then Standard, Skin (ADR-0041) and Hair (spike)
   std::array<rhi::PipelineHandle, 2> m_blendPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_glassMotionPipelines; // the blended draws' motion, tested against the depth
   std::array<rhi::PipelineHandle, 2> m_idPipelines;

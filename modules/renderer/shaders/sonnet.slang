@@ -101,6 +101,7 @@ public static const uint MaterialTransmissive = 1u << 10;
 // entry point and pipelines of its own.
 public static const uint ShadingStandard = 0;
 public static const uint ShadingSkin = 1;
+public static const uint ShadingHair = 2; // spike (#591)
 // A material's texture slots, as the bits of MaterialData::uvSets.
 public static const uint SlotBaseColor = 0;
 public static const uint SlotMetallicRoughness = 1;
@@ -218,6 +219,8 @@ public struct FrameConstants {
   public uint contactShadowImage; // the sun's contact visibility mask (ADR-0039), 0xFFFFFFFF without one
   public uint ambientOcclusionImage; // the R8 visibility mask of screen-space ambient occlusion, 0xFFFFFFFF without one
   public uint skinLut; // the pre-integrated skin diffuse, n.l by curvature (ADR-0041)
+  public uint hairCoverage; // spike (#591): 0 plain cutoff, 1 dither, 2 dither with the resolve's exception, 3 hashed, 4 ordered, 5 hashed on mip 0
+  public uint ditherPhase;  // spike: the TAA phase a dithered coverage shifts its threshold by
   // The object index of every instance a draw submits, at its first instance plus its instance
   // index: the culling pass's runs for the indirect draws, the direct range for the rest
   // (ADR-0016). A pointer is allowed here, in a uniform block, and not in a storage-buffer struct.
@@ -363,6 +366,63 @@ public bool fadedOut(uint objectIndex, MaterialData material, float2 pixel) {
 }
 
 public static const float Pi = 3.14159265359;
+
+// ---- Spike (#591): hair coverage ----
+public uint shadingModel(MaterialData material) {
+  return (material.flags >> 11) & 3u;
+}
+
+// Below this alpha a stochastic coverage always cuts; at and above HairSolid it always keeps.
+public static const float HairFloor = 0.05;
+public static const float HairSolid = 0.95;
+
+// A masked Hair material whose coverage the pre-pass decides per pixel; the forward pass then draws
+// exactly the pre-pass's pixels (its depth test is Equal) and does not test the alpha itself.
+public bool hairStochastic(MaterialData material) {
+  return (material.flags & 0xFF) == AlphaMask && shadingModel(material) == ShadingHair && frame.hairCoverage != 0;
+}
+
+float hashTexel(uint2 texel) {
+  uint h = texel.x * 0x1f123bb5u + texel.y * 0x2b2f5a3du + 0x9e3779b9u;
+  h ^= h >> 15;
+  h *= 0x2c1b3c6du;
+  h ^= h >> 12;
+  h *= 0x297a2d39u;
+  h ^= h >> 15;
+  return (float(h >> 8) + 0.5) / 16777216.0;
+}
+
+public bool hairCoverageOut(MaterialData material, float alpha, float2 baseUv, float2 pixel) {
+  switch (frame.hairCoverage) {
+  case 1:
+  case 2:
+    // The per-pixel ordered threshold, moved on by an eighth of a cycle each TAA phase.
+    return alpha < HairFloor || alpha <= frac(orderedThreshold(pixel) + float(frame.ditherPhase) * 0.125);
+  case 3: {
+    // Hashed alpha: a threshold that belongs to a cell of the surface, not to the pixel or the frame, so
+    // the grain sticks to the hair and the history reprojects it like any texture detail. The cell is the
+    // pixel's footprint in texels, rounded down to a power of two, so the grain is about a pixel wide.
+    uint width, height;
+    textures[material.baseColorTexture].GetDimensions(width, height);
+    const float2 texel = baseUv * float2(width, height);
+    const float footprint = max(length(ddx(texel)), length(ddy(texel)));
+    const float level = floor(log2(max(footprint, 1.0)));
+    const uint2 cell = uint2(floor(texel / exp2(level))) + uint2(uint(level) * 0x9e37u, uint(level) * 0x7f4au);
+    return alpha < HairFloor || alpha <= hashTexel(cell);
+  }
+  case 5: {
+    // The same on the texture's own texels, whatever the footprint.
+    uint width, height;
+    textures[material.baseColorTexture].GetDimensions(width, height);
+    return alpha < HairFloor || alpha <= hashTexel(uint2(floor(baseUv * float2(width, height))));
+  }
+  case 4:
+    // The control: the 4x4 ordered threshold of the pixel, the same every frame.
+    return alpha < HairFloor || alpha <= orderedThreshold(pixel);
+  default:
+    return alpha < material.emissive.a;
+  }
+}
 
 // A sky ray has no camera translation. Subtracting nearby world-space points loses its
 // precision when the camera is far from the origin, corrupting both the ray and its derivatives.

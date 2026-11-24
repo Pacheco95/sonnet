@@ -63,6 +63,7 @@ struct TextureTransform {
 enum class ShadingModel : std::uint8_t {
   Standard,
   Skin,
+  Hair, // spike (#591): two shifted Kajiya-Kay lobes along a flow map in the emissive slot
 };
 
 // The bounds of MaterialDesc::subsurfaceRadius, in metres per millimetre of the skin profile.

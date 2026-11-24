@@ -33,6 +33,7 @@ local FollowCamera = {
     margin = { type = "number", default = 0.05, min = 0, max = 1 }, -- m beyond the near plane
     aspect = { type = "number", default = 2, min = 1, max = 4 }, -- the widest view the probe covers
     orbit = { type = "number", default = 0, min = -360, max = 360 }, -- degrees per second, for captures
+    orbitFor = { type = "number", default = 0, min = 0, max = 600 }, -- spike (#502): seconds of orbit, 0 for ever
     trail = { type = "number", default = 0, min = 0, max = 20 }, -- 1/s, swing behind a moving character
     fadeStart = { type = "number", default = 1.0, min = 0, max = 5 }, -- m: the character starts to fade
     fadeEnd = { type = "number", default = 0.6, min = 0, max = 5 }, -- m: and is gone; never inside its head
@@ -126,7 +127,9 @@ function FollowCamera:lateUpdate(dt)
       self.yawAngle = self.yawAngle + delta * (1 - math.exp(-self.trail * dt)) * math.min(speed / 3, 1)
     end
   end
-  self.yawAngle = (self.yawAngle + math.rad(self.orbit) * dt + math.pi) % (2 * math.pi) - math.pi
+  self.orbitTime = (self.orbitTime or 0) + dt
+  local orbit = (self.orbitFor == 0 or self.orbitTime <= self.orbitFor) and self.orbit or 0
+  self.yawAngle = (self.yawAngle + math.rad(orbit) * dt + math.pi) % (2 * math.pi) - math.pi
   self.pitchAngle = clamp(self.pitchAngle, math.rad(self.pitchMin), math.rad(self.pitchMax))
   local wheel = input.wheel().y
   if wheel ~= 0 then

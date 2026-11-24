@@ -252,7 +252,7 @@ TEST_CASE("the skin pipelines are built only once characterShading is on", "[ren
   {
     Renderer renderer{*device, shaderDir(platform), settings};
     const std::size_t withoutSkin = device->pipelineCount();
-    REQUIRE(withSkin == withoutSkin + 2);
+    REQUIRE(withSkin == withoutSkin + 4); // spike (#591): the skin pair and the hair pair
 
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
     const MaterialHandle skin = renderer.createMaterial(skinMaterial(), "skin");

@@ -67,6 +67,9 @@ public:
       return std::unexpected(
           captureError("--character-shading is the player's: the editor always draws the skin shading"));
     }
+    if (options.hairCoverage || options.hairBoxScale || options.hairAgeCap) {
+      return std::unexpected(captureError("--hair-coverage, --hair-box and --hair-age are the player's (spike #591)"));
+    }
     if (options.headless) {
       return std::unexpected(
           captureError("--headless is the player's: the editor's capture lays its panels out in a real window"));

@@ -17,8 +17,9 @@ struct TaaConstants {
   uint historyAge; // how many frames each history pixel has accumulated, in 1/255ths
   uint glassMotion;    // the glass's own motion, in UV units
   uint useGlassMotion; // nonzero: a pixel the glass covers takes it in place of the surface behind's
-  uint padding;
+  uint hairMode; // spike (#591): nonzero gives a pixel with a flagged neighbour (alpha 0.75) the hair exception
   float2 size;
+  float2 hair;   // spike: the exception's clip-box scale in deviations, and its history age cap
 };
 
 [[vk::push_constant]]
@@ -106,12 +107,17 @@ ResolveOutput resolve(VertexOutput input) {
   float3 low = float3(1.0e9, 1.0e9, 1.0e9);
   float3 high = float3(-1.0e9, -1.0e9, -1.0e9);
   float3 center = float3(0.0, 0.0, 0.0);
+  bool flagged = false;
   float closest = -1.0;
   int2 closestPixel = pixel;
   for (int y = -1; y <= 1; ++y) {
     for (int x = -1; x <= 1; ++x) {
       const int2 p = clamp(pixel + int2(x, y), int2(0, 0), last);
-      const float3 color = max(currentImage.Load(int3(p, 0)).rgb, float3(0.0, 0.0, 0.0));
+      const float4 currentSample = currentImage.Load(int3(p, 0));
+      const float3 color = max(currentSample.rgb, float3(0.0, 0.0, 0.0));
+      // The scene's alpha is 1 for opaque and masked output, 0 for glass and 0.75 for a hair pixel whose
+      // coverage is stochastic (spike #591).
+      flagged = flagged || (taa.hairMode != 0 && currentSample.a > 0.5 && currentSample.a < 0.9);
       const float3 ycocg = toYCoCg(color);
       sum += ycocg;
       sumSquares += ycocg * ycocg;
@@ -164,8 +170,10 @@ ResolveOutput resolve(VertexOutput input) {
   // The box the neighbourhood spans: its mean and one and a quarter deviations, within its extremes.
   const float3 mean = sum / 9.0;
   const float3 deviation = sqrt(max(sumSquares / 9.0 - mean * mean, float3(0.0, 0.0, 0.0)));
-  const float3 boxLow = max(mean - 1.25 * deviation, low);
-  const float3 boxHigh = min(mean + 1.25 * deviation, high);
+  // The hair exception (spike #591): around a flagged pixel the box is wider and no longer held to the
+  // neighbourhood's extremes, which are mostly skin where the coverage is low.
+  const float3 boxLow = flagged ? mean - taa.hair.x * deviation : max(mean - 1.25 * deviation, low);
+  const float3 boxHigh = flagged ? mean + taa.hair.x * deviation : min(mean + 1.25 * deviation, high);
   const float3 boxCenter = 0.5 * (boxHigh + boxLow);
   const float3 extent = 0.5 * (boxHigh - boxLow) + 1.0e-4;
 
@@ -198,11 +206,11 @@ ResolveOutput resolve(VertexOutput input) {
   const float clipAmount = saturate(outside - 1.0);
   const float motionPixels = length(motion * taa.size);
   const float blend = clamp(1.0 / (historyFrames + 1.0) + 0.4 * clipAmount + 0.2 * saturate(motionPixels * 0.25),
-                            1.0 / AgeCap, 0.8);
+                            1.0 / (flagged ? taa.hair.y : AgeCap), 0.8);
   const float currentWeight = blend / (1.0 + luma(center));
   const float historyWeight = (1.0 - blend) / (1.0 + luma(max(resolvedHistory, float3(0.0, 0.0, 0.0))));
   const float3 result = (center * currentWeight + max(resolvedHistory, float3(0.0, 0.0, 0.0)) * historyWeight) /
                         (currentWeight + historyWeight);
   return resolved(any(isnan(result)) ? center : result, lerp(historySample.a, markNow, blend),
-                  clamp(round(1.0 / blend), 1.0, AgeCap));
+                  clamp(round(1.0 / blend), 1.0, flagged ? max(AgeCap, taa.hair.y) : AgeCap));
 }

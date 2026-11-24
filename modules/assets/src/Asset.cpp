@@ -284,7 +284,9 @@ json saveMaterial(const MaterialSource &material) {
       {"samplers", std::move(samplers)},
       {"doubleSided", material.doubleSided},
       {"unlit", material.unlit},
-      {"shading", material.shading == renderer::ShadingModel::Skin ? "Skin" : "Standard"},
+      {"shading", material.shading == renderer::ShadingModel::Skin   ? "Skin"
+                  : material.shading == renderer::ShadingModel::Hair ? "Hair"
+                                                                     : "Standard"},
       {"subsurface", material.subsurface},
       {"subsurfaceRadius", material.subsurfaceRadius},
       {"textures", std::move(textures)},
@@ -319,8 +321,10 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
   material.unlit = document.value("unlit", material.unlit);
   // Version 7 adds the shading model (ADR-0041); an older file is Standard, with the defaults.
   if (version >= 7) {
-    material.shading = document.value("shading", std::string{"Standard"}) == "Skin" ? renderer::ShadingModel::Skin
-                                                                                    : renderer::ShadingModel::Standard;
+    const std::string shading = document.value("shading", std::string{"Standard"});
+    material.shading = shading == "Skin"   ? renderer::ShadingModel::Skin
+                       : shading == "Hair" ? renderer::ShadingModel::Hair
+                                           : renderer::ShadingModel::Standard;
     material.subsurface = std::clamp(document.value("subsurface", material.subsurface), 0.0f, 1.0f);
     material.subsurfaceRadius =
         std::clamp(document.value("subsurfaceRadius", material.subsurfaceRadius), 0.0f, renderer::MaxSubsurfaceRadius);

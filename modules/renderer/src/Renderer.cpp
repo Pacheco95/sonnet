@@ -167,6 +167,8 @@ struct FrameConstants {
   std::uint32_t contactShadowImage;    // the sun's contact visibility mask, InvalidBindlessIndex without one (ADR-0039)
   std::uint32_t ambientOcclusionImage; // the R8 visibility mask, InvalidBindlessIndex without one (ADR-0039)
   std::uint32_t skinLut;               // the pre-integrated skin lookup table (ADR-0041)
+  std::uint32_t hairCoverage;          // spike (#591): the coverage mode of a hair draw, 0 for the plain cutoff
+  std::uint32_t ditherPhase;           // spike: the TAA phase a dithered coverage shifts its threshold by
   std::uint64_t visible; // the object index of each instance an indirect or direct draw submits (ADR-0016)
   std::uint64_t materials;
   std::uint64_t lights;
@@ -174,7 +176,7 @@ struct FrameConstants {
   std::uint64_t localShadows;    // GpuLocalShadow per local shadow map, 0 without any
   std::uint64_t previousObjects; // PreviousObject per draw, 0 without TAA
 };
-static_assert(sizeof(FrameConstants) == 1000);
+static_assert(sizeof(FrameConstants) == 1008);
 
 // No normal matrix: the vertex shader derives it from model (sonnet.slang, transformNormal).
 struct ObjectData {
@@ -326,10 +328,11 @@ struct TaaConstants {
   std::uint32_t historyAge;
   std::uint32_t glassMotion; // the glass's own motion; read where the glass mark is set, when `useGlassMotion`
   std::uint32_t useGlassMotion;
-  std::uint32_t padding{0};
+  std::uint32_t hairMode{0}; // spike (#591): nonzero draws hair's flagged pixels with the exception
   glm::vec2 size;
+  glm::vec2 hair; // spike: the exception's clip-box scale and history age cap
 };
-static_assert(sizeof(TaaConstants) == 48);
+static_assert(sizeof(TaaConstants) == 56);
 
 // Mirror of shaders/ao.slang.
 struct AoConstants {
@@ -513,14 +516,19 @@ std::uint32_t uvSetBit(const TextureTransform &transform, std::uint32_t slot) {
 // Whether a draw takes the skin pipelines (ADR-0041): a lit Skin material with some scattering, opaque
 // or masked, while the setting allows it. A blended or transmissive one shades as Standard, and so
 // does a weight of 0, which the Skin shader would only reproduce at a higher cost.
+bool shadesAsHair(const MaterialDesc &desc, const RendererSettings &settings) {
+  return settings.characterShading && settings.characterShadingHair && desc.shading == ShadingModel::Hair &&
+         !desc.unlit && desc.alphaMode != AlphaMode::Blend && !mayTransmit(desc);
+}
+
 bool shadesAsSkin(const MaterialDesc &desc, const RendererSettings &settings) {
-  return settings.characterShading && desc.shading == ShadingModel::Skin && desc.subsurface > 0.0f && !desc.unlit &&
-         desc.alphaMode != AlphaMode::Blend && !mayTransmit(desc);
+  return settings.characterShading && settings.characterShadingSkin && desc.shading == ShadingModel::Skin &&
+         desc.subsurface > 0.0f && !desc.unlit && desc.alphaMode != AlphaMode::Blend && !mayTransmit(desc);
 }
 
 // A draw's index into a set of pipelines: 1 for double-sided, plus 2 for the skin pipelines.
 template <class Draw> std::uint32_t pipelineIndex(const Draw &draw) {
-  return (draw.doubleSided ? 1u : 0u) | (draw.skin ? 2u : 0u);
+  return (draw.doubleSided ? 1u : 0u) | (draw.skin ? 2u : 0u) | (draw.hair ? 4u : 0u);
 }
 
 // The pipeline of an index in a set: the forward pass's four take it whole, a pair by double-sidedness
@@ -585,6 +593,14 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
                     .cullMode = cullModes[i],
                     .debugName = std::format("forward skin{}", side)},
+                   true);
+    defineGraphics(m_forwardPipelines[4 + i], "forward",
+                   {.fragmentEntry = "hairFragmentMain",
+                    .colorFormats = {HdrFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("forward hair{}", side)},
                    true);
     // The glass's motion for the experiment of #352: the pre-pass's shader on the blended draws, kept where
     // they are in front of the opaque depth; the draws arrive back to front, so the nearest layer is last.
@@ -1881,6 +1897,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
                                       .transmissive = mayTransmit(desc),
                                       .masked = desc.alphaMode == AlphaMode::Mask,
                                       .skin = shadesAsSkin(desc, m_settings),
+                                      .hair = shadesAsHair(desc, m_settings),
                                       .viewDepth = -viewPosition.z});
   }
   for (std::uint32_t i = 0; i < v.resolved.size(); ++i) {
@@ -1898,6 +1915,9 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     }
     if (da.skin != db.skin) {
       return !da.skin;
+    }
+    if (da.hair != db.hair) {
+      return !da.hair;
     }
     if (da.mirrored != db.mirrored) {
       return !da.mirrored;
@@ -2030,16 +2050,20 @@ void Renderer::recordTaa(rhi::ICommandList &commands, const ViewState &v, rhi::I
   if (!v.frameBuffers.valid()) {
     return;
   }
-  const TaaConstants push{.current = sampledIndex(current),
-                          .history = sampledIndex(history),
-                          .motion = sampledIndex(motion),
-                          .depth = sampledIndex(depth),
-                          .sampler = m_device.samplerIndex(m_linearClampSampler),
-                          .historyValid = historyValid ? 1u : 0u,
-                          .historyAge = sampledIndex(historyAge),
-                          .glassMotion = glassMotion ? sampledIndex(glassMotion) : 0u,
-                          .useGlassMotion = glassMotion ? 1u : 0u,
-                          .size = glm::vec2{v.targetSize}};
+  const TaaConstants push{
+      .current = sampledIndex(current),
+      .history = sampledIndex(history),
+      .motion = sampledIndex(motion),
+      .depth = sampledIndex(depth),
+      .sampler = m_device.samplerIndex(m_linearClampSampler),
+      .historyValid = historyValid ? 1u : 0u,
+      .historyAge = sampledIndex(historyAge),
+      .glassMotion = glassMotion ? sampledIndex(glassMotion) : 0u,
+      .useGlassMotion = glassMotion ? 1u : 0u,
+      .hairMode =
+          m_settings.hairCoverage == 2 && m_settings.characterShading && m_settings.characterShadingHair ? 1u : 0u,
+      .size = glm::vec2{v.targetSize},
+      .hair = glm::vec2{m_settings.hairBoxScale, m_settings.hairAgeCap}};
   commands.bindPipeline(m_taaPipeline);
   bindFrame(commands, v);
   commands.pushConstants(std::as_bytes(std::span{&push, 1}));
@@ -3148,46 +3172,48 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
                                : desc.alphaMode == AlphaMode::Mask ? AlphaMask
                                                                    : AlphaOpaque;
     const Texture *normal = m_textures.find(desc.normalTexture);
-    return GpuMaterial{.baseColor = desc.baseColor,
-                       .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
-                       .metallic = desc.metallic,
-                       .roughness = desc.roughness,
-                       .normalScale = desc.normalScale,
-                       .occlusionStrength = desc.occlusionStrength,
-                       .baseColorTexture = textureIndex(desc.baseColorTexture),
-                       .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
-                       .normalTexture = normal != nullptr ? m_device.sampledImageIndex(normal->image)
-                                                          : textureIndex(m_flatNormalTexture),
-                       .occlusionTexture = textureIndex(desc.occlusionTexture),
-                       .emissiveTexture = textureIndex(desc.emissiveTexture),
-                       .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) |
-                                (desc.unlit ? MaterialUnlit : 0u) | (mayTransmit(desc) ? MaterialTransmissive : 0u) |
-                                (static_cast<std::uint32_t>(desc.shading) << MaterialShadingShift),
-                       .sampler = samplers,
-                       .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
-                                 uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
-                                 uvSetBit(desc.normalTransform, SlotNormal) |
-                                 uvSetBit(desc.occlusionTransform, SlotOcclusion) |
-                                 uvSetBit(desc.emissiveTransform, SlotEmissive) |
-                                 uvSetBit(desc.transmissionTransform, SlotTransmission),
-                       .transmission = desc.transmission,
-                       .transmissionTexture = textureIndex(desc.transmissionTexture),
-                       .transmissionSampler = transmissionSampler,
-                       .reserved = 0,
-                       .baseColorUv = uvMatrix(desc.baseColorTransform),
-                       .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
-                       .normalUv = uvMatrix(desc.normalTransform),
-                       .occlusionUv = uvMatrix(desc.occlusionTransform),
-                       .emissiveUv = uvMatrix(desc.emissiveTransform),
-                       .transmissionUv = uvMatrix(desc.transmissionTransform),
-                       .baseColorUvOffset = desc.baseColorTransform.offset,
-                       .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
-                       .normalUvOffset = desc.normalTransform.offset,
-                       .occlusionUvOffset = desc.occlusionTransform.offset,
-                       .emissiveUvOffset = desc.emissiveTransform.offset,
-                       .transmissionUvOffset = desc.transmissionTransform.offset,
-                       .shading = glm::vec4{std::clamp(desc.subsurface, 0.0f, 1.0f),
-                                            std::clamp(desc.subsurfaceRadius, 0.0f, MaxSubsurfaceRadius), 0.0f, 0.0f}};
+    return GpuMaterial{
+        .baseColor = desc.baseColor,
+        .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
+        .metallic = desc.metallic,
+        .roughness = desc.roughness,
+        .normalScale = desc.normalScale,
+        .occlusionStrength = desc.occlusionStrength,
+        .baseColorTexture = textureIndex(desc.baseColorTexture),
+        .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
+        .normalTexture =
+            normal != nullptr ? m_device.sampledImageIndex(normal->image) : textureIndex(m_flatNormalTexture),
+        .occlusionTexture = textureIndex(desc.occlusionTexture),
+        .emissiveTexture = textureIndex(desc.emissiveTexture),
+        .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) | (desc.unlit ? MaterialUnlit : 0u) |
+                 (mayTransmit(desc) ? MaterialTransmissive : 0u) |
+                 (static_cast<std::uint32_t>(desc.shading) << MaterialShadingShift),
+        .sampler = samplers,
+        .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
+                  uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
+                  uvSetBit(desc.normalTransform, SlotNormal) | uvSetBit(desc.occlusionTransform, SlotOcclusion) |
+                  uvSetBit(desc.emissiveTransform, SlotEmissive) |
+                  uvSetBit(desc.transmissionTransform, SlotTransmission),
+        .transmission = desc.transmission,
+        .transmissionTexture = textureIndex(desc.transmissionTexture),
+        .transmissionSampler = transmissionSampler,
+        .reserved = 0,
+        .baseColorUv = uvMatrix(desc.baseColorTransform),
+        .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
+        .normalUv = uvMatrix(desc.normalTransform),
+        .occlusionUv = uvMatrix(desc.occlusionTransform),
+        .emissiveUv = uvMatrix(desc.emissiveTransform),
+        .transmissionUv = uvMatrix(desc.transmissionTransform),
+        .baseColorUvOffset = desc.baseColorTransform.offset,
+        .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
+        .normalUvOffset = desc.normalTransform.offset,
+        .occlusionUvOffset = desc.occlusionTransform.offset,
+        .emissiveUvOffset = desc.emissiveTransform.offset,
+        .transmissionUvOffset = desc.transmissionTransform.offset,
+        .shading = desc.shading == ShadingModel::Hair
+                       ? glm::vec4{-0.08f, 0.12f, 0.5f, 0.0f} // spike: shift, secondary shift, width
+                       : glm::vec4{std::clamp(desc.subsurface, 0.0f, 1.0f),
+                                   std::clamp(desc.subsurfaceRadius, 0.0f, MaxSubsurfaceRadius), 0.0f, 0.0f}};
   };
   MaterialDesc defaultMaterial;
   defaultMaterial.metallic = 0.0f;
@@ -3307,6 +3333,11 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       .ambientOcclusionImage =
           v.ambientOcclusion.isValid() ? sampledIndex(resources.image(v.ambientOcclusion)) : rhi::InvalidBindlessIndex,
       .skinLut = sampledIndex(m_skinLut),
+      .hairCoverage = v.taa && m_settings.characterShading && m_settings.characterShadingHair &&
+                              m_settings.debugView == DebugView::Final
+                          ? m_settings.hairCoverage
+                          : 0u,
+      .ditherPhase = jitterPhase(v.jitter),
       .visible = m_visibleBuffer ? m_device.bufferAddress(m_visibleBuffer) : 0,
       .materials = m_device.bufferAddress(materials.buffer) + materials.offset,
       .lights = m_device.bufferAddress(lights.buffer) + lights.offset,
