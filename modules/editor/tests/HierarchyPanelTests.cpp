@@ -558,7 +558,7 @@ TEST_CASE("the context menu has no apply to prefab on an entity outside an insta
   const flecs::entity plain = world.createEntity("Plain");
   std::vector<editor::ApplyRequest> reasons;
   panel.setApplyHandlers([](const editor::ApplyRequest &) { return std::vector<editor::ApplyChoice>{}; },
-                         [](editor::ApplyRequest) {});
+                         [](const editor::ApplyRequest &) {});
   panel.setApplyRefusal([&](const editor::ApplyRequest &request) -> std::optional<std::string> {
     reasons.push_back(request);
     return std::nullopt;

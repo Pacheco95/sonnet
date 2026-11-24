@@ -2170,3 +2170,90 @@ TEST_CASE("apply all moves every applicable added child in one command, in the o
   CHECK(world.find(world::World::instancedIdentity(x, filedQChild)));
   CHECK(childNames(world, y) == Names{"A", "B", "C", "R", "P"});
 }
+
+TEST_CASE("an applied child goes where the instance had it and the instance's own order is kept",
+          "[editor][gpu][prefab][apply][added][order]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-added-position");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Crate crate;
+  const std::filesystem::path file = directory / "prefabs" / "crate.prefab.json";
+  writeDocument(file, crate.entities());
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid x = core::Uuid::generate();
+  const core::Uuid y = core::Uuid::generate();
+  const core::Uuid z = core::Uuid::generate();
+  for (const core::Uuid &uuid : {x, y, z}) {
+    editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", {}, uuid), world);
+  }
+  const auto part = [&](const core::Uuid &instance, const char *name) {
+    return world::World::instancedIdentity(instance, crate.child(name));
+  };
+  const auto move = [&](const core::Uuid &instance, const core::Uuid &child, std::size_t index) {
+    editor.commands().push(editor::reparentCommand(child, instance, index), world);
+  };
+  // Z orders the crate's own children itself and keeps doing so.
+  move(z, part(z, "C"), 0);
+  REQUIRE(childNames(world, z) == Names{"C", "A", "B"});
+  // X has Mid between A and B, and its children in an order of its own with the child second.
+  const core::Uuid mid = core::Uuid::generate();
+  editor.commands().push(editor::createEntityCommand("Mid", x, {}, mid), world);
+  move(x, mid, 1);
+  REQUIRE(childNames(world, x) == Names{"A", "Mid", "B", "C"});
+  fixture.frame(editor);
+
+  // The child goes after A, the nearest child before it the prefab has, and X's order is the
+  // default again, so its next save stores none.
+  REQUIRE(editor.applyToPrefab(addedRequest(mid)).has_value());
+  const core::Uuid filedMid = filedIdentity(file, "Mid");
+  CHECK(filedChildren(file, crate.root) == std::vector<std::string>{crate.child("A").toString(), filedMid.toString(),
+                                                                    crate.child("B").toString(),
+                                                                    crate.child("C").toString()});
+  CHECK(childNames(world, x) == Names{"A", "Mid", "B", "C"});
+  CHECK(childNames(world, y) == Names{"A", "Mid", "B", "C"});
+  CHECK(!storesOrder(world, x));
+  // Z keeps the order it stored and takes the child by the rules of ADR-0032: after A, which it has
+  // second now.
+  CHECK(storesOrder(world, z));
+  CHECK(childNames(world, z) == Names{"C", "A", "Mid", "B"});
+  REQUIRE(editor.commands().undo(world));
+  CHECK(childNames(world, x) == Names{"A", "Mid", "B", "C"});
+  CHECK(childNames(world, y) == Names{"A", "B", "C"});
+
+  // With nothing before it that the prefab has, it goes first; with an order of the instance's own
+  // stored, the order is remapped and the instance keeps it.
+  move(x, mid, 0);
+  move(x, part(x, "C"), 1);
+  REQUIRE(childNames(world, x) == Names{"Mid", "C", "A", "B"});
+  REQUIRE(storesOrder(world, x));
+  REQUIRE(editor.applyToPrefab(addedRequest(mid)).has_value());
+  const core::Uuid first = filedIdentity(file, "Mid");
+  CHECK(filedChildren(file, crate.root).front() == first.toString());
+  CHECK(childNames(world, x) == Names{"Mid", "C", "A", "B"});
+  CHECK(storesOrder(world, x));
+  CHECK(childNames(world, y) == Names{"Mid", "A", "B", "C"});
+  // The stored order names the copy, not the identity the child had.
+  const json stored = entryOf(world::saveScene(world), x);
+  CHECK(stored["order"][0] == world::World::instancedIdentity(x, first).toString());
+
+  // Saved and read again, nothing is twice and the order stands.
+  REQUIRE(editor.saveSceneAs(directory / "scenes" / "order.scene.json").has_value());
+  REQUIRE(editor.openProject(directory).has_value());
+  REQUIRE(editor.openScene(directory / "scenes" / "order.scene.json").has_value());
+  CHECK(childNames(editor.world(), x) == Names{"Mid", "C", "A", "B"});
+  CHECK(childNames(editor.world(), y) == Names{"Mid", "A", "B", "C"});
+
+  // Not offered while playing, and nothing applies then.
+  const core::Uuid late = core::Uuid::generate();
+  editor.commands().push(editor::createEntityCommand("Late", y, {}, late), editor.world());
+  REQUIRE(editor.applyTargetName(addedRequest(late)).has_value());
+  editor.play();
+  fixture.frame(editor);
+  CHECK(!editor.applyTargetName(addedRequest(late)).has_value());
+  CHECK(!editor.applyRefusal(addedRequest(late)).has_value());
+  CHECK(editor.applyChoices(addedRequest(late)).empty());
+  CHECK(!editor.applyToPrefab(addedRequest(late)).has_value());
+  editor.stop();
+}

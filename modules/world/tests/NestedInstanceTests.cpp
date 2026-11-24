@@ -815,6 +815,7 @@ TEST_CASE("a child added to a prefab level is offered to every level with a file
   const flecs::entity cartHub = childNamed(world, cartAxle, "Hub");
   const auto entities = [](const std::vector<world::ApplyTarget> &targets) {
     std::vector<flecs::entity> out;
+    out.reserve(targets.size());
     for (const world::ApplyTarget &target : targets) {
       out.push_back(target.entity);
     }
