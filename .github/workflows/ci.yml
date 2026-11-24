@@ -503,6 +503,8 @@ jobs:
       - name: clang-tidy on changed files
         if: matrix.tidy && github.event_name == 'pull_request'
         run: |
+          # The prebuilt image runs as a different user than the checkout's owner.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch origin "${{ github.event.pull_request.base.sha }}"
           files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD -- '*.cpp' | grep -E '^(modules|apps)/' || true)
           if [ -n "$files" ]; then
