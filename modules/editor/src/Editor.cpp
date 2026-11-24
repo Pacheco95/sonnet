@@ -3137,6 +3137,9 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
     if (request.kind == ApplyKind::ChildOrder) {
       return std::string{"the order of its children"};
     }
+    if (request.kind == ApplyKind::AddedChild) {
+      return std::format("the added child {}", nameOf(m_world.find(request.entity)));
+    }
     return request.slot ? std::format("{} property {}", request.component, request.property)
                         : std::format("{}{}", request.component, request.member.to_string());
   };
@@ -3156,23 +3159,10 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
       file->changes.push_back(request);
       return;
     }
+    // The reason is the one the single apply gives: both go through applyRefusal.
     keep(entity, [&] {
-      const std::vector<world::ApplyTarget> targets = applyTargetsOf(entity, request);
-      const world::ComponentInfo *info =
-          request.kind == ApplyKind::Component ? m_world.findComponent(request.component) : nullptr;
-      const bool added = request.kind == ApplyKind::ChildOrder &&
-                         std::ranges::any_of(m_world.children(entity), [](flecs::entity child) {
-                           return isSavedChild(child) && !child.has<world::PrefabSource>();
-                         });
-      std::string reason = "the prefab cannot take it";
-      if (added) {
-        reason = "it has a child the prefab lacks";
-      } else if (targets.empty() || !targets.front().root.has<world::PrefabFile>()) {
-        reason = "no prefab along the way has a file";
-      } else if (info != nullptr && !entity.has(info->id)) {
-        reason = "removes a component the prefab inherits";
-      }
-      return std::format("{} ({})", describe(request), reason);
+      return std::format("{} ({})", describe(request),
+                         applyRefusal(request).value_or(std::string{"the prefab cannot take it"}));
     });
   };
   std::function<void(flecs::entity, flecs::entity)> visit;
@@ -3259,7 +3249,8 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
         return;
       }
       if (!child.has<world::PrefabSource>()) {
-        keep(entity, [&] { return std::format("the added child {}", nameOf(child)); });
+        // The subtree moves whole, so what is under it is not visited.
+        add(entity, {.entity = m_world.uuidOf(child), .component = {}, .kind = ApplyKind::AddedChild});
       } else if (const flecs::entity childSource = m_world.sourceOf(child)) {
         visit(child, childSource);
       }
@@ -3642,6 +3633,29 @@ void Editor::drawApplyAllModal() {
   }
   if (applies(ApplyKind::ChildOrder)) {
     ui::statusText(ui::Status::Warning, OrderWarning);
+  }
+  if (applies(ApplyKind::AddedChild)) {
+    ui::sectionBreak();
+    ImGui::TextUnformatted("These children move into their prefabs with their subtrees, under new identities:");
+    bool sameName = false;
+    for (const ApplyAllPlan::File &file : m_applyAllPlan.files) {
+      for (const ApplyRequest &change : file.changes) {
+        const flecs::entity child =
+            change.kind == ApplyKind::AddedChild ? m_world.find(change.entity) : flecs::entity{};
+        const auto resolved = child ? resolveApply(change) : std::nullopt;
+        if (!resolved) {
+          continue;
+        }
+        const SubtreeSize size = subtreeSize(m_world, child);
+        ImGui::BulletText("%s, %zu %s, into %s", nameOf(child).c_str(), size.entities,
+                          size.entities == 1 ? "entity" : "entities", nameOf(resolved->target.entity).c_str());
+        sameName = sameName || std::ranges::any_of(m_world.children(resolved->target.entity),
+                                                   [&](flecs::entity other) { return nameOf(other) == nameOf(child); });
+      }
+    }
+    if (sameName) {
+      ui::statusText(ui::Status::Warning, SameNameWarning);
+    }
   }
   if (!m_applyAllPlan.kept.empty()) {
     ui::sectionBreak();

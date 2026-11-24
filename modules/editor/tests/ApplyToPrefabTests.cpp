@@ -709,7 +709,7 @@ TEST_CASE("apply all overrides lists what it cannot apply and leaves it on the i
   editor.commands().push(editor::instantiatePrefabCommand(beacon.root, "Beacon", {}, a), world);
   const flecs::entity root = world.find(a);
   const auto bulb = [&] { return world.findByPath(world.find(a), "Bulb"); };
-  // Applicable: the light's intensity and the bulb's new name. Not: the root's place, an added child.
+  // Applicable: the light's intensity, the bulb's new name and the added child. Not: the root's place.
   const auto lightId = world.findComponent("PointLight")->id;
   json light = world.componentToJson(root, lightId);
   const json lightBefore = light;
@@ -727,10 +727,10 @@ TEST_CASE("apply all overrides lists what it cannot apply and leaves it on the i
 
   const editor::ApplyAllPlan plan = editor.applyAllPlan(a);
   REQUIRE(plan.files.size() == 1);
-  CHECK(changesTo(plan, file) == 2);
+  CHECK(changesTo(plan, file) == 3);
   CHECK(lists(plan, "Transform"));
   CHECK(!lists(plan, "the name Lamp bulb"));
-  CHECK(lists(plan, "the added child Antenna"));
+  CHECK(!lists(plan, "the added child Antenna"));
   editor.requestApplyAllOverrides(a);
   REQUIRE(editor.applyAllDialogOpen());
   fixture.frame(editor); // the dialog draws the kept list
@@ -749,11 +749,13 @@ TEST_CASE("apply all overrides lists what it cannot apply and leaves it on the i
   CHECK(bulbEntry["name"] == "Lamp bulb");
   CHECK(world.find(a).get<world::Transform>().position.x == Approx(4.0f));
   CHECK(world.findByPath(world.find(a), "Lamp bulb"));
-  CHECK(world.findByPath(world.find(a), "Antenna"));
+  // The added child is the prefab's now, a copy under the instance.
+  CHECK(world.findByPath(world.find(a), "Antenna").has<world::PrefabSource>());
   // What stays is still listed, with nothing left to apply.
   const editor::ApplyAllPlan after = editor.applyAllPlan(a);
   CHECK(after.files.empty());
-  CHECK(lists(after, "the added child Antenna"));
+  CHECK(lists(after, "Transform"));
+  CHECK(!lists(after, "the added child"));
   // Not offered while playing.
   editor.play();
   fixture.frame(editor);
@@ -788,12 +790,17 @@ TEST_CASE("apply all is offered exactly when its plan lists a file", "[editor][g
                            world);
   };
 
-  // Untouched, and with only what stays on the instance (its place, an added child).
+  // Untouched, and with only what stays on the instance (its place).
   CHECK(!editor.applyAllOffered(a));
   edit(world.find(a), "Transform", [](json &value) { value["position"] = json::array({4.0, 0.0, 0.0}); });
-  world.createEntity("Antenna", world.find(a));
   CHECK(!editor.applyAllOffered(a));
   CHECK(!editor.applyAllPlan(a).kept.empty());
+  // An added child is offered, and the plan agrees; undoing its creation takes the offer back.
+  editor.commands().push(editor::createEntityCommand("Antenna", a), world);
+  CHECK(editor.applyAllOffered(a));
+  CHECK(agrees(a));
+  REQUIRE(editor.commands().undo(world));
+  CHECK(!editor.applyAllOffered(a));
   // A rename is offered (#550); undoing it takes the offer back.
   editor.commands().push(editor::renameCommand(bulb, "Bulb", "Lamp bulb"), world);
   CHECK(editor.applyAllOffered(a));
@@ -868,6 +875,24 @@ TEST_CASE("the cost of deciding whether to offer apply all on a large instance",
 
   CHECK(!offered());
   const double untouched = best(offered);
+  // An added subtree of 300 entities, which the walk reaches last: the first check after an edit
+  // scans its references and its nested instances, the next ones answer from the cache.
+  const core::Uuid mast = core::Uuid::generate();
+  editor.commands().push(editor::createEntityCommand("Mast", a, {}, mast), world);
+  for (int i = 0; i < parts; ++i) {
+    editor.commands().push(
+        editor::createEntityCommand(std::format("Mast part {}", i), mast, {{"MeshRenderer", {{"visible", true}}}}),
+        world);
+  }
+  CHECK(offered());
+  double addedCold = 1e9;
+  for (int run = 0; run < 20; ++run) {
+    editor.commands().push(editor::createEntityCommand("Elsewhere", {}), world); // changes the history, not the subtree
+    const auto start = Clock::now();
+    CHECK(offered());
+    addedCold = std::min(addedCold, std::chrono::duration<double, std::milli>(Clock::now() - start).count());
+  }
+  const double addedWarm = best(offered);
   // One change, on the last part the walk reaches.
   edit(part(parts - 1), "MeshRenderer", [](json &value) { value["visible"] = false; });
   CHECK(offered());
@@ -881,8 +906,9 @@ TEST_CASE("the cost of deciding whether to offer apply all on a large instance",
   const double plan = best([&] { return editor.applyAllPlan(a); });
   CHECK(offered() == !editor.applyAllPlan(a).files.empty());
   WARN(std::format("{} parts: offered untouched {:.3f} ms, last part changed {:.3f} ms, every part changed {:.3f} ms; "
-                   "full plan with every part changed {:.3f} ms",
-                   parts, untouched, lastChanged, allChanged, plan));
+                   "full plan with every part changed {:.3f} ms; with an added subtree of {} entities, the first "
+                   "check after an edit {:.3f} ms and the next ones {:.3f} ms",
+                   parts, untouched, lastChanged, allChanged, plan, parts + 1, addedCold, addedWarm));
 }
 
 namespace {
@@ -1307,13 +1333,13 @@ TEST_CASE("applying an instance's child order reorders the prefab and the instan
   CHECK(!editor.applyTargetName(orderRequest(y)));
   CHECK(!editor.applyTargetName(orderRequest(part(x, "A"))));
   // W's added child has no counterpart in the prefab: refused, not filtered out, and Apply all
-  // keeps the order on the instance with the reason.
+  // keeps the order on the instance with the reason, while the child itself is applied.
   CHECK(!editor.applyTargetName(orderRequest(w)));
   CHECK(editor.applyChoices(orderRequest(w)).empty());
   const editor::ApplyAllPlan kept = editor.applyAllPlan(w);
-  CHECK(kept.files.empty());
+  CHECK(kept.files.size() == 1);
   CHECK(lists(kept, "the order of its children (it has a child the prefab lacks)"));
-  CHECK(lists(kept, "the added child Extra"));
+  CHECK(!lists(kept, "the added child Extra"));
 
   // The confirmation names the scene and the open tab; cancelling writes nothing.
   editor.requestApplyToPrefab(request);
@@ -2043,4 +2069,104 @@ TEST_CASE("a prefab without a file takes no added child", "[editor][gpu][prefab]
   CHECK(editor.applyChoices(addedRequest(added)).empty());
   CHECK(!editor.applyToPrefab(addedRequest(added)).has_value());
   CHECK(world.find(added).parent() == world.find(x));
+}
+
+TEST_CASE("apply all moves every applicable added child in one command, in the order they have, and keeps the rest",
+          "[editor][gpu][prefab][apply][all][added]") {
+  Fixture fixture;
+  const std::filesystem::path directory = scratch("apply-all-added");
+  editor::Editor editor{fixture.platform, *fixture.window, *fixture.device, *fixture.swapchain};
+  REQUIRE(editor.createProject(directory, "Test").has_value());
+  const Crate crate;
+  const std::filesystem::path file = directory / "prefabs" / "crate.prefab.json";
+  writeDocument(file, crate.entities());
+  REQUIRE(editor.openProject(directory).has_value());
+  world::World &world = editor.world();
+  const core::Uuid x = core::Uuid::generate();
+  const core::Uuid y = core::Uuid::generate();
+  for (const core::Uuid &uuid : {x, y}) {
+    editor.commands().push(editor::instantiatePrefabCommand(crate.root, "Crate", {}, uuid), world);
+  }
+  const auto add = [&](const char *name, const core::Uuid &parent) {
+    const core::Uuid uuid = core::Uuid::generate();
+    editor.commands().push(editor::createEntityCommand(name, parent, {}, uuid), world);
+    return uuid;
+  };
+  // X adds P, R and, under its part A, Q with a child; R is moved before P. S refers to the mast
+  // outside it, so it stays on the instance.
+  const core::Uuid mast = add("Mast", {});
+  const core::Uuid p = add("P", x);
+  const core::Uuid r = add("R", x);
+  const core::Uuid s = add("S", x);
+  const core::Uuid partA = world::World::instancedIdentity(x, crate.child("A"));
+  const core::Uuid q = add("Q", partA);
+  const core::Uuid qChild = add("Q child", q);
+  editor.commands().push(editor::reparentCommand(r, x, 3), world);
+  holdProperties(editor, s, {{"target", mast.toString()}});
+  REQUIRE(childNames(world, x) == Names{"A", "B", "C", "R", "P", "S"});
+  editor.selection().select(qChild);
+  fixture.frame(editor);
+  const std::string original = text(file);
+
+  // The plan lists the three that can move, in one file, and S with its reason.
+  const editor::ApplyAllPlan plan = editor.applyAllPlan(x);
+  REQUIRE(plan.files.size() == 1);
+  CHECK(changesTo(plan, file) == 3);
+  CHECK(lists(plan, "the added child S (Scripts"));
+  CHECK(!lists(plan, "the added child P"));
+  CHECK(editor.applyAllOffered(x));
+  CHECK(editor.applyAllOffered(y) == !editor.applyAllPlan(y).files.empty());
+  editor.requestApplyAllOverrides(x);
+  REQUIRE(editor.applyAllDialogOpen());
+  fixture.frame(editor); // the dialog lists the children and the ones that stay
+  editor.cancelApply();
+  CHECK(text(file) == original);
+  CHECK(world.find(p));
+
+  const std::size_t undoBefore = editor.commands().size();
+  const std::size_t rebuildsBefore = editor.prefabRebuilds();
+  REQUIRE(editor.applyAllOverrides(x).has_value());
+  CHECK(editor.commands().size() == undoBefore + 1);
+  CHECK(editor.prefabRebuilds() == rebuildsBefore + 1);
+  // The prefab holds them under its own identities, R before P as the instance had them.
+  const core::Uuid filedP = filedIdentity(file, "P");
+  const core::Uuid filedR = filedIdentity(file, "R");
+  const core::Uuid filedQ = filedIdentity(file, "Q");
+  const core::Uuid filedQChild = filedIdentity(file, "Q child");
+  REQUIRE(!filedP.isNil());
+  CHECK(filedChildren(file, crate.root) ==
+        std::vector<std::string>{crate.child("A").toString(), crate.child("B").toString(), crate.child("C").toString(),
+                                 filedR.toString(), filedP.toString()});
+  CHECK(entryOf(file, filedQ)["parent"] == crate.child("A").toString());
+  CHECK(entryOf(file, filedQChild)["parent"] == filedQ.toString());
+  CHECK(filedIdentity(file, "S").isNil());
+  // Both instances have them as copies, X keeps S as its own, and the selection followed.
+  CHECK(childNames(world, x) == Names{"A", "B", "C", "R", "P", "S"});
+  CHECK(childNames(world, y) == Names{"A", "B", "C", "R", "P"});
+  CHECK(world.find(s).parent() == world.find(x));
+  CHECK(!world.find(s).has<world::PrefabSource>());
+  CHECK(world.find(world::World::instancedIdentity(x, filedP)));
+  CHECK(world.find(world::World::instancedIdentity(y, filedQ)).parent() ==
+        world.find(world::World::instancedIdentity(y, crate.child("A"))));
+  CHECK(editor.selection().contains(world::World::instancedIdentity(x, filedQChild)));
+  CHECK(!world.find(p));
+  CHECK(!world.find(q));
+  // Applied, the child with the reference is all that is left, and kept.
+  const editor::ApplyAllPlan after = editor.applyAllPlan(x);
+  CHECK(after.files.empty());
+  CHECK(lists(after, "the added child S"));
+  CHECK(!editor.applyAllOffered(x));
+
+  // One undo step restores the file and the local subtrees; redo gives the same copies.
+  REQUIRE(editor.commands().undo(world));
+  CHECK(text(file) == original);
+  CHECK(childNames(world, x) == Names{"A", "B", "C", "R", "P", "S"});
+  CHECK(world.find(q).parent() == world.find(partA));
+  CHECK(world.find(qChild).parent() == world.find(q));
+  CHECK(childNames(world, y) == Names{"A", "B", "C"});
+  CHECK(editor.selection().contains(qChild));
+  REQUIRE(editor.commands().redo(world));
+  CHECK(filedIdentity(file, "Q") == filedQ);
+  CHECK(world.find(world::World::instancedIdentity(x, filedQChild)));
+  CHECK(childNames(world, y) == Names{"A", "B", "C", "R", "P"});
 }
