@@ -800,3 +800,144 @@ TEST_CASE("the documents that place a prefab are found through the prefabs placi
   CHECK(world::documentsPlacing(documents, files.cart) == std::vector<std::size_t>{2});
   CHECK(world::documentsPlacing(documents, other) == std::vector<std::size_t>{4});
 }
+
+TEST_CASE("a child added to a prefab level is offered to every level with a file and its copy has a folded identity",
+          "[world][prefab][nested][apply][added]") {
+  const Prefabs files;
+  world::World world;
+  files.load(world);
+  const flecs::entity wheelPrefab = world.find(files.wheel);
+  const flecs::entity cartPrefab = world.find(files.cart);
+  wheelPrefab.set<world::PrefabFile>({"wheel.prefab.json"});
+  cartPrefab.set<world::PrefabFile>({"cart.prefab.json"});
+  const flecs::entity wheelHub = childNamed(world, wheelPrefab, "Hub");
+  const flecs::entity cartAxle = childNamed(world, cartPrefab, "Axle");
+  const flecs::entity cartHub = childNamed(world, cartAxle, "Hub");
+  const auto entities = [](const std::vector<world::ApplyTarget> &targets) {
+    std::vector<flecs::entity> out;
+    out.reserve(targets.size());
+    for (const world::ApplyTarget &target : targets) {
+      out.push_back(target.entity);
+    }
+    return out;
+  };
+  using Entities = std::vector<flecs::entity>;
+  const core::Uuid added = core::Uuid::generate();
+
+  // The anchor is an instance root: the prefab's root takes the child, and the copy derives from
+  // the instance alone.
+  const flecs::entity wheel = world.instantiate(wheelPrefab, "Wheel 1");
+  CHECK(entities(world.addedChildTargets(wheel)) == Entities{wheelPrefab});
+  CHECK(world.addedChildTargets(wheel)[0].root == wheelPrefab);
+  CHECK(world.copiedIdentity(wheel, wheelPrefab, added) == world::World::instancedIdentity(world.uuidOf(wheel), added));
+  // A part is an anchor too.
+  const flecs::entity hub = childNamed(world, wheel, "Hub");
+  CHECK(entities(world.addedChildTargets(hub)) == Entities{wheelHub});
+  CHECK(world.copiedIdentity(hub, wheelHub, added) == world::World::instancedIdentity(world.uuidOf(wheel), added));
+
+  // The anchor is a nested instance's root: both files take it, the wheel's first, and the
+  // identity folds from the inside out through the cart's axle and the cart instance.
+  const flecs::entity cart = world.instantiate(cartPrefab, "Cart 1");
+  const flecs::entity axle = childNamed(world, cart, "Axle");
+  CHECK(entities(world.addedChildTargets(axle)) == Entities{wheelPrefab, cartAxle});
+  CHECK(world.addedChildTargets(axle)[1].root == cartPrefab);
+  const core::Uuid inner = world::World::instancedIdentity(world.uuidOf(cartAxle), added);
+  CHECK(world.copiedIdentity(axle, wheelPrefab, added) == world::World::instancedIdentity(world.uuidOf(cart), inner));
+  CHECK(world.copiedIdentity(axle, cartAxle, added) == world::World::instancedIdentity(world.uuidOf(cart), added));
+
+  // A part inside a nested instance, with a target two levels down.
+  const flecs::entity cartHubCopy = childNamed(world, axle, "Hub");
+  CHECK(entities(world.addedChildTargets(cartHubCopy)) == Entities{wheelHub, cartHub});
+  CHECK(world.copiedIdentity(cartHubCopy, wheelHub, added) ==
+        world::World::instancedIdentity(world.uuidOf(cart),
+                                        world::World::instancedIdentity(world.uuidOf(cartAxle), added)));
+  CHECK(world.copiedIdentity(cartHubCopy, cartHub, added) ==
+        world::World::instancedIdentity(world.uuidOf(cart), added));
+  // A level the chain does not reach gives nil.
+  CHECK(world.copiedIdentity(wheel, cartAxle, added).isNil());
+
+  // An entity that is neither an instance root nor a part has no level, nor has a chain without files.
+  CHECK(world.addedChildTargets(world.createEntity("Loose")).empty());
+  wheelPrefab.remove<world::PrefabFile>();
+  CHECK(entities(world.addedChildTargets(axle)) == Entities{cartAxle});
+  CHECK(world.addedChildTargets(wheel).empty());
+  cartPrefab.remove<world::PrefabFile>();
+  CHECK(world.addedChildTargets(axle).empty());
+}
+
+TEST_CASE("the folded identity is the one the copy has once the prefab holds the child",
+          "[world][prefab][nested][apply][added]") {
+  const Prefabs files;
+  const core::Uuid added = core::Uuid::generate();
+  const core::Uuid cartInstance = core::Uuid::generate();
+  core::Uuid predicted;
+  {
+    world::World world;
+    files.load(world);
+    const flecs::entity cart = world.instantiate(world.find(files.cart), "Cart 1", {}, cartInstance);
+    const flecs::entity axle = childNamed(world, cart, "Axle");
+    predicted = world.copiedIdentity(axle, world.find(files.wheel), added);
+    REQUIRE(!predicted.isNil());
+  }
+  // The wheel's file gets a child of its root.
+  json wheelWithChild = files.wheelFile();
+  wheelWithChild["entities"].push_back({{"uuid", added.toString()},
+                                        {"name", "Added"},
+                                        {"parent", files.wheel.toString()},
+                                        {"components", json::object()}});
+  world::World world;
+  REQUIRE(world::loadPrefabs(world, {{"cart", files.cartFile(), {}}, {"wheel", wheelWithChild, {}}}).empty());
+  const flecs::entity cart = world.instantiate(world.find(files.cart), "Cart 1", {}, cartInstance);
+  const flecs::entity copy = childNamed(world, childNamed(world, cart, "Axle"), "Added");
+  REQUIRE(copy);
+  CHECK(world.uuidOf(copy) == predicted);
+  CHECK(world.counterpartIn(copy, world.find(files.wheel)) == world.find(added));
+}
+
+TEST_CASE("replacing identities drops the old entries and rewrites every string equal to one",
+          "[world][scene][apply][added]") {
+  const core::Uuid anchor = core::Uuid::generate();
+  const core::Uuid oldChild = core::Uuid::generate();
+  const core::Uuid oldGrandchild = core::Uuid::generate();
+  const core::Uuid oldPart = core::Uuid::generate();
+  const core::Uuid newChild = core::Uuid::generate();
+  const core::Uuid newGrandchild = core::Uuid::generate();
+  const core::Uuid newPart = core::Uuid::generate();
+  const core::Uuid other = core::Uuid::generate();
+  json scene = {
+      {"version", world::SceneVersion},
+      {"entities",
+       {{{"uuid", anchor.toString()},
+         {"name", "Anchor"},
+         {"prefab", other.toString()},
+         {"components", json::object()},
+         {"order", {oldChild.toString(), other.toString()}}},
+        {{"uuid", oldChild.toString()},
+         {"name", "Child"},
+         {"parent", anchor.toString()},
+         {"components", json::object()}},
+        {{"uuid", oldGrandchild.toString()},
+         {"name", "Grandchild"},
+         {"parent", oldChild.toString()},
+         {"components", {{"Scripts", {{"target", oldPart.toString()}}}}}},
+        {{"uuid", oldPart.toString()}, {"instanced", true}, {"components", json::object()}},
+        {{"uuid", other.toString()},
+         {"name", "Other"},
+         {"components", {{"Scripts", {{"watching", oldChild.toString()}, {oldChild.toString(), "a key"}}}}}}}}};
+  const std::unordered_map<core::Uuid, core::Uuid> identities{
+      {oldChild, newChild}, {oldGrandchild, newGrandchild}, {oldPart, newPart}};
+  world::replaceIdentities(scene, identities);
+
+  // The old entries are gone; what named them names the new identities, in an order and a member,
+  // and a key that holds an old identity is left alone.
+  REQUIRE(scene["entities"].size() == 2);
+  CHECK(scene["entities"][0]["uuid"] == anchor.toString());
+  CHECK(scene["entities"][0]["order"] == json::array({newChild.toString(), other.toString()}));
+  CHECK(scene["entities"][1]["uuid"] == other.toString());
+  CHECK(scene["entities"][1]["components"]["Scripts"]["watching"] == newChild.toString());
+  CHECK(scene["entities"][1]["components"]["Scripts"].contains(oldChild.toString()));
+  // Once more changes nothing.
+  const json once = scene;
+  world::replaceIdentities(scene, identities);
+  CHECK(scene == once);
+}

@@ -65,6 +65,13 @@ public:
     m_apply = std::move(apply);
   }
 
+  // Why an apply is not offered (Editor::applyRefusal): "Apply to prefab" on a child added under an
+  // instance shows as a disabled item with the reason as its tooltip. Without it the item is only
+  // shown while it can be applied.
+  void setApplyRefusal(std::function<std::optional<std::string>(const ApplyRequest &)> refusal) {
+    m_applyRefusal = std::move(refusal);
+  }
+
   void draw(bool &open);
 
   // The context menu's creations, also used by the Edit menu and the viewport's drops. `parent`
@@ -136,6 +143,7 @@ private:
   std::function<void(core::Uuid)> m_applyAll;
   std::function<std::vector<ApplyChoice>(const ApplyRequest &)> m_applyChoices;
   std::function<void(ApplyRequest)> m_apply;
+  std::function<std::optional<std::string>(const ApplyRequest &)> m_applyRefusal;
   // A context-menu action that changes the tree, run after the tree is drawn.
   std::function<void()> m_afterTree;
   struct PendingOpen {

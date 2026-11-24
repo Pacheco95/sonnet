@@ -3,6 +3,7 @@
 #include <sonnet/world/World.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string_view>
@@ -64,6 +65,11 @@ public:
   }
   // Hands the done commands over and empties the history.
   [[nodiscard]] std::vector<std::unique_ptr<ICommand>> takeDone();
+  // Counts every change of the history (a command done, undone, redone or dropped), which a
+  // result computed from the scene can be cached by until it changes.
+  [[nodiscard]] std::uint64_t revision() const noexcept {
+    return m_revision;
+  }
   // How many commands the limit has dropped since the history was started.
   [[nodiscard]] std::size_t trimmed() const noexcept {
     return m_trimmed;
@@ -87,6 +93,7 @@ private:
   std::vector<std::unique_ptr<ICommand>> m_done;
   std::vector<std::unique_ptr<ICommand>> m_undone;
   std::size_t m_trimmed{0};
+  std::uint64_t m_revision{0};
   std::optional<std::size_t> m_saved{0}; // commands done at the last save; a new history is clean
 };
 

@@ -234,6 +234,23 @@ public:
   // `entity` has none, or when `target` has a child no child of `entity` maps to. Children are
   // those a document saves: with an Identity and not EditorOnly.
   [[nodiscard]] std::vector<flecs::entity> childOrderIn(flecs::entity entity, flecs::entity target) const;
+  // The entity along `entity`'s chain of sources (sourceOf) that is a child of `level`, `entity`
+  // itself included; null when the chain leaves no such entity, as for a locally added child.
+  [[nodiscard]] flecs::entity counterpartIn(flecs::entity entity, flecs::entity level) const;
+  // The prefab entities applying a child added under `anchor` could write to (docs/editor.md,
+  // "Applying to a prefab", ADR-0044): `anchor` is an instance root or a part of one, and every
+  // level of its chain of sources whose prefab has a file is one, since each has a counterpart of
+  // the anchor and what is added to it is copied into every instance of it. Ordered as
+  // applyTargets, the deepest first, so the default is the deepest prefab with a file. Empty for
+  // an entity that is neither an instance root nor a part, and a chain with no file.
+  [[nodiscard]] std::vector<ApplyTarget> addedChildTargets(flecs::entity anchor) const;
+  // The identity the instance's copy of a prefab entity takes (ADR-0044): `identity` is that of an
+  // entity added under `target`, the level of `anchor`'s chain addedChildTargets named, and the
+  // copy under `anchor` is the fold of instancedIdentity along the chain from `target` back to
+  // `anchor`, taking at each level the identity of the instance that level's copy belongs to. A
+  // nested instance's parts fold the same way, from the identities they have in the prefab. Nil
+  // when `target` is not on `anchor`'s chain.
+  [[nodiscard]] core::Uuid copiedIdentity(flecs::entity anchor, flecs::entity target, const core::Uuid &identity) const;
   // Turns an instance into ordinary entities ("Make local"): the instance and every instance copied
   // inside it take their own copy of each component they inherit and drop their IsA, and their
   // descendants drop their PrefabSource. Every entity keeps its identity.

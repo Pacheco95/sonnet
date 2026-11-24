@@ -536,6 +536,40 @@ core::Result<std::vector<flecs::entity>> loadScene(World &world, const json &sce
 
 namespace {
 
+void replaceStrings(json &node, const std::unordered_map<std::string, std::string> &strings) {
+  if (node.is_string()) {
+    if (const auto it = strings.find(node.get_ref<const std::string &>()); it != strings.end()) {
+      node = it->second;
+    }
+  } else if (node.is_array() || node.is_object()) {
+    for (json &child : node) {
+      replaceStrings(child, strings);
+    }
+  }
+}
+
+} // namespace
+
+void replaceIdentities(json &scene, const std::unordered_map<core::Uuid, core::Uuid> &identities) {
+  std::unordered_map<std::string, std::string> strings;
+  for (const auto &[old, fresh] : identities) {
+    strings.emplace(old.toString(), fresh.toString());
+  }
+  if (const auto entities = scene.find("entities"); entities != scene.end() && entities->is_array()) {
+    json kept = json::array();
+    for (json &entry : *entities) {
+      const auto uuid = entry.is_object() ? entry.find("uuid") : entry.end();
+      if (uuid == entry.end() || !uuid->is_string() || !strings.contains(uuid->get_ref<const std::string &>())) {
+        kept.push_back(std::move(entry));
+      }
+    }
+    *entities = std::move(kept);
+  }
+  replaceStrings(scene, strings);
+}
+
+namespace {
+
 void appendSceneText(std::string &out, const json &node, std::size_t indent) {
   const bool numbers = node.is_array() && !node.empty() &&
                        std::ranges::all_of(node, [](const json &element) { return element.is_number(); });

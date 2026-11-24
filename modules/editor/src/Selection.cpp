@@ -48,6 +48,19 @@ core::Uuid Selection::primary() const {
   return m_items.empty() ? core::Uuid{} : m_items.back();
 }
 
+void Selection::replace(const std::unordered_map<core::Uuid, core::Uuid> &identities) {
+  bool changed = false;
+  for (core::Uuid &item : m_items) {
+    if (const auto it = identities.find(item); it != identities.end()) {
+      item = it->second;
+      changed = true;
+    }
+  }
+  if (changed) {
+    ++m_revision;
+  }
+}
+
 void Selection::prune(const world::World &world) {
   if (std::erase_if(m_items, [&](const core::Uuid &uuid) { return !world.find(uuid).is_valid(); }) > 0) {
     ++m_revision;

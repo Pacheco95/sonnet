@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace sonnet::world {
@@ -37,6 +38,14 @@ constexpr int SceneVersion = 10;
 [[nodiscard]] nlohmann::json saveSubtree(const World &world, flecs::entity root);
 // Adds the file's entities to the world. Referenced prefabs must already be loaded.
 [[nodiscard]] core::Result<std::vector<flecs::entity>> loadScene(World &world, const nlohmann::json &scene);
+
+// Edits a scene document in place for entities that changed identity, as when an instance's added
+// subtree is promoted into its prefab and the instance's copies take derived identities
+// (ADR-0044): every entry whose `uuid` is a key of `identities` is dropped, and every string value
+// equal to a key, `parent`, `order` entries, `instanced` patches and any member that holds an
+// identity alike, becomes the key's value. Object keys are never rewritten. Running it again
+// changes nothing.
+void replaceIdentities(nlohmann::json &scene, const std::unordered_map<core::Uuid, core::Uuid> &identities);
 
 // A scene or prefab document as its file holds it: nlohmann's two-space layout, except that an
 // array of numbers, a vector, stays on one line (ADR-0029). Ends with a newline.

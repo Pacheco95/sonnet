@@ -50,6 +50,12 @@ public:
     m_applyChoices = std::move(choices);
     m_apply = std::move(apply);
   }
+  // Why an apply is not offered (Editor::applyRefusal): the button for a child added under an
+  // instance shows disabled, with the reason as its tooltip. Without it the button is only shown
+  // while it can be applied.
+  void setApplyRefusal(std::function<std::optional<std::string>(const ApplyRequest &)> refusal) {
+    m_applyRefusal = std::move(refusal);
+  }
   // "Apply all overrides" on an instance root (docs/editor.md, "Applying to a prefab"): `offered`
   // says whether the instance has a change that can be applied, and `apply` asks for the
   // confirmation. Without them the action is not offered.
@@ -184,6 +190,7 @@ private:
   std::string m_drawnComponent;
   std::function<std::vector<ApplyChoice>(const ApplyRequest &)> m_applyChoices;
   std::function<void(ApplyRequest)> m_apply;
+  std::function<std::optional<std::string>(const ApplyRequest &)> m_applyRefusal;
   std::function<bool(core::Uuid)> m_applyAllOffered;
   std::function<void(core::Uuid)> m_applyAll;
   std::optional<MaterialEdit> m_materialEdit;

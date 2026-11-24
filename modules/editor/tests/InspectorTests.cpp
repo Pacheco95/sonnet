@@ -1237,3 +1237,73 @@ TEST_CASE("an instance whose children are in an order of its own offers to apply
   CHECK(applied[0].prefab == cratePrefab);
   CHECK(!commands.canUndo());
 }
+
+TEST_CASE("a child added under an instance offers to apply to the prefab, disabled with the reason when refused",
+          "[editor][inspector][prefab][apply][added]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  world::World world;
+  const flecs::entity prefab = world.createEntity("Crate");
+  world.createEntity("A", prefab);
+  world.makePrefab(prefab);
+  const flecs::entity crate = world.instantiate(prefab, "Crate 1");
+  const flecs::entity antenna = world.createEntity("Antenna", crate);
+
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  const core::Uuid cratePrefab = world.uuidOf(prefab);
+  bool refused = false;
+  std::vector<editor::ApplyRequest> applied;
+  std::vector<editor::ApplyRequest> reasons;
+  panel.setApplyHandlers(
+      [&](const editor::ApplyRequest &request) {
+        return request.kind == editor::ApplyKind::AddedChild && !refused
+                   ? std::vector<editor::ApplyChoice>{{.prefab = cratePrefab, .name = "Crate"}}
+                   : std::vector<editor::ApplyChoice>{};
+      },
+      [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
+  panel.setApplyRefusal([&](const editor::ApplyRequest &request) -> std::optional<std::string> {
+    reasons.push_back(request);
+    return "it refers to Mast";
+  });
+  const InspectorDriver driver{panel, {}};
+  selection.select(world.uuidOf(antenna));
+  driver.frame();
+
+  const ImGuiID button = ImHashStr("Apply to prefab", 0, ImHashStr("added", 0, InspectorDriver::inspector()->ID));
+  bool found = false;
+  for (float x = 20.0f; x < 494.0f && !found; x += 8.0f) {
+    found = driver.hover(InspectorDriver::inspector(), button, x);
+  }
+  REQUIRE(found);
+  driver.click();
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0].kind == editor::ApplyKind::AddedChild);
+  CHECK(applied[0].entity == world.uuidOf(antenna));
+  CHECK(applied[0].prefab == cratePrefab);
+  CHECK(!commands.canUndo());
+  CHECK(reasons.empty()); // the reason is asked for only when nothing can be applied
+
+  // Refused: the button is disabled, so pressing it applies nothing, and the reason is asked for.
+  refused = true;
+  driver.frame();
+  CHECK(!reasons.empty());
+  CHECK(reasons.back().entity == world.uuidOf(antenna));
+  found = false;
+  for (float x = 20.0f; x < 494.0f && !found; x += 8.0f) {
+    found = driver.hover(InspectorDriver::inspector(), button, x);
+  }
+  driver.click();
+  CHECK(applied.size() == 1);
+  // The instance root and a part are not added children: no button, so the reason is not asked.
+  reasons.clear();
+  selection.select(world.uuidOf(crate));
+  driver.frame();
+  selection.select(world.uuidOf(world.findByPath(crate, "A")));
+  driver.frame();
+  CHECK(reasons.empty());
+}

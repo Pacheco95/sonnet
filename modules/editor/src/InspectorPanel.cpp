@@ -755,6 +755,33 @@ void InspectorPanel::drawEntity(flecs::entity entity) {
               std::format("Apply this order of the children to {}", orderTo.front().name));
     ImGui::PopID();
   }
+  // Apply to prefab for a child added under an instance, which moves it and its subtree into the
+  // prefab (ADR-0044): on the root of an added subtree, disabled with the reason when refused.
+  if (const flecs::entity parent = m_world.parentOf(entity);
+      m_apply && parent && !entity.has<world::PrefabSource>() &&
+      (parent.has<world::PrefabSource>() || m_world.isInstance(parent))) {
+    const ApplyRequest addedRequest{.entity = uuid, .component = {}, .kind = ApplyKind::AddedChild};
+    const std::vector<ApplyChoice> addedTo = applyChoices(addedRequest);
+    const std::optional<std::string> refusal =
+        addedTo.empty() && m_applyRefusal ? m_applyRefusal(addedRequest) : std::nullopt;
+    if (!addedTo.empty() || refusal) {
+      ui::mutedText("Added to %s", parent.get<world::Name>().value.c_str());
+      ImGui::SameLine();
+      ImGui::PushID("added");
+      if (!addedTo.empty()) {
+        drawApply("Apply to prefab", addedRequest, addedTo,
+                  std::format("Move this child and its subtree into {}", addedTo.front().name));
+      } else {
+        ImGui::BeginDisabled();
+        static_cast<void>(ui::rowButton("Apply to prefab"));
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+          ImGui::SetTooltip("%s", refusal->c_str());
+        }
+      }
+      ImGui::PopID();
+    }
+  }
   {
     const ScopedMono mono;
     ui::mutedText("%s", uuid.toString().c_str());

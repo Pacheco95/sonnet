@@ -14,7 +14,9 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -456,6 +458,138 @@ TEST_CASE("the context menu's apply name lists every prefab a nested part's name
   CHECK(applied[0].kind == editor::ApplyKind::Name);
   CHECK(applied[0].entity == world.uuidOf(bulb));
   CHECK(applied[0].prefab == roomPrefab);
+}
+
+// A child added under an instance moves into its prefab through "Apply to prefab" (ADR-0044): the
+// item runs the inspector's handlers, and a refused one is shown disabled with the reason.
+TEST_CASE("the context menu offers to apply an added child and shows a refused one disabled",
+          "[editor][hierarchy][prefab][apply][added]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const flecs::entity prefab = world.createEntity("Crate");
+  world.createEntity("A", prefab);
+  world.makePrefab(prefab);
+  const flecs::entity crate = world.instantiate(prefab, "Crate 1");
+  const flecs::entity antenna = world.createEntity("Antenna", crate);
+  const core::Uuid cratePrefab = world.uuidOf(prefab);
+  bool refused = false;
+  std::vector<editor::ApplyRequest> asked;
+  std::vector<editor::ApplyRequest> reasons;
+  std::vector<editor::ApplyRequest> applied;
+  panel.setApplyHandlers(
+      [&](const editor::ApplyRequest &request) {
+        asked.push_back(request);
+        return request.kind == editor::ApplyKind::AddedChild && !refused
+                   ? std::vector<editor::ApplyChoice>{{.prefab = cratePrefab, .name = "Crate"}}
+                   : std::vector<editor::ApplyChoice>{};
+      },
+      [&](editor::ApplyRequest request) { applied.push_back(std::move(request)); });
+  panel.setApplyRefusal([&](const editor::ApplyRequest &request) -> std::optional<std::string> {
+    reasons.push_back(request);
+    return request.entity == world.uuidOf(antenna) ? std::optional<std::string>{"it refers to Mast"} : std::nullopt;
+  });
+  panel.setOpenRecursive({}, true);
+  frame(panel);
+  frame(panel);
+
+  ImGuiIO &io = ImGui::GetIO();
+  const auto hover = [&](const ImGuiWindow *window, ImGuiID id) {
+    for (float y = window->Pos.y; y < window->Pos.y + window->Size.y; y += 2.0f) {
+      io.AddMousePosEvent(window->Pos.x + 40.0f, y);
+      frame(panel);
+      if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const auto click = [&](ImGuiMouseButton button) {
+    io.AddMouseButtonEvent(button, true);
+    frame(panel);
+    io.AddMouseButtonEvent(button, false);
+    frame(panel);
+  };
+  ImGuiWindow *hierarchy = ImGui::FindWindowByName("Hierarchy");
+  REQUIRE(hierarchy != nullptr);
+  const int cratePick = static_cast<int>(world::World::pickId(crate));
+  const int antennaPick = static_cast<int>(world::World::pickId(antenna));
+  const ImGuiID crateNode = ImHashStr("node", 0, ImHashData(&cratePick, sizeof(cratePick), hierarchy->ID));
+  const auto openMenu = [&](ImGuiID node) {
+    REQUIRE(hover(hierarchy, node));
+    click(ImGuiMouseButton_Right);
+    REQUIRE(!ImGui::GetCurrentContext()->OpenPopupStack.empty());
+    return ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  };
+  const ImGuiID antennaNode = ImHashStr("node", 0, ImHashData(&antennaPick, sizeof(antennaPick), crateNode));
+  ImGuiWindow *menu = openMenu(antennaNode);
+  REQUIRE(menu != nullptr);
+  REQUIRE(hover(menu, ImHashStr("Apply to prefab", 0, menu->ID)));
+  click(ImGuiMouseButton_Left);
+  REQUIRE(applied.size() == 1);
+  CHECK(applied[0].kind == editor::ApplyKind::AddedChild);
+  CHECK(applied[0].entity == world.uuidOf(antenna));
+  CHECK(applied[0].prefab == cratePrefab);
+  CHECK(!commands.canUndo()); // the confirmation pushes the command, not the menu
+
+  // Refused: the item is there, disabled, and the reason is asked for; clicking applies nothing.
+  refused = true;
+  reasons.clear();
+  menu = openMenu(antennaNode);
+  REQUIRE(menu != nullptr);
+  frame(panel);
+  CHECK(std::ranges::any_of(reasons, [&](const editor::ApplyRequest &request) {
+    return request.kind == editor::ApplyKind::AddedChild && request.entity == world.uuidOf(antenna);
+  }));
+  static_cast<void>(hover(menu, ImHashStr("Apply to prefab", 0, menu->ID)));
+  click(ImGuiMouseButton_Left);
+  CHECK(applied.size() == 1);
+}
+
+TEST_CASE("the context menu has no apply to prefab on an entity outside an instance",
+          "[editor][hierarchy][prefab][apply][added]") {
+  ImGuiContextGuard imgui;
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::HierarchyPanel panel(world, selection, commands, [] {});
+  const flecs::entity plain = world.createEntity("Plain");
+  std::vector<editor::ApplyRequest> reasons;
+  panel.setApplyHandlers([](const editor::ApplyRequest &) { return std::vector<editor::ApplyChoice>{}; },
+                         [](const editor::ApplyRequest &) {});
+  panel.setApplyRefusal([&](const editor::ApplyRequest &request) -> std::optional<std::string> {
+    reasons.push_back(request);
+    return std::nullopt;
+  });
+  frame(panel);
+  ImGuiIO &io = ImGui::GetIO();
+  const auto hover = [&](const ImGuiWindow *window, ImGuiID id) {
+    for (float y = window->Pos.y; y < window->Pos.y + window->Size.y; y += 2.0f) {
+      io.AddMousePosEvent(window->Pos.x + 40.0f, y);
+      frame(panel);
+      if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  ImGuiWindow *hierarchy = ImGui::FindWindowByName("Hierarchy");
+  REQUIRE(hierarchy != nullptr);
+  const int plainPick = static_cast<int>(world::World::pickId(plain));
+  REQUIRE(hover(hierarchy, ImHashStr("node", 0, ImHashData(&plainPick, sizeof(plainPick), hierarchy->ID))));
+  io.AddMouseButtonEvent(ImGuiMouseButton_Right, true);
+  frame(panel);
+  io.AddMouseButtonEvent(ImGuiMouseButton_Right, false);
+  frame(panel);
+  REQUIRE(!ImGui::GetCurrentContext()->OpenPopupStack.empty());
+  ImGuiWindow *menu = ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  REQUIRE(menu != nullptr);
+  CHECK(!hover(menu, ImHashStr("Apply to prefab", 0, menu->ID)));
+  CHECK(std::ranges::any_of(reasons, [&](const editor::ApplyRequest &request) {
+    return request.entity == world.uuidOf(plain) && request.kind == editor::ApplyKind::AddedChild;
+  }));
 }
 
 TEST_CASE("a row moves among its siblings, an instance's own children included", "[editor][hierarchy]") {

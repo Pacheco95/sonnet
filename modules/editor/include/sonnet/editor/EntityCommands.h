@@ -83,11 +83,13 @@ struct FreshIdentities {
                                                                    core::Uuid prefab);
 // What of an entity "Apply to prefab" applies: one of its components, or its name or the order of
 // its children, which are structural data rather than registered components (World::nameTargets,
-// World::orderTargets).
+// World::orderTargets), or the entity itself with its subtree, a child added under an instance
+// (World::addedChildTargets, ADR-0044).
 enum class ApplyKind : std::uint8_t {
   Component,
   Name,
   ChildOrder,
+  AddedChild,
 };
 // What "Apply to prefab" applies of an instance's change (docs/editor.md, "Applying to a
 // prefab"): one component of `entity`, the member at `member` (a pointer into the value
@@ -95,8 +97,9 @@ enum class ApplyKind : std::uint8_t {
 // not (one it removed). A script property names its slot and property, with `member` pointing at
 // the property in the slot. `prefab` names the root of the prefab to write to, one of
 // Editor::applyChoices; without it the apply goes where World::applyTarget picks. With `kind`
-// Name it is the entity's name instead, and with ChildOrder the order of its children; `component`
-// is then empty.
+// Name it is the entity's name instead, with ChildOrder the order of its children, and with
+// AddedChild the entity is the root of an added subtree that moves into the prefab; `component` is
+// then empty.
 struct ApplyRequest {
   core::Uuid entity;
   std::string component;
@@ -122,6 +125,9 @@ struct AppliedComponent {
   core::Uuid entity;
   std::string component;
 };
+// What an apply that promotes added subtrees does to identities (ADR-0044): each identity of the
+// subtree in the scene and the one its copy takes under the instance once the prefab holds it.
+using IdentityMap = std::unordered_map<core::Uuid, core::Uuid>;
 // "Apply to prefab", and "Apply all overrides", as one undo step: apply saves the scene as it is,
 // writes every file's `after` and runs `rebuild` with null once, which reloads every prefab and the
 // scene's instances from the files, the scene saved against the prefabs as they were. An instance
@@ -129,9 +135,19 @@ struct AppliedComponent {
 // every `before` and runs `rebuild` with the scene saved by apply, so every instance, the applying
 // one and any other whose override became equal to the prefab, is as it was. Not applied again by
 // play's Keep: apply is not offered while playing.
-[[nodiscard]] std::unique_ptr<ICommand> applyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files,
-                                                             std::vector<AppliedComponent> applied,
-                                                             std::function<void(const nlohmann::json *scene)> rebuild);
+// With `promoted` (the added subtrees the files take, ADR-0044) apply edits the saved scene first
+// (world::replaceIdentities), so the old local entries are gone and what named them names the
+// copies, and `rebuild` loads that scene; it also gets the map, which the editor uses to carry the
+// selection forward, and the inverse when reverting. Every copy must exist after the rebuild: if
+// one does not, apply reverts itself, leaving the files and the scene as they were, and
+// applyFailure says why.
+[[nodiscard]] std::unique_ptr<ICommand>
+applyToPrefabCommand(std::string description, std::vector<PrefabFileEdit> files, std::vector<AppliedComponent> applied,
+                     std::function<void(const nlohmann::json *scene, const IdentityMap &moved)> rebuild,
+                     IdentityMap promoted = {});
+// Why the last apply of `command`, one of applyToPrefabCommand's, reverted itself; empty when it
+// did not or `command` is another kind.
+[[nodiscard]] std::string applyFailure(const ICommand &command);
 // Several commands as one undo step, applied in order and reverted in reverse.
 [[nodiscard]] std::unique_ptr<ICommand> compositeCommand(std::string description,
                                                          std::vector<std::unique_ptr<ICommand>> commands);

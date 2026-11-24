@@ -440,6 +440,7 @@ void HierarchyPanel::drawContextMenu(flecs::entity entity) {
   }
   drawApplyItem("Apply name", ApplyRequest{.entity = uuid, .component = {}, .kind = ApplyKind::Name});
   drawApplyItem("Apply order", ApplyRequest{.entity = uuid, .component = {}, .kind = ApplyKind::ChildOrder});
+  drawApplyItem("Apply to prefab", ApplyRequest{.entity = uuid, .component = {}, .kind = ApplyKind::AddedChild});
   if (m_saveAsPrefab && !part && ImGui::MenuItem("Save as prefab")) {
     m_afterTree = [this, uuid] { m_saveAsPrefab(uuid); };
   }
@@ -463,6 +464,17 @@ void HierarchyPanel::drawApplyItem(const char *label, const ApplyRequest &reques
     chosen.prefab = choice.prefab;
     m_afterTree = [this, chosen = std::move(chosen)] { m_apply(chosen); };
   };
+  if (choices.empty() && request.kind == ApplyKind::AddedChild && m_applyRefusal) {
+    // A child added under an instance that cannot move into its prefab says why, where the other
+    // applies are simply not offered.
+    if (const std::optional<std::string> reason = m_applyRefusal(request)) {
+      ImGui::MenuItem(label, nullptr, false, false);
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("%s", reason->c_str());
+      }
+    }
+    return;
+  }
   if (choices.size() == 1) {
     if (ImGui::MenuItem(label)) {
       applyTo(choices.front());

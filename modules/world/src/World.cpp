@@ -1210,10 +1210,7 @@ std::vector<flecs::entity> World::childOrderIn(flecs::entity entity, flecs::enti
     if (!saved(child)) {
       continue;
     }
-    flecs::entity counterpart = child;
-    while (counterpart && counterpart.parent() != target) {
-      counterpart = counterpart.has<PrefabSource>() ? sourceOf(counterpart) : flecs::entity{};
-    }
+    const flecs::entity counterpart = counterpartIn(child, target);
     if (!counterpart || std::ranges::contains(order, counterpart)) {
       return {};
     }
@@ -1223,6 +1220,43 @@ std::vector<flecs::entity> World::childOrderIn(flecs::entity entity, flecs::enti
     return {};
   }
   return order;
+}
+
+flecs::entity World::counterpartIn(flecs::entity entity, flecs::entity level) const {
+  while (entity && entity.parent() != level) {
+    entity = entity.has<PrefabSource>() ? sourceOf(entity) : flecs::entity{};
+  }
+  return entity;
+}
+
+std::vector<ApplyTarget> World::addedChildTargets(flecs::entity anchor) const {
+  if (!anchor || (!anchor.has<PrefabSource>() && !isInstance(anchor))) {
+    return {};
+  }
+  // Every level has a counterpart of the anchor, so the walk never stops early.
+  return walkTargets(anchor, [](flecs::entity, flecs::entity) { return true; });
+}
+
+core::Uuid World::copiedIdentity(flecs::entity anchor, flecs::entity target, const core::Uuid &identity) const {
+  // The instance each level's copy belongs to: the anchor itself for an instance root, else the
+  // instance its identity derives from.
+  std::vector<core::Uuid> instances;
+  flecs::entity level = anchor;
+  for (; level && level != target; level = nextLevel(level)) {
+    const flecs::entity instance = level.has<PrefabSource>() ? instanceOf(level) : level;
+    if (!instance) {
+      return {};
+    }
+    instances.push_back(uuidOf(instance));
+  }
+  if (level != target) {
+    return {};
+  }
+  core::Uuid result = identity;
+  for (auto it = instances.rbegin(); it != instances.rend(); ++it) {
+    result = instancedIdentity(*it, result);
+  }
+  return result;
 }
 
 flecs::entity World::nextLevel(flecs::entity level) const {

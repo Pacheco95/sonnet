@@ -59,6 +59,12 @@ constexpr std::string_view OrderWarning =
     "Scripts find a child by name, the first of that name in sibling order: reordering children that share a name "
     "can change which one a path such as entity:child(\"Wheel\") finds.";
 
+// What they say about an added child that has the name of a child the prefab has already (names
+// are never keys, but a script path finds the first child of a name).
+constexpr std::string_view SameNameWarning =
+    "The prefab already has a child of this name. Scripts find a child by name, the first of that name in sibling "
+    "order, so a path such as entity:child(\"Wheel\") may find another one.";
+
 // What an apply of `request` applies, for the dialogs and the history.
 std::string appliedWhat(const ApplyRequest &request, const std::string &entity) {
   switch (request.kind) {
@@ -66,6 +72,8 @@ std::string appliedWhat(const ApplyRequest &request, const std::string &entity) 
     return std::format("the name \"{}\"", entity);
   case ApplyKind::ChildOrder:
     return std::format("the order of {}'s children", entity);
+  case ApplyKind::AddedChild:
+    return std::format("the added child \"{}\"", entity);
   case ApplyKind::Component:
     break;
   }
@@ -76,6 +84,46 @@ std::string appliedWhat(const ApplyRequest &request, const std::string &entity) 
 std::string nameOf(flecs::entity entity) {
   const world::Name *name = entity ? entity.try_get<world::Name>() : nullptr;
   return name != nullptr ? name->value : std::string{};
+}
+
+// How many entities an added subtree holds, as its author made them: an instance counts as one,
+// without the parts it brought.
+struct SubtreeSize {
+  std::size_t entities = 0;
+  std::size_t instances = 0;
+};
+
+SubtreeSize subtreeSize(const world::World &world, flecs::entity root) {
+  SubtreeSize size{.entities = 1, .instances = world.isInstance(root) ? std::size_t{1} : std::size_t{0}};
+  for (const flecs::entity child : world.children(root)) {
+    if (child.has<world::PrefabSource>() || !child.has<world::Identity>() || child.has<world::EditorOnly>()) {
+      continue;
+    }
+    const SubtreeSize inner = subtreeSize(world, child);
+    size.entities += inner.entities;
+    size.instances += inner.instances;
+  }
+  return size;
+}
+
+// An entity a scene file holds: with an identity, not a prefab's and not the editor's.
+bool isSavedChild(flecs::entity entity) {
+  return entity.has<world::Identity>() && !entity.has(flecs::Prefab) && !entity.has<world::EditorOnly>();
+}
+
+// What a child can be added under: an instance root, or a part of an instance.
+bool isInstanceNode(const world::World &world, flecs::entity entity) {
+  return entity && (entity.has<world::PrefabSource>() || world.isInstance(entity));
+}
+
+// The instance root or part that `entity` was added under, which is the root of an added subtree
+// (ADR-0044); null for any other entity.
+flecs::entity addedChildAnchor(const world::World &world, flecs::entity entity) {
+  if (!entity || entity.has<world::PrefabSource>() || !isSavedChild(entity)) {
+    return {};
+  }
+  const flecs::entity parent = entity.parent();
+  return isInstanceNode(world, parent) ? parent : flecs::entity{};
 }
 
 // Asking for the preferences directory creates it, which an editor that uses no user file leaves alone.
@@ -156,6 +204,9 @@ Editor::Editor(platform::Platform &platform, platform::IWindow &window, rhi::IDe
   const auto apply = [this](ApplyRequest request) { requestApplyToPrefab(std::move(request)); };
   m_inspectorPanel.setApplyHandlers(choices, apply);
   m_hierarchyPanel.setApplyHandlers(choices, apply);
+  const auto refusal = [this](const ApplyRequest &request) { return applyRefusal(request); };
+  m_inspectorPanel.setApplyRefusal(refusal);
+  m_hierarchyPanel.setApplyRefusal(refusal);
   const auto applyAllOffered = [this](core::Uuid instance) { return this->applyAllOffered(instance); };
   const auto applyAll = [this](core::Uuid instance) { requestApplyAllOverrides(instance); };
   m_inspectorPanel.setApplyAllHandlers(applyAllOffered, applyAll);
@@ -2395,7 +2446,7 @@ void Editor::refreshModelPrefabs() {
   rebuildPrefabs();
 }
 
-void Editor::rebuildPrefabs(const nlohmann::json *saved) {
+void Editor::rebuildPrefabs(const nlohmann::json *saved, const IdentityMap *moved) {
   m_prefabsStale = false;
   ++m_prefabRebuilds;
   // The round trip a tab switch makes, with the prefabs rebuilt in between: instances copy their
@@ -2417,6 +2468,9 @@ void Editor::rebuildPrefabs(const nlohmann::json *saved) {
   m_cutHistory = true;
   if (const auto restored = world::loadScene(m_world, scene); !restored) {
     SONNET_LOG_ERROR("refreshing the scene after a prefab change: {}", restored.error().toString());
+  }
+  if (moved != nullptr) {
+    m_selection.replace(*moved);
   }
   m_selection.prune(m_world);
 }
@@ -2455,6 +2509,11 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
     if (m_world.childOrderIn(entity, target.entity) == m_world.children(target.entity)) {
       return std::nullopt;
     }
+  } else if (request.kind == ApplyKind::AddedChild) {
+    // The subtree is new to the target, so nothing to compare: what stops it is a reference or a cycle.
+    if (addedChildRefusal(entity, target)) {
+      return std::nullopt;
+    }
   } else if (!entity.has(info->id)) {
     // A removal: only of a component the target holds itself, not one it inherits.
     const flecs::entity base =
@@ -2474,12 +2533,200 @@ std::optional<Editor::ResolvedApply> Editor::resolveApply(const ApplyRequest &re
   return ResolvedApply{.target = target, .info = info, .file = file->path};
 }
 
+namespace {
+
+// The entities of a subtree as a scene file holds them (a prefab's, with `prefab`), the instance
+// parts of a nested instance included, the root first.
+void collectSubtree(const world::World &world, flecs::entity node, std::vector<flecs::entity> &out,
+                    bool prefab = false) {
+  out.push_back(node);
+  for (const flecs::entity child : world.children(node)) {
+    if (prefab ? child.has<world::Identity>() : isSavedChild(child)) {
+      collectSubtree(world, child, out, prefab);
+    }
+  }
+}
+
+// The first string in `value` that is the identity of an entity of the world, with where it is:
+// asset identities never name an entity, and a nil one is a reference to nothing.
+std::optional<std::pair<std::string, flecs::entity>>
+findReference(const world::World &world, const nlohmann::json &value, const nlohmann::json::json_pointer &at) {
+  if (value.is_string()) {
+    const auto uuid = core::Uuid::parse(value.get_ref<const std::string &>());
+    if (uuid && !uuid->isNil()) {
+      if (const flecs::entity target = world.find(*uuid)) {
+        return std::pair{at.to_string(), target};
+      }
+    }
+  } else if (value.is_array()) {
+    for (std::size_t i = 0; i < value.size(); ++i) {
+      if (auto found = findReference(world, value[i], at / i)) {
+        return found;
+      }
+    }
+  } else if (value.is_object()) {
+    for (const auto &[key, member] : value.items()) {
+      if (auto found = findReference(world, member, at / key)) {
+        return found;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+// Whether the prefab `prefab` holds, at any depth, an instance of `target`.
+bool placesPrefab(const world::World &world, flecs::entity prefab, flecs::entity target,
+                  std::set<flecs::entity_t> &seen) {
+  std::vector<flecs::entity> nodes;
+  collectSubtree(world, prefab, nodes, true);
+  for (const flecs::entity node : nodes) {
+    if (node.has<world::PrefabSource>() || !world.isInstance(node)) {
+      continue;
+    }
+    const flecs::entity inner = world.prefabOf(node);
+    if (inner == target || (seen.insert(inner.id()).second && placesPrefab(world, inner, target, seen))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+} // namespace
+
+std::optional<std::string> Editor::referenceRefusal(flecs::entity root) const {
+  std::vector<flecs::entity> subtree;
+  collectSubtree(m_world, root, subtree);
+  for (const flecs::entity entity : subtree) {
+    // What the entity authored: a part of an instance and an instance root hold the prefab's own
+    // values too, which are the prefab's references, not the subtree's.
+    const flecs::entity base = entity.has<world::PrefabSource>() ? m_world.sourceOf(entity) : m_world.prefabOf(entity);
+    for (const world::ComponentInfo &info : m_world.components()) {
+      if (!entity.has(info.id) || info.tag || (m_world.isInstance(entity) && !entity.owns(info.id))) {
+        continue;
+      }
+      nlohmann::json value = m_world.componentToJson(entity, info.id);
+      if (base && base.has(info.id)) {
+        value = world::componentPatch(info, value, m_world.componentToJson(base, info.id));
+      }
+      const auto found = findReference(m_world, value, nlohmann::json::json_pointer{});
+      if (!found) {
+        continue;
+      }
+      const bool inside = std::ranges::find(subtree, found->second) != subtree.end();
+      return std::format("{}{} of \"{}\" refers to the entity \"{}\", {} the subtree, which no other instance could "
+                         "follow",
+                         info.name, found->first, nameOf(entity), nameOf(found->second), inside ? "inside" : "outside");
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string> Editor::cycleRefusal(flecs::entity root, flecs::entity prefab) const {
+  std::vector<flecs::entity> subtree;
+  collectSubtree(m_world, root, subtree);
+  for (const flecs::entity entity : subtree) {
+    if (entity.has<world::PrefabSource>() || !m_world.isInstance(entity)) {
+      continue;
+    }
+    const flecs::entity inner = m_world.prefabOf(entity);
+    std::set<flecs::entity_t> seen{inner.id()};
+    if (inner == prefab) {
+      return std::format("\"{}\" is an instance of \"{}\", the prefab it would go into", nameOf(entity),
+                         nameOf(prefab));
+    }
+    if (placesPrefab(m_world, inner, prefab, seen)) {
+      return std::format("\"{}\" is an instance of \"{}\", which places \"{}\", the prefab it would go into",
+                         nameOf(entity), nameOf(inner), nameOf(prefab));
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string> Editor::addedChildRefusal(flecs::entity entity, const world::ApplyTarget &target) const {
+  AddedChecks &cache = m_addedChecks;
+  if (cache.revision != m_commands.revision() || cache.rebuilds != m_prefabRebuilds || cache.tab != m_activeTab) {
+    cache = {.revision = m_commands.revision(), .rebuilds = m_prefabRebuilds, .tab = m_activeTab, .answers = {}};
+  }
+  const std::pair key{m_world.uuidOf(entity), m_world.uuidOf(target.root)};
+  if (const auto found = cache.answers.find(key); found != cache.answers.end()) {
+    return found->second;
+  }
+  std::optional<std::string> reason = referenceRefusal(entity);
+  if (!reason) {
+    reason = cycleRefusal(entity, target.root);
+  }
+  cache.answers.emplace(key, reason);
+  return reason;
+}
+
+std::optional<std::string> Editor::applyRefusal(const ApplyRequest &request) const {
+  if (isPlaying() || !m_project || m_assets.bundle() != nullptr) {
+    return std::nullopt;
+  }
+  const flecs::entity entity = m_world.find(request.entity);
+  if (!entity) {
+    return std::nullopt;
+  }
+  if (request.kind == ApplyKind::AddedChild) {
+    if (entity.has<world::PrefabSource>() || !isSavedChild(entity)) {
+      return std::nullopt;
+    }
+    const flecs::entity anchor = addedChildAnchor(m_world, entity);
+    if (!anchor) {
+      // Inside an added subtree: only its root moves, with all of it.
+      for (flecs::entity ancestor = entity.parent(); ancestor; ancestor = ancestor.parent()) {
+        if (addedChildAnchor(m_world, ancestor)) {
+          return std::format("it is inside the added child \"{}\", which moves into a prefab with its whole subtree",
+                             nameOf(ancestor));
+        }
+      }
+      return std::nullopt;
+    }
+    const std::vector<world::ApplyTarget> targets = m_world.addedChildTargets(anchor);
+    if (targets.empty()) {
+      return "no prefab along the way has a file";
+    }
+    const auto chosen = request.prefab ? std::ranges::find_if(targets,
+                                                              [&](const world::ApplyTarget &target) {
+                                                                return m_world.uuidOf(target.root) == *request.prefab;
+                                                              })
+                                       : targets.begin();
+    if (chosen == targets.end()) {
+      return "that prefab does not hold what it is added to";
+    }
+    return addedChildRefusal(entity, *chosen);
+  }
+  if (resolveApply(request)) {
+    return std::nullopt;
+  }
+  const std::vector<world::ApplyTarget> targets = applyTargetsOf(entity, request);
+  const world::ComponentInfo *info =
+      request.kind == ApplyKind::Component ? m_world.findComponent(request.component) : nullptr;
+  const bool added =
+      request.kind == ApplyKind::ChildOrder && std::ranges::any_of(m_world.children(entity), [](flecs::entity child) {
+        return isSavedChild(child) && !child.has<world::PrefabSource>();
+      });
+  if (added) {
+    return "it has a child the prefab lacks";
+  }
+  if (targets.empty() || !targets.front().root.has<world::PrefabFile>()) {
+    return "no prefab along the way has a file";
+  }
+  if (info != nullptr && !entity.has(info->id)) {
+    return "removes a component the prefab inherits";
+  }
+  return "the prefab cannot take it";
+}
+
 std::vector<world::ApplyTarget> Editor::applyTargetsOf(flecs::entity entity, const ApplyRequest &request) const {
   if (request.kind == ApplyKind::Name) {
     return m_world.nameTargets(entity);
   }
   if (request.kind == ApplyKind::ChildOrder) {
     return m_world.orderTargets(entity);
+  }
+  if (request.kind == ApplyKind::AddedChild) {
+    return m_world.addedChildTargets(addedChildAnchor(m_world, entity));
   }
   return m_world.applyTargets(entity, *m_world.findComponent(request.component), request.member);
 }
@@ -2572,7 +2819,8 @@ core::Result<void> Editor::applyToPrefab(const ApplyRequest &request) {
   return {};
 }
 
-std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyRequest> requests) {
+core::Result<std::string> Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyRequest> requests,
+                                                    std::span<const Promotion> promotions) {
   const auto valueOf = [&](flecs::entity holder, const world::ComponentInfo &info) -> std::optional<nlohmann::json> {
     if (!holder.has(info.id)) {
       return std::nullopt;
@@ -2606,7 +2854,8 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
       }
       continue;
     }
-    if (request->kind == ApplyKind::ChildOrder) {
+    if (request->kind == ApplyKind::ChildOrder || request->kind == ApplyKind::AddedChild) {
+      // An added child takes its place among the target's children, which renumbers them.
       if (std::ranges::none_of(orders, [&](const auto &order) { return order.first == target; })) {
         orders.emplace_back(target, m_world.children(target));
       }
@@ -2634,6 +2883,9 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
       }
       continue;
     }
+    if (request->kind == ApplyKind::AddedChild) {
+      continue; // below, in the order the children have under the instance
+    }
     const world::ComponentInfo &info = *apply.info;
     const std::optional<nlohmann::json> value = valueOf(entity, info);
     const std::optional<nlohmann::json> targetValue = valueOf(target, info);
@@ -2651,7 +2903,67 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
       m_world.componentFromJson(target, info.id, *value);
     }
   }
-  std::string after = world::sceneText(world::savePrefab(m_world, root));
+  // The added subtrees go under their targets as temporary prefab entities, with the identities
+  // the prefab gives them, in the order the children have under the instance so that those promoted
+  // together keep it. Each goes after the counterpart of the nearest child before it that has one.
+  std::vector<const std::pair<const ApplyRequest *, ResolvedApply> *> added;
+  for (const auto &item : resolved) {
+    if (item.first->kind == ApplyKind::AddedChild) {
+      added.push_back(&item);
+    }
+  }
+  std::ranges::stable_sort(added, {},
+                           [&](const auto *item) { return m_world.siblingIndex(m_world.find(item->first->entity)); });
+  std::vector<flecs::entity> temporaries;
+  std::map<flecs::entity_t, flecs::entity> placed; // the root of a subtree in the scene, its temporary
+  std::string failure;
+  for (const auto *item : added) {
+    const flecs::entity entity = m_world.find(item->first->entity);
+    const flecs::entity target = item->second.target.entity;
+    const auto promotion = std::ranges::find(promotions, item->first->entity, &Promotion::entity);
+    if (promotion == promotions.end()) {
+      failure = std::format("{} has no identities for the prefab", item->first->entity.toString());
+      break;
+    }
+    const auto loaded = world::loadScene(m_world, promotion->document);
+    if (!loaded || loaded->empty()) {
+      failure = loaded ? "the subtree has no entities" : loaded.error().message;
+      break;
+    }
+    const flecs::entity temporary = loaded->front();
+    temporaries.push_back(temporary);
+    temporary.child_of(target);
+    m_world.makePrefab(temporary);
+    flecs::entity previous;
+    for (const flecs::entity sibling : m_world.children(entity.parent())) {
+      if (sibling == entity) {
+        break;
+      }
+      if (!isSavedChild(sibling)) {
+        continue;
+      }
+      const auto early = placed.find(sibling.id());
+      const flecs::entity counterpart = early != placed.end() && early->second.parent() == target
+                                            ? early->second
+                                            : m_world.counterpartIn(sibling, target);
+      previous = counterpart ? counterpart : previous;
+    }
+    std::vector<flecs::entity> own = m_world.children(target);
+    std::erase(own, temporary);
+    const auto at = previous ? std::ranges::find(own, previous) : own.end();
+    own.insert(at == own.end() ? own.begin() : std::next(at), temporary);
+    for (const flecs::entity child : own) {
+      m_world.assignOrder(child);
+    }
+    placed.emplace(entity.id(), temporary);
+  }
+  std::string after;
+  if (failure.empty()) {
+    after = world::sceneText(world::savePrefab(m_world, root));
+  }
+  for (const flecs::entity temporary : temporaries) {
+    m_world.destroyEntity(temporary);
+  }
   for (const Original &original : originals) {
     if (!original.value || !original.owned) {
       original.entity.remove(original.info->id); // an inherited value shows through again
@@ -2667,12 +2979,65 @@ std::string Editor::appliedPrefabText(flecs::entity root, std::span<const ApplyR
       m_world.assignOrder(child);
     }
   }
+  if (!failure.empty()) {
+    return std::unexpected(core::Error{std::move(failure), core::ErrorCategory::Unknown});
+  }
   return after;
+}
+
+core::Result<void> Editor::checkPrefabDocuments(const std::vector<PrefabFileEdit> &edits) const {
+  std::vector<world::PrefabDocument> documents;
+  for (const flecs::entity prefab : m_world.prefabs()) {
+    const auto *file = prefab.try_get<world::PrefabFile>();
+    const auto edit = file != nullptr ? std::ranges::find(edits, file->path, &PrefabFileEdit::file) : edits.end();
+    nlohmann::json document =
+        edit != edits.end() ? nlohmann::json::parse(edit->after, nullptr, false) : world::savePrefab(m_world, prefab);
+    if (document.is_discarded() || !document.contains("entities") || !document["entities"].is_array()) {
+      return std::unexpected(
+          core::Error{std::format("{} would not be a scene document", nameOf(prefab)), core::ErrorCategory::Unknown});
+    }
+    // The structure is what the loader can refuse; the components belong to modules this world lacks.
+    for (nlohmann::json &entry : document["entities"]) {
+      entry["components"] = nlohmann::json::object();
+    }
+    documents.push_back({.source = file != nullptr ? file->path.string() : nameOf(prefab),
+                         .document = std::move(document),
+                         .file = {},
+                         .time = {}});
+  }
+  world::World scratch;
+  const std::vector<core::Error> refused = world::loadPrefabs(scratch, std::move(documents));
+  if (!refused.empty()) {
+    return std::unexpected(
+        core::Error{std::format("a prefab would not load: {}", refused.front().message), core::ErrorCategory::Unknown});
+  }
+  return {};
 }
 
 core::Result<void> Editor::pushApply(std::string description, const std::vector<ApplyAllPlan::File> &files) {
   std::vector<PrefabFileEdit> edits;
   std::vector<AppliedComponent> applied;
+  // The identities of every added subtree are decided here, once, since the files hold them and
+  // the command remaps the scene by them.
+  std::vector<Promotion> promotions;
+  IdentityMap promoted;
+  for (const ApplyAllPlan::File &file : files) {
+    for (const ApplyRequest &request : file.changes) {
+      const auto resolved = request.kind == ApplyKind::AddedChild ? resolveApply(request) : std::nullopt;
+      if (!resolved) {
+        continue;
+      }
+      const flecs::entity entity = m_world.find(request.entity);
+      FreshIdentities fresh = withFreshIdentities(m_world, world::saveSubtree(m_world, entity), {});
+      Promotion promotion{.entity = request.entity, .document = std::move(fresh.document), .copies = {}};
+      for (const auto &[old, identity] : fresh.identities) {
+        const core::Uuid copy = m_world.copiedIdentity(entity.parent(), resolved->target.entity, identity);
+        promotion.copies.emplace(old, copy);
+        promoted.emplace(old, copy);
+      }
+      promotions.push_back(std::move(promotion));
+    }
+  }
   for (const ApplyAllPlan::File &file : files) {
     const auto first = file.changes.empty() ? std::nullopt : resolveApply(file.changes.front());
     if (!first) {
@@ -2685,8 +3050,11 @@ core::Result<void> Editor::pushApply(std::string description, const std::vector<
     std::string text(before->size(), '\0');
     std::ranges::transform(*before, text.begin(), [](std::byte b) { return static_cast<char>(b); });
     // Each file is built against the prefabs as they are, not as another file's changes leave them.
-    edits.push_back(
-        {.file = file.path, .before = std::move(text), .after = appliedPrefabText(first->target.root, file.changes)});
+    auto after = appliedPrefabText(first->target.root, file.changes, promotions);
+    if (!after) {
+      return std::unexpected(after.error());
+    }
+    edits.push_back({.file = file.path, .before = std::move(text), .after = std::move(*after)});
     for (const ApplyRequest &request : file.changes) {
       if (request.kind == ApplyKind::Component && std::ranges::none_of(applied, [&](const AppliedComponent &component) {
             return component.entity == request.entity && component.component == request.component;
@@ -2698,9 +3066,22 @@ core::Result<void> Editor::pushApply(std::string description, const std::vector<
   if (edits.empty()) {
     return std::unexpected(core::Error{"nothing to apply to a prefab", core::ErrorCategory::Unknown});
   }
-  m_commands.push(applyToPrefabCommand(std::move(description), std::move(edits), std::move(applied),
-                                       [this](const nlohmann::json *scene) { rebuildPrefabs(scene); }),
-                  m_world);
+  if (!promoted.empty()) {
+    // A prefab the loader would refuse leaves the scene without the subtree it no longer holds.
+    if (auto checked = checkPrefabDocuments(edits); !checked) {
+      return checked;
+    }
+  }
+  std::unique_ptr<ICommand> command = applyToPrefabCommand(
+      std::move(description), std::move(edits), std::move(applied),
+      [this](const nlohmann::json *scene, const IdentityMap &moved) { rebuildPrefabs(scene, &moved); },
+      std::move(promoted));
+  // Applied here and recorded when it held: one that reverted itself leaves no step to undo.
+  command->apply(m_world);
+  if (std::string failure = applyFailure(*command); !failure.empty()) {
+    return std::unexpected(core::Error{std::move(failure), core::ErrorCategory::Unknown});
+  }
+  m_commands.record(std::move(command));
   return {};
 }
 
@@ -2719,10 +3100,6 @@ void patchLeaves(const nlohmann::json &patch, const nlohmann::json::json_pointer
       leaves.push_back(at / key);
     }
   }
-}
-
-bool isSavedChild(flecs::entity entity) {
-  return entity.has<world::Identity>() && !entity.has(flecs::Prefab) && !entity.has<world::EditorOnly>();
 }
 
 } // namespace
@@ -2760,6 +3137,9 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
     if (request.kind == ApplyKind::ChildOrder) {
       return std::string{"the order of its children"};
     }
+    if (request.kind == ApplyKind::AddedChild) {
+      return std::format("the added child {}", nameOf(m_world.find(request.entity)));
+    }
     return request.slot ? std::format("{} property {}", request.component, request.property)
                         : std::format("{}{}", request.component, request.member.to_string());
   };
@@ -2779,23 +3159,10 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
       file->changes.push_back(request);
       return;
     }
+    // The reason is the one the single apply gives: both go through applyRefusal.
     keep(entity, [&] {
-      const std::vector<world::ApplyTarget> targets = applyTargetsOf(entity, request);
-      const world::ComponentInfo *info =
-          request.kind == ApplyKind::Component ? m_world.findComponent(request.component) : nullptr;
-      const bool added = request.kind == ApplyKind::ChildOrder &&
-                         std::ranges::any_of(m_world.children(entity), [](flecs::entity child) {
-                           return isSavedChild(child) && !child.has<world::PrefabSource>();
-                         });
-      std::string reason = "the prefab cannot take it";
-      if (added) {
-        reason = "it has a child the prefab lacks";
-      } else if (targets.empty() || !targets.front().root.has<world::PrefabFile>()) {
-        reason = "no prefab along the way has a file";
-      } else if (info != nullptr && !entity.has(info->id)) {
-        reason = "removes a component the prefab inherits";
-      }
-      return std::format("{} ({})", describe(request), reason);
+      return std::format("{} ({})", describe(request),
+                         applyRefusal(request).value_or(std::string{"the prefab cannot take it"}));
     });
   };
   std::function<void(flecs::entity, flecs::entity)> visit;
@@ -2882,7 +3249,8 @@ bool Editor::walkApplyAll(core::Uuid instance, ApplyAllPlan *plan) const {
         return;
       }
       if (!child.has<world::PrefabSource>()) {
-        keep(entity, [&] { return std::format("the added child {}", nameOf(child)); });
+        // The subtree moves whole, so what is under it is not visited.
+        add(entity, {.entity = m_world.uuidOf(child), .component = {}, .kind = ApplyKind::AddedChild});
       } else if (const flecs::entity childSource = m_world.sourceOf(child)) {
         visit(child, childSource);
       }
@@ -3174,7 +3542,22 @@ void Editor::drawApplyModal() {
     return path.lexically_relative(m_project->root).generic_string();
   };
   ImGui::TextWrapped("Apply %s to %s? This writes %s.", what.c_str(), target.c_str(), relative(resolved->file).c_str());
-  if (reorder) {
+  if (request.kind == ApplyKind::AddedChild) {
+    const SubtreeSize size = subtreeSize(m_world, entity);
+    const std::string counts =
+        std::format("{} {}{}", size.entities, size.entities == 1 ? "entity" : "entities",
+                    size.instances == 0 ? std::string{} : std::format(", {} of them prefab instances", size.instances));
+    ImGui::TextWrapped("\"%s\" moves into the prefab with its subtree (%s), under \"%s\". Every instance of the "
+                       "prefab gets the child. The entities take new identities, and this instance's copies derive "
+                       "theirs from the instance's.",
+                       nameOf(entity).c_str(), counts.c_str(), nameOf(resolved->target.entity).c_str());
+    for (const flecs::entity sibling : m_world.children(resolved->target.entity)) {
+      if (nameOf(sibling) == nameOf(entity)) {
+        ui::statusText(ui::Status::Warning, SameNameWarning);
+        break;
+      }
+    }
+  } else if (reorder) {
     ImGui::TextWrapped("The children of \"%s\" are reordered, nothing else. Every instance that keeps the prefab's "
                        "order takes the new one; one that orders them itself keeps its order.",
                        nameOf(resolved->target.entity).c_str());
@@ -3250,6 +3633,29 @@ void Editor::drawApplyAllModal() {
   }
   if (applies(ApplyKind::ChildOrder)) {
     ui::statusText(ui::Status::Warning, OrderWarning);
+  }
+  if (applies(ApplyKind::AddedChild)) {
+    ui::sectionBreak();
+    ImGui::TextUnformatted("These children move into their prefabs with their subtrees, under new identities:");
+    bool sameName = false;
+    for (const ApplyAllPlan::File &file : m_applyAllPlan.files) {
+      for (const ApplyRequest &change : file.changes) {
+        const flecs::entity child =
+            change.kind == ApplyKind::AddedChild ? m_world.find(change.entity) : flecs::entity{};
+        const auto resolved = child ? resolveApply(change) : std::nullopt;
+        if (!resolved) {
+          continue;
+        }
+        const SubtreeSize size = subtreeSize(m_world, child);
+        ImGui::BulletText("%s, %zu %s, into %s", nameOf(child).c_str(), size.entities,
+                          size.entities == 1 ? "entity" : "entities", nameOf(resolved->target.entity).c_str());
+        sameName = sameName || std::ranges::any_of(m_world.children(resolved->target.entity),
+                                                   [&](flecs::entity other) { return nameOf(other) == nameOf(child); });
+      }
+    }
+    if (sameName) {
+      ui::statusText(ui::Status::Warning, SameNameWarning);
+    }
   }
   if (!m_applyAllPlan.kept.empty()) {
     ui::sectionBreak();

@@ -1,6 +1,6 @@
 # Deciding whether to offer "Apply all overrides"
 
-Issue [#578](https://github.com/Pacheco95/sonnet/issues/578), a follow-up of [#551](https://github.com/Pacheco95/sonnet/issues/551). Measured in Release for [#612](https://github.com/Pacheco95/sonnet/issues/612): see [Release build](#release-build-612). Re-measured for [#602](https://github.com/Pacheco95/sonnet/issues/602), after the walk took names and children's order ([#550](https://github.com/Pacheco95/sonnet/issues/550), [#562](https://github.com/Pacheco95/sonnet/issues/562)) and `MeshRenderer` took slot materials ([#594](https://github.com/Pacheco95/sonnet/pull/594)): see [Re-measured](#re-measured-602). The inspector's "Apply all overrides" button and the hierarchy's context-menu item decide every frame they are shown whether an instance has a change that can be applied. They did it by building the whole plan (`Editor::applyAllPlan`), which walks the root and every descendant, writes each component of each one and of its prefab entity as JSON to compare them, and describes every change.
+Issue [#578](https://github.com/Pacheco95/sonnet/issues/578), a follow-up of [#551](https://github.com/Pacheco95/sonnet/issues/551). Measured in Release for [#612](https://github.com/Pacheco95/sonnet/issues/612): see [Release build](#release-build-612). Re-measured for [#602](https://github.com/Pacheco95/sonnet/issues/602), after the walk took names and children's order ([#550](https://github.com/Pacheco95/sonnet/issues/550), [#562](https://github.com/Pacheco95/sonnet/issues/562)) and `MeshRenderer` took slot materials ([#594](https://github.com/Pacheco95/sonnet/pull/594)): see [Re-measured](#re-measured-602). Re-measured again for [#561](https://github.com/Pacheco95/sonnet/issues/561), when the walk took added children ([ADR-0044](../decisions/0044-apply-added-children-to-prefabs.md)): see [Added children](#added-children-561). The inspector's "Apply all overrides" button and the hierarchy's context-menu item decide every frame they are shown whether an instance has a change that can be applied. They did it by building the whole plan (`Editor::applyAllPlan`), which walks the root and every descendant, writes each component of each one and of its prefab entity as JSON to compare them, and describes every change.
 
 ## What changed
 
@@ -62,3 +62,27 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
 ```
 
 Logs: `~/sonnet-measurements/612/`.
+
+## Added children (#561)
+
+The walk reaches an instance's added children after its parts, and an added child is now a change like the others, so the offered check has to decide whether the child can move into its prefab ([ADR-0044](../decisions/0044-apply-added-children-to-prefabs.md)). That is the one check that is not a comparison with a source: it scans every component of the added subtree for a string that is the identity of an entity (`Editor::referenceRefusal`, `findReference` over each component's JSON), and every entity of it for a nested instance whose prefab is, or places, the target (`Editor::cycleRefusal`). The two answers are cached per subtree and target, by the history's revision (`CommandStack::revision`), the rebuild count and the active tab, so the panels' every-frame question answers from the cache until the history changes. The cache covers only these scans: the rest of the walk is not cached, for the reason given under [What changed](#what-changed), since a live drag writes the world before its command is recorded, and what a drag can change in a component does not decide either scan, since a reference is committed with its command.
+
+Same benchmark, extended with an added child ("Mast") holding 300 parts of its own, each with a `MeshRenderer`, so 301 entities: the instance's own 300 parts are visited first, then the child. "First check" is the check right after a command is pushed, so the cache is empty; "next checks" are the ones that follow until the next command. Best of 20 in milliseconds, three runs each, on a desktop shared with other builds (load average 3.5 to 4); the untouched, last-changed, every-part and plan columns are the benchmark's existing cases, unchanged by the walk.
+
+| Instance | Debug (GCC 14) | Release (GCC 14 `linux-release`, `-O2 -g`) |
+| --- | ---: | ---: |
+| Untouched (before the added child) | 2.56 to 2.58 | 0.33 to 0.34 |
+| The last part changed | 2.68 to 2.71 | 0.35 |
+| Every part changed | 0.80 to 0.82 | 0.10 |
+| Full plan, every part changed | 31.9 to 32.1 | 2.90 to 2.94 |
+| Added subtree of 301 entities, first check after an edit | 22.1 to 22.2 | 2.16 to 2.18 |
+| Added subtree of 301 entities, next checks | 2.60 to 2.62 | 0.34 to 0.35 |
+
+The first four rows match [Release build](#release-build-612) and the Debug column there (2.63, 2.71 to 2.74, 0.80, 31.97 to 32.22): the extra children loop costs nothing when there is no added child. With one, the cost is paid once per edit, not per frame: 2.2 ms in Release for 301 entities (0.007 ms an entity, the JSON of each component of each one), and every frame after it is the 0.34 ms of the untouched instance, since the walk then answers from the cache. A subtree is scanned only when the walk reaches it, and not at all for an instance that has a change before it. No follow-up is proposed.
+
+```sh
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
+  ./build/linux-release/modules/editor/editor_tests "[benchmark][apply]"
+```
+
+Logs: `~/sonnet-measurements/561/`.
