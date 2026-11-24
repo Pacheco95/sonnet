@@ -1,0 +1,20 @@
+# Preparation evidence
+
+Issue: #637
+Spike code: eabaa1f; checkout: 4c9e4e9
+Production: 98a1365
+Device: iPad (A16), iPadOS 27.2, wired and paired
+Xcode 26.3 (17C529); iPhoneOS SDK 26.2
+iOS deployment target: 26.0 (local only; spike float from_chars requires 26.0)
+codesign --verify --deep --strict: pass outside sandbox
+Provisioning includes the iPad; development debugging enabled; expires 2026-12-01 20:49:27 UTC
+Owner confirmed awake, unlocked, charging via cable, Auto-Lock off, and no other use.
+
+spike executable SHA256: 411b88a60860d5aa3f4fdbda530ab575f4cdbd10333ad4ced62bfc16c6e2b768
+spike character SHA256: 19016de6edeafe8dcb5240ad48a186c414b3db83bff6f6396dd51b836dadd192
+spike basic SHA256: 80c2ddbff064a098bcdce6ed29d4f96c58b892317ed48e9223fe56b76e0f9ee3
+spike showcase SHA256: 8da035eeba0e5a3dfd57b660e17d613667e9ab9ed3abce9a7006b6bf90d56cd0
+production executable SHA256: 12d9c2b430929c3c9de92a86c6a529f0b17138c0af756049c733f64d667c01d9
+production character SHA256: 37b2cbe0895f9a42d1ebad81902c7fdf8208e769ebf4d8511c3d09477ff7b71b
+production basic SHA256: 80c2ddbff064a098bcdce6ed29d4f96c58b892317ed48e9223fe56b76e0f9ee3
+production showcase SHA256: 8da035eeba0e5a3dfd57b660e17d613667e9ab9ed3abce9a7006b6bf90d56cd0

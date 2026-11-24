@@ -191,7 +191,7 @@ Whether the phone's `characterShading` default follows is the owner's: `apps/pla
 
 ## Open on the iPad
 
-[#609](https://github.com/Pacheco95/sonnet/issues/609) asks for the same runs on the iPad, measured separately, and for the captures of the Skin pipelines on Apple GPUs; [#591](https://github.com/Pacheco95/sonnet/issues/591)'s hair budget has the same iPad half. They need the Mac and the iPad: `ios-release` built and installed with `devicectl`, the character sample cooked for iOS, then the cold and sustained pairs of this report (`off`, `skin`, `hair`, `on`, `capture_face`, at 1080p and at the iPad's own size, and the showcase and stress scene on against off), with the thermal state sampled through the run (the player's own thermal line works on iOS). iOS keeps `characterShading` off, and the hair stays off on the iPad, until then.
+The iPad was not part of this S25 session. Its separate measurements for [#609](https://github.com/Pacheco95/sonnet/issues/609) and [#591](https://github.com/Pacheco95/sonnet/issues/591), carried out under [#637](https://github.com/Pacheco95/sonnet/issues/637), are in [skin-shading-ipad](skin-shading-ipad.md): cold and sustained comparisons, timestamp sample counts, Apple GPU captures and the remaining measurement limits. No default changes in either report; the owner decides what follows.
 
 ## Not covered
 
