@@ -1,6 +1,6 @@
 # ADR-0047: Entity references across prefab instances
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Amends:** [ADR-0028](0028-nested-scene-instances.md), [ADR-0037](0037-per-field-instance-overrides.md) and [ADR-0044](0044-apply-added-children-to-prefabs.md)
 - **Date:** 2026-11-24
 
