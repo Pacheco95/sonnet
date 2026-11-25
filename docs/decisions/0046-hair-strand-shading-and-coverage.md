@@ -1,16 +1,16 @@
 # ADR-0046: Hair strand shading and TAA-resolved coverage
 
-- **Status:** Proposed. The owner accepts it after the spike and the phone measurements ([#609](https://github.com/Pacheco95/sonnet/issues/609)), not before; the "Open until the spike" part of the Decision is filled in first.
+- **Status:** Proposed. The spike and the phone measurements are in ([hair-strand-spike](../reports/hair-strand-spike.md), [skin-shading-s25](../reports/skin-shading-s25.md) and [skin-shading-ipad](../reports/skin-shading-ipad.md), for [#591](https://github.com/Pacheco95/sonnet/issues/591) and [#609](https://github.com/Pacheco95/sonnet/issues/609)), and "Settled by the spike" below records what they decided. The owner accepts it; the accepting commit runs `chmod a-w` on this file.
 - **Amends:** [ADR-0041](0041-skin-shading.md)
 - **Date:** 2026-11-19
 
 ## Context
 
-[ADR-0041](0041-skin-shading.md) kept the humanoid's hair on the Standard model and the plain cutoff, and left strand shading and TAA-resolved coverage to a later ADR. [#591](https://github.com/Pacheco95/sonnet/issues/591) asks for it, from a spike with captures and timings. This ADR decides what is already clear from the existing evidence and marks what the spike must still settle. It is Proposed until then.
+[ADR-0041](0041-skin-shading.md) kept the humanoid's hair on the Standard model and the plain cutoff, and left strand shading and TAA-resolved coverage to a later ADR. [#591](https://github.com/Pacheco95/sonnet/issues/591) asks for it, from a spike with captures and timings. This ADR decided what the existing evidence made clear and left two things to the spike, the coverage technique and its numeric gates; "Settled by the spike" records the answer.
 
 What the [skin and hair spike](../reports/skin-hair-spike.md#hair) and the code say:
 
-- **Content.** The hair is a painted scalp cap, one submesh of `Body`, whose base colour is two mirrored, fan-shaped islands of painted strands. No constant U or V axis follows them: V is off by up to 45° at the fans' edges, with a sign flip at the mirror line, so the highlight is seamed and faceted. The painted strands do carry a usable direction: a structure tensor of the base colour's luminance has a median coherence of 0.55 to 0.61 over windows of 4 to 16 texels. A baked flow map is plausible, but nothing has been rendered with one yet.
+- **Content.** The hair is a painted scalp cap, one submesh of `Body`, whose base colour is two mirrored, fan-shaped islands of painted strands. No constant U or V axis follows them: V is off by up to 45° at the fans' edges, with a sign flip at the mirror line, so the highlight is seamed and faceted. The painted strands do carry a usable direction: a structure tensor of the base colour's luminance has a median coherence of 0.55 to 0.61 over windows of 4 to 16 texels. A baked flow map was plausible when this was written; the spike rendered one ("Settled by the spike").
 - **Shading.** Two shifted Kajiya-Kay lobes cost +0.006 ms for skin and hair together on the RTX 4090, with the head at about half of a 1080p frame.
 - **Coverage.** The spike's dithered mask failed under today's resolve ([ADR-0024](0024-temporal-anti-aliasing-and-occlusion-culling.md), with the age-weighted blend since): the 3×3 mean ± 1.25 σ clip box of `taa.slang` is mostly skin where coverage is low and pulls the history back to it. The hairline's temporal p99 over one TAA cycle was 12.3 sRGB levels against 2.5 for the cutoff, and after the camera stops the dither is about four frames behind the cutoff. The spike's threshold already varied with the TAA phase, so a moving threshold alone does not fix it.
 - **Resolve constants are fitted.** [ADR-0034](0034-taa-glass-gate.md) fitted the resolve's constants to four glass cases and says a change of any of them is a new ADR. The scene's alpha is 1 for opaque and masked output and 0 for glass, which the resolve reads as the glass mark (neighbours below 0.5), so values from 0.5 to 1 are free.
@@ -21,7 +21,7 @@ Strand shading and coverage are independent: either can fail its gate without bl
 
 ## Decision
 
-**Hair gets a `Hair` shading model: two-lobe Kajiya-Kay along a flow map baked from the painted texture and stored in a new `strand` texture slot, compiled into forward and pre-pass pipelines of its own. The TAA resolve changes only for flagged hair pixels. Skin and hair share the one `RendererSettings::characterShading` switch.** Which coverage technique hair uses, and the numeric stability and trail gates, are open until the spike (below). This ADR adds no code by itself.
+**Hair gets a `Hair` shading model: two-lobe Kajiya-Kay along a flow map baked from the painted texture and stored in a new `strand` texture slot, compiled into forward and pre-pass pipelines of its own. Hair keeps the plain alpha cutoff, and the TAA resolve does not change. Skin and hair share the one `RendererSettings::characterShading` switch.** The spike measured the stochastic coverage techniques and none passes the gates, so strand shading ships alone ("Settled by the spike"). This ADR adds no code by itself.
 
 ### Strand direction and storage
 
@@ -47,7 +47,7 @@ Strand shading and coverage are independent: either can fail its gate without bl
 
 ### Coverage invariants
 
-These hold whichever technique the spike picks, and are the testable part:
+With the plain cutoff these hold by construction. They stay as the testable bar for a later decision on stochastic coverage, which has to meet them as well as the gates in "Settled by the spike":
 
 - Standard draws render pixel for pixel as today, including `showcase_taa.png`.
 - The pre-pass decides stochastic coverage alone, and the forward pass's equal depth test agrees with it: no clear-colour holes.
@@ -58,38 +58,34 @@ These hold whichever technique the spike picks, and are the testable part:
 
 ### The resolve
 
-- **A flagged-pixel exception only.** The hair forward entry writes 0.75 in the scene's alpha for pixels whose coverage is stochastic. The glass mark (below 0.5) is unchanged, and the resolve already counts alpha below 0.5 in its 5×5 loop.
-- **Confined by construction.** `taa.slang` treats only a pixel with a flagged neighbour differently. Every other pixel is bit-identical to today, the fitted constants of ADR-0034 are unchanged, and no global change of the clip box or of the 3×3 shape is made.
-- **Verification.** The ADR-0034 harness's four required glass cases and `showcase_taa.png` are re-run with the exception in. They have no flagged pixels, so their output is asserted unchanged.
-- **Scope.** The rule applies when the spike's coverage technique needs it (below). It adds to the resolve of ADR-0024, which this ADR does not otherwise change.
+- **Unchanged.** `taa.slang`, the constants ADR-0034 fitted and the scene's alpha stay as they are: the hair pipelines write alpha 1 like every opaque and masked draw, and the glass mark (alpha below 0.5) keeps its one meaning.
+- **What was tried.** A flagged-pixel exception: the hair forward entry writes 0.75 in the scene's alpha for pixels whose coverage is stochastic, and `taa.slang` gives a pixel with a flagged neighbour a wider clip box and a longer history age cap, with every other pixel bit-identical to today. The spike built it, confined as described, and the ADR-0034 harness's four glass cases and `showcase_taa.png` came out unchanged with it live. It still does not pass the coverage gates below, so it is not built. A later decision can start from it.
 
 ### Platforms and gates
 
-- **The switch.** One `RendererSettings::characterShading` covers skin and hair: on by default on the desktop, off in the Android and iOS players until each platform is measured. Splitting it later is small: a second `bool`, with no file format change; the setting is read by the renderer, the capture options, the player and the tests.
+- **The switch.** One `RendererSettings::characterShading` covers skin and hair: on by default on the desktop and on Android (the S25 passes ADR-0041's gates, [#640](https://github.com/Pacheco95/sonnet/pull/640)), off in the iOS player until it is measured. Splitting it later is small: a second `bool`, with no file format change; the setting is read by the renderer, the capture options, the player and the tests.
 - **Hair's budget is 0.3 ms.** On a phone, hair may add at most 0.3 ms of total GPU time to the median and to the p95, in cold and sustained windows, over skin alone, with the head at about half of a native-resolution frame. It is the enabling gate: an unmeasured or failing phone keeps hair off. Standard-material scenes regress by at most 0.1 ms, as in ADR-0041, and the Standard pipeline compiles to the same code as today.
 - **A reduced phone hair is the pre-agreed fallback.** If the full hair misses the budget on a phone, that platform runs one lobe with the cutoff coverage, and is measured against the same gate. How the reduced form is selected (a lighter entry or a second setting) is left to the build card; a second setting is the switch split above.
-- **Method.** ADR-0039's measurement method and the repository's temperature-based S25 cooldown rule. Each cold round reports its minimum and maximum beside the median, since the spike's median was bimodal. The iPad is measured separately. Desktop results do not validate a phone.
+- **Method.** ADR-0039's measurement method and the repository's temperature-based S25 cooldown rule. Each cold round reports its minimum and maximum beside the median, since the spike's median was bimodal. The iPad is measured separately. Desktop results do not validate a phone. On MoltenVK the timestamp samples are sparse ([#355](https://github.com/Pacheco95/sonnet/issues/355)), so a gate on the iPad's native size or on a Standard scene cannot be read from the engine's own timings; it stays unmeasured until a method that does not depend on them exists.
 
-### Open until the spike
+### Settled by the spike
 
-The spike runs on the in-repo TAA harness with new hair metrics (the per-pixel temporal deviation over a TAA cycle in the hairline region, and the trail after a camera stop, in code, since the spike's scripts are outside the repository) on the RTX 4090 and Lavapipe, with one set of S25 timings. It must not be skipped: this ADR is not accepted before its numbers are in.
+The spike ([hair-strand-spike](../reports/hair-strand-spike.md), branch `spike/hair-flow-map`) measured the coverage candidates and a control on the in-repo harness over the hairline band, against the plain cutoff, on the RTX 4090, and the strand model on the Galaxy S25 Ultra ([skin-shading-s25](../reports/skin-shading-s25.md)) and the iPad ([skin-shading-ipad](../reports/skin-shading-ipad.md)).
 
-- **The coverage technique is not decided.** Candidates, built on the same invariants:
-  - the **flagged-resolve dither**: the spike's per-pixel, per-phase dither, with the flagged-pixel resolve exception (a wider box and a history age cap of about the jitter period, in a 3×3 or 5×5 neighbourhood, whose values are fitted);
-  - **stable hashed alpha**: a threshold that is a hash of the texel, not of the pixel or the frame, so its grain sticks to the hair and the history reprojects it like any texture detail, with no resolve change;
-  - the **plain cutoff**, kept if neither passes. This is an accepted outcome: the ADR then ships strand shading alone, and the resolve exception and the flag are not built.
-
-  The spike also measures the fixed 4×4 ordered threshold on the partial texels only, as a control. The spike's dither under the current resolve is the baseline both must beat.
-- **The numeric gates are not decided.** The cost budget above is fixed. The hair's temporal stability (the p99 temporal deviation of the hairline region at rest, against the cutoff's 2.5 levels and the spike's 12.3) and its trail (the p99 at frame 4 after a stop, against the cutoff's 2.0, and recovery to the method's floor by frame 8) are fitted from the spike, in the way ADR-0034 fitted its budgets, and written here before the ADR is accepted. Until then they are diagnostics.
+- **Coverage: the plain cutoff.** Hair keeps `alphaCutoff`. None of the flagged-resolve dither, the stable hashed alpha and the fixed ordered threshold passes the gates below. The best of them, the flagged-resolve dither, has 2.9 and 3.0 times the cutoff's p99 temporal deviation at rest in the two views measured, and 3.2 times its p99 four frames after a stop in the first. The resolve exception and the flag in the scene's alpha are **not built**, `taa.slang` and the constants of ADR-0034 stay as they are, and the hair pipelines write alpha 1.
+- **Strand direction: the baked flow map, as decided.** The shader's direction follows the painted strands to a mean |cos| of 0.86 on screen, against 0.66 for the opposite sign convention, and the highlight shows no seam in the lit image. Its bake uses a window of radius 6 texels, takes the combed field over below a coherence of 0.18 and is out above 0.45, and the combed field is a per-island crown fit; the bake tool in the content build card reproduces these. The strand term itself still has a discontinuity of about 30° in a band five columns wide on the mirror line; the build card isolates its cause (the vertex tangent frames are the likeliest).
+- **Gates for a coverage technique** (hairline band: where a converged stochastic frame differs from a converged cutoff frame by more than 12 levels, grown by two pixels; 1280×720; the player's captures of the character sample's `spike_orbit_stop` views, measured with `tools/hair_taa_metrics.py` on the spike branch): the p99 of the per-pixel temporal deviation at rest, of the difference from the converged frame four frames after a stop, and of the same eight frames after a stop are each **at most twice the same measure of the Hair model with the cutoff** in the same view. The cutoff's own are 1.9 / 6.0 / 3.3 levels in the front view and 2.7 / 14.3 / 8.7 in the side view. The gate is a ratio, since a level gate moves with the view. A coverage technique has to pass it and the invariants above.
+- **Hair's phone budget on the Galaxy S25 Ultra: met.** Hair adds at most 0.3 ms over skin alone: the forward pass, the only one the model changes, adds 0.00 to 0.09 ms over skin at 1920×1080 and at the native size, cold, and 0.06 ms in a 600 s run, with the head at about half of the frame (`capture_face`); hair alone adds 0.02 to 0.05 ms over `off`. The whole frame resolves no better than about ±0.4 ms on the phone, because its GPU clock changes level between runs, so the budget is read on the forward pass and on the plain frame difference.
+- **Hair's phone budget on the iPad (A16): not shown.** Over skin at 1920×1080 in three 600 s runs the clock-corrected frame median adds +0.364, −0.254 and +0.115 ms, and the forward pass +0.384, −0.116 and +0.114 ms; the spread, 0.618 ms, is twice the budget, so the method cannot tell a pass from a fail, and all three corrected p95 differences are within 0.3 ms. At the native size the samples are too sparse to say anything. The iPad keeps hair off, and the reduced one-lobe hair of the fallback above is unmeasured there.
 
 ## Consequences
 
 - **Easier.** Hair reads as strands, with a tinted secondary highlight that follows the painted direction and no seam at the mirror. It fades with the body already, through the masked fade of ADR-0041. Standard draws keep today's code; a model is paid for in pipelines, not in every draw's registers.
-- **Harder.** A seventh material texture slot, more fields in the material file, the bundle and `GpuMaterial`, six forward pipelines and more pre-pass pipelines (built only while `characterShading` is on), a bake step in the sample's content, and, if the spike picks it, a resolve exception on a channel that carries two meanings (the glass mark and the hair flag). Any later pass that reads the scene's alpha has to know both.
+- **Harder.** A seventh material texture slot, more fields in the material file, the bundle and `GpuMaterial`, six forward pipelines and more pre-pass pipelines (built only while `characterShading` is on), and a bake step in the sample's content. The scene's alpha keeps its one meaning, since no hair flag is built.
 - **Formats.** This is one more bump of the material file and the bundle before the 1.0.0 freeze. The next-free-number rule for the bundle keeps it independent of ADR-0045.
 - **Not fixed.** Cast hair shadows stay hard (the cutoff), there is no hair thickness or transmission, and the cap geometry of the humanoid stays. Hair cards are the content path for a later sample.
-- **To do when accepted.** File the build cards (the bake and content, the model and its formats, coverage and the resolve, phone enablement), update `docs/rendering.md`, `docs/assets.md`, `docs/player.md` and the character sample's README and licences, and run `chmod a-w` on this file in the accepting commit.
-- **Phones stay off** until measured; the reduced hair is the fallback, not the default.
+- **To do when accepted.** File the build cards (the bake and content, the model and its formats, phone enablement), none for coverage or the resolve; keep the spike's code out of them, since it takes shortcuts (the flow map in the emissive slot, parameters fixed in the shader, a per-material branch in the shared pre-pass) the cards replace; do not use floating-point `std::from_chars` where the iOS deployment target is 16.3, which the spike's parser failed on; update `docs/rendering.md`, `docs/assets.md`, `docs/player.md` and the character sample's README and licences, and run `chmod a-w` on this file in the accepting commit.
+- **The iPad stays off** until measured; the reduced hair is the fallback, not the default. Android follows the one switch, so skin and hair come on together there, on the S25's numbers.
 
 ## Alternatives considered
 
@@ -99,7 +95,8 @@ The spike runs on the in-repo TAA harness with new hair metrics (the per-pixel t
 - **Reusing existing slot channels for the strand data (occlusion or normal):** no format change, but the slot's glTF meaning no longer holds and the inspector and the cook would special-case the model. The freeze is still ahead, so the honest slot wins.
 - **One anisotropic lobe (`KHR_materials_anisotropy`'s shape):** one lobe and no tinted secondary, which is what makes hair read as hair. A single lobe stays as the phone fallback only.
 - **Marschner:** far more ALU and assumes strands, as ADR-0041 decided; not reopened.
-- **The spike's dither under today's resolve:** fails its own evidence (p99 12.3 against 2.5, about four frames of extra trail); it is the baseline to beat.
+- **The spike's dither under today's resolve:** fails its own evidence (p99 12.3 against 2.5, about four frames of extra trail); it was the baseline to beat, and the flagged-resolve dither, the stable hashed alpha and the fixed ordered threshold all measured worse than the cutoff at rest.
+- **The flagged-resolve exception and its alpha flag:** built and confined in the spike, with the glass cases and the golden frame unchanged, but the best coverage it allowed misses the gates, so no channel is spent on it.
 - **A global change of the clip box or the neighbourhood shape:** moves every scene and re-opens ADR-0034's fitted constants, which a new ADR would have to refit.
 - **A second hair history:** a second history and resolve, which ADR-0034 declined for cost on mobile.
 - **A blended fringe layer or alpha to coverage:** blended hair drops out of depth, motion and occlusion and needs sorting; the RHI has no multisampling, and adding it is a large unrelated change.
