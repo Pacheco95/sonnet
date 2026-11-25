@@ -232,3 +232,17 @@ The sustained forward increment for hair over Skin is +0.384 ms corrected (+0.34
 - **The hair is the spike.** The [spike report](hair-strand-spike.md#what-was-built)'s material/flow-map and shared-pre-pass shortcuts remain. This does not validate future production material fields or formats, stochastic coverage, a reduced hair model, or a different iPad.
 - **Production sustained.** The four long runs use the spike, as requested; production is measured cold only. No separate sustained production binary or sustained native-resolution run is claimed.
 - **Older iOS targets.** The machine-local iOS 26.0 target allows this validation on iPadOS 27.2; compatibility of the spike's floating parser with the shared preset's 16.3 target remains unproven and failed in this preparation.
+
+## Follow-up (#638)
+
+### E. UIKit appearance-transition warning
+
+| Retained capture set | Build | Logs with warning |
+|---|---|---:|
+| #637 production cold captures | `98a1365` (`main`) | 24/24 |
+| #637 spike cold and sustained captures | `4c9e4e9` | 40/40 |
+| October transmission captures, original build logs | `18a92b5` base | 16/16 |
+
+The warning predates the skin and hair spike. In the #637 production `production-face1080-r1-off.log`, it appears twice at 18:08:33.533, 19 ms after the player's foreground-event messages and before the first scene mesh upload. UIKit names SDL's `SDL_uikitviewcontroller` in both messages. The October evidence is from the original-build console logs for the [transmission session](transmission-mobile-ipad.md). The [warning inventory](skin-shading-ipad/follow-up-uikit.csv) gives the count by capture.
+
+The launch goes through SDL's app callbacks. In SDL 3.4.20, the UIKit window setup attaches a view, and its Vulkan surface callback adds a Metal view. Both paths call `setSDLWindow:`, which clears and reassigns the UIKit root view controller in `SDL_uikitview.m`. Sonnet requests the surface through `SDL_Vulkan_CreateSurface`; its foreground callback resumes the swapchain. The logs locate the warning in UIKit during SDL window startup and foreground processing. They contain no call stack that identifies the specific transition or establishes whether the CoreDevice launch path is a prerequisite.
