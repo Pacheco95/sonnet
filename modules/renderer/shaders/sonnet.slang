@@ -97,10 +97,11 @@ public static const uint MaterialUnlit = 1u << 9; // KHR_materials_unlit: no lig
 // On the transmission path (ADR-0033): lit, transmission above 0, and not provably metal. The draw is
 // blended, and its coverage is a * (1 - T) in the forward pass and the shadows.
 public static const uint MaterialTransmissive = 1u << 10;
-// The shading model in bits 11-12 (ADR-0041). The forward pass does not read it: each model has an
-// entry point and pipelines of its own.
+// The shading model in bits 11-12 (ADR-0041, ADR-0046). The forward pass does not read it: each model has
+// an entry point and pipelines of its own.
 public static const uint ShadingStandard = 0;
 public static const uint ShadingSkin = 1;
+public static const uint ShadingHair = 2;
 // A material's texture slots, as the bits of MaterialData::uvSets.
 public static const uint SlotBaseColor = 0;
 public static const uint SlotMetallicRoughness = 1;
@@ -108,6 +109,7 @@ public static const uint SlotNormal = 2;
 public static const uint SlotOcclusion = 3;
 public static const uint SlotEmissive = 4;
 public static const uint SlotTransmission = 5;
+public static const uint SlotStrand = 6;
 
 public struct MaterialData {
   public float4 baseColor;
@@ -141,9 +143,15 @@ public struct MaterialData {
   public float2 occlusionUvOffset;
   public float2 emissiveUvOffset;
   public float2 transmissionUvOffset;
-  // The shading model's row (ADR-0041). Skin: x the subsurface weight, y the radius in metres per
-  // millimetre of the skin profile; z and w are reserved.
+  // The shading model's row (ADR-0041, ADR-0046). Skin: x the subsurface weight, y the radius in metres per
+  // millimetre of the skin profile; z and w are reserved. Hair: x and y the primary and secondary lobes'
+  // shifts, z the secondary's width, w its strength.
   public float4 shading;
+  // The strand slot, the seventh (ADR-0046): its transform and its own texture and sampler words.
+  public float4 strandUv;
+  public float2 strandUvOffset;
+  public uint strandTexture;
+  public uint strandSampler;
 };
 
 // A texture slot's UV: its 2x2 matrix by rows, then its offset (KHR_texture_transform).
@@ -152,7 +160,9 @@ public float2 uvTransform(float4 rows, float2 offset, float2 uv) {
 }
 
 public uint materialSampler(MaterialData material, uint slot) {
-  return slot == SlotTransmission ? material.transmissionSampler : (material.sampler >> (6u * slot)) & 63u;
+  return slot == SlotStrand         ? material.strandSampler
+         : slot == SlotTransmission ? material.transmissionSampler
+                                    : (material.sampler >> (6u * slot)) & 63u;
 }
 
 // The vertex UV set a material's slot reads, out of both sets interpolated together: Vertex::uv in

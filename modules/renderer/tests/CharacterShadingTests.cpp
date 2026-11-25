@@ -1,5 +1,6 @@
-// Pre-integrated skin shading (ADR-0041, "Implementation split and acceptance"): the pipelines and
-// batches against the null device's trace, and the lighting on a GPU (Lavapipe in CI).
+// Pre-integrated skin shading (ADR-0041, "Implementation split and acceptance") and two-lobe hair
+// shading (ADR-0046): the pipelines and batches against the null device's trace, and the lighting on a
+// GPU (Lavapipe in CI).
 #include <sonnet/renderer/Primitives.h>
 #include <sonnet/renderer/RenderGraph.h>
 #include <sonnet/renderer/RenderTarget.h>
@@ -19,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -81,6 +83,22 @@ MaterialDesc skinMaterial(float subsurfaceRadius = MaxSubsurfaceRadius) {
 
 MaterialDesc standardMaterial() {
   MaterialDesc desc = skinMaterial();
+  desc.shading = ShadingModel::Standard;
+  return desc;
+}
+
+// A white, dielectric Hair material at a hair's roughness, on the default lobes and the neutral strand.
+MaterialDesc hairMaterial() {
+  MaterialDesc desc;
+  desc.metallic = 0.0f;
+  desc.roughness = 0.5f;
+  desc.shading = ShadingModel::Hair;
+  return desc;
+}
+
+// The same material shaded as Standard, what a Hair draw is while characterShading is off.
+MaterialDesc plainHairMaterial() {
+  MaterialDesc desc = hairMaterial();
   desc.shading = ShadingModel::Standard;
   return desc;
 }
@@ -237,7 +255,71 @@ TEST_CASE("a Skin draw takes the skin pipeline and a batch of its own", "[render
   renderer.destroyMesh(box);
 }
 
-TEST_CASE("the skin pipelines are built only once characterShading is on", "[renderer][null][skin]") {
+TEST_CASE("a Hair draw takes the hair pipeline and a batch of its own", "[renderer][null][hair]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  const auto device = createNullDevice();
+  const bool characterShading = GENERATE(true, false);
+  CAPTURE(characterShading);
+  RendererSettings settings = skinSettings();
+  settings.characterShading = characterShading;
+  Renderer renderer{*device, shaderDir(platform), settings};
+  const MeshHandle box = renderer.createMesh(primitives::box(), "box");
+  const MaterialHandle standard = renderer.createMaterial(standardMaterial(), "standard");
+  const MaterialHandle hair = renderer.createMaterial(hairMaterial(), "hair");
+  MaterialDesc doubleSidedDesc = hairMaterial();
+  doubleSidedDesc.doubleSided = true;
+  const MaterialHandle doubleSided = renderer.createMaterial(doubleSidedDesc, "double sided hair");
+  // The three that shade as Standard: they are drawn by its pipeline, with the setting on as well.
+  MaterialDesc unlitDesc = hairMaterial();
+  unlitDesc.unlit = true;
+  const MaterialHandle unlit = renderer.createMaterial(unlitDesc, "unlit hair");
+  MaterialDesc blendedDesc = hairMaterial();
+  blendedDesc.alphaMode = AlphaMode::Blend;
+  const MaterialHandle blended = renderer.createMaterial(blendedDesc, "blended hair");
+  MaterialDesc transmissiveDesc = hairMaterial();
+  transmissiveDesc.transmission = 0.5f;
+  const MaterialHandle transmissive = renderer.createMaterial(transmissiveDesc, "transmissive hair");
+  const auto at = [](float x, float y) { return glm::translate(glm::mat4{1.0f}, {x, y, 0.0f}); };
+  const std::array draws{DrawItem{.mesh = box, .material = standard, .transform = at(-3.0f, 0.0f)},
+                         DrawItem{.mesh = box, .material = hair, .transform = at(-1.5f, 0.0f)},
+                         DrawItem{.mesh = box, .material = doubleSided, .transform = at(0.0f, 0.0f)},
+                         DrawItem{.mesh = box, .material = unlit, .transform = at(1.5f, 0.0f)},
+                         DrawItem{.mesh = box, .material = blended, .transform = at(-1.5f, 1.5f)},
+                         DrawItem{.mesh = box, .material = transmissive, .transform = at(1.5f, 1.5f)}};
+  SceneView view;
+  view.camera.position = {0.0f, 0.0f, 9.0f};
+  view.draws = draws;
+
+  RenderGraph graph{*device};
+  RenderTarget target{*device, "viewport"};
+  target.resize({64, 64});
+  ICommandList &commands = device->beginFrame();
+  graph.reset();
+  renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
+  graph.execute(commands);
+  device->endFrame();
+
+  // On, the two lit opaque Hair draws are the hair pipelines', one each by double-sidedness, in batches
+  // of their own; the unlit, blended and transmissive ones shade as Standard and never reach a hair
+  // pipeline. Off, none does.
+  REQUIRE(countLines(*device, "bindPipeline \"forward hair\"") == (characterShading ? 1u : 0u));
+  REQUIRE(countLines(*device, "bindPipeline \"forward hair double sided\"") == (characterShading ? 1u : 0u));
+  // The Standard pipeline draws the Standard box and the unlit hair, and with the setting off the rest.
+  REQUIRE(countLines(*device, "bindPipeline \"forward\"") == 1);
+  REQUIRE(countLines(*device, "bindPipeline \"forward skin") == 0);
+  // The pre-pass is the Standard one whatever the model: a Hair draw's depth is its geometry's.
+  REQUIRE(countLines(*device, "bindPipeline \"depth hair") == 0);
+
+  renderer.destroyMaterial(transmissive);
+  renderer.destroyMaterial(blended);
+  renderer.destroyMaterial(unlit);
+  renderer.destroyMaterial(doubleSided);
+  renderer.destroyMaterial(hair);
+  renderer.destroyMaterial(standard);
+  renderer.destroyMesh(box);
+}
+
+TEST_CASE("the skin and hair pipelines are built only once characterShading is on", "[renderer][null][skin][hair]") {
   sonnet::platform::Platform platform{{.headless = true}};
   // Two renderers on devices of their own, one on and one off: the pipelines each leaves on its device.
   std::size_t withSkin = 0;
@@ -252,28 +334,34 @@ TEST_CASE("the skin pipelines are built only once characterShading is on", "[ren
   {
     Renderer renderer{*device, shaderDir(platform), settings};
     const std::size_t withoutSkin = device->pipelineCount();
-    REQUIRE(withSkin == withoutSkin + 2);
+    REQUIRE(withSkin == withoutSkin + 4); // forward skin and forward hair, each single and double sided
 
     const MeshHandle box = renderer.createMesh(primitives::box(), "box");
     const MaterialHandle skin = renderer.createMaterial(skinMaterial(), "skin");
-    const std::array draws{DrawItem{.mesh = box, .material = skin}};
+    const MaterialHandle hair = renderer.createMaterial(hairMaterial(), "hair");
+    const std::array draws{
+        DrawItem{.mesh = box, .material = skin},
+        DrawItem{.mesh = box, .material = hair, .transform = glm::translate(glm::mat4{1.0f}, {1.5f, 0.0f, 0.0f})}};
     SceneView view;
     view.camera.position = {0.0f, 0.0f, 6.0f};
     view.draws = draws;
     RenderGraph graph{*device};
     RenderTarget target{*device, "viewport"};
     target.resize({64, 64});
-    // How many times one frame binds the skin pipeline.
-    const auto skinBinds = [&] {
+    // How many times one frame binds the pipeline of that name.
+    const auto binds = [&](std::string_view pipeline) {
       ICommandList &commands = device->beginFrame();
       graph.reset();
       renderer.addScenePasses(graph, view, graph.importImage(target.color()), graph.importImage(target.depth()));
       graph.execute(commands);
-      const std::size_t binds = countLines(*device, "bindPipeline \"forward skin\"");
+      const std::size_t count = countLines(*device, pipeline);
       device->endFrame();
-      return binds;
+      return count;
     };
+    const auto skinBinds = [&] { return binds("bindPipeline \"forward skin\""); };
+    const auto hairBinds = [&] { return binds("bindPipeline \"forward hair\""); };
     REQUIRE(skinBinds() == 0);
+    REQUIRE(hairBinds() == 0);
 
     // Other settings and a hot reload of their module leave them unbuilt.
     settings.debugView = DebugView::SunDirect;
@@ -288,17 +376,21 @@ TEST_CASE("the skin pipelines are built only once characterShading is on", "[ren
     REQUIRE(renderer.settings().characterShading);
     REQUIRE(device->pipelineCount() == withSkin);
     REQUIRE(skinBinds() == 1);
+    REQUIRE(hairBinds() == 1);
 
-    // Off again, they stay built for the next time and the draw is the Standard pipeline's.
+    // Off again, they stay built for the next time and the draws are the Standard pipeline's.
     settings.characterShading = false;
     renderer.setSettings(settings);
     REQUIRE(device->pipelineCount() == withSkin);
     REQUIRE(skinBinds() == 0);
+    REQUIRE(hairBinds() == 0);
     settings.characterShading = true;
     renderer.setSettings(settings);
     REQUIRE(device->pipelineCount() == withSkin);
     REQUIRE(skinBinds() == 1);
+    REQUIRE(hairBinds() == 1);
 
+    renderer.destroyMaterial(hair);
     renderer.destroyMaterial(skin);
     renderer.destroyMesh(box);
   }
@@ -455,6 +547,132 @@ TEST_CASE("the Curvature term shows a Skin draw's lookup row in red and Standard
     REQUIRE(skin.g == 0.0f);
     REQUIRE(skin.b == 0.0f);
     REQUIRE(standard == glm::vec3{0.0f});
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a Hair material draws as Standard with characterShading off on a GPU", "[renderer][gpu][hair]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = skinSettings();
+    settings.characterShading = false;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    // The strand slot is ignored too: a texture of strands across the sphere changes nothing.
+    const TextureHandle strands = renderer.createTexture(solidTexture({0, 128, 128, 255}), "strands");
+    MaterialDesc withStrands = hairMaterial();
+    withStrands.strandTexture = strands;
+    const std::vector<glm::vec3> standard = sunDirect(*device, renderer, plainHairMaterial());
+    REQUIRE(std::ranges::equal(sunDirect(*device, renderer, hairMaterial()), standard));
+    REQUIRE(std::ranges::equal(sunDirect(*device, renderer, withStrands), standard));
+    REQUIRE(std::ranges::any_of(standard, [](const glm::vec3 &p) { return p.r > 0.1f; }));
+    renderer.destroyTexture(strands);
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("a Hair sphere is lit by its lobes, which the material's fields move, on a GPU", "[renderer][gpu][hair]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = skinSettings();
+    settings.debugView = DebugView::SunDirect;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const std::vector<glm::vec3> standard = sunDirect(*device, renderer, plainHairMaterial());
+    const std::vector<glm::vec3> hair = sunDirect(*device, renderer, hairMaterial());
+    const auto total = [](const std::vector<glm::vec3> &pixels) {
+      double sum = 0.0;
+      for (const glm::vec3 &p : pixels) {
+        sum += static_cast<double>(p.r);
+      }
+      return sum;
+    };
+    CAPTURE(total(standard), total(hair));
+    // Not Standard's light, and lit.
+    REQUIRE_FALSE(std::ranges::equal(hair, standard));
+    REQUIRE(total(hair) > 0.0);
+    REQUIRE(std::ranges::all_of(hair, [](const glm::vec3 &p) { return std::isfinite(p.r) && p.r >= 0.0f; }));
+
+    // The secondary lobe is the base colour's, added to the primary: weighing it more lights the sphere
+    // more.
+    MaterialDesc none = hairMaterial();
+    none.hairSecondaryStrength = 0.0f;
+    MaterialDesc strong = hairMaterial();
+    strong.hairSecondaryStrength = MaxHairSecondaryStrength;
+    const double lightNone = total(sunDirect(*device, renderer, none));
+    const double lightStrong = total(sunDirect(*device, renderer, strong));
+    CAPTURE(lightNone, lightStrong);
+    REQUIRE(lightNone < total(hair));
+    REQUIRE(total(hair) < lightStrong);
+
+    // The shift moves the highlight: a different shift lights different pixels.
+    MaterialDesc shifted = hairMaterial();
+    shifted.hairShift = 0.4f;
+    REQUIRE_FALSE(std::ranges::equal(sunDirect(*device, renderer, shifted), hair));
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("the Strand term shows a Hair draw's direction, which the strand texture turns, on a GPU",
+          "[renderer][gpu][hair]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    RendererSettings settings = skinSettings();
+    settings.debugView = DebugView::Strand;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const std::size_t middle = (Size.y / 2) * Size.x + Size.x / 2;
+    const auto direction = [&](const MaterialDesc &desc) {
+      const glm::vec3 color = sunDirect(*device, renderer, desc)[middle];
+      return color * 2.0f - 1.0f;
+    };
+    // Along U, the neutral strand: a unit vector, pointing down or level.
+    const glm::vec3 along = direction(hairMaterial());
+    CAPTURE(along.x, along.y, along.z);
+    REQUIRE(glm::length(along) == Catch::Approx(1.0f).margin(0.02f));
+    REQUIRE(along.y <= 0.02f);
+
+    // A strand texture whose doubled angle is 180 degrees (cos 2a = -1) runs along V instead: across
+    // the first, and down.
+    const TextureHandle across = renderer.createTexture(solidTexture({0, 128, 128, 255}), "across");
+    MaterialDesc acrossDesc = hairMaterial();
+    acrossDesc.strandTexture = across;
+    const glm::vec3 turned = direction(acrossDesc);
+    CAPTURE(turned.x, turned.y, turned.z);
+    REQUIRE(glm::length(turned) == Catch::Approx(1.0f).margin(0.02f));
+    REQUIRE(std::abs(glm::dot(along, turned)) < 0.15f);
+    REQUIRE(turned.y < -0.5f);
+    renderer.destroyTexture(across);
+
+    // Standard draws no direction: black.
+    REQUIRE(sunDirect(*device, renderer, plainHairMaterial())[middle] == glm::vec3{0.0f});
+    REQUIRE(device->validationMessageCount() == 0);
+  }
+  REQUIRE(device->validationMessageCount() == 0);
+}
+
+TEST_CASE("turning characterShading on and off again switches a Hair draw on a GPU", "[renderer][gpu][hair]") {
+  sonnet::platform::Platform platform{{.headless = true}};
+  std::unique_ptr<IDevice> device = gpuDevice(platform);
+  {
+    // Started off, as the iOS player is: the hair pipelines are built by setSettings.
+    RendererSettings settings = skinSettings();
+    settings.debugView = DebugView::SunDirect;
+    settings.characterShading = false;
+    Renderer renderer{*device, shaderDir(platform), settings};
+    const std::vector<glm::vec3> off = sunDirect(*device, renderer, hairMaterial());
+
+    settings.characterShading = true;
+    renderer.setSettings(settings);
+    REQUIRE(renderer.settings().characterShading);
+    REQUIRE_FALSE(std::ranges::equal(sunDirect(*device, renderer, hairMaterial()), off));
+
+    settings.characterShading = false;
+    renderer.setSettings(settings);
+    REQUIRE(std::ranges::equal(sunDirect(*device, renderer, hairMaterial()), off));
     REQUIRE(device->validationMessageCount() == 0);
   }
   REQUIRE(device->validationMessageCount() == 0);

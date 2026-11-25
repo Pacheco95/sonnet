@@ -49,7 +49,7 @@ sonnet_add_module_test(renderer
     tests/PrimitivesTests.cpp
     tests/RenderGraphTests.cpp
     tests/RendererTests.cpp
-    tests/SkinShadingTests.cpp
+    tests/CharacterShadingTests.cpp
 )
 if(TARGET renderer_tests)
   sonnet_add_engine_shaders(renderer_tests)

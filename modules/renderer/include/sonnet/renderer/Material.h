@@ -56,17 +56,24 @@ struct TextureTransform {
   bool operator==(const TextureTransform &) const = default;
 };
 
-// How a lit material shades (ADR-0041). Skin is pre-integrated subsurface scattering in the forward
-// pass, drawn by a forward pipeline of its own; an opaque or masked draw only, so a blended or
-// transmissive Skin material shades as Standard, and so does every Skin material while
+// How a lit material shades (ADR-0041, ADR-0046). Skin is pre-integrated subsurface scattering in the
+// forward pass and Hair two shifted Kajiya-Kay lobes along the strand texture's direction, each drawn
+// by a forward pipeline of its own; an opaque or masked draw only, so a blended, transmissive or
+// unlit Skin or Hair material shades as Standard, and so does every one of them while
 // RendererSettings::characterShading is off. glTF materials are always Standard.
 enum class ShadingModel : std::uint8_t {
   Standard,
   Skin,
+  Hair,
 };
 
 // The bounds of MaterialDesc::subsurfaceRadius, in metres per millimetre of the skin profile.
 constexpr float MaxSubsurfaceRadius = 0.01f;
+
+// The bounds of Hair's lobe fields (MaterialDesc::hairShift and the three after it).
+constexpr float MaxHairShift = 1.0f;
+constexpr float MinHairSecondaryWidth = 0.05f;
+constexpr float MaxHairSecondaryStrength = 2.0f;
 
 // The glTF metallic-roughness model. An invalid texture handle means the neutral default:
 // white for colours and factors, a flat normal for the normal map.
@@ -85,12 +92,17 @@ struct MaterialDesc {
   TextureHandle occlusionTexture{}; // red
   TextureHandle emissiveTexture{};
   TextureHandle transmissionTexture{}; // red
+  // Hair's strand direction (ADR-0046), a linear data texture: the strand's axis as a doubled angle,
+  // cos 2a in red and sin 2a in green, in the texture's UV frame, and a shift in blue. Read only by
+  // the Hair model. An invalid handle is the neutral strand: along U, without a shift.
+  TextureHandle strandTexture{};
   TextureTransform baseColorTransform{};
   TextureTransform metallicRoughnessTransform{};
   TextureTransform normalTransform{};
   TextureTransform occlusionTransform{};
   TextureTransform emissiveTransform{};
   TextureTransform transmissionTransform{};
+  TextureTransform strandTransform{};
   AlphaMode alphaMode{AlphaMode::Opaque};
   TextureSampler baseColorSampler{};
   TextureSampler metallicRoughnessSampler{};
@@ -98,6 +110,7 @@ struct MaterialDesc {
   TextureSampler occlusionSampler{};
   TextureSampler emissiveSampler{};
   TextureSampler transmissionSampler{};
+  TextureSampler strandSampler{};
   bool doubleSided{false};
   bool unlit{false}; // KHR_materials_unlit: base colour plus emissive, no lighting
   ShadingModel shading{ShadingModel::Standard};
@@ -105,6 +118,13 @@ struct MaterialDesc {
   // millimetre of d'Eon's skin profile stands for, 0 to MaxSubsurfaceRadius (0.001 is human skin).
   float subsurface{1.0f};
   float subsurfaceRadius{0.001f};
+  // Hair's lobes (ADR-0046), each shifted along the normal by this much plus the strand texture's shift:
+  // the primary's (white) and the secondary's (tinted by the base colour), the secondary's exponent as
+  // a fraction of the primary's (wider below 1), and the secondary's weight. Within the bounds above.
+  float hairShift{-0.08f};
+  float hairSecondaryShift{0.12f};
+  float hairSecondaryWidth{0.5f};
+  float hairSecondaryStrength{0.5f};
 };
 
 // Whether a material's draws can let light through, and so take the transmission path (ADR-0033,
