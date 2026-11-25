@@ -444,7 +444,108 @@ TEST_CASE("the material view picks the Skin model and edits its fields, each edi
     REQUIRE(source().subsurfaceRadius == Catch::Approx(radius));
     REQUIRE(renderer.material(assets.material(*material)).shading == renderer::ShadingModel::Skin);
 
-    // Save writes version 7, and the reopened database reads the same values back.
+    // Save writes the current version, and the reopened database reads the same values back.
+    REQUIRE(assets.saveMaterial(*material).has_value());
+    const assets::MaterialSource saved = source();
+    assets.open(root, roots);
+    REQUIRE(source() == saved);
+  }
+  assets.close();
+  sonnet::test::removeScratch(root);
+}
+
+TEST_CASE("the material view picks the Hair model and edits its lobes, each edit one command",
+          "[editor][inspector][assets]") {
+  platform::Platform platform{{.headless = true}};
+  const auto device = rhi::createNullDevice();
+  renderer::Renderer renderer{*device, platform.basePath() / "shaders"};
+  core::JobSystem jobs{{.workerCount = 2}};
+  assets::AssetDatabase assets{renderer, jobs};
+  const std::filesystem::path root = std::filesystem::temp_directory_path() / "sonnet_editor_hair";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "assets");
+  const std::vector<std::string> roots{"assets"};
+  assets.open(root, roots);
+  const auto material = assets.createMaterial(root / "assets" / "hair.material.json", assets::MaterialSource{});
+  REQUIRE(material.has_value());
+  const auto source = [&] { return *assets.materialSource(*material); };
+
+  world::World world;
+  editor::Selection selection;
+  editor::CommandStack commands;
+  editor::InspectorPanel panel{world, assets, selection, commands};
+  {
+    const InspectorDriver driver{panel, *material};
+    driver.frame();
+    const ImGuiWindow *window = InspectorDriver::inspector();
+
+    // Standard shows no hair fields.
+    REQUIRE_FALSE(driver.hover(window, InspectorDriver::widget("Primary shift")));
+
+    // Picking Hair in the combo is one command, and shows the model's rows.
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Shading")));
+    driver.click();
+    driver.frame(); // the popup opens on the release and measures itself hidden for a frame
+    const ImGuiWindow *popup = nullptr;
+    for (const ImGuiWindow *candidate : ImGui::GetCurrentContext()->Windows) {
+      if (candidate->Active && std::string_view{candidate->Name}.starts_with("##Combo")) {
+        popup = candidate;
+      }
+    }
+    REQUIRE(popup != nullptr);
+    REQUIRE(driver.hover(popup, ImHashStr("Hair", 0, popup->ID)));
+    driver.click();
+    REQUIRE(commands.size() == 1);
+    REQUIRE(source().shading == renderer::ShadingModel::Hair);
+    REQUIRE_FALSE(driver.hover(window, InspectorDriver::widget("Subsurface")));
+
+    // A drag of each lobe field is one command, pushed on release, and leaves it within its bounds.
+    const float primary = source().hairShift;
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Primary shift")));
+    driver.drag(40.0f);
+    REQUIRE(commands.size() == 2);
+    REQUIRE(source().hairShift != Catch::Approx(primary));
+    REQUIRE(source().hairShift >= -renderer::MaxHairShift);
+    REQUIRE(source().hairShift <= renderer::MaxHairShift);
+    const float strength = source().hairSecondaryStrength;
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Secondary strength")));
+    driver.drag(-40.0f);
+    REQUIRE(commands.size() == 3);
+    REQUIRE(source().hairSecondaryStrength != Catch::Approx(strength));
+    REQUIRE(source().hairSecondaryStrength <= renderer::MaxHairSecondaryStrength);
+    REQUIRE(source().hairSecondaryStrength >= 0.0f);
+    const float width = source().hairSecondaryWidth;
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Secondary width")));
+    driver.drag(40.0f);
+    REQUIRE(commands.size() == 4);
+    REQUIRE(source().hairSecondaryWidth != Catch::Approx(width));
+    REQUIRE(source().hairSecondaryWidth >= renderer::MinHairSecondaryWidth);
+    REQUIRE(source().hairSecondaryWidth <= 1.0f);
+    const float secondary = source().hairSecondaryShift;
+    REQUIRE(driver.hover(window, InspectorDriver::widget("Secondary shift")));
+    driver.drag(-40.0f);
+    REQUIRE(commands.size() == 5);
+    REQUIRE(source().hairSecondaryShift != Catch::Approx(secondary));
+    REQUIRE(source().hairSecondaryShift <= renderer::MaxHairShift);
+    REQUIRE(source().hairSecondaryShift >= -renderer::MaxHairShift);
+
+    REQUIRE(commands.undo(world));
+    REQUIRE(commands.undo(world));
+    REQUIRE(commands.undo(world));
+    REQUIRE(commands.undo(world));
+    REQUIRE(source().hairShift == Catch::Approx(primary));
+    REQUIRE(source().hairSecondaryStrength == Catch::Approx(strength));
+    REQUIRE(source().hairSecondaryWidth == Catch::Approx(width));
+    REQUIRE(source().hairSecondaryShift == Catch::Approx(secondary));
+    REQUIRE(commands.undo(world));
+    REQUIRE(source().shading == renderer::ShadingModel::Standard);
+    for (int i = 0; i < 5; ++i) {
+      REQUIRE(commands.redo(world));
+    }
+    REQUIRE(source().shading == renderer::ShadingModel::Hair);
+    REQUIRE(renderer.material(assets.material(*material)).shading == renderer::ShadingModel::Hair);
+
+    // Save writes the current version, and the reopened database reads the same values back.
     REQUIRE(assets.saveMaterial(*material).has_value());
     const assets::MaterialSource saved = source();
     assets.open(root, roots);
