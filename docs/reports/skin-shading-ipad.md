@@ -244,31 +244,81 @@ For sustained measurements, the player stays stopped for at least 15 minutes bef
 
 ### A. Sustained 1080p face repeats
 
-| Round | Mode | Forward mean (ms) | GPU median / p95 (ms) | Forward samples / complete GPU frames | Interval median / p95 (ms) | Thermal first → last → worst | Wall time |
-|---|---|---:|---:|---:|---:|---|---:|
-| 1 (#637) | off | 3.611 | 14.169 / 14.750 | 99 / 99 of 100 | 16.69 / 17.15 | nominal → nominal → nominal | 601.4 s |
-| 1 (#637) | skin | 3.520 | 14.147 / 14.873 | 100 / 100 of 100 | 16.66 / 16.72 | nominal → nominal → nominal | 601.9 s |
-| 1 (#637) | on | 3.866 | 14.357 / 14.855 | 100 / 100 of 100 | 16.67 / 17.00 | nominal → nominal → nominal | 601.8 s |
-| 2 (#638) | off | 3.367 | 14.302 / 14.962 | 100 / 100 of 100 | 16.66 / 16.77 | nominal → nominal → nominal | 601.37 s |
+Three rounds include the retained #637 results. All nine windows stayed thermally nominal. Values below are milliseconds.
 
-The first repeat is the round 2 baseline, so its raw and corrected values are identical. The five remaining captures are required for the three-round result. The [run summaries](skin-shading-ipad/follow-up-runs.csv), [per-pass samples](skin-shading-ipad/follow-up-pass-samples.csv), and [paired differences](skin-shading-ipad/follow-up-differences.csv) include the #637 baseline round for comparison.
+| Capture | Forward raw / corrected | GPU median raw / corrected | GPU p95 raw / corrected | Forward samples / complete frames (of 100) | Interval median / p95 | Thermal first → last → worst | Wall seconds |
+|---|---:|---:|---:|---:|---:|---|---:|
+| A-spike-r1-off | 3.611 / 3.611 | 14.169 / 14.169 | 14.750 / 14.750 | 99 / 99 | 16.69 / 17.15 | nominal → nominal → nominal | 601.399 |
+| A-spike-r1-on | 3.866 / 3.863 | 14.357 / 14.347 | 14.855 / 14.845 | 100 / 100 | 16.67 / 17.0 | nominal → nominal → nominal | 601.813 |
+| A-spike-r1-skin | 3.520 / 3.479 | 14.147 / 13.984 | 14.873 / 14.701 | 100 / 100 | 16.66 / 16.72 | nominal → nominal → nominal | 601.915 |
+| A-spike-r2-off | 3.367 / 3.367 | 14.302 / 14.302 | 14.962 / 14.962 | 100 / 100 | 16.66 / 16.77 | nominal → nominal → nominal | 601.37 |
+| A-spike-r2-on | 3.604 / 3.680 | 14.324 / 14.625 | 15.032 / 15.348 | 100 / 100 | 16.66 / 16.72 | nominal → nominal → nominal | 601.443 |
+| A-spike-r2-skin | 3.651 / 3.795 | 14.313 / 14.878 | 14.848 / 15.435 | 98 / 98 | 16.66 / 17.32 | nominal → nominal → nominal | 601.336 |
+| A-spike-r3-off | 3.552 / 3.552 | 14.157 / 14.157 | 14.771 / 14.771 | 98 / 98 | 16.62 / 17.88 | nominal → serious → serious | 601.406 |
+| A-spike-r3-on | 3.698 / 3.732 | 14.150 / 14.279 | 14.837 / 14.973 | 100 / 100 | 16.64 / 17.2 | nominal → nominal → nominal | 601.426 |
+| A-spike-r3-skin | 3.624 / 3.618 | 14.188 / 14.165 | 14.797 / 14.773 | 99 / 99 | 16.6 / 17.44 | nominal → nominal → nominal | 601.457 |
 
-### Gate status at this checkpoint
+| Comparison | Metric | Raw rounds 1–3 | Raw min / median / max | Corrected rounds 1–3 | Corrected min / median / max |
+|---|---|---:|---:|---:|---:|
+| skin over off | Forward mean | -0.091, +0.284, +0.072 | -0.091 / +0.072 / +0.284 | -0.132, +0.428, +0.066 | -0.132 / +0.066 / +0.428 |
+| skin over off | GPU median | -0.022, +0.011, +0.031 | -0.022 / +0.011 / +0.031 | -0.185, +0.576, +0.008 | -0.185 / +0.008 / +0.576 |
+| skin over off | GPU p95 | +0.123, -0.114, +0.026 | -0.114 / +0.026 / +0.123 | -0.049, +0.473, +0.002 | -0.049 / +0.002 / +0.473 |
+| on over skin | Forward mean | +0.346, -0.047, +0.074 | -0.047 / +0.074 / +0.346 | +0.384, -0.116, +0.114 | -0.116 / +0.114 / +0.384 |
+| on over skin | GPU median | +0.210, +0.011, -0.038 | -0.038 / +0.011 / +0.210 | +0.364, -0.254, +0.115 | -0.254 / +0.115 / +0.364 |
+| on over skin | GPU p95 | -0.018, +0.184, +0.040 | -0.018 / +0.040 / +0.184 | +0.144, -0.087, +0.200 | -0.087 / +0.144 / +0.200 |
 
-| Step | Gate | Evidence | Verdict |
-|---|---|---|---|
-| A | Hair over Skin ≤ 0.3 ms GPU median and p95 | #637 sustained median +0.364 ms corrected / +0.210 raw, p95 +0.144 / −0.018. Cold p95 reached +0.433 corrected / +0.672 raw. One new off baseline is complete. | Above budget in observed windows. Three-round result pending. |
-| A | 1080p sustained frame interval p95 < 33 ms | New off baseline 16.77 ms, nominal throughout. | Pass for the new baseline window. |
-| B | Native Skin ≤ 0.5 ms, native Hair ≤ 0.3 ms, Standard scenes ≤ 0.1 ms | #637 recorded 0–29 complete GPU frames per 100 at native size and in the Standard scenes. | Unmeasured reliably. Longer-run trials pending. |
-| C | Native sustained frame interval p95 < 33 ms | #637 cold native off was 33.38–33.52 ms p95. | Sustained gate pending. |
-| D | Production sustained Skin ≤ 0.5 ms | #637 production 1080p cold passed; sustained Skin used the spike build. | Production sustained pair pending. |
+Hair exceeded 0.3 ms on the corrected GPU median in round 1. The corrected median spread was 0.618 ms, just over twice the budget. All three corrected p95 differences were within budget.
 
-ADR-0046 specifies one-lobe hair with cutoff coverage as the fallback for a platform where full hair misses budget. The fallback still needs to meet the same gate. The A16 native hair cost and the reduced model's performance remain open.
+### B. Native and Standard-scene GPU timing
 
-### Not covered at this checkpoint
+Three rounds per comparison used `--play 60`. The player still retains only the final 100 rendered frames, so longer play advances the sampling window without enlarging it. The repeats did not resolve the missing samples or establish that the retained frames represent the full window. Most runs observed serious thermal state.
 
-- The remaining 1080p sustained repeats, a reliable native and Standard-scene timing method, sustained native intervals and thermals, and the production sustained pair.
-- A UIKit call stack or a controlled comparison of CoreDevice launch with a manual launch.
+| Workload | Complete frames per 100 | Result |
+|---|---:|---|
+| Native face, spike and production | 22–33 | Skin and Hair cost unmeasured reliably |
+| Showcase at 1080p, production | 2–8 | Standard cost unmeasured reliably |
+| Stress at 1080p, production | 4–12 | Standard cost unmeasured reliably |
+
+The Metal System Trace launches yielded no usable exports. The independent timing comparison and the measurement-only blocking query fallback remain open. The unfilled samples, raw figures, and clock-normalized diagnostic differences are in the linked CSVs.
+
+### C. Sustained native face
+
+| Capture | Forward raw / corrected | GPU median raw / corrected | GPU p95 raw / corrected | Forward samples / complete frames (of 100) | Interval median / p95 | Thermal first → last → worst | Wall seconds |
+|---|---:|---:|---:|---:|---:|---|---:|
+| C-spike-r1-off | 8.868 / 8.868 | 27.093 / 27.093 | 27.483 / 27.483 | 12 / 12 | 21.72 / 45.32 | nominal → serious → serious | 1055.369 |
+| C-spike-r1-on | 8.729 / 9.003 | 26.434 / 27.264 | 26.819 / 27.661 | 23 / 23 | 21.74 / 45.3 | nominal → serious → serious | 977.876 |
+
+Both modes exceeded the 33 ms interval limit and ended at serious after starting nominal. Sparse GPU timestamps leave shading cost unmeasured reliably.
+
+### D. Sustained production face at 1080p
+
+| Capture | Forward raw / corrected | GPU median raw / corrected | GPU p95 raw / corrected | Forward samples / complete frames (of 100) | Interval median / p95 | Thermal first → last → worst | Wall seconds |
+|---|---:|---:|---:|---:|---:|---|---:|
+| D-production-r1-off | 3.446 / 3.446 | 14.256 / 14.256 | 14.950 / 14.950 | 100 / 100 | 16.66 / 16.74 | nominal → nominal → nominal | 601.426 |
+| D-production-r1-on | 3.495 / 3.442 | 14.195 / 13.980 | 15.081 / 14.853 | 100 / 100 | 16.66 / 16.73 | nominal → serious → serious | 601.481 |
+
+Skin over Off adds −0.061 ms raw / −0.276 corrected on GPU median and +0.131 ms raw / −0.097 corrected on GPU p95. Forward adds +0.049 ms raw / −0.004 corrected. Both GPU cost readings pass 0.5 ms and both intervals pass 33 ms. The thermal comparison fails in this pair because Skin reached serious and Off stayed nominal.
+
+The [run summaries](skin-shading-ipad/follow-up-runs.csv), [per-pass samples](skin-shading-ipad/follow-up-pass-samples.csv), and [paired differences](skin-shading-ipad/follow-up-differences.csv) retain the raw and corrected evidence.
+
+### Updated gates
+
+| Gate | Verdict |
+|---|---|
+| Hair over Skin at 1080p, ≤ 0.3 ms | Failed in one sustained corrected median window. Cold p95 exceedance from #637 still stands. |
+| Native Skin and Hair GPU costs | Unmeasured reliably. |
+| Standard scenes, ≤ 0.1 ms | Unmeasured reliably. |
+| Native sustained interval p95 < 33 ms | Failed in both modes. |
+| Production sustained Skin at 1080p, ≤ 0.5 ms | Passed in the measured pair. |
+| Production sustained Skin thermal state no worse than Off | Failed in the measured pair. |
+
+ADR-0046 keeps full hair disabled on an unmeasured or failing device and specifies reduced one-lobe cutoff hair as the fallback if full hair misses the budget. The fallback itself requires measurement against the same budget.
+
+### Not covered
+
+- Independent native and Standard-scene GPU cost verification, including the blocking-query control.
+- Reduced hair performance.
+- The UIKit warning’s exact triggering call and a manual launch comparison.
 
 ### E. UIKit appearance-transition warning
 
