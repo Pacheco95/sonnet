@@ -480,6 +480,71 @@ TEST_CASE("a Skin material cooks with its shading fields and resolves in the pla
   REQUIRE(desc.subsurfaceRadius == Approx(0.0025f));
 }
 
+TEST_CASE("a Hair material cooks with its lobes and strand texture and resolves in the player",
+          "[assets][cook][material]") {
+  ProjectFixture fixture;
+  const std::filesystem::path out = fixture.root / "export";
+  REQUIRE(core::writeFile(fixture.root / "assets" / "strands.png",
+                          assets::test::encodePng({2, 2}, assets::test::quadPixels()))
+              .has_value());
+  const renderer::TextureTransform transform{
+      .offset = {0.5f, 0.25f}, .rotation = 0.5f, .scale = {2.0f, 1.0f}, .texCoord = 1};
+  const renderer::TextureSampler sampler{.wrapS = renderer::TextureWrap::ClampToEdge,
+                                         .magFilter = renderer::TextureFilter::Nearest,
+                                         .minFilter = renderer::TextureFilter::Nearest,
+                                         .mipFilter = renderer::TextureMipFilter::Nearest};
+  core::Uuid strandsId;
+  core::Uuid hairId;
+  MaterialSource hair;
+  hair.metallic = 0.0f;
+  hair.shading = renderer::ShadingModel::Hair;
+  hair.hairShift = -0.1f;
+  hair.hairSecondaryShift = 0.2f;
+  hair.hairSecondaryWidth = 0.4f;
+  hair.hairSecondaryStrength = 0.75f;
+  hair.strandTransform = transform;
+  hair.strandSampler = sampler;
+  {
+    AssetDatabase database{fixture.renderer, fixture.jobs};
+    database.open(fixture.root, fixture.project.assetRoots);
+    strandsId = idOf(database, "strands", AssetType::Texture);
+    // The texture is read by the strand slot and nothing else.
+    hair.strandTexture = strandsId;
+    const auto created = database.createMaterial(fixture.root / "assets" / "hair.material.json", hair);
+    REQUIRE(created.has_value());
+    hairId = *created;
+    REQUIRE(database.saveMaterial(hairId).has_value());
+    REQUIRE(cook(database, fixture.project, {.outputDirectory = out, .platform = CookPlatform::Linux}).has_value());
+  }
+  {
+    // The file it was cooked from reads back the same.
+    AssetDatabase reopened{fixture.renderer, fixture.jobs};
+    reopened.open(fixture.root, fixture.project.assetRoots);
+    REQUIRE(*reopened.materialSource(hairId) == hair);
+  }
+
+  AssetDatabase player{fixture.renderer, fixture.jobs};
+  REQUIRE(player.openBundle(out / "game.sbundle").has_value());
+  REQUIRE(player.bundle()->contains(strandsId));
+  const MaterialSource *cooked = player.materialSource(hairId);
+  REQUIRE(cooked != nullptr);
+  REQUIRE(*cooked == hair);
+  const renderer::MaterialHandle handle = player.material(hairId);
+  REQUIRE(fixture.renderer.isValid(handle));
+  player.waitForLoads();
+  const renderer::TextureHandle strands = player.requestTexture(strandsId);
+  REQUIRE(fixture.renderer.isValid(strands));
+  const renderer::MaterialDesc &desc = fixture.renderer.material(handle);
+  REQUIRE(desc.shading == renderer::ShadingModel::Hair);
+  REQUIRE(desc.hairShift == Approx(-0.1f));
+  REQUIRE(desc.hairSecondaryShift == Approx(0.2f));
+  REQUIRE(desc.hairSecondaryWidth == Approx(0.4f));
+  REQUIRE(desc.hairSecondaryStrength == Approx(0.75f));
+  REQUIRE(desc.strandTexture == strands);
+  REQUIRE(desc.strandTransform == transform);
+  REQUIRE(desc.strandSampler == sampler);
+}
+
 TEST_CASE("a font cooks as the file itself, with its preload ranges, into the current bundle version",
           "[assets][cook][font]") {
   ProjectFixture fixture;
@@ -529,8 +594,8 @@ TEST_CASE("a font cooks as the file itself, with its preload ranges, into the cu
   // The header says version 20.
   const auto bytes = core::readFile(out / "game.sbundle");
   REQUIRE(bytes.has_value());
-  REQUIRE(BundleVersion == 22);
-  REQUIRE(std::to_integer<int>((*bytes)[8]) == 22);
+  REQUIRE(BundleVersion == 23);
+  REQUIRE(std::to_integer<int>((*bytes)[8]) == 23);
 }
 
 TEST_CASE("cooking the playground alone keeps prefabs and assets", "[assets][cook]") {

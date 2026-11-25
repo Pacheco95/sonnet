@@ -99,12 +99,14 @@ struct MaterialSource {
   core::Uuid occlusionTexture{};
   core::Uuid emissiveTexture{};
   core::Uuid transmissionTexture{};
+  core::Uuid strandTexture{}; // Hair's strand direction (ADR-0046); a linear texture
   renderer::TextureTransform baseColorTransform{};
   renderer::TextureTransform metallicRoughnessTransform{};
   renderer::TextureTransform normalTransform{};
   renderer::TextureTransform occlusionTransform{};
   renderer::TextureTransform emissiveTransform{};
   renderer::TextureTransform transmissionTransform{};
+  renderer::TextureTransform strandTransform{};
   renderer::AlphaMode alphaMode{renderer::AlphaMode::Opaque};
   renderer::TextureSampler baseColorSampler{};
   renderer::TextureSampler metallicRoughnessSampler{};
@@ -112,11 +114,17 @@ struct MaterialSource {
   renderer::TextureSampler occlusionSampler{};
   renderer::TextureSampler emissiveSampler{};
   renderer::TextureSampler transmissionSampler{};
+  renderer::TextureSampler strandSampler{};
   bool doubleSided{false};
   bool unlit{false};
   renderer::ShadingModel shading{renderer::ShadingModel::Standard}; // ADR-0041; never set by the glTF importer
   float subsurface{1.0f};
   float subsurfaceRadius{0.001f};
+  // Hair's lobes (ADR-0046); the renderer's MaterialDesc documents them and their bounds.
+  float hairShift{-0.08f};
+  float hairSecondaryShift{0.12f};
+  float hairSecondaryWidth{0.5f};
+  float hairSecondaryStrength{0.5f};
 
   bool operator==(const MaterialSource &) const = default;
 };
@@ -124,8 +132,8 @@ struct MaterialSource {
 // The .material.json format, versioned like the scene files (docs/assets.md, "Materials").
 // Version 2 adds the texture transforms, version 3 the UV set each slot reads, version 4 unlit, version 5 per-slot
 // samplers, version 6 transmission and its texture slot (ADR-0033), version 7 the shading model and Skin's
-// subsurface fields (ADR-0041).
-constexpr int MaterialFileVersion = 7;
+// subsurface fields (ADR-0041), version 8 the Hair model, its lobe fields and the strand texture slot (ADR-0046).
+constexpr int MaterialFileVersion = 8;
 [[nodiscard]] nlohmann::json saveMaterial(const MaterialSource &material);
 [[nodiscard]] core::Result<MaterialSource> loadMaterial(const nlohmann::json &document);
 

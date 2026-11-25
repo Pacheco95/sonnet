@@ -474,7 +474,7 @@ TEST_CASE("material files carry the shading model from version 7 and read versio
   source.subsurface = 0.75f;
   source.subsurfaceRadius = 0.002f;
   const nlohmann::json document = saveMaterial(source);
-  REQUIRE(document["version"] == 7);
+  REQUIRE(document["version"] == MaterialFileVersion);
   REQUIRE(document["shading"] == "Skin");
   REQUIRE(document["subsurface"] == 0.75f);
   REQUIRE(document["subsurfaceRadius"] == 0.002f);
@@ -496,6 +496,61 @@ TEST_CASE("material files carry the shading model from version 7 and read versio
   REQUIRE(standard.subsurface == 1.0f);
   REQUIRE(standard.subsurfaceRadius == 0.001f);
   REQUIRE(loadMaterial(nlohmann::json{{"version", 6}, {"metallic", 0.0}})->shading == renderer::ShadingModel::Standard);
+}
+
+TEST_CASE("material files carry Hair, its lobes and the strand slot from version 8 and read version 7 as Standard",
+          "[assets][material]") {
+  MaterialSource source;
+  source.shading = renderer::ShadingModel::Hair;
+  source.hairShift = -0.2f;
+  source.hairSecondaryShift = 0.3f;
+  source.hairSecondaryWidth = 0.25f;
+  source.hairSecondaryStrength = 1.5f;
+  source.strandTexture = core::Uuid::generate();
+  source.strandTransform = {.offset = {0.5f, 0.0f}, .rotation = 0.25f, .scale = {2.0f, 1.0f}, .texCoord = 1};
+  source.strandSampler = {.wrapS = renderer::TextureWrap::ClampToEdge,
+                          .magFilter = renderer::TextureFilter::Nearest,
+                          .minFilter = renderer::TextureFilter::Nearest,
+                          .mipFilter = renderer::TextureMipFilter::None};
+  const nlohmann::json document = saveMaterial(source);
+  REQUIRE(document["version"] == 8);
+  REQUIRE(document["shading"] == "Hair");
+  REQUIRE(document["hairShift"] == -0.2f);
+  REQUIRE(document["hairSecondaryShift"] == 0.3f);
+  REQUIRE(document["hairSecondaryWidth"] == 0.25f);
+  REQUIRE(document["hairSecondaryStrength"] == 1.5f);
+  REQUIRE(document["textures"]["strand"] == source.strandTexture.toString());
+  REQUIRE(document["transforms"].contains("strand"));
+  REQUIRE(document["samplers"].contains("strand"));
+  REQUIRE(loadMaterial(document).value() == source);
+
+  // Out of range, the fields are clamped to ADR-0046's bounds.
+  nlohmann::json wide = document;
+  wide["hairShift"] = -4.0;
+  wide["hairSecondaryShift"] = 4.0;
+  wide["hairSecondaryWidth"] = 0.0;
+  wide["hairSecondaryStrength"] = 9.0;
+  const auto clamped = loadMaterial(wide).value();
+  REQUIRE(clamped.hairShift == -renderer::MaxHairShift);
+  REQUIRE(clamped.hairSecondaryShift == renderer::MaxHairShift);
+  REQUIRE(clamped.hairSecondaryWidth == renderer::MinHairSecondaryWidth);
+  REQUIRE(clamped.hairSecondaryStrength == renderer::MaxHairSecondaryStrength);
+
+  // A version 7 file is Standard with the defaults and no strand slot, whatever it holds under the new
+  // keys: the model, the fields and the slot all arrived in version 8.
+  nlohmann::json older = document;
+  older["version"] = 7;
+  const auto standard = loadMaterial(older).value();
+  REQUIRE(standard.shading == renderer::ShadingModel::Standard);
+  REQUIRE(standard.hairShift == MaterialSource{}.hairShift);
+  REQUIRE(standard.hairSecondaryShift == MaterialSource{}.hairSecondaryShift);
+  REQUIRE(standard.hairSecondaryWidth == MaterialSource{}.hairSecondaryWidth);
+  REQUIRE(standard.hairSecondaryStrength == MaterialSource{}.hairSecondaryStrength);
+  // The slot is read from the textures and transforms objects as any other, which a version 7 file has
+  // never written; only the model is held back.
+  REQUIRE(loadMaterial(nlohmann::json{{"version", 7}, {"shading", "Hair"}})->shading ==
+          renderer::ShadingModel::Standard);
+  REQUIRE(loadMaterial(nlohmann::json{{"version", 7}, {"shading", "Skin"}})->shading == renderer::ShadingModel::Skin);
 }
 
 TEST_CASE("material files round-trip texture transforms and read version 1", "[assets][material]") {
