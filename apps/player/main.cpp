@@ -75,9 +75,9 @@ using namespace sonnet;
   // against 0.5) (docs/reports/s25-ao-contact-shadows.md).
   desc.renderer.contactShadows = false;
   desc.renderer.ambientOcclusion = false;
-  // Off until the production skin pipelines pass ADR-0041's budgets on the S25 (the spike's
-  // per-draw branch did; these pipelines are unmeasured there).
-  desc.renderer.characterShading = false;
+  // On: the production skin pipelines pass ADR-0041's budgets on the S25, the one Android device
+  // measured (docs/reports/skin-shading-s25.md).
+  desc.renderer.characterShading = true;
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
   desc.renderer.farShadowMapSize = 1024;
   desc.renderer.shadowLodCascade = 3;
@@ -88,7 +88,8 @@ using namespace sonnet;
   desc.renderer.contactShadows = false;
   // An iOS device has to be measured on its own before this changes (ADR-0039).
   desc.renderer.ambientOcclusion = false;
-  // Unmeasured on an iOS device (ADR-0041).
+  // Skin passes ADR-0041's budgets at 1080p on the iPad, but its native-size and Standard-scene costs
+  // cannot be verified with MoltenVK's timestamp samples (docs/reports/skin-shading-ipad.md).
   desc.renderer.characterShading = false;
 #endif
   return desc;
