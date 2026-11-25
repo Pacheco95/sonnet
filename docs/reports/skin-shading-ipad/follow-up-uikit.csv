@@ -1,0 +1,81 @@
+capture_set,build,log,warning_count
+637 production,98a1365,production-face1080-r1-off.log,2
+637 production,98a1365,production-face1080-r1-on.log,2
+637 production,98a1365,production-face1080-r2-off.log,2
+637 production,98a1365,production-face1080-r2-on.log,2
+637 production,98a1365,production-face1080-r3-off.log,2
+637 production,98a1365,production-face1080-r3-on.log,2
+637 production,98a1365,production-faceNative-r1-off.log,2
+637 production,98a1365,production-faceNative-r1-on.log,2
+637 production,98a1365,production-faceNative-r2-off.log,2
+637 production,98a1365,production-faceNative-r2-on.log,2
+637 production,98a1365,production-faceNative-r3-off.log,2
+637 production,98a1365,production-faceNative-r3-on.log,2
+637 production,98a1365,production-showcase-r1-off.log,2
+637 production,98a1365,production-showcase-r1-on.log,2
+637 production,98a1365,production-showcase-r2-off.log,2
+637 production,98a1365,production-showcase-r2-on.log,2
+637 production,98a1365,production-showcase-r3-off.log,2
+637 production,98a1365,production-showcase-r3-on.log,2
+637 production,98a1365,production-stress-r1-off.log,2
+637 production,98a1365,production-stress-r1-on.log,2
+637 production,98a1365,production-stress-r2-off.log,2
+637 production,98a1365,production-stress-r2-on.log,2
+637 production,98a1365,production-stress-r3-off.log,2
+637 production,98a1365,production-stress-r3-on.log,2
+637 spike,4c9e4e9,spike-face1080-r1-hair.log,2
+637 spike,4c9e4e9,spike-face1080-r1-off.log,2
+637 spike,4c9e4e9,spike-face1080-r1-on.log,2
+637 spike,4c9e4e9,spike-face1080-r1-skin.log,2
+637 spike,4c9e4e9,spike-face1080-r2-hair.log,2
+637 spike,4c9e4e9,spike-face1080-r2-off.log,2
+637 spike,4c9e4e9,spike-face1080-r2-on.log,2
+637 spike,4c9e4e9,spike-face1080-r2-skin.log,2
+637 spike,4c9e4e9,spike-face1080-r3-hair.log,2
+637 spike,4c9e4e9,spike-face1080-r3-off.log,2
+637 spike,4c9e4e9,spike-face1080-r3-on.log,2
+637 spike,4c9e4e9,spike-face1080-r3-skin.log,2
+637 spike,4c9e4e9,spike-faceNative-r1-hair.log,2
+637 spike,4c9e4e9,spike-faceNative-r1-off.log,2
+637 spike,4c9e4e9,spike-faceNative-r1-on.log,2
+637 spike,4c9e4e9,spike-faceNative-r1-skin.log,2
+637 spike,4c9e4e9,spike-faceNative-r2-hair.log,2
+637 spike,4c9e4e9,spike-faceNative-r2-off.log,2
+637 spike,4c9e4e9,spike-faceNative-r2-on.log,2
+637 spike,4c9e4e9,spike-faceNative-r2-skin.log,2
+637 spike,4c9e4e9,spike-faceNative-r3-hair.log,2
+637 spike,4c9e4e9,spike-faceNative-r3-off.log,2
+637 spike,4c9e4e9,spike-faceNative-r3-on.log,2
+637 spike,4c9e4e9,spike-faceNative-r3-skin.log,2
+637 spike,4c9e4e9,spike-showcase-r1-off.log,2
+637 spike,4c9e4e9,spike-showcase-r1-on.log,2
+637 spike,4c9e4e9,spike-showcase-r2-off.log,2
+637 spike,4c9e4e9,spike-showcase-r2-on.log,2
+637 spike,4c9e4e9,spike-showcase-r3-off.log,2
+637 spike,4c9e4e9,spike-showcase-r3-on.log,2
+637 spike,4c9e4e9,spike-stress-r1-off.log,2
+637 spike,4c9e4e9,spike-stress-r1-on.log,2
+637 spike,4c9e4e9,spike-stress-r2-off.log,2
+637 spike,4c9e4e9,spike-stress-r2-on.log,2
+637 spike,4c9e4e9,spike-stress-r3-off.log,2
+637 spike,4c9e4e9,spike-stress-r3-on.log,2
+637 spike,4c9e4e9,spike-sustained-hair.log,2
+637 spike,4c9e4e9,spike-sustained-off.log,2
+637 spike,4c9e4e9,spike-sustained-on.log,2
+637 spike,4c9e4e9,spike-sustained-skin.log,2
+October transmission original build,18a92b5,cold-commercial_refrigerator_phone-off-1.log,2
+October transmission original build,18a92b5,cold-commercial_refrigerator_phone-off-2.log,2
+October transmission original build,18a92b5,cold-commercial_refrigerator_phone-off-3.log,2
+October transmission original build,18a92b5,cold-commercial_refrigerator_phone-off-4.log,2
+October transmission original build,18a92b5,cold-commercial_refrigerator_phone-on-1.log,2
+October transmission original build,18a92b5,cold-commercial_refrigerator_phone-on-2.log,2
+October transmission original build,18a92b5,cold-commercial_refrigerator_phone-on-3.log,2
+October transmission original build,18a92b5,cold-commercial_refrigerator_phone-on-4.log,2
+October transmission original build,18a92b5,cold-transmission_test_phone-off-1.log,2
+October transmission original build,18a92b5,cold-transmission_test_phone-off-2.log,2
+October transmission original build,18a92b5,cold-transmission_test_phone-off-3.log,2
+October transmission original build,18a92b5,cold-transmission_test_phone-off-4.log,2
+October transmission original build,18a92b5,cold-transmission_test_phone-on-1.log,2
+October transmission original build,18a92b5,cold-transmission_test_phone-on-2.log,2
+October transmission original build,18a92b5,cold-transmission_test_phone-on-3.log,2
+October transmission original build,18a92b5,cold-transmission_test_phone-on-4.log,2
