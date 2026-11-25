@@ -1,0 +1,5 @@
+run,forward_raw_ms,GPU_frame_median_raw_ms,GPU_frame_p95_raw_ms,forward_corrected_ms,GPU_frame_median_corrected_ms,GPU_frame_p95_corrected_ms,normalization_scale,forward_samples,frames,complete_GPU_frames,interval_median_ms,interval_p95_ms,thermal_first,thermal_last,thermal_worst,host_wall_s
+A-spike-r1-off,3.611,14.169,14.75,3.611,14.169,14.75,1.0,99,100,99,16.69,17.15,nominal,nominal,nominal,601.399
+A-spike-r1-on,3.866,14.357,14.855,3.863366228710462,14.34721907542579,14.844879805352798,0.9993187347931873,100,100,100,16.67,17.0,nominal,nominal,nominal,601.813
+A-spike-r1-skin,3.52,14.147,14.873,3.4793376973430883,13.98357681940701,14.701190219484019,0.9884482094724683,100,100,100,16.66,16.72,nominal,nominal,nominal,601.915
+A-spike-r2-off,3.367,14.302,14.962,3.367,14.302,14.962,1.0,100,100,100,16.66,16.77,nominal,nominal,nominal,601.37

@@ -1,0 +1,97 @@
+run,pass,mean_ms,available_samples,frames
+A-spike-r1-off,skinning,0.27,99,100
+A-spike-r1-off,cull,0.164,99,100
+A-spike-r1-off,shadow cascade 0,1.288,99,100
+A-spike-r1-off,shadow cascade 1,0.575,99,100
+A-spike-r1-off,shadow cascade 2,0.482,99,100
+A-spike-r1-off,shadow cascade 3,0.118,99,100
+A-spike-r1-off,depth,0.492,99,100
+A-spike-r1-off,depth pyramid,1.065,99,100
+A-spike-r1-off,occlusion cull,0.056,99,100
+A-spike-r1-off,depth late,0.025,99,100
+A-spike-r1-off,light clustering,0.02,99,100
+A-spike-r1-off,forward,3.611,99,100
+A-spike-r1-off,taa,4.436,99,100
+A-spike-r1-off,bloom down 0,0.334,99,100
+A-spike-r1-off,bloom down 1,0.034,99,100
+A-spike-r1-off,bloom down 2,0.036,99,100
+A-spike-r1-off,bloom down 3,0.031,99,100
+A-spike-r1-off,bloom down 4,0.03,99,100
+A-spike-r1-off,bloom up 3,0.027,99,100
+A-spike-r1-off,bloom up 2,0.022,99,100
+A-spike-r1-off,bloom up 1,0.019,99,100
+A-spike-r1-off,bloom up 0,0.016,99,100
+A-spike-r1-off,tonemap,0.267,99,100
+A-spike-r1-off,present,0.461,99,100
+A-spike-r1-on,skinning,0.244,100,100
+A-spike-r1-on,cull,0.179,100,100
+A-spike-r1-on,shadow cascade 0,1.32,100,100
+A-spike-r1-on,shadow cascade 1,0.54,100,100
+A-spike-r1-on,shadow cascade 2,0.457,100,100
+A-spike-r1-on,shadow cascade 3,0.122,100,100
+A-spike-r1-on,depth,0.495,100,100
+A-spike-r1-on,depth pyramid,1.07,100,100
+A-spike-r1-on,occlusion cull,0.051,100,100
+A-spike-r1-on,depth late,0.023,100,100
+A-spike-r1-on,light clustering,0.02,100,100
+A-spike-r1-on,forward,3.866,100,100
+A-spike-r1-on,taa,4.461,100,100
+A-spike-r1-on,bloom down 0,0.337,100,100
+A-spike-r1-on,bloom down 1,0.034,100,100
+A-spike-r1-on,bloom down 2,0.036,100,100
+A-spike-r1-on,bloom down 3,0.03,100,100
+A-spike-r1-on,bloom down 4,0.028,100,100
+A-spike-r1-on,bloom up 3,0.027,100,100
+A-spike-r1-on,bloom up 2,0.022,100,100
+A-spike-r1-on,bloom up 1,0.02,100,100
+A-spike-r1-on,bloom up 0,0.015,100,100
+A-spike-r1-on,tonemap,0.275,100,100
+A-spike-r1-on,present,0.469,100,100
+A-spike-r1-skin,skinning,0.284,100,100
+A-spike-r1-skin,cull,0.366,100,100
+A-spike-r1-skin,shadow cascade 0,1.041,100,100
+A-spike-r1-skin,shadow cascade 1,0.794,100,100
+A-spike-r1-skin,shadow cascade 2,0.474,100,100
+A-spike-r1-skin,shadow cascade 3,0.118,100,100
+A-spike-r1-skin,depth,0.476,100,100
+A-spike-r1-skin,depth pyramid,1.037,100,100
+A-spike-r1-skin,occlusion cull,0.05,100,100
+A-spike-r1-skin,depth late,0.024,100,100
+A-spike-r1-skin,light clustering,0.023,100,100
+A-spike-r1-skin,forward,3.52,100,100
+A-spike-r1-skin,taa,4.422,100,100
+A-spike-r1-skin,bloom down 0,0.333,100,100
+A-spike-r1-skin,bloom down 1,0.034,100,100
+A-spike-r1-skin,bloom down 2,0.035,100,100
+A-spike-r1-skin,bloom down 3,0.03,100,100
+A-spike-r1-skin,bloom down 4,0.028,100,100
+A-spike-r1-skin,bloom up 3,0.027,100,100
+A-spike-r1-skin,bloom up 2,0.022,100,100
+A-spike-r1-skin,bloom up 1,0.018,100,100
+A-spike-r1-skin,bloom up 0,0.015,100,100
+A-spike-r1-skin,tonemap,0.277,100,100
+A-spike-r1-skin,present,0.46,100,100
+A-spike-r2-off,skinning,0.266,100,100
+A-spike-r2-off,cull,0.814,100,100
+A-spike-r2-off,shadow cascade 0,0.887,100,100
+A-spike-r2-off,shadow cascade 1,0.794,100,100
+A-spike-r2-off,shadow cascade 2,0.479,100,100
+A-spike-r2-off,shadow cascade 3,0.118,100,100
+A-spike-r2-off,depth,0.472,100,100
+A-spike-r2-off,depth pyramid,1.042,100,100
+A-spike-r2-off,occlusion cull,0.053,100,100
+A-spike-r2-off,depth late,0.027,100,100
+A-spike-r2-off,light clustering,0.018,100,100
+A-spike-r2-off,forward,3.367,100,100
+A-spike-r2-off,taa,4.593,100,100
+A-spike-r2-off,bloom down 0,0.337,100,100
+A-spike-r2-off,bloom down 1,0.034,100,100
+A-spike-r2-off,bloom down 2,0.037,100,100
+A-spike-r2-off,bloom down 3,0.031,100,100
+A-spike-r2-off,bloom down 4,0.028,100,100
+A-spike-r2-off,bloom up 3,0.027,100,100
+A-spike-r2-off,bloom up 2,0.023,100,100
+A-spike-r2-off,bloom up 1,0.02,100,100
+A-spike-r2-off,bloom up 0,0.016,100,100
+A-spike-r2-off,tonemap,0.275,100,100
+A-spike-r2-off,present,0.449,100,100

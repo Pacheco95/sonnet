@@ -235,6 +235,41 @@ The sustained forward increment for hair over Skin is +0.384 ms corrected (+0.34
 
 ## Follow-up (#638)
 
+
+### Measurement setup
+
+The owner confirmed the iPad was awake, unlocked, charging by cable, and available for dedicated runs with Auto-Lock off. Both builds used the existing iOS 26.0 deployment target and passed strict signature verification. Xcode's automatic provisioning update completed for both builds and reused the development profile expiring on 2026-12-01 at 20:49 UTC. That profile was valid for the November 25 session.
+
+For sustained measurements, the player stays stopped for at least 15 minutes before each short thermal check. The measurement starts after a nominal check and uses the same clock correction and final 100-frame window as #637. New redacted device logs are retained in `~/sonnet-measurements/ipad-637/`.
+
+### A. Sustained 1080p face repeats
+
+| Round | Mode | Forward mean (ms) | GPU median / p95 (ms) | Forward samples / complete GPU frames | Interval median / p95 (ms) | Thermal first → last → worst | Wall time |
+|---|---|---:|---:|---:|---:|---|---:|
+| 1 (#637) | off | 3.611 | 14.169 / 14.750 | 99 / 99 of 100 | 16.69 / 17.15 | nominal → nominal → nominal | 601.4 s |
+| 1 (#637) | skin | 3.520 | 14.147 / 14.873 | 100 / 100 of 100 | 16.66 / 16.72 | nominal → nominal → nominal | 601.9 s |
+| 1 (#637) | on | 3.866 | 14.357 / 14.855 | 100 / 100 of 100 | 16.67 / 17.00 | nominal → nominal → nominal | 601.8 s |
+| 2 (#638) | off | 3.367 | 14.302 / 14.962 | 100 / 100 of 100 | 16.66 / 16.77 | nominal → nominal → nominal | 601.37 s |
+
+The first repeat is the round 2 baseline, so its raw and corrected values are identical. The five remaining captures are required for the three-round result. The [run summaries](skin-shading-ipad/follow-up-runs.csv), [per-pass samples](skin-shading-ipad/follow-up-pass-samples.csv), and [paired differences](skin-shading-ipad/follow-up-differences.csv) include the #637 baseline round for comparison.
+
+### Gate status at this checkpoint
+
+| Step | Gate | Evidence | Verdict |
+|---|---|---|---|
+| A | Hair over Skin ≤ 0.3 ms GPU median and p95 | #637 sustained median +0.364 ms corrected / +0.210 raw, p95 +0.144 / −0.018. Cold p95 reached +0.433 corrected / +0.672 raw. One new off baseline is complete. | Above budget in observed windows. Three-round result pending. |
+| A | 1080p sustained frame interval p95 < 33 ms | New off baseline 16.77 ms, nominal throughout. | Pass for the new baseline window. |
+| B | Native Skin ≤ 0.5 ms, native Hair ≤ 0.3 ms, Standard scenes ≤ 0.1 ms | #637 recorded 0–29 complete GPU frames per 100 at native size and in the Standard scenes. | Unmeasured reliably. Longer-run trials pending. |
+| C | Native sustained frame interval p95 < 33 ms | #637 cold native off was 33.38–33.52 ms p95. | Sustained gate pending. |
+| D | Production sustained Skin ≤ 0.5 ms | #637 production 1080p cold passed; sustained Skin used the spike build. | Production sustained pair pending. |
+
+ADR-0046 specifies one-lobe hair with cutoff coverage as the fallback for a platform where full hair misses budget. The fallback still needs to meet the same gate. The A16 native hair cost and the reduced model's performance remain open.
+
+### Not covered at this checkpoint
+
+- The remaining 1080p sustained repeats, a reliable native and Standard-scene timing method, sustained native intervals and thermals, and the production sustained pair.
+- A UIKit call stack or a controlled comparison of CoreDevice launch with a manual launch.
+
 ### E. UIKit appearance-transition warning
 
 | Retained capture set | Build | Logs with warning |
