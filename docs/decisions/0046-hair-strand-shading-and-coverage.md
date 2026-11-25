@@ -1,6 +1,6 @@
 # ADR-0046: Hair strand shading and TAA-resolved coverage
 
-- **Status:** Proposed. The spike and the phone measurements are in ([hair-strand-spike](../reports/hair-strand-spike.md), [skin-shading-s25](../reports/skin-shading-s25.md) and [skin-shading-ipad](../reports/skin-shading-ipad.md), for [#591](https://github.com/Pacheco95/sonnet/issues/591) and [#609](https://github.com/Pacheco95/sonnet/issues/609)), and "Settled by the spike" below records what they decided. The owner accepts it; the accepting commit runs `chmod a-w` on this file.
+- **Status:** Accepted. The spike and the phone measurements are in ([hair-strand-spike](../reports/hair-strand-spike.md), [skin-shading-s25](../reports/skin-shading-s25.md) and [skin-shading-ipad](../reports/skin-shading-ipad.md), for [#591](https://github.com/Pacheco95/sonnet/issues/591) and [#609](https://github.com/Pacheco95/sonnet/issues/609)), and "Settled by the spike" below records what they decided.
 - **Amends:** [ADR-0041](0041-skin-shading.md)
 - **Date:** 2026-11-19
 
