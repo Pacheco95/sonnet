@@ -668,8 +668,9 @@ std::optional<ThumbnailRequest> AssetDatabase::thumbnailRequest(const core::Uuid
       return std::nullopt;
     }
     request.store = !m_unsavedMaterials.contains(uuid);
-    for (const core::Uuid &texture : {source->baseColorTexture, source->metallicRoughnessTexture, source->normalTexture,
-                                      source->occlusionTexture, source->emissiveTexture, source->transmissionTexture}) {
+    for (const core::Uuid &texture :
+         {source->baseColorTexture, source->metallicRoughnessTexture, source->normalTexture, source->occlusionTexture,
+          source->emissiveTexture, source->transmissionTexture, source->strandTexture}) {
       const auto file = m_files.find(texture);
       if (!texture.isNil() && file != m_files.end()) {
         request.dependencies.push_back(find(texture)->source);
@@ -773,12 +774,14 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   desc.occlusionTexture = requestTexture(source.occlusionTexture);
   desc.emissiveTexture = requestTexture(source.emissiveTexture);
   desc.transmissionTexture = requestTexture(source.transmissionTexture);
+  desc.strandTexture = requestTexture(source.strandTexture);
   desc.baseColorTransform = source.baseColorTransform;
   desc.metallicRoughnessTransform = source.metallicRoughnessTransform;
   desc.normalTransform = source.normalTransform;
   desc.occlusionTransform = source.occlusionTransform;
   desc.emissiveTransform = source.emissiveTransform;
   desc.transmissionTransform = source.transmissionTransform;
+  desc.strandTransform = source.strandTransform;
   desc.alphaMode = source.alphaMode;
   desc.baseColorSampler = source.baseColorSampler;
   desc.metallicRoughnessSampler = source.metallicRoughnessSampler;
@@ -786,11 +789,16 @@ renderer::MaterialDesc AssetDatabase::resolve(const MaterialSource &source) {
   desc.occlusionSampler = source.occlusionSampler;
   desc.emissiveSampler = source.emissiveSampler;
   desc.transmissionSampler = source.transmissionSampler;
+  desc.strandSampler = source.strandSampler;
   desc.doubleSided = source.doubleSided;
   desc.unlit = source.unlit;
   desc.shading = source.shading;
   desc.subsurface = source.subsurface;
   desc.subsurfaceRadius = source.subsurfaceRadius;
+  desc.hairShift = source.hairShift;
+  desc.hairSecondaryShift = source.hairSecondaryShift;
+  desc.hairSecondaryWidth = source.hairSecondaryWidth;
+  desc.hairSecondaryStrength = source.hairSecondaryStrength;
   return desc;
 }
 
@@ -1965,7 +1973,7 @@ void AssetDatabase::refreshMaterials(const core::Uuid &textureUuid) {
     const MaterialSource &s = loaded.source;
     if (s.baseColorTexture == textureUuid || s.metallicRoughnessTexture == textureUuid ||
         s.normalTexture == textureUuid || s.occlusionTexture == textureUuid || s.emissiveTexture == textureUuid ||
-        s.transmissionTexture == textureUuid) {
+        s.transmissionTexture == textureUuid || s.strandTexture == textureUuid) {
       m_renderer.updateMaterial(loaded.handle, resolve(s));
       m_changedMaterials.insert(uuid);
     }

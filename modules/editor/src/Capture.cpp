@@ -65,7 +65,7 @@ public:
     }
     if (options.characterShading) {
       return std::unexpected(
-          captureError("--character-shading is the player's: the editor always draws the skin shading"));
+          captureError("--character-shading is the player's: the editor always draws the skin and hair shading"));
     }
     if (options.headless) {
       return std::unexpected(

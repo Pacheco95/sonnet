@@ -72,8 +72,9 @@ enum class DebugView : std::uint32_t {
   Cascade,          // the view-depth cascade, red, green, blue, then yellow
   AmbientOcclusion, // the screen-space visibility the indirect light takes, after the camera's strength
   Curvature,        // a Skin draw's row of the skin lookup table, its curvature, in red; black elsewhere (ADR-0041)
+  Strand, // a Hair draw's strand direction in the world, mapped from [-1, 1] to [0, 1]; black elsewhere (ADR-0046)
 };
-constexpr std::uint32_t DebugViewCount = 11;
+constexpr std::uint32_t DebugViewCount = 12;
 // What the editor's View > Shading term menu calls a term: "Final", "Sun direct", "BRDF LUT".
 [[nodiscard]] const char *debugViewName(DebugView view) noexcept;
 
@@ -142,9 +143,10 @@ struct RendererSettings {
   // Permits the sun's screen-space contact shadows a scene asks for (DirectionalLight::contactShadows,
   // ADR-0039); off, no view traces them whatever the scene says. The phone players turn it off.
   bool contactShadows{true};
-  // Draws Skin materials with the skin pipelines (ADR-0041): pre-integrated subsurface scattering in
-  // the forward pass. Off, a Skin material is drawn by the Standard pipelines, so one bundle runs
-  // everywhere. The Android and iOS players turn it off until their devices pass ADR-0041's budgets.
+  // Draws Skin and Hair materials with the character pipelines (ADR-0041, ADR-0046): pre-integrated
+  // subsurface scattering and two-lobe strand shading in the forward pass. Off, such a material is drawn
+  // by the Standard pipelines, so one bundle runs everywhere. The iOS player turns it off until its device
+  // passes the budgets of those ADRs.
   bool characterShading{true};
   // The march's steps per pixel, 1 to 32: 16 is the standard quality and 8 the reduced one.
   std::uint32_t contactShadowSteps{16};
@@ -383,9 +385,9 @@ public:
   [[nodiscard]] const rhi::DeviceInfo &deviceInfo() const noexcept {
     return m_device.info();
   }
-  // Takes effect from the next frame. Turning characterShading on builds the skin pipelines if they are
-  // not built yet (they are left out while it is off); a driver that rejects them is logged and leaves
-  // the setting off, so Skin materials keep drawing as Standard.
+  // Takes effect from the next frame. Turning characterShading on builds the skin and hair pipelines if
+  // they are not built yet (they are left out while it is off); a driver that rejects them is logged and
+  // leaves the setting off, so Skin and Hair materials keep drawing as Standard.
   void setSettings(const RendererSettings &settings);
 
   // The entry-point files the engine pipelines are built from, without the extension.
@@ -472,6 +474,7 @@ private:
     MaterialDesc desc;
     std::uint32_t samplers;            // the first five slots' bindless sampler indices (packSamplers)
     std::uint32_t transmissionSampler; // the sixth's, which does not fit beside them
+    std::uint32_t strandSampler;       // and the seventh's (ADR-0046)
   };
   struct Environment {
     std::string debugName;
@@ -515,7 +518,9 @@ private:
     bool blended;
     bool transmissive; // on the transmission path (ADR-0033), and so in `blended` too
     bool masked;
-    bool skin; // drawn by the skin pipelines: a Skin material, opaque or masked, with characterShading on (ADR-0041)
+    // The model whose pipelines draw it: Skin or Hair for a material of that model, opaque or masked, with
+    // characterShading on (ADR-0041, ADR-0046); Standard otherwise.
+    ShadingModel model;
     float viewDepth;
   };
   // A run of draws in one order list sharing a pipeline, a front face, a mesh and a submesh,
@@ -524,7 +529,7 @@ private:
   struct Batch {
     const Mesh *mesh;
     Submesh submesh;
-    std::uint32_t pipeline;  // 1 for double-sided, plus 2 for skin (pipelineIndex); a pair reads only the first bit
+    std::uint32_t pipeline;  // 1 for double-sided, plus 2 per model (pipelineIndex); a pair reads the first bit
     bool mirrored;           // drawn with a clockwise front face
     bool coarse;             // its draws may use the coarse shadow range; part of the key so a command's range is one
     std::uint32_t firstDraw; // into the order list, and into a job's run of the visible list
@@ -668,18 +673,18 @@ private:
     std::string shader;
     rhi::PipelineDesc desc;
     rhi::PipelineHandle *target;
-    // Built only once characterShading is on (ADR-0041): a player with it off never asks its driver
-    // for them. Until then the target stays empty, and a reload of its module skips it.
-    bool skin{false};
+    // Built only once characterShading is on (ADR-0041, ADR-0046): a player with it off never asks its
+    // driver for them. Until then the target stays empty, and a reload of its module skips it.
+    bool character{false};
   };
 
   void defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc,
-                      bool skin = false);
+                      bool character = false);
   void defineCompute(rhi::PipelineHandle &target, std::string shader, const char *entry, const char *name);
   [[nodiscard]] static rhi::PipelineDesc pipelineDesc(const PipelineSlot &slot, rhi::ShaderHandle shader);
   void createPipelines();
-  // Builds the skin slots not built yet; false, logged, when the driver rejects them.
-  bool createSkinPipelines();
+  // Builds the character slots (skin and hair) not built yet; false, logged, when the driver rejects them.
+  bool createCharacterPipelines();
   void createDefaults();
   std::uint32_t materialSampler(const TextureSampler &desc);
   std::uint32_t packSamplers(const MaterialDesc &desc);
@@ -796,15 +801,15 @@ private:
   RendererSettings m_settings;
   std::vector<PipelineSlot> m_pipelineSlots;
   std::filesystem::path m_shaderDir;
-  // The last hot-reloaded SPIR-V of a module with skin slots not built yet, which they are built from
+  // The last hot-reloaded SPIR-V of a module with character slots not built yet, which they are built from
   // instead of the module on disk, so turning characterShading on keeps the reload.
   std::unordered_map<std::string, std::vector<std::byte>> m_reloadedModules;
-  bool m_skinPipelinesRejected{false}; // not retried until a reload of their module succeeds
+  bool m_characterPipelinesRejected{false}; // not retried until a reload of their module succeeds
 
   std::array<rhi::PipelineHandle, 2> m_depthPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_depthMotionPipelines; // the pre-pass that also writes motion (TAA)
   std::array<rhi::PipelineHandle, 2> m_shadowPipelines;      // both cull nothing; kept as a pair for recordDraws
-  std::array<rhi::PipelineHandle, 4> m_forwardPipelines;     // by doubleSided, then Standard and Skin (ADR-0041)
+  std::array<rhi::PipelineHandle, 6> m_forwardPipelines;     // by doubleSided, then Standard, Skin and Hair
   std::array<rhi::PipelineHandle, 2> m_blendPipelines;       // by doubleSided
   std::array<rhi::PipelineHandle, 2> m_glassMotionPipelines; // the blended draws' motion, tested against the depth
   std::array<rhi::PipelineHandle, 2> m_idPipelines;
@@ -853,6 +858,7 @@ private:
   rhi::SamplerHandle m_shadowSampler;
   TextureHandle m_whiteTexture;
   TextureHandle m_flatNormalTexture;
+  TextureHandle m_flatStrandTexture; // the neutral strand: along U, without a shift (ADR-0046)
   rhi::ImageHandle m_brdfLut;
   bool m_brdfLutPending{true};
   rhi::ImageHandle m_skinLut; // pre-integrated skin diffuse by n.l and curvature (ADR-0041)

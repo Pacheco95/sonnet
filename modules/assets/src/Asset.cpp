@@ -62,13 +62,14 @@ struct TextureSlot {
   renderer::TextureTransform MaterialSource::*transform;
   renderer::TextureSampler MaterialSource::*sampler;
 };
-constexpr std::array<TextureSlot, 6> TextureSlots{{
+constexpr std::array<TextureSlot, 7> TextureSlots{{
     {"baseColor", &MaterialSource::baseColorTransform, &MaterialSource::baseColorSampler},
     {"metallicRoughness", &MaterialSource::metallicRoughnessTransform, &MaterialSource::metallicRoughnessSampler},
     {"normal", &MaterialSource::normalTransform, &MaterialSource::normalSampler},
     {"occlusion", &MaterialSource::occlusionTransform, &MaterialSource::occlusionSampler},
     {"emissive", &MaterialSource::emissiveTransform, &MaterialSource::emissiveSampler},
     {"transmission", &MaterialSource::transmissionTransform, &MaterialSource::transmissionSampler},
+    {"strand", &MaterialSource::strandTransform, &MaterialSource::strandSampler},
 }};
 
 json transformToJson(const renderer::TextureTransform &transform) {
@@ -251,6 +252,7 @@ json saveMaterial(const MaterialSource &material) {
   put("occlusion", material.occlusionTexture);
   put("emissive", material.emissiveTexture);
   put("transmission", material.transmissionTexture);
+  put("strand", material.strandTexture);
   json transforms = json::object();
   for (const TextureSlot &slot : TextureSlots) {
     if (material.*slot.transform != renderer::TextureTransform{}) {
@@ -284,9 +286,15 @@ json saveMaterial(const MaterialSource &material) {
       {"samplers", std::move(samplers)},
       {"doubleSided", material.doubleSided},
       {"unlit", material.unlit},
-      {"shading", material.shading == renderer::ShadingModel::Skin ? "Skin" : "Standard"},
+      {"shading", material.shading == renderer::ShadingModel::Skin   ? "Skin"
+                  : material.shading == renderer::ShadingModel::Hair ? "Hair"
+                                                                     : "Standard"},
       {"subsurface", material.subsurface},
       {"subsurfaceRadius", material.subsurfaceRadius},
+      {"hairShift", material.hairShift},
+      {"hairSecondaryShift", material.hairSecondaryShift},
+      {"hairSecondaryWidth", material.hairSecondaryWidth},
+      {"hairSecondaryStrength", material.hairSecondaryStrength},
       {"textures", std::move(textures)},
       {"transforms", std::move(transforms)},
   };
@@ -319,11 +327,25 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
   material.unlit = document.value("unlit", material.unlit);
   // Version 7 adds the shading model (ADR-0041); an older file is Standard, with the defaults.
   if (version >= 7) {
-    material.shading = document.value("shading", std::string{"Standard"}) == "Skin" ? renderer::ShadingModel::Skin
-                                                                                    : renderer::ShadingModel::Standard;
+    const std::string shading = document.value("shading", std::string{"Standard"});
+    material.shading = shading == "Skin"                   ? renderer::ShadingModel::Skin
+                       : shading == "Hair" && version >= 8 ? renderer::ShadingModel::Hair
+                                                           : renderer::ShadingModel::Standard;
     material.subsurface = std::clamp(document.value("subsurface", material.subsurface), 0.0f, 1.0f);
     material.subsurfaceRadius =
         std::clamp(document.value("subsurfaceRadius", material.subsurfaceRadius), 0.0f, renderer::MaxSubsurfaceRadius);
+  }
+  // Version 8 adds Hair (ADR-0046): its lobe fields, clamped like Skin's, and the strand slot below.
+  if (version >= 8) {
+    const auto shift = [&](const char *key, float fallback) {
+      return std::clamp(document.value(key, fallback), -renderer::MaxHairShift, renderer::MaxHairShift);
+    };
+    material.hairShift = shift("hairShift", material.hairShift);
+    material.hairSecondaryShift = shift("hairSecondaryShift", material.hairSecondaryShift);
+    material.hairSecondaryWidth = std::clamp(document.value("hairSecondaryWidth", material.hairSecondaryWidth),
+                                             renderer::MinHairSecondaryWidth, 1.0f);
+    material.hairSecondaryStrength = std::clamp(document.value("hairSecondaryStrength", material.hairSecondaryStrength),
+                                                0.0f, renderer::MaxHairSecondaryStrength);
   }
   const std::string alphaMode = document.value("alphaMode", std::string{"Opaque"});
   material.alphaMode = alphaMode == "Blend"  ? renderer::AlphaMode::Blend
@@ -363,6 +385,7 @@ core::Result<MaterialSource> loadMaterial(const json &document) {
     material.occlusionTexture = uuidFromJson(textures, "occlusion");
     material.emissiveTexture = uuidFromJson(textures, "emissive");
     material.transmissionTexture = uuidFromJson(textures, "transmission");
+    material.strandTexture = uuidFromJson(textures, "strand");
   }
   if (document.contains("transforms") && document["transforms"].is_object()) {
     const json &transforms = document["transforms"];

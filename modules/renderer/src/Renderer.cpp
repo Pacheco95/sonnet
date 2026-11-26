@@ -24,7 +24,7 @@ namespace sonnet::renderer {
 const char *debugViewName(DebugView view) noexcept {
   static constexpr std::array<const char *, DebugViewCount> Names{
       "Final",        "Albedo",   "Normal",  "Sun direct",        "Shadow factor", "IBL diffuse",
-      "IBL specular", "BRDF LUT", "Cascade", "Ambient occlusion", "Curvature"};
+      "IBL specular", "BRDF LUT", "Cascade", "Ambient occlusion", "Curvature",     "Strand"};
   const auto index = static_cast<std::size_t>(view);
   return index < Names.size() ? Names[index] : "";
 }
@@ -64,6 +64,7 @@ constexpr std::uint32_t SlotNormal = 2;
 constexpr std::uint32_t SlotOcclusion = 3;
 constexpr std::uint32_t SlotEmissive = 4;
 constexpr std::uint32_t SlotTransmission = 5;
+constexpr std::uint32_t SlotStrand = 6;
 
 struct GpuLight {
   glm::vec3 position;
@@ -122,12 +123,19 @@ struct GpuMaterial {
   glm::vec2 occlusionUvOffset;
   glm::vec2 emissiveUvOffset;
   glm::vec2 transmissionUvOffset;
-  // The shading model's row (ADR-0041). Skin: the subsurface weight and the radius in metres per
-  // profile millimetre; the last two words are reserved for a later model.
+  // The shading model's row (ADR-0041, ADR-0046). Skin: the subsurface weight and the radius in metres
+  // per profile millimetre; the last two words are reserved. Hair: the primary and secondary lobes'
+  // shifts, the secondary's width and its strength.
   glm::vec4 shading;
+  // The strand slot (ADR-0046), the seventh: the same transform as the others, in a row of its own.
+  glm::vec4 strandUv;
+  glm::vec2 strandUvOffset;
+  std::uint32_t strandTexture;
+  std::uint32_t strandSampler;
 };
-static_assert(sizeof(GpuMaterial) == 256);
-static_assert(sizeof(GpuMaterial) % 16 == 0 && offsetof(GpuMaterial, shading) % 16 == 0,
+static_assert(sizeof(GpuMaterial) == 288);
+static_assert(sizeof(GpuMaterial) % 16 == 0 && offsetof(GpuMaterial, shading) % 16 == 0 &&
+                  offsetof(GpuMaterial, strandUv) % 16 == 0 && offsetof(GpuMaterial, strandUvOffset) % 16 == 0,
               "every vec4 of a material stays 16-byte aligned for Metal");
 
 struct FrameConstants {
@@ -510,21 +518,27 @@ std::uint32_t uvSetBit(const TextureTransform &transform, std::uint32_t slot) {
   return transform.texCoord == 1 ? 1u << slot : 0u;
 }
 
-// Whether a draw takes the skin pipelines (ADR-0041): a lit Skin material with some scattering, opaque
-// or masked, while the setting allows it. A blended or transmissive one shades as Standard, and so
-// does a weight of 0, which the Skin shader would only reproduce at a higher cost.
-bool shadesAsSkin(const MaterialDesc &desc, const RendererSettings &settings) {
-  return settings.characterShading && desc.shading == ShadingModel::Skin && desc.subsurface > 0.0f && !desc.unlit &&
-         desc.alphaMode != AlphaMode::Blend && !mayTransmit(desc);
+// The model a draw is shaded by (ADR-0041, ADR-0046): the material's own while the setting allows it and
+// the material is lit, opaque or masked, and, for Skin, has some scattering. A blended or transmissive
+// one shades as Standard, and so does a Skin weight of 0, which the Skin shader would only reproduce at a
+// higher cost.
+ShadingModel shadingOf(const MaterialDesc &desc, const RendererSettings &settings) {
+  if (!settings.characterShading || desc.unlit || desc.alphaMode == AlphaMode::Blend || mayTransmit(desc)) {
+    return ShadingModel::Standard;
+  }
+  if (desc.shading == ShadingModel::Skin && desc.subsurface <= 0.0f) {
+    return ShadingModel::Standard;
+  }
+  return desc.shading;
 }
 
-// A draw's index into a set of pipelines: 1 for double-sided, plus 2 for the skin pipelines.
+// A draw's index into a set of pipelines: 1 for double-sided, plus 2 per shading model.
 template <class Draw> std::uint32_t pipelineIndex(const Draw &draw) {
-  return (draw.doubleSided ? 1u : 0u) | (draw.skin ? 2u : 0u);
+  return (draw.doubleSided ? 1u : 0u) | (static_cast<std::uint32_t>(draw.model) << 1u);
 }
 
-// The pipeline of an index in a set: the forward pass's four take it whole, a pair by double-sidedness
-// alone, since the skin's depth, shadow and id passes are the Standard ones.
+// The pipeline of an index in a set: the forward pass's six take it whole, a pair by double-sidedness
+// alone, since the character models' depth, shadow and id passes are the Standard ones.
 rhi::PipelineHandle pipelineOf(std::span<const rhi::PipelineHandle> pipelines, std::uint32_t index) {
   return pipelines[index % pipelines.size()];
 }
@@ -569,9 +583,9 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depth = {.test = true, .write = true},
                     .cullMode = rhi::CullMode::None,
                     .debugName = "shadow"});
-    // Equal against the pre-pass's depth: exactly the visible surface is shaded once. Skin's are
-    // the same pass through the shader's second entry point (ADR-0041), never a per-draw branch,
-    // and are built only while characterShading is on.
+    // Equal against the pre-pass's depth: exactly the visible surface is shaded once. Skin's and Hair's
+    // are the same pass through the shader's second and third entry points (ADR-0041, ADR-0046), never
+    // a per-draw branch, and are built only while characterShading is on.
     defineGraphics(m_forwardPipelines[i], "forward",
                    {.colorFormats = {HdrFormat},
                     .depthFormat = DepthFormat,
@@ -585,6 +599,14 @@ Renderer::Renderer(rhi::IDevice &device, const std::filesystem::path &shaderDir,
                     .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
                     .cullMode = cullModes[i],
                     .debugName = std::format("forward skin{}", side)},
+                   true);
+    defineGraphics(m_forwardPipelines[4 + i], "forward",
+                   {.fragmentEntry = "hairFragmentMain",
+                    .colorFormats = {HdrFormat},
+                    .depthFormat = DepthFormat,
+                    .depth = {.test = true, .write = false, .compare = rhi::CompareOp::Equal},
+                    .cullMode = cullModes[i],
+                    .debugName = std::format("forward hair{}", side)},
                    true);
     // The glass's motion for the experiment of #352: the pre-pass's shader on the blended draws, kept where
     // they are in front of the opaque depth; the draws arrive back to front, so the nearest layer is last.
@@ -764,6 +786,7 @@ Renderer::~Renderer() {
     SONNET_LOG_WARN("leaked environment \"{}\" ({}:{})", environment.debugName, handle.index, handle.generation);
     destroyEnvironment(handle);
   });
+  destroyTexture(m_flatStrandTexture);
   destroyTexture(m_flatNormalTexture);
   destroyTexture(m_whiteTexture);
   m_textures.forEach([this](TextureHandle handle, Texture &texture) {
@@ -845,7 +868,7 @@ Renderer::~Renderer() {
     m_device.destroyPipeline(pair[0]);
   }
   for (const rhi::PipelineHandle pipeline : m_forwardPipelines) {
-    // The skin pair is there only once characterShading has been on.
+    // The skin and hair pairs are there only once characterShading has been on.
     if (pipeline) {
       m_device.destroyPipeline(pipeline);
     }
@@ -872,8 +895,8 @@ std::span<const std::string_view> Renderer::shaderNames() noexcept {
 }
 
 void Renderer::defineGraphics(rhi::PipelineHandle &target, std::string shader, rhi::GraphicsPipelineDesc desc,
-                              bool skin) {
-  m_pipelineSlots.push_back(PipelineSlot{std::move(shader), std::move(desc), &target, skin});
+                              bool character) {
+  m_pipelineSlots.push_back(PipelineSlot{std::move(shader), std::move(desc), &target, character});
 }
 
 void Renderer::defineCompute(rhi::PipelineHandle &target, std::string shader, const char *entry, const char *name) {
@@ -912,8 +935,8 @@ void Renderer::createPipelines() {
       SONNET_LOG_DEBUG("shader module {}: {} bytes", name, spirv->size());
       shaders.push_back(m_device.createShader({.spirv = *spirv, .debugName = std::string{name}}));
       for (const PipelineSlot &slot : m_pipelineSlots) {
-        // The skin slots wait for characterShading (#610): setSettings builds them when it turns on.
-        if (slot.shader == name && (!slot.skin || m_settings.characterShading)) {
+        // The character slots wait for characterShading (#610): setSettings builds them when it turns on.
+        if (slot.shader == name && (!slot.character || m_settings.characterShading)) {
           SONNET_LOG_DEBUG(
               "pipeline \"{}\" from {}",
               std::visit([](const auto &desc) -> const std::string & { return desc.debugName; }, slot.desc), name);
@@ -933,12 +956,12 @@ void Renderer::createPipelines() {
   destroyShaders();
 }
 
-bool Renderer::createSkinPipelines() {
-  const auto unbuilt = [](const PipelineSlot &slot) { return slot.skin && !*slot.target; };
+bool Renderer::createCharacterPipelines() {
+  const auto unbuilt = [](const PipelineSlot &slot) { return slot.character && !*slot.target; };
   if (std::ranges::none_of(m_pipelineSlots, unbuilt)) {
     return true;
   }
-  if (m_skinPipelinesRejected) {
+  if (m_characterPipelinesRejected) {
     return false;
   }
   for (const std::string_view name : shaderNames()) {
@@ -982,20 +1005,20 @@ bool Renderer::createSkinPipelines() {
       if (shader) {
         m_device.destroyShader(shader);
       }
-      m_skinPipelinesRejected = true;
-      SONNET_LOG_ERROR("the skin pipelines were not built, character shading stays off: {}", exception.what());
+      m_characterPipelinesRejected = true;
+      SONNET_LOG_ERROR("the character pipelines were not built, character shading stays off: {}", exception.what());
       return false;
     }
     m_device.destroyShader(shader);
     m_reloadedModules.erase(std::string{name});
-    SONNET_LOG_INFO("built the skin pipelines from {}: {} pipelines", name, slots.size());
+    SONNET_LOG_INFO("built the character pipelines from {}: {} pipelines", name, slots.size());
   }
   return true;
 }
 
 void Renderer::setSettings(const RendererSettings &settings) {
   m_settings = settings;
-  if (m_settings.characterShading && !createSkinPipelines()) {
+  if (m_settings.characterShading && !createCharacterPipelines()) {
     m_settings.characterShading = false;
   }
 }
@@ -1015,8 +1038,8 @@ core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const
     std::vector<rhi::PipelineDesc> descs;
     for (PipelineSlot &slot : m_pipelineSlots) {
       if (slot.shader == name) {
-        // A skin slot not built yet stays so; the module is kept below for when it is.
-        if (slot.skin && !*slot.target) {
+        // A character slot not built yet stays so; the module is kept below for when it is.
+        if (slot.character && !*slot.target) {
           deferred = true;
           continue;
         }
@@ -1039,8 +1062,8 @@ core::Result<void> Renderer::reloadShader(std::string_view name, std::span<const
   }
   if (deferred) {
     m_reloadedModules.insert_or_assign(std::string{name}, std::vector<std::byte>(spirv.begin(), spirv.end()));
-    // The skin pipelines the driver rejected may build from this module: the next turn on retries.
-    m_skinPipelinesRejected = false;
+    // The character pipelines the driver rejected may build from this module: the next turn on retries.
+    m_characterPipelinesRejected = false;
   }
   SONNET_LOG_INFO("reloaded shader {}: {} pipelines rebuilt", name, rebuilt.size());
   return {};
@@ -1058,6 +1081,8 @@ void Renderer::createDefaults() {
                                             .debugName = "shadow"});
   m_whiteTexture = createTexture(solidTexture({255, 255, 255, 255}), "white");
   m_flatNormalTexture = createTexture(solidTexture({128, 128, 255, 255}), "flat normal");
+  // Doubled angle 0 in red and green and no shift in blue: a strand along U (ADR-0046).
+  m_flatStrandTexture = createTexture(solidTexture({255, 128, 128, 255}), "flat strand");
   m_brdfLut = m_device.createImage({.size = {m_settings.brdfLutSize, m_settings.brdfLutSize},
                                     .format = HdrFormat,
                                     .usage = rhi::ImageUsage::Sampled | rhi::ImageUsage::Storage,
@@ -1325,7 +1350,8 @@ std::uint32_t Renderer::packSamplers(const MaterialDesc &desc) {
 MaterialHandle Renderer::createMaterial(const MaterialDesc &desc, std::string debugName) {
   const auto samplers = packSamplers(desc);
   const MaterialHandle handle =
-      m_materials.emplace(Material{std::move(debugName), desc, samplers, materialSampler(desc.transmissionSampler)});
+      m_materials.emplace(Material{std::move(debugName), desc, samplers, materialSampler(desc.transmissionSampler),
+                                   materialSampler(desc.strandSampler)});
   m_materialSlots = std::max(m_materialSlots, handle.index + 1);
   return handle;
 }
@@ -1338,6 +1364,7 @@ void Renderer::updateMaterial(MaterialHandle handle, const MaterialDesc &desc) {
   }
   material->samplers = packSamplers(desc);
   material->transmissionSampler = materialSampler(desc.transmissionSampler);
+  material->strandSampler = materialSampler(desc.strandSampler);
   material->desc = desc;
 }
 
@@ -1880,7 +1907,7 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
                                       .blended = desc.alphaMode == AlphaMode::Blend || mayTransmit(desc),
                                       .transmissive = mayTransmit(desc),
                                       .masked = desc.alphaMode == AlphaMode::Mask,
-                                      .skin = shadesAsSkin(desc, m_settings),
+                                      .model = shadingOf(desc, m_settings),
                                       .viewDepth = -viewPosition.z});
   }
   for (std::uint32_t i = 0; i < v.resolved.size(); ++i) {
@@ -1896,8 +1923,8 @@ Renderer::ViewState &Renderer::prepareFrame(RenderGraph &graph, const SceneView 
     if (da.doubleSided != db.doubleSided) {
       return !da.doubleSided;
     }
-    if (da.skin != db.skin) {
-      return !da.skin;
+    if (da.model != db.model) {
+      return da.model < db.model;
     }
     if (da.mirrored != db.mirrored) {
       return !da.mirrored;
@@ -3143,51 +3170,62 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
 
   // Materials: slot 0 the default, then every live material by pool index.
   auto *gpuMaterials = reinterpret_cast<GpuMaterial *>(materials.data.data());
-  const auto encode = [this](const MaterialDesc &desc, std::uint32_t samplers, std::uint32_t transmissionSampler) {
+  const auto encode = [this](const MaterialDesc &desc, std::uint32_t samplers, std::uint32_t transmissionSampler,
+                             std::uint32_t strandSampler) {
     const std::uint32_t mode = desc.alphaMode == AlphaMode::Blend  ? AlphaBlend
                                : desc.alphaMode == AlphaMode::Mask ? AlphaMask
                                                                    : AlphaOpaque;
     const Texture *normal = m_textures.find(desc.normalTexture);
-    return GpuMaterial{.baseColor = desc.baseColor,
-                       .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
-                       .metallic = desc.metallic,
-                       .roughness = desc.roughness,
-                       .normalScale = desc.normalScale,
-                       .occlusionStrength = desc.occlusionStrength,
-                       .baseColorTexture = textureIndex(desc.baseColorTexture),
-                       .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
-                       .normalTexture = normal != nullptr ? m_device.sampledImageIndex(normal->image)
-                                                          : textureIndex(m_flatNormalTexture),
-                       .occlusionTexture = textureIndex(desc.occlusionTexture),
-                       .emissiveTexture = textureIndex(desc.emissiveTexture),
-                       .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) |
-                                (desc.unlit ? MaterialUnlit : 0u) | (mayTransmit(desc) ? MaterialTransmissive : 0u) |
-                                (static_cast<std::uint32_t>(desc.shading) << MaterialShadingShift),
-                       .sampler = samplers,
-                       .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
-                                 uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
-                                 uvSetBit(desc.normalTransform, SlotNormal) |
-                                 uvSetBit(desc.occlusionTransform, SlotOcclusion) |
-                                 uvSetBit(desc.emissiveTransform, SlotEmissive) |
-                                 uvSetBit(desc.transmissionTransform, SlotTransmission),
-                       .transmission = desc.transmission,
-                       .transmissionTexture = textureIndex(desc.transmissionTexture),
-                       .transmissionSampler = transmissionSampler,
-                       .reserved = 0,
-                       .baseColorUv = uvMatrix(desc.baseColorTransform),
-                       .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
-                       .normalUv = uvMatrix(desc.normalTransform),
-                       .occlusionUv = uvMatrix(desc.occlusionTransform),
-                       .emissiveUv = uvMatrix(desc.emissiveTransform),
-                       .transmissionUv = uvMatrix(desc.transmissionTransform),
-                       .baseColorUvOffset = desc.baseColorTransform.offset,
-                       .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
-                       .normalUvOffset = desc.normalTransform.offset,
-                       .occlusionUvOffset = desc.occlusionTransform.offset,
-                       .emissiveUvOffset = desc.emissiveTransform.offset,
-                       .transmissionUvOffset = desc.transmissionTransform.offset,
-                       .shading = glm::vec4{std::clamp(desc.subsurface, 0.0f, 1.0f),
-                                            std::clamp(desc.subsurfaceRadius, 0.0f, MaxSubsurfaceRadius), 0.0f, 0.0f}};
+    return GpuMaterial{
+        .baseColor = desc.baseColor,
+        .emissive = glm::vec4{desc.emissive, desc.alphaCutoff},
+        .metallic = desc.metallic,
+        .roughness = desc.roughness,
+        .normalScale = desc.normalScale,
+        .occlusionStrength = desc.occlusionStrength,
+        .baseColorTexture = textureIndex(desc.baseColorTexture),
+        .metallicRoughnessTexture = textureIndex(desc.metallicRoughnessTexture),
+        .normalTexture =
+            normal != nullptr ? m_device.sampledImageIndex(normal->image) : textureIndex(m_flatNormalTexture),
+        .occlusionTexture = textureIndex(desc.occlusionTexture),
+        .emissiveTexture = textureIndex(desc.emissiveTexture),
+        .flags = mode | (desc.doubleSided ? MaterialDoubleSided : 0u) | (desc.unlit ? MaterialUnlit : 0u) |
+                 (mayTransmit(desc) ? MaterialTransmissive : 0u) |
+                 (static_cast<std::uint32_t>(desc.shading) << MaterialShadingShift),
+        .sampler = samplers,
+        .uvSets = uvSetBit(desc.baseColorTransform, SlotBaseColor) |
+                  uvSetBit(desc.metallicRoughnessTransform, SlotMetallicRoughness) |
+                  uvSetBit(desc.normalTransform, SlotNormal) | uvSetBit(desc.occlusionTransform, SlotOcclusion) |
+                  uvSetBit(desc.emissiveTransform, SlotEmissive) |
+                  uvSetBit(desc.transmissionTransform, SlotTransmission) | uvSetBit(desc.strandTransform, SlotStrand),
+        .transmission = desc.transmission,
+        .transmissionTexture = textureIndex(desc.transmissionTexture),
+        .transmissionSampler = transmissionSampler,
+        .reserved = 0,
+        .baseColorUv = uvMatrix(desc.baseColorTransform),
+        .metallicRoughnessUv = uvMatrix(desc.metallicRoughnessTransform),
+        .normalUv = uvMatrix(desc.normalTransform),
+        .occlusionUv = uvMatrix(desc.occlusionTransform),
+        .emissiveUv = uvMatrix(desc.emissiveTransform),
+        .transmissionUv = uvMatrix(desc.transmissionTransform),
+        .baseColorUvOffset = desc.baseColorTransform.offset,
+        .metallicRoughnessUvOffset = desc.metallicRoughnessTransform.offset,
+        .normalUvOffset = desc.normalTransform.offset,
+        .occlusionUvOffset = desc.occlusionTransform.offset,
+        .emissiveUvOffset = desc.emissiveTransform.offset,
+        .transmissionUvOffset = desc.transmissionTransform.offset,
+        .shading = desc.shading == ShadingModel::Hair
+                       ? glm::vec4{std::clamp(desc.hairShift, -MaxHairShift, MaxHairShift),
+                                   std::clamp(desc.hairSecondaryShift, -MaxHairShift, MaxHairShift),
+                                   std::clamp(desc.hairSecondaryWidth, MinHairSecondaryWidth, 1.0f),
+                                   std::clamp(desc.hairSecondaryStrength, 0.0f, MaxHairSecondaryStrength)}
+                       : glm::vec4{std::clamp(desc.subsurface, 0.0f, 1.0f),
+                                   std::clamp(desc.subsurfaceRadius, 0.0f, MaxSubsurfaceRadius), 0.0f, 0.0f},
+        .strandUv = uvMatrix(desc.strandTransform),
+        .strandUvOffset = desc.strandTransform.offset,
+        .strandTexture = m_textures.contains(desc.strandTexture) ? textureIndex(desc.strandTexture)
+                                                                 : textureIndex(m_flatStrandTexture),
+        .strandSampler = strandSampler};
   };
   MaterialDesc defaultMaterial;
   defaultMaterial.metallic = 0.0f;
@@ -3196,7 +3234,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
   const auto defaultSamplers =
       defaultIndex | (defaultIndex << 6u) | (defaultIndex << 12u) | (defaultIndex << 18u) | (defaultIndex << 24u);
   for (std::uint32_t i = 0; i < materialCount; ++i) {
-    gpuMaterials[i] = encode(defaultMaterial, defaultSamplers, defaultIndex);
+    gpuMaterials[i] = encode(defaultMaterial, defaultSamplers, defaultIndex, defaultIndex);
   }
   // The array was sized from the slots at the top of this function. A material created since (a
   // resource created in the middle of the frame, which is an ordering bug) is left out until the
@@ -3208,7 +3246,7 @@ void Renderer::ensureFrameUploaded(ViewState &v, const PassResources &resources)
       skippedSlot = skippedSlot == 0 ? slot : std::min(skippedSlot, slot);
       return;
     }
-    gpuMaterials[slot] = encode(material.desc, material.samplers, material.transmissionSampler);
+    gpuMaterials[slot] = encode(material.desc, material.samplers, material.transmissionSampler, material.strandSampler);
   });
   if (skippedSlot != 0) {
     SONNET_LOG_ERROR("material slot {} was created after the frame sized its {} material slots; it is drawn "

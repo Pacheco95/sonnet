@@ -79,7 +79,7 @@ bool containsIgnoringCase(std::string_view text, std::string_view needle) {
 }
 
 constexpr std::array<const char *, 3> AlphaModeNames{"Opaque", "Mask", "Blend"};
-constexpr std::array<const char *, 2> ShadingModelNames{"Standard", "Skin"};
+constexpr std::array<const char *, 3> ShadingModelNames{"Standard", "Skin", "Hair"};
 // Skin's radius is shown in millimetres of surface per millimetre of the skin profile.
 constexpr float MillimetresPerMetre = 1000.0f;
 constexpr std::array<const char *, 3> WrapNames{"Repeat", "ClampToEdge", "MirroredRepeat"};
@@ -465,7 +465,7 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   if (ImGui::Checkbox("Unlit", &edited.unlit)) {
     picked = true;
   }
-  // ADR-0041: the model, and Skin's two fields while it is Skin.
+  // ADR-0041, ADR-0046: the model, and Skin's two fields or Hair's four while it is that model.
   picked = drawEnumCombo("Shading", edited.shading, ShadingModelNames) || picked;
   if (edited.shading == renderer::ShadingModel::Skin) {
     ImGui::SliderFloat("Subsurface", &edited.subsurface, 0.0f, 1.0f);
@@ -475,6 +475,15 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
                            "%.2f mm")) {
       edited.subsurfaceRadius = radius / MillimetresPerMetre;
     }
+    track();
+  } else if (edited.shading == renderer::ShadingModel::Hair) {
+    ImGui::SliderFloat("Primary shift", &edited.hairShift, -renderer::MaxHairShift, renderer::MaxHairShift);
+    track();
+    ImGui::SliderFloat("Secondary shift", &edited.hairSecondaryShift, -renderer::MaxHairShift, renderer::MaxHairShift);
+    track();
+    ImGui::SliderFloat("Secondary width", &edited.hairSecondaryWidth, renderer::MinHairSecondaryWidth, 1.0f);
+    track();
+    ImGui::SliderFloat("Secondary strength", &edited.hairSecondaryStrength, 0.0f, renderer::MaxHairSecondaryStrength);
     track();
   }
   const auto texture = [&](const char *label, core::Uuid &value, renderer::TextureTransform &transform,
@@ -531,6 +540,9 @@ void InspectorPanel::drawMaterial(const assets::AssetInfo &info) {
   texture("Occlusion map", edited.occlusionTexture, edited.occlusionTransform, edited.occlusionSampler);
   texture("Emissive map", edited.emissiveTexture, edited.emissiveTransform, edited.emissiveSampler);
   texture("Transmission map", edited.transmissionTexture, edited.transmissionTransform, edited.transmissionSampler);
+  if (edited.shading == renderer::ShadingModel::Hair) {
+    texture("Strand map", edited.strandTexture, edited.strandTransform, edited.strandSampler);
+  }
 
   if (edited != *current) {
     m_assets.setMaterialSource(info.uuid, edited);
