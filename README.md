@@ -219,7 +219,7 @@ ctest --preset linux-debug
 | [0043](docs/decisions/0043-rotating-supports.md) | Characters ride supports that turn about +Y, and scripts read the support's spin | Accepted |
 | [0044](docs/decisions/0044-apply-added-children-to-prefabs.md) | Apply an instance's added children to its prefab | Accepted |
 | [0045](docs/decisions/0045-positional-slot-material-overrides.md) | An instance overrides material slots one by one | Accepted |
-| [0046](docs/decisions/0046-hair-strand-shading-and-coverage.md) | Hair strand shading and TAA-resolved coverage | Proposed |
+| [0046](docs/decisions/0046-hair-strand-shading-and-coverage.md) | Hair strand shading and TAA-resolved coverage | Accepted |
 | [0047](docs/decisions/0047-entity-references-across-prefab-instances.md) | Entity references across prefab instances | Accepted |
 
 ## License
